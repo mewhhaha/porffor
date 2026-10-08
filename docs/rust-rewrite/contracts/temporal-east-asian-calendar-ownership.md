@@ -18,9 +18,10 @@ and provider formatting aliases cannot become Temporal fields.
 
 ## One checked catalog and actual image consumer
 
-The private data leaf owns `TemporalEastAsianCalendar`, the immutable row layout
-and a `OnceLock<Result<Catalog, CatalogError>>`. Only `Catalog::build` constructs
-its two named calendar catalogs through the pinned public Date API. It walks
+The private data leaf owns `TemporalEastAsianCalendar` and the immutable row
+layout. Its `construction` child runs during the compiler build. Only
+`Catalog::build` constructs its two named calendar catalogs through the pinned
+public Date API. It walks
 all8357 retained related years per kind, from−3653 through4703, and complete
 preceding/following model years. It validates year/day identity,12/13 counts,
 29/30 lengths, regular/leap code order, the New Year offset18..52, July1
@@ -32,11 +33,16 @@ The constructor uses `cyclic_year().related_iso`, `month().standard_code`, and
 actual Rata Die dates. The retained day joins are RD−1334565 and1717776. A
 single capture-free unwind boundary converts a pinned-provider assertion
 failure into an explicit catalog error; native errors never select another
-model. The complete result, including a failure, is cached. There is no host
-calendar service or runtime provider call.
+model. Any error fails the compiler build before it can publish the image.
+Cargo tracks the constructor, shared format, pinned provider sources and lock
+file. The fixed-size embedded image contains both calendar headers and all
+retained rows. Fresh workers copy the original row bytes without repeating
+the complete provider walk. There is no host calendar service or runtime
+provider call. A parity control rebuilds the complete checked catalog and
+compares every embedded byte, header, pool offset and alignment.
 
 The existing `uses_temporal_calendar` emission predicate reaches
-`StringPool::collect`. It gates checked-image construction and appends the
+`StringPool::collect`. It gates checked-image consumption and appends the
 calendar rows after all existing pooled bytes. Its carrier-name arms also
 conservatively cover five typed Duration methods: compare, add, subtract, round
 and total. Compare, round and total can reach calendar operations in the first

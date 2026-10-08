@@ -2,19 +2,19 @@
   "conditional_projection": "valid UTF16 pairs decode normally; isolated surrogates become U+FFFD only for ICU template selection; output uses indexed original strings",
   "files": [
     {
-      "bytes": 80996,
+      "bytes": 79551,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
     },
     {
-      "bytes": 80091,
+      "bytes": 80030,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
     },
     {
-      "bytes": 33617,
+      "bytes": 33803,
       "path": "crates/lila-engine/src/intl_data_images.rs",
-      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      "sha256": "738c0ad3114f56f71e7f777c428ac2fd2ac9b8145cbca0bb1427d58703ca8a3d"
     },
     {
       "bytes": 3217,
@@ -122,9 +122,9 @@
       "sha256": "966663c3eed543e2afca47f9e0b878270de956aca816985e71a9d224be2eed51"
     },
     {
-      "bytes": 10218,
+      "bytes": 9648,
       "path": "crates/lila-intl/src/number_protocol/primitives.rs",
-      "sha256": "460e3525e74891438c1351798610a6be57fca65278ab7709767f53890a798e95"
+      "sha256": "881f38eee053a4485e7e60d7be74143b3854b4ecfa007a84401ba4e38c044845"
     },
     {
       "bytes": 2393,
@@ -328,7 +328,7 @@
       }
     ]
   },
-  "provider_data_sha256": "93814be2b99bd01434a3b3c7e737e539704a218325106e2bc57d35c16382d608",
+  "provider_data_sha256": "2ee47350f9d1e78b4610e8d031726cc639a17c206bba3adeb8689a40ad55e181",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

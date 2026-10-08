@@ -3,13 +3,41 @@
 //! A heap-using program is a small program module `P` that imports every
 //! export it needs from the program-independent runtime module `R`, under
 //! [`RUNTIME_IMPORT_NAMESPACE`]. `R` is identical for every program with the
-//! same Intl profile, so it is compiled once per process and native mode and
-//! served from Wasmtime's module cache across processes. `R` and `P` must be
+//! same Intl profile. Raw R uses the bounded program-Wasm disk cache; native R
+//! uses the same bounded memory cache as P and Wasmtime's module disk cache.
+//! `R` and `P` must be
 //! compiled by the same `wasmtime::Engine`, so `R` is always requested for the
 //! native compilation mode that was chosen for the execution.
 
 use super::*;
-use lila_aot_wasm::{RuntimeArtifact, RuntimeArtifactKey};
+use lila_aot_wasm::{
+    RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactKey,
+};
+
+#[cfg(test)]
+mod tests;
+
+/// Raw R and P share one storage owner, budget, pruning and atomic publication
+/// policy. Distinct key domains prevent one artifact kind from aliasing another.
+pub(super) struct RuntimeWasmCache<'a>(pub(super) &'a cache::FunctionCache);
+
+impl RuntimeArtifactCache for RuntimeWasmCache<'_> {
+    fn compiler_identity(&self) -> &[u8; 32] {
+        compiler_fingerprint()
+    }
+
+    fn load(&self, key: RuntimeArtifactCacheKey) -> Option<Vec<u8>> {
+        self.0.read(key.as_bytes())
+    }
+
+    fn store(&self, key: RuntimeArtifactCacheKey, entry: Vec<u8>) -> bool {
+        self.0.write(key.as_bytes(), entry)
+    }
+
+    fn remove(&self, key: RuntimeArtifactCacheKey) {
+        self.0.remove(key.as_bytes());
+    }
+}
 
 /// What the engine carries from an emitted artifact to execution.
 #[derive(Clone, Copy)]
@@ -102,49 +130,23 @@ pub(super) fn decode_standalone_cache_entry(entry: &[u8]) -> Option<&[u8]> {
 pub(super) fn decode_cache_entry(
     entry: &[u8],
     intl_profile: &IntlCompilationProfile,
+    cache: &cache::FunctionCache,
 ) -> Option<(Arc<[u8]>, Option<Arc<RuntimeArtifact>>)> {
     match entry.split_first()? {
         (&ENTRY_STANDALONE, program) => Some((Arc::from(program), None)),
         (&ENTRY_LINKED, rest) => {
             let (recorded, program) = rest.split_at_checked(KEY_BYTES)?;
             let selection = IntlDataSelection::new(intl_profile.clone());
-            let runtime = lila_aot_wasm::runtime_artifact(&selection).ok()?;
+            let runtime = lila_aot_wasm::runtime_artifact_with_cache(
+                &selection,
+                Some(&RuntimeWasmCache(cache)),
+            )
+            .ok()?;
             (runtime.key().as_bytes().as_slice() == recorded)
                 .then(|| (Arc::from(program), Some(runtime)))
         }
         _ => None,
     }
-}
-
-type RuntimeModuleSlot = Arc<OnceLock<Result<WasmtimeModule, EngineError>>>;
-
-/// Compiled runtime modules for this process. A `wasmtime::Module` belongs to
-/// one `Engine`, and each native compilation mode has exactly one process-wide
-/// engine, so (key, mode) identifies the module.
-fn runtime_modules(
-) -> &'static Mutex<HashMap<(RuntimeArtifactKey, WasmNativeCompilationMode), RuntimeModuleSlot>> {
-    static MODULES: OnceLock<
-        Mutex<HashMap<(RuntimeArtifactKey, WasmNativeCompilationMode), RuntimeModuleSlot>>,
-    > = OnceLock::new();
-    MODULES.get_or_init(Default::default)
-}
-
-/// `engine` must be the process-wide engine for `mode`. Compiles through
-/// `compile_wasm_module`, so Wasmtime's on-disk module cache applies.
-pub(super) fn runtime_wasm_module(
-    engine: &WasmtimeEngine,
-    runtime: &RuntimeArtifact,
-    mode: WasmNativeCompilationMode,
-) -> Result<WasmtimeModule, EngineError> {
-    let slot = Arc::clone(
-        runtime_modules()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry((runtime.key(), mode))
-            .or_default(),
-    );
-    slot.get_or_init(|| compile_wasm_module(engine, runtime.bytes()))
-        .clone()
 }
 
 /// The native mode the runtime alone requires, scanned once per runtime.
@@ -216,7 +218,8 @@ impl WasmModules {
 }
 
 /// `bypass_retention` overrides `memory_cache_policy` (agent workers never
-/// retain). Only the program module goes through the in-memory LRU.
+/// retain). Both modules share the one bounded in-memory LRU. Execution may
+/// borrow both even when retaining P evicts R from that cache.
 pub(super) fn compile_modules(
     engine: &WasmtimeEngine,
     program: WasmProgramRef<'_>,
@@ -224,18 +227,36 @@ pub(super) fn compile_modules(
     bypass_retention: bool,
     mode: WasmNativeCompilationMode,
 ) -> Result<WasmModules, EngineError> {
+    let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
+    let module_for_execution = |label: &str, bytes: &[u8]| -> Result<_, EngineError> {
+        let started = std::time::Instant::now();
+        if trace {
+            eprintln!(
+                "lila wasm trace: {label}-module loading: {} bytes",
+                bytes.len()
+            );
+        }
+        let result = if bypass_retention {
+            (
+                compile_wasm_module(engine, bytes)?,
+                WasmModuleMemoryCacheOutcome::Bypassed,
+            )
+        } else {
+            wasm_module_for_execution(engine, bytes, memory_cache_policy, mode)?
+        };
+        if trace {
+            eprintln!(
+                "lila wasm trace: {label}-module loaded: {:?}",
+                started.elapsed()
+            );
+        }
+        Ok(result)
+    };
     let runtime = program
         .runtime
-        .map(|runtime| runtime_wasm_module(engine, runtime, mode))
+        .map(|runtime| module_for_execution("runtime", runtime.bytes()).map(|(module, _)| module))
         .transpose()?;
-    let (module, memory_cache_outcome) = if bypass_retention {
-        (
-            compile_wasm_module(engine, program.bytes)?,
-            WasmModuleMemoryCacheOutcome::Bypassed,
-        )
-    } else {
-        wasm_module_for_execution(engine, program.bytes, memory_cache_policy, mode)?
-    };
+    let (module, memory_cache_outcome) = module_for_execution("program", program.bytes)?;
     Ok(WasmModules {
         program: module,
         runtime,

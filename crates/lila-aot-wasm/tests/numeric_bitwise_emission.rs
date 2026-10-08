@@ -1,6 +1,8 @@
 use lila_aot_wasm::emit;
 use lila_front::{parse, ParseOptions};
 use lila_ir::lower;
+use std::collections::BTreeMap;
+use wasmparser::{ExternalKind, KnownCustom, Name, Operator, Parser, Payload, TypeRef};
 
 fn bitwise_body_bytes(expression: String, repetitions: usize) -> u32 {
     std::thread::Builder::new()
@@ -62,4 +64,210 @@ fn unary_and_nested_number_sites_do_not_restore_generic_numeric_dispatch() {
         assert!(growth > 0 && growth < 64 * 768,
             "{expression}: 64 static Number expressions added {growth} bytes ({single} -> {repeated})");
     }
+}
+
+struct NumericBody {
+    bytes: usize,
+    calls: Vec<u32>,
+}
+
+#[derive(Default)]
+struct NumericModule {
+    imports: BTreeMap<u32, (String, String)>,
+    exports: BTreeMap<String, u32>,
+    names: BTreeMap<u32, String>,
+    bodies: BTreeMap<u32, NumericBody>,
+}
+
+fn numeric_module(bytes: &[u8], collect_calls: bool) -> NumericModule {
+    let mut module = NumericModule::default();
+    let mut next_function = 0u32;
+    for payload in Parser::new(0).parse_all(bytes) {
+        match payload.expect("numeric module decodes") {
+            Payload::ImportSection(reader) => {
+                for import in reader.into_imports() {
+                    let import = import.expect("numeric import decodes");
+                    if matches!(import.ty, TypeRef::Func(_) | TypeRef::FuncExact(_)) {
+                        module.imports.insert(
+                            next_function,
+                            (import.module.to_owned(), import.name.to_owned()),
+                        );
+                        next_function += 1;
+                    }
+                }
+            }
+            Payload::ExportSection(reader) => {
+                for export in reader {
+                    let export = export.expect("numeric export decodes");
+                    if export.kind == ExternalKind::Func {
+                        module.exports.insert(export.name.to_owned(), export.index);
+                    }
+                }
+            }
+            Payload::CodeSectionEntry(body) => {
+                let mut calls = Vec::new();
+                if collect_calls {
+                    for operator in body.get_operators_reader().expect("numeric body opens") {
+                        if let Operator::Call { function_index }
+                        | Operator::ReturnCall { function_index } =
+                            operator.expect("numeric operator decodes")
+                        {
+                            calls.push(function_index);
+                        }
+                    }
+                }
+                module.bodies.insert(
+                    next_function,
+                    NumericBody {
+                        bytes: body.range().len(),
+                        calls,
+                    },
+                );
+                next_function += 1;
+            }
+            Payload::CustomSection(section) => {
+                if let KnownCustom::Name(subsections) = section.as_known() {
+                    for subsection in subsections {
+                        if let Name::Function(map) = subsection.expect("name subsection decodes") {
+                            for naming in map {
+                                let naming = naming.expect("numeric function name decodes");
+                                assert!(module
+                                    .names
+                                    .insert(naming.index, naming.name.to_owned())
+                                    .is_none());
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    module
+}
+
+fn source_body<'a>(module: &'a NumericModule, prefix: &str) -> &'a NumericBody {
+    let indices = module
+        .names
+        .iter()
+        .filter_map(|(&index, name)| name.starts_with(prefix).then_some(index))
+        .collect::<Vec<_>>();
+    assert_eq!(indices.len(), 1, "one source body must match {prefix}");
+    module
+        .bodies
+        .get(&indices[0])
+        .expect("source name identifies actual encoded body")
+}
+
+fn runtime_helper<'a>(module: &'a NumericModule, name: &str) -> (u32, &'a NumericBody) {
+    let indices = module
+        .names
+        .iter()
+        .filter_map(|(&index, actual)| (actual == name).then_some(index))
+        .collect::<Vec<_>>();
+    assert_eq!(indices.len(), 1, "{name} has one runtime definition");
+    let index = indices[0];
+    let body = module
+        .bodies
+        .get(&index)
+        .expect("runtime helper name identifies actual encoded code");
+    assert!(
+        body.bytes > 64,
+        "the shared {name} body contains its algorithm"
+    );
+    (index, body)
+}
+
+#[test]
+fn coercive_add_sites_reuse_linked_conversion_bodies_with_bounded_growth() {
+    const REPEATED_SITES: usize = 33;
+    std::thread::Builder::new()
+        .name("coercive-add-emission".to_owned())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            // Publish the functions without supplying a direct-call context.
+            // Literal call arguments can specialize away the conversions, and
+            // distinct observed contexts can clone the source bodies.
+            let source = format!(
+                "function single(left, right) {{ left + right; }}\n\
+                 function repeated(left, right) {{ {} }}\n\
+                 [single, repeated];",
+                "left + right;\n".repeat(REPEATED_SITES)
+            );
+            let parsed = parse(&source, ParseOptions::script()).expect("addition fixture parses");
+            let lowered = lower(&parsed);
+            let script = lowered.script.as_ref().expect("addition fixture owns script IR");
+            for name in ["single", "repeated"] {
+                let functions = script.functions.iter()
+                    .filter(|function| function.name == name).collect::<Vec<_>>();
+                assert_eq!(functions.len(), 1, "one unspecialized {name} body");
+                assert!(functions[0].params.iter().all(|param| param.kind == lila_ir::ValueKind::Dynamic),
+                    "unobserved parameters must keep {name}'s additions coercive");
+            }
+            let artifact = emit(&lowered).expect("addition fixture emits real Wasm");
+            let program = numeric_module(&artifact.bytes, true);
+            let runtime = numeric_module(
+                artifact.runtime().expect("coercive addition links its runtime").bytes(),
+                true,
+            );
+            let single = source_body(&program, "js::single#");
+            let repeated = source_body(&program, "js::repeated#");
+            let growth = repeated.bytes.checked_sub(single.bytes)
+                .expect("additional dynamic additions remain in the encoded body");
+            eprintln!("coercive-add body: {} -> {} bytes; {} added sites", single.bytes, repeated.bytes, REPEATED_SITES - 1);
+            let (add_index, add_body) = runtime_helper(&runtime, "helper::coercive_add");
+            let add_exports = runtime.exports.iter()
+                .filter_map(|(name, &index)| (index == add_index).then_some(name))
+                .collect::<Vec<_>>();
+            assert_eq!(add_exports.len(), 1, "R exports its actual addition body once");
+            let add_imports = program.imports.iter()
+                .filter_map(|(&index, (namespace, name))| {
+                    (namespace == lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE && name == add_exports[0])
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(add_imports.len(), 1, "P imports the actual addition export once");
+            for (body, sites) in [(single, 1), (repeated, REPEATED_SITES)] {
+                assert_eq!(body.calls.iter().filter(|&&index| index == add_imports[0]).count(), sites,
+                    "each coercive addition must call R's complete operation once");
+            }
+            assert!(!add_body.calls.contains(&add_index),
+                "the addition helper must call its physical body, not its own facade");
+            for helper in ["helper::value_to_string", "helper::value_to_number"] {
+                let (helper_index, _) = runtime_helper(&runtime, helper);
+                assert_eq!(add_body.calls.iter().filter(|&&index| index == helper_index).count(), 2,
+                    "R's addition body converts both primitives through the actual {helper} body");
+                let export = runtime.exports.iter()
+                    .find_map(|(name, &index)| (index == helper_index).then_some(name))
+                    .expect("the actual runtime helper is exported");
+                let imports = program.imports.iter()
+                    .filter_map(|(&index, (namespace, name))| {
+                        (namespace == lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE && name == export)
+                            .then_some(index)
+                    })
+                    .collect::<Vec<_>>();
+                for body in [single, repeated] {
+                    assert!(!body.calls.iter().any(|index| imports.contains(index)),
+                        "P's addition sites must leave primitive {helper} conversion inside R");
+                }
+            }
+            for (helper, calls) in [
+                ("helper::value_to_primitive_default", 2),
+                ("helper::bigint_arithmetic", 1),
+            ] {
+                let (index, _) = runtime_helper(&runtime, helper);
+                assert_eq!(add_body.calls.iter().filter(|&&target| target == index).count(), calls,
+                    "R's addition body must retain the actual {helper} operation");
+            }
+            // The complete helper measures 1,257 bytes per added site, including
+            // two ordinary parameter reads and whole-Completion handling. This
+            // bound leaves room for that plumbing while rejecting the previous
+            // 2,324-byte site that inlined coercion and numeric/string dispatch.
+            assert!(growth > 0 && growth < (REPEATED_SITES - 1) * 1536,
+                "{} dynamic additions added {growth} bytes; each site must reuse the complete addition body",
+                REPEATED_SITES - 1);
+        })
+        .expect("compiler worker starts")
+        .join()
+        .expect("addition emission does not panic");
 }

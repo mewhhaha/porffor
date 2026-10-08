@@ -22,7 +22,8 @@ class DurationIdentityTests(unittest.TestCase):
   for path in ('crates/lila-intl/src/duration_wire/configuration.rs','crates/lila-intl/src/duration_wire/requests.rs','crates/lila-intl/src/duration_wire/responses.rs','crates/lila-engine/src/intl_duration_host.rs'):
    with self.subTest(path=path):self.changed(path)
  def test_installed_global_provider_admission_is_bound(self):
-  self.assertEqual(self.manifest['host_call_abi'],12)
+  # Duration shares ABI17, including the typed Locale information lists.
+  self.assertEqual(self.manifest['host_call_abi'],17)
   self.assertFalse(self.manifest['foundation_only'])
   self.assertEqual(self.manifest['global_operations'],[36,37,38])
   for path in ('crates/lila-intl/src/provider.rs','crates/lila-intl/src/protocol.rs','crates/lila-intl/src/supported_values.rs','crates/lila-intl/src/duration_image.rs','crates/lila-intl/src/number_image.rs','crates/lila-intl/src/list_image.rs','crates/lila-engine/src/intl_data_images.rs','crates/lila-engine/src/wasm_gc_intl_host.rs'):

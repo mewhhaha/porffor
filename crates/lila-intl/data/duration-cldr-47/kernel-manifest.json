@@ -1,29 +1,29 @@
 {
   "files": [
     {
-      "bytes": 75241,
+      "bytes": 75107,
       "path": "Cargo.lock",
-      "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+      "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
     },
     {
-      "bytes": 3208,
+      "bytes": 3285,
       "path": "Cargo.toml",
-      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
-      "bytes": 80091,
+      "bytes": 80030,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
     },
     {
-      "bytes": 80996,
+      "bytes": 79551,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
     },
     {
-      "bytes": 33617,
+      "bytes": 33803,
       "path": "crates/lila-engine/src/intl_data_images.rs",
-      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      "sha256": "738c0ad3114f56f71e7f777c428ac2fd2ac9b8145cbca0bb1427d58703ca8a3d"
     },
     {
       "bytes": 2828,
@@ -191,9 +191,9 @@
       "sha256": "38ae2b82a51ff319f10fb3fe18e60fc431a782d057e0dde8c941d8fbd4cd0137"
     },
     {
-      "bytes": 12550,
+      "bytes": 12549,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "c2eecf2ffc30401fd200e92badb9e59b8208084207578602c230101e85bfb303"
+      "sha256": "d888038f213b57775dddb7b15d8d931c7e3ef2a731b82701ef5f3488f1a3e94c"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "4327e690ed7a015f990d58c461193f560f661756c44e16917735dcb9a6a28103"
+      "sha256": "7dc5f142a07af4cf3bb599928636bd1a18747673e6de520f877949af4c543822"
     },
     {
       "bytes": 5033,
@@ -566,9 +566,9 @@
       "sha256": "6fd7d1f8fa898b429831bfb8761585f76f3a23e99b3e39c869fb7157824472fd"
     },
     {
-      "bytes": 10218,
+      "bytes": 9648,
       "path": "crates/lila-intl/src/number_protocol/primitives.rs",
-      "sha256": "460e3525e74891438c1351798610a6be57fca65278ab7709767f53890a798e95"
+      "sha256": "881f38eee053a4485e7e60d7be74143b3854b4ecfa007a84401ba4e38c044845"
     },
     {
       "bytes": 6435,
@@ -1033,7 +1033,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "4073466738ff238b6451a470748f1f5903b273a4b5c48bf8abe6aac60bba76a3",
+  "provider_data_sha256": "10bc3e2c65e00a45d79cd6f21102de7e77763a1eb871e0746d67f33ad9607b9a",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

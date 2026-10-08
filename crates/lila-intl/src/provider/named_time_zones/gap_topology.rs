@@ -130,9 +130,9 @@ pub(super) fn certified_containing_boundary(
     local: LocalTimeCoordinate,
     boundary: i64,
 ) -> Result<Option<CertifiedNamedGapBoundary>, InvalidTimeZoneData> {
-    // The only zone constructor validates this certificate before publication;
+    // The shared data constructor validates this certificate before publication;
     // these exact snapshots come from that same immutable record and selector.
-    let _certificate = &zone.gap_topology;
+    let _certificate = &zone.data.gap_topology;
     let resolved = ResolvedNamedZone::new(zone);
     let predecessor = boundary
         .checked_sub(1)

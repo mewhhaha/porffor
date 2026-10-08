@@ -28,7 +28,7 @@ fn expected(record: LocalTimeTypeRecord) -> (i32, TimeZoneVariant) {
 #[test]
 fn every_explicit_transition_uses_the_selected_records_offset_and_variant() {
     for zone in provider().zones.values() {
-        let block = zone.transitions.get_data_block2().unwrap();
+        let block = zone.data.transitions.get_data_block2().unwrap();
         for (index, epoch) in block.transition_times.iter().enumerate() {
             let record = block.local_time_type_records[block.transition_types[index]];
             assert_eq!(
@@ -64,7 +64,7 @@ fn historical_seconds_initial_records_and_zero_offset_dst_are_preserved() {
     assert_eq!(snapshot("Europe/Lisbon", 717_555_599), (3_600, Daylight));
     assert_eq!(snapshot("Europe/Lisbon", 717_555_600), (3_600, Standard));
     for zone in provider().zones.values() {
-        let block = zone.transitions.get_data_block2().unwrap();
+        let block = zone.data.transitions.get_data_block2().unwrap();
         if !block.transition_times.is_empty() {
             assert_eq!(
                 snapshot(zone.identity.identifier(), -TimeZoneEpochSeconds::LIMIT),

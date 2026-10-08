@@ -66,8 +66,8 @@ fn registry_uses_each_closed_descriptor_shape_with_the_expected_census() {
         "const fn function_length_name_attributes(",
     );
     let expected = [
-        ("Constructor", 10),
-        ("Function", 2),
+        ("Constructor", 11),
+        ("Function", 1),
         ("CallablePrototype", 1),
         ("Prototype", 10),
     ];
@@ -80,6 +80,19 @@ fn registry_uses_each_closed_descriptor_shape_with_the_expected_census() {
             "unexpected {shape} row census"
         );
     }
+    // BigInt has [[Construct]]; its body rejects a non-undefined NewTarget.
+    let bigint = bounded(
+        registry,
+        "kind: IntrinsicKind::BigIntConstructor,",
+        "kind: IntrinsicKind::BigIntPrototype,",
+    );
+    assert_eq!(
+        bigint
+            .matches("shape: IntrinsicDescriptorShape::Constructor(")
+            .count(),
+        1
+    );
+    assert!(!bigint.contains("shape: IntrinsicDescriptorShape::Function("));
     assert!(!registry.contains("role: IntrinsicRole::"));
     assert!(!registry.contains("function: Some("));
     assert!(!registry.contains("function: None"));

@@ -1,0 +1,155 @@
+{
+  "producer": "lila",
+  "fake_wasm_safe": {
+    "passed": 187,
+    "total": 187
+  },
+  "fake_full": {
+    "passed": 191,
+    "total": 191
+  },
+  "real_suite": {
+    "backend": "wasm-aot",
+    "refresh_date": "2026-10-02",
+    "manifest_hash": 8622785491567939163,
+    "passed": 96678,
+    "total": 102043,
+    "failed": 5365,
+    "pinned_revisions": {
+      "ecma262": "ecma262-current-draft",
+      "test262": "aa55200d1310384c5cf69ea95b2a2ecba457007b"
+    },
+    "counts_per_outcome": [
+      {
+        "label": "Success",
+        "count": 96678
+      },
+      {
+        "label": "NotImplemented",
+        "count": 1125
+      },
+      {
+        "label": "Crash",
+        "count": 39
+      },
+      {
+        "label": "Bug",
+        "count": 4201
+      }
+    ],
+    "counts_per_kind": [
+      {
+        "label": "Runtime",
+        "count": 4441
+      },
+      {
+        "label": "Unsupported",
+        "count": 753
+      },
+      {
+        "label": "HostHarness",
+        "count": 162
+      },
+      {
+        "label": "Parser",
+        "count": 7
+      },
+      {
+        "label": "EarlyError",
+        "count": 2
+      },
+      {
+        "label": "Lowering",
+        "count": 0
+      },
+      {
+        "label": "WasmBackend",
+        "count": 0
+      }
+    ],
+    "counts_per_origin": [
+      {
+        "label": "unknown",
+        "count": 5191
+      },
+      {
+        "label": "icu-intl",
+        "count": 162
+      },
+      {
+        "label": "boa-parser",
+        "count": 9
+      },
+      {
+        "label": "boa-runtime",
+        "count": 3
+      },
+      {
+        "label": "local-harness",
+        "count": 0
+      },
+      {
+        "label": "spec-exec-host",
+        "count": 0
+      }
+    ],
+    "top_targets": [
+      {
+        "filter": "intl402/DurationFormat",
+        "passed": 0,
+        "total": 222,
+        "failed": 222
+      },
+      {
+        "filter": "intl402/Temporal/PlainDateTime",
+        "passed": 29,
+        "total": 250,
+        "failed": 221
+      },
+      {
+        "filter": "intl402/Temporal/ZonedDateTime",
+        "passed": 54,
+        "total": 250,
+        "failed": 196
+      },
+      {
+        "filter": "intl402/Temporal/ZonedDateTime",
+        "passed": 62,
+        "total": 250,
+        "failed": 188
+      },
+      {
+        "filter": "intl402/Temporal/ZonedDateTime",
+        "passed": 72,
+        "total": 250,
+        "failed": 178
+      }
+    ],
+    "snapshot_paths": {
+      "json": "/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.json",
+      "txt": "/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.txt"
+    },
+    "goal": {
+      "name": "Full pinned Test262 green",
+      "denominator": "pinned-suite-total",
+      "target_total": 102043,
+      "current_success": 96678,
+      "remaining_to_green": 5365,
+      "pass_rate": "94.7%",
+      "outcome_targets": [
+        {
+          "label": "NotImplemented",
+          "count": 0
+        },
+        {
+          "label": "Crash",
+          "count": 0
+        },
+        {
+          "label": "Bug",
+          "count": 0
+        }
+      ]
+    }
+  }
+}

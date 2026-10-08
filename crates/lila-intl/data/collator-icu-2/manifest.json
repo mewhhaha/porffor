@@ -36,7 +36,7 @@
   "owners": [
     {
       "path": "Cargo.toml",
-      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
       "path": "crates/lila-intl/Cargo.toml",
@@ -112,7 +112,7 @@
     },
     {
       "path": "crates/lila-engine/src/intl_data_images.rs",
-      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      "sha256": "738c0ad3114f56f71e7f777c428ac2fd2ac9b8145cbca0bb1427d58703ca8a3d"
     },
     {
       "path": "crates/lila-intl/src/collator_image.rs",
@@ -160,11 +160,11 @@
     },
     {
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
     },
     {
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
     },
     {
       "path": "crates/lila-intl/src/collator_image/projection/rows.rs",
@@ -237,5 +237,5 @@
   "utf16_policy": "direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker",
   "available_locales_count": null,
   "available_sort_collations_count": null,
-  "data_sha256": "b07fd7549e8179fbb7d77b0df2db6aeaabf88eccfe5b2d7e9f052837ee232f41"
+  "data_sha256": "82900b7d51cae5a14541b7d8262b578ef383cace46ea5de9f02a02e5dd3a06e3"
 }

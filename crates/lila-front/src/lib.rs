@@ -2585,9 +2585,7 @@ mod tests {
         const CLASS_METHOD_BODY_SUPER_BRANCH: &str = r#"if contains(m.parameters(), ContainsSymbol::SuperCall)
                         || contains(m.body(), ContainsSymbol::SuperCall)
                     {
-                        return Err(Error::ClassMethodHasDirectSuper {
-                            position,
-                        });
+                        return Err(Error::ClassMethodHasDirectSuper { position });
                     }"#;
         const OBJECT_METHOD_POSITION_SUPER_BRANCH: &str = r#"if has_direct_super_new(&params, &body) {
                     return Err(Error::lex(LexError::Syntax(

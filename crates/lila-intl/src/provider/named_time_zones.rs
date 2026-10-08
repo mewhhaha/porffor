@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use std::collections::{btree_map::Entry, BTreeMap};
+use std::sync::Arc;
 
 use crate::NamedTimeZoneOffsetSeconds;
 use timezone_provider::tzif::PosixOffsetChangeCycle;
@@ -28,17 +29,20 @@ pub(super) const PROVIDER_DATA_SHA256: [u8; 32] = identity::PROVIDER_DATA_SHA256
 
 struct NamedTimeZone {
     identity: NamedTimeZoneIdentity,
+    data: Arc<AdmittedNamedTimeZoneData>,
+}
+
+/// One immutable TZif payload and every proof required by its query consumers.
+/// Catalogue spellings and primary identities remain on each named record.
+struct AdmittedNamedTimeZoneData {
     transitions: Tzif,
     offsets: Vec<NamedTimeZoneOffsetSeconds>,
     tail_cycle: Option<PosixOffsetChangeCycle>,
     gap_topology: GapTopology,
 }
 
-impl NamedTimeZone {
-    fn from_data(
-        identity: NamedTimeZoneIdentity,
-        transitions: Tzif,
-    ) -> Result<Self, InvalidTimeZoneData> {
+impl AdmittedNamedTimeZoneData {
+    fn from_data(transitions: Tzif) -> Result<Self, InvalidTimeZoneData> {
         validation::validate(&transitions)?;
         let offsets = exact_query::validated_offset_catalogue(&transitions)?;
         let tail_cycle = transitions
@@ -46,11 +50,23 @@ impl NamedTimeZone {
             .map_err(|_| InvalidTimeZoneData("pinned POSIX offset cycle failed"))?;
         let gap_topology = GapTopology::validate(&transitions, &offsets, tail_cycle.as_ref())?;
         Ok(Self {
-            identity,
             transitions,
             offsets,
             tail_cycle,
             gap_topology,
+        })
+    }
+}
+
+impl NamedTimeZone {
+    #[cfg(test)]
+    fn from_data(
+        identity: NamedTimeZoneIdentity,
+        transitions: Tzif,
+    ) -> Result<Self, InvalidTimeZoneData> {
+        Ok(Self {
+            identity,
+            data: Arc::new(AdmittedNamedTimeZoneData::from_data(transitions)?),
         })
     }
 
@@ -102,6 +118,10 @@ impl NamedTimeZones {
         }
         let mut zones = BTreeMap::new();
         let mut identities = BTreeMap::new();
+        // This map exists only for this construction and borrows the actual
+        // record bytes. Equality compares the complete payload, so even a
+        // digest collision cannot reuse another payload's admission proofs.
+        let mut admitted: BTreeMap<&[u8], Arc<AdmittedNamedTimeZoneData>> = BTreeMap::new();
         let mut records = records.iter();
         for row in rows {
             let key = row.identity.identifier().to_ascii_lowercase();
@@ -133,10 +153,24 @@ impl NamedTimeZones {
                     "pinned transition record digest mismatch",
                 ));
             }
-            let transitions = Tzif::from_bytes(bytes)
-                .map_err(|_| InvalidTimeZoneData("invalid pinned TZif record"))?;
+            let data = match admitted.entry(bytes) {
+                Entry::Occupied(entry) => Arc::clone(entry.get()),
+                Entry::Vacant(entry) => {
+                    let transitions = Tzif::from_bytes(bytes)
+                        .map_err(|_| InvalidTimeZoneData("invalid pinned TZif record"))?;
+                    Arc::clone(
+                        entry.insert(Arc::new(AdmittedNamedTimeZoneData::from_data(transitions)?)),
+                    )
+                }
+            };
             if zones
-                .insert(key, NamedTimeZone::from_data(row.identity, transitions)?)
+                .insert(
+                    key,
+                    NamedTimeZone {
+                        identity: row.identity,
+                        data,
+                    },
+                )
                 .is_some()
             {
                 return Err(InvalidTimeZoneData("case-insensitive catalogue collision"));
@@ -210,6 +244,7 @@ impl NamedTimeZones {
         };
         if variant == TimeZoneVariant::Standard
             && zone
+                .data
                 .transitions
                 .offset_and_dst_are_constant(
                     Seconds(epoch.get() - STANDARD_TIME_STABILITY_WINDOW_SECONDS),

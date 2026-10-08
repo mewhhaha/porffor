@@ -114,6 +114,109 @@ strict modes. The emitted sloppy module is 41,458,110 bytes. These are single
 observed runs with cache differences, not calibrated performance acceptance.
 The wider native queue and original five-second campaign remain open.
 
+The earlier retained CrossRealm seed 1270 program module was 558,363 bytes,
+with a 475,586-byte main body. Opcode attribution found 38 tagged-addition
+branches totaling 239,225 bytes (50.30% of main). Reusing the existing
+ValueToString and ValueToNumber helpers reduced P to 341,040 bytes and main to
+279,145 bytes, with the native arithmetic controls passing. The unchanged
+five-second campaign still failed after native R reuse was established: the
+worker reached native compilation of P but did not complete it before its
+deadline.
+
+Complete coercive addition now has one `helper::coercive_add` body in R. P
+evaluates and roots both operands before the call; the typed helper also receives
+the actual execution Realm and caller Environment. R performs the existing
+left-then-right Default ToPrimitive conversions, string/numeric branch and
+BigInt checks. It returns the whole Completion for P's original active handler.
+The statically proven Number-plus-Number fast path remains inline. There is one
+algorithm owner, with no recursive helper call or change in evaluation order.
+
+The encoded-body regression follows actual R exports, P imports and Call
+operators. It checks one addition call per dynamic site, the helper's conversion
+and BigInt edges, and bounded growth of P. Existing native cohorts additionally
+cover Symbol/string errors and mixed BigInt errors in both defining Realms,
+original thrown-object identity, both operand evaluations before coercion,
+early abrupt completion, finally, and the saved left-hand compound-assignment
+value. The capped serial `production-addition-helper3` checkpoint passes the
+workspace all-feature/all-target type check, seven helper ABI controls, three
+encoded-body controls, six raw-runtime codec controls and all fifteen focused
+native tests. The dynamic fixture adds 1,257 bytes per site, below its 1,536-byte
+bound and the preceding 2,324-byte implementation; both existing static Number
+bitwise bounds also pass. Module boundaries, all fourteen Intl identity recipes
+and the host-ABI, task, legacy and shortcut audits pass. These are focused
+results, with the broad workspace sweep still pending.
+
+That checkpoint emits the original CrossRealm seed 1270 as a 287,878-byte P
+with a 231,442-byte main and a 41,199,837-byte R. Its first worker has cold raw
+and native R caches and reaches the unchanged five-second deadline while loading
+R. After a general native arithmetic producer warms the native R cache, the
+original baseline completes within five seconds with the same primitive
+completion and eight print events as SpecExec. The enclosing program-cache
+lookup takes 1.751 seconds, including 1.187 seconds of Intl data admission and
+0.563 seconds of validated raw R loading. Native R loading takes 0.383 seconds,
+native P compilation takes 1.950 seconds and execution takes 0.042 seconds.
+
+The transformed worker still misses the same five-second deadline while
+compiling its fresh P, so the campaign remains red. Its P is 288,798 bytes with
+a 232,425-byte main. Its enclosing emission takes 2.858 seconds, including
+1.197 seconds of Intl data admission and a 0.503-second raw R hit; native R
+loading then takes 0.370 seconds. These are individual observed runs with the
+stated cache conditions, not calibrated T25 acceptance. The deadline and native
+resource limits are unchanged. Optional trace output separates Intl runtime-data
+admission, raw R loading, and native R/P loading so a partial timeout cannot be
+mistaken for a successful cache hit. Admission and raw-cache spans are nested
+inside emission or program-cache lookup and must not be added to them again.
+
+Bitwise operations with two IR-proven Number operands evaluate both operands
+in order and call the same private Number emitter used by dynamic dispatch.
+They no longer emit unreachable ToNumeric and BigInt branches. The extracted
+Number instruction sequence retains the original truncation, modulo and signed
+or unsigned shift behavior. Dynamic operands keep ordered coercion and mixed
+type errors. Existing static-site byte limits remain unchanged; native controls
+cover wrapping, negative and oversized shift counts, nested expressions,
+evaluation effects and abrupt completion, mutable storage and large BigInts.
+
+Named-zone admission now shares immutable transition data within each
+constructor. The 598 pinned names contain 341 distinct TZif payloads;
+an exact-byte map lets identical payloads reuse the original complete transition,
+offset, POSIX-cycle and gap-topology admission. Each row still passes its spelling
+and digest checks before reuse, and each name retains its own primary identity
+and selected-profile availability. The map borrows input bytes and drops at
+constructor return. Separate image constructions retain separate owners; no
+global cache or admission bypass is introduced.
+
+Lowercase and uppercase mapping images now come from the original ordered Rust
+Unicode scalar walks at build time. Emission copies their unchanged 16-byte
+little-endian rows and retains the existing alignment and ICU Cased and
+CaseIgnorable ranges. Build-time payload-width checks and compile-time row extent,
+count and host/target Unicode-version checks guard the image boundary. An
+exhaustive control compares every target mapping and complete pool bytes across
+all eight alignment prefixes. Named-zone controls check exact-payload sharing,
+per-name errors, distinct-payload rejection, constructor ownership and omitted
+geographic primaries. The capped `production-startup-tables1` checkpoint passes
+the workspace type check and all 40 focused controls: one exhaustive mapping,
+29 named-zone admission, six image/projection and four native Date/Unicode
+tests. Formatting, module boundaries, all fourteen generated identities and
+repository source audits also pass. The checkpoint takes 330 watched seconds;
+its all-feature/all-target type check takes 64.886 seconds.
+
+The first campaign attempt still times out during cold native R loading. After
+the native controls, both CrossRealm baseline and transformed programs complete
+under the original five-second deadline and match SpecExec, including all eight
+actions. The transformed P still requires native compilation: emission takes
+2.432 seconds (including 0.939 seconds of Intl admission and 0.490 seconds of
+raw R loading), native R loads in 0.339 seconds, P compiles in 1.452 seconds and
+execution takes 0.024 seconds. These are single observations with a warm native
+R cache, not cold-start acceptance.
+
+The campaign then reaches Temporal seed 3215. Its 350,335-byte P has a
+266,566-byte main; lowering takes 0.312 seconds, emission 2.523 seconds and
+native R loading 0.341 seconds. Its fresh P does not finish compiling before
+five seconds. Temporal's transformed program remains unrun, and the campaign
+is still red. Deadlines, cache budgets and verification resource limits remain
+unchanged. Retained failure evidence is
+`target/verification-tmp/lila-generated-campaign-759906-1791488252109251786-1`.
+
 The SDK shares the actual product execution method, required copying collector,
 imports, limits, epoch timeout mechanism, host work and structured completion
 decoder. Only a requested runtime profile starts the memory sampler; ordinary

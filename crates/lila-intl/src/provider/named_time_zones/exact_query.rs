@@ -25,6 +25,7 @@ impl<'a> ResolvedNamedZone<'a> {
         seconds: i64,
     ) -> Result<TimeZoneTransitionInfo, InvalidTimeZoneData> {
         self.0
+            .data
             .transitions
             .get(&Seconds(seconds))
             .map_err(|_| InvalidTimeZoneData("pinned transition selection failed"))
@@ -37,7 +38,7 @@ impl<'a> ResolvedNamedZone<'a> {
         local: LocalTimeCoordinate,
     ) -> Result<Vec<NamedTimeZoneCandidate>, InvalidTimeZoneData> {
         let mut candidates = Vec::new();
-        for &tested in &self.0.offsets {
+        for &tested in &self.0.data.offsets {
             let epoch = RawTimeZoneEpoch::from_nanoseconds(
                 local.nanoseconds() - i128::from(tested.seconds()) * NANOS_PER_SECOND,
             )?;
@@ -59,17 +60,19 @@ impl<'a> ResolvedNamedZone<'a> {
         let candidates = self.candidates(local)?;
         if !candidates.is_empty() {
             return Ok(PossibleNamedTimeZoneEpochsResult::Candidates(
-                SortedNamedTimeZoneCandidates::from_sorted(candidates, self.0.offsets.len())?,
+                SortedNamedTimeZoneCandidates::from_sorted(candidates, self.0.data.offsets.len())?,
             ));
         }
         let min = self
             .0
+            .data
             .offsets
             .first()
             .ok_or(InvalidTimeZoneData("empty offset catalogue"))?
             .seconds();
         let max = self
             .0
+            .data
             .offsets
             .last()
             .ok_or(InvalidTimeZoneData("empty offset catalogue"))?
@@ -78,6 +81,7 @@ impl<'a> ResolvedNamedZone<'a> {
         let end = local.seconds() - i64::from(min);
         let boundaries = self
             .0
+            .data
             .transitions
             .offset_change_boundaries(Seconds(start), Seconds(end))
             .map_err(|_| InvalidTimeZoneData("pinned gap boundary enumeration failed"))?;
@@ -108,6 +112,7 @@ impl<'a> ResolvedNamedZone<'a> {
         let direction = request.direction();
         let block = self
             .0
+            .data
             .transitions
             .get_data_block2()
             .map_err(|_| InvalidTimeZoneData("validated TZif block disappeared"))?;
@@ -127,7 +132,7 @@ impl<'a> ResolvedNamedZone<'a> {
         if let Some(handoff) = handoff {
             self.consider_transition(handoff, instant, direction, &mut selected)?;
         }
-        if let Some(cycle) = &self.0.tail_cycle {
+        if let Some(cycle) = &self.0.data.tail_cycle {
             let period = i128::from(cycle.period_seconds());
             let base = i128::from(cycle.base_seconds());
             // The nearest phase in the requested direction is obtained with

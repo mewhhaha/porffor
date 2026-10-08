@@ -6,6 +6,45 @@
 **Depends on:** T01, T02, T03, T04  
 **Blocks:** Confidence and performance gates in T26
 
+## Runtime persistence and cache acceptance — 2026-10-08
+
+Validated raw runtime R now persists through the existing cache; Chinese/Dangi
+catalogs are built once. Native cache identity follows the packaged Wasmtime
+source rather than an unrelated ancestor Git repository. Four identity controls
+and two process controls verify real R reuse across differing executable mtimes,
+with fresh P compiled and executed. Full coercive addition now uses one R helper
+with explicit caller execution Realm and Environment and R/P ABI version two.
+
+`production-addition-helper3` passes the workspace type check in 53.041 seconds
+and all 31 focused helper/artifact/codec/native controls. Existing repository
+audits pass; the whole watched checkpoint takes 330 seconds. The unchanged
+five-second campaign nevertheless remains red: its cold attempt stops at native
+R loading; its warm original CrossRealm baseline completes and matches the oracle,
+but the transformed fresh P still times out in native compilation. That request
+emits in 2.858 seconds, including 1.197 seconds of Intl admission and 0.503 seconds
+of raw-R loading, followed by 0.370 seconds of native-R loading. Temporal is unrun.
+A successful baseline does not establish the complete campaign.
+
+The subsequent `production-startup-tables1` passes the workspace type check and
+40 focused Unicode, timezone and native controls. Both CrossRealm baseline and
+transformed programs now complete under the unchanged deadline with native R
+cached and match SpecExec. The transformed case emits in 2.432 seconds, then
+loads native R in 0.339 seconds, compiles P in 1.452 seconds and executes in
+0.024 seconds. Temporal seed 3215 is reached: lowering takes 0.312 seconds,
+emission 2.523 seconds and native R loading 0.341 seconds before fresh P
+compilation times out. Its transformed case remains unrun. Cold native R
+compilation also remains over budget; these cache-qualified observations do
+not close the campaign or cold-start gates.
+
+The tooling repair rerun passes all 84 affected Python methods and the restored
+historical artifact pair passes the guard in an isolated proposed commit view.
+A full tooling rerun and complete all-feature workspace coverage,
+ignored default-product timing controls, sustained debug/optimized campaigns
+and subsystem budgets remain required. The launcher retains one CPU, 4096 MiB,
+zero swap and one-entry/64-MiB native retention. No deadline, task status or pinned
+conformance count changes. See the [current checkpoint](README.md#runtime-persistence-and-verification--2026-10-08)
+and [runtime artifact contract](../docs/rust-rewrite/contracts/runtime-artifact-persistence.md).
+
 ## Original campaign timeout diagnosis — 2026-10-08
 
 The final rebuilt worker confirms the same 5,000-ms failure in

@@ -1,5 +1,79 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Runtime persistence and verification — 2026-10-08
+
+Validated runtime artifacts now persist through the existing bounded cache;
+Chinese/Dangi catalogs are constructed at Rust build time. The full CoerciveAdd
+runtime helper receives the actual caller execution Realm and Environment,
+preserving evaluation order, conversion hooks and complete abrupt results.
+The R/P ABI is version two. Packaged Wasmtime cache identity no longer inherits
+an unrelated parent Git checkout or fragments native R by executable mtime.
+
+`production-addition-helper3` finishes in 330 watched seconds under the unchanged
+one-CPU/4096-MiB/no-swap launcher and one-entry/64-MiB native retention limit.
+The all-feature/all-target workspace type check passes in 53.041 seconds.
+All 31 focused controls pass: seven helper ABI, three artifact, six runtime-codec
+and fifteen native controls (two caller-Realm addition, seven numeric/bitwise,
+five compound-addition and one saved-left-value). None is ignored. Formatting,
+module ownership, identity, host ABI, task-plan, legacy, shortcut/accounting and
+whitespace checks pass. The 36-file Python/two-script tooling sweep completed
+all 405 discovered Python methods: 387 passed and 18 parent methods failed,
+with zero skips. Thirty-three of 38 commands passed. Failures identify three
+stale Intl expectations, one stale publication-supervision fixture and missing
+canonical historical publication files. The affected rerun passes all 84 Python
+methods with no skips. The restored exact historical pair passes the real
+artifact guard in an isolated proposed commit view, with original repository
+files, index and refs unchanged. A full tooling rerun remains pending.
+
+`production-startup-tables1` passes its all-feature/all-target type check in
+64.886 seconds and all 40 focused controls: one exhaustive Unicode mapping,
+29 named-zone admission, six image/projection and four native Date/Unicode
+tests. All generated identities and repository source audits pass. Exact TZif
+payloads share validated data within one constructor; original scalar case
+mappings are built once with compiler-version and byte-parity checks. The
+checkpoint finishes in 330 watched seconds under the same resource limits.
+
+The campaign gate remains red at its original 5,000-ms deadline. The cold attempt
+stops during native R loading. After the native controls, both CrossRealm
+baseline and transformed programs complete and match SpecExec, including all
+eight actions. Temporal seed 3215 is now reached but its fresh P times out
+during native compilation; its transformed program remains unrun. This is
+partial campaign progress. The [T25 checkpoint](25-differential-fuzzing-performance.md#runtime-persistence-and-cache-acceptance--2026-10-08)
+retains the measured phase costs.
+
+The preceding cache checkpoint passes four identity controls and both process
+controls: verified different executable mtimes produce zero hits/two misses,
+then one hit/one miss while different P executes correctly. These controls are
+now wired into the capped CI persistence job; a new CI result is still required.
+The three stale parser/BigInt guards also pass their focused repairs without
+weakening the original ownership checks. The earlier default sweep remains
+incomplete: 139 targets passed, three failed, one was interrupted and 666 were
+pending; completed targets contained 2,297 individual passes and three failures.
+Those historical outcomes are not a current complete workspace result.
+
+Refresh the unchanged campaign through the same resource boundary:
+
+```sh
+python3 scripts/limited_verification.py --memory-mib 4096 -- \
+  cargo test --locked --offline -p lila-test262 --features spec-exec-oracle \
+  --test differential_generated_campaign \
+  realm_and_temporal_campaigns_retain_all_eight_actions_and_actual_paired_observations \
+  -- --exact --test-threads=1 --nocapture
+```
+
+All thirty task statuses remain unchanged: four complete (T00/T27/T28/T29),
+twenty-five in progress and T26 blocked. Remaining non-performance blockers
+include real weak/ephemeron support, the Temporal contextual rounding-window
+gap, unsupported dynamic-source cases in literal conformance accounting and
+independent-host acceptance. Complete current pinned evidence and both canonical
+compiler-bound publication artifacts remain pending. The recovered October 2
+publisher pair matches the retained aggregate and generated README block byte
+for byte; its older schema has no compiler binding. Exact restoration preserves
+historical evidence without changing counts or claiming a current refresh.
+Full workspace/fake/pinned verification,
+ignored product stress/timing controls and sustained debug/optimized campaigns
+remain required. No task status or pinned conformance count is promoted.
+
 ## Closure audit and verification — 2026-10-08
 
 The full task plan remains open. The current runtime explicitly rejects real

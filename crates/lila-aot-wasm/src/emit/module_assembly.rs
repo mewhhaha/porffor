@@ -1261,6 +1261,7 @@ pub(super) fn emit_script_module(
             compile_ordinary_object_allocate_helper
         );
         register_runtime_helper!(ValueToObject, compile_value_to_object_helper);
+        register_runtime_helper!(CoerciveAdd, compile_coercive_add_helper);
         register_runtime_helper!(
             GlobalIdentifierReadSloppy,
             compile_global_identifier_read_sloppy_helper

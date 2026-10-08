@@ -90,7 +90,9 @@ class CollationIdentity(unittest.TestCase):
                      'crates/lila-intl/src/provider/region_preference.rs',
                      'crates/lila-intl/src/locale_information_wire.rs', str(GEN.NATIVE)]:
             self.assertIn(name, names)
-        self.assertEqual(len(GEN.number_production(ROOT)), 22)
+        # The closed NumberFormat inventory also binds domains and the
+        # projection, projection/closure and projection/encode owners.
+        self.assertEqual(len(GEN.number_production(ROOT)), 26)
 
     def test_unknown_native_production_module_is_rejected(self):
         with tempfile.TemporaryDirectory() as name:

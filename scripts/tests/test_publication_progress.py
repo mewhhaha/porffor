@@ -104,7 +104,8 @@ class ManifestProgressTests(unittest.TestCase):
         self.snapshots = Path(self.temporary.name)
         self.identity = dict.fromkeys(session.IDENTITY_KEYS, "fixture")
         self.identity.update(snapshot_directory=str(self.snapshots), snapshot_name="run α with spaces",
-                             executable_sha256="b" * 64, compiler_identity=compiler_fixture())
+                             executable_sha256="b" * 64, compiler_identity=compiler_fixture(),
+                             isolate_cases=True)
         self.manifest, _ = session.manifest_paths(self.identity)
         self.manifest.parent.mkdir()
         session.claim_manifest(self.manifest, self.identity)

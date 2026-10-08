@@ -411,7 +411,23 @@ pub fn emit_with_intl_profile(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &lila_intl::IntlCompilationProfile,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, false)
+    emit_with_intl_profile_and_runtime_cache(program, promise_rejection_policy, intl_profile, None)
+}
+
+/// Compile with optional bounded persistence of the program-independent runtime.
+pub fn emit_with_intl_profile_and_runtime_cache(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+    cache: Option<&dyn crate::RuntimeArtifactCache>,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_observation_mode(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        false,
+        cache,
+    )
 }
 
 /// Emits the canonical schema witnesses and rooted Realm inventory consumed
@@ -421,7 +437,22 @@ pub fn emit_with_rooted_snapshot(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &lila_intl::IntlCompilationProfile,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, true)
+    emit_with_rooted_snapshot_and_runtime_cache(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        None,
+    )
+}
+
+/// Snapshot emission uses the same checked runtime cache as ordinary emission.
+pub fn emit_with_rooted_snapshot_and_runtime_cache(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+    cache: Option<&dyn crate::RuntimeArtifactCache>,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, true, cache)
 }
 
 fn emit_with_observation_mode(
@@ -429,6 +460,7 @@ fn emit_with_observation_mode(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &lila_intl::IntlCompilationProfile,
     snapshot: bool,
+    cache: Option<&dyn crate::RuntimeArtifactCache>,
 ) -> Result<WasmArtifact, EmitError> {
     // Diagnostics are scanned *before* `program.script`: a stage that reports a
     // reason for failing also declines to produce a script, so checking the
@@ -452,7 +484,13 @@ fn emit_with_observation_mode(
         ));
     }
     let intl_selection = lila_intl::IntlDataSelection::new(intl_profile.clone());
-    emit_script(script, promise_rejection_policy, &intl_selection, snapshot)
+    emit_script(
+        script,
+        promise_rejection_policy,
+        &intl_selection,
+        snapshot,
+        cache,
+    )
 }
 
 fn emit_script(
@@ -460,6 +498,7 @@ fn emit_script(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_selection: &lila_intl::IntlDataSelection,
     snapshot: bool,
+    cache: Option<&dyn crate::RuntimeArtifactCache>,
 ) -> Result<WasmArtifact, EmitError> {
     let uses_heap = snapshot || runtime_requirement::requires_runtime(script);
     let mut prepared_script = script.clone();
@@ -484,7 +523,7 @@ fn emit_script(
     }
 
     let runtime = uses_heap
-        .then(|| crate::runtime_artifact(intl_selection))
+        .then(|| crate::runtime_artifact_with_cache(intl_selection, cache))
         .transpose()?;
     let kind = match &runtime {
         Some(runtime) => ModuleKind::Program(runtime),

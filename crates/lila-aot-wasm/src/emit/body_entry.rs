@@ -68,6 +68,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::ValueToPrimitiveNumber
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
+            | RuntimeHelperId::CoerciveAdd
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ModuleInitialize

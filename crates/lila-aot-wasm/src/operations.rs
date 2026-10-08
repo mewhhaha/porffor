@@ -11,6 +11,7 @@ use crate::runtime_helpers::RuntimeHelperPropertyKeyParameter;
 use lila_ir::NativeErrorKind;
 use lila_ir::StaticRegExpCompilation;
 
+mod coercive_add;
 mod has_instance;
 mod number_remainder;
 mod number_to_string;
@@ -1388,113 +1389,6 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    pub(crate) fn compile_coercive_add_to_locals(
-        &mut self,
-        lhs: &TypedExpr,
-        rhs: &TypedExpr,
-        output: &ValueLocals,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        if lhs.kind == ValueKind::Number && rhs.kind == ValueKind::Number {
-            return self.compile_binary_number_to_value(
-                ArithmeticBinaryOp::Add,
-                lhs,
-                rhs,
-                output,
-                function,
-            );
-        }
-        let schema = self.runtime_schema();
-        let left = schema.reserve_value_local(function);
-        let right = schema.reserve_value_local(function);
-        let pending = schema.reserve_completion(function);
-        self.compile_operand_pair_to_primitive_locals(
-            lhs,
-            rhs,
-            ToPrimitiveHint::Default,
-            &left,
-            &right,
-            function,
-        )?;
-        left.tag().load(function);
-        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
-        function.instruction(&Instruction::I32Eq);
-        right.tag().load(function);
-        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::String as i32));
-        function.instruction(&Instruction::I32Eq);
-        function.instruction(&Instruction::I32Or);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_primitive_to_string_completion(&left, &pending, function)?;
-        self.finish_to_primitive_operation(
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            &pending,
-            function,
-        )?;
-        let left_string = schema.reserve_gc_local(function).initialize(
-            pending
-                .value()
-                .cast_reference::<StringValue>(schema, function),
-            function,
-        );
-        self.emit_primitive_to_string_completion(&right, &pending, function)?;
-        self.finish_to_primitive_operation(
-            ToPrimitiveAbruptRoute::ActiveHandler,
-            &pending,
-            function,
-        )?;
-        let right_string = schema.reserve_gc_local(function).initialize(
-            pending
-                .value()
-                .cast_reference::<StringValue>(schema, function),
-            function,
-        );
-        let string = schema.reserve_gc_local(function).initialize(
-            self.emit_concat_gc_strings(&left_string, &right_string, function),
-            function,
-        );
-        output.set_reference(&string, schema, function);
-        string.clear(function);
-        right_string.clear(function);
-        left_string.clear(function);
-        function.instruction(&Instruction::Else);
-        for value in [&left, &right] {
-            value.tag().load(function);
-            function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
-            function.instruction(&Instruction::I32Ne);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_primitive_to_number_completion(value, &pending, false, function)?;
-            self.finish_to_primitive_operation(
-                ToPrimitiveAbruptRoute::ActiveHandler,
-                &pending,
-                function,
-            )?;
-            value.copy_from(pending.value(), function);
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        self.emit_numeric_pair_agreement(&left, &right, function)?;
-        self.emit_is_bigint_tag_i32(left.tag(), function);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_numeric_bigint_operation(BigIntHelperOp::Add, &left, &right, output, function)?;
-        function.instruction(&Instruction::Else);
-        left.scalar().load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        right.scalar().load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Add);
-        function.instruction(&Instruction::I64ReinterpretF64);
-        output.scalar().store(function);
-        output.set_number(output.scalar(), function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        pending.clear(function);
-        right.clear(function);
-        left.clear(function);
-        Ok(())
-    }
-
     fn compile_numeric_operand_pair(
         &mut self,
         lhs: &TypedExpr,
@@ -1626,6 +1520,14 @@ impl<'a> FunctionBuilder<'a> {
         let schema = self.runtime_schema();
         let left = schema.reserve_value_local(function);
         let right = schema.reserve_value_local(function);
+        if lhs.kind == ValueKind::Number && rhs.kind == ValueKind::Number {
+            self.compile_expr_to_value(lhs, &left, function)?;
+            self.compile_expr_to_value(rhs, &right, function)?;
+            self.emit_number_bitwise_to_locals(op, left.scalar(), right.scalar(), output, function);
+            right.clear(function);
+            left.clear(function);
+            return Ok(());
+        }
         self.compile_numeric_operand_pair(lhs, rhs, &left, &right, function)?;
         self.emit_is_bigint_tag_i32(left.tag(), function);
         self.open_frame(ControlFrameKind::If, function);
@@ -1650,10 +1552,27 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_propagate_current_throw(function);
         }
         function.instruction(&Instruction::Else);
+        self.emit_number_bitwise_to_locals(op, left.scalar(), right.scalar(), output, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        right.clear(function);
+        left.clear(function);
+        Ok(())
+    }
+
+    fn emit_number_bitwise_to_locals(
+        &mut self,
+        op: BitwiseBinaryOp,
+        left: I64Local,
+        right: I64Local,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
         let left_bits = schema.reserve_i64_local(function);
         let right_bits = schema.reserve_i64_local(function);
-        self.emit_to_uint32_i64_from_number_payload(left.scalar(), left_bits, function);
-        self.emit_to_uint32_i64_from_number_payload(right.scalar(), right_bits, function);
+        self.emit_to_uint32_i64_from_number_payload(left, left_bits, function);
+        self.emit_to_uint32_i64_from_number_payload(right, right_bits, function);
         left_bits.load(function);
         function.instruction(&Instruction::I32WrapI64);
         right_bits.load(function);
@@ -1676,11 +1595,6 @@ impl<'a> FunctionBuilder<'a> {
         output.set_number(output.scalar(), function);
         schema.release_i64_local(right_bits, function);
         schema.release_i64_local(left_bits, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        right.clear(function);
-        left.clear(function);
-        Ok(())
     }
 
     pub(crate) fn compile_expr_to_object_locals(

@@ -2737,7 +2737,7 @@ impl Engine {
             let cache_started = std::time::Instant::now();
             // A cached program recorded against another runtime is a miss.
             if let Some((bytes, runtime)) = cache.read(&key).and_then(|entry| {
-                wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile)
+                wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile, cache)
             }) {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
@@ -2786,7 +2786,7 @@ impl Engine {
     ) -> Result<ProgramWasmArtifact, EngineError> {
         let unit = self.compile_prepared_on_current_thread(prepared)?;
         let emit_started = std::time::Instant::now();
-        let artifact = self.emit_wasm_on_current_thread(&unit)?;
+        let artifact = self.emit_wasm_with_cache_on_current_thread(&unit, cache.as_deref())?;
         if std::env::var_os("LILA_WASM_TRACE").is_some() {
             eprintln!(
                 "lila wasm trace: emit: {:?} ({} bytes)",
@@ -2825,10 +2825,23 @@ impl Engine {
     }
 
     fn emit_wasm_on_current_thread(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        match lila_aot_wasm::emit_with_intl_profile(
+        let cache = program_wasm_cache();
+        self.emit_wasm_with_cache_on_current_thread(unit, cache.as_deref())
+    }
+
+    fn emit_wasm_with_cache_on_current_thread(
+        &self,
+        unit: &CompilationUnit,
+        cache: Option<&cache::FunctionCache>,
+    ) -> Result<Artifact, EngineError> {
+        let runtime_cache = cache.map(wasm_runtime_link::RuntimeWasmCache);
+        match lila_aot_wasm::emit_with_intl_profile_and_runtime_cache(
             &unit.ir,
             unit.promise_rejection_policy,
             &unit.intl_profile,
+            runtime_cache
+                .as_ref()
+                .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
         ) {
             Ok(wasm) => {
                 // `lila build wasm` and the Test262 wasm-aot backend both reach
@@ -3262,10 +3275,15 @@ impl Engine {
         };
 
         let emit_started = std::time::Instant::now();
-        let artifact = lila_aot_wasm::emit_with_intl_profile(
+        let cache = program_wasm_cache();
+        let runtime_cache = cache.as_deref().map(wasm_runtime_link::RuntimeWasmCache);
+        let artifact = lila_aot_wasm::emit_with_intl_profile_and_runtime_cache(
             &unit.ir,
             unit.promise_rejection_policy,
             &unit.intl_profile,
+            runtime_cache
+                .as_ref()
+                .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
         )
         .map_err(|err| EngineError::from_wasm_emit_error(&unit.ir, err))?;
         if std::env::var_os("LILA_WASM_TRACE_DUMP").is_some() {
@@ -3494,7 +3512,7 @@ impl Engine {
         let module_elapsed = module_started.elapsed();
         if trace_wasm {
             eprintln!(
-                "lila wasm trace: module-memory-cache {}: {:?}",
+                "lila wasm trace: program-module-memory-cache {} during module loading: {:?}",
                 match memory_cache_outcome {
                     WasmModuleMemoryCacheOutcome::Hit => "hit",
                     WasmModuleMemoryCacheOutcome::Miss => "miss",
@@ -3515,13 +3533,12 @@ impl Engine {
             let module_cache_after =
                 wasmtime_module_cache().map(|cache| (cache.cache_hits(), cache.cache_misses()));
             match (module_cache_before, module_cache_after) {
-                (Some(before), Some(after)) if after.0 > before.0 => {
-                    eprintln!("lila wasm trace: module-cache hit: {:?}", module_elapsed)
-                }
-                (Some(before), Some(after)) if after.1 > before.1 => {
-                    eprintln!("lila wasm trace: module-cache miss: {:?}", module_elapsed);
-                    eprintln!("lila wasm trace: native compilation: {:?}", module_elapsed);
-                }
+                (Some(before), Some(after)) => eprintln!(
+                    "lila wasm trace: module-cache hits={} misses={} during {:?}",
+                    after.0.saturating_sub(before.0),
+                    after.1.saturating_sub(before.1),
+                    module_elapsed
+                ),
                 _ => eprintln!(
                     "lila wasm trace: module-cache result unavailable: {:?}",
                     module_elapsed

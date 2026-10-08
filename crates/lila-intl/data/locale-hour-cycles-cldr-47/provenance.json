@@ -32,29 +32,29 @@
     "profile_sha256": "0f3b05c2da0fc33d4b89869a9b8e294e0250909a8119e470824865ce923372a6",
     "sources": [
       {
-        "bytes": 75241,
+        "bytes": 75107,
         "path": "Cargo.lock",
-        "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+        "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
       },
       {
-        "bytes": 3208,
+        "bytes": 3285,
         "path": "Cargo.toml",
-        "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+        "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
       },
       {
-        "bytes": 80996,
+        "bytes": 79551,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+        "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
       },
       {
-        "bytes": 80091,
+        "bytes": 80030,
         "path": "crates/lila-aot-wasm/src/emit.rs",
-        "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+        "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
       },
       {
-        "bytes": 33617,
+        "bytes": 33803,
         "path": "crates/lila-engine/src/intl_data_images.rs",
-        "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+        "sha256": "738c0ad3114f56f71e7f777c428ac2fd2ac9b8145cbca0bb1427d58703ca8a3d"
       },
       {
         "bytes": 16823,
@@ -74,7 +74,7 @@
       {
         "bytes": 30852,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "147834564cc59a9ae0e1a127aa7fe661e250fac6151486cd3dddab3e1c943f53"
+        "sha256": "90d2760b3c18ea326ee766516f35c9c3aa2a9852ded1aadafdb9ffa639f2fecc"
       },
       {
         "bytes": 34690,
@@ -149,7 +149,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "f9984b289ecc339b43be5e2931e7d7770300686bcba7f9ba454f1d263e43479d"
+        "sha256": "b82fa6dc6c29dc2b6f36b21cd5c7afe3dd6745f18792e542f582f61117a9898a"
       },
       {
         "bytes": 4101,
@@ -258,7 +258,7 @@
       }
     ]
   },
-  "kernel_sha256": "fbfe4c783e856bd351fd163ed61b520c49c5d986230b4f925e61aa657c1ab1a3",
+  "kernel_sha256": "96f463576093a0b476df475beebcc6edab526f4bf61de14aaecfd9e4f777e986",
   "language_region_selector_count": 23,
   "normative_source": "https://tc39.es/ecma402/#sec-hourcyclesoflocale",
   "ordering": "allowed preference order; stable uniqueness after projection; never prepend preferred",

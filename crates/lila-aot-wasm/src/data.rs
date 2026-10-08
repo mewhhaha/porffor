@@ -1,5 +1,4 @@
 use super::*;
-use icu_properties::{props, CodePointSetData};
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
@@ -9,7 +8,6 @@ use lila_ir::{
     REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_OPCODE_NAMED_BACKREFERENCE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
 };
-use std::sync::OnceLock;
 
 mod temporal_east_asian_years;
 pub(crate) use temporal_east_asian_years::{
@@ -30,6 +28,7 @@ mod intl_supported_values;
 use intl_supported_values::{CompiledSupportedValuesTables, SupportedValuesPoolError};
 
 mod normalization;
+mod unicode_case_tables;
 use normalization::NormalizationMapping;
 
 pub(crate) const UNHANDLED_REJECTION_TOSTRING_THROWN_MESSAGE: &str =
@@ -106,22 +105,6 @@ impl RegExpProgramRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct RegExpProgramStaticKey(ValidatedRegExpProgram);
-
-struct LowercaseTables {
-    mappings: Vec<u8>,
-    mapping_count: u32,
-    cased_ranges: Vec<std::ops::RangeInclusive<u32>>,
-    case_ignorable_ranges: Vec<std::ops::RangeInclusive<u32>>,
-}
-
-static LOWERCASE_TABLES: OnceLock<LowercaseTables> = OnceLock::new();
-
-struct UppercaseTables {
-    mappings: Vec<u8>,
-    mapping_count: u32,
-}
-
-static UPPERCASE_TABLES: OnceLock<UppercaseTables> = OnceLock::new();
 
 impl RegExpProgramStaticKey {
     pub(crate) fn from_program(program: &RegExpProgram) -> Self {
@@ -311,6 +294,32 @@ pub(crate) struct PoolBoundary {
 }
 
 impl PoolBoundary {
+    pub(crate) const fn code_unit_len(self) -> usize {
+        self.code_unit_bytes
+    }
+
+    /// Reconstruct only bounded pool dimensions; the runtime cache also checks
+    /// the actual data segments, and program collection checks the full boundary.
+    pub(crate) fn from_runtime_cache(
+        static_bytes: usize,
+        code_unit_bytes: usize,
+        strings: u32,
+    ) -> Option<Self> {
+        STATIC_DATA_OFFSET.checked_add(u32::try_from(static_bytes).ok()?)?;
+        u32::try_from(code_unit_bytes).ok()?;
+        if code_unit_bytes % 2 != 0
+            || strings == 0
+            || u64::from(strings) > code_unit_bytes as u64 / 2 + 1
+        {
+            return None;
+        }
+        Some(Self {
+            static_bytes,
+            code_unit_bytes,
+            strings,
+        })
+    }
+
     /// Pooled strings the runtime owns; the program's slots start here.
     pub(crate) const fn strings(self) -> u32 {
         self.strings
@@ -2248,96 +2257,6 @@ impl StringPool {
             self.bytes.extend_from_slice(&0_u32.to_le_bytes());
         }
         table_ptr
-    }
-
-    fn append_lowercase_tables(&mut self) {
-        let tables = LOWERCASE_TABLES.get_or_init(|| {
-            let mut mappings = Vec::new();
-            let mut mapping_count = 0;
-            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
-                let mut lowercase = codepoint.to_lowercase();
-                let first = lowercase.next().expect("lowercase mapping is never empty");
-                let second = lowercase.next();
-                if first == codepoint && second.is_none() {
-                    continue;
-                }
-
-                let mut lowercase_bytes = Vec::with_capacity(4);
-                for lowercase_codepoint in std::iter::once(first).chain(second).chain(lowercase) {
-                    let mut encoded = [0; 4];
-                    lowercase_bytes.extend_from_slice(
-                        lowercase_codepoint.encode_utf8(&mut encoded).as_bytes(),
-                    );
-                }
-                debug_assert!(lowercase_bytes.len() <= 4);
-                mappings.extend_from_slice(&(codepoint as u32).to_le_bytes());
-                mappings.extend_from_slice(&(lowercase_bytes.len() as u32).to_le_bytes());
-                mappings.extend_from_slice(&lowercase_bytes);
-                mappings.resize(mappings.len() + 4 - lowercase_bytes.len(), 0);
-                mappings.extend_from_slice(&0_u32.to_le_bytes());
-                mapping_count += 1;
-            }
-
-            LowercaseTables {
-                mappings,
-                mapping_count,
-                cased_ranges: CodePointSetData::new::<props::Cased>()
-                    .iter_ranges()
-                    .collect(),
-                case_ignorable_ranges: CodePointSetData::new::<props::CaseIgnorable>()
-                    .iter_ranges()
-                    .collect(),
-            }
-        });
-
-        self.align_bytes(8);
-        self.lowercase_mapping_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-        self.bytes.extend_from_slice(&tables.mappings);
-        self.lowercase_mapping_count = tables.mapping_count;
-        self.cased_range_table_ptr = self.append_codepoint_ranges(&tables.cased_ranges);
-        self.cased_range_count = tables.cased_ranges.len() as u32;
-        self.case_ignorable_range_table_ptr =
-            self.append_codepoint_ranges(&tables.case_ignorable_ranges);
-        self.case_ignorable_range_count = tables.case_ignorable_ranges.len() as u32;
-    }
-
-    fn append_uppercase_tables(&mut self) {
-        let tables = UPPERCASE_TABLES.get_or_init(|| {
-            let mut mappings = Vec::new();
-            let mut mapping_count = 0;
-            for codepoint in (0..=char::MAX as u32).filter_map(char::from_u32) {
-                let mut uppercase = codepoint.to_uppercase();
-                let first = uppercase.next().expect("uppercase mapping is never empty");
-                let second = uppercase.next();
-                if first == codepoint && second.is_none() {
-                    continue;
-                }
-
-                let mut uppercase_bytes = Vec::with_capacity(8);
-                for uppercase_codepoint in std::iter::once(first).chain(second).chain(uppercase) {
-                    let mut encoded = [0; 4];
-                    uppercase_bytes.extend_from_slice(
-                        uppercase_codepoint.encode_utf8(&mut encoded).as_bytes(),
-                    );
-                }
-                debug_assert!(uppercase_bytes.len() <= 8);
-                mappings.extend_from_slice(&(codepoint as u32).to_le_bytes());
-                mappings.extend_from_slice(&(uppercase_bytes.len() as u32).to_le_bytes());
-                mappings.extend_from_slice(&uppercase_bytes);
-                mappings.resize(mappings.len() + 8 - uppercase_bytes.len(), 0);
-                mapping_count += 1;
-            }
-
-            UppercaseTables {
-                mappings,
-                mapping_count,
-            }
-        });
-
-        self.align_bytes(8);
-        self.uppercase_mapping_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-        self.bytes.extend_from_slice(&tables.mappings);
-        self.uppercase_mapping_count = tables.mapping_count;
     }
 
     fn append_codepoint_ranges(&mut self, ranges: &[std::ops::RangeInclusive<u32>]) -> u32 {

@@ -1,5 +1,28 @@
 # Lila
 
+## Runtime persistence and verification — 2026-10-08
+
+Runtime modules persist through the validated disk cache, Chinese/Dangi catalogs
+are built once during compilation, and complete coercive addition uses a shared
+runtime helper with the caller's execution Realm and Environment. The latest
+`production-addition-helper3` checkpoint passes the workspace type check and all
+31 focused helper, artifact, codec and native controls. The subsequent startup
+batch passes the workspace type check and all 40 focused timezone, Unicode and
+native controls. Its exact-byte TZif sharing and build-time case tables retain
+the original validation and emitted data. Repository source audits pass; all
+84 affected tooling tests and the historical publication artifact guard pass
+(the latter in an isolated proposed commit view).
+
+The original five-second campaign remains red. With native R cached, both
+CrossRealm programs now complete and match the oracle; Temporal's fresh program
+then times out during native compilation. Cold native R also exceeds the gate.
+The full workspace sweep is pending. The task plan remains at four
+complete, 25 in progress and T26 blocked. Pinned conformance counts are unchanged.
+The recovered October 2 publication is historical and lacks current compiler
+binding; restoring its original files does not refresh conformance.
+See the [current checkpoint](tasks/README.md#runtime-persistence-and-verification--2026-10-08)
+for exact scopes, refresh commands and remaining acceptance.
+
 ## Closure audit and verification — 2026-10-08
 
 The integrated ownership and Unicode batch passes the workspace type check,

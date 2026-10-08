@@ -241,14 +241,28 @@ var mainLeft = catchesInRealm(function () { return add(foreignSymbol, 1); }, Typ
 var mainRight = catchesInRealm(function () { return add(1, foreignSymbol); }, TypeError.prototype);
 var foreignLeft = catchesInRealm(function () { return foreignAdd(symbol, 1); }, realm.global.TypeError.prototype);
 var foreignRight = catchesInRealm(function () { return foreignAdd(1, symbol); }, realm.global.TypeError.prototype);
+var mainStringLeft = catchesInRealm(function () { return add(foreignSymbol, ''); }, TypeError.prototype);
+var mainStringRight = catchesInRealm(function () { return add('', foreignSymbol); }, TypeError.prototype);
+var foreignStringLeft = catchesInRealm(function () { return foreignAdd(symbol, ''); }, realm.global.TypeError.prototype);
+var foreignStringRight = catchesInRealm(function () { return foreignAdd('', symbol); }, realm.global.TypeError.prototype);
+var mainMixedLeft = catchesInRealm(function () { return add(9223372036854775808n, 1); }, TypeError.prototype);
+var mainMixedRight = catchesInRealm(function () { return add(1, 9223372036854775808n); }, TypeError.prototype);
+var foreignMixedLeft = catchesInRealm(function () { return foreignAdd(9223372036854775808n, 1); }, realm.global.TypeError.prototype);
+var foreignMixedRight = catchesInRealm(function () { return foreignAdd(1, 9223372036854775808n); }, realm.global.TypeError.prototype);
 var trace = [];
 var left = {[Symbol.toPrimitive](hint) { trace.push('left:' + hint); return symbol; }};
 var right = {[Symbol.toPrimitive](hint) { trace.push('right:' + hint); return 1; }};
 var afterBothPrimitives = catchesInRealm(function () { return add(left, right); }, TypeError.prototype);
+var stringRight = {[Symbol.toPrimitive](hint) { trace.push('string-right:' + hint); return ''; }};
+var afterStringPrimitives = catchesInRealm(function () { return add(left, stringRight); }, TypeError.prototype);
 var target = symbol;
 var unchanged = catchesInRealm(function () { return target += 1; }, TypeError.prototype);
-mainLeft && mainRight && foreignLeft && foreignRight && afterBothPrimitives && unchanged
-  && finalized === 6 && target === symbol && trace.join(',') === 'left:default,right:default';
+mainLeft && mainRight && foreignLeft && foreignRight
+  && mainStringLeft && mainStringRight && foreignStringLeft && foreignStringRight
+  && mainMixedLeft && mainMixedRight && foreignMixedLeft && foreignMixedRight
+  && afterBothPrimitives && afterStringPrimitives && unchanged
+  && finalized === 15 && target === symbol
+  && trace.join(',') === 'left:default,right:default,left:default,string-right:default';
 "#,
         "boolean(true)",
     );

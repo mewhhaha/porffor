@@ -835,6 +835,7 @@ runtime_helper_domain! {
     ValueToString / ValueToStringArguments / ValueToStringParameters / "value_to_string" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     ValueToNumber / ValueToNumberArguments / ValueToNumberParameters / "value_to_number" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     ValueToNumeric / ValueToNumericArguments / ValueToNumericParameters / "value_to_numeric" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    CoerciveAdd / CoerciveAddArguments / CoerciveAddParameters / "coercive_add" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectGetPrototypeOf / ObjectGetPrototypeOfArguments / ObjectGetPrototypeOfParameters / "object_get_prototype_of" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectIsExtensible / ObjectIsExtensibleArguments / ObjectIsExtensibleParameters / "object_is_extensible" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectPreventExtensions / ObjectPreventExtensionsArguments / ObjectPreventExtensionsParameters / "object_prevent_extensions" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
@@ -940,6 +941,7 @@ impl RuntimeHelperId {
             Self::ValueToString => HelperOwner::Runtime,
             Self::ValueToNumber => HelperOwner::Runtime,
             Self::ValueToNumeric => HelperOwner::Runtime,
+            Self::CoerciveAdd => HelperOwner::Runtime,
             Self::ObjectGetPrototypeOf => HelperOwner::Runtime,
             Self::ObjectIsExtensible => HelperOwner::Runtime,
             Self::ObjectPreventExtensions => HelperOwner::Runtime,
@@ -1031,6 +1033,7 @@ impl RuntimeHelperId {
             Self::ValueToString => true,
             Self::ValueToNumber => true,
             Self::ValueToNumeric => true,
+            Self::CoerciveAdd => true,
             Self::ObjectGetPrototypeOf => true,
             Self::ObjectIsExtensible => true,
             Self::ObjectPreventExtensions => true,

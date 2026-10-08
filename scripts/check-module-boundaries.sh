@@ -3228,10 +3228,18 @@ require_fixed_string_count \
   'module_package.append_to_module(' \
   1 \
   'compiled-package assembly consumer'
+# The cache damage controls deliberately construct foreign Wasm layouts. The
+# file-level gate makes those constructors unavailable to production Rust,
+# even if a future parent accidentally drops its own test-only module gate.
+runtime_cache_fixture_source="crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs"
+if [[ "$(head -n 1 "$runtime_cache_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'foreign runtime-cache fixture constructors must be compiled only for tests'
+fi
 for sealed_section in types globals code; do
   sealed_section_escapes="$(
     find crates/lila-aot-wasm/src -type f -name '*.rs' \
       ! -path "$compiled_module_package" \
+      ! -path "$runtime_cache_fixture_source" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
       | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
   )"
@@ -3246,6 +3254,7 @@ done
 global_section_constructor_escapes="$(
   find crates/lila-aot-wasm/src -type f -name '*.rs' \
     ! -path "$compiled_module_package" \
+    ! -path "$runtime_cache_fixture_source" \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
 )"
@@ -6282,6 +6291,15 @@ require_fixed_string_count "$wasm_normalization_data" "pub(super) fn tables() ->
 require_fixed_string_count crates/lila-aot-wasm/src/data.rs 'normalization::tables()' 1 'data construction consumes the normalization authority'
 check_no_inline_legacy_includes "$wasm_normalization_data"
 check_raw_line_budget "$wasm_normalization_data" 170
+require_module_decl crates/lila-aot-wasm/src/data.rs unicode_case_tables
+for case_data_owner in \
+  crates/lila-aot-wasm/src/data/unicode_case_tables.rs \
+  crates/lila-aot-wasm/src/data/unicode_case_tables/construction.rs \
+  crates/lila-aot-wasm/src/data/unicode_case_tables/tests.rs; do
+  require_file "$case_data_owner"
+  check_no_inline_legacy_includes "$case_data_owner"
+  check_raw_line_budget "$case_data_owner" 150
+done
 require_fixed_string_count crates/lila-aot-wasm/src/builtins/standard.rs 'self.emit_intl_supported_values_of(function)?;' 1 'actual supportedValuesOf dispatch'
 require_tree_regex_count crates/lila-aot-wasm/src '^[[:space:]]*pub\(crate\)[[:space:]]+fn[[:space:]]+emit_intl_supported_values_of[[:space:]]*\(' 1 'supportedValuesOf sole emitter owner'
 require_fixed_string_count crates/lila-aot-wasm/src/emit.rs 'let intl_selection = lila_intl::IntlDataSelection::new(intl_profile.clone());' 1 'one selected Intl owner outside builtin retries'
@@ -6620,6 +6638,12 @@ require_file crates/lila-engine/tests/aot_intl_locale_information_lists.rs
 require_module_decl crates/lila-aot-wasm/src/data.rs temporal_east_asian_years
 require_file crates/lila-aot-wasm/src/data/temporal_east_asian_years.rs
 check_no_inline_legacy_includes crates/lila-aot-wasm/src/data/temporal_east_asian_years.rs
+for east_asian_data_child in construction format; do
+  require_module_decl crates/lila-aot-wasm/src/data/temporal_east_asian_years.rs "$east_asian_data_child"
+  require_file "crates/lila-aot-wasm/src/data/temporal_east_asian_years/$east_asian_data_child.rs"
+  check_no_inline_legacy_includes "crates/lila-aot-wasm/src/data/temporal_east_asian_years/$east_asian_data_child.rs"
+done
+require_file crates/lila-aot-wasm/build.rs
 require_module_decl crates/lila-aot-wasm/src/builtins/temporal_calendar_arithmetic.rs east_asian
 require_file crates/lila-aot-wasm/src/builtins/temporal_calendar_arithmetic/east_asian.rs
 check_no_inline_legacy_includes crates/lila-aot-wasm/src/builtins/temporal_calendar_arithmetic/east_asian.rs

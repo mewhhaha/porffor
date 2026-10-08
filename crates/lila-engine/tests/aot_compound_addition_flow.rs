@@ -87,7 +87,37 @@ result = add('x', right);
 if (result !== 'x3' || trace.join('|') !== 'right:default') throw 'string conversion';
 var marker = Symbol('abrupt'), caught;
 try { add(1, {[Symbol.toPrimitive]() { throw marker; }}); } catch (error) { caught = error; }
-caught === marker;
+if (caught !== marker) throw 'right conversion throw identity';
+
+var abrupt = {};
+var throwingLeft = {[Symbol.toPrimitive](hint) { trace.push('left:' + hint); throw abrupt; }};
+function readLeft() { trace.push('left-eval'); return throwingLeft; }
+function readRight() { trace.push('right-eval'); return right; }
+var finalized = 0;
+trace = [];
+caught = undefined;
+try { readLeft() + readRight(); }
+catch (error) { caught = error; }
+finally { finalized++; }
+if (caught !== abrupt || finalized !== 1 || trace.join('|') !== 'left-eval|right-eval|left:default')
+  throw 'left conversion follows both evaluations and skips right coercion';
+
+var target = throwingLeft;
+trace = [];
+caught = undefined;
+try { target += readRight(); }
+catch (error) { caught = error; }
+finally { finalized++; }
+if (caught !== abrupt || target !== throwingLeft || finalized !== 2
+    || trace.join('|') !== 'right-eval|left:default')
+  throw 'abrupt compound addition retains its original target';
+
+var evaluationAbrupt = {};
+function throwRight() { trace.push('right-eval'); throw evaluationAbrupt; }
+trace = [];
+caught = undefined;
+try { readLeft() + throwRight(); } catch (error) { caught = error; }
+caught === evaluationAbrupt && trace.join('|') === 'left-eval|right-eval';
 "#,
     );
 }

@@ -58,7 +58,7 @@
     {
       "bytes": 9251,
       "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
-      "sha256": "a7d8e3c73c8efda0d52d9277f9aaa5581200685258125c3ebe6897c007c5a9f4"
+      "sha256": "690fee8f2b1a56ce84a13a0b807875b77bfbc607a99fe069e2ed009397df0608"
     },
     {
       "bytes": 7792,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "d4d16079ba723783dd66a35c0b9f5d1bb33323776368aeacb1164e5c83a184f0",
+  "kernel_sha256": "95912b525dbedad22506a5a7d9ef2b2644128ed2223d98c7348238c55a9e2c3f",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -211,29 +211,29 @@
   "producer_checks": "read-only historical genuine export/constructor ancestry; no new Cargo reexport or runtime admission",
   "production_sources": [
     {
-      "bytes": 75241,
+      "bytes": 75107,
       "path": "Cargo.lock",
-      "sha256": "bfe1cba95401e104dcbbac201b051649a289e075fccfb2eafe1de6f7d4e16701"
+      "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
     },
     {
-      "bytes": 3208,
+      "bytes": 3285,
       "path": "Cargo.toml",
-      "sha256": "fdcc4085099c20e50fef50cb5e67006cd40ff5b5d66925147b309c648e25361f"
+      "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
-      "bytes": 80091,
+      "bytes": 80030,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "b527bc932e78fbca963bfae67548c2311656c42ed53962ab30a3ce3865ded6b5"
+      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
     },
     {
-      "bytes": 80996,
+      "bytes": 79551,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "3918d8baaa422dcd7dc2e34fc76d857762449fe5fa8507e9786a7c5f0892cc2b"
+      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
     },
     {
-      "bytes": 33617,
+      "bytes": 33803,
       "path": "crates/lila-engine/src/intl_data_images.rs",
-      "sha256": "b78251783638bc71f39041dba7c955f9ebbd350e5bf929a92544ba021e116aa8"
+      "sha256": "738c0ad3114f56f71e7f777c428ac2fd2ac9b8145cbca0bb1427d58703ca8a3d"
     },
     {
       "bytes": 16823,
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/lila-intl/src/collator/identity.rs",
-      "sha256": "bffa519e9e5754372f25a2b73e39e8d8363c5e1786b659dd60bedbd0cf58082a"
+      "sha256": "a0c4ab4a0bf3864b59c5d8de3af47b28a077edae78b9244d108f6aa1dd346d5e"
     },
     {
       "bytes": 31472,

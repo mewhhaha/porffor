@@ -93,7 +93,8 @@ mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_artifact;
 pub use runtime_artifact::{
-    runtime_artifact, RuntimeArtifact, RuntimeArtifactKey, RUNTIME_IMPORT_NAMESPACE,
+    runtime_artifact, runtime_artifact_with_cache, RuntimeArtifact, RuntimeArtifactCache,
+    RuntimeArtifactCacheKey, RuntimeArtifactKey, RUNTIME_IMPORT_NAMESPACE,
 };
 mod runtime_helpers;
 use abi::*;
@@ -104,8 +105,10 @@ use code_sink::{Function, LabelDepth, LocalDeclarations};
 use data::*;
 pub use emit::emit;
 pub use emit::emit_with_intl_profile;
+pub use emit::emit_with_intl_profile_and_runtime_cache;
 pub use emit::emit_with_promise_rejection_policy;
 pub use emit::emit_with_rooted_snapshot;
+pub use emit::emit_with_rooted_snapshot_and_runtime_cache;
 pub(crate) use emit::{
     AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, ControlTarget,
     FunctionBuilder, LabelTargets, LoopTargets, PropagateCallThrow, ReturnAbi,

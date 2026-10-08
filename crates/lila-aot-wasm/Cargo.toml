@@ -14,10 +14,11 @@ lila-intl = { path = "../lila-intl" }
 lila-runtime = { path = "../lila-runtime" }
 lila-front = { path = "../lila-front" }
 sha2 = "0.10.9"
-wasm-encoder = "0.245.1"
-
-[dev-dependencies]
+wasm-encoder = { version = "0.245.1", features = ["wasmparser"] }
 wasmparser = "0.245.1"
+
+[build-dependencies]
+icu_calendar = { version = "=2.0.6", default-features = false, features = ["compiled_data"] }
 
 [lib]
 path = "src/lib.rs"

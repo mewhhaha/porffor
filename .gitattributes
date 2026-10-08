@@ -1,0 +1,3 @@
+# Preserve the published upstream license byte for byte, including its final
+# blank line. Product-source whitespace checks retain their normal settings.
+vendor/wasmtime-internal-cache-47.0.0/LICENSE whitespace=-blank-at-eof

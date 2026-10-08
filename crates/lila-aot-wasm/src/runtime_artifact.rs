@@ -19,11 +19,14 @@ use wasm_encoder::{EntityType, ExportKind, ExportSection, GlobalType, ImportSect
 use crate::data::{PoolBoundary, StringPool};
 use crate::EmitError;
 
+mod cache;
+pub use cache::{RuntimeArtifactCache, RuntimeArtifactCacheKey};
+
 /// Module namespace under which a program module imports runtime exports.
 pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
 
 /// Bumped when the shape of the R/P contract changes.
-const LAYOUT_VERSION: u32 = 1;
+const LAYOUT_VERSION: u32 = 2;
 
 fn function_export_name(index: u32) -> String {
     format!("f{index}")
@@ -46,7 +49,7 @@ impl RuntimeArtifactKey {
 
 /// What a program module must import from the runtime, and the data boundary
 /// its own pool continues from.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeLayout {
     imported_functions: u32,
     function_types: Vec<u32>,
@@ -221,23 +224,33 @@ type RuntimeSlot = Arc<OnceLock<Result<Arc<RuntimeArtifact>, EmitError>>>;
 pub fn runtime_artifact(
     selection: &lila_intl::IntlDataSelection,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
-    static RUNTIMES: OnceLock<Mutex<HashMap<Vec<u8>, RuntimeSlot>>> = OnceLock::new();
-    let selected = selection.selected().map_err(|error| {
-        EmitError::unsupported(format!("failed to select the Intl artifact data: {error}"))
-    })?;
-    let mut identity = selected.identity().artifact_identity().as_bytes().to_vec();
-    if let Some(services) = selected.service_selection() {
-        identity.extend_from_slice(&services.wire().to_le_bytes());
+    runtime_artifact_with_cache(selection, None)
+}
+
+/// Reuses a validated raw runtime artifact before falling back to emission.
+/// Intl selection/admission always precedes either memory or disk cache lookup.
+pub fn runtime_artifact_with_cache(
+    selection: &lila_intl::IntlDataSelection,
+    cache: Option<&dyn RuntimeArtifactCache>,
+) -> Result<Arc<RuntimeArtifact>, EmitError> {
+    static RUNTIMES: OnceLock<Mutex<HashMap<[u8; 32], RuntimeSlot>>> = OnceLock::new();
+    let admission_started = std::time::Instant::now();
+    let identity = cache::RuntimeIdentity::admit(selection)?;
+    if std::env::var_os("LILA_WASM_TRACE").is_some() {
+        eprintln!(
+            "lila wasm trace: runtime-data admission: {:?}",
+            admission_started.elapsed()
+        );
     }
     let slot = Arc::clone(
         RUNTIMES
             .get_or_init(Default::default)
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry(identity)
+            .entry(identity.digest())
             .or_default(),
     );
-    slot.get_or_init(|| emit_runtime_artifact(selection))
+    slot.get_or_init(|| cache::load_or_emit(&identity, cache, || emit_runtime_artifact(selection)))
         .clone()
 }
 
@@ -254,12 +267,16 @@ fn emit_runtime_artifact(
         .runtime_layout
         .ok_or_else(|| EmitError::unsupported("the runtime module must describe its layout"))?;
     let bytes: Arc<[u8]> = Arc::from(module.artifact.bytes);
-    let mut hasher = Sha256::new();
-    hasher.update(LAYOUT_VERSION.to_le_bytes());
-    hasher.update(&*bytes);
     Ok(Arc::new(RuntimeArtifact {
-        key: RuntimeArtifactKey(hasher.finalize().into()),
+        key: runtime_key(&bytes),
         bytes,
         layout,
     }))
+}
+
+fn runtime_key(bytes: &[u8]) -> RuntimeArtifactKey {
+    let mut hasher = Sha256::new();
+    hasher.update(LAYOUT_VERSION.to_le_bytes());
+    hasher.update(bytes);
+    RuntimeArtifactKey(hasher.finalize().into())
 }

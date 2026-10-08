@@ -2739,8 +2739,6 @@ dependencies = [
 [[package]]
 name = "wasmtime-internal-cache"
 version = "47.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1abeb39ab399a36987c51a0059f08dd8b2c5270d7b83edfcaf6003e5704e2db2"
 dependencies = [
  "base64",
  "directories-next",

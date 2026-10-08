@@ -71,7 +71,7 @@ fn synthetic(
 fn every_explicit_boundary_roundtrips_and_only_actual_gaps_are_empty() {
     for zone in provider().zones.values() {
         let resolved = ResolvedNamedZone::new(zone);
-        let block = zone.transitions.get_data_block2().unwrap();
+        let block = zone.data.transitions.get_data_block2().unwrap();
         for t in &block.transition_times {
             let before = resolved.offset(t.0 - 1).unwrap();
             let after = resolved.offset(t.0).unwrap();
@@ -227,7 +227,7 @@ fn midnight_skips_and_half_hour_gaps_carry_real_utc_witnesses() {
 #[test]
 fn inverse_represents_three_candidates_and_close_gaps_without_spacing_assumptions() {
     let overlap = synthetic(&[0, -1800, -3600, -1800], &[1000, 2000], &[1, 2], -3600).unwrap();
-    assert_eq!(overlap.offsets.len(), 3);
+    assert_eq!(overlap.data.offsets.len(), 3);
     let result = ResolvedNamedZone::new(&overlap)
         .inverse(LocalTimeCoordinate::new(0, 123).unwrap())
         .unwrap();
@@ -317,7 +317,7 @@ fn seasonal_tail_boundaries_roundtrip_and_instant_edges_return_null() {
     ] {
         let zone = &provider().zones[&id.to_ascii_lowercase()];
         let resolved = ResolvedNamedZone::new(zone);
-        let cycle = zone.tail_cycle.as_ref().unwrap();
+        let cycle = zone.data.tail_cycle.as_ref().unwrap();
         for &relative in cycle.relative_seconds() {
             let t = cycle.base_seconds() + relative;
             assert_eq!(

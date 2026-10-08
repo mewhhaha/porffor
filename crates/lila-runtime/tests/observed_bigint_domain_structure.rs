@@ -1,5 +1,8 @@
 const RUNTIME_SOURCE: &str = include_str!("../src/lib.rs");
 const ENGINE_SOURCE: &str = include_str!("../../lila-engine/src/lib.rs");
+const ENGINE_GC_COMPLETION_SOURCE: &str =
+    include_str!("../../lila-engine/src/wasm_gc_completion.rs");
+const ROOTED_SNAPSHOT_SOURCE: &str = include_str!("../src/rooted_snapshot.rs");
 const SPEC_EXEC_SOURCE: &str = include_str!("../../lila-spec-exec/src/lib.rs");
 const DIFFERENTIAL_SOURCE: &str = include_str!("../../lila-test262/src/differential.rs");
 
@@ -40,17 +43,40 @@ fn observed_bigint_has_one_private_canonical_decimal_representation() {
 
 #[test]
 fn every_observed_bigint_producer_crosses_the_parser_once() {
-    let engine = bounded(
-        ENGINE_SOURCE,
-        "fn observe_wasmtime_value(",
-        "fn decode_wasmtime_heap_bigint(",
+    assert!(ENGINE_SOURCE.contains("mod wasm_gc_completion;"));
+    assert_eq!(
+        ENGINE_SOURCE
+            .matches("wasm_gc_completion::observe(&mut roots, completion)?")
+            .count(),
+        1
     );
+    assert!(!ENGINE_SOURCE.contains("fn observe_wasmtime_value("));
+    assert!(!ENGINE_SOURCE.contains("fn decode_wasmtime_heap_bigint("));
+    let engine = bounded(
+        ENGINE_GC_COMPLETION_SOURCE,
+        "pub(super) fn observe(",
+        "fn field(",
+    );
+    assert!(engine.contains("let decimal = bigint_decimal(store, reference)?;"));
     assert_eq!(
         engine
             .matches("ObservedBigInt::parse_canonical_decimal(")
             .count(),
-        2
+        1
     );
+
+    let snapshot = bounded(
+        ROOTED_SNAPSHOT_SOURCE,
+        "fn checked(decimal: String)",
+        "pub fn decimal(&self)",
+    );
+    assert_eq!(
+        snapshot
+            .matches("ObservedBigInt::parse_canonical_decimal(")
+            .count(),
+        1
+    );
+    assert!(snapshot.contains("SnapshotRejection::InvalidGraph"));
 
     let spec_exec = bounded(
         SPEC_EXEC_SOURCE,

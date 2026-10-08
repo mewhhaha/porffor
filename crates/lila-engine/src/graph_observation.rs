@@ -115,10 +115,14 @@ impl Engine {
         key: [u8; 32],
     ) -> Result<ProgramWasmArtifact, EngineError> {
         let unit = self.compile_prepared_on_current_thread(prepared)?;
-        let artifact = lila_aot_wasm::emit_with_rooted_snapshot(
+        let runtime_cache = cache.as_deref().map(wasm_runtime_link::RuntimeWasmCache);
+        let artifact = lila_aot_wasm::emit_with_rooted_snapshot_and_runtime_cache(
             &unit.ir,
             unit.promise_rejection_policy,
             &unit.intl_profile,
+            runtime_cache
+                .as_ref()
+                .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
         )
         .map_err(|error| EngineError::from_wasm_emit_error(&unit.ir, error))?;
         let runtime = artifact.runtime().cloned();

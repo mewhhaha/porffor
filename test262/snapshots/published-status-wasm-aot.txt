@@ -1,0 +1,43 @@
+published real Test262 status
+producer=lila
+refresh_date=2026-10-02
+execution_backend=wasm-aot
+manifest_hash=8622785491567939163
+pinned: ecma262=ecma262-current-draft test262=aa55200d1310384c5cf69ea95b2a2ecba457007b
+fake_wasm_safe=187/187
+fake_full=191/191
+real_total=102043
+real_passed=96678
+real_failed=5365
+goal=Full pinned Test262 green
+progress=96678/102043
+remaining_to_green=5365
+burn_down: NotImplemented=1125 Crash=39 Bug=4201
+snapshot_json=/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.json
+snapshot_txt=/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.txt
+outcomes:
+  Success=96678
+  NotImplemented=1125
+  Crash=39
+  Bug=4201
+failure_kinds:
+  Runtime=4441
+  Unsupported=753
+  HostHarness=162
+  Parser=7
+  EarlyError=2
+  Lowering=0
+  WasmBackend=0
+failure_origins:
+  unknown=5191
+  icu-intl=162
+  boa-parser=9
+  boa-runtime=3
+  local-harness=0
+  spec-exec-host=0
+top_targets:
+  intl402/DurationFormat: 0/222 passed (failed 222)
+  intl402/Temporal/PlainDateTime: 29/250 passed (failed 221)
+  intl402/Temporal/ZonedDateTime: 54/250 passed (failed 196)
+  intl402/Temporal/ZonedDateTime: 62/250 passed (failed 188)
+  intl402/Temporal/ZonedDateTime: 72/250 passed (failed 178)
