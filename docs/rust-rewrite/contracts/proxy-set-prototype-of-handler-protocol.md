@@ -104,7 +104,7 @@ The contract's focused command set is:
 ```sh
 cargo fmt --all -- --check
 git diff --check
-cargo test -p lila-aot-wasm --test proxy_set_prototype_of_handler_protocol_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- proxy_set_prototype_of_handler_protocol_structure:: --test-threads=1
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_prototype_of_handler_protocol -- --exact --test-threads=1
 ./scripts/check-module-boundaries.sh
 ```

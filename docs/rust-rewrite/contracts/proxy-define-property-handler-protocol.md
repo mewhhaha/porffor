@@ -175,7 +175,7 @@ cargo fmt --all -- --check
 git diff --check
 cargo check -p lila-aot-wasm
 
-cargo test -p lila-aot-wasm --test proxy_define_property_handler_protocol_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- proxy_define_property_handler_protocol_structure:: --test-threads=1
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_define_property_handler_protocol -- --exact --test-threads=1
 
 ./target/debug/lila --jobs 1 test262 run <exact-path> \

@@ -62,9 +62,9 @@ The 2026-09-10 direct-arithmetic batch requires a new native checkpoint. Source
 review and the historical results below do not establish its runtime result.
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_plain_difference_operation_structure
-cargo test -p lila-aot-wasm --test temporal_zoned_date_time_difference_defaults_structure
-cargo test -p lila-aot-wasm --test temporal_plain_arithmetic_operation_structure
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_difference_operation_structure::
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_zoned_date_time_difference_defaults_structure::
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_arithmetic_operation_structure::
 cargo test -p lila-cli --test cli date::run_wasm_backend_distinguishes_plain_temporal_until_and_since -- --exact --test-threads=1
 ./scripts/check-module-boundaries.sh
 cargo fmt --all -- --check

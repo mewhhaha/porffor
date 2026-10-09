@@ -38,8 +38,8 @@ manual incidental capabilities across the source tree, and requires each route
 to move into one exhaustive private finisher without a wildcard.
 
 ```sh
-cargo test -p lila-aot-wasm --test conversion_abrupt_route_capability_structure
-cargo test -p lila-aot-wasm --test conversion_error_realm_source_structure
+cargo test -p lila-aot-wasm --test structure_language -- conversion_abrupt_route_capability_structure::
+cargo test -p lila-aot-wasm --test modules_realms -- conversion_error_realm_source_structure::
 cargo xc
 git diff --check
 ```

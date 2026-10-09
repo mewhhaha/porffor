@@ -19,5 +19,5 @@ does not claim a new Test262 result.
 Validation:
 
 ```sh
-cargo test --locked -p lila-engine --test compiler_fingerprint
+cargo test --locked -p lila-engine --test structure -- compiler_fingerprint::
 ```

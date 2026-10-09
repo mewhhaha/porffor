@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 // Fresh literal arrays with default prototypes reach the retiring early gates.
 const numberJoin = [1, 2];
 numberJoin.join = function() {

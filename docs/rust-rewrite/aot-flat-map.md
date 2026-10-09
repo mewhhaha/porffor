@@ -56,8 +56,8 @@ all its engine tests to execute without failures or ignored tests, runs retained
 CLI fixtures and executes the entire pinned real flatMap Test262 subtree.
 
 ```sh
-cargo test --locked -p lila-engine --test aot_flat_map -- --test-threads=1
-cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_species_create_operation_evidence_structure
+cargo test --locked -p lila-engine --test aot_builtins -- aot_flat_map:: --test-threads=1
+cargo test --locked -p lila-aot-wasm --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test structure_builtins -- array_species_create_operation_evidence_structure::
 cargo test --locked -p lila-cli --test cli -- array_flat_map --test-threads=2
 cargo build --locked -p lila-cli
 ./target/debug/lila test262 run built-ins/Array/prototype/flatMap/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/flatmap-test262 --snapshot-name flatmap-review

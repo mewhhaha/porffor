@@ -32,7 +32,7 @@ positional signature, and canonical classification as the only descriptor-kind
 decision.
 
 ```sh
-cargo test -p lila-aot-wasm --test arguments_callee_descriptor_structure --quiet
+cargo test -p lila-aot-wasm --test structure_language --quiet -- arguments_callee_descriptor_structure::
 ```
 
 This source-equivalent invariant migration does not claim broader Arguments,

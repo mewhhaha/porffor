@@ -34,7 +34,7 @@ fixture.
 ## Verification
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_plain_date_time_component_structure
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_date_time_component_structure::
 ./target/debug/lila --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/toPlainDate/basic.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
 ./target/debug/lila --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/toPlainTime/basic.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
 cargo xc

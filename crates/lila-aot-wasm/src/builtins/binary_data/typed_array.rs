@@ -174,11 +174,25 @@ impl FunctionBuilder<'_> {
         tracking.load(f);
         self.open_frame(ControlFrameKind::If, f);
         let argv = self.emit_pre_evaluated_arg_vector(&[&buffer, &offset_arg], f);
-        self.emit_binary_construct_typed_array(&ctor, &argv, None, &out, f)?;
+        self.emit_binary_construct_typed_array(
+            &ctor,
+            &argv,
+            TypedArrayCreateAccess::Read,
+            None,
+            &out,
+            f,
+        )?;
         argv.clear(f);
         f.instruction(&Instruction::Else);
         let argv = self.emit_pre_evaluated_arg_vector(&[&buffer, &offset_arg, &count_arg], f);
-        self.emit_binary_construct_typed_array(&ctor, &argv, None, &out, f)?;
+        self.emit_binary_construct_typed_array(
+            &ctor,
+            &argv,
+            TypedArrayCreateAccess::Read,
+            None,
+            &out,
+            f,
+        )?;
         argv.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
@@ -460,12 +474,14 @@ impl FunctionBuilder<'_> {
         Ok(())
     }
 
-    /// Actual Construct followed by concrete brand, write admission and live
-    /// minimum length. Even an empty custom result must pass write admission.
+    /// Actual Construct followed by concrete brand, `access` admission and live
+    /// minimum length. Even an empty custom `ReadWrite` result must pass write
+    /// admission; a `Read` result only needs a live in-bounds view.
     pub(in crate::builtins) fn emit_binary_construct_typed_array(
         &mut self,
         constructor: &ValueLocals,
         argv: &GcLocal<ValueArray>,
+        access: TypedArrayCreateAccess,
         minimum: Option<I64Local>,
         result: &CompletionLocals,
         f: &mut Function,
@@ -490,7 +506,14 @@ impl FunctionBuilder<'_> {
             exit,
             f,
         )?;
-        self.emit_validate_typed_array_write_view(&array, length, &pending, f)?;
+        match access {
+            TypedArrayCreateAccess::Read => {
+                self.emit_validate_typed_array_view(&array, length, &pending, f)?;
+            }
+            TypedArrayCreateAccess::ReadWrite => {
+                self.emit_validate_typed_array_write_view(&array, length, &pending, f)?;
+            }
+        }
         self.emit_binary_abrupt_exit(&pending, result, exit, f);
         if let Some(minimum) = minimum {
             length.load(f);
@@ -607,7 +630,14 @@ impl FunctionBuilder<'_> {
         number.scalar().store(f);
         number.set_number(number.scalar(), f);
         let argv = self.emit_pre_evaluated_arg_vector(&[&number], f);
-        self.emit_binary_construct_typed_array(&ctor, &argv, Some(length), &pending, f)?;
+        self.emit_binary_construct_typed_array(
+            &ctor,
+            &argv,
+            TypedArrayCreateAccess::ReadWrite,
+            Some(length),
+            &pending,
+            f,
+        )?;
         argv.clear(f);
         self.emit_binary_abrupt_exit(&pending, &out, exit, f);
         target.copy_from(pending.value(), f);
@@ -738,7 +768,14 @@ impl FunctionBuilder<'_> {
         number.scalar().store(f);
         number.set_number(number.scalar(), f);
         let argv = self.emit_pre_evaluated_arg_vector(&[&number], f);
-        self.emit_binary_construct_typed_array(&ctor, &argv, Some(length), &out, f)?;
+        self.emit_binary_construct_typed_array(
+            &ctor,
+            &argv,
+            TypedArrayCreateAccess::ReadWrite,
+            Some(length),
+            &out,
+            f,
+        )?;
         argv.clear(f);
         self.emit_binary_abrupt_exit(&out, &out, exit, f);
         let array = s

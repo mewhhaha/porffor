@@ -23,7 +23,7 @@ of the algorithm.
 Focused verification:
 
 ```sh
-cargo test -p lila-aot-wasm --test symbol_receiver_operation_domain_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- symbol_receiver_operation_domain_structure:: --test-threads=1
 ```
 
 The exact non-object and boxed-Symbol `[Symbol.toPrimitive]` leaves pass all

@@ -112,7 +112,7 @@ are overwritten.
 
 ## Evidence
 
-`crates/lila-aot-wasm/tests/created_realm_weak_collection_publication_structure.rs`
+`crates/lila-aot-wasm/tests/modules_realms/created_realm_weak_collection_publication_structure.rs`
 pins the one-shot token, both Realm-slot writes, typed tag authority, method
 parity with entry installers, constructor-first key order, internal and parent
 LIFO lifecycles, and the filtered global catalog order. It passes `6/6`.
@@ -158,7 +158,7 @@ part of this boundary.
 The focused verification commands are:
 
 ```sh
-cargo test -p lila-aot-wasm --test created_realm_weak_collection_publication_structure
+cargo test -p lila-aot-wasm --test modules_realms -- created_realm_weak_collection_publication_structure::
 cargo test -p lila-cli --test cli \
   iterator::run_wasm_backend_succeeds_for_created_realm_weak_collection_publication \
   -- --exact

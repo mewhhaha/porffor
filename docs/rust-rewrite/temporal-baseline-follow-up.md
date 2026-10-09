@@ -96,9 +96,10 @@ cargo test --release --locked -j2 -p lila-aot-wasm --lib -- --test-threads=2
 cargo check --release --locked -j2 --workspace --all-targets
 ```
 
-The structural check runs every `crates/lila-aot-wasm/tests/temporal_*.rs`
-target with `cargo test --release --locked -j2 --no-fail-fast -p lila-aot-wasm`,
-one `--test <stem>` per target and `-- --test-threads=1`. The fake suite runs
+The structural check runs every `crates/lila-aot-wasm/tests/intl_temporal/temporal_*.rs`
+module through the `intl_temporal` target with
+`cargo test --release --locked -j2 --no-fail-fast -p lila-aot-wasm --test intl_temporal`,
+one `<stem>::` filter per module after `--` and `--test-threads=1`. The fake suite runs
 `lila --jobs 1 test262 run` against
 `crates/lila-test262/tests/fixtures/fake_test262/vendor/test262` with
 `--execution-backend wasm-aot --threads 2 --timeout-ms 60000` and a fresh

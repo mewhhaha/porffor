@@ -100,9 +100,9 @@ python3 scripts/generate-intl-time-zone-names.py --check
 cargo check --workspace --all-targets
 cargo test -p lila-intl -- --test-threads=1
 cargo test -p lila-engine intl_time_zone_host::tests -- --test-threads=1
-cargo test -p lila-engine --test aot_intl_named_time_zones -- --test-threads=1
-cargo test -p lila-engine --test aot_date_locale -- --test-threads=1
-cargo test -p lila-aot-wasm --test intl_dtf_time_zone_authority_privacy_structure --test intl_dtf_time_zone_name_style_privacy_structure --test intl_date_time_format_heap_slot_structure -- --test-threads=1
+cargo test -p lila-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=1
+cargo test -p lila-engine --test aot_intl -- aot_date_locale:: --test-threads=1
+cargo test -p lila-aot-wasm --test intl_dtf_time_zone_authority_privacy_structure --test intl_temporal --test intl_date_time_format_heap_slot_structure -- intl_dtf_time_zone_name_style_privacy_structure:: --test-threads=1
 ```
 
 The implementation stage was source-reviewed and formatted; product compilation,

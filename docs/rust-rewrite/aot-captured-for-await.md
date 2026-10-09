@@ -30,7 +30,7 @@ function; the completed iteration must not remain its current environment.
 
 ## Verification
 
-`crates/lila-engine/tests/aot_captured_for_await.rs` executes compiled JavaScript
+`crates/lila-engine/tests/aot_async/aot_captured_for_await.rs` executes compiled JavaScript
 through Wasmtime, requires `ExecutionBackend::WasmAot`, and compares exact traces.
 The cases cover fresh const cells over multiple yields, bidirectional closure
 and body mutation of let cells, shadowing, yielded closures, queued requests,
@@ -50,10 +50,10 @@ marked expected-failure, and no generated conformance counts are edited.
 ```sh
 cargo fmt --all -- --check
 cargo test --locked -p lila-ir --test async_for_of_activation -- --test-threads=1
-cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure
-cargo test --locked -p lila-engine --test aot_captured_for_await -- --test-threads=1
-cargo test --locked -p lila-engine --test aot_async_for_of --test aot_suspended_references --test aot_control_flow -- --test-threads=1
-cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
+cargo test --locked -p lila-aot-wasm --test structure_async -- for_await_activation_layout_structure::
+cargo test --locked -p lila-engine --test aot_async -- aot_captured_for_await:: --test-threads=1
+cargo test --locked -p lila-engine --test aot_async --test aot_generators --test aot_language -- aot_async_for_of:: aot_suspended_references:: aot_control_flow:: --test-threads=1
+cargo test --locked -p lila-aot-wasm --test emission -- product_artifact:: --test-threads=1
 ```
 
 Check the PR verification record for the exact revision and commands executed.

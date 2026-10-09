@@ -39,5 +39,5 @@ Verification targets:
 cargo test -p lila-aot-wasm --test intl_date_time_format_heap_slot_structure
 cargo test -p lila-aot-wasm --lib heap::tests::intl_date_time_format_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
 cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-cargo test -p lila-engine --test aot_intl_named_time_zones
+cargo test -p lila-engine --test aot_intl -- aot_intl_named_time_zones::
 ```

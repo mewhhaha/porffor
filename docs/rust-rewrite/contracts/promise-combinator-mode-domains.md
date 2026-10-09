@@ -76,7 +76,7 @@ rejection for `Promise.allKeyed`, and null-prototype keyed settlement records
 for `Promise.allSettledKeyed`.
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_combinator_mode_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- promise_combinator_mode_structure::
 cargo test -p lila-cli --test cli functions::run_wasm_backend_distinguishes_all_promise_combinator_modes -- --exact --test-threads=1
 ```
 

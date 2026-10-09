@@ -318,5 +318,5 @@ evidence, and no emitted-Wasm byte comparison was performed.
 Shared-helper regression command:
 
 ```sh
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine --test aot_has_property_helper -- --test-threads=2
+LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine --test aot_builtins -- aot_has_property_helper:: --test-threads=2
 ```

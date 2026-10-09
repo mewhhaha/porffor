@@ -129,9 +129,9 @@ warnings. Semantic goldens were not rerun for this source-equivalent owner
 move.
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_prototype_receiver_error_realm_structure --quiet
-cargo test -p lila-aot-wasm --test created_realm_promise_publication_structure --quiet
-cargo test -p lila-aot-wasm --test promise_species_realm_context_structure --quiet
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_prototype_receiver_error_realm_structure::
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- created_realm_promise_publication_structure::
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_species_realm_context_structure::
 cargo test -p lila-cli --test cli run_wasm_backend_preserves_created_realm_promise_internal_callbacks --quiet
 ./target/debug/lila --jobs 1 test262 run built-ins/Promise/prototype/catch/this-value-non-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ./target/debug/lila --jobs 1 test262 run built-ins/Promise/prototype/catch/this-value-then-not-callable.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1

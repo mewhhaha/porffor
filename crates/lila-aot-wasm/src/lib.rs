@@ -404,7 +404,7 @@ mod tests {
             .expect("debug_dump should attribute the largest emitted body");
         // The `none` fallback line carries no keys, so the presence of the
         // measured `key=value` shape is what proves a body was attributed. These
-        // are exactly the keys `tests/emit_golden.rs::largest_function` parses.
+        // are exactly the keys `tests/emission/emit_golden.rs::largest_function` parses.
         for key in ["index=", "bytes=", "locals=", "kind=", "name="] {
             assert!(largest.contains(key), "{largest}");
         }
@@ -2665,15 +2665,23 @@ pick(true);"#,
         }));
 
         // A compiled primitive catalogue consumes selected data even when it
-        // needs no host call. Its full image/identity binding remains visible.
+        // needs no host call. R carries its full image/identity binding.
         let artifact = emit_script("Intl.supportedValuesOf('calendar');")
             .expect("native supported-values catalogue should emit");
-        assert_eq!(components(&artifact.bytes).len(), 12);
-        let identities = Parser::new(0).parse_all(&artifact.bytes).filter(|payload| {
-            matches!(payload.as_ref().expect("module should parse"), Payload::CustomSection(section)
-                if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
-        }).count();
-        assert_eq!(identities, 1);
+        let runtime_bytes = artifact
+            .runtime()
+            .expect("catalogue program links R")
+            .bytes();
+        assert!(components(&artifact.bytes).is_empty());
+        assert_eq!(components(runtime_bytes).len(), 12);
+        let identities = |bytes: &[u8]| {
+            Parser::new(0).parse_all(bytes).filter(|payload| {
+                matches!(payload.as_ref().expect("module should parse"), Payload::CustomSection(section)
+                    if section.name() == lila_intl::INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION)
+            }).count()
+        };
+        assert_eq!(identities(runtime_bytes), 1);
+        assert_eq!(identities(&artifact.bytes), 0);
     }
 
     #[test]
@@ -3051,50 +3059,65 @@ setterReceiver === receiver;
         );
     }
 
-    #[test]
-    fn preseeded_wire_data_stays_in_private_memory() {
-        for source in ["\",\";", "({ value: \",\" });"] {
-            let artifact = emit_script(source).expect("emit should work");
-            expect_valid_module(&artifact, 0);
-            let runtime = artifact.runtime().expect("heap program links R");
-            let data = data_segment_at(runtime.bytes(), 1);
-            let mut expected_prefix = vec![b' '; 11];
-            expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
-            assert!(data.starts_with(&expected_prefix));
-            let mut active_segments = 0;
-            let mut passive_segments = 0;
-            for payload in Parser::new(0).parse_all(runtime.bytes()) {
-                let Payload::DataSection(reader) = payload.expect("runtime should parse") else {
-                    continue;
-                };
-                for segment in reader {
-                    let segment = segment.expect("runtime segment should decode");
-                    match segment.kind {
-                        wasmparser::DataKind::Passive => passive_segments += 1,
-                        wasmparser::DataKind::Active {
-                            memory_index,
-                            offset_expr,
-                        } => {
-                            active_segments += 1;
-                            assert_eq!(memory_index, 0);
-                            let mut offset = offset_expr.get_operators_reader();
-                            assert!(
-                                matches!(offset.read().expect("wire offset"), Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32)
-                            );
-                            assert!(matches!(
-                                offset.read().expect("wire offset end"),
-                                Operator::End
-                            ));
-                            assert!(offset.eof());
-                        }
+    /// `(passive, active)` data segment counts. Every active segment must be
+    /// the preseeded wire data, written at `STATIC_DATA_OFFSET` of memory 0.
+    fn wire_data_segment_counts(bytes: &[u8]) -> (usize, usize) {
+        let mut passive_segments = 0;
+        let mut active_segments = 0;
+        for payload in Parser::new(0).parse_all(bytes) {
+            let Payload::DataSection(reader) = payload.expect("module should parse") else {
+                continue;
+            };
+            for segment in reader {
+                let segment = segment.expect("segment should decode");
+                match segment.kind {
+                    wasmparser::DataKind::Passive => passive_segments += 1,
+                    wasmparser::DataKind::Active {
+                        memory_index,
+                        offset_expr,
+                    } => {
+                        active_segments += 1;
+                        assert_eq!(memory_index, 0);
+                        let mut offset = offset_expr.get_operators_reader();
+                        assert!(
+                            matches!(offset.read().expect("wire offset"), Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32)
+                        );
+                        assert!(matches!(
+                            offset.read().expect("wire offset end"),
+                            Operator::End
+                        ));
+                        assert!(offset.eof());
                     }
                 }
             }
-            assert_eq!((passive_segments, active_segments), (1, 1));
-            assert!(artifact
-                .gc_host_imports()
-                .contains(&GcHostImport::CollectGc));
         }
+        (passive_segments, active_segments)
+    }
+
+    #[test]
+    fn preseeded_wire_data_stays_in_private_memory() {
+        let mut expected_prefix = vec![b' '; 11];
+        expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
+
+        // A runtime-free program is one self-contained module that owns its
+        // preseed as the only (active) segment.
+        let standalone = emit_script("\",\";").expect("emit should work");
+        expect_valid_module(&standalone, 0);
+        assert!(standalone.runtime().is_none());
+        assert!(data_segment_at(&standalone.bytes, 0).starts_with(&expected_prefix));
+        assert_eq!(wire_data_segment_counts(&standalone.bytes), (0, 1));
+
+        // A heap program's preseed is R's one active segment; P only appends
+        // passive suffixes to it.
+        let artifact = emit_script("({ value: \",\" });").expect("emit should work");
+        expect_valid_module(&artifact, 0);
+        let runtime = artifact.runtime().expect("heap program links R");
+        assert!(data_segment_at(runtime.bytes(), 1).starts_with(&expected_prefix));
+        assert_eq!(wire_data_segment_counts(runtime.bytes()), (1, 1));
+        assert_eq!(wire_data_segment_counts(&artifact.bytes), (2, 0));
+        assert!(artifact
+            .gc_host_imports()
+            .contains(&GcHostImport::CollectGc));
     }
 
     fn regexp_descriptor_from_pool(
@@ -3471,11 +3494,13 @@ object[key];
                 .map(|(&index, _)| index)
                 .collect::<Vec<_>>();
             assert!(!probes.is_empty());
+            // The write's Set is R's one dynamic dispatch: the probe calls
+            // `ordinary_set` directly instead of expanding it per site.
             assert!(
                 probes
                     .iter()
-                    .any(|index| program_calls[index].contains(&sloppy)),
-                "the actual nested With probe calls shared PutValue"
+                    .any(|index| program_calls[index].contains(&set)),
+                "the actual nested With probe calls the shared OrdinarySet"
             );
             let mut imported = 0u32;
             let mut matched_import = false;
@@ -3487,12 +3512,12 @@ object[key];
                             import.ty,
                             wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
                         ) {
-                            if imported == sloppy {
+                            if imported == set {
                                 assert_eq!(
                                     import.module,
                                     crate::runtime_artifact::RUNTIME_IMPORT_NAMESPACE
                                 );
-                                assert_eq!(import.name, format!("f{sloppy}"));
+                                assert_eq!(import.name, format!("f{set}"));
                                 matched_import = true;
                             }
                             imported += 1;
@@ -3519,9 +3544,12 @@ object[key];
         let growth = repeated_bytes
             .checked_sub(single_bytes)
             .expect("additional observable assignments must not shrink the body");
-        // The pre-outline baseline added 538,272 bytes. The GC rewrite
-        // regressed to 247,068 by repeating complete Reference PutValue paths;
-        // preserve the original bound while sharing that dispatch in R.
+        // The pre-outline baseline added 538,272 bytes; the bound is 180,000.
+        // `WithEnvironmentReferencePlan::put_value` retains the HasBinding
+        // selection and evaluates the RHS (a nested With read, ~6.5 KB) once,
+        // so each statement carries one copy: 130,842 bytes today. Cloning the
+        // RHS into every Object Environment branch and the fallback measured
+        // 247,068.
         assert!(
             growth < 180_000,
             "nine nested With assignments added {growth} bytes ({single_bytes} -> {repeated_bytes})"
@@ -3843,6 +3871,37 @@ delete proxy[0];"#,
 
     #[test]
     fn atomics_modules_import_private_and_capped_shared_memories() {
+        /// The memory index of the integer atomics every width of
+        /// `Atomics.load/store/add/compareExchange` compiles to.
+        fn atomic_memory(operator: &Operator) -> Option<u32> {
+            macro_rules! memory_of {
+                ($($variant:ident),+) => {
+                    match operator {
+                        $(Operator::$variant { memarg } => Some(memarg.memory),)+
+                        _ => None,
+                    }
+                };
+            }
+            memory_of!(
+                I64AtomicLoad8U,
+                I64AtomicLoad16U,
+                I64AtomicLoad32U,
+                I64AtomicLoad,
+                I64AtomicStore8,
+                I64AtomicStore16,
+                I64AtomicStore32,
+                I64AtomicStore,
+                I64AtomicRmw8AddU,
+                I64AtomicRmw16AddU,
+                I64AtomicRmw32AddU,
+                I64AtomicRmwAdd,
+                I64AtomicRmw8CmpxchgU,
+                I64AtomicRmw16CmpxchgU,
+                I64AtomicRmw32CmpxchgU,
+                I64AtomicRmwCmpxchg
+            )
+        }
+
         for source in [
             "var view = new Int32Array(new SharedArrayBuffer(8)); view[0] = 1; Atomics.add(view, 0, 2); Atomics.compareExchange(view, 0, 3, 4); view[0];",
             "var view = new Int32Array(new SharedArrayBuffer(8)); var add = Atomics['add']; add(view, 0, 2);",
@@ -3850,27 +3909,18 @@ delete proxy[0];"#,
             let artifact = emit_script(source).expect("Atomics script should emit");
             expect_valid_module(&artifact, 0);
 
+            // R and P import the same host memories: the private heap memory
+            // and the capped shared memory that backs SharedArrayBuffer.
             let runtime = artifact.runtime().expect("Atomics program links R");
             let mut atomic_memory_indexes = Vec::new();
             for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
-            let mut memory_imports = Vec::new();
-            for payload in Parser::new(0).parse_all(bytes) {
-                match payload.expect("wasm parse should succeed") {
-                    Payload::ImportSection(reader) => {
-                        for imports in reader {
-                            match imports.expect("import should decode") {
-                                wasmparser::Imports::Single(_, import) => {
-                                    if let wasmparser::TypeRef::Memory(memory) = import.ty {
-                                        memory_imports.push((
-                                            import.name.to_string(),
-                                            memory.shared,
-                                            memory.maximum,
-                                        ));
-                                    }
-                                }
-                                wasmparser::Imports::Compact1 { items, .. } => {
-                                    for import in items {
-                                        let import = import.expect("compact import should decode");
+                let mut memory_imports = Vec::new();
+                for payload in Parser::new(0).parse_all(bytes) {
+                    match payload.expect("wasm parse should succeed") {
+                        Payload::ImportSection(reader) => {
+                            for imports in reader {
+                                match imports.expect("import should decode") {
+                                    wasmparser::Imports::Single(_, import) => {
                                         if let wasmparser::TypeRef::Memory(memory) = import.ty {
                                             memory_imports.push((
                                                 import.name.to_string(),
@@ -3879,50 +3929,57 @@ delete proxy[0];"#,
                                             ));
                                         }
                                     }
-                                }
-                                wasmparser::Imports::Compact2 { ty, names, .. } => {
-                                    if let wasmparser::TypeRef::Memory(memory) = ty {
-                                        for name in names {
-                                            memory_imports.push((
-                                                name.expect("compact import name should decode")
-                                                    .to_string(),
-                                                memory.shared,
-                                                memory.maximum,
-                                            ));
+                                    wasmparser::Imports::Compact1 { items, .. } => {
+                                        for import in items {
+                                            let import =
+                                                import.expect("compact import should decode");
+                                            if let wasmparser::TypeRef::Memory(memory) = import.ty
+                                            {
+                                                memory_imports.push((
+                                                    import.name.to_string(),
+                                                    memory.shared,
+                                                    memory.maximum,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    wasmparser::Imports::Compact2 { ty, names, .. } => {
+                                        if let wasmparser::TypeRef::Memory(memory) = ty {
+                                            for name in names {
+                                                memory_imports.push((
+                                                    name.expect("compact import name should decode")
+                                                        .to_string(),
+                                                    memory.shared,
+                                                    memory.maximum,
+                                                ));
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    Payload::CodeSectionEntry(body) => {
-                        let mut reader = body
-                            .get_operators_reader()
-                            .expect("operators should decode");
-                        while !reader.eof() {
-                            match reader.read().expect("operator should decode") {
-                                Operator::I32AtomicRmwAdd { memarg }
-                                | Operator::I32AtomicRmwCmpxchg { memarg }
-                                | Operator::I32AtomicLoad { memarg }
-                                | Operator::I32AtomicStore { memarg } => {
-                                    atomic_memory_indexes.push(memarg.memory);
-                                }
-                                _ => {}
+                        Payload::CodeSectionEntry(body) => {
+                            let mut reader = body
+                                .get_operators_reader()
+                                .expect("operators should decode");
+                            while !reader.eof() {
+                                atomic_memory_indexes.extend(atomic_memory(
+                                    &reader.read().expect("operator should decode"),
+                                ));
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
 
-            assert_eq!(
-                memory_imports,
-                vec![
-                    ("private_memory".to_string(), false, None),
-                    ("shared_memory".to_string(), true, Some(16_384)),
-                ],
-                "source: {source}"
-            );
+                assert_eq!(
+                    memory_imports,
+                    vec![
+                        ("private_memory".to_string(), false, None),
+                        ("shared_memory".to_string(), true, Some(16_384)),
+                    ],
+                    "source: {source}"
+                );
             }
             assert!(!atomic_memory_indexes.is_empty(), "source: {source}");
             assert!(

@@ -21,7 +21,7 @@ when rendering moved to this provider. The six observable numbering regression
 tests remain unchanged:
 
 ```sh
-cargo test -p lila-engine --test aot_intl_datetime_numbering
+cargo test -p lila-engine --test aot_intl -- aot_intl_datetime_numbering::
 ```
 
 The frozen checkpoint16r3 Intl replay completed 394 executions: 390 Success and

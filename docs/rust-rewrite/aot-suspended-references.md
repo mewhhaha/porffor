@@ -28,7 +28,7 @@ suspensions still return without running this cleanup. A delegate that handles
 
 ## Verification
 
-`cargo test --locked -p lila-engine --test aot_suspended_references -- --test-threads=1`
+`cargo test --locked -p lila-engine --test aot_generators -- aot_suspended_references:: --test-threads=1`
 executes 19 compiled-JavaScript regressions through Wasmtime and asserts exact
 observable traces. The cases cover evaluation order, abrupt resumption, strict
 and sloppy writes, Symbol keys, nullish bases, queued/interleaved activations,

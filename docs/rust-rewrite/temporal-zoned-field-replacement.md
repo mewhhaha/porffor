@@ -44,7 +44,7 @@ remain separate gaps; the change does not claim that every Temporal fixture
 passes.
 
 The focused native target is
-`cargo test -p lila-engine --test aot_temporal_zoned_with -- --test-threads=1`.
+`cargo test -p lila-engine --test aot_temporal -- aot_temporal_zoned_with:: --test-threads=1`.
 It covers metadata and branding, exact field and option order, abrupt values,
 all numeric fields, calendar merges, offset modes, nanoseconds, and epoch
 limits. The existing Buddhist target also checks conversion and arithmetic

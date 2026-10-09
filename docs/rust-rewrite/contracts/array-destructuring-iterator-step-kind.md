@@ -37,7 +37,7 @@ two-variant declaration, complete seven-mention ownership census, exact
 one-elision/two-value producer mapping and the full ordered value-read arm:
 
 ```console
-cargo test -p lila-aot-wasm --test destructuring_iterator_step_kind_structure
+cargo test -p lila-aot-wasm --test structure_language -- destructuring_iterator_step_kind_structure::
 cargo test -p lila-cli --test cli array::run_wasm_backend_uses_iterators_for_array_destructuring -- --exact --test-threads=1
 cargo test -p lila-cli --test cli array::run_wasm_backend_preserves_array_destructuring_iterator_abrupt_completions -- --exact --test-threads=1
 ```

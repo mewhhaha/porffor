@@ -26,7 +26,7 @@ runtime descriptor validation, exotic behavior, emitted Wasm or conformance
 counts.
 
 ```sh
-cargo test -p lila-aot-wasm --test stored_property_attributes_structure
+cargo test -p lila-aot-wasm --test structure_language -- stored_property_attributes_structure::
 ```
 
 The Batch-R boundary target passes `4/4`, and `cargo xc` is green. Batch R

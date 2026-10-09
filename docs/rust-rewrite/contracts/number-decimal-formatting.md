@@ -48,7 +48,7 @@ selected after rounding. The older
 builtin regression.
 
 ```sh
-cargo test -p lila-aot-wasm --test number_decimal_formatting_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- number_decimal_formatting_structure::
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_formats_dynamic_numbers_with_decimal_rounding -- --exact --test-threads=1
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_number_builtin_family_fixture -- --exact --test-threads=1
 ```

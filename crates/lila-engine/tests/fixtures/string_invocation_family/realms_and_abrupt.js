@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 function check(condition, name) { if (!condition) throw name; }
 function poison() { throw 'mutable public constructor or canonical String method'; }
 const foreign = $262.createRealm().global;

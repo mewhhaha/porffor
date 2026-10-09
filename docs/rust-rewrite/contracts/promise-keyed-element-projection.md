@@ -39,7 +39,7 @@ both exhaustive projection arms, typed settlement allocation and the absence of
 the retired Boolean route. The include-only target passes `3/3`.
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_keyed_element_projection_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- promise_keyed_element_projection_structure::
 cargo test -p lila-engine tests::wasm_backend_promise_all_settled_keyed_uses_one_resolve_lookup_and_shared_guards -- --exact --test-threads=1
 cargo test -p lila-cli --test cli functions::run_wasm_backend_distinguishes_all_promise_combinator_modes -- --exact --test-threads=1
 ```

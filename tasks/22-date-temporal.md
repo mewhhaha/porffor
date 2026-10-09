@@ -504,7 +504,7 @@ calendar coverage and full pinned Date/Temporal trees remain open.
 Refresh the focused Duration evidence with:
 
 ```sh
-cargo test -p lila-engine --test aot_temporal_duration_relative -- --test-threads=2
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_duration_relative:: --test-threads=2
 ```
 
 The general Date parsing follow-up replaces the two epoch-only display string

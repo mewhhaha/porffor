@@ -1,0 +1,50 @@
+//! Consolidated integration tests. Source and structure guards for language semantics:
+//! environments, property assignment, destructuring, descriptors, completions.
+//!
+//! One binary per area: every integration-test binary links the emitter and the ICU data, so
+//! a few area targets cost far less disk and link time than one target per file. Each module
+//! is one former test file; run just one with `-- <module>::`.
+
+mod accessor_descriptor_local_roles_structure;
+mod append_target_scope_structure;
+mod arguments_binding_protocol_ownership_structure;
+mod arguments_callee_descriptor_structure;
+mod arguments_index_descriptor_structure;
+mod completion_exit_structure;
+mod completion_kind_registry_domain_structure;
+mod conversion_abrupt_route_capability_structure;
+mod descriptor_known_present_compatibility_structure;
+mod destructuring_iterator_locals_ownership_structure;
+mod destructuring_iterator_step_kind_structure;
+mod global_object_environment_compound_assignment_structure;
+mod global_object_environment_numeric_update_structure;
+mod may_throw_abrupt_route_ownership_structure;
+mod numeric_update_value_kind_structure;
+mod object_environment_logical_assignment_structure;
+mod object_literal_home_object_structure;
+mod object_method_arrow_super_structure;
+mod obsolete_builtin_emitter_absence_structure;
+mod obsolete_core_backend_api_absence_structure;
+mod obsolete_planning_analysis_absence_structure;
+mod obsolete_static_generator_backend_absence_structure;
+mod ordinary_property_eager_compound_assignment_structure;
+mod ordinary_property_logical_assignment_structure;
+mod ordinary_property_numeric_update_structure;
+mod ordinary_property_plain_assignment_structure;
+mod ordinary_set_receiver_fallback_structure;
+mod prepared_destructuring_property_key_ownership_structure;
+mod prepared_destructuring_target_structure;
+mod private_element_entry_protocol_structure;
+mod shadowed_property_read_arm_absence_structure;
+mod shape_accessor_reference_selection_structure;
+mod spec_operation_object_target_kind_structure;
+mod stored_descriptor_role_relation_structure;
+mod stored_property_attributes_structure;
+mod strict_equality_static_kind_structure;
+mod super_property_reference_mutation_structure;
+mod try_clause_empty_completion_seed_structure;
+mod typeof_static_kind_structure;
+mod unary_numeric_ir_structure;
+mod with_environment_compound_assignment_structure;
+mod with_environment_identifier_call_structure;
+mod with_environment_numeric_update_structure;

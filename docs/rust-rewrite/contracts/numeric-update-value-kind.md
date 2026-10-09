@@ -35,13 +35,13 @@ unchanged. Current artifact, native, and source-structure verification is
 pending; the earlier results below are historical evidence only.
 
 ```sh
-cargo test -p lila-aot-wasm --test numeric_update_value_kind_structure
+cargo test -p lila-aot-wasm --test structure_language -- numeric_update_value_kind_structure::
 cargo test -p lila-aot-wasm --test primitive_to_number_throw_routing_structure
-cargo test -p lila-aot-wasm --test ordinary_property_numeric_update_structure
-cargo test -p lila-aot-wasm --test super_property_reference_mutation_structure
-cargo test -p lila-aot-wasm --test global_object_environment_numeric_update_structure
-cargo test -p lila-aot-wasm --test with_environment_numeric_update_structure
-cargo test -p lila-engine --test aot_bigint_numeric_updates -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_language -- ordinary_property_numeric_update_structure::
+cargo test -p lila-aot-wasm --test structure_language -- super_property_reference_mutation_structure::
+cargo test -p lila-aot-wasm --test structure_language -- global_object_environment_numeric_update_structure::
+cargo test -p lila-aot-wasm --test structure_language -- with_environment_numeric_update_structure::
+cargo test -p lila-engine --test aot_builtins -- aot_bigint_numeric_updates:: --test-threads=1
 ```
 
 At the preceding closed-domain checkpoint, the target passed `4/4`; the ordinary-property,

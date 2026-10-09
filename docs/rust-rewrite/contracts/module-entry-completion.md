@@ -91,10 +91,10 @@ post-load/parse rejection boundary. Host rejection policy never supplies or subs
 Focused verification targets:
 
 - `lila-ir --test module_entry_completion` and `--test module_instantiation`;
-- `lila-aot-wasm --test module_entry_completion`, plus the closed status-domain
+- `lila-aot-wasm --test modules_realms -- module_entry_completion::`, plus the closed status-domain
   library test and existing main-checkpoint structure tests;
-- `lila-engine --test aot_module_entry_completion` and
-  `--test aot_promise_rejection_policy`;
+- `lila-engine --test aot_realm_modules -- aot_module_entry_completion::` and
+  `--test aot_builtins -- aot_promise_rejection_policy::`;
 - `lila-engine --lib execution_failure::tests`;
 - `lila-test262 --lib module_entry_completion`, plus the existing actual Module
   rejection test and the unchanged Module replay.

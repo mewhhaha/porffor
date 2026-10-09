@@ -45,7 +45,7 @@ jobs:
       - name: Execute the complete find regression inventory through Wasmtime
         if: ${{ !cancelled() }}
         run: >-
-          python3 scripts/run_engine_regression_inventory.py aot_array_find
+          python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_find
           --output-dir /tmp/array-find-engine --timeout 600
       - name: Preserve exact inventory, verdicts and execution logs
         if: ${{ always() }}

@@ -59,13 +59,13 @@ indices, and resizable buffers. Each program explicitly selects WasmAot.
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lila-aot-wasm \
-  --test find_via_predicate_structure \
+cargo test --locked -p lila-aot-wasm --test structure_builtins \
   --test array_find_algorithm_owner_structure \
   --test array_find_index_algorithm_owner_structure \
   --test array_find_last_algorithm_owner_structure \
-  --test array_find_last_index_algorithm_owner_structure
-python3 scripts/run_engine_regression_inventory.py aot_array_find \
+  --test array_find_last_index_algorithm_owner_structure -- \
+  find_via_predicate_structure::
+python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_find \
   --output-dir /tmp/array-find-engine --timeout 600
 ```
 

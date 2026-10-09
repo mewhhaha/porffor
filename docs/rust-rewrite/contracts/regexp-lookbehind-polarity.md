@@ -32,5 +32,5 @@ Verification commands:
 
 ```sh
 cargo test -p lila-ir --test regexp_lookbehind_polarity_structure --test regexp_lookbehind_polarity --test regexp_lookaround
-cargo test -p lila-engine --test aot_regexp_lookaround --test aot_regexp_lookbehind_anchors
+cargo test -p lila-engine --test aot_regexp -- aot_regexp_lookaround:: aot_regexp_lookbehind_anchors::
 ```

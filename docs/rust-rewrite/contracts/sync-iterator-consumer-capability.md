@@ -170,7 +170,7 @@ task-plan, shortcut-inventory, and diff checks remain green.
 The focused commands include:
 
 ```sh
-cargo test -p lila-aot-wasm --test sync_iterator_consumer_capability_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
 cargo test -p lila-aot-wasm --test sync_iterator_protocol_error_ownership_structure -- --test-threads=1
 cargo test -p lila-cli --test cli array::run_wasm_backend_preserves_array_destructuring_iterator_abrupt_completions -- --exact
 cargo test -p lila-cli --test cli array::run_wasm_backend_preserves_array_accumulation_iterator_errors -- --exact

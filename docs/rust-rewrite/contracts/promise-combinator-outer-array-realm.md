@@ -62,7 +62,7 @@ created-Realm Arrays for `all`, `allSettled`, nonempty `any` and empty `any`.
 
 ```sh
 cargo test -p lila-aot-wasm --lib iterator_to_array_allocation_uses_the_active_function_realm --quiet
-cargo test -p lila-aot-wasm --test promise_callback_created_allocation_realm_structure --quiet
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
 cargo test -p lila-cli --test cli run_wasm_backend_uses_callback_realms_for_promise_created_allocations --quiet
 ```
 

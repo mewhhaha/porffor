@@ -39,8 +39,8 @@ interleaved activations, const heads, and asynchronous iterator closing.
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lila-aot-wasm --test for_await_activation_layout_structure
-cargo test --locked -p lila-engine --test aot_async_for_of --test aot_captured_for_await -- --test-threads=1
+cargo test --locked -p lila-aot-wasm --test structure_async -- for_await_activation_layout_structure::
+cargo test --locked -p lila-engine --test aot_async -- aot_async_for_of:: aot_captured_for_await:: --test-threads=1
 ```
 
 The existing README capability description remains current. Additional

@@ -31,7 +31,7 @@ jobs:
       - name: Verify complete-inventory runner contracts
         run: python3 scripts/tests/test_engine_regression_inventory.py
       - name: Execute every engine regression in a bounded process
-        run: python3 scripts/run_engine_regression_inventory.py aot_array_callback_iteration --output-dir /tmp/callback-engine
+        run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_callback_iteration --output-dir /tmp/callback-engine
       - uses: actions/upload-artifact@v4
         if: always()
         with:

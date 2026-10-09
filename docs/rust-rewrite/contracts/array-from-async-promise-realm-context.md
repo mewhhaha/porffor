@@ -78,7 +78,7 @@ none and leaves all 669 retained dumps equal after accounting normalization.
 ```sh
 cargo test -p lila-aot-wasm --test array_from_async_promise_realm_context_structure --quiet
 cargo test -p lila-cli --test cli run_wasm_backend_uses_the_array_from_async_method_realm_for_its_promise --quiet
-env LILA_GOLDEN_OUT=$PWD/target/golden/post-array-from-async-realm-temporal-difference-typedarray-search-v1 cargo test -p lila-aot-wasm --test emit_golden
+env LILA_GOLDEN_OUT=$PWD/target/golden/post-array-from-async-realm-temporal-difference-typedarray-search-v1 cargo test -p lila-aot-wasm --test emission -- emit_golden::
 ```
 
 This boundary does not change Promise allocation in other async builtins, async

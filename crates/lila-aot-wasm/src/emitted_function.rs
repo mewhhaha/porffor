@@ -30,7 +30,7 @@
 //! section — wasmtime builds its per-function symbol as
 //! `wasm[0]::function[N]::<name>` from exactly that section, so the same table
 //! that measures a body also names it in wasmtime's own diagnostics — and it
-//! feeds the `debug_dump` size report that `tests/emit_golden.rs` records for
+//! feeds the `debug_dump` size report that `tests/emission/emit_golden.rs` records for
 //! all 527 CLI fixtures.
 
 use std::num::NonZeroU32;
@@ -231,7 +231,7 @@ impl EmittedFunctionSummary {
     ///
     /// `name=` is **last** on purpose: emitted names contain spaces
     /// (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`), so
-    /// a positional layout could not be parsed back. `tests/emit_golden.rs`
+    /// a positional layout could not be parsed back. `tests/emission/emit_golden.rs`
     /// parses exactly these keys out of `debug_dump`.
     fn fields(&self) -> String {
         format!(

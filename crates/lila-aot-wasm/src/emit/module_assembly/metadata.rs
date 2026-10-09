@@ -7,7 +7,7 @@ pub(super) fn append_function_attribution(
     debug_dump: &mut Vec<String>,
     function_table: &ModuleFunctionTable,
 ) -> Vec<EmittedFunctionSummary> {
-    // Emitted-size attribution. `tests/emit_golden.rs` records `debug_dump` per
+    // Emitted-size attribution. `tests/emission/emit_golden.rs` records `debug_dump` per
     // fixture, so these two lines make the largest emitted body a tracked
     // artifact across all 527 CLI fixtures at no extra cost, and give a
     // `Code for function is too large` failure a named suspect.
@@ -22,7 +22,7 @@ pub(super) fn append_function_attribution(
     // (`get Object.prototype.__proto__`, `Array Iterator.prototype.next`,
     // `get #private`), so a positional layout cannot be parsed back: putting the
     // free-form name last is what makes it unambiguous without quoting, and
-    // `tests/emit_golden.rs` parses exactly these keys.
+    // `tests/emission/emit_golden.rs` parses exactly these keys.
     //
     // One traversal, three consumers. `function_sizes` on the artifact, the two
     // attribution lines below and the opt-in full report are all rendered from

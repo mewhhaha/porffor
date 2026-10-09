@@ -20,7 +20,7 @@ The following checkpoint predates this GC-owner migration.
 Focused verification on 2026-08-28:
 
 ```sh
-cargo test -p lila-aot-wasm --test may_throw_abrupt_route_ownership_structure
+cargo test -p lila-aot-wasm --test structure_language -- may_throw_abrupt_route_ownership_structure::
 ```
 
 The focused structure target passes all 4 tests. The shared `cargo xc`

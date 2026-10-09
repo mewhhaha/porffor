@@ -79,7 +79,7 @@ by [the direct-eval contract](prepared-direct-eval.md).
 
 The focused verification targets are `lila-front --test dynamic_function_preparation`,
 `lila-ir --test prepared_dynamic_function` and
-`lila-engine --test aot_prepared_dynamic_function`. They cover independent
+`lila-engine --test aot_realm_modules -- aot_prepared_dynamic_function::`. They cover independent
 scope, fresh functions, nested closures/source units, all four execution
 protocols, binding-pattern parameters, deferred errors, argument coercion order
 and reflection. Their execution results belong to the coordinated batch

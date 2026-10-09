@@ -41,7 +41,7 @@ Wasm, time arithmetic, Intl formatting, root scanning or collector execution.
 
 ```sh
 cargo test -p lila-aot-wasm --test temporal_plain_time_heap_slot_structure
-cargo test -p lila-aot-wasm --test temporal_plain_time_field_authority_structure
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_time_field_authority_structure::
 cargo test -p lila-aot-wasm --lib heap::tests::temporal_plain_time_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
 cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
 rustfmt --check crates/lila-aot-wasm/src/heap_temporal_plain_time_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/temporal_plain_time_heap_slot_structure.rs

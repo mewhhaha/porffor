@@ -162,8 +162,8 @@ cargo test --release --locked -j2 --no-fail-fast -p lila-ir \
   --test borrowed_eval_loop_heads --test declaration_completion \
   --test direct_eval_environment --test object_constructor_boxing -- --test-threads=2
 LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine \
-  --test aot_declaration_completion \
-  borrowed_eval_loop_heads_write_the_selected_caller_bindings -- --exact --test-threads=1
+  --test aot_language \
+  -- aot_declaration_completion::borrowed_eval_loop_heads_write_the_selected_caller_bindings --exact --test-threads=1
 ```
 
 ## Remaining baseline work

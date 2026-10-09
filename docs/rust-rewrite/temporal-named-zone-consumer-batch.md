@@ -135,9 +135,9 @@ python3 scripts/generate-intl-named-time-zones.py --check
 cargo check --workspace --all-targets
 cargo test -p lila-intl provider::named_time_zones -- --test-threads=1
 cargo test -p lila-engine --lib intl_time_zone_host -- --test-threads=1
-cargo test -p lila-engine --test aot_intl_named_time_zones -- --test-threads=1
-cargo test -p lila-engine --test aot_temporal_named_arithmetic --test aot_temporal_named_zdt_leaves -- --test-threads=1
-cargo test -p lila-engine --test aot_temporal_duration_zoned_relative --test aot_temporal_named_conversions --test aot_temporal_relative_bag --test aot_temporal_zoned_locale -- --test-threads=1
+cargo test -p lila-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=1
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_named_arithmetic:: aot_temporal_named_zdt_leaves:: --test-threads=1
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_duration_zoned_relative:: aot_temporal_named_conversions:: aot_temporal_relative_bag:: aot_temporal_zoned_locale:: --test-threads=1
 ```
 
 After the focused gates, run the broad checkpoint from the batch workflow,

@@ -117,7 +117,7 @@ results, boxed operands, single coercion and abrupt completion. Focused
 verification is:
 
 ```console
-cargo test -p lila-aot-wasm --test unary_numeric_ir_structure
+cargo test -p lila-aot-wasm --test structure_language -- unary_numeric_ir_structure::
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_bigint_bitwise_fixture -- --exact --test-threads=1
 ./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/S11.4.8_A3_T1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
 ./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/bigint.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000

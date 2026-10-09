@@ -60,7 +60,7 @@ python3 -m unittest discover -s scripts/tests -p 'test_intl_positional_numbering
 python3 -m unittest discover -s scripts/tests -p 'test_generate_intl_datetime_profile.py'
 cargo test --locked -p lila-intl tols -- --test-threads=1
 cargo test --locked -p lila-intl tests::formatting_identity_discloses_only_its_checked_numbering_supplement -- --exact --test-threads=1
-cargo test --locked -p lila-engine --test aot_intl_numbering_tols -- --test-threads=1
+cargo test --locked -p lila-engine --test aot_intl -- aot_intl_numbering_tols:: --test-threads=1
 ./scripts/publish-real-status-low-ram.sh wasm-aot <fresh-snapshot-name>
 ```
 

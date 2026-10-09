@@ -94,7 +94,7 @@ inherit an arbitrary Boolean from those callers.
 
 ## Durable structural witness
 
-`crates/lila-aot-wasm/tests/async_generator_complete_step_kind_structure.rs`
+`crates/lila-aot-wasm/tests/structure_async/async_generator_complete_step_kind_structure.rs`
 should require:
 
 - exactly the two enum variants and one exhaustive Boolean projection;

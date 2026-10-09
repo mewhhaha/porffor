@@ -29,7 +29,7 @@ and missing locked-length validation. Those causes are repaired in the next
 source batch; they are not counted as passing before verification.
 
 ```sh
-cargo test --release --locked -p lila-engine --test aot_json_reviver_definitions -- --test-threads=2
-cargo test --release --locked -p lila-aot-wasm --test json_reviver_frame_structure
+cargo test --release --locked -p lila-engine --test aot_builtins -- aot_json_reviver_definitions:: --test-threads=2
+cargo test --release --locked -p lila-aot-wasm --test structure_builtins -- json_reviver_frame_structure::
 cargo test --release --locked -p lila-engine --lib tests::wasm_backend_json_ -- --test-threads=2
 ```

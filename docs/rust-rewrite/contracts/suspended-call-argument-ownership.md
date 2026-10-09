@@ -32,7 +32,7 @@ generator values now compose through their checked structural
 [source plan](plain-generator-value-branch-ownership.md); suspended loop and
 async-generator branches remain separate work. This packet does not add a parser, interpreter, VM, source execution fallback, or broad conformance claim.
 
-Pending focused selector: `cargo test -p lila-engine --test aot_suspended_call_references`. Seventeen source fixtures cover method replacement and key conversion, getter/key/Proxy abrupt completion, noncallable/nonconstructor argument order, spread side effects and iterator replacement, spread abrupt completion, constructor identity, private/super methods, tag receiver/frozen arrays, direct eval's original identity, plain/runtime with-environment References, and grouped optional admission, conditional receivers, nullish outer argument evaluation, getter/key abrupt completion, post-call receiver reset and tags. No fixture has executed.
+Pending focused selector: `cargo test -p lila-engine --test aot_generators -- aot_suspended_call_references::`. Seventeen source fixtures cover method replacement and key conversion, getter/key/Proxy abrupt completion, noncallable/nonconstructor argument order, spread side effects and iterator replacement, spread abrupt completion, constructor identity, private/super methods, tag receiver/frozen arrays, direct eval's original identity, plain/runtime with-environment References, and grouped optional admission, conditional receivers, nullish outer argument evaluation, getter/key abrupt completion, post-call receiver reset and tags. No fixture has executed.
 
 
 The shared private `InvocationSuspension::{Await, Yield}` choice selects the
@@ -58,7 +58,7 @@ Terminal-Property chain References retain their separate boundary. See the
 See the [optional chain contract](generator-optional-chain-yield-ownership.md).
 The new three Engine fixtures and actual IR controls remain unexecuted.
 
-The generator focused targets are `lila-engine --test aot_generator_invocation_references`
+The generator focused targets are `lila-engine --test aot_generators -- aot_generator_invocation_references::`
 and `lila-ir --test generator_invocation_boundaries`, with existing await and
 generator call controls affected. Fourteen generator fixture sources and twelve
 boundary refusal inputs are authored. Independent review corrected the

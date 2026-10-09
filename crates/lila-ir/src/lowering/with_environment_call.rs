@@ -125,6 +125,12 @@ impl<'a> ScriptLowerer<'a> {
                 }
             },
             LocatedIdentifierReference::Unresolvable => {
+                // The fallback GetValue reaches the global object at run
+                // time, so a host global it names must be installed there
+                // even when no other reference mentions it.
+                if let Some(host) = self.host_surface_policy.resolve_global(name) {
+                    self.used_host_builtins.insert(host);
+                }
                 self.widen_with_identifier_call_global_fallback(name, dynamic.clone());
                 TypedExpr::from_info(
                     dynamic,

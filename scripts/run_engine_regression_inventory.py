@@ -3,6 +3,8 @@
 
 No selection/skip list is accepted. Each exact invocation must pass once with the
 rest of the complete inventory filtered out, and every inventory entry must run.
+The only narrowing is `--module`: one test file of a consolidated area target,
+whose complete module inventory is executed.
 """
 
 import argparse
@@ -34,14 +36,21 @@ def build_test_binary(target: str) -> Path:
     return Path(executables.pop())
 
 
-def run_inventory(binary: Path, output_dir: Path, timeout: int) -> dict:
+def run_inventory(binary: Path, output_dir: Path, timeout: int,
+                  module: str | None = None) -> dict:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     inventory = subprocess.run(
         [str(binary), "--list"], check=True, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True,
     ).stdout
-    names = parse_inventory(inventory)
+    binary_names = parse_inventory(inventory)
+    names = binary_names
+    if module is not None:
+        # Test files are modules of their area target: `<module>::<test>`.
+        names = [name for name in binary_names if name.startswith(f"{module}::")]
+        if not names:
+            raise ValueError(f"target inventory has no tests in module {module}")
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "inventory.txt").write_text(inventory)
     results = []
@@ -55,7 +64,7 @@ def run_inventory(binary: Path, output_dir: Path, timeout: int) -> dict:
                 text=True, timeout=timeout,
             )
             output = result.stdout
-            passed = result.returncode == 0 and passed_exactly_one(output, len(names))
+            passed = result.returncode == 0 and passed_exactly_one(output, len(binary_names))
             status = "passed" if passed else "failed"
         except subprocess.TimeoutExpired as error:
             output = error.stdout or ""
@@ -77,13 +86,15 @@ def run_inventory(binary: Path, output_dir: Path, timeout: int) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", help="complete lila-engine integration test target")
+    parser.add_argument("target", help="lila-engine integration test target (area)")
+    parser.add_argument("--module", help="run only this test file (module) of the target")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=600, help="seconds per test")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("timeout must be positive")
-    summary = run_inventory(build_test_binary(args.target), args.output_dir, args.timeout)
+    summary = run_inventory(build_test_binary(args.target), args.output_dir, args.timeout,
+                           args.module)
     return int(summary["passed"] != summary["total"])
 
 

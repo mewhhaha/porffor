@@ -173,7 +173,7 @@ rejects the retired first-match loop exit, clearing the fresh reentrant FIFO,
 removing the product checkpoint call or its CLI test registrations, and any
 restoration of source-reference-only print-import authority.
 
-`crates/lila-aot-wasm/tests/completion_exit_structure.rs` separately fixes the
+`crates/lila-aot-wasm/tests/structure_language/completion_exit_structure.rs` separately fixes the
 private file owner, narrow re-export, exact state/method visibility inventory,
 closed caller census, no-capability declarations, four exhaustive borrowed
 decisions and the checked block-entry/exit and abrupt-return order.

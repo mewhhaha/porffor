@@ -237,4 +237,34 @@ impl FunctionBuilder<'_> {
         )?;
         Ok(())
     }
+
+    pub(crate) fn install_uint8_array_constructor_intrinsics(
+        &mut self,
+        context: &IntrinsicInstall<'_>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        for (members, target) in [
+            (
+                lila_ir::UINT8_ARRAY_CODEC_STATIC_MEMBERS.as_slice(),
+                context.constructor,
+            ),
+            (
+                lila_ir::UINT8_ARRAY_CODEC_PROTOTYPE_MEMBERS.as_slice(),
+                context.prototype,
+            ),
+        ] {
+            for &(name, builtin) in members {
+                self.emit_install_intrinsic_method(
+                    target,
+                    IntrinsicKey::Name(name),
+                    builtin,
+                    context.realm,
+                    true,
+                    true,
+                    function,
+                )?;
+            }
+        }
+        Ok(())
+    }
 }

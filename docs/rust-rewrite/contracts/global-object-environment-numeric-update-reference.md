@@ -106,8 +106,8 @@ The focused ladder after batch integration is:
 ```sh
 cargo fmt --all --check
 cargo test -p lila-ir lowers_script_global_update_from_class_constructor --quiet
-cargo test -p lila-aot-wasm \
-  --test global_object_environment_numeric_update_structure --quiet
+cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+  global_object_environment_numeric_update_structure::
 cargo test -p lila-cli --test cli \
   language::run_wasm_backend_succeeds_for_global_object_environment_numeric_update_fixture \
   -- --exact --test-threads=1

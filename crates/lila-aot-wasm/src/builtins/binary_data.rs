@@ -48,6 +48,14 @@ pub(in crate::builtins) enum DataViewAccessor {
     ByteLength,
     ByteOffset,
 }
+/// The `accessMode` of TypedArrayCreateFromConstructor's ValidateTypedArray:
+/// a result that the caller only reads (`subarray`) may be backed by an
+/// Immutable ArrayBuffer, while one the caller writes into may not.
+#[derive(Clone, Copy)]
+pub(in crate::builtins) enum TypedArrayCreateAccess {
+    Read,
+    ReadWrite,
+}
 #[derive(Clone, Copy)]
 pub(in crate::builtins) enum TypedArrayAccessorKind {
     ByteLength,

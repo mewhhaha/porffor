@@ -19,7 +19,7 @@ exit, operand order, String scratch-local discipline, tagged temporary-local
 lifecycle and completion publication.
 
 ```sh
-cargo test -p lila-aot-wasm --test strict_equality_static_kind_structure
+cargo test -p lila-aot-wasm --test structure_language -- strict_equality_static_kind_structure::
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_spec_strict_equality_fixture -- --exact --test-threads=1
 ```
 

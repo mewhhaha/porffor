@@ -16,7 +16,7 @@ sources use the same path.
 
 The old four-mention classifier structure test is retired with the type. The
 replacement bounded target is
-`crates/lila-aot-wasm/tests/plain_async_sync_for_of_iterator_record_structure.rs`.
+`crates/lila-aot-wasm/tests/structure_async/plain_async_sync_for_of_iterator_record_structure.rs`.
 It pins the closed plan, typed slot allocation, dynamic yielded value,
 emission-site join, additive temporary-local budget, and absence of the old
 index synthesis and witness.

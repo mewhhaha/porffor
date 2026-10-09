@@ -19,7 +19,7 @@ through an exhaustive route match instead of comparing route values.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/regexp_matcher_failure_route_structure.rs`
+`crates/lila-aot-wasm/tests/structure_builtins/regexp_matcher_failure_route_structure.rs`
 recursively pins all eight source mentions, the exact no-capability two-row
 domain, both status-row mappings and messages, the macro-owned exhaustive
 projection, the owner-unit projection, and the sole product consumer's error

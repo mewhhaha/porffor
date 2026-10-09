@@ -144,7 +144,7 @@ cargo xc
 cargo test -p lila-aot-wasm --test async_generator_body_status_structure -- --test-threads=1
 cargo test -p lila-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
 cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_await_using_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
 ```
 
 `cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green. The

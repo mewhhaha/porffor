@@ -55,8 +55,8 @@ value identity, and syntax-versus-suitability order relative to the year field.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_date_field_read_mode_structure
-cargo test -p lila-engine --test aot_temporal_month_code -- --test-threads=1
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_date_field_read_mode_structure::
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_month_code:: --test-threads=1
 cargo test -p lila-cli --test cli date::run_wasm_backend_preserves_temporal_date_field_read_modes -- --exact --test-threads=8
 ./scripts/check-module-boundaries.sh
 cargo fmt --all -- --check

@@ -86,9 +86,27 @@ fn with_var_initializer_retains_reference_selection_and_declaration_completion()
         let [initializer] = initializers.as_slice() else {
             panic!("one variable initializer must retain empty completion: {initializers:?}");
         };
+        let ExprIr::MaterializeBinding {
+            value: selection,
+            body,
+            ..
+        } = &initializer.expr
+        else {
+            panic!("the Object Environment Record selection must be retained: {initializer:?}");
+        };
         assert!(
-            matches!(initializer.expr, ExprIr::Conditional { .. }),
+            matches!(selection.expr, ExprIr::Conditional { .. }),
             "the Object Environment Record is selected before evaluating the initializer",
+        );
+        let ExprIr::MaterializeBinding {
+            value: rhs_value, ..
+        } = &body.expr
+        else {
+            panic!("the initializer is evaluated once, after the selection: {body:?}");
+        };
+        assert!(
+            matches!(rhs_value.expr, ExprIr::DeleteProperty { .. }),
+            "the initializer is bound after selection: {rhs_value:?}",
         );
         assert_eq!(
             script.global_bindings.get("selected").unwrap().declarations,

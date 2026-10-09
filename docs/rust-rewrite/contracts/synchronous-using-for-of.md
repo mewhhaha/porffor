@@ -154,7 +154,7 @@ cargo fmt --all -- --check
 cargo check -p lila-ir
 cargo check -p lila-aot-wasm --lib
 cargo test -p lila-ir synchronous_using_for_of --quiet
-cargo test -p lila-aot-wasm --test synchronous_using_for_of_structure --quiet
+cargo test -p lila-aot-wasm --test structure_async --quiet -- synchronous_using_for_of_structure::
 cargo test -p lila-cli --test cli resource_management::wasm_using_for_of_lifecycle -- --exact
 ./target/debug/lila test262 run language/statements/for-of/head-using-bound-names-fordecl-tdz.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ./target/debug/lila test262 run language/statements/for-of/head-using-fresh-binding-per-iteration.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1

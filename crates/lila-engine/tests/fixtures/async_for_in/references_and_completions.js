@@ -28,28 +28,28 @@ async function references() {
     }
   }
   check(views.value === 7 && value === 'second', 'body-compound-reference-and-old-value-retained');
-  check(events.join(',') === 'has,get,set', 'compound-has-get-put-before-and-after-await');
+  check(events.join(',') === 'has,has,get,has,set', 'compound-has-get-put-before-and-after-await');
   excluded.value = false; events = [];
   with (view) {
     for (const key in await Promise.resolve({ only: 1 })) {
       value = await Promise.resolve(whole).then(function (next) { excluded.value = true; gc(); return next; });
     }
   }
-  check(views.value === whole && events.join(',') === 'has,set', 'body-write-only-reference-has-no-get');
+  check(views.value === whole && events.join(',') === 'has,has,set', 'body-write-only-reference-has-no-get');
   excluded.value = false; views.value = null; events = [];
   with (view) {
     for (const key in await Promise.resolve({ only: 1 })) {
       value ??= await Promise.resolve(whole).then(function (next) { excluded.value = true; return next; });
     }
   }
-  check(views.value === whole && events.filter(function (event) { return event === 'has'; }).length === 1, 'logical-put-keeps-selected-record');
+  check(views.value === whole && events.join(',') === 'has,has,get,has,set', 'logical-put-keeps-selected-record');
   excluded.value = false; views.value = 0; events = []; var skipped = 0;
   with (view) {
     for (const key in await Promise.resolve({ only: 1 })) {
       value &&= await { get then() { skipped++; throw whole; } };
     }
   }
-  check(skipped === 0 && views.value === 0 && events.join(',') === 'has,get', 'logical-skipped-arm-releases-reference-without-put');
+  check(skipped === 0 && views.value === 0 && events.join(',') === 'has,has,get', 'logical-skipped-arm-releases-reference-without-put');
   excluded.value = false; events = [];
   with (view) {
     for (const key in await Promise.resolve({ only: 1 })) {

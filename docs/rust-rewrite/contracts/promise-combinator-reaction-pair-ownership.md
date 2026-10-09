@@ -26,7 +26,7 @@ arm.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/promise_combinator_reaction_pair_ownership_structure.rs`
+`crates/lila-aot-wasm/tests/structure_builtins/promise_combinator_reaction_pair_ownership_structure.rs`
 recursively pins the private module, zero imports or re-exports, private
 non-derived declaration, five child-only production mentions, sole semantic
 entry and parent caller, exact three-row selection, paired tagged locals,
@@ -53,8 +53,8 @@ The retained combinator fixture exercises fulfillment and rejection for all
 three standard modes, as well as the separate keyed modes:
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_combinator_reaction_pair_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test promise_combinator_mode_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- promise_combinator_reaction_pair_ownership_structure:: --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- promise_combinator_mode_structure:: --test-threads=1
 cargo test -p lila-cli --test cli functions::run_wasm_backend_distinguishes_all_promise_combinator_modes -- --exact --test-threads=1
 cargo check -p lila-aot-wasm --lib
 ```

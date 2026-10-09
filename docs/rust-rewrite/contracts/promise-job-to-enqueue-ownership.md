@@ -36,7 +36,7 @@ duplicates.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/promise_job_to_enqueue_structure.rs` uses a
+`crates/lila-aot-wasm/tests/structure_builtins/promise_job_to_enqueue_structure.rs` uses a
 Rust-lexical recursive census that excludes comments and every Rust
 string/character literal form. It pins the one private child module, zero
 imports/re-exports, exactly six child-only authority mentions, two producers,
@@ -60,7 +60,7 @@ and reduces the concurrent `promise.rs` snapshot from 8,923 to 8,717 lines.
 Focused verification:
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_job_to_enqueue_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- promise_job_to_enqueue_structure::
 cargo test -p lila-engine tests::wasm_backend_promise_reactions_run_after_synchronous_code_in_registration_order -- --exact --test-threads=1
 cargo test -p lila-engine tests::wasm_backend_promise_thenable_jobs_are_asynchronous_and_settle_once -- --exact --test-threads=1
 cargo test -p lila-cli --test cli functions::run_wasm_backend_preserves_created_realm_promise_internal_callbacks -- --exact --test-threads=1

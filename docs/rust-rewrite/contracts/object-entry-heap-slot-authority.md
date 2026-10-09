@@ -52,8 +52,8 @@ unchanged.
 
 ```sh
 cargo test -p lila-aot-wasm --test object_entry_heap_slot_structure
-cargo test -p lila-aot-wasm --test stored_descriptor_role_relation_structure
-cargo test -p lila-aot-wasm --test stored_property_attributes_structure
+cargo test -p lila-aot-wasm --test structure_language -- stored_descriptor_role_relation_structure::
+cargo test -p lila-aot-wasm --test structure_language -- stored_property_attributes_structure::
 cargo test -p lila-aot-wasm --lib heap::tests::object_entry_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
 cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
 rustfmt --check crates/lila-aot-wasm/src/heap_object_entry_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/object_entry_heap_slot_structure.rs

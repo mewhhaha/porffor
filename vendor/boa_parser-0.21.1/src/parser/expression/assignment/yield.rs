@@ -82,6 +82,7 @@ where
                 .into())
             }
             TokenKind::IdentifierName(_)
+            | TokenKind::PrivateIdentifier(_)
             | TokenKind::Punctuator(
                 Punctuator::OpenParen
                 | Punctuator::Add

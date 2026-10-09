@@ -95,8 +95,8 @@ foreign or labelled branches. These authored controls are not runtime evidence.
 Required verification is `cargo check --release --locked --workspace --all-targets`,
 `cargo test --release --locked -p lila-ir --lib async_for_of_body`,
 `cargo test --release --locked -p lila-ir --test async_for_of_continuations`,
-`cargo test --release --locked -p lila-aot-wasm --test plain_async_sync_for_of_iterator_record_structure`,
-and `cargo test --release --locked -p lila-engine --test aot_async_for_of_continuations`.
+`cargo test --release --locked -p lila-aot-wasm --test structure_async -- plain_async_sync_for_of_iterator_record_structure::`,
+and `cargo test --release --locked -p lila-engine --test aot_async -- aot_async_for_of_continuations::`.
 Retain the neighboring async loop/if, module lifecycle, iterator protocol,
 closure, and close-precedence oracles. The new native fixture includes the
 unchanged module loop that exposed the gap and requires exact output after

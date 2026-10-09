@@ -134,8 +134,8 @@ After batch integration:
 ```sh
 cargo fmt --all --check
 cargo test -p lila-ir lowering::object_environment_logical::tests --quiet
-cargo test -p lila-aot-wasm \
-  --test object_environment_logical_assignment_structure --quiet
+cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+  object_environment_logical_assignment_structure::
 cargo test -p lila-cli --test cli \
   language::run_wasm_backend_succeeds_for_object_environment_logical_assignment_fixture \
   -- --exact --test-threads=1

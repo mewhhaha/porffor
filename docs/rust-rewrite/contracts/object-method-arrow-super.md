@@ -133,7 +133,7 @@ Central focused verification after the lanes are assembled:
 cargo check --workspace --all-targets
 cargo xc
 cargo test -p lila-ir object_method_arrow_super
-cargo test -p lila-aot-wasm --test object_method_arrow_super_structure
+cargo test -p lila-aot-wasm --test structure_language -- object_method_arrow_super_structure::
 cargo test -p lila-cli --test cli object_method_arrow_super_fixture
 
 ./target/debug/lila test262 run \

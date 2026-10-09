@@ -69,9 +69,9 @@ regressions remain part of the same CI gate.
 ```sh
 cargo fmt --all -- --check
 cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
-cargo test --locked -p lila-engine --test aot_control_flow -- --test-threads=1
-cargo test --locked -p lila-engine --test aot_async_for_of -- --test-threads=1
-cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
+cargo test --locked -p lila-engine --test aot_language -- aot_control_flow:: --test-threads=1
+cargo test --locked -p lila-engine --test aot_async -- aot_async_for_of:: --test-threads=1
+cargo test --locked -p lila-aot-wasm --test emission -- product_artifact:: --test-threads=1
 ```
 
 The existing full backend sharding workflow discovers the new tests from the

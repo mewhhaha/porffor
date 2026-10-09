@@ -66,7 +66,7 @@ cargo xc
 cargo test --locked -p lila-intl --lib provider::datetime -- --test-threads=2
 cargo test --locked -p lila-intl --lib datetime_protocol -- --test-threads=2
 cargo test --locked -p lila-intl --lib supported_values -- --test-threads=2
-cargo test --locked -p lila-engine --test aot_intl_datetime_buddhist --test aot_temporal_zoned_locale --test aot_intl_datetime_provider --test aot_intl_datetime_numbering --test aot_intl_supported_values -- --test-threads=2
+cargo test --locked -p lila-engine --test aot_intl --test aot_temporal -- aot_intl_datetime_buddhist:: aot_temporal_zoned_locale:: aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_intl_supported_values:: --test-threads=2
 ```
 
 The completed 2026-10-01 Buddhist predecessor checkpoint records 518/558

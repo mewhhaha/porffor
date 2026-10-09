@@ -49,16 +49,12 @@ impl<'a> ScriptLowerer<'a> {
             .with_environment_chain
             .select_preceding(reference.declarative_position());
         if let Some(objects) = selected {
-            let plan = self.with_environment_reference_plan(source_name.clone(), objects);
-            let fallback = self.lower_located_identifier_assign_value_with_evidence(
+            self.lower_with_scoped_identifier_write_with_evidence(
                 source_name,
-                value.clone(),
+                value,
+                objects,
                 reference,
-            );
-            PreparedIdentifierWrite {
-                value: plan.put_value(value, fallback.value),
-                ignored: fallback.ignored,
-            }
+            )
         } else {
             self.lower_located_identifier_assign_value_with_evidence(source_name, value, reference)
         }

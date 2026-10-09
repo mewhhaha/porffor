@@ -1248,3 +1248,15 @@ fn eager_arithmetic_tdz_reads_reject_before_rhs_evaluation() {
         }
     }
 }
+
+#[test]
+fn typeof_of_an_unbound_host_global_installs_that_host_builtin() {
+    let program = lower_script("print(1); typeof gc;");
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script ir should exist");
+    assert!(
+        script.host_builtins.contains(&HostBuiltinId::Gc),
+        "typeof must resolve the host global in the realm: {:?}",
+        script.host_builtins
+    );
+}

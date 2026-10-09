@@ -1828,26 +1828,6 @@ impl WithEnvironmentResolution {
         )
     }
 
-    fn put_value_or_else(
-        self,
-        referenced_name: &str,
-        strictness: Strictness,
-        value: TypedExpr,
-        fallback: TypedExpr,
-    ) -> TypedExpr {
-        let Self { binding_object } = self;
-        let binding_visible = binding_object.binding_visible(referenced_name);
-        let with_write = binding_object.put_value(referenced_name, strictness, value);
-        TypedExpr::from_info(
-            with_write.value_info(),
-            ExprIr::Conditional {
-                condition: Box::new(binding_visible),
-                then_expr: Box::new(with_write),
-                else_expr: Box::new(fallback),
-            },
-        )
-    }
-
     /// Compose one selected Object Environment Record's independently
     /// observable GetBindingValue and SetMutableBinding around a numeric
     /// update. Resolution is not restarted after the getter runs.
@@ -2052,6 +2032,25 @@ pub(crate) struct WithEnvironmentReferencePlan {
     strictness: Strictness,
 }
 
+/// Compiler-private bindings for one selected Object Environment PutValue.
+///
+/// Both roles are `String`, so the sole allocator fixes which name retains the
+/// ResolveBinding selection and which retains the evaluated RHS.
+#[derive(Debug)]
+pub(crate) struct PutValueBindings {
+    selected: String,
+    value: String,
+}
+
+impl PutValueBindings {
+    pub(crate) fn allocate(mut allocate: impl FnMut(&str) -> String) -> Self {
+        Self {
+            selected: allocate("object.environment.put.selected."),
+            value: allocate("object.environment.put.value."),
+        }
+    }
+}
+
 /// Compiler-private bindings used by one Object Environment numeric update.
 ///
 /// All three roles are `String`, so accepting them positionally would allow a
@@ -2231,24 +2230,56 @@ impl WithEnvironmentReferencePlan {
         innermost.typeof_value_or_else(&referenced_name, strictness, resolved)
     }
 
+    /// Consume one ResolveBinding result for plain assignment. HasBinding runs
+    /// once, in order, before the RHS; the selected binding object (undefined
+    /// for the fallback) is retained while the RHS is evaluated exactly once.
+    /// PutValue then dispatches on that selection without restarting
+    /// resolution, and the fallback receives only the already bound RHS.
     #[must_use]
-    pub(crate) fn put_value(self, value: TypedExpr, fallback: TypedExpr) -> TypedExpr {
-        let Self {
-            innermost,
-            outer,
-            referenced_name,
-            strictness,
-        } = self;
-        let mut resolved = fallback;
-        for environment in outer {
-            resolved = environment.put_value_or_else(
-                &referenced_name,
-                strictness,
-                value.clone(),
-                resolved,
-            );
-        }
-        innermost.put_value_or_else(&referenced_name, strictness, value, resolved)
+    pub(crate) fn put_value(
+        self,
+        bindings: PutValueBindings,
+        value: TypedExpr,
+        fallback: impl FnOnce(TypedExpr) -> TypedExpr,
+    ) -> TypedExpr {
+        let PutValueBindings {
+            selected: selected_name,
+            value: value_name,
+        } = bindings;
+        let value_info = value.value_info();
+        let (referenced_name, strictness, selection) = self.into_binding_object_selection();
+        let selected = ObjectEnvironmentBindingObject {
+            source: ObjectEnvironmentBindingObjectSource::Materialized(selected_name.clone()),
+            info: dynamic_value_info(),
+        };
+        let bound_value =
+            TypedExpr::from_info(value_info.clone(), ExprIr::Identifier(value_name.clone()));
+        let unselected = TypedExpr::spec_same_value(selected.read(), TypedExpr::undefined());
+        let with_write = selected.put_value(&referenced_name, strictness, bound_value.clone());
+        let dispatch = TypedExpr::from_info(
+            value_info.clone(),
+            ExprIr::Conditional {
+                condition: Box::new(unselected),
+                then_expr: Box::new(fallback(bound_value)),
+                else_expr: Box::new(with_write),
+            },
+        );
+        let after_selection = TypedExpr::from_info(
+            value_info.clone(),
+            ExprIr::MaterializeBinding {
+                name: value_name,
+                value: Box::new(value),
+                body: Box::new(dispatch),
+            },
+        );
+        TypedExpr::from_info(
+            value_info,
+            ExprIr::MaterializeBinding {
+                name: selected_name,
+                value: Box::new(selection),
+                body: Box::new(after_selection),
+            },
+        )
     }
 
     /// Consume one ResolveBinding result for `++`/`--`. The required private
@@ -3565,8 +3596,83 @@ mod tests {
         }
     }
 
+    fn put_bindings() -> PutValueBindings {
+        PutValueBindings {
+            selected: "$put.selected".to_string(),
+            value: "$put.value".to_string(),
+        }
+    }
+
+    /// ResolveBinding as a retained selection: ordered HasBinding queries
+    /// yielding the first visible binding object, else undefined.
+    fn assert_selection_chain(expr: &TypedExpr, objects: &[&str]) {
+        let Some((first, rest)) = objects.split_first() else {
+            assert!(matches!(&expr.expr, ExprIr::Undefined));
+            return;
+        };
+        let ExprIr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } = &expr.expr
+        else {
+            panic!("selection must query {first} with HasBinding");
+        };
+        assert_eq!(initial_resolution_target(condition), *first);
+        assert_eq!(identifier_name(then_expr), *first);
+        assert_selection_chain(else_expr, rest);
+    }
+
+    /// Unwraps `selection -> RHS (once) -> dispatch` and returns the fallback
+    /// and selected-write branches of the dispatch.
+    fn put_dispatch<'a>(
+        lowered: &'a TypedExpr,
+        objects: &[&str],
+    ) -> (&'a TypedExpr, &'a TypedExpr) {
+        let ExprIr::MaterializeBinding {
+            name: selected_name,
+            value: selection,
+            body: after_selection,
+        } = &lowered.expr
+        else {
+            panic!("ResolveBinding must be retained before the RHS");
+        };
+        assert_eq!(selected_name, "$put.selected");
+        assert_selection_chain(selection, objects);
+
+        let ExprIr::MaterializeBinding {
+            name: value_name,
+            value: rhs,
+            body: dispatch,
+        } = &after_selection.expr
+        else {
+            panic!("the RHS must be evaluated once, after the whole selection");
+        };
+        assert_eq!(value_name, "$put.value");
+        assert_eq!(identifier_name(rhs), "rhs");
+
+        let ExprIr::Conditional {
+            condition,
+            then_expr: fallback,
+            else_expr: write,
+        } = &dispatch.expr
+        else {
+            panic!("PutValue must dispatch on the retained selection");
+        };
+        let ExprIr::SpecOperation {
+            operation: SpecOperationIr::SameValue,
+            operands,
+        } = &condition.expr
+        else {
+            panic!("an unselected Reference must test the retained selection");
+        };
+        assert_eq!(identifier_name(&operands[0]), "$put.selected");
+        assert!(matches!(&operands[1].expr, ExprIr::Undefined));
+        (fallback, write)
+    }
+
     #[test]
-    fn with_environment_strict_put_value_resolves_inner_to_outer_then_rechecks_same_object() {
+    fn with_environment_strict_put_value_selects_once_then_rechecks_selected_object() {
         let lowered = WithEnvironmentReferencePlan::create(
             with_environment_resolution("$with.inner"),
             vec![with_environment_resolution("$with.outer")],
@@ -3574,32 +3680,32 @@ mod tests {
             Strictness::Strict,
         )
         .put_value(
+            put_bindings(),
             identifier("rhs", ValueKind::Number),
-            identifier("fallback", ValueKind::Number),
+            |bound| bound,
         );
 
-        let ExprIr::Conditional {
-            condition: inner_condition,
-            then_expr: inner_write,
-            else_expr: outer_branch,
-        } = &lowered.expr
-        else {
-            panic!("innermost Object Environment must be queried first");
-        };
-        assert_eq!(initial_resolution_target(inner_condition), "$with.inner");
-        assert_strict_selected_write(inner_write, "$with.inner", "rhs");
+        let (fallback, write) = put_dispatch(&lowered, &["$with.inner", "$with.outer"]);
+        assert_eq!(identifier_name(fallback), "$put.value");
+        assert_strict_selected_write(write, "$put.selected", "$put.value");
+    }
 
-        let ExprIr::Conditional {
-            condition: outer_condition,
-            then_expr: outer_write,
-            else_expr: fallback,
-        } = &outer_branch.expr
-        else {
-            panic!("an inner miss must continue through the outer environment");
-        };
-        assert_eq!(initial_resolution_target(outer_condition), "$with.outer");
-        assert_strict_selected_write(outer_write, "$with.outer", "rhs");
-        assert_eq!(identifier_name(fallback), "fallback");
+    #[test]
+    fn with_environment_put_value_evaluates_the_rhs_once() {
+        let lowered = WithEnvironmentReferencePlan::create(
+            with_environment_resolution("$with.inner"),
+            vec![with_environment_resolution("$with.outer")],
+            "x".to_string(),
+            Strictness::Sloppy,
+        )
+        .put_value(
+            put_bindings(),
+            identifier("rhs", ValueKind::Number),
+            |bound| bound,
+        );
+
+        assert_eq!(format!("{lowered:?}").matches("\"rhs\"").count(), 1);
+        assert_eq!(lowered.value_info().kind, ValueKind::Number);
     }
 
     #[test]
@@ -3611,31 +3717,24 @@ mod tests {
             Strictness::Sloppy,
         )
         .put_value(
+            put_bindings(),
             identifier("rhs", ValueKind::Number),
-            identifier("fallback", ValueKind::Number),
+            |bound| bound,
         );
 
-        let ExprIr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } = &lowered.expr
-        else {
-            panic!("the Object Environment resolution must guard PutValue");
-        };
-        assert_eq!(initial_resolution_target(condition), "$with.object");
-        assert_eq!(identifier_name(else_expr), "fallback");
+        let (fallback, write) = put_dispatch(&lowered, &["$with.object"]);
+        assert_eq!(identifier_name(fallback), "$put.value");
 
         let ExprIr::MaterializeBinding {
             name: value_name,
             value,
             body: after_rhs,
-        } = &then_expr.expr
+        } = &write.expr
         else {
-            panic!("RHS must be materialized before SetMutableBinding");
+            panic!("the bound RHS must reach SetMutableBinding");
         };
         assert_eq!(value_name, OBJECT_ENVIRONMENT_VALUE_BINDING);
-        assert_eq!(identifier_name(value), "rhs");
+        assert_eq!(identifier_name(value), "$put.value");
         let ExprIr::MaterializeBinding {
             name: recheck_name,
             value: recheck,
@@ -3645,7 +3744,7 @@ mod tests {
             panic!("sloppy SetMutableBinding must still observe HasProperty");
         };
         assert_eq!(recheck_name, OBJECT_ENVIRONMENT_RECHECK_BINDING);
-        assert_eq!(has_property_target(recheck), "$with.object");
+        assert_eq!(has_property_target(recheck), "$put.selected");
         let ExprIr::PropertyWrite {
             target,
             key,
@@ -3655,7 +3754,7 @@ mod tests {
         else {
             panic!("the recheck must be followed by checked Set");
         };
-        assert_eq!(identifier_name(target), "$with.object");
+        assert_eq!(identifier_name(target), "$put.selected");
         assert!(matches!(
             key,
             PropertyKeyIr::StaticString(name) if name == "x"

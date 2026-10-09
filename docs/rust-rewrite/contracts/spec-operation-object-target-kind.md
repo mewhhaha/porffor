@@ -23,7 +23,7 @@ This source-equivalent migration changes no evaluation, conversion, object
 operation, error or completion order.
 
 ```sh
-cargo test -p lila-aot-wasm --test spec_operation_object_target_kind_structure
+cargo test -p lila-aot-wasm --test structure_language -- spec_operation_object_target_kind_structure::
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_spec_has_property_order_fixture -- --exact --test-threads=1
 ```
 

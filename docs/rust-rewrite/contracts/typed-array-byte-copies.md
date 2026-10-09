@@ -20,7 +20,7 @@ Constructor-owned backing buffers select the active builtin function's
 and foreign Realm construction. This is independent of the newTarget used for
 the outer TypedArray prototype. Supplied ArrayBuffer objects retain identity.
 
-`lila-engine --test aot_typed_array_byte_copy` covers every binary16 NaN
+`lila-engine --test aot_builtins -- aot_typed_array_byte_copy::` covers every binary16 NaN
 encoding, Float32/Float64 signaling NaNs, overlapping views in both directions,
 shared and resizable buffers, detachment during offset coercion, exception
 precedence, numeric cross-kind controls, and foreign constructor/newTarget

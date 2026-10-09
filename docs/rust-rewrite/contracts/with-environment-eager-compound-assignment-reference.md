@@ -139,8 +139,8 @@ The focused ladder is:
 ```sh
 cargo fmt --all --check
 cargo test -p lila-ir with_environment_compound_assignment --quiet
-cargo test -p lila-aot-wasm \
-  --test with_environment_compound_assignment_structure --quiet
+cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+  with_environment_compound_assignment_structure::
 cargo test -p lila-cli --test cli \
   language::run_wasm_backend_succeeds_for_with_environment_compound_assignment_fixture \
   -- --exact --test-threads=1

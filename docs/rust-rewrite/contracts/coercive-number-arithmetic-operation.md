@@ -49,10 +49,10 @@ child evaluation and conversion/error phases, and preserves the runtime result
 tag even when neither raw operand's kind advertises BigInt.
 
 ```sh
-cargo test --release --locked -j2 -p lila-aot-wasm --test coercive_number_arithmetic_operation_structure --test bigint_helper_op_structure
+cargo test --release --locked -j2 -p lila-aot-wasm --test structure_builtins --test bigint_helper_op_structure -- coercive_number_arithmetic_operation_structure::
 cargo test --release --locked -j2 -p lila-aot-wasm --lib planning::tests::
 cargo test --release --locked -j2 -p lila-ir --test number_remainder
-cargo test --release --locked -j2 -p lila-engine --test aot_number_remainder
+cargo test --release --locked -j2 -p lila-engine --test aot_builtins -- aot_number_remainder::
 ```
 
 Current verification is recorded in the

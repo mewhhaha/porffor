@@ -56,8 +56,8 @@ and its sole expected final output.
 Refresh the focused evidence after the complete batch compiles:
 
 ```sh
-cargo test -p lila-engine --test aot_temporal_indian_calendar -- --test-threads=2
-cargo test -p lila-engine --test aot_temporal_buddhist_calendar -- --test-threads=2
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_indian_calendar:: --test-threads=2
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_buddhist_calendar:: --test-threads=2
 ```
 
 Source authoring and review are not execution evidence. Compilation, these

@@ -296,6 +296,9 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinInstaller::DataView => {
                 self.install_data_view_constructor_intrinsics(&intrinsic_context, function)?
             }
+            StandardBuiltinInstaller::Uint8Array => {
+                self.install_uint8_array_constructor_intrinsics(&intrinsic_context, function)?
+            }
             StandardBuiltinInstaller::TemporalInstant => {
                 self.install_temporal_instant_constructor_intrinsics(&intrinsic_context, function)?
             }

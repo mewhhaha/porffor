@@ -50,7 +50,7 @@ try {
   delete String.prototype[primitiveKey];
 }
 
-const foreign = $262.createRealm();
+const foreign = __lilaCreateRealm();
 const throwMarker = new foreign.global.Object();
 const closeMarker = new foreign.global.Object();
 function makeWalk(mode, closeThrows, state) {

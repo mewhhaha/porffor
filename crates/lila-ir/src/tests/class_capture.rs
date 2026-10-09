@@ -324,6 +324,31 @@ fn static_block_retains_nested_function_capture_from_catch_environment() {
 }
 
 #[test]
+fn static_elements_capture_variables_from_beyond_their_enclosing_closure() {
+    // The closure never names `tag`, so it declares no binding for it: the
+    // executed static element's capture has no fact in the closure to update.
+    for source in [
+        "function make(tag) { return function () { return class { static { this.value = tag; } }; }; }",
+        "function make(tag) { return () => class { static value = tag; }; }",
+    ] {
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().expect("script IR should exist");
+        assert!(
+            script.functions.iter().any(|function| function
+                .captured_bindings
+                .iter()
+                .any(|binding| binding.source_name == "tag")),
+            "{source}: the static element should capture the outer variable"
+        );
+    }
+}
+
+#[test]
 fn class_execution_ids_are_distinct_for_multiple_fields_and_static_blocks() {
     let program = lower_script("class C { first = 1; second = 2; static {} static {} }");
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);

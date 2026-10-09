@@ -21,7 +21,7 @@ hardening changes neither the emitted validation nor the Temporal allocation.
 Focused verification on 2026-08-27:
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_instant_epoch_proof_structure
+cargo test -p lila-aot-wasm --test intl_temporal -- temporal_instant_epoch_proof_structure::
 ```
 
 The structure target passes all 5 tests after compiling the backend. No broad

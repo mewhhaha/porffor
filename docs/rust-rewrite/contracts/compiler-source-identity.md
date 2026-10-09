@@ -26,7 +26,7 @@ runtime intrinsic owner already uses `f64::from_bits(1)`.
 The authored IR controls in `crates/lila-ir/src/tests/source_identity.rs` preserve
 ordinary unbound-name reads, runtime exponentiation operands and actual method
 calls on objects containing the former marker properties. The native controls
-in `crates/lila-engine/tests/aot_source_identity.rs` cover Script and strict Script:
+in `crates/lila-engine/tests/aot_realm_modules/aot_source_identity.rs` cover Script and strict Script:
 
 - Unbound, parameter, lexical, global-accessor and deleted `BPE` bindings.
 - Actual method getters, receiver identity, argument side effects, returned
@@ -39,7 +39,7 @@ resource limiter:
 
 ```sh
 python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib source_identity_
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_source_identity
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_realm_modules -- aot_source_identity::
 ```
 
 These edits do not establish full compiler source-identity coverage or change
@@ -69,5 +69,5 @@ abrupt descriptor conversion, bound-constructor heritage, `super` methods and
 ```sh
 python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib descriptor_fields_without_current_inherited_proof_retain_possible_getter_effects
 python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib define_property_with_unproven_inherited_fields_widens_a_wrapper_dependency
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_live_prototype_consumers
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_builtins -- aot_live_prototype_consumers::
 ```

@@ -41,7 +41,7 @@ actual global inventory, is established before calls and is verified and
 cleared on main exit:
 
 ```sh
-cargo test -p lila-aot-wasm --test function_module_state_structure
+cargo test -p lila-aot-wasm --test modules_realms -- function_module_state_structure::
 cargo test -p lila-aot-wasm --lib tests::runtime_gc_root_follows_the_actual_fixed_and_template_globals -- --exact --test-threads=1
 cargo test -p lila-aot-wasm --lib tests::runtime_gc_anchor_is_rooted_across_main_and_cleared_on_exit -- --exact --test-threads=1
 cargo fmt --all -- --check

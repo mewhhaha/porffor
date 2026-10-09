@@ -84,8 +84,8 @@ cargo fmt --all -- --check
 python3 -m unittest discover -s scripts/tests -p test_run_aot_unit_shard.py -v
 cargo test --locked -p lila-ir --test async_for_of_activation
 cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
-cargo test --locked -p lila-aot-wasm --test product_artifact -- --test-threads=1
-cargo test --locked -p lila-engine --test aot_control_flow --test aot_async_for_of -- --test-threads=1
+cargo test --locked -p lila-aot-wasm --test emission -- product_artifact:: --test-threads=1
+cargo test --locked -p lila-engine --test aot_language --test aot_async -- aot_control_flow:: aot_async_for_of:: --test-threads=1
 cargo test --locked -p lila-cli --test cli -- known_failures:: --test-threads=2
 cargo test --locked -p lila-cli --test cli_output_ending_structure --test test262_verdict_command_structure
 ```

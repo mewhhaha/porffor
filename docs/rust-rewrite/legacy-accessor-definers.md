@@ -30,7 +30,7 @@ three observed passing Object descriptor controls. These are partial-cohort
 observations, not a full-suite status. Root-owned candidate compilation and
 execution are required before claiming those failures repaired.
 
-Focused validation targets are `lila-engine --test aot_legacy_accessor_definers`,
+Focused validation targets are `lila-engine --test aot_builtins -- aot_legacy_accessor_definers::`,
 the builtin catalog tests in `lila-ir`, and the accessor dependency test in
 `lila-aot-wasm` planning. Existing `aot_define_property_realm`,
 `reflect_descriptor_object_realm` and `object_builtin_policy_domains_structure`

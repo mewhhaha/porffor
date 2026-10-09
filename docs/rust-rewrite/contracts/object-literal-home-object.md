@@ -150,7 +150,7 @@ Central focused verification after all lanes are assembled:
 ```sh
 cargo check --workspace --all-targets
 cargo test -p lila-ir object_literal_home_object
-cargo test -p lila-aot-wasm --test object_literal_home_object_structure
+cargo test -p lila-aot-wasm --test structure_language -- object_literal_home_object_structure::
 cargo test -p lila-cli --test cli object_literal_home_object_fixture
 
 ./target/debug/lila test262 run language/expressions/object/method.js \

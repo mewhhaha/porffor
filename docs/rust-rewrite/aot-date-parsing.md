@@ -49,7 +49,7 @@ No host import, interpreter fallback, test materialization, or suite pin changes
 The committed engine target contains twelve independently named tests:
 
 ```sh
-cargo test --locked -p lila-engine --test aot_date_parsing -- --test-threads=1
+cargo test --locked -p lila-engine --test aot_builtins -- aot_date_parsing:: --test-threads=1
 ```
 
 Each explicitly selects `ExecutionBackend::WasmAot` and checks the result of

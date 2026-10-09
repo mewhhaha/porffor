@@ -34,6 +34,24 @@ class EngineInventoryTests(unittest.TestCase):
         result = self.execute([completed(INVENTORY), completed(PASS), completed(PASS)])
         self.assertEqual((result['total'], result['passed']), (2, 2))
 
+    def test_module_filter_runs_only_that_modules_tests_against_the_full_binary(self):
+        inventory = 'm::a: test\nm::b: test\nn::c: test\n\n3 tests, 0 benchmarks\n'
+        passes = PASS.replace('1 filtered out', '2 filtered out')
+        with tempfile.TemporaryDirectory() as directory, patch(
+                'run_engine_regression_inventory.subprocess.run',
+                side_effect=[completed(inventory), completed(passes), completed(passes)]) as run:
+            result = run_inventory(Path('/test-binary'), Path(directory), 3, module='m')
+            self.assertEqual([call.args[0][1] for call in run.call_args_list[1:]], ['m::a', 'm::b'])
+        self.assertEqual((result['total'], result['passed']), (2, 2))
+
+    def test_module_without_tests_is_rejected_before_execution(self):
+        inventory = 'm::a: test\n\n1 test, 0 benchmarks\n'
+        with tempfile.TemporaryDirectory() as directory, patch(
+                'run_engine_regression_inventory.subprocess.run', return_value=completed(inventory)) as run:
+            with self.assertRaises(ValueError):
+                run_inventory(Path('/test-binary'), Path(directory), 3, module='missing')
+            self.assertEqual(run.call_count, 1)
+
     def test_ignored_and_empty_selections_fail(self):
         ignored = PASS.replace('1 passed; 0 failed; 0 ignored', '0 passed; 0 failed; 1 ignored')
         empty = PASS.replace('1 passed;', '0 passed;').replace('1 filtered out;', '2 filtered out;')

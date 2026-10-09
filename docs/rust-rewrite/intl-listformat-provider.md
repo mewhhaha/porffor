@@ -115,7 +115,7 @@ After the complete service batch is composed and admitted, root runs its
 source/generator checks, one full compile, native/protocol controls and:
 
 ```sh
-python3 scripts/limited_verification.py -- cargo test --locked --offline -p lila-engine --test aot_intl_list_format -- --test-threads=1
+python3 scripts/limited_verification.py -- cargo test --locked --offline -p lila-engine --test aot_intl -- aot_intl_list_format:: --test-threads=1
 python3 scripts/limited_verification.py -- ./target/debug/lila --jobs 1 test262 run intl402/ListFormat --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 240000 --snapshot-dir target/listformat-snapshots --snapshot-name listformat-full
 ```
 

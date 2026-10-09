@@ -49,7 +49,7 @@ remain the focused behavioral witnesses.
 Run the bounded structure target with:
 
 ```console
-cargo test -p lila-aot-wasm --test async_generator_delegation_kind_structure
+cargo test -p lila-aot-wasm --test structure_async -- async_generator_delegation_kind_structure::
 ```
 
 The structure target passes `4/4`, and the five exact async-generator

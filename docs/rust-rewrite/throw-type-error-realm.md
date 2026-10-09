@@ -53,12 +53,12 @@ fixtures; no runtime source generation or fixture substitution is added.
 The focused targets are:
 
 ```sh
-cargo test -p lila-engine --test aot_throw_type_error_realm -- --test-threads=1
+cargo test -p lila-engine --test aot_realm_modules -- aot_throw_type_error_realm:: --test-threads=1
 cargo test -p lila-ir --test throw_type_error_realm
 cargo test -p lila-aot-wasm --test throw_type_error_realm_structure
 cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_tests::created_realm_function_sites_require_the_coupled_context -- --exact
 cargo test -p lila-aot-wasm --lib arguments_protocol::tests
-cargo test -p lila-aot-wasm --test callable_function_prototype_structure
+cargo test -p lila-aot-wasm --test structure_builtins -- callable_function_prototype_structure::
 cargo test -p lila-aot-wasm --test heap_collector_policy_structure
 cargo test -p lila-cli --test cli language_errors::run_wasm_backend_reports_gc_requires_real_collector -- --exact --test-threads=1
 ```

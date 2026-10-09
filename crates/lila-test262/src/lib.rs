@@ -10488,7 +10488,10 @@ export const value = helperRead();
     fn local_host_harness_fails_unsupported_host_capabilities_visibly() {
         let harness = SPEC_EXEC_HARNESS;
 
-        assert!(harness.contains("local harness host ' + name + ' unsupported"));
+        // Unsupported capabilities reach the oracle's typed native boundary, not
+        // a Test262Error that a test's own catch could swallow.
+        assert!(harness.contains("return __lilaUnsupportedHostCapability(name);"));
+        assert!(!harness.contains("local harness host ' + name + ' unsupported"));
         assert!(harness.contains("__lilaUnsupportedHost('createRealm')"));
         assert!(harness.contains("__lilaUnsupportedHost('evalScript')"));
         assert!(harness.contains("__lilaUnsupportedHost('AbstractModuleSource')"));

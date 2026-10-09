@@ -96,7 +96,7 @@ JavaScript abrupt completion into a parser error or a default result.
 
 ## Durable evidence owner
 
-`crates/lila-aot-wasm/tests/json_reviver_frame_structure.rs` is the bounded
+`crates/lila-aot-wasm/tests/structure_builtins/json_reviver_frame_structure.rs` is the bounded
 source owner for this protocol. Its six maintained tests pin:
 
 - the sole runtime parser/iterative owner and removal of static IR/modules;
@@ -146,7 +146,7 @@ The coordinated checkpoint ran this focused ladder on 2026-08-25:
 ```sh
 cargo check -p lila-aot-wasm
 cargo xc
-cargo test -p lila-aot-wasm --test json_reviver_frame_structure
+cargo test -p lila-aot-wasm --test structure_builtins -- json_reviver_frame_structure::
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_forward_modification_fixture -- --exact --test-threads=1

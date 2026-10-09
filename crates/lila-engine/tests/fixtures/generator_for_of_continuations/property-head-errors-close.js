@@ -7,7 +7,7 @@ function step(result, value, done, label) {
 }
 const nativeTypeErrorPrototype = TypeError.prototype;
 const getPrototypeOf = Object.getPrototypeOf;
-const foreign = $262.createRealm();
+const foreign = __lilaCreateRealm();
 const headMarker = new foreign.global.Object();
 const closeMarker = new foreign.global.Object();
 const strictMode = (function () { return this; })() === undefined;

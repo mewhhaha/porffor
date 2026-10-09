@@ -47,8 +47,8 @@ these changes do not publish a Test262 count.
 Focused refresh commands:
 
 ```sh
-cargo test -p lila-engine --test aot_define_property_realm -- --test-threads=1
-cargo test -p lila-engine --test aot_public_class_fields -- --test-threads=1
-cargo test -p lila-engine --test reflect_descriptor_object_realm -- --test-threads=1
-cargo test -p lila-aot-wasm --test to_property_descriptor_operation_evidence_structure --test reflect_descriptor_object_realm_structure
+cargo test -p lila-engine --test aot_realm_modules -- aot_define_property_realm:: --test-threads=1
+cargo test -p lila-engine --test aot_language -- aot_public_class_fields:: --test-threads=1
+cargo test -p lila-engine --test aot_builtins -- reflect_descriptor_object_realm:: --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins --test reflect_descriptor_object_realm_structure -- to_property_descriptor_operation_evidence_structure::
 ```

@@ -45,7 +45,8 @@ async function run() {
   let conversions = 0, gets = 0, deletes = 0;
   const rawKey = {[Symbol.toPrimitive]() { conversions++; events.push('convert'); return 'value'; }};
   const target = new Proxy({value: 1}, {
-    get(object, name, receiver) { gets++; return Reflect.get(object, name, receiver); },
+    // Awaiting the Proxy reads its thenable `then`; that is not the Reference's Get.
+    get(object, name, receiver) { if (name !== 'then') gets++; return Reflect.get(object, name, receiver); },
     deleteProperty(object, name) { deletes++; events.push('delete'); return Reflect.deleteProperty(object, name); }
   });
   async function remove(value) { return delete value?.[await key(rawKey)]; }

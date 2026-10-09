@@ -276,8 +276,8 @@ cargo fmt --all -- --check
 CARGO_BUILD_JOBS=1 cargo check --workspace --all-targets
 CARGO_BUILD_JOBS=1 cargo test -p lila-ir ordinary_property_logical -- \
   --test-threads=1
-CARGO_BUILD_JOBS=1 cargo test -p lila-aot-wasm \
-  --test ordinary_property_logical_assignment_structure -- --test-threads=1
+CARGO_BUILD_JOBS=1 cargo test -p lila-aot-wasm --test structure_language -- \
+  ordinary_property_logical_assignment_structure:: --test-threads=1
 CARGO_BUILD_JOBS=1 cargo test -p lila-cli --test cli -- \
   --exact language_numerics::run_wasm_backend_preserves_ordinary_property_logical_assignment_reference \
   --test-threads=1

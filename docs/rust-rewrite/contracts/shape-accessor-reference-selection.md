@@ -85,7 +85,7 @@ prototype-descendant invalidation independently.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test shape_accessor_reference_selection_structure
+cargo test -p lila-aot-wasm --test structure_language -- shape_accessor_reference_selection_structure::
 cargo test -p lila-ir --test builtin_getter_receiver_provenance_structure
 cargo test -p lila-aot-wasm planning::tests::dynamic_property_keys_root_every_possible_shape_accessor -- --exact
 cargo test -p lila-aot-wasm planning::tests::joined_ -- --test-threads=1

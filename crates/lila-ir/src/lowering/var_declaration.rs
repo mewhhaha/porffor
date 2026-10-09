@@ -258,6 +258,16 @@ impl ScriptLowerer<'_> {
                             self.unsupported("destructuring binding without initializer");
                             return (StatementIr::Empty, ValueKind::Undefined);
                         };
+                        // The staged pattern only assigns through retained
+                        // references, so each bound name is declared first,
+                        // as the identifier forms above do.
+                        let Some(names) = supported_bound_names(
+                            self.interner,
+                            &Binding::Pattern(pattern.clone()),
+                        ) else {
+                            self.unsupported("mixed async-generator var pattern bound names");
+                            return (StatementIr::Empty, ValueKind::Undefined);
+                        };
                         let Some(prefix) = self.lower_async_generator_pattern_initializer(
                             pattern,
                             init,
@@ -269,6 +279,15 @@ impl ScriptLowerer<'_> {
                             );
                             return (StatementIr::Empty, ValueKind::Undefined);
                         };
+                        statements.push(StatementIr::Var(
+                            names
+                                .into_iter()
+                                .map(|bound| VarDeclaratorIr {
+                                    name: bound.source_name,
+                                    init: None,
+                                })
+                                .collect(),
+                        ));
                         statements.push(StatementIr::LexicalBlock(prefix));
                         continue;
                     }

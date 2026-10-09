@@ -173,7 +173,7 @@ The coherent implementation batch was verified with:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test function_prototype_symbol_has_instance_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- function_prototype_symbol_has_instance_structure::
 cargo test -p lila-cli --test cli run_wasm_backend_supports_function_prototype_symbol_has_instance --quiet
 ./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/Symbol.hasInstance --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ./target/debug/lila --jobs 1 test262 run language/expressions/instanceof/symbol-hasinstance --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000

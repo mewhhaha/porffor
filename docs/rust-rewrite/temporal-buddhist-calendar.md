@@ -52,7 +52,7 @@ Duration operations remain separate work. This change does not claim that all
 Buddhist fixtures or all Temporal tests pass.
 
 The dedicated native regression target is
-`cargo test -p lila-engine --test aot_temporal_buddhist_calendar -- --test-threads=2`.
+`cargo test -p lila-engine --test aot_temporal -- aot_temporal_buddhist_calendar:: --test-threads=2`.
 It covers constructors versus bags, annotation round trips, eras and extreme
 supported years, leap rules, partial-field merging, arithmetic and rounding,
 MonthDay reference years, and exception/read order. Verification and pinned

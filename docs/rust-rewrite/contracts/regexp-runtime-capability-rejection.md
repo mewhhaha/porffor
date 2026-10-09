@@ -55,9 +55,9 @@ closure is claimed. The later combined checkpoint includes these focused control
 
 ```sh
 cargo test -p lila-ir --lib runtime_semantics::tests
-cargo test -p lila-aot-wasm --test runtime_regexp_entry_kind_structure
+cargo test -p lila-aot-wasm --test runtime_link -- runtime_regexp_entry_kind_structure::
 cargo test -p lila-engine --lib invalid_runtime_semantic_host_codes_remain_abi_errors
-cargo test -p lila-engine --test aot_regexp_runtime_gap -- --test-threads=1
+cargo test -p lila-engine --test aot_regexp -- aot_regexp_runtime_gap:: --test-threads=1
 cargo test -p lila-test262 --lib computed_finite_regexp_matching_passes_positive_and_rejects_runtime_negative
 cargo test -p lila-engine --lib runtime_regexp_compiler_tests -- --test-threads=1
 ```

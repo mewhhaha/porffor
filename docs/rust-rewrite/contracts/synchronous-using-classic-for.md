@@ -96,7 +96,7 @@ cargo fmt --all -- --check
 cargo check -p lila-ir
 cargo check -p lila-aot-wasm --lib
 cargo test -p lila-ir synchronous_using_classic_for --quiet
-cargo test -p lila-aot-wasm --test synchronous_using_classic_for_structure --quiet
+cargo test -p lila-aot-wasm --test structure_async --quiet -- synchronous_using_classic_for_structure::
 cargo test -p lila-cli --test cli resource_management::wasm_using_classic_for_lifecycle -- --exact
 ./target/debug/lila test262 run language/statements/using/syntax/using-for-statement.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ./target/debug/lila test262 run language/statements/using/syntax/using-invalid-assignment-next-expression-for.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1

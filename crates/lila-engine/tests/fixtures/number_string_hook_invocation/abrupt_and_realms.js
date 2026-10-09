@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 function check(condition, name) { if (!condition) throw name; }
 function poison() { throw 'public constructor, reacquired method or unreachable operand'; }
 const numberPrototype = Number.prototype;

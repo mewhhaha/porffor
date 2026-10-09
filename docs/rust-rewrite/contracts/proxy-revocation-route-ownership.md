@@ -76,7 +76,7 @@ explicit throw policy in the exhaustive router before the crate builds.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/proxy_revocation_route_ownership_structure.rs`
+`crates/lila-aot-wasm/tests/structure_builtins/proxy_revocation_route_ownership_structure.rs`
 Rust-lexically pins the crate-private attribute-free declaration, the recursive
 eighteen-mention census, all ten producer mappings and the one complete
 consuming router. Its fingerprint preserves the sentinel check, all four error
@@ -87,7 +87,7 @@ bypassing the named producer inventory.
 Focused verification commands:
 
 ```sh
-cargo test -p lila-aot-wasm --test proxy_revocation_route_ownership_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_builtins -- proxy_revocation_route_ownership_structure:: --test-threads=1
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_define_property_handler_protocol -- --exact --test-threads=1
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_prototype_of_handler_protocol -- --exact --test-threads=1

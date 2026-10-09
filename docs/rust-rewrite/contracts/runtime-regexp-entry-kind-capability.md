@@ -49,7 +49,7 @@ new literal/allocation proof witness.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test runtime_regexp_entry_kind_structure --quiet
+cargo test -p lila-aot-wasm --test runtime_link --quiet -- runtime_regexp_entry_kind_structure::
 cargo test -p lila-cli --test cli regexp::run_wasm_backend_succeeds_for_regexp_runtime_pattern_valid_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli regexp::run_wasm_backend_succeeds_for_regexp_runtime_pattern_invalid_fixture -- --exact --test-threads=1
 cargo fmt --all -- --check

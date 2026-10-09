@@ -27,7 +27,7 @@ nonconstructor rejection, and skipped source getters after a failed creation.
 Existing structural assertions are maintained for the real call census and
 Concat's conversion/species/spreadability ordering. They are not execution
 evidence. Compilation, emitted-Wasm validation and all fixtures are pending.
-The eventual focused target is `lila-engine --test aot_array_species_consumers`.
+The eventual focused target is `lila-engine --test aot_builtins -- aot_array_species_consumers::`.
 
 The later [forward Flat traversal](array-flat-forward-traversal.md) source batch
 replaces depth conversion, root-length ordering and flattening traversal while

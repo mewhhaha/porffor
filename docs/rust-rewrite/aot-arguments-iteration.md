@@ -62,16 +62,16 @@ throws, non-callable overrides, and string/Symbol key separation.
 cargo fmt --all -- --check
 ./scripts/check-module-boundaries.sh
 python3 scripts/tests/test_engine_regression_inventory.py
-python3 scripts/run_engine_regression_inventory.py aot_arguments_iteration \
+python3 scripts/run_engine_regression_inventory.py aot_language --module aot_arguments_iteration \
   --output-dir /tmp/arguments-engine
-cargo test --locked -p lila-aot-wasm \
-  --test for_of_string_iterator_protocol_structure \
+cargo test --locked -p lila-aot-wasm --test structure_async \
   --test direct_sync_for_of_protocol_error_realm_structure \
-  --test plain_async_for_of_await_using_structure \
-  --test synchronous_using_for_of_structure \
-  --test sync_iterator_locals_release_ownership_structure \
-  --test sync_iterator_consumer_capability_structure \
-  --test math_sum_precise_runtime_structure
+  --test math_sum_precise_runtime_structure -- \
+  for_of_string_iterator_protocol_structure:: \
+  plain_async_for_of_await_using_structure:: \
+  synchronous_using_for_of_structure:: \
+  sync_iterator_locals_release_ownership_structure:: \
+  sync_iterator_consumer_capability_structure::
 cargo test --locked -p lila-engine --lib \
   wasm_backend_arguments_iterators_observe_length_truncation -- --nocapture
 cargo build --locked -p lila-cli

@@ -27,7 +27,7 @@ Focused verification:
 ```console
 cargo test -p lila-ir --test logical_assignment_reachability_structure
 cargo test -p lila-ir object_environment_logical_assignment
-cargo test -p lila-aot-wasm --test object_environment_logical_assignment_structure
+cargo test -p lila-aot-wasm --test structure_language -- object_environment_logical_assignment_structure::
 ```
 
 The new structure target passes `3/3`, the focused lowering units pass `2/2`,

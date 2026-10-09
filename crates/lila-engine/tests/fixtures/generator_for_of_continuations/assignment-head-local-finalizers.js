@@ -5,7 +5,7 @@ function step(result, value, done, label) {
   same(result.value, value, label + ' value');
   same(result.done, done, label + ' done');
 }
-const foreign = $262.createRealm();
+const foreign = __lilaCreateRealm();
 const marker = new foreign.global.Object();
 const closeError = new foreign.global.Object();
 var target = 0;

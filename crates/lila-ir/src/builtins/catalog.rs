@@ -84,6 +84,7 @@ pub enum StandardBuiltinInstaller {
     String,
     ArrayBuffer,
     DataView,
+    Uint8Array,
     TemporalInstant,
     TemporalZonedDateTime,
     TemporalPlainDate,
@@ -4500,7 +4501,7 @@ standard_builtin_catalog! {
         global_name: UINT8_ARRAY_NAME,
         debug: UINT8_ARRAY_NAME,
         flags: [CONSTRUCTABLE, SYNCHRONOUS_USER_CODE],
-        installer: None,
+        installer: Uint8Array,
         native: UINT8_ARRAY_NAME,
     }
     Uint8ClampedArrayConstructor {
@@ -7331,6 +7332,7 @@ mod tests {
                     Installer::IntlDateTimeFormat,
                 ),
                 (Builtin::RegExpConstructor, Installer::RegExp),
+                (Builtin::Uint8ArrayConstructor, Installer::Uint8Array),
                 (Builtin::BigIntConstructor, Installer::BigInt),
                 (Builtin::NumberConstructor, Installer::Number),
                 (Builtin::StringConstructor, Installer::String),

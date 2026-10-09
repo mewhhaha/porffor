@@ -97,7 +97,7 @@ assembled:
 
 ```sh
 cargo check --workspace --all-targets
-cargo test -p lila-aot-wasm --test runtime_error_active_handler_structure
+cargo test -p lila-aot-wasm --test runtime_link -- runtime_error_active_handler_structure::
 cargo test -p lila-cli --test cli \
   run_wasm_backend_succeeds_for_object_prevent_extensions_missing_writes_fixture
 

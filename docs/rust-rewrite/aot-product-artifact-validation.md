@@ -16,7 +16,7 @@ all instructions still decode, but validation must reject it. This proves the
 new gate distinguishes parsing from type correctness.
 
 ```sh
-cargo test --locked -p lila-aot-wasm --test product_artifact
+cargo test --locked -p lila-aot-wasm --test emission -- product_artifact::
 ```
 
 The validator enables the declared GC/reference/exception/thread/tail-call

@@ -49,7 +49,7 @@ match, Reference lifecycle and absence of alternate observations:
 ```console
 cargo check -p lila-ir
 cargo test -p lila-ir --test property_update_op_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test ordinary_property_logical_assignment_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_language -- ordinary_property_logical_assignment_structure:: --test-threads=1
 ```
 
 The new structure target passes `4/4`, the neighboring ordinary-property

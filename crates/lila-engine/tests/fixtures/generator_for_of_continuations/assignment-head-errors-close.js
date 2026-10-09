@@ -9,7 +9,7 @@ const SavedTypeErrorPrototype = TypeError.prototype;
 const SavedReferenceErrorPrototype = ReferenceError.prototype;
 const getPrototypeOf = Object.getPrototypeOf;
 const hasOwn = Object.prototype.hasOwnProperty;
-const foreign = $262.createRealm();
+const foreign = __lilaCreateRealm();
 const closeMarker = new foreign.global.Object();
 function source(state, failClose) {
   const iterator = {

@@ -33,8 +33,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-engine --test aot_flat_map -- --list | tee /tmp/flatmap-inventory.txt
-          cargo test --locked -p lila-engine --test aot_flat_map -- --test-threads=1 | tee /tmp/flatmap-engine.txt
+          cargo test --locked -p lila-engine --test aot_builtins -- aot_flat_map:: --list | tee /tmp/flatmap-inventory.txt
+          cargo test --locked -p lila-engine --test aot_builtins -- aot_flat_map:: --test-threads=1 | tee /tmp/flatmap-engine.txt
           python3 - <<'PY'
           import re
           import sys
@@ -93,7 +93,7 @@ jobs:
           cargo fmt --all -- --check
           cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
       - name: Execute the complete new engine regression inventory
-        run: python3 scripts/run_engine_regression_inventory.py aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
+        run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
       - name: Retain the existing CLI fixture
         shell: bash
         run: |

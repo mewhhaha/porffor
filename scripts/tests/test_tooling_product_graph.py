@@ -16,12 +16,12 @@ class ProductGraphTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        artifact = self.root / "crates/lila-aot-wasm/tests/product_artifact.rs"
+        artifact = self.root / "crates/lila-aot-wasm/tests/emission/product_artifact.rs"
         artifact.parent.mkdir(parents=True)
         artifact.write_text("fn product_wasm_contains_compiled_semantics_without_a_source_evaluator() {}\n")
         workflow = self.root / ".github/workflows/ci.yaml"
         workflow.parent.mkdir(parents=True)
-        workflow.write_text("run: cargo test -p lila-aot-wasm --test product_artifact\n")
+        workflow.write_text("run: cargo test -p lila-aot-wasm --test emission -- product_artifact::\n")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         cargo = self.bin / "cargo"
@@ -93,7 +93,7 @@ if (kind == "oracle" and mode != "missing-oracle") or (kind == "default" and mod
         self.assertNotEqual(self.audit("missing-oracle").returncode, 0)
 
     def test_artifact_and_ci_audits_remain_required(self):
-        (self.root / "crates/lila-aot-wasm/tests/product_artifact.rs").unlink()
+        (self.root / "crates/lila-aot-wasm/tests/emission/product_artifact.rs").unlink()
         (self.root / ".github/workflows/ci.yaml").write_text("name: no audit\n")
         result = self.audit()
         self.assertNotEqual(result.returncode, 0)

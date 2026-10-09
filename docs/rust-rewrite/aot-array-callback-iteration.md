@@ -72,13 +72,16 @@ Reproduce the focused checks:
 
 ```sh
 cargo fmt --all -- --check
-python3 scripts/run_engine_regression_inventory.py aot_array_callback_iteration \
+python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_callback_iteration \
   --output-dir /tmp/array-callback-engine
-cargo test --locked -p lila-aot-wasm --test array_callback_iteration_structure \
-  --test array_map_algorithm_owner_structure --test array_filter_algorithm_owner_structure \
-  --test array_every_algorithm_owner_structure --test array_some_algorithm_owner_structure \
-  --test array_species_create_operation_evidence_structure \
-  --test typed_array_quantifier_family_witness_structure
+cargo test --locked -p lila-aot-wasm \
+  --test array_callback_iteration_structure \
+  --test array_map_algorithm_owner_structure \
+  --test array_filter_algorithm_owner_structure \
+  --test array_every_algorithm_owner_structure \
+  --test array_some_algorithm_owner_structure --test structure_builtins \
+  --test typed_array_quantifier_family_witness_structure -- \
+  array_species_create_operation_evidence_structure::
 cargo test --locked -p lila-cli --test cli -- array:: --test-threads=2
 ```
 

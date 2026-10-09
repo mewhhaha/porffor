@@ -976,6 +976,25 @@ impl<'a> FunctionBuilder<'a> {
         } else {
             self.emit_return_current_completion(function);
         }
+        // A Break or Continue that a yielding or awaiting finalizer has held
+        // pending resumes toward its target once the finalizer completes
+        // normally; dropping it here would silently continue the loop.
+        function.instruction(&Instruction::Else);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_BREAK as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let targets = self.active_break_targets();
+        self.emit_dispatch_branch_completion(&targets, function);
+        function.instruction(&Instruction::Else);
+        self.completion().kind().load(function);
+        function.instruction(&Instruction::I32Const(COMPLETION_KIND_CONTINUE as i32));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let targets = self.active_continue_targets();
+        self.emit_dispatch_branch_completion(&targets, function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
     }

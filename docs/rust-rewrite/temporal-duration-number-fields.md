@@ -71,8 +71,8 @@ identity, exact wide normalization, balancing and rational rounding, canonical
 bounds, calendar consumers, Arguments objects and borrowed intrinsic Realms:
 
 ```sh
-cargo test --locked -p lila-aot-wasm --test temporal_duration_number_fields_structure --test temporal_duration_field_transform_structure --test temporal_duration_arithmetic_operation_structure --test temporal_duration_heap_slot_structure
-cargo test --locked -p lila-engine --test aot_temporal_duration_wide_fields --test aot_temporal_instant_methods --test aot_temporal_zoned_date_time_difference --test aot_temporal_plain_date_zoned -- --test-threads=1
+cargo test --locked -p lila-aot-wasm --test intl_temporal --test temporal_duration_heap_slot_structure -- temporal_duration_number_fields_structure:: temporal_duration_field_transform_structure:: temporal_duration_arithmetic_operation_structure::
+cargo test --locked -p lila-engine --test aot_temporal -- aot_temporal_duration_wide_fields:: aot_temporal_instant_methods:: aot_temporal_zoned_date_time_difference:: aot_temporal_plain_date_zoned:: --test-threads=1
 ```
 
 The change passes a deterministic independent integer/Fraction audit of the

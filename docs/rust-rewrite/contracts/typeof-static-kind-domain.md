@@ -20,9 +20,9 @@ The contract now follows the runtime owner that replaced the earlier static
 `ValueKind` match; it does not require that retired optimization to return.
 
 ```sh
-cargo test -p lila-aot-wasm --test typeof_static_kind_structure
+cargo test -p lila-aot-wasm --test structure_language -- typeof_static_kind_structure::
 cargo test -p lila-engine tests::wasm_backend_supports_typeof_core -- --exact --test-threads=1
-cargo test -p lila-engine --test aot_runtime_import_reachability
+cargo test -p lila-engine --test aot_realm_modules -- aot_runtime_import_reachability::
 ```
 
 The earlier static-domain target passed `3/3`, and the exact core `typeof`

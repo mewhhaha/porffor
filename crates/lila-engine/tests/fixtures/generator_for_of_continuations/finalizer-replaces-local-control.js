@@ -84,7 +84,7 @@ step(returning.return(returnMarker), returnMarker, true, "injected Return replac
 same(returnState.next, 1, "injected Return does not step");
 same(returnState.close, 1, "injected Return closes once");
 
-var foreign = $262.createRealm();
+var foreign = __lilaCreateRealm();
 var throwMarker = new foreign.global.Object();
 var throwState = { next: 0, close: 0 };
 var throwing = replace(source(throwState, {}, true), "break", "continue", {});

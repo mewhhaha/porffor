@@ -238,7 +238,7 @@ verification obligations, not claims that a fresh run has passed:
 
 ```sh
 cargo test -p lila-ir --test direct_eval_call_site_structure -- --test-threads=1
-cargo test -p lila-engine --test aot_direct_eval_call_identity -- --test-threads=1
+cargo test -p lila-engine --test aot_realm_modules -- aot_direct_eval_call_identity:: --test-threads=1
 ```
 
 ## Proven no-source `%eval%`

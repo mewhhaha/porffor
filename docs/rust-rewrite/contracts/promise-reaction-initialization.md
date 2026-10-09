@@ -54,9 +54,9 @@ ordinary default Promise reactions plus async-function and async-generator
 Await reactions in created-Realm calls.
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_reaction_initialization_structure --quiet
-cargo test -p lila-aot-wasm --test promise_resolve_realm_context_structure --quiet
-cargo test -p lila-aot-wasm --test async_execution_realm_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- promise_reaction_initialization_structure::
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_resolve_realm_context_structure::
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- async_execution_realm_structure::
 cargo test -p lila-cli --test cli functions::run_wasm_backend_uses_async_function_realms_for_promises_and_reactions -- --exact --test-threads=1
 ```
 

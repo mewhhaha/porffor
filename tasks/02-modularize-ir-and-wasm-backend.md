@@ -2561,7 +2561,7 @@ Every arm moved **verbatim** — installers destructure an `IntrinsicInstall`
 context back into the original identifier names (including `builtin`, which
 multi-variant arms branch on), so no body text was rewritten. The move was
 verified byte-identical across all 527 CLI fixtures with
-`crates/lila-aot-wasm/tests/emit_golden.rs`, which matters because property
+`crates/lila-aot-wasm/tests/emission/emit_golden.rs`, which matters because property
 installation order is observable through `Object.keys` and the ordinary suites
 assert on program output rather than emitted bytes.
 

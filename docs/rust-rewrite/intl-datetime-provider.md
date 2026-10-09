@@ -74,7 +74,7 @@ checkpoint notes, not inferred from the existence of these tests):
 ```sh
 cargo test --release --locked -p lila-intl
 cargo test --release --locked -p lila-engine --lib intl_datetime_host::tests -- --test-threads=2
-cargo test --release --locked -p lila-engine --test aot_intl_datetime_provider --test aot_intl_datetime_numbering --test aot_intl_named_time_zones --test aot_intl_bound_format_realm --test aot_date_locale -- --test-threads=2
+cargo test --release --locked -p lila-engine --test aot_intl -- aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_intl_named_time_zones:: aot_intl_bound_format_realm:: aot_date_locale:: --test-threads=2
 cargo test --release --locked -p lila-aot-wasm --test intl_date_time_format_construction_order_structure --test intl_date_time_format_heap_slot_structure --test intl_bound_format_realm_structure
 ```
 

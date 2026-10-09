@@ -53,7 +53,7 @@ After complete integration, run the native target and unchanged pinned
 conversion cases, then the shared broad checkpoint:
 
 ```sh
-cargo test -p lila-engine --test aot_temporal_named_conversions -- --test-threads=1
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_named_conversions:: --test-threads=1
 ```
 
 Primary algorithms:

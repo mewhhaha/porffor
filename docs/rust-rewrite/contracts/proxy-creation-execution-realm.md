@@ -75,7 +75,7 @@ The 2026-08-30 implementation checkpoint produced these results:
 cargo check -p lila-aot-wasm --lib
 PASS, with only the existing Boa trivial-cast warning
 
-cargo test -p lila-aot-wasm --test proxy_creation_execution_realm_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test modules_realms -- proxy_creation_execution_realm_structure:: --test-threads=1
 PASS: 3 passed, 0 failed
 
 cargo test -p lila-aot-wasm bound_this_capture_has_closed_producers_and_call_time_adaptation --lib -- --test-threads=1

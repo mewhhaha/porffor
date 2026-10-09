@@ -46,8 +46,8 @@ After final source checks and review, required focused execution includes:
 cargo xc --offline --locked
 cargo test --offline --locked -p lila-intl --lib provider::locale_text::
 cargo test --offline --locked -p lila-intl --lib locale_text_wire::
-cargo test --offline --locked -p lila-engine --test aot_intl_locale_text_info -- --test-threads=2
-cargo test --offline --locked -p lila-aot-wasm --test intl_namespace_plan_structure
+cargo test --offline --locked -p lila-engine --test aot_intl -- aot_intl_locale_text_info:: --test-threads=2
+cargo test --offline --locked -p lila-aot-wasm --test intl_temporal -- intl_namespace_plan_structure::
 ```
 
 Fresh exact pinned execution and the broad workspace, fake-suite and whole

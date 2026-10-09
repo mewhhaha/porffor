@@ -128,7 +128,7 @@ same focused surface:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test callable_function_prototype_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- callable_function_prototype_structure::
 cargo test -p lila-aot-wasm --test realm_function_internal_prototype_policy_structure --quiet
 cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_tests::specialized_created_realm_function_prototypes_are_explicitly_unsupported -- --exact
 cargo test -p lila-cli --test cli functions::run_wasm_backend_uses_created_realm_builtin_function_prototypes -- --exact --test-threads=1

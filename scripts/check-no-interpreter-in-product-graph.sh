@@ -49,14 +49,14 @@ check_graph lila-cli absent
 check_graph lila-engine present --features spec-exec-oracle
 check_graph lila-cli present --features spec-exec-oracle
 
-artifact_test="crates/lila-aot-wasm/tests/product_artifact.rs"
+artifact_test="crates/lila-aot-wasm/tests/emission/product_artifact.rs"
 if [ ! -f "$artifact_test" ]; then
   fail "missing emitted product artifact audit: $artifact_test"
 elif ! grep -q 'product_wasm_contains_compiled_semantics_without_a_source_evaluator' "$artifact_test"; then
   fail "product artifact audit no longer proves compiled semantics and source-evaluator absence"
 fi
 
-if ! grep -q 'cargo test -p lila-aot-wasm --test product_artifact' .github/workflows/ci.yaml; then
+if ! grep -q 'cargo test -p lila-aot-wasm --test emission -- product_artifact::' .github/workflows/ci.yaml; then
   fail "CI does not execute the emitted product artifact audit"
 fi
 

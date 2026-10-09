@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 function check(condition, name) { if (!condition) throw name; }
 function poison() { throw 'public numeric globals or unreachable phase'; }
 const define = Object.defineProperty;

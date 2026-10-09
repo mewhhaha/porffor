@@ -384,10 +384,8 @@ cargo test -p lila-cli eval_ --quiet
 cargo test --release --locked -j2 -p lila-ir \
   --test prepared_dynamic_function --test prepared_script --test direct_eval_environment
 LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine \
-  --test aot_prepared_dynamic_function --test aot_prepared_script \
-  --test aot_direct_eval --test aot_direct_eval_call_identity \
-  --test aot_direct_eval_environment --test aot_direct_eval_escaped_arrows \
-  --test aot_dynamic_source_capability -- --test-threads=2
+  --test aot_realm_modules \
+  -- aot_prepared_dynamic_function:: aot_prepared_script:: aot_direct_eval:: aot_direct_eval_call_identity:: aot_direct_eval_environment:: aot_direct_eval_escaped_arrows:: aot_dynamic_source_capability:: --test-threads=2
 ```
 
 Run real filters under `built-ins/eval`, `built-ins/Function`, generator/async

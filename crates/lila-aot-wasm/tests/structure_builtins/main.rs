@@ -1,0 +1,66 @@
+//! Consolidated integration tests. Source and structure guards for built-ins: Array, Promise,
+//! Proxy, RegExp, JSON, String, Number, typed arrays, Function.prototype.
+//!
+//! One binary per area: every integration-test binary links the emitter and the ICU data, so
+//! a few area targets cost far less disk and link time than one target per file. Each module
+//! is one former test file; run just one with `-- <module>::`.
+
+mod array_pop_algorithm_owner_structure;
+mod array_push_algorithm_owner_structure;
+mod array_species_create_operation_evidence_structure;
+mod bigint_number_policy_structure;
+mod callable_function_prototype_structure;
+mod coercive_number_arithmetic_operation_structure;
+mod ecmascript_trim_mode_structure;
+mod error_builtin_dispatch_ownership_structure;
+mod find_via_predicate_structure;
+mod function_prototype_materialization_structure;
+mod function_prototype_receiver_ownership_structure;
+mod function_prototype_symbol_has_instance_structure;
+mod heap_bigint_sign_domain_structure;
+mod json_builtin_policy_domain_structure;
+mod json_module_native_structure;
+mod json_parse_frame_state_structure;
+mod json_reviver_frame_structure;
+mod json_stringify_replacer_invocation_authority_structure;
+mod number_decimal_formatting_structure;
+mod number_to_string_shortest_integral_structure;
+mod ordinary_to_primitive_receiver_kind_structure;
+mod pending_to_primitive_operation_identity_structure;
+mod promise_combinator_mode_structure;
+mod promise_combinator_reaction_pair_ownership_structure;
+mod promise_finally_completion_structure;
+mod promise_job_to_enqueue_structure;
+mod promise_keyed_element_projection_structure;
+mod promise_reaction_initialization_structure;
+mod promise_reaction_list_domain_structure;
+mod proxy_define_property_handler_protocol_structure;
+mod proxy_delete_traversal_structure;
+mod proxy_get_trap_result_lifecycle_structure;
+mod proxy_own_keys_handler_protocol_structure;
+mod proxy_prevent_extensions_request_structure;
+mod proxy_revocation_route_ownership_structure;
+mod proxy_set_prototype_of_handler_protocol_structure;
+mod regexp_exec_result_mode_structure;
+mod regexp_flag_getter_structure;
+mod regexp_matcher_failure_route_structure;
+mod regexp_matcher_result_domain_structure;
+mod regexp_modifier_override_structure;
+mod regexp_nullable_quantifier_progress_structure;
+mod regexp_range_bound_domain_structure;
+mod regexp_substitution_kind_structure;
+mod regexp_unicode_sets_class_strings_structure;
+mod regexp_unicode_string_property_domain_structure;
+mod string_empty_split_unit_ownership_structure;
+mod string_exotic_property_key_structure;
+mod string_literal_replacement_scope_structure;
+mod string_repeat_count_structure;
+mod string_symbol_hook_operation_structure;
+mod string_well_formed_operation_structure;
+mod symbol_receiver_operation_domain_structure;
+mod to_locale_string_receiver_kind_structure;
+mod to_property_descriptor_operation_evidence_structure;
+mod typed_array_constructor_identity_structure;
+mod typed_array_length_mode_wire_domain_structure;
+mod typed_array_with_witness_structure;
+mod typed_array_witness_use_ownership_structure;

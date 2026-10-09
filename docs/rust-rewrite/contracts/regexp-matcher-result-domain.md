@@ -52,5 +52,5 @@ The original invariant-only batch's focused structure target passed `4/4`. Its
 neighboring nullable-quantifier matcher-frame target passed `5/5`, and its CLI
 witness passed `1/1`; no Test262, Wasm golden or broad workspace suite was run
 for that batch. After matcher changes, refresh this source census and rerun
-`cargo test -p lila-aot-wasm --test regexp_matcher_result_domain_structure`.
+`cargo test -p lila-aot-wasm --test structure_builtins -- regexp_matcher_result_domain_structure::`.
 The census is separate from native behavior and conformance verification.

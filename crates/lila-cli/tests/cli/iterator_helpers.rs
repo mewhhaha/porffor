@@ -174,7 +174,7 @@ fn run_wasm_backend_calls_iterator_prototype_to_array_on_a_class_receiver() {
 /// again would leave this test green.
 ///
 /// That gap is closed by an assertion about the *emitted module* rather than
-/// its output, in `crates/lila-aot-wasm/tests/iterator_helper_dispatch.rs`:
+/// its output, in `crates/lila-aot-wasm/tests/emission/iterator_helper_dispatch.rs`:
 /// it compares the emitted `lila::main` body of a `take` program against a
 /// `drop` program that differs by one identifier, so a `take` that stops being
 /// dispatched like `drop` shows up as a size divergence with no runtime

@@ -28,7 +28,7 @@ raw policy imports, construction or compiler calls from the standard
 dispatcher.
 
 ```sh
-cargo test -p lila-aot-wasm --test json_builtin_policy_domain_structure --quiet
+cargo test -p lila-aot-wasm --test structure_builtins --quiet -- json_builtin_policy_domain_structure::
 ```
 
 Batch AJ changes no emitted instruction or operation ordering and claims no new

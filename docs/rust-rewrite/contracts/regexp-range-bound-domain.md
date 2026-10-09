@@ -42,9 +42,9 @@ result and Unicode-sets structure targets protect the retained parent matcher
 boundaries:
 
 ```console
-cargo test -p lila-aot-wasm --test regexp_range_bound_domain_structure
-cargo test -p lila-aot-wasm --test regexp_matcher_result_domain_structure
-cargo test -p lila-aot-wasm --test regexp_unicode_sets_class_strings_structure
+cargo test -p lila-aot-wasm --test structure_builtins -- regexp_range_bound_domain_structure::
+cargo test -p lila-aot-wasm --test structure_builtins -- regexp_matcher_result_domain_structure::
+cargo test -p lila-aot-wasm --test structure_builtins -- regexp_unicode_sets_class_strings_structure::
 cargo test -p lila-cli --test cli regexp::run_wasm_backend_succeeds_for_regexp_exec_unicode_property_program_fixture -- --exact
 ```
 

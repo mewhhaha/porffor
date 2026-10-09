@@ -232,9 +232,9 @@ move.
 The intended focused commands are:
 
 ```sh
-cargo test -p lila-aot-wasm --test promise_internal_function_realm_context_structure --quiet
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_internal_function_realm_context_structure::
 cargo test -p lila-cli --test cli run_wasm_backend_preserves_created_realm_promise_internal_callbacks --quiet
-cargo test -p lila-aot-wasm --test promise_callback_created_allocation_realm_structure --quiet
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
 cargo test -p lila-cli --test cli run_wasm_backend_uses_callback_realms_for_promise_created_allocations --quiet
 ./scripts/check-module-boundaries.sh
 ```

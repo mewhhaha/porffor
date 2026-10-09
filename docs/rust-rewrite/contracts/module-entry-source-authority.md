@@ -26,7 +26,7 @@ The structure regression fixes the two-variant domain, exhaustive projections,
 the two load branches and the narrower parsed handoff:
 
 ```sh
-cargo test -p lila-engine --test module_entry_source_authority_structure
+cargo test -p lila-engine --test structure -- module_entry_source_authority_structure::
 cargo test -p lila-engine module_loader::tests::a_host_entry_loads_its_source_through_the_loader -- --exact
 cargo test -p lila-engine module_loader::tests::an_in_memory_entry_does_not_ask_the_host_to_load_it -- --exact
 ```

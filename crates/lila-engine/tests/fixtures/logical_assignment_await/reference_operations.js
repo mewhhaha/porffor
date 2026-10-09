@@ -20,7 +20,8 @@ class Super extends Object {
 }
 async function run() {
   const target = new Proxy({x: 2}, {
-    get(object, name, receiver) { events.push('get'); return Reflect.get(object, name, receiver); },
+    // Awaiting the Proxy reads its thenable `then`; that is not the Reference's Get.
+    get(object, name, receiver) { if (name !== 'then') events.push('get'); return Reflect.get(object, name, receiver); },
     set(object, name, value, receiver) { events.push('set:' + value); return Reflect.set(object, name, value, receiver); }
   });
   const rawKey = {[Symbol.toPrimitive]() { events.push('convert'); return 'x'; }};

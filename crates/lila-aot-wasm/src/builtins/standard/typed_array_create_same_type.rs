@@ -21,6 +21,7 @@ impl FunctionBuilder<'_> {
         self.emit_binary_construct_typed_array(
             constructor.value(),
             &argv,
+            TypedArrayCreateAccess::ReadWrite,
             Some(length),
             result,
             f,

@@ -55,7 +55,7 @@ Verification controls (run serially through `scripts/limited_verification.py`):
 
 ```sh
 cargo test --locked -p lila-aot-wasm --lib runtime_artifact::cache::tests -- --test-threads=1
-cargo test --locked -p lila-engine --test runtime_artifact_cache -- --test-threads=1
+cargo test --locked -p lila-engine --test runtime_cache -- runtime_artifact_cache:: --test-threads=1
 cargo test --locked -p lila-engine --lib linked_runtime_native_modules_honor_both_bypass_retention_paths -- --test-threads=1
 cargo test --locked -p lila-engine --lib memory_module_cache::tests -- --test-threads=1
 ```

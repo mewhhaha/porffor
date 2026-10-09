@@ -155,9 +155,9 @@ use crate::ir::reference::{
     CapturedObjectPosition, Composition, CurrentScopeDepth, DeclarativeEnvironmentPosition,
     DeleteSuperReferencePlan, EagerCompoundAssignmentBindings, EagerCompoundAssignmentOp,
     NumericUpdateBindings, ObjectEnvironmentBindingObject, OrderedWithEnvironmentChain,
-    OrdinaryPropertyReferencePlan, PositionedWithEnvironment, ReferenceBase, ReferenceOperand,
-    ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects, SuperPropertyReferencePlan,
-    WithEnvironmentReferencePlan,
+    OrdinaryPropertyReferencePlan, PositionedWithEnvironment, PutValueBindings, ReferenceBase,
+    ReferenceOperand, ReferencePins, ReferenceRecord, SelectedWithEnvironmentObjects,
+    SuperPropertyReferencePlan, WithEnvironmentReferencePlan,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6987,8 +6987,7 @@ impl<'a> ScriptLowerer<'a> {
         self.number_prototype_to_string_state = post_state.number_prototype_to_string_state;
         self.boolean_prototype_to_string_state = post_state.boolean_prototype_to_string_state;
         for (source_name, captured_info) in post_state.captured_parent_values {
-            self.install_binding_value_info(&source_name, captured_info.clone())
-                .expect("executed class-element capture must remain visible to its parent");
+            self.install_binding_value_info(&source_name, captured_info.clone());
             if self.is_script_global_var_name(&source_name) {
                 if let Some(property) = self.global_properties.get_mut(&source_name) {
                     property.value_info = captured_info;
@@ -10723,10 +10722,29 @@ impl<'a> ScriptLowerer<'a> {
         objects: SelectedWithEnvironmentObjects,
         fallback: LocatedIdentifierReference,
     ) -> TypedExpr {
+        self.lower_with_scoped_identifier_write_with_evidence(name, value, objects, fallback)
+            .value
+    }
+
+    /// The located fallback write is lowered against the plan's single bound
+    /// RHS, so `value` is cloned into no branch.
+    fn lower_with_scoped_identifier_write_with_evidence(
+        &mut self,
+        name: String,
+        value: TypedExpr,
+        objects: SelectedWithEnvironmentObjects,
+        fallback: LocatedIdentifierReference,
+    ) -> PreparedIdentifierWrite {
         let plan = self.with_environment_reference_plan(name.clone(), objects);
-        let fallback =
-            self.lower_located_identifier_assign_value(name.clone(), value.clone(), fallback);
-        plan.put_value(value, fallback)
+        let bindings = PutValueBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
+        let mut ignored = None;
+        let value = plan.put_value(bindings, value, |bound| {
+            let write =
+                self.lower_located_identifier_assign_value_with_evidence(name, bound, fallback);
+            ignored = write.ignored;
+            write.value
+        });
+        PreparedIdentifierWrite { value, ignored }
     }
 
     fn lower_pattern_assign(&mut self, pattern: &Pattern, rhs: &Expression) -> TypedExpr {
@@ -12575,6 +12593,9 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_global_identifier_typeof(&mut self, name: String) -> TypedExpr {
+        if let Some(host) = self.host_surface_policy.resolve_global(&name) {
+            self.used_host_builtins.insert(host);
+        }
         // ResolveBinding can call an inherited Proxy HasProperty trap, and
         // GetBindingValue can invoke a getter. Neither operation may retain
         // source facts from before that user code; only absence skips Get.
@@ -14733,22 +14754,27 @@ impl<'a> ScriptLowerer<'a> {
         self.set_binding_value_info(name, value)
     }
 
-    fn install_binding_value_info(&mut self, name: &str, info: ValueInfo) -> Option<()> {
+    /// Replaces the facts of a binding this lowerer declares. A name it does
+    /// not declare is left alone: an executed static element of a class inside
+    /// a closure can capture a variable from beyond that closure, which the
+    /// closure never names itself, so the facts live in an outer lowerer.
+    fn install_binding_value_info(&mut self, name: &str, info: ValueInfo) {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.get_mut(name) {
                 binding.kind = info.kind;
                 binding.possible_kinds = info.possible_kinds;
                 binding.heap_shape = info.heap_shape;
                 binding.function_targets = info.function_targets;
-                return Some(());
+                return;
             }
         }
-        let binding = self.var_bindings.get_mut(name)?;
+        let Some(binding) = self.var_bindings.get_mut(name) else {
+            return;
+        };
         binding.kind = info.kind;
         binding.possible_kinds = info.possible_kinds;
         binding.heap_shape = info.heap_shape;
         binding.function_targets = info.function_targets;
-        Some(())
     }
 
     fn set_owner_binding_value_info(&mut self, name: &str, info: ValueInfo) {

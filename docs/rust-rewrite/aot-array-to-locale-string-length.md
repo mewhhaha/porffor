@@ -48,7 +48,7 @@ Normative references: [Array.prototype.toLocaleString](https://tc39.es/ecma262/#
 
 ## Regression and CI contract
 
-`crates/lila-engine/tests/aot_array_to_locale_string_length.rs` contains 23
+`crates/lila-engine/tests/aot_builtins/aot_array_to_locale_string_length.rs` contains 23
 explicit `ExecutionBackend::WasmAot` regression programs. They cover Number and
 BigInt TypedArray overrides, inherited and own accessors, arguments redefinition
 and deletion, exact length/coercion/index/call ordering, abrupt propagation,
@@ -75,7 +75,7 @@ or generated aggregate is changed.
 cargo fmt --all -- --check
 cargo check --locked --workspace --all-targets
 cargo test --locked -p lila-aot-wasm --test typed_array_to_locale_string_witness_structure --test to_locale_string_invocation_structure --test array_callback_iteration_structure --test array_flat_map_algorithm_owner_structure --test array_flat_map_typed_array_witness_structure --test array_map_algorithm_owner_structure --test array_filter_algorithm_owner_structure --test array_every_algorithm_owner_structure --test array_some_algorithm_owner_structure
-python3 scripts/run_engine_regression_inventory.py aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
+python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
 cargo test --locked -p lila-cli --test cli -- array::run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture --exact --test-threads=1
 cargo build --locked -p lila-cli
 ./target/debug/lila test262 run built-ins/Array/prototype/toLocaleString/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/locale-length-test262 --snapshot-name locale-length

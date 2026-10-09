@@ -1,7 +1,7 @@
 use super::super::*;
 use super::binary_data::{
     ArrayBufferAccessor, BufferConstructorKind, BufferSliceKind, BufferTransferKind,
-    DataViewAccessor, SharedArrayBufferAccessor, TypedArrayAccessorKind,
+    DataViewAccessor, SharedArrayBufferAccessor, TypedArrayAccessorKind, TypedArrayCreateAccess,
 };
 use super::data_view_access::{DataViewAccess, DataViewElement};
 use super::date::{DateComponentGetter, DateComponentSetter, DateLocaleFormat, DateTimeBasis};

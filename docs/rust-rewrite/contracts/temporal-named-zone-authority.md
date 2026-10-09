@@ -102,9 +102,9 @@ remain pending. No Test262 aggregate or T22 completion is claimed.
 ```sh
 cargo test -p lila-ir --lib runtime_semantics::tests
 cargo test -p lila-ir --lib builtins::catalog::tests::intl_provider_callers_declare_the_host_import
-cargo test -p lila-aot-wasm --test host_import_function_indices_structure
+cargo test -p lila-aot-wasm --test runtime_link -- host_import_function_indices_structure::
 cargo test -p lila-engine --lib execution_failure::tests
-cargo test -p lila-engine --test aot_temporal_zone_authority -- --test-threads=1
+cargo test -p lila-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
 cargo test -p lila-test262 --lib temporal_named_zone_semantic_gap_cannot_pass_runtime_negative_or_catch
 ```
 

@@ -25582,7 +25582,7 @@ resultIsArray();
         // Wasm codegen, and CreateDynamicFunction's observable results are
         // checked here. Sources that are only known at run time remain a typed
         // runtime capability rejection, covered by
-        // tests/aot_dynamic_source_capability.rs.
+        // tests/aot_realm_modules/aot_dynamic_source_capability.rs.
         for (source, expected) in [
             ("Function(\"return 1\")();", "number(1)"),
             ("new Function(\"return 1\")();", "number(1)"),

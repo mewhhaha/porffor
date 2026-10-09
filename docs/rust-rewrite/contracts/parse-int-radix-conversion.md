@@ -30,7 +30,7 @@ and binds an actual Source. Historical publication records four failures;
 no replacement aggregate or pass claim is made here.
 
 ```sh
-cargo test -p lila-engine --test aot_parse_int_radix -- --test-threads=1
+cargo test -p lila-engine --test aot_builtins -- aot_parse_int_radix:: --test-threads=1
 ./target/debug/lila test262 run staging/sm/Number/parseInt-01.js --execution-backend wasm-aot
 ./target/debug/lila test262 run staging/sm/global/parseInt-01.js --execution-backend wasm-aot
 ```

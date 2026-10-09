@@ -9225,7 +9225,7 @@ suites, which assert on program output. A refactor that perturbs emission order,
 function index assignment or property installation order can leave every one
 of those assertions green while changing the emitted module.
 
-`crates/lila-aot-wasm/tests/emit_golden.rs` closes that gap. It runs the real
+`crates/lila-aot-wasm/tests/emission/emit_golden.rs` closes that gap. It runs the real
 `parse -> lower -> emit` pipeline over every `.js` file in the current CLI
 fixture corpus and records the emitted byte length, a content hash, and the
 backend `debug_dump` per fixture.
@@ -9234,9 +9234,9 @@ nothing in an ordinary `cargo test` run.
 
 ```sh
 git stash
-LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
+LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
 git stash pop
-LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
+LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
 diff -r target/golden/before target/golden/after
 ```
 
@@ -9337,7 +9337,7 @@ Source and project status: <https://github.com/mewhhaha/porffor>.
 
 ## Product artifact execution checks
 
-`cargo test --locked -p lila-aot-wasm --test product_artifact` validates emitted Wasm and checks the evaluator boundary. `cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1` executes the same shared program inventory through the real product CLI, requires exact program output and the Wasm-AOT completion record, and bounds each child process. Its negative controls reject wrong results, extra output, unsuccessful processes, missing completion records and oracle fallback. These focused regressions are not a complete Test262 baseline or a conformance percentage.
+`cargo test --locked -p lila-aot-wasm --test emission -- product_artifact::` validates emitted Wasm and checks the evaluator boundary. `cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1` executes the same shared program inventory through the real product CLI, requires exact program output and the Wasm-AOT completion record, and bounds each child process. Its negative controls reject wrong results, extra output, unsuccessful processes, missing completion records and oracle fallback. These focused regressions are not a complete Test262 baseline or a conformance percentage.
 
 ## Repository path portability
 

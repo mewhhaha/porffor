@@ -40,7 +40,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run compiler fingerprint regressions
-        run: cargo test --locked -p lila-engine --test compiler_fingerprint
+        run: cargo test --locked -p lila-engine --test structure -- compiler_fingerprint::
 
   persistence:
     needs: fingerprint
@@ -70,5 +70,6 @@ jobs:
       - name: Run raw and native runtime cache process regressions
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          cargo test --locked -p lila-engine --test runtime_artifact_cache
-          -- --test-threads=1
+          cargo test --locked -p lila-engine
+          --test runtime_cache
+          -- runtime_artifact_cache:: --test-threads=1

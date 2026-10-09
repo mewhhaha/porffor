@@ -26,9 +26,9 @@ There is one conversion path for each algorithm, independent of whether the
 expression result is discarded, stored or passed to a caller.
 
 ```sh
-cargo test --release --locked -j2 -p lila-aot-wasm --test arithmetic_number_conversion_order_structure --test unary_numeric_ir_structure
+cargo test --release --locked -j2 -p lila-aot-wasm --test arithmetic_number_conversion_order_structure --test structure_language -- unary_numeric_ir_structure::
 cargo test --release --locked -j2 -p lila-engine --lib wasm_backend_outlined_to_numeric_preserves_kind_order_and_abrupt_identity
-cargo test --release --locked -j2 -p lila-engine --test aot_declaration_completion
+cargo test --release --locked -j2 -p lila-engine --test aot_language -- aot_declaration_completion::
 ```
 
 Current verification and the exact real execution cohort are recorded in the

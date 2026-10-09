@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 const foreign = $262.createRealm().global;
 const LocalArray = Array;
 const ForeignArray = foreign.Array;

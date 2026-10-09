@@ -1,3 +1,4 @@
+var $262 = { createRealm: __lilaCreateRealm };
 function check(condition, message) { if (!condition) throw new Error(message); }
 const stringify = JSON.stringify;
 const high = String.fromCharCode(0xd800);

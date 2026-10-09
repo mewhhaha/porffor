@@ -780,9 +780,9 @@ Refresh the same selection with the retained
 recorded execution list, immutable compiler and a fresh output directory, then
 `scripts/audit-test262-replay.py` with its recorded main-reference audit. Native
 refresh commands include `cargo check --release --locked --workspace --all-targets`
-and `cargo test --release --locked -p lila-engine --test aot_arguments_index_descriptors
---test aot_array_arguments_primitive --test aot_arguments_iteration
---test aot_arguments_concat -- --test-threads=2`.
+and `cargo test --release --locked -p lila-engine --test aot_language --test
+aot_builtins -- aot_arguments_index_descriptors:: aot_array_arguments_primitive::
+aot_arguments_iteration:: aot_arguments_concat:: --test-threads=2`.
 
 ## Instant arithmetic and differences
 
@@ -997,7 +997,8 @@ remain under `target/failure-review/completed-baseline-20260914`, including
 `batch21-diagnostic-results` and `batch21-throw-isolation-results`.
 They are local evidence, not files committed to the PR. Focused runtime results
 can be refreshed with `cargo test --release --locked -j2 -p lila-engine --test
-<target> -- --test-threads=2`, using the target names above and
+<area> -- <module>:: --test-threads=2`, using the test-file (module) names above
+with their area target (`crates/lila-engine/tests/<area>/<module>.rs`) and
 `LILA_MODULE_MEMORY_CACHE_ENTRIES=1`. Published full-suite status is unchanged.
 
 ## Historical-failure replay and checkpoint repairs, 2026-09-22
@@ -1116,9 +1117,10 @@ transcript hashes, and the completed-run audit remain under
 `batch22r2-typeof-before`. To refresh the changed paths, run
 `cargo check --release --workspace --all-targets --locked -j2`, then
 `LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p
-lila-engine --test aot_intl_numberformat --test aot_intl_datetime_provider
---test aot_throw_type_error_realm --test aot_async_resource_loops --test
-aot_arguments_index_descriptors -- --test-threads=2`. The two failing targets
+lila-engine --test aot_intl --test aot_realm_modules --test aot_async --test
+aot_language -- aot_intl_numberformat:: aot_intl_datetime_provider::
+aot_throw_type_error_realm:: aot_async_resource_loops::
+aot_arguments_index_descriptors:: --test-threads=2`. The two failing targets
 are refreshed with `cargo test --release --locked -j2 -p lila-aot-wasm --test
 intl_host_imports` and `cargo test --release --locked -j2 -p lila-cli --test cli
 language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
@@ -1182,12 +1184,14 @@ test locally; the full 221-group checkpoint remains unverified.
 
 Refresh the changed paths with `cargo check --release --workspace --all-targets
 --locked -j2`, then `LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release
---locked -j2 -p lila-engine --test aot_runtime_import_reachability --test
-aot_bigint_numeric_updates --test aot_temporal_instant_methods --test
-aot_intl_datetime_provider --test aot_date_locale -- --test-threads=2`.
+--locked -j2 -p lila-engine --test aot_realm_modules --test aot_builtins --test
+aot_temporal --test aot_intl -- aot_runtime_import_reachability::
+aot_bigint_numeric_updates:: aot_temporal_instant_methods::
+aot_intl_datetime_provider:: aot_date_locale:: --test-threads=2`.
 Run `cargo test --release --locked -j2 -p lila-aot-wasm --test
-runtime_import_reachability --test intl_host_imports --test
-typed_array_to_locale_string_witness_structure` and `cargo test --release
+runtime_link --test intl_temporal --test
+typed_array_to_locale_string_witness_structure --
+runtime_import_reachability:: intl_host_imports::` and `cargo test --release
 --locked -j2 -p lila-ir --test temporal_instant_methods` for the artifact,
 source and IR boundaries. The exact typed-array CLI regression is
 `cargo test --release --locked -j2 -p lila-cli --test cli

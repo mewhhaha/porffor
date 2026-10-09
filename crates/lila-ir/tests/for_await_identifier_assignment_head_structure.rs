@@ -2,6 +2,7 @@ const FOR_OF_SOURCE: &str = include_str!("../src/lowering/for_of.rs");
 const FOR_IN_SOURCE: &str = include_str!("../src/lowering/for_in.rs");
 const FOR_IN_HEAD_SOURCE: &str = include_str!("../src/lowering/for_in/head.rs");
 const ASSIGNMENT_SOURCE: &str = include_str!("../src/lowering/assignment.rs");
+const LOWERING_SOURCE: &str = include_str!("../src/lowering.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../src/analysis.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -122,13 +123,31 @@ fn bare_identifier_prefix_uses_the_checked_reference_write_path() {
         "EnvironmentIdentifierOperationIr::Assign",
         "self.locate_identifier_reference(&source_name)",
         ".select_preceding(reference.declarative_position())",
-        "self.with_environment_reference_plan(source_name.clone(), objects)",
-        "self.lower_located_identifier_assign_value_with_evidence(",
-        "plan.put_value(value, fallback.value)",
+        "self.lower_with_scoped_identifier_write_with_evidence(",
     ];
     let mut cursor = 0;
     for required in order {
         let offset = write[cursor..]
+            .find(required)
+            .unwrap_or_else(|| panic!("missing or out of order `{required}`"));
+        cursor += offset + required.len();
+    }
+    // The shared `with` write binds the RHS once; the located fallback only
+    // ever sees that bound value.
+    let shared = bounded(
+        LOWERING_SOURCE,
+        "fn lower_with_scoped_identifier_write_with_evidence(",
+        "fn lower_pattern_assign(",
+    );
+    let order = [
+        "self.with_environment_reference_plan(name.clone(), objects)",
+        "PutValueBindings::allocate(",
+        "plan.put_value(bindings, value, |bound| {",
+        "self.lower_located_identifier_assign_value_with_evidence(name, bound, fallback)",
+    ];
+    let mut cursor = 0;
+    for required in order {
+        let offset = shared[cursor..]
             .find(required)
             .unwrap_or_else(|| panic!("missing or out of order `{required}`"));
         cursor += offset + required.len();

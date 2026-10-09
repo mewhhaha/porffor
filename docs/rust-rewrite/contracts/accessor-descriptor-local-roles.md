@@ -40,7 +40,7 @@ controls. Current native and artifact verification is pending; the historical
 checkpoint below does not establish that this GC revision passes.
 
 ```sh
-cargo test -p lila-aot-wasm --test accessor_descriptor_local_roles_structure
+cargo test -p lila-aot-wasm --test structure_language -- accessor_descriptor_local_roles_structure::
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_object_form_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli functions::run_wasm_class_auto_accessor_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_accessors_fixture -- --exact --test-threads=1

@@ -154,15 +154,21 @@ fn nested_strict_with_assignment_reads_the_production_hidden_capture() {
         .iter()
         .find_map(|statement| match statement {
             StatementIr::Expression(expression)
-                if matches!(&expression.expr, ExprIr::Conditional { .. }) =>
+                if matches!(&expression.expr, ExprIr::MaterializeBinding { .. }) =>
             {
                 Some(expression)
             }
             _ => None,
         })
-        .expect("with assignment should lower to its initial resolution branch");
-    let ExprIr::Conditional { condition, .. } = &assignment.expr else {
+        .expect("with assignment should retain its initial resolution");
+    let ExprIr::MaterializeBinding {
+        value: selection, ..
+    } = &assignment.expr
+    else {
         unreachable!()
+    };
+    let ExprIr::Conditional { condition, .. } = &selection.expr else {
+        panic!("the retained selection must branch on the captured Object Environment");
     };
     let ExprIr::SpecOperation {
         operation: SpecOperationIr::WithEnvironmentHasBinding,

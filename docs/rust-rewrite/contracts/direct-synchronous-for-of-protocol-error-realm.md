@@ -179,7 +179,7 @@ The focused commands included:
 cargo check -p lila-aot-wasm
 cargo test -p lila-aot-wasm --test direct_sync_for_of_protocol_error_realm_structure -- --test-threads=1
 cargo test -p lila-aot-wasm --test sync_iterator_protocol_error_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test sync_iterator_consumer_capability_structure -- --test-threads=1
+cargo test -p lila-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
 cargo test -p lila-cli --test cli iterator::run_wasm_backend_reports_direct_for_of_protocol_type_errors -- --exact
 cargo test -p lila-cli --test cli iterator::run_wasm_backend_preserves_direct_for_of_callable_proxy_methods -- --exact
 ./target/debug/lila --jobs 1 test262 run language/statements/for-of/head-expr-to-obj.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1

@@ -82,7 +82,7 @@ passes `1/1`. The six directly relevant pinned Test262 files pass all twelve
 sloppy/strict Wasm-AOT executions (`12/12`), with every failure bucket at zero.
 
 ```sh
-cargo test -p lila-aot-wasm --test object_write_proxy_realm_structure --quiet
+cargo test -p lila-aot-wasm --test modules_realms --quiet -- object_write_proxy_realm_structure::
 cargo test -p lila-aot-wasm --test array_from_async_result_definition_error_realm_structure --quiet
 cargo test -p lila-cli --test cli array_from_async_result_definition_errors_use_the_method_realm --quiet
 ```

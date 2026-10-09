@@ -31,7 +31,7 @@ loop uses the existing numeric/BigInt element encoding. It copies the retained
 converted payload into a temporary for each store because integer encoding
 consumes that temporary. No callback or value conversion occurs in the loop.
 
-Native coverage is in `crates/lila-engine/tests/aot_typed_array_fill.rs`:
+Native coverage is in `crates/lila-engine/tests/aot_builtins/aot_typed_array_fill.rs`:
 builtin and realm identity, receiver branding, descriptors, single conversion
 including zero length, all currently exposed element kinds, BigInt storage and
 conversion rejection, public length overrides, abrupt conversion identity,

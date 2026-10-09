@@ -1020,6 +1020,51 @@ run rung 1b for its own area — the per-test cost varies by more than 1.7× acr
 modules (`heap` is `1.5 s`/test, the whole-suite mix is `2.6 s`/test), so do not
 extrapolate one module's cost to the suite.
 
+### Engine integration tests are grouped by area
+
+Each `crates/lila-engine/tests/<area>/main.rs` is one Cargo test target; the
+former per-file targets are modules of it
+(`tests/<area>/<module>.rs`, test path `<module>::<test>`). Every target links
+Wasmtime/Cranelift/ICU, so one binary per area keeps both link time and disk use
+bounded while still isolating areas in separate processes. Select a file with a
+module filter, and a single test with `--exact`:
+
+```sh
+cargo test --locked -p lila-engine --test aot_intl -- aot_intl_collator:: --test-threads=1
+cargo test --locked -p lila-engine --test aot_intl -- aot_intl_collator::<test> --exact
+```
+
+Areas: `aot_async`, `aot_builtins`, `aot_gc_entries`, `aot_generators`,
+`aot_intl`, `aot_language`, `aot_realm_modules`, `aot_regexp`, `aot_temporal`,
+`structure` (source/structure guards, compiler identity, rooted observation) and
+`runtime_cache` (tests that re-execute their own binary with a private cache).
+New integration tests are new modules of the matching area; keep a test that
+needs a pristine process in `runtime_cache`. Any test that compiles must call
+`lila_engine::configure_compilation_jobs(1)` first, because modules of one area
+share a process and its one compilation pool.
+
+### Wasm backend integration tests are grouped by area
+
+`crates/lila-aot-wasm/tests/<area>/main.rs` is one Cargo test target per area; each
+former per-file target is a module of it (`tests/<area>/<module>.rs`, test path
+`<module>::<test>`), for the same link-time and disk reasons as the engine
+targets. Select one former file with a module filter:
+
+```sh
+cargo test --locked -p lila-aot-wasm --test intl_temporal -- temporal_instant_epoch_proof_structure::
+```
+
+Areas: `emission` (artifact, body, size and emission tests, `product_artifact`,
+`emit_golden`), `runtime_link` (runtime/program split, snapshots, host imports),
+`modules_realms` (module units, created realms, ShadowRealm bootstrap, per-realm
+authority), `intl_temporal`, and the source/structure guards `structure_async`,
+`structure_builtins` and `structure_language`. Shared fixtures live in
+`tests/fixtures/` and are declared once per area in its `main.rs` (`linked_bodies`,
+`product_programs`); `tests/unit/` is compiled into the library's unit tests.
+New tests are new modules of the matching area. Source-text guards read the crate
+through `CARGO_MANIFEST_DIR` or `include_str!("../../src/...")` (one directory
+deeper than the old per-file layout).
+
 ### Rung 1c terminates, and checks its own expectations
 
 On a machine that can hold the whole suite in one process lifetime, run it
@@ -1203,16 +1248,16 @@ into the same trap. Better still, give the file a consumer that fails without it
 
 ### Rung G — the refactor gate
 
-`crates/lila-aot-wasm/tests/emit_golden.rs` runs the real
+`crates/lila-aot-wasm/tests/emission/emit_golden.rs` runs the real
 `parse -> lower -> emit` pipeline over every `.js` file in the current CLI
 fixture corpus and records emitted byte length, a content hash, and the backend
 `debug_dump` per fixture. It is inert unless `LILA_GOLDEN_OUT` is set.
 
 ```sh
 git stash
-LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
+LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
 git stash pop
-LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emit_golden -- --test-threads=1
+LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
 diff -r target/golden/before target/golden/after
 ```
 
@@ -1289,7 +1334,7 @@ Temporal target below with the actual target inventory chosen for the batch:
 ```sh
 python3 scripts/limited_verification.py -- cargo xc --locked
 python3 scripts/limited_verification.py -- \
-  cargo test --locked -p lila-engine --test aot_temporal_zone_authority -- --test-threads=1
+  cargo test --locked -p lila-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
 ./scripts/run-watched.sh --label batch-workspace --stall 900 -- \
   python3 scripts/limited_verification.py -- \
     cargo test --locked --workspace --no-fail-fast --quiet -- --test-threads=1

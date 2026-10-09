@@ -49,6 +49,7 @@ CARGO_PKG_VERSION=47.0.0 \
 rustc --edition 2024 --test vendor/wasmtime-internal-cache-47.0.0/tests/compiler_identity.rs \
   -o target/verification-tmp/wasmtime-cache-compiler-identity
 ./target/verification-tmp/wasmtime-cache-compiler-identity --test-threads=1
-cargo test --locked -p lila-engine --test runtime_artifact_cache \
-  native_runtime_is_reused_by_executables_with_different_mtimes -- --exact --test-threads=1
+cargo test --locked -p lila-engine \
+  --test runtime_cache \
+  -- runtime_artifact_cache::native_runtime_is_reused_by_executables_with_different_mtimes --exact --test-threads=1
 ```

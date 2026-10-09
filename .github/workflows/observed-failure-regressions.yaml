@@ -75,9 +75,9 @@ jobs:
       - name: Execute current numeric, Temporal and disposal GC controls
         run: >-
           cargo test --locked -p lila-engine
-          --test aot_gc_numeric_values --test aot_gc_temporal_entries
-          --test aot_created_realm_async_disposable_stack
-          -- --test-threads=1
+          --test aot_gc_entries --test aot_realm_modules
+          -- aot_gc_numeric_values:: aot_gc_temporal_entries::
+          aot_created_realm_async_disposable_stack:: --test-threads=1
 
       - name: Check remainder, deletion, equality and finite eval lowering
         run: |
@@ -144,24 +144,24 @@ jobs:
       - name: Execute suspended expressions and environment tail calls
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_class_computed_name_suspension --test aot_direct_eval_spread
-          --test aot_generator_call_suspension --test aot_tail_call_environment
-          -- --test-threads=1
+          --test aot_generators --test aot_realm_modules --test aot_language
+          -- aot_class_computed_name_suspension:: aot_direct_eval_spread::
+          aot_generator_call_suspension:: aot_tail_call_environment:: --test-threads=1
 
       - name: Execute default-export names and awaited property assignments
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_module_default_export_names --test aot_async_property_assignment
-          -- --test-threads=1
+          --test aot_realm_modules --test aot_async
+          -- aot_module_default_export_names:: aot_async_property_assignment::
+          --test-threads=1
 
       - name: Execute expression semantics repairs through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_number_remainder --test aot_delete_reference
-          --test aot_bigint_loose_equality --test aot_finite_indirect_eval
-          --test aot_indirect_eval_admission
-          --test aot_shared_array_buffer_subclass
-          -- --test-threads=1
+          --test aot_builtins --test aot_language --test aot_realm_modules
+          -- aot_number_remainder:: aot_delete_reference:: aot_bigint_loose_equality::
+          aot_finite_indirect_eval:: aot_indirect_eval_admission::
+          aot_shared_array_buffer_subclass:: --test-threads=1
 
   completed-baseline-1:
     name: Completed-baseline repairs through Wasmtime (1/2)
@@ -181,13 +181,14 @@ jobs:
       - name: Execute completed-baseline expression repairs through Wasmtime (1/2)
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_bigint_relational_coercion --test aot_function_names --test aot_function_coercion
-          --test aot_with_var_hoisting --test aot_with_has_binding --test aot_nul_source
-          --test aot_private_numeric_updates --test aot_for_in_enumeration --test aot_module_namespace
-          --test aot_for_of_head_completion --test aot_string_constructor --test aot_throw_type_error_realm
-          --test aot_constructor_throw_domain --test aot_runtime_import_reachability --test aot_computed_numeric_method_calls
-          --test aot_regexp_lookbehind_anchors
-          -- --test-threads=1
+          --test aot_builtins --test aot_language --test aot_realm_modules --test aot_regexp
+          -- aot_bigint_relational_coercion:: aot_function_names:: aot_function_coercion::
+          aot_with_var_hoisting:: aot_with_has_binding:: aot_nul_source::
+          aot_private_numeric_updates:: aot_for_in_enumeration:: aot_module_namespace::
+          aot_for_of_head_completion:: aot_string_constructor:: aot_throw_type_error_realm::
+          aot_constructor_throw_domain:: aot_runtime_import_reachability::
+          aot_computed_numeric_method_calls:: aot_regexp_lookbehind_anchors::
+          --test-threads=1
 
   completed-baseline-2:
     name: Completed-baseline repairs through Wasmtime (2/2)
@@ -207,13 +208,14 @@ jobs:
       - name: Execute completed-baseline expression repairs through Wasmtime (2/2)
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_regexp_lookaround --test aot_temporal_buddhist_calendar --test aot_regexp_backreference
-          --test aot_regexp_backreference_folding --test aot_regexp_case_folding --test aot_regexp_word_boundary
-          --test aot_regexp_reverse_whitespace --test aot_regexp_forward_whitespace --test aot_regexp_legacy_pooled_class
-          --test aot_numeric_bitwise --test aot_typed_array_fill --test aot_float16_array
-          --test aot_typed_array_byte_copy --test aot_intl_locale_options --test aot_intl_locale_constructor
-          --test aot_temporal_zoned_with
-          -- --test-threads=1
+          --test aot_regexp --test aot_temporal --test aot_builtins --test aot_intl
+          -- aot_regexp_lookaround:: aot_temporal_buddhist_calendar::
+          aot_regexp_backreference:: aot_regexp_backreference_folding::
+          aot_regexp_case_folding:: aot_regexp_word_boundary::
+          aot_regexp_reverse_whitespace:: aot_regexp_forward_whitespace::
+          aot_regexp_legacy_pooled_class:: aot_numeric_bitwise:: aot_typed_array_fill::
+          aot_float16_array:: aot_typed_array_byte_copy:: aot_intl_locale_options::
+          aot_intl_locale_constructor:: aot_temporal_zoned_with:: --test-threads=1
 
   repaired-paths:
     name: Repaired compiler paths and codecs through Wasmtime
@@ -233,25 +235,22 @@ jobs:
       - name: Execute repaired compiler paths through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_arguments_concat --test aot_async_loop_bindings
-          --test aot_arguments_index_descriptors
-          --test aot_async_for_of_continuations --test aot_async_resource_loops
-          --test aot_await_rejection_realm --test aot_empty_function
-          --test aot_empty_dynamic_functions --test aot_dynamic_source_capability
-          --test aot_created_realm_dynamic_functions
-          --test aot_async_disposable_stack_realm
-          --test aot_created_realm_async_disposable_stack
-          --test aot_thrown_exception_constructor
-          --test aot_for_await_rejection_close --test aot_generator_loops
-          --test aot_regexp_recompile -- --test-threads=1
+          --test aot_language --test aot_async --test aot_realm_modules --test aot_generators --test aot_regexp
+          -- aot_arguments_concat:: aot_async_loop_bindings::
+          aot_arguments_index_descriptors:: aot_async_for_of_continuations::
+          aot_async_resource_loops:: aot_await_rejection_realm:: aot_empty_function::
+          aot_empty_dynamic_functions:: aot_dynamic_source_capability::
+          aot_created_realm_dynamic_functions:: aot_async_disposable_stack_realm::
+          aot_created_realm_async_disposable_stack:: aot_thrown_exception_constructor::
+          aot_for_await_rejection_close:: aot_generator_loops:: aot_regexp_recompile::
+          --test-threads=1
 
       - name: Execute Uint8Array codec regressions through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_uint8array_hex
-          --test aot_uint8array_base64_decode
-          --test aot_uint8array_base64_encode
-          -- --test-threads=1
+          --test aot_builtins
+          -- aot_uint8array_hex:: aot_uint8array_base64_decode::
+          aot_uint8array_base64_encode:: --test-threads=1
 
   later-failures:
     name: Later failures and prepared sources through Wasmtime
@@ -271,25 +270,21 @@ jobs:
       - name: Execute later failures and prepared source environments through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_bound_function_metadata --test aot_created_realm_disposable_stack
-          --test aot_created_realm_array_iterator
-          --test aot_function_apply_resizable --test aot_function_caller
-          --test aot_iterator_consumers --test aot_prepared_dynamic_function
-          --test aot_prepared_script --test aot_prepared_global_declarations
-          --test aot_declaration_completion
-          --test aot_execution_global_environment --test aot_direct_eval
-          --test aot_direct_eval_call_identity --test aot_direct_eval_environment
-          --test aot_direct_eval_escaped_arrows --test aot_resumable_global_assignment
-          --test aot_parameter_environment_lifetime
-          --test aot_has_property_helper
-          --test aot_aggregate_error_constructor_realm
-          --test aot_suppressed_error_constructor_realm
-          --test aot_string_numeric_prefixes --test aot_proto_getter_receiver
-          --test aot_temporal_month_code --test aot_typed_array_reference_get --test aot_bigint_numeric_updates
-          --test aot_bigint_number_conversion --test aot_buffer_backing_store
-          --test aot_regexp_constructor_and_iterator
-          --test aot_promise_combinator_intrinsics
-          -- --test-threads=2
+          --test aot_builtins --test aot_realm_modules --test aot_language --test aot_generators --test aot_temporal --test aot_regexp
+          -- aot_bound_function_metadata:: aot_created_realm_disposable_stack::
+          aot_created_realm_array_iterator:: aot_function_apply_resizable::
+          aot_function_caller:: aot_iterator_consumers:: aot_prepared_dynamic_function::
+          aot_prepared_script:: aot_prepared_global_declarations::
+          aot_declaration_completion:: aot_execution_global_environment:: aot_direct_eval::
+          aot_direct_eval_call_identity:: aot_direct_eval_environment::
+          aot_direct_eval_escaped_arrows:: aot_resumable_global_assignment::
+          aot_parameter_environment_lifetime:: aot_has_property_helper::
+          aot_aggregate_error_constructor_realm:: aot_suppressed_error_constructor_realm::
+          aot_string_numeric_prefixes:: aot_proto_getter_receiver::
+          aot_temporal_month_code:: aot_typed_array_reference_get::
+          aot_bigint_numeric_updates:: aot_bigint_number_conversion::
+          aot_buffer_backing_store:: aot_regexp_constructor_and_iterator::
+          aot_promise_combinator_intrinsics:: --test-threads=2
 
   temporal:
     name: Temporal baseline repairs through Wasmtime
@@ -309,12 +304,9 @@ jobs:
       - name: Execute Temporal baseline repairs through Wasmtime
         run: >-
           cargo test --locked --no-fail-fast -p lila-engine
-          --test aot_temporal_plain_year_month
-          --test aot_temporal_zoned_date_time_format
-          --test aot_temporal_zoned_date_time_surface
-          --test aot_temporal_zoned_date_time_day
-          --test aot_temporal_zoned_date_time_round
-          --test aot_temporal_zoned_date_time_difference --test aot_temporal_instant_methods
-          --test aot_temporal_duration_wide_fields
-          --test aot_temporal_plain_date_zoned
-          -- --test-threads=1
+          --test aot_temporal
+          -- aot_temporal_plain_year_month:: aot_temporal_zoned_date_time_format::
+          aot_temporal_zoned_date_time_surface:: aot_temporal_zoned_date_time_day::
+          aot_temporal_zoned_date_time_round:: aot_temporal_zoned_date_time_difference::
+          aot_temporal_instant_methods:: aot_temporal_duration_wide_fields::
+          aot_temporal_plain_date_zoned:: --test-threads=1

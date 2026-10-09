@@ -210,8 +210,8 @@ Object descriptor subtrees.
 Focused regression commands are:
 
 ```sh
-cargo test --release --locked -p lila-aot-wasm --test arguments_index_descriptor_structure
-cargo test --release --locked -p lila-engine --test aot_arguments_index_descriptors -- --test-threads=2
+cargo test --release --locked -p lila-aot-wasm --test structure_language -- arguments_index_descriptor_structure::
+cargo test --release --locked -p lila-engine --test aot_language -- aot_arguments_index_descriptors:: --test-threads=2
 ```
 
 Native execution, unchanged pinned-test replays, workspace compilation and

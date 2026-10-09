@@ -414,7 +414,7 @@ for object_pattern_control in \
   crates/lila-ir/tests/generator_pattern_assignments.rs \
   crates/lila-ir/tests/generator_pattern_initializers.rs \
   crates/lila-ir/tests/generator_throw_regions.rs \
-  crates/lila-engine/tests/aot_generator_object_patterns.rs \
+  crates/lila-engine/tests/aot_generators/aot_generator_object_patterns.rs \
   crates/lila-engine/tests/fixtures/generator_object_patterns/object_patterns.js \
   crates/lila-engine/tests/fixtures/generator_object_patterns/with_references.js
 do
@@ -590,19 +590,19 @@ for array_pattern_control in \
   crates/lila-ir/src/array_destructuring_operation/tests.rs \
   crates/lila-ir/src/generator_array_destructuring/tests.rs \
   crates/lila-ir/tests/generator_array_patterns.rs \
-  crates/lila-engine/tests/aot_generator_array_patterns.rs \
+  crates/lila-engine/tests/aot_generators/aot_generator_array_patterns.rs \
   crates/lila-engine/tests/fixtures/generator_array_patterns/array_patterns.js \
   crates/lila-engine/tests/fixtures/generator_array_patterns/with_references.js \
-  crates/lila-aot-wasm/tests/generator_array_destructuring_structure.rs \
-  crates/lila-aot-wasm/tests/destructuring_iterator_step_kind_structure.rs \
-  crates/lila-aot-wasm/tests/destructuring_iterator_locals_ownership_structure.rs \
-  crates/lila-aot-wasm/tests/sync_iterator_consumer_capability_structure.rs
+  crates/lila-aot-wasm/tests/structure_async/generator_array_destructuring_structure.rs \
+  crates/lila-aot-wasm/tests/structure_language/destructuring_iterator_step_kind_structure.rs \
+  crates/lila-aot-wasm/tests/structure_language/destructuring_iterator_locals_ownership_structure.rs \
+  crates/lila-aot-wasm/tests/structure_async/sync_iterator_consumer_capability_structure.rs
 do
   require_file "$array_pattern_control"
 done
 require_fixed_string_count crates/lila-ir/src/generator_array_destructuring/tests.rs 'fn complete_array_constructor_rejects_removed_extra_and_substituted_protocol_operations()' 1 'actual complete protocol tape damage control'
 require_fixed_string_count crates/lila-ir/tests/generator_array_patterns.rs 'fn array_pattern_owns_acquisition_complete_body_and_lazy_default_states()' 1 'real source complete-close/range control'
-require_fixed_string_count crates/lila-engine/tests/aot_generator_array_patterns.rs 'fn generator_array_patterns_preserve_iterator_records_close_and_original_targets()' 1 'actual strict/sloppy Wasm protocol/completion cohort'
+require_fixed_string_count crates/lila-engine/tests/aot_generators/aot_generator_array_patterns.rs 'fn generator_array_patterns_preserve_iterator_records_close_and_original_targets()' 1 'actual strict/sloppy Wasm protocol/completion cohort'
 
 # Parser name-scope provenance separates a source BindingIdentifier from an
 # inferred display label. Analysis, lowering and fact publication share it.
@@ -625,14 +625,14 @@ require_fixed_string_count crates/lila-ir/src/lowering/class_definition.rs 'if l
 check_no_inline_legacy_includes "$ir_source_class_name"
 check_raw_line_budget "$ir_source_class_name" 85
 require_file crates/lila-ir/tests/class_name_source.rs
-require_file crates/lila-engine/tests/aot_class_name_source.rs
+require_file crates/lila-engine/tests/aot_language/aot_class_name_source.rs
 require_file crates/lila-engine/tests/fixtures/class_name_source/names.js
 require_fixed_string_count crates/lila-ir/tests/class_name_source.rs 'fn inferred_class_labels_capture_outer_cells_and_explicit_names_capture_inner_cells()' 1 'actual inferred-label versus source-binding capture control'
 require_fixed_string_count crates/lila-ir/tests/class_name_source.rs 'fn yielded_heritage_retains_only_actual_source_class_name_environments()' 1 'actual suspended class name environment control'
 require_fixed_string_count crates/lila-ir/tests/class_name_source.rs 'fn anonymous_default_export_preserves_its_display_label_without_a_class_name_cell()' 1 'metadata-only class label control'
-require_fixed_string_count crates/lila-engine/tests/aot_class_name_source.rs 'fn class_labels_preserve_outer_tdz_cells_and_explicit_inner_names_through_wasm()' 1 'actual defining class/outer TDZ Wasm cohort'
+require_fixed_string_count crates/lila-engine/tests/aot_language/aot_class_name_source.rs 'fn class_labels_preserve_outer_tdz_cells_and_explicit_inner_names_through_wasm()' 1 'actual defining class/outer TDZ Wasm cohort'
 require_file crates/lila-ir/tests/class_computed_name_suspension.rs
-require_file crates/lila-engine/tests/aot_class_computed_name_suspension.rs
+require_file crates/lila-engine/tests/aot_generators/aot_class_computed_name_suspension.rs
 
 ir_optional_source="crates/lila-ir/src/generator_value_branch_source/optional_chain.rs"
 ir_optional_consumer="crates/lila-ir/src/lowering/generator_value_branch/optional_chain.rs"
@@ -2955,7 +2955,7 @@ if ! awk '
 ' <<<"$resumable_sync_for_of_owner"; then
   fail "$wasm_resumable_sync_for_of_iterator must preserve typed acquire, step, local target lifetime, whole close and dispatch order"
 fi
-require_file crates/lila-engine/tests/aot_generator_for_of_continuations.rs
+require_file crates/lila-engine/tests/aot_generators/aot_generator_for_of_continuations.rs
 require_file crates/lila-engine/tests/fixtures/generator_for_of_continuations/iterator-close-completion-precedence.js
 require_file crates/lila-engine/tests/fixtures/generator_for_of_continuations/assignment-head-errors-close.js
 
@@ -3415,8 +3415,8 @@ for typed_set_entry in emit_typed_array_set_builtin emit_native_typed_array_byte
   require_regex_count "$wasm_standard_builtins" "^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+${typed_set_entry}[[:space:]]*\(" 0 'no dispatcher copy of TypedArray Set/bytes'
 done
 require_fixed_string_count "$wasm_standard_builtins" 'self.emit_typed_array_set_builtin(function)?;' 1 'TypedArray Set fixed dispatch'
-require_file crates/lila-engine/tests/aot_typed_array_byte_copy.rs
-require_file crates/lila-engine/tests/aot_gc_typed_array_immutable_properties.rs
+require_file crates/lila-engine/tests/aot_builtins/aot_typed_array_byte_copy.rs
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_typed_array_immutable_properties.rs
 
 # Fixed Atomics entries consume the private operation and access proof owners.
 # Async waiting has its own private GC queue/result lifecycle, not scalar locals.
@@ -3458,7 +3458,7 @@ done
 require_fixed_string_count crates/lila-aot-wasm/src/control_flow.rs 'self.compile_ordinary_generator_loop(plan,' 2 'ordinary and labelled loop dispatch consumers'
 require_fixed_string_count crates/lila-aot-wasm/src/control_flow.rs 'self.compile_ordinary_generator_if(plan,' 1 'ordinary conditional dispatch consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/control_flow.rs 'fn compile_plain_generator_loop(' 0 'retired single-yield ordinary loop implementation'
-require_file crates/lila-engine/tests/aot_generator_classic_loops.rs
+require_file crates/lila-engine/tests/aot_generators/aot_generator_classic_loops.rs
 require_file crates/lila-engine/tests/fixtures/generator_classic_loops/phases_and_branches.js
 require_file crates/lila-engine/tests/fixtures/generator_classic_loops/completions_and_environments.js
 check_no_inline_legacy_includes "$wasm_generator_loop"
@@ -3581,7 +3581,7 @@ require_file crates/lila-aot-wasm/src/control_flow/async_suspension.rs
 check_no_inline_legacy_includes crates/lila-aot-wasm/src/control_flow/async_suspension.rs
 check_raw_line_budget crates/lila-aot-wasm/src/control_flow/async_suspension.rs 60
 require_file crates/lila-ir/tests/generator_switch_regions.rs
-require_file crates/lila-engine/tests/aot_generator_switch_regions.rs
+require_file crates/lila-engine/tests/aot_generators/aot_generator_switch_regions.rs
 require_file crates/lila-engine/tests/fixtures/generator_switch_regions/switches.js
 # Constructor admission, classic For environment creation and activation
 # retention share the real declaration-binding visitor, including patterns.
@@ -3625,7 +3625,7 @@ for reference_transport_entry in emit_capture_identifier_reference emit_take_cap
 done
 require_fixed_string_count crates/lila-aot-wasm/src/control_flow.rs 'self.emit_retire_abandoned_identifier_references(function);' 4 'committed Return/caught Throw and whole async-generator completion dispatch retire original References'
 require_fixed_string_count crates/lila-aot-wasm/src/control_flow.rs 'self.emit_retire_abandoned_identifier_references_if_throw(function);' 1 'actual uncaught Throw retirement at completion exit'
-require_file crates/lila-engine/tests/aot_generator_identifier_reference.rs
+require_file crates/lila-engine/tests/aot_generators/aot_generator_identifier_reference.rs
 require_file crates/lila-engine/tests/fixtures/generator_staged_operands/identifier_references.js
 check_no_inline_legacy_includes "$wasm_identifier_reference_capture"
 # The same field10 record now admits Generator/Async and checked mixed owners,
@@ -3635,8 +3635,8 @@ require_fixed_string_count crates/lila-aot-wasm/src/builtins/promise.rs 'self.em
 # Current formatted owners: 1,187 operation lines and 367 queue/result lines.
 check_raw_line_budget "$wasm_atomics_builtins" 1250
 check_raw_line_budget "$wasm_atomics_wait_async" 400
-require_file crates/lila-engine/tests/aot_gc_binary_data_entries.rs
-require_fixed_string_count crates/lila-engine/tests/aot_gc_binary_data_entries.rs 'fn gc_atomics_keep_whole_abrupts_finite_waits_and_called_realms()' 1 'finite Atomics GC semantic control'
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_binary_data_entries.rs
+require_fixed_string_count crates/lila-engine/tests/aot_gc_entries/aot_gc_binary_data_entries.rs 'fn gc_atomics_keep_whole_abrupts_finite_waits_and_called_realms()' 1 'finite Atomics GC semantic control'
 
 # Boolean construction consumes GetPrototypeFromConstructor; the private closed
 # prototype policy is shared only by the two fixed ToString/ValueOf wrappers.
@@ -4088,10 +4088,10 @@ check_raw_line_budget "crates/lila-aot-wasm/src/builtins/date/locale_string.rs" 
 # Observable reservation/order/Realm behavior stays covered by real Engine
 # and CLI controls; this source gate does not execute those controls.
 for intl_witness in \
-  crates/lila-engine/tests/aot_intl_locale_constructor.rs \
-  crates/lila-engine/tests/aot_intl_locale_likely_subtags.rs \
-  crates/lila-engine/tests/aot_intl_datetime_provider.rs \
-  crates/lila-engine/tests/aot_intl_datetime_range_endpoints.rs \
+  crates/lila-engine/tests/aot_intl/aot_intl_locale_constructor.rs \
+  crates/lila-engine/tests/aot_intl/aot_intl_locale_likely_subtags.rs \
+  crates/lila-engine/tests/aot_intl/aot_intl_datetime_provider.rs \
+  crates/lila-engine/tests/aot_intl/aot_intl_datetime_range_endpoints.rs \
   crates/lila-cli/tests/cli/intl.rs \
   crates/lila-cli/tests/fixtures/wasm_intl_locale_construction_order.js \
   crates/lila-cli/tests/fixtures/wasm_intl_date_time_format_construction_order.js; do
@@ -4184,7 +4184,7 @@ done
 # The whole UTF-16 codec implementation now lives here (865 formatted lines),
 # including validation and completion cleanup rather than six raw wrappers.
 check_raw_line_budget "$wasm_uri_builtins" 900
-require_file crates/lila-engine/tests/aot_gc_uri_entries.rs
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_uri_entries.rs
 
 wasm_error_builtins="crates/lila-aot-wasm/src/builtins/errors.rs"
 require_file "$wasm_error_builtins"
@@ -4459,13 +4459,13 @@ check_raw_line_budget "$wasm_json_replacer" 120
 # These controls exercise the compiler/Engine/CLI rather than count old ABI
 # fields, proof projections or recursive emitter calls.
 for semantic_control in \
-  'crates/lila-engine/tests/aot_aggregate_error_iterator.rs aggregate_error_preserves_prefix_order_and_never_closes_protocol_abrupts' \
-  'crates/lila-engine/tests/aot_aggregate_error_constructor_realm.rs prototype_getters_preserve_objects_and_abrupt_completions' \
-  'crates/lila-engine/tests/aot_promise_combinator_intrinsics.rs any_uses_the_canonical_aggregate_error_for_empty_and_rejected_inputs' \
-  'crates/lila-engine/tests/aot_promise_combinator_intrinsics.rs borrowed_foreign_combinators_separate_method_and_capability_realms' \
-  'crates/lila-engine/tests/aot_json_canonical_reviver.rs source_context_uses_same_value_and_final_duplicate_source_without_static_values' \
-  'crates/lila-engine/tests/aot_json_reviver_definitions.rs reviver_propagates_proxy_definition_throws_through_catch_and_finally' \
-  'crates/lila-engine/tests/aot_json_stringify_preparation.rs gc_serialization_retains_context_path_lists_callbacks_and_abrupt_values' \
+  'crates/lila-engine/tests/aot_builtins/aot_aggregate_error_iterator.rs aggregate_error_preserves_prefix_order_and_never_closes_protocol_abrupts' \
+  'crates/lila-engine/tests/aot_realm_modules/aot_aggregate_error_constructor_realm.rs prototype_getters_preserve_objects_and_abrupt_completions' \
+  'crates/lila-engine/tests/aot_builtins/aot_promise_combinator_intrinsics.rs any_uses_the_canonical_aggregate_error_for_empty_and_rejected_inputs' \
+  'crates/lila-engine/tests/aot_builtins/aot_promise_combinator_intrinsics.rs borrowed_foreign_combinators_separate_method_and_capability_realms' \
+  'crates/lila-engine/tests/aot_builtins/aot_json_canonical_reviver.rs source_context_uses_same_value_and_final_duplicate_source_without_static_values' \
+  'crates/lila-engine/tests/aot_builtins/aot_json_reviver_definitions.rs reviver_propagates_proxy_definition_throws_through_catch_and_finally' \
+  'crates/lila-engine/tests/aot_builtins/aot_json_stringify_preparation.rs gc_serialization_retains_context_path_lists_callbacks_and_abrupt_values' \
   'crates/lila-cli/tests/cli/functions.rs run_wasm_backend_publishes_created_realm_promise_foundation' \
   'crates/lila-cli/tests/cli/functions.rs run_wasm_backend_preserves_created_realm_promise_internal_callbacks' \
   'crates/lila-cli/tests/cli/language_numerics.rs run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture' \
@@ -4481,9 +4481,9 @@ do
   fi
 done
 for semantic_fixture_binding in \
-  'crates/lila-engine/tests/aot_aggregate_error_iterator.rs aggregate_error_preserves_prefix_order_and_never_closes_protocol_abrupts fixtures/aggregate_error_iterator/ordering_and_abrupt.js' \
-  'crates/lila-engine/tests/aot_json_canonical_reviver.rs source_context_uses_same_value_and_final_duplicate_source_without_static_values fixtures/json_canonical_reviver/source_context_mutation.js' \
-  'crates/lila-engine/tests/aot_json_stringify_preparation.rs gc_serialization_retains_context_path_lists_callbacks_and_abrupt_values fixtures/json_stringify_preparation/gc_roots_and_abrupt.js' \
+  'crates/lila-engine/tests/aot_builtins/aot_aggregate_error_iterator.rs aggregate_error_preserves_prefix_order_and_never_closes_protocol_abrupts ../fixtures/aggregate_error_iterator/ordering_and_abrupt.js' \
+  'crates/lila-engine/tests/aot_builtins/aot_json_canonical_reviver.rs source_context_uses_same_value_and_final_duplicate_source_without_static_values ../fixtures/json_canonical_reviver/source_context_mutation.js' \
+  'crates/lila-engine/tests/aot_builtins/aot_json_stringify_preparation.rs gc_serialization_retains_context_path_lists_callbacks_and_abrupt_values ../fixtures/json_stringify_preparation/gc_roots_and_abrupt.js' \
   'crates/lila-cli/tests/cli/functions.rs run_wasm_backend_publishes_created_realm_promise_foundation wasm_promise_created_realm.js' \
   'crates/lila-cli/tests/cli/functions.rs run_wasm_backend_preserves_created_realm_promise_internal_callbacks wasm_promise_internal_callback_realm.js' \
   'crates/lila-cli/tests/cli/language_numerics.rs run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture wasm_json_parse_dynamic_reviver_frame.js' \
@@ -4657,11 +4657,11 @@ for instant_diagnostic in \
 done
 # These real Engine controls retain record values, ordered duration conversion,
 # negative epochs, UTF-16 syntax and provider/Realm joins across the GC change.
-require_file crates/lila-engine/tests/aot_gc_temporal_entries.rs
-require_file crates/lila-engine/tests/aot_temporal_created_realm.rs
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_temporal_entries.rs
+require_file crates/lila-engine/tests/aot_temporal/aot_temporal_created_realm.rs
 for temporal_gc_fixture in records_duration_order instant_epoch_utf16 zoned_transitions_realms; do
   require_file "crates/lila-engine/tests/fixtures/temporal_gc/${temporal_gc_fixture}.js"
-  require_fixed_string_count crates/lila-engine/tests/aot_gc_temporal_entries.rs \
+  require_fixed_string_count crates/lila-engine/tests/aot_gc_entries/aot_gc_temporal_entries.rs \
     "fixtures/temporal_gc/${temporal_gc_fixture}.js" 1 'real Engine Temporal GC fixture attachment'
 done
 
@@ -5237,8 +5237,8 @@ if [ "$uint32_modulus_files" != "$wasm_uint32_authority" ]; then
   fail "the exact modulo-2^32 implementation must exist only in $wasm_uint32_authority (found: ${uint32_modulus_files:-none})"
 fi
 require_regex_count "$wasm_uint32_authority" '^[[:space:]]*pub\(crate\)[[:space:]]+fn[[:space:]]+emit_to_uint32_i64_from_number_payload[[:space:]]*\(' 1 'sole typed ToUint32 kernel'
-require_file crates/lila-engine/tests/aot_gc_numeric_values.rs
-require_file crates/lila-engine/tests/aot_gc_binary_data_entries.rs
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_numeric_values.rs
+require_file crates/lila-engine/tests/aot_gc_entries/aot_gc_binary_data_entries.rs
 
 # T20's variadic Math extremum walk. The call ABI already owns an arbitrary
 # argc/argv domain, so min/max must consume the runtime vector rather than grow
@@ -6555,7 +6555,7 @@ for projection_recipe in scripts/generate-intl-list-identity.py scripts/generate
   require_fixed_string_count "$projection_recipe" 'crates/lila-intl/src/selection.rs' 1 'actual combined SDK selection in each component source recipe'
 done
 for combined_projection_control in \
-  crates/lila-engine/tests/aot_intl_compilation_profile.rs \
+  crates/lila-engine/tests/aot_intl/aot_intl_compilation_profile.rs \
   crates/lila-cli/tests/cli/intl.rs \
   crates/lila-engine/tests/fixtures/intl_compilation_profile/projected_list.js \
   crates/lila-engine/tests/fixtures/intl_compilation_profile/projected_list_relative_time.js \
@@ -6565,11 +6565,11 @@ do
 done
 require_fixed_string_count crates/lila-engine/src/lib.rs 'fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently()' 1 'real artifact cache tuple control'
 require_fixed_string_count crates/lila-cli/src/main.rs 'fn relative_and_combined_projection_arguments_are_checked_before_source_loading()' 1 'actual CLI admission and ordering control'
-require_fixed_string_count crates/lila-engine/tests/aot_intl_compilation_profile.rs 'fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_selected_wire_owners()' 1 'actual emitted-frame and wire-owner control'
+require_fixed_string_count crates/lila-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_selected_wire_owners()' 1 'actual emitted-frame and wire-owner control'
 require_fixed_string_count crates/lila-cli/tests/cli/intl.rs 'fn combined_projection_cli_build_matches_sdk_and_runs_both_selected_services()' 1 'actual CLI/SDK artifact equality and operation control'
 require_fixed_string_count crates/lila-engine/src/lib.rs 'fn display_names_cache_filters_are_independent_of_other_components_and_input_order()' 1 'actual independent third cache-field control'
 require_fixed_string_count crates/lila-cli/src/main.rs 'fn display_names_projection_arguments_are_checked_before_source_loading()' 1 'actual three-component CLI admission ordering control'
-require_fixed_string_count crates/lila-engine/tests/aot_intl_compilation_profile.rs 'fn display_names_and_three_component_projections_emit_selected_tables_and_run_real_consumers()' 1 'actual physical frames/foreign/wire/script/module consumer control'
+require_fixed_string_count crates/lila-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn display_names_and_three_component_projections_emit_selected_tables_and_run_real_consumers()' 1 'actual physical frames/foreign/wire/script/module consumer control'
 require_fixed_string_count crates/lila-cli/tests/cli/intl.rs 'fn display_names_cli_projection_matches_sdk_and_composes_all_three_filters()' 1 'actual CLI/SDK three-component producer parity control'
 
 
@@ -6623,7 +6623,7 @@ require_fixed_string_count crates/lila-aot-wasm/src/builtins/string.rs \
   'b.emit_intrinsic_string_locale_compare(' 1 'whole-value String localeCompare consumer'
 require_fixed_string_count "$wasm_standard_builtins" \
   'self.emit_string_prototype_locale_compare_builtin(function)?' 1 'fixed standard String localeCompare entry'
-require_file crates/lila-engine/tests/aot_intl_collator.rs
+require_file crates/lila-engine/tests/aot_intl/aot_intl_collator.rs
 require_file crates/lila-engine/tests/fixtures/intl_collator/ordered_argument_conversion.js
 require_file crates/lila-engine/tests/fixtures/intl_collator/brand_and_cache.js
 require_file crates/lila-engine/tests/fixtures/intl_collator/called_function_realms.js
@@ -6677,7 +6677,7 @@ for locale_list_entry in calendars:Calendars collations:Collations time_zones:Ti
 done
 require_file crates/lila-intl/src/locale_information_wire.rs
 require_module_decl crates/lila-intl/src/lib.rs locale_information_wire
-require_file crates/lila-engine/tests/aot_intl_locale_information_lists.rs
+require_file crates/lila-engine/tests/aot_intl/aot_intl_locale_information_lists.rs
 
 # Chinese/Dangi retained data and emitted year models have private owners.
 require_module_decl crates/lila-aot-wasm/src/data.rs temporal_east_asian_years
