@@ -3,7 +3,6 @@
 use super::super::*;
 use crate::gc_types::*;
 
-#[derive(Clone, Copy)]
 enum SymbolBuiltin {
     Constructor,
     For,
@@ -14,7 +13,6 @@ enum SymbolBuiltin {
     PrototypeToPrimitive,
 }
 
-#[derive(Clone, Copy)]
 enum SymbolReceiverOperation {
     Description,
     ToString,
@@ -22,7 +20,7 @@ enum SymbolReceiverOperation {
     ToPrimitive,
 }
 impl SymbolReceiverOperation {
-    const fn receiver_error_message(self) -> RuntimeErrorMessage {
+    const fn receiver_error_message(&self) -> RuntimeErrorMessage {
         match self {
         Self::Description => RuntimeErrorMessage::SYMBOL_PROTOTYPE_DESCRIPTION_REQUIRES_THAT_THIS_BE_A_SYMBOL,
         Self::ToString => RuntimeErrorMessage::SYMBOL_PROTOTYPE_TOSTRING_REQUIRES_THAT_THIS_BE_A_SYMBOL,
@@ -38,7 +36,7 @@ impl FunctionBuilder<'_> {
     fn emit_this_symbol_value(
         &mut self,
         receiver: &ValueLocals,
-        operation: SymbolReceiverOperation,
+        operation: &SymbolReceiverOperation,
         result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<GcLocal<SymbolValue, Nullable>, EmitError> {
@@ -441,7 +439,7 @@ impl FunctionBuilder<'_> {
                     function,
                 );
                 let resolved =
-                    self.emit_this_symbol_value(&receiver, operation, &result, function)?;
+                    self.emit_this_symbol_value(&receiver, &operation, &result, function)?;
                 result.kind().load(function);
                 function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
                 function.instruction(&Instruction::I32Eq);

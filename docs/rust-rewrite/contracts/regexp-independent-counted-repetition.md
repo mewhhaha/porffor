@@ -39,7 +39,10 @@ R(k,D,p) stabilizes at N+1, including later failure/backtracking. N=0 supplies
 the base: one real iteration retains every possible final capture result.
 
 The implementation uses the full actual input UTF-16 length plus one as a
-conservative bound for either direction. If the source scanner proves every
+conservative bound for either direction. The matcher reads that length from
+the immutable input String's CodeUnitArray before entering any candidate,
+including patterns with no captures. Capture count cannot decide whether this
+bound is initialized. If the source scanner proves every
 path is zero-width outside restoring assertions, the bound is one. No cursor
 equality or equality between observed templates substitutes for this complete
 transition and continuation proof. Last-iteration choices, assertion atomicity,
@@ -71,3 +74,10 @@ continuation selection, unchanged outside references, finite optional gaps,
 astral UTF-16 consumption, reverse indices and nested failed/successful cycles.
 It exercises literal and computed producers in strict and sloppy code. These controls are unrun; no
 compilation, formatting or runtime result is claimed.
+
+The capture-free regression cohort retains the legacy `\u{3}` and `\p{2}`
+identity-escape repetitions and checks exact, greedy/lazy bounded, reverse and
+astral UTF-16 matches through literal and computed construction in strict and
+sloppy code. It includes short-input rejection and exact match indices. These
+new controls are pending execution; the original legacy grammar expectation
+is unchanged.

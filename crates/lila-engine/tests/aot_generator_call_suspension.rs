@@ -51,6 +51,35 @@ print("calls:" + calls);
 }
 
 #[test]
+fn queued_next_waits_for_the_pending_yield_value_before_resuming_the_body() {
+    assert_trace(
+        r#"
+var release;
+var pending = new Promise(function (resolve) { release = resolve; });
+async function* generate() {
+  print("start");
+  var resumed = yield pending;
+  print("resume:" + resumed);
+  return 7;
+}
+var iterator = generate();
+iterator.next().then(function (result) { print("first:" + result.value + ":" + result.done); });
+iterator.next(42).then(function (result) { print("second:" + result.value + ":" + result.done); });
+print("queued");
+Promise.resolve().then(function () { print("release"); release(1); });
+"#,
+        &[
+            "start",
+            "queued",
+            "release",
+            "resume:42",
+            "first:1:false",
+            "second:7:true",
+        ],
+    );
+}
+
+#[test]
 fn yielded_method_key_and_argument_keep_the_getter_and_receiver() {
     assert_trace(
         r#"

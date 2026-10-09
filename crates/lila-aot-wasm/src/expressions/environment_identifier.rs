@@ -66,7 +66,7 @@ impl FunctionBuilder<'_> {
     pub(crate) fn compile_environment_identifier_to_value(
         &mut self,
         identifier: &EnvironmentIdentifierIr,
-        _continuation: &CallContinuation,
+        continuation: &CallContinuation,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -256,6 +256,7 @@ impl FunctionBuilder<'_> {
                                 args,
                                 None,
                                 direct_eval.as_ref(),
+                                continuation,
                                 &value,
                                 function,
                             )

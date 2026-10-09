@@ -592,8 +592,9 @@ impl FunctionBuilder<'_> {
         let tag = self.emit_intl_locale_tag(&record, function);
         let text = self.emit_intl_locale_extension_value(&tag, option, function);
         let output = schema.reserve_value_local(function);
-        self.emit_intl_locale_optional_string(&text, &output, function);
         if matches!(option, LocaleExtensionOption::Numeric) {
+            // [[Numeric]] is always Boolean, including when "kn" is absent.
+            output.set_scalar(ScalarValue::Boolean(false), function);
             text.load(schema, function).is_null(function);
             function.instruction(&Instruction::I32Eqz);
             self.open_frame(ControlFrameKind::If, function);
@@ -630,6 +631,8 @@ impl FunctionBuilder<'_> {
             selected.clear(function);
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
+        } else {
+            self.emit_intl_locale_optional_string(&text, &output, function);
         }
         self.completion().initialize(function);
         self.completion().value().copy_from(&output, function);

@@ -1,10 +1,9 @@
 use std::fs;
 use std::path::Path;
 
-const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
-const OBJECT_SOURCE: &str = include_str!("../src/builtins/object.rs");
-const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/builtins/object/define_property.rs");
+const DEFINE_PROPERTY_SOURCE: &str = include_str!("../src/objects/define_property.rs");
+const TARGET_DESCRIPTOR_SOURCE: &str = include_str!("../src/objects/proxy_target_descriptor.rs");
+const LAYOUT_SOURCE: &str = include_str!("../src/gc_types/layouts.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/stored-descriptor-role-relation.md");
 const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exotics.md");
@@ -225,85 +224,105 @@ fn stored_descriptor_roles_are_exact_private_wrappers() {
         2
     );
 
-    let role_declarations = rust_code(bounded(
-        OBJECTS_SOURCE,
-        "/// Allocation-free stored fields consumed by descriptor compatibility.",
-        "/// A canonical property-key payload and its retained ECMAScript tag.",
+    let layout = rust_code(bounded(
+        LAYOUT_SOURCE,
+        "struct PropertyDescriptor => PropertyDescriptorSchema {",
+        "\n        }",
     ));
-    for role in ["Data", "Getter", "Setter"] {
-        assert!(role_declarations.normalized.contains(&format!(
-            "pub(crate)structStoredDescriptor{role}Locals(TaggedLocals);"
-        )));
-        assert!(!role_declarations.normalized.contains(&format!(
-            "structStoredDescriptor{role}Locals(pub(crate)TaggedLocals)"
-        )));
-    }
-    assert!(role_declarations.normalized.contains(concat!(
-        "pub(crate)constfnnew(",
-        "data:StoredDescriptorDataLocals,",
-        "getter:StoredDescriptorGetterLocals,",
-        "setter:StoredDescriptorSetterLocals,",
-        ")->Self"
-    )));
-}
-
-#[test]
-fn role_types_have_one_closed_source_census() {
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    for role in ["Data", "Getter", "Setter"] {
-        assert_eq!(
-            count_identifier_in_rust_sources(
-                &source_root,
-                &format!("StoredDescriptor{role}Locals")
-            ),
-            9,
-            "StoredDescriptor{role}Locals census"
-        );
-    }
-}
-
-#[test]
-fn all_three_producers_label_every_stored_descriptor_role() {
-    let named_producer = bounded(
-        OBJECTS_SOURCE,
-        "    pub(crate) fn emit_validate_array_named_descriptor(",
-        "    pub(crate) fn emit_validate_stored_descriptor(",
+    assert_eq!(
+        layout.normalized,
+        concat!(
+            "FLAGS:crate::heap::DescriptorWord,Mutable,NonNullable;",
+            "VALUE:GcRef<StoredValue>,Mutable,NonNullable;",
+            "GETTER:GcRef<StoredValue>,Mutable,NonNullable;",
+            "SETTER:GcRef<StoredValue>,Mutable,NonNullable;"
+        )
     );
-    for (role, expected_value) in [
-        ("Data", "TaggedLocals::new("),
-        ("Getter", "TaggedLocals::new("),
-        ("Setter", "TaggedLocals::new("),
-    ] {
-        assert_eq!(
-            named_producer
-                .matches(&format!("StoredDescriptor{role}Locals::new("))
-                .count(),
-            1
-        );
-        assert!(named_producer.contains(expected_value));
+    let reader = rust_code(bounded(
+        DEFINE_PROPERTY_SOURCE,
+        "fn emit_descriptor_value(",
+        "pub(crate) fn emit_validate_stored_descriptor(",
+    ));
+    assert!(reader.normalized.contains(
+        "current:&GcLocal<PropertyDescriptor>,field:DescriptorField,output:&ValueLocals"
+    ));
+    for (role, field) in [("Value", "VALUE"), ("Get", "GETTER"), ("Set", "SETTER")] {
+        assert!(reader.normalized.contains(&format!(
+            "DescriptorField::{role}=>PropertyDescriptorSchema::{field}"
+        )));
     }
+    assert!(!reader.normalized.contains("_=>"));
+}
 
-    assert!(!OBJECT_SOURCE.contains("StoredDescriptorLocals::new("));
-    for role in ["Data", "Getter", "Setter"] {
-        assert!(!OBJECT_SOURCE.contains(&format!("StoredDescriptor{role}Locals::new(")));
+#[test]
+fn stored_descriptor_read_and_compatibility_owners_have_a_closed_source_census() {
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(count_identifier_in_rust_sources(&source_root, "emit_descriptor_value"), 8,
+        "one reader, two compatibility sites, three merge fields, Arguments value and Namespace value");
+    assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "emit_validate_stored_descriptor"),
+        10,
+        "one complete-record consumer and nine ordinary/exotic/Proxy callers"
+    );
+    let signature = bounded(
+        DEFINE_PROPERTY_SOURCE,
+        "pub(crate) fn emit_validate_stored_descriptor(",
+        ") -> Result<(), EmitError>",
+    );
+    assert!(signature.contains("current: &GcLocal<PropertyDescriptor>"));
+    assert!(signature.contains("incoming: &WasmDescriptor<'_>"));
+    assert!(
+        !signature.contains("ValueLocals"),
+        "callers cannot transpose separate stored fields"
+    );
+}
+
+#[test]
+fn complete_record_readers_bind_every_stored_role_to_its_named_field() {
+    let compatibility = rust_code(bounded(
+        DEFINE_PROPERTY_SOURCE,
+        "pub(crate) fn emit_validate_stored_descriptor(",
+        "fn emit_descriptor_reject_if_true(",
+    ));
+    assert!(compatibility.normalized.contains(
+        "(DescriptorField::Get,&descriptor.get),(DescriptorField::Set,&descriptor.set),"
+    ));
+    assert!(compatibility.normalized.contains(
+        "self.emit_descriptor_value(current,DescriptorField::Value,&current_value,function);"
+    ));
+    assert_eq!(
+        compatibility
+            .normalized
+            .matches(
+                "self.emit_tagged_payload_same_value_i32(incoming_value,&current_value,function)?;"
+            )
+            .count(),
+        2
+    );
+    let merge = rust_code(bounded(
+        DEFINE_PROPERTY_SOURCE,
+        "fn emit_merge_property_descriptor(",
+        "    pub(crate) fn ",
+    ));
+    for (role, local) in [("Value", "value"), ("Get", "getter"), ("Set", "setter")] {
+        assert_eq!(merge.normalized.matches(&format!("self.emit_descriptor_value(&record,DescriptorField::{role},&{local},function);")).count(), 1);
     }
-    for source in [ARRAY_SOURCE, DEFINE_PROPERTY_SOURCE] {
-        assert_eq!(source.matches("StoredDescriptorLocals::new(").count(), 1);
+    for (method, next, field) in [
+        ("read_value", "read_getter", "VALUE"),
+        ("read_getter", "read_setter", "GETTER"),
+        ("read_setter", "emit_compatibility", "SETTER"),
+    ] {
+        let reader = rust_code(bounded(
+            TARGET_DESCRIPTOR_SOURCE,
+            &format!("fn {method}("),
+            &format!("fn {next}("),
+        ));
         assert_eq!(
-            source
-                .matches("StoredDescriptorDataLocals::new(existing_value)")
-                .count(),
-            1
-        );
-        assert_eq!(
-            source
-                .matches("StoredDescriptorGetterLocals::new(existing_value)")
-                .count(),
-            1
-        );
-        assert_eq!(
-            source
-                .matches("StoredDescriptorSetterLocals::new(existing_setter)")
+            reader
+                .normalized
+                .matches(&format!(
+                    "self.read_field(PropertyDescriptorSchema::{field},out,schema,function);"
+                ))
                 .count(),
             1
         );

@@ -30,7 +30,7 @@ fn date_time_field_read_mode_expresses_the_zoned_offset_destination() {
         [
             "Conversion,",
             "With,",
-            "ZonedWith { offset_nanoseconds_local: u32 },"
+            "ZonedWith { offset_nanoseconds_local: I64Local },"
         ]
     );
     assert!(!declaration.contains(": bool"));
@@ -45,39 +45,33 @@ fn field_reader_projects_calendar_and_offset_modes_exhaustively() {
         "    /// `ToTemporalDateTime`.",
     );
     assert!(reader.contains("mode: TemporalDateTimeFieldReadMode,"));
-    assert_eq!(reader.matches("match &mode {").count(), 2);
-    let calendar_projection = bounded(
-        reader,
-        "match &mode {",
-        "for key in TemporalDateTimeFieldKey::ALL",
+    assert_eq!(reader.matches("match &mode {").count(), 1);
+    assert!(reader.contains("calendar: &TemporalCalendarSlotLocals,"));
+    assert!(!reader.contains("\"calendar\""));
+    let conversion = bounded(
+        SOURCE,
+        "    pub(super) fn emit_to_temporal_date_time(",
+        "    pub(crate) fn emit_temporal_plain_date_time_from(",
     );
-    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::Conversion => {"));
-    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::With"));
-    assert!(calendar_projection.contains("TemporalDateTimeFieldReadMode::ZonedWith"));
-    assert_eq!(
-        calendar_projection
-            .matches("self.strings.payload(\"calendar\")")
-            .count(),
-        1
-    );
-    assert_eq!(
-        calendar_projection
-            .matches("self.emit_temporal_to_temporal_calendar_identifier(")
-            .count(),
-        1
-    );
+    let get = conversion.find("self.emit_temporal_duration_option_get(argument, \"calendar\", &calendar_value, function)?;").unwrap();
+    let canonicalize = conversion
+        .find("let calendar = self.emit_temporal_to_temporal_calendar_identifier(")
+        .unwrap();
+    let sweep = conversion
+        .find("self.emit_temporal_date_time_read_fields(")
+        .unwrap();
+    assert!(get < canonicalize && canonicalize < sweep);
     let offset_projection = bounded(
         reader,
         "TemporalDateTimeFieldRead::Offset => {",
         "TemporalDateTimeFieldRead::EraPair => {",
     );
     assert!(offset_projection.contains("TemporalDateTimeFieldReadMode::ZonedWith"));
-    assert_eq!(
-        offset_projection
-            .matches("self.emit_temporal_offset_string(")
-            .count(),
-        1
-    );
+    assert!(offset_projection.contains("TemporalDateTimeFieldReadMode::Conversion"));
+    assert!(offset_projection.contains("TemporalDateTimeFieldReadMode::With"));
+    assert!(offset_projection.contains("self.emit_tagged_to_primitive_locals("));
+    assert!(offset_projection.contains("ToPrimitiveHint::String,"));
+    assert!(offset_projection.contains("TEMPORAL_ZONEDDATETIME_OFFSET_MUST_BE_A_STRING"));
     assert_eq!(
         offset_projection
             .matches("self.emit_temporal_utc_offset_nanoseconds(")
@@ -107,7 +101,7 @@ fn three_producers_select_plain_conversion_plain_with_and_zoned_with() {
     let with = bounded(
         SOURCE,
         "    pub(crate) fn emit_temporal_plain_date_time_with(",
-        "    /// Temporal proposal 5.3.x `withPlainTime`.",
+        "    pub(crate) fn emit_temporal_plain_date_time_with_plain_time(",
     );
     assert_eq!(
         with.matches("TemporalDateTimeFieldReadMode::With,").count(),
@@ -133,7 +127,7 @@ fn three_producers_select_plain_conversion_plain_with_and_zoned_with() {
         1
     );
     assert!(!YEAR_MONTH_SOURCE.contains("read_calendar: bool,"));
-    assert!(YEAR_MONTH_SOURCE.contains("enum TemporalPlainYearMonthFieldReadMode {"));
+    assert!(YEAR_MONTH_SOURCE.contains("calendar: &TemporalCalendarSlotLocals,"));
     assert_eq!(
         SOURCE
             .matches("fn emit_temporal_plain_year_month_read_fields(")
@@ -148,24 +142,24 @@ fn with_reads_both_forbidden_temporal_properties_before_the_field_sweep() {
     let with = bounded(
         SOURCE,
         "    pub(crate) fn emit_temporal_plain_date_time_with(",
-        "    /// Temporal proposal 5.3.x `withPlainTime`.",
+        "    pub(crate) fn emit_temporal_plain_date_time_with_plain_time(",
     );
     let forbidden_property_reads = bounded(
         with,
-        "        // `RejectTemporalLikeObject` reads both keys with `Get`, not with a",
-        "\n\n        for local in present_locals.iter()",
+        "        // Both observable Gets precede the ordered field sweep.",
+        "        acquired_month_code.set_undefined(function);",
     );
 
     assert!(forbidden_property_reads.contains("for property in [\"calendar\", \"timeZone\"]"));
     assert_eq!(
         forbidden_property_reads
-            .matches("self.emit_object_read(")
+            .matches("self.emit_temporal_duration_option_get(")
             .count(),
         1
     );
     assert_eq!(
         forbidden_property_reads
-            .matches("self.emit_return_current_completion_if_throw(function);")
+            .matches("self.emit_temporal_error_and_return(")
             .count(),
         1
     );

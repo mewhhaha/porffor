@@ -2061,8 +2061,9 @@ impl FunctionBuilder<'_> {
         }
     }
 
-    /// Bubble a rounded pair using its virtual calendar position. The next
-    /// actual year anchor is validated first, as required by relative rounding.
+    /// Bubble an expanded month nudge to the next whole year. Validate that
+    /// boundary before comparison, then select it with no smaller-unit tail.
+    /// BubbleRelativeDuration does not rebalance every overshooting month.
     pub(super) fn emit_temporal_bubble_calendar_difference(
         &mut self,
         calendar: &TemporalCalendarSlotLocals,
@@ -2071,16 +2072,13 @@ impl FunctionBuilder<'_> {
         months: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let source =
-            self.emit_temporal_project_calendar_date(calendar.calendar_id(), origin, function);
         let target: [I64Local; 3] =
             std::array::from_fn(|_| self.runtime_schema().reserve_i64_local(function));
         let midpoint: [I64Local; 3] =
             std::array::from_fn(|_| self.runtime_schema().reserve_i64_local(function));
-        let rank = self.runtime_schema().reserve_i64_local(function);
+        let comparison = self.runtime_schema().reserve_i64_local(function);
         let sign = self.runtime_schema().reserve_i64_local(function);
         let next_year = self.runtime_schema().reserve_i64_local(function);
-        let largest = self.runtime_schema().reserve_i64_local(function);
         let zero = self.runtime_schema().reserve_i64_local(function);
         let overflow = self.runtime_schema().reserve_i64_local(function);
         (months).load(function);
@@ -2120,25 +2118,34 @@ impl FunctionBuilder<'_> {
             overflow,
             function,
         )?;
-        self.emit_temporal_calendar_month_anchor(
-            &source, years, months, target[0], target[1], rank, function,
-        );
-        (source.day()).load(function);
-        (target[2]).store(function);
-        function.instruction(&Instruction::I64Const(TemporalUnit::Year.code()));
-        (largest).store(function);
-        self.emit_temporal_difference_calendar_position(
-            &source, target, rank, largest, years, months, midpoint, function,
-        );
+        for (src, dst) in origin.into_iter().zip(target) {
+            src.load(function);
+            dst.store(function);
+        }
+        self.emit_temporal_add_calendar_date(
+            calendar, target[0], target[1], target[2], years, months, zero, zero, overflow,
+            function,
+        )?;
+        self.emit_temporal_compare_iso_date(target, midpoint, comparison, function);
+        comparison.load(function);
+        sign.load(function);
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Const(0));
+        function.instruction(&Instruction::I64GeS);
+        self.open_frame(ControlFrameKind::If, function);
+        next_year.load(function);
+        years.store(function);
+        months.set_constant(0, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        for local in [overflow, zero, largest, next_year, sign, rank] {
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        for local in [overflow, zero, next_year, sign, comparison] {
             self.runtime_schema().release_i64_local(local, function);
         }
         for local in midpoint.into_iter().rev().chain(target.into_iter().rev()) {
             self.runtime_schema().release_i64_local(local, function);
         }
-        source.release(self, function);
         Ok(())
     }
 

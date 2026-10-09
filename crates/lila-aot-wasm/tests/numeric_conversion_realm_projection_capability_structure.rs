@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::Path;
 
+const ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
+const HELPERS_SOURCE: &str = include_str!("../src/runtime_helpers.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md"
@@ -44,194 +47,125 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 }
 
 #[test]
-fn numeric_realm_projections_are_exact_non_capability_domains() {
-    // `spec_operation_object_target_kind` is the item immediately preceding
-    // the Realm access declaration.
-    let declarations = bounded(
-        OPERATIONS_SOURCE,
-        "        | ValueKind::String => SpecOperationObjectTargetKind::StaticallyPrimitive,\n    }\n}\n",
-        "fn numeric_conversion_realm_access(",
-    );
-    assert!(!declarations.contains("#["));
-    let declaration_code = declarations
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("///"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert_eq!(
-        normalized(&declaration_code),
-        concat!(
-            "enumNumericConversionRealmAccess{",
-            "TrustedCurrentEnvironment,MainRealmFallback,}"
-        )
-    );
-
-    for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
-        assert!(
-            !OPERATIONS_SOURCE.contains(&format!("{capability} for NumericConversionRealmAccess"))
-        );
-    }
-
+fn numeric_realm_authority_is_a_rooted_realm_reference() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_in_rust_sources(&src, "NumericConversionRealmAccess"),
-        16
-    );
-    assert_eq!(
-        count_in_rust_sources(
-            &src,
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment"
-        ),
-        7
-    );
-    assert_eq!(
-        count_in_rust_sources(&src, "NumericConversionRealmAccess::MainRealmFallback"),
-        7
-    );
-    for retired_domain in [
+    for retired in [
+        "NumericConversionRealmAccess",
         "OutlinedNumericRealmArgument",
         "NumericConversionErrorRealm",
     ] {
-        assert_eq!(count_in_rust_sources(&src, retired_domain), 0);
+        assert_eq!(count_in_rust_sources(&src, retired), 0);
     }
+    let projection = normalized(bounded(
+        ERROR_SOURCE,
+        "pub(crate) fn emit_execution_realm(",
+        "pub(crate) fn emit_runtime_error_object(",
+    ));
+    assert!(projection.contains(")->GcLocal<RealmRecord>"));
+    assert!(!projection.contains("->u32"));
+    assert!(!projection.contains("I64Const(0)"));
+    assert!(!projection.contains("load_main_realm"));
+    assert!(projection.contains("realm.load(schema,function).require_non_null(function)"));
+    assert!(projection.contains("realm.clear(function);cursor.clear(function);resolved"));
 }
 
 #[test]
-fn all_three_source_rows_share_the_single_realm_projection() {
-    let projections = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "fn numeric_conversion_realm_access(",
-        "fn spec_operation_property_key_operand(",
+fn explicit_helper_callable_and_environment_sources_share_one_checked_projection() {
+    let projection = normalized(bounded(
+        ERROR_SOURCE,
+        "pub(crate) fn emit_execution_realm(",
+        "pub(crate) fn emit_runtime_error_object(",
     ));
-    assert_eq!(
-        projections,
-        concat!(
-            "source:NumericErrorRealmSource,)->NumericConversionRealmAccess{",
-            "matchsource{",
-            "NumericErrorRealmSource::GlobalFallback=>",
-            "NumericConversionRealmAccess::MainRealmFallback,",
-            "NumericErrorRealmSource::StandardBuiltinEnvironment|",
-            "NumericErrorRealmSource::NumericConversionHelperArgument=>{",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment}}}"
-        )
-    );
-
-    let unit = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "fn numeric_realm_projections_keep_ordinary_lexical_environments_out() {",
-        "\n    }\n}",
-    ));
-    for expected in [
-        concat!(
-            "matchnumeric_conversion_realm_access(source){",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>{}",
-            "NumericConversionRealmAccess::MainRealmFallback=>{",
-            "panic!(\"trustednumericsourcelostitsRealmaccess\")}}"
-        ),
-        concat!(
-            "matchnumeric_conversion_realm_access(NumericErrorRealmSource::GlobalFallback){",
-            "NumericConversionRealmAccess::MainRealmFallback=>{}",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>{",
-            "panic!(\"globalfallbackexposedalexicalenvironmentasnumericRealmstate\")}}"
-        ),
+    let explicit = projection
+        .find("ifletSome(realm)=self.helper_execution_realm()")
+        .unwrap();
+    let callable = projection
+        .find("ifletSome(context)=self.current_function_context()")
+        .unwrap();
+    let environment = projection
+        .find("self.current_environment().load(schema,function)")
+        .unwrap();
+    let fallback = projection
+        .find("letactive=self.load_current_realm(function)")
+        .unwrap();
+    assert!(explicit < callable && callable < environment && environment < fallback);
+    for field in [
+        "FunctionContextSchema::REALM",
+        "EnvironmentSchema::DEFINING_REALM",
+        "EnvironmentSchema::PARENT",
     ] {
-        assert_eq!(unit.matches(expected).count(), 1, "unit match `{expected}`");
+        assert_eq!(projection.matches(field).count(), 1);
     }
+    let parameters = normalized(bounded(
+        EMIT_SOURCE,
+        "pub(crate) fn helper_parameters<",
+        "fn new_main(",
+    ));
+    for method in [
+        "caller_environment()",
+        "caller_function_context()",
+        "caller_execution_realm()",
+    ] {
+        assert_eq!(parameters.matches(method).count(), 1);
+    }
+    assert!(parameters.contains(
+        "self.helper_execution_realm.is_none()&&self.current_function_context().is_none()"
+    ));
+    assert!(parameters.contains(
+        "self.current_environment.replace(environment.load(self.schema,function),function)"
+    ));
+    assert!(parameters.contains(".initialize(realm.load(self.schema,function),function)"));
+    let helpers = normalized(HELPERS_SOURCE);
+    for (operation, name) in [
+        ("ValueToNumber", "value_to_number"),
+        ("ValueToNumeric", "value_to_numeric"),
+        ("ValueToPrimitiveDefault", "value_to_primitive_default"),
+        ("ValueToPrimitiveNumber", "value_to_primitive_number"),
+        ("ValueToPrimitiveString", "value_to_primitive_string"),
+    ] {
+        assert!(helpers.contains(&format!("{operation}/{operation}Arguments/{operation}Parameters/\"{name}\"{{input:Value,caller_environment:(RefEnvironmentNullable)}}=>Completion;")));
+    }
+    assert!(helpers.contains("caller_execution_realm:(RefRealmRecordNonNullable),caller_environment:(RefEnvironmentNullable)}=>Completion;"));
+}
+
+#[test]
+fn numeric_errors_preserve_kind_and_use_the_execution_realm_error_factory() {
+    let errors = normalized(ERROR_SOURCE);
+    let slots = bounded(&errors, "fnprototype_slot(", "implFunctionBuilder<'_>{");
+    for kind in ["TypeError", "RangeError", "SyntaxError"] {
+        assert!(slots.contains(&format!(
+            "NativeErrorKind::{kind}=>NonArrayRealmIntrinsicSlot::{kind}Prototype"
+        )));
+    }
+    assert!(!slots.contains("_=>"));
+    let allocation = bounded(
+        &errors,
+        "pub(crate)fnemit_runtime_error_object(",
+        "fnemit_fresh_native_error_object(",
+    );
+    assert!(allocation.contains("letrealm=self.emit_execution_realm(function);"));
+    assert!(allocation.contains(
+        "self.emit_load_non_array_realm_intrinsic(&realm,prototype_slot(kind),&prototype,function,"
+    ));
+    let thrown = bounded(
+        &errors,
+        "pub(crate)fnemit_throw_runtime_error(",
+        "pub(crate)fnemit_throw_current_function_realm_error(",
+    );
+    assert!(thrown.contains("self.emit_runtime_error_object(kind,message,&value,function)?;"));
+    assert!(thrown.contains("result.set_throw(&value,function);"));
+    let operations = normalized(OPERATIONS_SOURCE);
+    for marker in [
+        "self.emit_throw_runtime_error(NativeErrorKind::TypeError,RuntimeErrorMessage::CANNOT_CONVERT_SYMBOL_TO_NUMBER,result,function,)",
+        "self.emit_throw_runtime_error(NativeErrorKind::RangeError,error_message,result,function,)",
+        "self.emit_throw_runtime_error(NativeErrorKind::SyntaxError,RuntimeErrorMessage::CANNOT_CONVERT_VALUE_TO_BIGINT,result,function,)",
+    ] { assert!(operations.contains(marker), "lost {marker}"); }
     for forbidden in [
-        "assert_eq!(outlined_numeric_realm_argument",
-        "assert_eq!(numeric_conversion_error_realm",
-        "fnoutlined_numeric_realm_argument",
-        "fnnumeric_conversion_error_realm",
-    ] {
-        assert!(!unit.contains(forbidden), "found `{forbidden}`");
-    }
-}
-
-#[test]
-fn each_projection_consumer_keeps_its_exact_emission_policy() {
-    // The fallback row never reads `current_env_local` as Realm metadata:
-    // source bodies pass their source Realm's function context, resolved
-    // through the Global Environment, and every other body passes zero.
-    let outlined_consumer = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "fn emit_outlined_numeric_realm_argument(&mut self, function: &mut Function) {",
-        "\n    }\n\n    fn emit_numeric_conversion_type_error(",
-    ));
-    assert_eq!(
-        outlined_consumer,
-        concat!(
-            "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>{",
-            "function.instruction(&Instruction::LocalGet(self.current_env_local));}",
-            "NumericConversionRealmAccess::MainRealmFallback=>{",
-            "ifself.has_source_execution_environment(){",
-            "self.emit_source_realm_function_context_payload(function);}",
-            "else{function.instruction(&Instruction::I64Const(0));}}}"
-        )
-    );
-
-    let type_error_consumer = normalized(bounded(
-        OPERATIONS_SOURCE,
         "fn emit_numeric_conversion_type_error(",
-        "\n    }\n\n    fn emit_numeric_conversion_range_error(",
-    ));
-    assert_eq!(
-        type_error_consumer,
-        concat!(
-            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
-            "function:&mutFunction,)->Result<(),EmitError>{",
-            "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
-            "emit_throw_current_function_realm_type_error(",
-            "message,payload_local,tag_local,function,),",
-            "NumericConversionRealmAccess::MainRealmFallback=>self.emit_throw_runtime_error(",
-            "TYPE_ERROR_NAME,message,payload_local,tag_local,function,),}"
-        )
-    );
-
-    let range_error_consumer = normalized(bounded(
-        OPERATIONS_SOURCE,
         "fn emit_numeric_conversion_range_error(",
-        "\n    }\n\n    fn finish_to_primitive_operation(",
-    ));
-    assert_eq!(
-        range_error_consumer,
-        concat!(
-            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
-            "function:&mutFunction,)->Result<(),EmitError>{",
-            "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
-            "emit_throw_current_function_realm_range_error(",
-            "message,payload_local,tag_local,function,),",
-            "NumericConversionRealmAccess::MainRealmFallback=>self.emit_throw_runtime_error(",
-            "RANGE_ERROR_NAME,message,payload_local,tag_local,function,),}"
-        )
-    );
-
-    let syntax_error_consumer = normalized(bounded(
-        OPERATIONS_SOURCE,
         "fn emit_numeric_conversion_syntax_error(",
-        "\n    }\n\n    pub(crate) fn emit_value_to_bigint_locals(",
-    ));
-    assert_eq!(
-        syntax_error_consumer,
-        concat!(
-            "&mutself,message:RuntimeErrorMessage,payload_local:u32,tag_local:u32,",
-            "function:&mutFunction,)->Result<(),EmitError>{",
-            "matchnumeric_conversion_realm_access(self.numeric_error_realm_source()){",
-            "NumericConversionRealmAccess::TrustedCurrentEnvironment=>self.",
-            "emit_throw_current_function_realm_error(",
-            "SYNTAX_ERROR_NAME,message,payload_local,tag_local,function,),",
-            "NumericConversionRealmAccess::MainRealmFallback=>self.emit_throw_runtime_error(",
-            "SYNTAX_ERROR_NAME,message,payload_local,tag_local,function,),}"
-        )
-    );
-
-    let consumers = format!(
-        "{outlined_consumer}{type_error_consumer}{range_error_consumer}{syntax_error_consumer}"
-    );
-    for forbidden in ["_=>", "==", "!=", "matches!(", "unreachable!"] {
-        assert!(!consumers.contains(forbidden), "found `{forbidden}`");
+    ] {
+        assert!(!OPERATIONS_SOURCE.contains(forbidden));
     }
 }
 

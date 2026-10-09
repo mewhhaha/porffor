@@ -6,8 +6,13 @@ mod construction;
 #[allow(dead_code)]
 #[path = "src/data/temporal_east_asian_years/format.rs"]
 mod format;
+#[path = "src/data/normalization/format.rs"]
+mod normalization_format;
 #[path = "src/data/unicode_case_tables/construction.rs"]
 mod unicode_case_construction;
+use normalization_format::{NormalizationMapping, NormalizationTables};
+#[path = "src/data/normalization/construction.rs"]
+mod normalization_construction;
 
 fn main() {
     for input in [
@@ -17,6 +22,8 @@ fn main() {
         "src/data/temporal_east_asian_years/construction.rs",
         "src/data/temporal_east_asian_years/format.rs",
         "src/data/unicode_case_tables/construction.rs",
+        "src/data/normalization/format.rs",
+        "src/data/normalization/construction.rs",
         "../../vendor/icu_calendar-2.0.6",
     ] {
         println!("cargo:rerun-if-changed={input}");
@@ -27,6 +34,15 @@ fn main() {
         std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo output directory"));
     std::fs::write(output.join("temporal-east-asian-years.bin"), bytes)
         .expect("write the immutable Chinese/Dangi catalog");
+    let normalization = normalization_construction::build();
+    let image = normalization.to_image();
+    assert_eq!(
+        NormalizationTables::from_image(&image).as_ref(),
+        Some(&normalization),
+        "normalization image must preserve every admitted producer row"
+    );
+    std::fs::write(output.join("unicode-normalization.bin"), image)
+        .expect("write the immutable normalization catalog");
     for (name, bytes) in [
         (
             "unicode-lowercase.bin",

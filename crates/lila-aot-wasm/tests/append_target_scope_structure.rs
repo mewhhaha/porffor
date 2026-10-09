@@ -1,193 +1,100 @@
-//! The %Array.prototype% identity arm of the append helpers is emitted only
-//! while the main export installs the Array constructor and its prototype.
-//!
-//! An append writes straight into an ordinary object's property table.
-//! %Array.prototype% is an Array exotic object, so builtins installed into it
-//! must take the array named-descriptor path, and the append helpers guard
-//! that with a run-time identity check. Only the main export's installation
-//! of the Array constructor appends into %Array.prototype%; every other append
-//! targets an object its caller just allocated or another intrinsic. Before `AppendTargetScope`, the check was keyed on
-//! `is_main()` and so was inlined, with a whole array descriptor definition,
-//! at every script-level append in the main export.
-
-const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
-const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-const BOOTSTRAP_SOURCE: &str = include_str!("../src/builtins/bootstrap.rs");
-
+//! GC composites carry an explicit ordinary header. Appending an intrinsic
+//! property projects that header once; it does not inline an Array identity
+//! dispatch at each script or bootstrap append.
+const OBJECTS: &str = include_str!("../src/objects.rs");
+const INTRINSICS: &str = include_str!("../src/intrinsics/mod.rs");
+const ARRAY: &str = include_str!("../src/functions/created_realm_array_prototype.rs");
+const BOOTSTRAP: &str = include_str!("../src/builtins/bootstrap.rs");
+const PROJECTION: &str = include_str!("../src/gc_types/value/object_header_projection.rs");
+const LAYOUTS: &str = include_str!("../src/gc_types/layouts.rs");
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .unwrap_or_else(|| panic!("missing start marker: {start}"))
+        .unwrap_or_else(|| panic!("missing {start}"))
         .1
         .split_once(end)
-        .unwrap_or_else(|| panic!("missing end marker after: {start}"))
+        .unwrap_or_else(|| panic!("missing {end}"))
         .0
 }
 
-fn code_only(source: &str) -> String {
-    source
-        .lines()
-        .map(|line| match line.find("//") {
-            Some(comment) => &line[..comment],
-            None => line,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+#[test]
+fn realm_array_bootstrap_publishes_only_the_initialized_exotic() {
+    assert!(ARRAY
+        .contains("pub(crate) struct ReservedRealmArrayPrototypeLocal(GcLocalSlot<ArrayObject>);"));
+    assert!(ARRAY.contains("pub(crate) struct RealmArrayPrototypeLocal(GcLocal<ArrayObject>);"));
+    let initialization = bounded(
+        ARRAY,
+        "pub(crate) fn emit_initialize_realm_array_prototype(",
+        "pub(crate) fn emit_define_realm_array_prototype_data_with_flags(",
+    );
+    assert!(initialization.contains("reserved: ReservedRealmArrayPrototypeLocal,"));
+    assert!(initialization
+        .contains("self.emit_alloc_empty_array_with_prototype(object_prototype, function)?"));
+    let reserved = BOOTSTRAP
+        .find("let reserved = self.reserve_realm_array_prototype_local(function);")
+        .unwrap();
+    let initialized = BOOTSTRAP
+        .find("self.emit_initialize_realm_array_prototype(reserved, &object_prototype, function)?")
+        .unwrap();
+    let published = BOOTSTRAP
+        .find("self.emit_store_realm_array_prototype(realm, array.array(), function);")
+        .unwrap();
+    assert!(reserved < initialized && initialized < published);
+    let append = bounded(
+        ARRAY,
+        "pub(crate) fn emit_define_realm_array_prototype_data_with_flags(",
+        "pub(crate) fn emit_bind_realm_array_constructor_prototype(",
+    );
+    assert!(append.contains("prototype: &RealmArrayPrototypeLocal,"));
+    let header = append.find(".field(ArrayObjectSchema::OBJECT)").unwrap();
+    let write = append
+        .find("self.emit_object_append_data_property_with_flags(")
+        .unwrap();
+    assert!(header < write);
 }
 
 #[test]
-fn only_the_main_array_installation_widens_the_append_target_scope() {
-    let emit = code_only(EMIT_SOURCE);
-
-    let domain = bounded(
-        &emit,
-        "pub(crate) enum AppendTargetScope {",
-        "pub(crate) enum OrdinarySetDataOnReceiverEmission {",
-    );
-    assert!(domain.contains("Self::RealmBootstrap => true,"));
-    assert!(domain.contains("Self::OrdinaryObjects => false,"));
-    assert!(!domain.contains("_ =>"));
-
-    // Private field, one initial value for every builder.
-    assert!(emit.contains("    append_target_scope: AppendTargetScope,"));
-    assert!(!emit.contains("pub(crate) append_target_scope:"));
-    assert_eq!(
-        emit.matches("append_target_scope: AppendTargetScope::OrdinaryObjects,")
-            .count(),
-        1
-    );
-
-    // The one widening is a scoped call that restores the narrow scope on
-    // every exit, and its only caller installs the Array constructor and
-    // %Array.prototype% in the main export.
-    assert_eq!(
-        emit.matches("self.append_target_scope = AppendTargetScope::RealmBootstrap;")
-            .count(),
-        1
-    );
-    assert_eq!(
-        emit.matches("self.append_target_scope = AppendTargetScope::OrdinaryObjects;")
-            .count(),
-        1
-    );
-    let scoped = bounded(
-        &emit,
-        "pub(crate) fn with_realm_bootstrap_appends<T>(",
-        "\n    }\n",
-    );
-    let widen = scoped
-        .find("self.append_target_scope = AppendTargetScope::RealmBootstrap;")
-        .expect("the scoped widening");
-    let run = scoped
-        .find("let installed = install(self);")
-        .expect("the install runs inside the widened scope");
-    let narrow = scoped
-        .find("self.append_target_scope = AppendTargetScope::OrdinaryObjects;")
-        .expect("the scope is narrowed before any result is returned");
-    let result = scoped.rfind("installed").expect("the install result");
-    assert!(widen < run && run < narrow && narrow < result);
-    assert!(
-        !scoped.contains('?'),
-        "no early exit may skip the narrowing"
-    );
-
-    let bootstrap = code_only(BOOTSTRAP_SOURCE);
-    assert_eq!(bootstrap.matches("with_realm_bootstrap_appends").count(), 1);
-    let roots = bounded(
-        &bootstrap,
-        "pub(crate) fn init_runtime_roots(&mut self, function: &mut Function)",
-        "pub(crate) fn init_script_global_object(",
-    );
-    let main_only = roots
-        .find("if !self.is_main() {")
-        .expect("only the main export installs the entry realm");
-    let array_prototype_created = roots
-        .find("function.instruction(&Instruction::GlobalSet(ARRAY_PROTOTYPE_GLOBAL_INDEX));")
-        .expect("%Array.prototype% is allocated before it is installed into");
-    let scoped = bounded(
-        roots,
-        "self.with_realm_bootstrap_appends(|builder| {",
-        "})?;",
-    );
-    let scoped_at = roots
-        .find("self.with_realm_bootstrap_appends(|builder| {")
-        .expect("the Array installation runs in the bootstrap scope");
-    assert!(main_only < array_prototype_created && array_prototype_created < scoped_at);
-    let normalized: String = scoped.chars().filter(|c| !c.is_whitespace()).collect();
-    assert_eq!(
-        normalized,
-        "builder.init_builtin_constructor_object(StandardBuiltinId::ArrayConstructor,\
-         ARRAY_PROTOTYPE_GLOBAL_INDEX,function,)"
-    );
-
-    // Crate-wide census: no other module names the widening or the scope.
-    let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut pending = vec![source_root.clone()];
-    let mut widening_mentions = Vec::new();
-    let mut bootstrap_scope_mentions = Vec::new();
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory).expect("crate `src` is readable") {
-            let path = entry.expect("readable directory entry").path();
-            if path.is_dir() {
-                pending.push(path);
-                continue;
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                continue;
-            }
-            let code = code_only(&std::fs::read_to_string(&path).expect("readable source"));
-            let relative = path
-                .strip_prefix(&source_root)
-                .expect("scanned path is under `src`")
-                .display()
-                .to_string();
-            for _ in 0..code.matches("with_realm_bootstrap_appends").count() {
-                widening_mentions.push(relative.clone());
-            }
-            for _ in 0..code.matches("AppendTargetScope::RealmBootstrap").count() {
-                bootstrap_scope_mentions.push(relative.clone());
-            }
+fn append_helpers_accept_only_the_ordinary_header_and_share_one_projection() {
+    for name in ["data", "accessor"] {
+        let start = format!("pub(crate) fn emit_object_append_{name}_property_with_flags(");
+        let body = bounded(OBJECTS, &start, "\n    }");
+        assert!(body.contains("object: &GcLocal<OrdinaryObject>,"));
+        assert_eq!(
+            body.matches("self.emit_ordinary_append_property_entry(")
+                .count(),
+            1
+        );
+        for forbidden in [
+            "is_main()",
+            "AppendTargetScope",
+            "ARRAY_PROTOTYPE_GLOBAL_INDEX",
+            "Instruction::If",
+        ] {
+            assert!(
+                !body.contains(forbidden),
+                "{name} append contains {forbidden}"
+            );
         }
     }
-    widening_mentions.sort();
-    bootstrap_scope_mentions.sort();
-    // The definition in emit.rs and the one call in bootstrap.rs.
-    assert_eq!(widening_mentions, ["builtins/bootstrap.rs", "emit.rs"]);
-    // Only the scoped widening itself names the wide scope.
-    assert_eq!(bootstrap_scope_mentions, ["emit.rs"]);
-}
-
-#[test]
-fn append_helpers_gate_the_array_prototype_arm_on_the_scope_alone() {
-    let objects = code_only(OBJECTS_SOURCE);
-    for (helper, next) in [
-        (
-            "pub(crate) fn emit_object_append_data_property_with_flags(",
-            "\n    pub(crate) fn ",
-        ),
-        (
-            "pub(crate) fn emit_object_append_accessor_property_with_flags(",
-            "\n    pub(crate) fn ",
-        ),
-    ] {
-        let body = bounded(&objects, helper, next);
-        assert!(
-            !body.contains("is_main()"),
-            "{helper} must not key on is_main"
-        );
+    for name in ["data", "accessor_values"] {
+        let start = format!("pub(crate) fn emit_install_intrinsic_{name}(");
+        let body = bounded(INTRINSICS, &start, "\n    }");
         assert_eq!(
-            body.matches("self.append_target_scope().may_target_array_prototype()")
+            body.matches("self.emit_object_header_projection(target, function)")
                 .count(),
-            1,
-            "{helper}"
+            1
         );
-        assert_eq!(
-            body.matches("if may_target_array_prototype {").count(),
-            2,
-            "{helper} opens and closes the arm under the same scope"
-        );
-        let arm = bounded(body, "if may_target_array_prototype {", "Instruction::Else");
-        assert!(arm.contains("GlobalGet(ARRAY_PROTOTYPE_GLOBAL_INDEX)"));
-        assert_eq!(body.matches("ARRAY_PROTOTYPE_GLOBAL_INDEX").count(), 1);
     }
+    let array = bounded(
+        LAYOUTS,
+        "struct ArrayObject => ArrayObjectSchema {",
+        "        }",
+    );
+    assert!(array.contains("OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;"));
+    assert!(PROJECTION.contains("for layout in GcLayout::ALL"));
+    assert!(PROJECTION.contains("layout.object_projection()"));
+    assert!(PROJECTION.contains("ObjectHeaderProjection::Own => {}"));
+    assert!(PROJECTION.contains("ObjectHeaderProjection::Field(field) =>"));
+    assert!(PROJECTION.contains("field_index: field.raw()"));
+    assert_eq!(PROJECTION.matches("Instruction::Unreachable").count(), 1);
 }

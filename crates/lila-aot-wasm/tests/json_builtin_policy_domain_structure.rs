@@ -55,7 +55,7 @@ fn json_builtin_domain_is_exact_and_capability_free() {
     );
 
     let prelude = JSON_SOURCE
-        .split_once("mod json_stringify_replacer_invocation {")
+        .split_once("macro_rules! json_domain {")
         .expect("JSON declaration prelude")
         .0;
     assert!(!prelude.contains("#[derive"));
@@ -109,7 +109,7 @@ fn standard_dispatch_can_only_call_four_fixed_json_operations() {
             "JsonIsRawJson",
             "emit_json_is_raw_json_builtin",
             "IsRawJson",
-            "    /// Applies the result of a completed reviver call.",
+            "    fn emit_json_reference_test<",
         ),
     ] {
         assert_eq!(
@@ -154,8 +154,8 @@ fn json_builtin_selection_has_one_owned_exhaustive_consumer() {
         .split_once("    pub(super) fn emit_json_parse_builtin(")
         .expect("JSON builtin dispatcher end")
         .0;
-    assert!(dispatcher.contains("builtin: JsonBuiltin,"));
-    assert_eq!(dispatcher.matches("match builtin").count(), 1);
+    assert!(dispatcher.contains("operation: JsonBuiltin,"));
+    assert_eq!(dispatcher.matches("match operation").count(), 1);
     for variant in ["Parse", "Stringify", "RawJson", "IsRawJson"] {
         assert_eq!(
             dispatcher
@@ -166,8 +166,8 @@ fn json_builtin_selection_has_one_owned_exhaustive_consumer() {
         );
     }
     for forbidden in [
-        "builtin ==",
-        "builtin !=",
+        "operation ==",
+        "operation !=",
         "_ =>",
         "unreachable!",
         "debug_assert!",

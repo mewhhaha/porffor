@@ -13,6 +13,7 @@ impl FunctionBuilder<'_> {
         callee_expression: &TypedExpr,
         this_expression: Option<&TypedExpr>,
         arguments: &[TypedExpr],
+        continuation: &CallContinuation,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -28,7 +29,13 @@ impl FunctionBuilder<'_> {
         }
         let list = self.emit_call_args_vector(arguments, function)?;
         self.emit_direct_eval_or_call_with_argv(
-            context, &callee, &receiver, &list, output, function,
+            context,
+            &callee,
+            &receiver,
+            &list,
+            continuation,
+            output,
+            function,
         )?;
         list.clear(function);
         receiver.clear(function);
@@ -42,6 +49,7 @@ impl FunctionBuilder<'_> {
         callee: &ValueLocals,
         receiver: &ValueLocals,
         arguments: &GcLocal<ValueArray>,
+        continuation: &CallContinuation,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -61,9 +69,14 @@ impl FunctionBuilder<'_> {
         self.open_frame(ControlFrameKind::If, function);
         self.emit_direct_eval_argument(context, &realm, arguments, &pending, function)?;
         function.instruction(&Instruction::Else);
-        self.emit_function_or_proxy_call_with_argv(
-            callee, receiver, arguments, &pending, function,
-        )?;
+        match continuation {
+            CallContinuation::Continue => self.emit_function_or_proxy_call_with_argv(
+                callee, receiver, arguments, &pending, function,
+            )?,
+            CallContinuation::Return => {
+                self.emit_prepared_tail_call(callee, receiver, arguments, function)?;
+            }
+        }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         self.completion().copy_from(&pending, function);

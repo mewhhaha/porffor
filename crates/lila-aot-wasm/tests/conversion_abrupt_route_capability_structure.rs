@@ -44,22 +44,12 @@ fn rust_sources(path: &Path, sources: &mut Vec<(PathBuf, String)>) {
 }
 
 #[test]
-fn conversion_abrupt_routes_are_exact_capability_free_domains() {
-    for (route, end, expected) in [
-        (
-            "ToPrimitiveAbruptRoute",
-            "/// Where the Symbol throw admitted by primitive `ToString` must go.",
-            "ActiveHandler,ReturnCurrentFunction,IteratorCloseAndReturn(IteratorCloseOnThrowLocals),}",
-        ),
+fn conversion_routes_keep_exact_nonduplicable_domains_and_complete_outputs() {
+    for (route, end) in [
+        ("ToPrimitiveAbruptRoute", "/// Where the Symbol throw"),
         (
             "PrimitiveToStringAbruptRoute",
-            "/// Where a throw from one of the exceptional `ToLength` consumers must go.",
-            "ActiveHandler,ReturnCurrentFunction,IteratorCloseAndReturn(IteratorCloseOnThrowLocals),}",
-        ),
-        (
-            "ToLengthAbruptRoute",
-            "/// Where the throw created by primitive `ToNumber` is owned.",
-            "ActiveHandler,RejectArrayFromAsyncAndReturnPromise{capability_record_local:u32,promise_payload_local:u32,promise_tag_local:u32,},}",
+            "/// A primitive whose ToPrimitive",
         ),
     ] {
         let declaration = bounded(
@@ -67,71 +57,112 @@ fn conversion_abrupt_routes_are_exact_capability_free_domains() {
             &format!("pub(crate) enum {route} {{"),
             end,
         );
-        assert_eq!(normalized(declaration), expected);
-
+        assert_eq!(
+            normalized(declaration),
+            "ActiveHandler,ReturnCurrentFunction,}"
+        );
         let prefix = OPERATIONS_SOURCE
             .split_once(&format!("pub(crate) enum {route} {{"))
-            .expect("route declaration should exist")
-            .0
-            .rsplit_once('\n')
-            .map_or("", |(_, line)| line);
-        assert!(!prefix.trim_start().starts_with("#[derive("));
+            .unwrap()
+            .0;
+        assert!(!prefix.rsplit("\n\n").next().unwrap().contains("#[derive("));
     }
-
     let mut sources = Vec::new();
     rust_sources(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
         &mut sources,
     );
-    for route in [
-        "ToPrimitiveAbruptRoute",
-        "PrimitiveToStringAbruptRoute",
-        "ToLengthAbruptRoute",
-    ] {
+    for route in ["ToPrimitiveAbruptRoute", "PrimitiveToStringAbruptRoute"] {
         for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
-            let implementation = format!("impl {capability} for {route}");
-            assert!(
-                sources
-                    .iter()
-                    .all(|(_, source)| !source.contains(&implementation)),
-                "{route} must not implement {capability}",
-            );
+            assert!(sources
+                .iter()
+                .all(|(_, source)| !source.contains(&format!("impl {capability} for {route}"))));
         }
     }
+    assert!(sources
+        .iter()
+        .all(|(_, source)| !source.contains("enum ToLengthAbruptRoute")));
+    let length = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn emit_to_length_i64_from_value_locals(",
+        "pub(crate) fn emit_to_length_i64_from_number_payload_local(",
+    ));
+    assert!(length.contains("result:&CompletionLocals,"));
+    let convert = length
+        .find("self.emit_value_to_number_payload(input,result,function)?;")
+        .unwrap();
+    let normal = length.find("CompletionKind::Normal.code()").unwrap();
+    let publish = length
+        .find("self.emit_to_length_i64_from_number_payload_local(")
+        .unwrap();
+    assert!(convert < normal && normal < publish);
+    assert!(!length.contains("emit_propagate_current_throw"));
+    assert!(!length.contains("emit_return_current_completion"));
 }
 
 #[test]
-fn conversion_abrupt_routes_move_into_one_exhaustive_finisher_each() {
-    for (route, finisher, end, arms) in [
-        (
-            "ToPrimitiveAbruptRoute",
-            "    fn finish_to_primitive_operation(",
-            "    fn finish_primitive_to_string_throw(",
-            3,
-        ),
-        (
-            "PrimitiveToStringAbruptRoute",
-            "    fn finish_primitive_to_string_throw(",
-            "    fn finish_to_length_operation(",
-            3,
-        ),
-        (
-            "ToLengthAbruptRoute",
-            "    fn finish_to_length_operation(",
-            "    /// The first property-operation migration",
-            2,
-        ),
-    ] {
-        let consumer = normalized(bounded(OPERATIONS_SOURCE, finisher, end));
-        assert!(consumer.contains(&format!("route:{route}")));
-        assert!(!consumer.contains(&format!("route:&{route}")));
-        assert_eq!(consumer.matches(&format!("{route}::")).count(), arms);
-        assert_eq!(consumer.matches("matchroute{").count(), 1);
+fn conversion_finishers_and_native_consumers_keep_their_abrupt_obligations() {
+    let primitive = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "fn finish_to_primitive_operation(",
+        "pub(crate) fn emit_construct(",
+    ));
+    assert!(primitive.contains("route:ToPrimitiveAbruptRoute,"));
+    assert!(primitive.contains("result:&crate::gc_types::CompletionLocals,"));
+    assert!(primitive.contains("self.completion().copy_from(result,function);matchroute{"));
+    assert!(primitive.contains(
+        "ToPrimitiveAbruptRoute::ActiveHandler=>self.emit_propagate_current_throw(function)"
+    ));
+    assert!(primitive.contains("ToPrimitiveAbruptRoute::ReturnCurrentFunction=>{self.emit_return_current_completion(function)}"));
+    let string = normalized(bounded(
+        OPERATIONS_SOURCE,
+        "pub(crate) fn emit_primitive_to_string_payload(",
+        "pub(crate) fn emit_bigint_to_radix_string_payload(",
+    ));
+    assert!(string.contains("route:PrimitiveToStringAbruptRoute,"));
+    assert!(string
+        .contains("self.emit_primitive_to_string_completion(input,result,function)?;matchroute{"));
+    for route in ["ActiveHandler", "ReturnCurrentFunction"] {
+        assert_eq!(
+            string
+                .matches(&format!("PrimitiveToStringAbruptRoute::{route}"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            string
+                .matches(&format!("ToPrimitiveAbruptRoute::{route}"))
+                .count(),
+            1
+        );
+    }
+    for consumer in [&primitive, &string] {
         assert!(!consumer.contains("_=>"));
         assert!(!consumer.contains("unreachable!"));
-        assert!(!consumer.contains("todo!"));
     }
-
+    let iterable = normalized(include_str!(
+        "../src/builtins/collections/iterable_algorithms.rs"
+    ));
+    assert!(iterable.contains("self.emit_value_to_property_key_completion(&key_value,&pending,f)?;self.emit_collection_close_abrupt(&iterator,&pending,&output,exit,f)?;"));
+    let close = normalized(bounded(
+        include_str!("../src/builtins/collections.rs"),
+        "fn emit_collection_close_abrupt(",
+        "fn emit_collection_assert_callable(",
+    ));
+    assert!(close.contains("iterator:&OwnedSyncIterator,pending:&CompletionLocals,output:&CompletionLocals,exit:ControlTarget,"));
+    assert!(close.contains("CompletionKind::Throw.code()"));
+    assert!(close.contains("self.emit_sync_iterator_close(iterator,pending,output,f)?;self.emit_branch_to_target(exit,f);"));
+    let asynchronous = normalized(include_str!("../src/builtins/array_from_async.rs"));
+    assert!(asynchronous.contains("self.emit_to_length_i64_from_value_locals(pending.value(),length,&pending,f)?;self.emit_af_reject_abrupt(&capability,&pending,exit,f)?;self.emit_af_target("));
+    let reject = bounded(
+        &asynchronous,
+        "fnemit_af_reject_abrupt(",
+        "fnemit_af_settle(",
+    );
+    assert!(reject.contains("capability:&GcLocal<PromiseCapability>,pending:&CompletionLocals,"));
+    assert!(reject.contains("CompletionKind::Throw.code()"));
+    assert!(reject.contains("self.emit_af_settle(capability,PromiseSettlement::Reject,pending.value(),f)?;self.emit_branch_to_target(exit,f);"));
+    // The dated contract still records the earlier route-domain migration.
     for evidence in [CONTRACT, TASK] {
         for route in [
             "ToPrimitiveAbruptRoute",

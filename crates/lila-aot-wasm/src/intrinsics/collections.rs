@@ -3,6 +3,7 @@
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
 use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 pub(crate) enum CollectionPrototypeIntrinsic {
     Map,
@@ -64,8 +65,7 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::MapSpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(StandardBuiltinId::MapSpeciesGetter)),
             context.realm,
             true,
             function,
@@ -110,8 +110,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("size"),
-            Some(StandardBuiltinId::MapPrototypeSizeGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::MapPrototypeSizeGetter,
+            )),
             context.realm,
             true,
             function,
@@ -292,8 +293,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("disposed"),
-            Some(StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::AsyncDisposableStackPrototypeDisposedGetter,
+            )),
             context.realm,
             true,
             function,
@@ -318,8 +320,7 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::SetSpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(StandardBuiltinId::SetSpeciesGetter)),
             context.realm,
             true,
             function,
@@ -379,8 +380,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("size"),
-            Some(StandardBuiltinId::SetPrototypeSizeGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::SetPrototypeSizeGetter,
+            )),
             context.realm,
             true,
             function,

@@ -12,9 +12,10 @@ const BACKEND_LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../../lila-ir/src/operations.rs");
 const TYPED_ARRAY_SPECIES_SOURCE: &str =
     include_str!("../src/objects/typed_array_species_create.rs");
+const SUBARRAY_SOURCE: &str = include_str!("../src/builtins/binary_data/typed_array.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 
-const SPECIES_READ: &str = "property_key_symbol_payload(\"Symbol.species\")";
+const SPECIES_READ: &str = "WellKnownSymbol::Species";
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -126,7 +127,7 @@ fn array_species_create_emitter_has_all_seven_array_callers() {
     );
     assert_eq!(
         ARRAY_SOURCE.matches("emit_array_species_create(").count(),
-        5
+        4
     );
 
     assert_eq!(
@@ -144,37 +145,50 @@ fn array_species_create_emitter_has_all_seven_array_callers() {
     );
     for kind in ["Map", "Filter"] {
         assert!(CALLBACK_ITERATION_SOURCE.contains(&format!(
-            "ArrayCallbackIterationKind::{kind} => self.emit_array_species_create("
+            "ArrayCallbackIterationKind::{kind} => {{\n                self.emit_array_species_create("
         )));
     }
     assert_eq!(CALLBACK_ITERATION_SOURCE.matches(SPECIES_READ).count(), 0);
-    let flat_map = bounded(
-        ARRAY_SOURCE,
-        "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
-        "    fn emit_flat_map_append(",
+    // Flat and flatMap now share one physical FlattenIntoArray owner.
+    for kind in ["Flat", "FlatMap"] {
+        assert!(FLAT_SOURCE.contains(&format!(
+            "self.emit_array_flatten_builtin(FlattenMethod::{kind}, f)"
+        )));
+    }
+    let flatten = bounded(
+        FLAT_SOURCE,
+        "    fn emit_array_flatten_builtin(",
+        "\n    }\n}",
     );
     assert_eq!(
-        flat_map.matches("self.emit_array_species_create(").count(),
+        flatten.matches("self.emit_array_species_create(").count(),
         1
     );
     let slice = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn compile_array_prototype_slice_builtin(",
-        "    pub(crate) fn compile_array_prototype_splice_builtin(",
+        "    pub(crate) fn compile_typed_array_prototype_slice_builtin(",
     );
     let splice = bounded(
         ARRAY_SOURCE,
-        "    pub(crate) fn compile_array_prototype_splice_builtin(",
-        "    pub(crate) fn compile_array_prototype_includes_builtin(",
+        "    fn compile_array_splice_output(",
+        "    pub(crate) fn compile_array_prototype_join_builtin(",
     );
     assert_eq!(slice.matches("self.emit_array_species_create(").count(), 1);
     assert_eq!(splice.matches("self.emit_array_species_create(").count(), 1);
+    assert!(splice.contains(
+        "ArraySpliceOutput::Receiver => {\n                self.emit_array_species_create("
+    ));
+    assert!(
+        ARRAY_SOURCE.contains("self.compile_array_splice_output(ArraySpliceOutput::Receiver, f)")
+    );
 }
 
 #[test]
-fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
+fn symbol_species_reads_have_exact_array_and_typed_array_owners() {
     assert_eq!(ARRAY_SOURCE.matches(SPECIES_READ).count(), 1);
     assert_eq!(TYPED_ARRAY_SPECIES_SOURCE.matches(SPECIES_READ).count(), 1);
+    assert_eq!(SUBARRAY_SOURCE.matches(SPECIES_READ).count(), 1);
 
     assert_eq!(FLAT_SOURCE.matches(SPECIES_READ).count(), 0);
     assert_eq!(
@@ -185,7 +199,7 @@ fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
     );
     let migrated_array_callers = [(
         "    pub(crate) fn compile_array_prototype_concat_builtin(",
-        "    pub(crate) fn compile_array_prototype_flat_map_builtin(",
+        "    pub(crate) fn compile_array_prototype_splice_builtin(",
     )];
     for (start, end) in migrated_array_callers {
         let caller = bounded(ARRAY_SOURCE, start, end);
@@ -196,7 +210,7 @@ fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
     let typed_array_copies = [
         (
             "    pub(crate) fn compile_typed_array_prototype_slice_builtin(",
-            "    pub(crate) fn compile_typed_array_prototype_map_builtin(",
+            "    pub(super) fn compile_array_prototype_for_each_builtin(",
         ),
         (
             "    pub(crate) fn compile_typed_array_prototype_map_builtin(",
@@ -226,10 +240,24 @@ fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
     assert_eq!(subarray.matches(SPECIES_READ).count(), 0);
     assert_eq!(
         subarray
-            .matches("self.emit_typed_array_subarray_species_create(")
+            .matches("self.emit_typed_array_subarray_builtin(function)?;")
             .count(),
         1
     );
+    let subarray_owner = bounded(
+        SUBARRAY_SOURCE,
+        "fn emit_typed_array_subarray_builtin(",
+        "\n    }",
+    );
+    assert_eq!(subarray_owner.matches(SPECIES_READ).count(), 1);
+    assert_eq!(
+        subarray_owner
+            .matches("self.emit_binary_construct_typed_array(")
+            .count(),
+        2
+    );
+    assert!(subarray_owner.contains("&[&buffer, &offset_arg]"));
+    assert!(subarray_owner.contains("&[&buffer, &offset_arg, &count_arg]"));
 
     let array_quantifiers = [
         (
@@ -249,7 +277,7 @@ fn symbol_species_reads_have_one_array_owner_and_one_typed_array_owner() {
     let array_species_create_emitter = bounded(
         ARRAY_SOURCE,
         "    pub(crate) fn emit_array_species_create(",
-        "    fn emit_delete_property_or_throw(",
+        "    fn emit_array_literal_object(",
     );
     assert_eq!(
         array_species_create_emitter.matches(SPECIES_READ).count(),

@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 pub(crate) const PROMISE_PROTOTYPE_METHOD_PUBLICATIONS: [StandardBuiltinId; 3] = [
     StandardBuiltinId::PromisePrototypeThen,
@@ -68,8 +69,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::PromiseSpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::PromiseSpeciesGetter,
+            )),
             context.realm,
             true,
             function,

@@ -228,7 +228,7 @@ impl FunctionBuilder<'_> {
             self.emit_resumable_state_equals(close_resume_state, function)?;
             self.open_frame(ControlFrameKind::If, function);
             self.emit_load_async_continuation_resume(
-                Self::complete_iterator_continuation_owner(plan)?,
+                &Self::complete_iterator_continuation_owner(plan)?,
                 &resumed,
                 rejected,
                 function,
@@ -288,7 +288,7 @@ impl FunctionBuilder<'_> {
                 )?;
                 self.emit_set_resumable_resume_point(next_resume_state, function)?;
                 self.emit_async_continuation_await(
-                    Self::complete_iterator_continuation_owner(plan)?,
+                    &Self::complete_iterator_continuation_owner(plan)?,
                     &awaited,
                     function,
                 )?;
@@ -304,7 +304,7 @@ impl FunctionBuilder<'_> {
             self.emit_resumable_state_equals(next_resume_state, function)?;
             self.open_frame(ControlFrameKind::If, function);
             self.emit_load_async_continuation_resume(
-                Self::complete_iterator_continuation_owner(plan)?,
+                &Self::complete_iterator_continuation_owner(plan)?,
                 &resumed,
                 rejected,
                 function,
@@ -465,7 +465,7 @@ impl FunctionBuilder<'_> {
                 let await_failure = self.open_frame(ControlFrameKind::Block, function);
                 self.throw_handler_stack.push(await_failure);
                 self.emit_async_continuation_await(
-                    Self::complete_iterator_continuation_owner(plan)?,
+                    &Self::complete_iterator_continuation_owner(plan)?,
                     &awaited,
                     function,
                 )?;

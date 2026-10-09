@@ -398,7 +398,7 @@ impl FunctionBuilder<'_> {
         (anchor_local).load(function);
         (months_local).store(function);
         // Bubble only after an expanded nudge. The shared owner validates the
-        // next actual year anchor and normalizes the virtual calendar pair.
+        // next actual year anchor and selects it if the nudge reaches it.
         (month_step_local).load(function);
         function.instruction(&Instruction::I64Eqz);
         function.instruction(&Instruction::I32Eqz);

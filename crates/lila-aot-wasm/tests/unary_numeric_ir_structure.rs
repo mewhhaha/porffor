@@ -1,6 +1,6 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const OPERATION_SOURCE: &str = include_str!("../../lila-ir/src/operations.rs");
-const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/operator_values.rs");
 const CLI_NUMERIC_TESTS: &str = include_str!("../../lila-cli/tests/cli/language_numerics.rs");
 const CLI_BITWISE_FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_bigint_bitwise_core.js");
@@ -65,7 +65,11 @@ fn lowering_keeps_to_number_and_to_numeric_domains_separate() {
         .split_once("UnaryOp::Minus => {")
         .expect("unary-minus lowering");
     assert_eq!(plus.matches("ExprIr::UnaryPlus").count(), 1);
-    assert!(plus.contains("static_to_number_expr"));
+    assert!(
+        plus.contains("self.record_possible_to_primitive_effects(&lowered_target.value_info())")
+    );
+    assert!(plus.contains("kind: ValueKind::Number,"));
+    assert!(plus.contains("possible_kinds: KindSet::from_kind(ValueKind::Number),"));
     assert!(!plus.contains("numeric_domain"));
 
     assert_eq!(minus.matches("ExprIr::UnaryMinusNumeric").count(), 1);

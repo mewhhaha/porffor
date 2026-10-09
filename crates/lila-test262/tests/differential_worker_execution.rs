@@ -3,10 +3,18 @@
 
 use lila_test262::differential::*;
 use lila_test262::CompilerProvenance;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 static EXECUTION: Mutex<()> = Mutex::new(());
+
+fn serial_execution() -> std::sync::MutexGuard<'static, ()> {
+    // This lock owns no mutable state. A previous assertion failure must not
+    // prevent the remaining independent controls from producing their verdicts.
+    EXECUTION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 fn runner() -> &'static DifferentialWorkerRunner {
     static RUNNER: OnceLock<DifferentialWorkerRunner> = OnceLock::new();
@@ -17,7 +25,7 @@ fn runner() -> &'static DifferentialWorkerRunner {
 }
 
 fn replay(input: &DifferentialReplayInput) -> DifferentialReport {
-    let _serial = EXECUTION.lock().expect("serial worker control");
+    let _serial = serial_execution();
     replay_case(input, SpecExecOracle::explicitly_enabled(), runner())
         .expect("the selected worker admits and completes the authored case")
 }
@@ -441,8 +449,14 @@ mod loader_policy {
     #[cfg(unix)]
     #[test]
     fn filesystem_control_and_reject_all_cover_every_spec_exec_host_context() {
-        let _serial = EXECUTION.lock().unwrap();
-        let staging = TestDirectory::new("loader-policy");
+        let _serial = serial_execution();
+        // Boa's ordinary filesystem loader is rooted at the process working
+        // directory. Keep this positive witness inside that admitted root even
+        // when the verification launcher sets TMPDIR elsewhere.
+        let staging = TestDirectory::in_directory(
+            "loader-policy",
+            &std::env::current_dir().unwrap().join("target"),
+        );
         let directory = staging.path.clone();
         let ambient_path = directory.join("ambient.mjs");
         let entry_path = directory.join("entry.js");
@@ -549,6 +563,11 @@ struct TestDirectory {
 
 impl TestDirectory {
     fn new(label: &str) -> Self {
+        Self::in_directory(label, &std::env::temp_dir())
+    }
+
+    fn in_directory(label: &str, parent: &Path) -> Self {
+        std::fs::create_dir_all(parent).expect("control staging parent should exist");
         use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -556,7 +575,7 @@ impl TestDirectory {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
+        let path = parent.join(format!(
             "lila-differential-control-{label}-{}-{stamp}-{sequence}",
             std::process::id()
         ));
@@ -652,7 +671,7 @@ fn a_nonterminating_spec_exec_worker_has_a_deadline_and_retains_only_committed_o
         "print('committed-prefix'); while (true) {}",
     )
     .unwrap();
-    let _serial = EXECUTION.lock().unwrap();
+    let _serial = serial_execution();
     let runner = runner();
     let start = std::time::Instant::now();
     let report = replay_case(&input, SpecExecOracle::explicitly_enabled(), runner).unwrap();
@@ -690,7 +709,7 @@ fn source_admission_occurs_in_the_worker_and_rejects_malformed_source() {
         "function {",
     )
     .expect("native wire admission does not parse source");
-    let _serial = EXECUTION.lock().unwrap();
+    let _serial = serial_execution();
     let error = replay_case(&input, SpecExecOracle::explicitly_enabled(), runner()).unwrap_err();
     assert!(
         matches!(error, DifferentialError::InvalidCorpus(_)),
@@ -701,7 +720,7 @@ fn source_admission_occurs_in_the_worker_and_rejects_malformed_source() {
 #[cfg(unix)]
 #[test]
 fn a_selected_nonworker_image_cannot_supply_a_semantic_completion() {
-    let _serial = EXECUTION.lock().unwrap();
+    let _serial = serial_execution();
     let wrong = DifferentialWorkerRunner::new(std::env::current_exe().unwrap()).unwrap();
     let report = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled(), &wrong).unwrap();
     assert_eq!(report.verdict(), DifferentialVerdict::WorkerFailure);
@@ -727,7 +746,7 @@ fn a_selected_nonworker_image_cannot_supply_a_semantic_completion() {
 #[test]
 fn failed_worker_campaigns_are_rejected_and_do_not_persist_a_mismatch() {
     use std::os::unix::fs::PermissionsExt;
-    let _serial = EXECUTION.lock().unwrap();
+    let _serial = serial_execution();
     let staging = TestDirectory::new("failed-image");
     let image = staging.path.join("nonexecutable-image");
     std::fs::write(&image, b"a readable file is not an executable worker\n").unwrap();

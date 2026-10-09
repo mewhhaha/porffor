@@ -53,20 +53,28 @@ fn calendar_canonicalization_context_projects_both_diagnostics_exhaustively() {
 #[test]
 fn canonicalization_helper_has_exactly_two_typed_producers() {
     let helper = bounded(
-        PLAIN_DATE_SOURCE,
-        "    pub(super) fn emit_temporal_canonicalize_calendar(",
+        ZONE_EXACT_SOURCE,
+        "    pub(in crate::builtins) fn emit_temporal_canonicalize_calendar(",
         "    pub(crate) fn emit_temporal_plain_date_calendar(",
     );
     assert!(helper.contains("context: TemporalCalendarCanonicalizationContext"));
     assert!(helper.contains("context.type_error_message()"));
-    assert!(helper.contains("context.range_error_message()"));
+    assert!(helper.contains("self.emit_temporal_calendar_canonical_string(&string, context, f)?"));
+    let spelling = bounded(
+        ZONE_EXACT_SOURCE,
+        "    fn emit_temporal_calendar_canonical_string(",
+        "    pub(in crate::builtins) fn emit_temporal_canonicalize_calendar(",
+    );
+    assert!(spelling.contains("context: TemporalCalendarCanonicalizationContext,"));
+    assert!(spelling.contains("context.range_error_message()"));
+    assert!(!spelling.contains("range_error_message: &str"));
     assert!(!helper.contains("type_error_message: RuntimeErrorMessage"));
     assert!(!helper.contains("range_error_message: &str"));
 
     let plain_date_family = bounded(
-        PLAIN_DATE_SOURCE,
+        ZONE_EXACT_SOURCE,
         "    pub(crate) fn emit_temporal_plain_date_calendar(",
-        "    pub(crate) fn emit_temporal_calendar_is_default_i32(",
+        "    pub(crate) fn emit_temporal_to_temporal_calendar_identifier(",
     );
     assert_eq!(
         plain_date_family

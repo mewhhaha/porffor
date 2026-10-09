@@ -1,5 +1,11 @@
 # Ordinary property eager compound-assignment Reference
 
+## Current GC boundary — 2026-10-08
+
+The current backend retains whole `ValueLocals` roots through consuming raw, canonical, read, and ready-to-write phases. `emit_result_from_read_ordinary_property_reference` consumes the saved read only after RHS evaluation; `emit_put_value_from_ready_ordinary_property_reference` consumes its result and publishes only after normal strictness-aware Set. The canonical key and original receiver survive that transition and are released once. The raw-local budget descriptions below record the earlier representation; the GC source guard checks explicit owners and release order.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 Status: normative implementation contract for eager arithmetic and bitwise
 compound assignment through an ordinary property Reference.
 

@@ -3,6 +3,7 @@
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
 use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::objects::{AccessorDescriptorLocals, AccessorGetterLocals};
 
 #[derive(Clone, Copy)]
 pub(crate) enum IntlIntrinsicPropertyKind {
@@ -535,8 +536,7 @@ impl<'a> FunctionBuilder<'a> {
             IntlIntrinsicPropertyKind::Getter => self.emit_install_intrinsic_accessor_values(
                 receiver,
                 IntrinsicKey::Name(property.name),
-                Some(callable),
-                None,
+                AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(callable)),
                 true,
                 function,
             ),

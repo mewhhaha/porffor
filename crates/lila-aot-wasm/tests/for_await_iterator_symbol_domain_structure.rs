@@ -1,4 +1,5 @@
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
+const ITERATOR_SOURCE: &str = include_str!("../src/control_flow/iterator_protocol.rs");
 const SYMBOL_OWNER_SOURCE: &str = include_str!("../src/control_flow/for_await_iterator_symbol.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -63,11 +64,11 @@ fn for_await_iterator_symbols_have_one_exhaustive_name_projection() {
     let projection = normalized(bounded(
         SYMBOL_OWNER_SOURCE,
         "impl ForAwaitIteratorSymbol {",
-        "impl<'a> FunctionBuilder<'a> {",
+        "impl FunctionBuilder<'_> {",
     ));
     for mapping in [
-        "Self::AsyncIterator=>\"Symbol.asyncIterator\"",
-        "Self::Iterator=>\"Symbol.iterator\"",
+        "Self::AsyncIterator=>lila_ir::WellKnownSymbol::AsyncIterator",
+        "Self::Iterator=>lila_ir::WellKnownSymbol::Iterator",
     ] {
         assert_eq!(
             projection.matches(mapping).count(),
@@ -95,9 +96,21 @@ fn well_known_symbol_reader_accepts_only_the_closed_domain() {
         "pub(super) fn emit_for_await_well_known_symbol_read(",
         "\n    }\n}\n",
     ));
-    assert_eq!(reader.matches("letkey=symbol.name();").count(), 1);
-    assert!(reader.contains("ValueInfo::new(ValueKind::Symbol)"));
-    assert!(reader.contains("PropertyKeyIr::StringExpr(Box::new(symbol_key))"));
+    assert_eq!(
+        reader
+            .matches("self.emit_well_known_symbol_reference(symbol.symbol(),function)?")
+            .count(),
+        1
+    );
+    assert!(reader.contains("PropertyKeyLocals::from_symbol(schema,&symbol,function)"));
+    assert!(reader.contains("self.emit_object_read(boxed.value(),target,&key,result,function)?"));
+    assert!(reader.contains("self.emit_value_to_object_locals(target,&boxed,function)?"));
+    assert!(
+        reader
+            .find("self.emit_propagate_current_throw_if_needed(function)")
+            .unwrap()
+            < reader.find("self.emit_object_read(").unwrap()
+    );
     assert!(!reader.contains("debug_assert!"));
     assert!(!reader.contains("starts_with"));
     assert!(!reader.contains("_=>"));
@@ -107,9 +120,9 @@ fn well_known_symbol_reader_accepts_only_the_closed_domain() {
 #[test]
 fn async_symbol_precedes_the_nullish_sync_fallback() {
     let owner = bounded(
-        CONTROL_FLOW_SOURCE,
-        "pub(crate) fn compile_async_for_of_iterator(",
-        "pub(crate) fn compile_async_disposable_for_of_iterator(",
+        ITERATOR_SOURCE,
+        "pub(super) fn emit_acquire_for_await_iterator_state(",
+        "\n    }",
     );
     assert_eq!(
         owner
@@ -134,7 +147,7 @@ fn async_symbol_precedes_the_nullish_sync_fallback() {
         .find("ForAwaitIteratorSymbol::AsyncIterator,")
         .expect("missing async-iterator acquisition");
     let nullish = owner
-        .find("self.compile_nullish_tagged_i32(method_tag_local, function)?;")
+        .find("self.compile_nullish_tagged_i32(method.value().tag(), function)?;")
         .expect("missing nullish fallback gate");
     let iterator = owner
         .find("ForAwaitIteratorSymbol::Iterator,")
@@ -144,8 +157,8 @@ fn async_symbol_precedes_the_nullish_sync_fallback() {
 
     let fallback = bounded(
         owner,
-        "if !iterable_is_statically_nullish {",
-        "self.emit_propagate_current_completion_if_throw(function);",
+        "self.compile_nullish_tagged_i32(method.value().tag(), function)?;",
+        "self.pop_control(ControlFrameKind::If);",
     );
     assert_eq!(
         fallback

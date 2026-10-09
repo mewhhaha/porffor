@@ -55,6 +55,18 @@ runtime_entry!(
     AsyncGeneratorBodyInputs
 );
 
+impl RuntimeOrdinaryBodyEntry {
+    pub(crate) fn emit_return_call(
+        &self,
+        inputs: OrdinaryBodyInputs<'_>,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        inputs.emit(&self.callable, schema, function);
+        schema.return_call_ordinary_reference(&self.code, function);
+    }
+}
+
 impl RuntimeFunctionEntryDispatch {
     /// Called only after ValueLocals has provided a concrete FunctionObject.
     pub(crate) fn from_function(

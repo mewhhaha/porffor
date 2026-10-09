@@ -5,35 +5,34 @@ for the value produced by `ToNumeric` before an increment or decrement. Its
 total `value_kind()` projection is the only conversion back to the wider
 runtime `ValueKind` vocabulary.
 
-Every identifier, global-property, ordinary-property and Super-property
-numeric-update carrier stores this closed domain. Lowering must therefore
-choose one of the two statically known numeric kinds or the runtime-dispatched
-kind; another ECMAScript value kind cannot reach update emission while still
-compiling.
+Identifier, ordinary-property and Super-property numeric-update carriers
+store this closed domain. Global and captured Environment References use the
+same Dynamic numeric path after retaining the resolved Reference and the
+complete result of `ToNumeric`; they do not introduce a second kind field.
 
 The Wasm backend's sole delta emitter matches the three variants exhaustively.
 Number emits the floating-point delta. BigInt calls the canonical arbitrary
-precision Add/Sub helper with `1n`; Dynamic recognizes both inline and heap
-BigInt tags after `ToNumeric`. The helper returns a new payload and tag because
-an update can cross either representation boundary. The former payload-only
-integer delta emitter is gone.
+precision Add/Sub helper with `1n`. Dynamic selects those same kernels from
+the already numeric Value tag. BigInt results are rooted GC values, with the
+canonical helper owning allocation and arbitrary precision arithmetic. No
+integer payload arithmetic or separate heap/inline BigInt dispatch is involved.
 
-Every Reference consumer preserves the old numeric payload/tag pair until
-PutValue finishes. Prefix returns the new pair and postfix returns the old
-pair. Identifier and global-property consumers share one write between those
-result choices; prepared-eval environment updates also preserve the old tag.
-Static BigInt inference cannot replace either runtime representation tag.
-Numeric conversion, GetValue and PutValue keep their existing order and
-completion routes.
+Every Reference consumer preserves the complete old `ValueLocals` until
+PutValue finishes. Prefix returns the new value and postfix returns the old
+value. Numeric conversion, GetValue, PutValue, and abrupt completion keep their
+existing order. The three static admission choices affect only the delta;
+they do not skip evaluation or conversion at the Reference boundary.
 
 Immutable updates still evaluate `ToNumeric(GetValue(reference))` before the
-immutable-binding error. The shared primitive-ToNumeric owner propagates a
-conversion throw before writing a normal numeric payload or tag. Destinations
-may alias the pending completion pair, so publishing the Number tag first
-would relabel a TypeError as a Number. The same owner serves explicit
-ToNumeric, inline tagged conversion and coercive addition; each uses the
-existing active catch/finally or function-return route. BigInt results keep
-their original payload and representation tag.
+immutable-binding error. Conversion results travel in `CompletionLocals`, and
+the consumer propagates a throw before copying a normal numeric value. This
+retains the original Number, arbitrary precision BigInt, and thrown-object
+identity across nested updates and caller catch/finally paths.
+
+The current source repair restores consumption of the closed kind after the GC
+migration had left that parameter unused. The Dynamic arithmetic kernels are
+unchanged. Current artifact, native, and source-structure verification is
+pending; the earlier results below are historical evidence only.
 
 ```sh
 cargo test -p lila-aot-wasm --test numeric_update_value_kind_structure

@@ -106,11 +106,20 @@ impl FunctionBuilder<'_> {
             }
             FunctionBuiltin::PrototypeCall => {
                 self.emit_builtin_arg_to_value(0, &argument, function);
-                let arguments = self.emit_builtin_argument_vector_tail(1, function);
-                self.emit_function_or_proxy_call_with_argv(
-                    &receiver, &argument, &arguments, &result, function,
+                self.emit_is_callable_i32(&receiver, function)?;
+                function.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_throw_current_function_realm_type_error(
+                    RuntimeErrorMessage::VALUE_IS_NOT_CALLABLE,
+                    &result,
+                    function,
                 )?;
+                function.instruction(&Instruction::Else);
+                let arguments = self.emit_builtin_argument_vector_tail(1, function);
+                self.emit_prepared_tail_call(&receiver, &argument, &arguments, function)?;
                 arguments.clear(function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
             }
             FunctionBuiltin::PrototypeApply => {
                 let apply_input = schema.reserve_value_local(function);
@@ -128,9 +137,7 @@ impl FunctionBuilder<'_> {
                 self.compile_nullish_tagged_i32(apply_input.tag(), function)?;
                 self.open_frame(ControlFrameKind::If, function);
                 let empty = self.emit_pre_evaluated_arg_vector(&[], function);
-                self.emit_function_or_proxy_call_with_argv(
-                    &receiver, &argument, &empty, &result, function,
-                )?;
+                self.emit_prepared_tail_call(&receiver, &argument, &empty, function)?;
                 empty.clear(function);
                 function.instruction(&Instruction::Else);
                 self.emit_with_array_like_argument_vector(
@@ -138,10 +145,8 @@ impl FunctionBuilder<'_> {
                     RuntimeErrorMessage::FUNCTION_PROTOTYPE_APPLY_ARGUMENT_LIST_MUST_BE_ARRAY_LIKE,
                     &result,
                     function,
-                    |builder, arguments, result, function| {
-                        builder.emit_function_or_proxy_call_with_argv(
-                            &receiver, &argument, arguments, result, function,
-                        )
+                    |builder, arguments, _result, function| {
+                        builder.emit_prepared_tail_call(&receiver, &argument, arguments, function)
                     },
                 )?;
                 self.pop_control(ControlFrameKind::If);

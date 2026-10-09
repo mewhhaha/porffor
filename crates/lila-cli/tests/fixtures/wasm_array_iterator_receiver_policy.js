@@ -31,9 +31,13 @@ checkResult(genericValues.next(), "right", false, "generic values second");
 for (var invalidKind of [NaN, -1, 0.5, 1.5, 2.9]) {
   var corruptedIterator = Array.prototype.values.call(arrayLike);
   corruptedIterator["$ArrayIterator.kind"] = invalidKind;
-  checkTypeError(function () {
-    corruptedIterator.next();
-  }, "generic iterator accepted invalid kind " + invalidKind);
+  // Internal iterator kind lives in a typed GC field. This ordinary property
+  // must remain observable without changing or corrupting that private field.
+  check(Object.is(corruptedIterator["$ArrayIterator.kind"], invalidKind), true,
+    "iterator shadow property retains its own value");
+  checkResult(corruptedIterator.next(), "left", false, "shadowed kind first value");
+  checkResult(corruptedIterator.next(), "right", false, "shadowed kind second value");
+  checkResult(corruptedIterator.next(), undefined, true, "shadowed kind completion");
 }
 
 var genericEntries = Array.prototype.entries.call(arrayLike);

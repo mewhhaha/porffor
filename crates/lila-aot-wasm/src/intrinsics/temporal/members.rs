@@ -1,5 +1,6 @@
 use super::*;
 use crate::functions::{NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 /// Every implemented Temporal constructor family. Both bootstrap paths and
 /// allocation policies consume this closed domain.
@@ -351,8 +352,7 @@ impl FunctionBuilder<'_> {
             self.emit_install_intrinsic_accessor(
                 prototype,
                 IntrinsicKey::Name(temporal_intrinsic_property_key(*builtin)?),
-                Some(*builtin),
-                None,
+                AccessorDescriptor::Getter(AccessorGetter::new(*builtin)),
                 realm,
                 true,
                 function,

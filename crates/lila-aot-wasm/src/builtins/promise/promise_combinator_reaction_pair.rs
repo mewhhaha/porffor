@@ -1,6 +1,7 @@
 use super::*;
 
 /// Borrows completed callable values; no method is reconstructed or reread.
+#[must_use = "a Promise combinator reaction pair must be consumed by its then invocation"]
 struct PromiseCombinatorReactionPairLocals<'a> {
     on_fulfilled: &'a ValueLocals,
     on_rejected: &'a ValueLocals,
@@ -18,7 +19,7 @@ impl FunctionBuilder<'_> {
         result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let pair = match mode {
+        let reaction_pair = match mode {
             PromiseCombinatorMode::Values => PromiseCombinatorReactionPairLocals {
                 on_fulfilled: resolve_element,
                 on_rejected: reject,
@@ -36,8 +37,11 @@ impl FunctionBuilder<'_> {
                 on_rejected: reject,
             },
         };
-        let arguments =
-            self.emit_pre_evaluated_arg_vector(&[pair.on_fulfilled, pair.on_rejected], function);
+        let PromiseCombinatorReactionPairLocals {
+            on_fulfilled,
+            on_rejected,
+        } = reaction_pair;
+        let arguments = self.emit_pre_evaluated_arg_vector(&[on_fulfilled, on_rejected], function);
         let emitted =
             self.emit_function_or_proxy_call_with_argv(then, promise, &arguments, result, function);
         arguments.clear(function);

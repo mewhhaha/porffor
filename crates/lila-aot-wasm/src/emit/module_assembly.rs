@@ -1263,6 +1263,14 @@ pub(super) fn emit_script_module(
         register_runtime_helper!(ValueToObject, compile_value_to_object_helper);
         register_runtime_helper!(CoerciveAdd, compile_coercive_add_helper);
         register_runtime_helper!(
+            EnvironmentIdentifierPutSloppy,
+            compile_environment_identifier_put_sloppy_helper
+        );
+        register_runtime_helper!(
+            EnvironmentIdentifierPutStrict,
+            compile_environment_identifier_put_strict_helper
+        );
+        register_runtime_helper!(
             GlobalIdentifierReadSloppy,
             compile_global_identifier_read_sloppy_helper
         );
@@ -1321,11 +1329,7 @@ pub(super) fn emit_script_module(
     }
     if compile_program_helpers {
         for operation in crate::modules::ModuleRuntimeOperation::ALL {
-            let body = if matches!(
-                operation,
-                crate::modules::ModuleRuntimeOperation::Initialize
-            ) || crate::modules::module_execution_record_count(script) > 0
-            {
+            let body = if function_metas.module_graph().is_some() {
                 let mut builder = FunctionBuilder::new_runtime_operation_helper(
                     module_package.schema(),
                     operation.helper(),

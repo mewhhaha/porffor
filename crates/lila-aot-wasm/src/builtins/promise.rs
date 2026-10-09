@@ -4021,15 +4021,18 @@ impl<'a> FunctionBuilder<'a> {
         let array = self.emit_array_from_argument_list(&list, function)?;
         let argument = schema.reserve_value_local(function);
         argument.set_reference(&array, schema, function);
-        if matches!(mode, PromiseCombinatorMode::FirstFulfillment) {
-            let realm = schema
-                .reserve_gc_local(function)
-                .initialize(self.emit_current_function_realm(function), function);
-            self.emit_promise_any_aggregate_error(&argument, &realm, result, function)?;
-            argument.copy_from(result.value(), function);
-            realm.clear(function);
-        } else {
-            result.set_normal(&argument, function);
+        match mode {
+            PromiseCombinatorMode::FirstFulfillment => {
+                let realm = schema
+                    .reserve_gc_local(function)
+                    .initialize(self.emit_current_function_realm(function), function);
+                self.emit_promise_any_aggregate_error(&argument, &realm, result, function)?;
+                argument.copy_from(result.value(), function);
+                realm.clear(function);
+            }
+            PromiseCombinatorMode::Values
+            | PromiseCombinatorMode::SettledRecords
+            | PromiseCombinatorMode::Race => result.set_normal(&argument, function),
         }
         result.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
@@ -4131,13 +4134,19 @@ impl<'a> FunctionBuilder<'a> {
             .store_i64(index, function);
         let value = schema.reserve_value_local(function);
         self.emit_builtin_arg_to_value(0, &value, function);
-        if matches!(mode, PromiseCombinatorMode::SettledRecords) {
-            let allocation =
-                self.emit_self_backed_promise_settlement_record_allocation_context(function);
-            let record = self
-                .emit_alloc_promise_settlement_record(allocation, settlement, &value, function)?;
-            value.set_reference(&record, schema, function);
-            record.clear(function);
+        match mode {
+            PromiseCombinatorMode::SettledRecords => {
+                let allocation =
+                    self.emit_self_backed_promise_settlement_record_allocation_context(function);
+                let record = self.emit_alloc_promise_settlement_record(
+                    allocation, settlement, &value, function,
+                )?;
+                value.set_reference(&record, schema, function);
+                record.clear(function);
+            }
+            PromiseCombinatorMode::Values
+            | PromiseCombinatorMode::FirstFulfillment
+            | PromiseCombinatorMode::Race => {}
         }
         self.emit_store_promise_combinator_list_entry(&shared, index, &value, function);
         let remaining = schema.reserve_i64_local(function);
@@ -4285,40 +4294,44 @@ impl<'a> FunctionBuilder<'a> {
             iterator.load(schema, function).require_non_null(function),
             function,
         );
-        let shared = if matches!(mode, PromiseCombinatorMode::Race) {
-            None
-        } else {
-            let list = schema.reserve_gc_local(function).initialize(
-                schema
-                    .array_type::<ValueArray>()
-                    .fixed(std::iter::empty(), function),
-                function,
-            );
-            let settle = if matches!(mode, PromiseCombinatorMode::FirstFulfillment) {
-                &reject
-            } else {
-                &resolve
-            };
-            let stored = schema.reserve_gc_local(function).initialize(
-                schema
-                    .struct_type::<StoredValue>()
-                    .from_value(settle, function),
-                function,
-            );
-            let shared = schema.reserve_gc_local(function).initialize(
-                schema.struct_type::<PromiseCombinatorShared>().construct(
-                    (
-                        GcOperand::i64(1),
-                        GcOperand::reference(&list, schema),
-                        GcOperand::reference(&stored, schema),
+        let shared = match mode {
+            PromiseCombinatorMode::Race => None,
+            PromiseCombinatorMode::Values
+            | PromiseCombinatorMode::SettledRecords
+            | PromiseCombinatorMode::FirstFulfillment => {
+                let list = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .array_type::<ValueArray>()
+                        .fixed(std::iter::empty(), function),
+                    function,
+                );
+                let settle = match mode {
+                    PromiseCombinatorMode::FirstFulfillment => &reject,
+                    PromiseCombinatorMode::Values
+                    | PromiseCombinatorMode::SettledRecords
+                    | PromiseCombinatorMode::Race => &resolve,
+                };
+                let stored = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<StoredValue>()
+                        .from_value(settle, function),
+                    function,
+                );
+                let shared = schema.reserve_gc_local(function).initialize(
+                    schema.struct_type::<PromiseCombinatorShared>().construct(
+                        (
+                            GcOperand::i64(1),
+                            GcOperand::reference(&list, schema),
+                            GcOperand::reference(&stored, schema),
+                        ),
+                        function,
                     ),
                     function,
-                ),
-                function,
-            );
-            stored.clear(function);
-            list.clear(function);
-            Some(shared)
+                );
+                stored.clear(function);
+                list.clear(function);
+                Some(shared)
+            }
         };
         let index = schema.reserve_i64_local(function);
         function.instruction(&Instruction::I64Const(0));

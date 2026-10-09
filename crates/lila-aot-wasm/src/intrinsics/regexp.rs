@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_regexp_constructor_intrinsics(
@@ -52,8 +53,7 @@ impl FunctionBuilder<'_> {
             self.emit_install_intrinsic_accessor(
                 context.prototype,
                 IntrinsicKey::Name(name),
-                Some(getter),
-                None,
+                AccessorDescriptor::Getter(AccessorGetter::new(getter)),
                 context.realm,
                 true,
                 function,
@@ -103,8 +103,7 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::RegExpSpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(StandardBuiltinId::RegExpSpeciesGetter)),
             context.realm,
             true,
             function,

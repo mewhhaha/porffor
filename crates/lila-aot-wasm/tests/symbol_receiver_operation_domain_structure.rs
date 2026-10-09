@@ -187,7 +187,7 @@ fn exact_identifier_count(source: &str, identifier: &str) -> usize {
 fn symbol_receiver_error_message_is_an_exhaustive_closed_projection() {
     assert!(SOURCE.contains("    PrototypeToPrimitive,\n}\n\nenum SymbolReceiverOperation {"));
     let code = rust_code(SOURCE, false);
-    assert_eq!(exact_identifier_count(&code, "SymbolReceiverOperation"), 7);
+    assert_eq!(exact_identifier_count(&code, "SymbolReceiverOperation"), 11);
     for forbidden in [
         "impl Clone for SymbolReceiverOperation",
         "impl Copy for SymbolReceiverOperation",
@@ -216,7 +216,7 @@ fn symbol_receiver_error_message_is_an_exhaustive_closed_projection() {
     let projection = normalized(bounded(
         SOURCE,
         "impl SymbolReceiverOperation {",
-        "impl<'a> FunctionBuilder<'a> {",
+        "impl FunctionBuilder<'_> {",
     ));
     for mapping in [
         concat!(
@@ -232,8 +232,8 @@ fn symbol_receiver_error_message_is_an_exhaustive_closed_projection() {
             "RuntimeErrorMessage::SYMBOL_PROTOTYPE_VALUEOF_REQUIRES_THAT_THIS_BE_A_SYMBOL"
         ),
         concat!(
-            "Self::ToPrimitive=>{",
-            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_SYMBOL_TOPRIMITIVE_REQUIRES_THAT_THIS_BE_A_SYMBOL}"
+            "Self::ToPrimitive=>",
+            "RuntimeErrorMessage::SYMBOL_PROTOTYPE_SYMBOL_TOPRIMITIVE_REQUIRES_THAT_THIS_BE_A_SYMBOL"
         ),
     ] {
         assert_eq!(
@@ -251,40 +251,65 @@ fn symbol_receiver_error_message_is_an_exhaustive_closed_projection() {
 fn this_symbol_value_accepts_only_the_closed_operation() {
     let signature = bounded(
         SOURCE,
-        "fn emit_this_symbol_value_to_local(",
-        ") -> Result<(), EmitError> {",
+        "fn emit_this_symbol_value(",
+        ") -> Result<GcLocal<SymbolValue, Nullable>, EmitError> {",
     );
-    assert!(signature.contains("operation: SymbolReceiverOperation,"));
+    assert!(signature.contains("operation: &SymbolReceiverOperation,"));
     assert!(!signature.contains("error_message: &'static str"));
 
     let reader = bounded(
         SOURCE,
-        "fn emit_this_symbol_value_to_local(",
-        "/// Reads a Symbol payload's `[[Description]]`",
+        "fn emit_this_symbol_value(",
+        "    pub(super) fn emit_symbol_constructor_builtin(",
     );
     assert_eq!(
         reader.matches("operation.receiver_error_message()").count(),
         1
     );
-    assert_eq!(reader.matches("error_message,").count(), 2);
+    assert_eq!(
+        reader
+            .matches("emit_throw_current_function_realm_type_error(")
+            .count(),
+        1
+    );
+    assert!(reader.contains("receiver: &ValueLocals,"));
+    assert!(reader.contains("result: &CompletionLocals,"));
+    assert!(reader.contains(".reference_type::<PrimitiveBox>(GcNullability::NonNullable)"));
+    assert!(reader.contains(".field(PrimitiveBoxSchema::PRIMITIVE)"));
+    assert!(reader.contains(".cast_reference::<SymbolValue>(schema, function)"));
 }
 
 #[test]
 fn symbol_prototype_callers_name_all_four_receiver_operations() {
     let dispatch = bounded(SOURCE, "fn emit_symbol(", "        Ok(())\n    }");
-    assert_eq!(
-        dispatch.matches("emit_this_symbol_value_to_local(").count(),
-        4
+    assert_eq!(dispatch.matches("emit_this_symbol_value(").count(), 1);
+    let producers = bounded(
+        dispatch,
+        "let operation = match builtin {",
+        "let receiver =",
     );
+    let result_projection = bounded(dispatch, "match operation {", "symbol.clear(function);");
     for operation in ["Description", "ToString", "ValueOf", "ToPrimitive"] {
+        let variant = format!("SymbolReceiverOperation::{operation}");
         assert_eq!(
-            dispatch
-                .matches(&format!("SymbolReceiverOperation::{operation}"))
-                .count(),
+            producers.matches(&variant).count(),
             1,
-            "operation `{operation}`"
+            "producer `{operation}`"
+        );
+        assert_eq!(
+            result_projection.matches(&variant).count(),
+            1,
+            "result `{operation}`"
         );
     }
+    assert!(normalized(dispatch)
+        .contains("self.emit_this_symbol_value(&receiver,&operation,&result,function)?"));
+    assert!(
+        dispatch.find("self.emit_this_symbol_value(").unwrap()
+            < dispatch.find("match operation {").unwrap()
+    );
+    assert!(!result_projection.contains("_ =>"));
+    assert!(!result_projection.contains("unreachable!"));
     for raw_message in [
         "RuntimeErrorMessage::SYMBOL_PROTOTYPE_DESCRIPTION_REQUIRES_THAT_THIS_BE_A_SYMBOL",
         "RuntimeErrorMessage::SYMBOL_PROTOTYPE_TOSTRING_REQUIRES_THAT_THIS_BE_A_SYMBOL",
@@ -297,10 +322,11 @@ fn symbol_prototype_callers_name_all_four_receiver_operations() {
     let code = rust_code(SOURCE, false);
     assert!(code.contains("enum SymbolBuiltin {"));
     assert!(!code.contains("pub(super) enum SymbolBuiltin"));
-    assert_eq!(exact_identifier_count(&code, "SymbolBuiltin"), 16);
+    assert_eq!(exact_identifier_count(&code, "SymbolBuiltin"), 23);
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
         assert!(!code.contains(&format!("impl {capability} for SymbolBuiltin")));
     }
+    assert!(!SOURCE.contains("#[derive("));
     assert!(!STANDARD.contains("SymbolBuiltin"));
     assert!(!STANDARD.contains("SymbolFn"));
     assert!(!STANDARD.contains("emit_symbol("));

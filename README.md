@@ -1,5 +1,26 @@
 # Lila
 
+## Workspace audit and prepared repairs — 2026-10-08
+
+The complete repository tooling sweep at `f493e2988` passes all 38 commands:
+405 Python test methods, 318 recorded subtests and both shell regressions,
+with no failures, errors or skips. The separate 810-target all-feature Rust
+sweep was deliberately stopped after recording stale fixtures and real
+compiler/runtime defects. Its journal retains every completed, failed and
+unfinished target; the complete repaired-source sweep remains pending.
+
+The prepared repair batch restores consuming typed boundaries for GC values,
+updates guards to their actual source owners, and addresses observed Promise,
+Realm, Locale, Temporal, environment and tail-call failures. These proposals
+still need joined compilation, focused execution and a fresh broad checkpoint.
+A repaired source assertion alone does not establish the corresponding runtime
+behavior. See the [task closure map](tasks/README.md#workspace-audit-and-remaining-acceptance--2026-10-08).
+
+Task status remains four complete, 25 in progress and T26 blocked. The original
+five-second campaign, genuine weak reachability, supported-host acceptance and
+current full pinned conformance remain open. The generated October 2 counts
+below remain historical and have no current compiler binding.
+
 ## Runtime persistence and verification — 2026-10-08
 
 Runtime modules persist through the validated disk cache, Chinese/Dangi catalogs
@@ -16,7 +37,8 @@ the original validation and emitted data. Repository source audits pass; all
 The original five-second campaign remains red. With native R cached, both
 CrossRealm programs now complete and match the oracle; Temporal's fresh program
 then times out during native compilation. Cold native R also exceeds the gate.
-The full workspace sweep is pending. The task plan remains at four
+The later full tooling sweep passes; the all-feature workspace sweep is
+an interrupted partial baseline with failures recorded above. The task plan remains at four
 complete, 25 in progress and T26 blocked. Pinned conformance counts are unchanged.
 The recovered October 2 publication is historical and lacks current compiler
 binding; restoring its original files does not refresh conformance.
@@ -2872,11 +2894,13 @@ the generated status block above, not by this task summary.
   See [the named-zone boundary](docs/rust-rewrite/intl-named-time-zones.md).
 - `crates/lila-runtime`: realms plus typed host clock, randomness, and output
   capabilities.
-- `crates/lila-aot-wasm`: primary direct JS -> Wasm backend.
+- `crates/lila-aot-wasm`: direct JS -> Wasm backend with typed GC values,
+  complete completions, private feature owners and linked runtime/program modules.
 - `crates/lila-engine`: public Rust library API.
 - `crates/lila-cli`: clean-break `lila` command.
 - `crates/lila-test262`: Test262 discovery, execution, snapshots, taxonomy, and README status publishing.
-- `crates/lila-spec-exec`: reference/spec execution backend used for conformance work.
+- `crates/lila-spec-exec`: developer-only differential oracle behind explicit
+  features; default product builds exclude it.
 - `crates/lila-backend-c` and `crates/lila-backend-native`: scaffolds, not product-ready emitters.
 
 Supporting directories:
@@ -9027,25 +9051,28 @@ Currently covered areas include:
 - Binary data APIs: `ArrayBuffer`, `SharedArrayBuffer` rejection paths, `DataView` numeric accessors, typed-array indexed writes/accessors, focused resizable typed-array iteration, and empty `%TypedArray%.from([])` construction.
 - Harness/host-oriented helpers used by tests, such as `print` and selected host hooks.
 
-Expected weak or missing areas include full real Test262 coverage, modules,
-async functions/generators and structured suspended-generator control, broad
-iterator semantics, Proxy internal methods beyond the
-focused constructor/revocable and
-`apply`/`construct`/`get`/`getPrototypeOf`/`setPrototypeOf`/`deleteProperty`/`has`/`isExtensible`/`preventExtensions`/`defineProperty`/`getOwnPropertyDescriptor`
-paths above, RegExp-heavy behavior, Intl, full descriptor/species semantics,
-complete typed arrays, complete Date/Temporal behavior, and many edge cases
-around exotic objects and cross-realm behavior.
+The capability notes above retain many earlier focused checkpoints. Current
+module, async/generator, iterator, Proxy, binary-data, RegExp, Intl and Temporal
+implementations have broader production owners, while their task-wide native,
+resource and full pinned-suite acceptance remains open. Actual current failures
+and runtime gaps are tracked in the [task plan](tasks/README.md).
 
-No-argument `%eval%` and calls whose first argument is proven not to be a
-primitive String execute their spec pass-through behavior without evaluating
-source. String-capable `eval`, `new Function`, and cross-realm `Function`
-constructors remain explicit Wasm-AOT unsupported cases when supporting them
-would require bundling a parser, interpreter, or VM into the emitted Wasm
-artifact.
+No-argument `%eval%` and calls with a proven non-String first argument retain
+their ordinary pass-through semantics and argument effects. Finite discovered
+Script/eval/Function source candidates compile through the normal compiler;
+runtime conversion, exact source matching, lexical context and Realm ownership
+remain observable. Unavailable runtime-selected source reports an explicit
+Wasm-AOT capability gap and remains nonpassing in conformance accounting.
 
 ## Architecture Invariants
 
 - Product compilation is `parse -> early errors -> spec IR -> lowering IR -> Wasm codegen`.
+- The semantic heap uses Wasm GC records and rooted values with complete
+  completion records. The selected Wasmtime feature set and copying collector
+  are required; real weak references and ephemerons remain unavailable.
+- Shared runtime R and program P link through a versioned typed ABI. Validated
+  runtime artifacts and native code have separate cache identities. A hit requires
+  compatible artifact/ABI identity; execution remains the compiled program.
 - `build wasm` must emit compiled user-program semantics and lowered builtins, not a generic evaluator blob.
 - Debug/reference execution may exist for differential testing, but it is not the product CLI runtime path and must not be shipped as the Wasm artifact strategy.
 - Permanent silent skips and unowned expected failures are not acceptable conformance accounting.

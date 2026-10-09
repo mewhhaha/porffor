@@ -21,7 +21,7 @@ fn intrinsic_is_one_rooted_nonconstructable_catalog_identity() {
     let catalog = bounded(
         CATALOG_SOURCE,
         "    FunctionPrototypeSymbolHasInstance {",
-        "\n}\n\nimpl StandardBuiltinId {",
+        "    TypedArrayConstructor {",
     );
     assert!(catalog.contains("=> BUILTIN_FUNCTION_PROTOTYPE_SYMBOL_HAS_INSTANCE_FUNCTION_ID"));
     assert!(catalog.contains("debug: \"Function.prototype[Symbol.hasInstance]\""));

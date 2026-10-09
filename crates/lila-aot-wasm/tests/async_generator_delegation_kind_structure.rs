@@ -53,8 +53,21 @@ fn delegation_kind_is_the_exact_non_capability_two_row_domain() {
 #[test]
 fn control_flow_has_exactly_one_producer_for_each_delegation_kind() {
     let control_flow = normalized(CONTROL_FLOW_SOURCE);
-    assert!(control_flow.contains(
-        "YieldForm::Delegate(_)=>{returnself.compile_async_generator_delegation(value,suspend_state,resume_state,resume_mode,AsyncGeneratorDelegationKind::YieldStar,function,)}"));
+    let yield_body = normalized(bounded(
+        CONTROL_FLOW_SOURCE,
+        "fn compile_async_generator_yield(",
+        "let schema = self.runtime_schema();",
+    ));
+    let delegate = yield_body
+        .split_once("YieldForm::Delegate(_)=>{")
+        .expect("yield-star retains its exact form arm")
+        .1;
+    assert!(delegate.contains(
+        "returnself.compile_async_generator_delegation(value,suspend_state,resume_state,resume_mode,AsyncGeneratorDelegationKind::YieldStar,function,);"));
+    assert!(
+        delegate.contains("emit_checkpoint_generator_statement_list_value(function)"),
+        "delegation retains the enclosing statement-list completion across suspension"
+    );
     assert!(control_flow.contains(
         "async_generator_for_await_is_transparent_yield(&binding.name,body){self.compile_async_generator_delegation(iterable,async_plan.entry_state,async_plan.exit_state,&GeneratorResumeModeIr::Ignore,AsyncGeneratorDelegationKind::ForAwaitYield,function,)?;returnOk(());}"));
     assert_eq!(

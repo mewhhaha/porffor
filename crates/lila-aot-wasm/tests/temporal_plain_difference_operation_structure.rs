@@ -1,9 +1,9 @@
 const DIFFERENCE_SOURCE: &str = include_str!("../src/builtins/temporal_difference.rs");
-const DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_methods.rs");
+const DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_methods/difference.rs");
 const DATE_TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
 const TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_time_methods.rs");
 const YEAR_MONTH_SOURCE: &str =
-    include_str!("../src/builtins/temporal_plain_year_month_methods.rs");
+    include_str!("../src/builtins/temporal_plain_year_month_methods/difference.rs");
 const STANDARD_SOURCE: &str = include_str!("../src/builtins/standard.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -40,13 +40,13 @@ fn all_four_plain_difference_emitters_choose_rounding_and_result_exhaustively() 
     let emitters = [
         (
             DATE_SOURCE,
-            "    pub(super) fn emit_temporal_plain_date_until_or_since(",
-            "    pub(crate) fn emit_temporal_plain_date_to_plain_date_time(",
+            "    pub(in crate::builtins) fn emit_temporal_plain_date_until_or_since(",
+            "\n}",
         ),
         (
             YEAR_MONTH_SOURCE,
-            "    pub(super) fn emit_temporal_plain_year_month_until_or_since(",
-            "    pub(crate) fn emit_temporal_plain_year_month_to_locale_string(",
+            "    pub(in crate::builtins) fn emit_temporal_plain_year_month_until_or_since(",
+            "\n}",
         ),
         (
             TIME_SOURCE,

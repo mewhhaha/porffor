@@ -45,7 +45,7 @@ fn planning_requires_hidden_typed_array_intrinsic_and_zero_length() {
     let bootstrap_gate = bounded(
         PLANNING_SOURCE,
         "    pub(crate) fn needs_typed_array_intrinsic(&self) -> bool {",
-        "    fn require_script_global_binding(",
+        "    fn require_foundational_roots(",
     );
     assert_eq!(
         bootstrap_gate

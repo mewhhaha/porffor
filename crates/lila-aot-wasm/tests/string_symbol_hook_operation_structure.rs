@@ -45,52 +45,46 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 }
 
 #[test]
-fn string_symbol_hook_operation_is_the_five_row_non_copyable_shared_domain() {
+fn string_symbol_hook_operation_is_the_six_row_non_copyable_shared_domain() {
     let domain = bounded(
-        STRING,
-        "enum StringSymbolHookOperation {",
-        "\n\nenum RegExpFlagGetter {",
+        SYMBOL_METHOD,
+        "enum NativeStringProtocol {",
+        "impl NativeStringProtocol {",
     );
-    let variants = domain
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && *line != "}")
-        .collect::<Vec<_>>();
-
     assert_eq!(
-        variants,
-        ["Match,", "MatchAll,", "Replace,", "ReplaceAll,", "Search,"]
+        without_whitespace(domain),
+        "Match,MatchAll,Replace,ReplaceAll,Search,Split,}"
     );
-    assert!(!domain.contains("Split"));
-    let declaration_start = STRING
-        .find("enum StringSymbolHookOperation {")
-        .expect("missing String symbol-hook operation domain");
-    let preceding_declaration = STRING[..declaration_start]
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .expect("missing preceding declaration");
-    assert_eq!(preceding_declaration.trim(), "}");
+    assert!(!SYMBOL_METHOD.contains("#[derive(Clone, Copy)]\nenum NativeStringProtocol"));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
-        assert!(!domain.contains(capability));
-        assert!(!STRING.contains(&format!("impl {capability} for StringSymbolHookOperation")));
+        assert!(!SYMBOL_METHOD.contains(&format!("impl {capability} for NativeStringProtocol")));
     }
-    assert!(!STRING.contains("pub enum StringSymbolHookOperation"));
-    assert!(!STRING.contains("pub(crate) enum StringSymbolHookOperation"));
-    assert!(!STRING.contains("pub(super) enum StringSymbolHookOperation"));
+    assert!(!SYMBOL_METHOD.contains("pub(super) enum NativeStringProtocol"));
+    let key = without_whitespace(bounded(
+        SYMBOL_METHOD,
+        "impl NativeStringProtocol {",
+        "impl FunctionBuilder<'_> {",
+    ));
+    assert!(key.contains("fnkey(&self)->StringSymbolMethodKey"));
+    for mapping in [
+        "Self::Match=>StringSymbolMethodKey::Match",
+        "Self::MatchAll=>StringSymbolMethodKey::MatchAll",
+        "Self::Replace|Self::ReplaceAll=>StringSymbolMethodKey::Replace",
+        "Self::Search=>StringSymbolMethodKey::Search",
+        "Self::Split=>StringSymbolMethodKey::Split",
+    ] {
+        assert!(key.contains(mapping));
+    }
+    assert!(!key.contains("_=>"));
+    assert!(!STRING.contains("NativeStringProtocol"));
 }
 
 #[test]
 fn symbol_hook_emitter_keeps_closed_policies_and_consumes_one_optional_method() {
-    let emitter = bounded(
-        STRING,
-        "    fn emit_string_symbol_hook_builtin(",
-        "    pub(crate) fn emit_string_validate_regexp_global_flags(",
-    );
-    assert!(emitter.contains("operation: StringSymbolHookOperation,"));
+    let emitter = bounded(SYMBOL_METHOD, "fn emit_native_string_protocol(", "\n}");
+    assert!(emitter.contains("operation: NativeStringProtocol,"));
     for forbidden in [
         "builtin: StandardBuiltinId",
-        "StandardBuiltinId::StringPrototype",
         "passes_second_arg",
         ": bool",
         "matches!(operation",
@@ -98,152 +92,111 @@ fn symbol_hook_emitter_keeps_closed_policies_and_consumes_one_optional_method() 
         "operation !=",
         "_ =>",
         "unreachable!",
-        "emit_object_own_property_present(",
-        "emit_ordinary_get_prototype_of(",
-        "emit_function_handle_call(",
     ] {
         assert!(!emitter.contains(forbidden), "forbidden `{forbidden}`");
     }
-    let object_gate = emitter
-        .find("self.emit_is_heap_object_like_tag_i32(")
-        .unwrap();
-    let flags = emitter
-        .find("self.emit_string_validate_regexp_global_flags(")
-        .unwrap();
-    let method = emitter
-        .find("NullableStringSymbolMethod::get_method(")
-        .unwrap();
-    let dispatch = emitter.find("method.call_or_fallback(").unwrap();
-    assert!(object_gate < flags && flags < method && method < dispatch);
-    assert!(emitter
-        .contains("StringSymbolHookOperation::MatchAll | StringSymbolHookOperation::ReplaceAll"));
-
-    let split = bounded(
-        STRING,
-        "    pub(crate) fn emit_string_split_builtin(",
-        "    fn emit_string_symbol_hook_fallback(",
+    let normalized = without_whitespace(emitter);
+    assert_eq!(
+        normalized.matches("match&operation{").count(),
+        3,
+        "global requirement, argument shape, and fallback flags are exhaustive borrowed policies"
     );
-    assert!(split.contains("self.emit_is_heap_object_like_tag_i32("));
-    assert!(split.contains("StringSymbolMethodKey::Split"));
-    assert!(split.contains("NullableStringSymbolMethod::get_method("));
-    assert!(split.contains("method.call_or_fallback("));
-    assert!(!split.contains("emit_function_handle_call("));
-
-    // The observed receiver/method record remains private, and a required Invoke
-    // cannot choose the nullable protocol's fallback operation.
-    let observed = bounded(
+    let require = normalized
+        .find("self.emit_native_string_require_coercible(&receiver,")
+        .unwrap();
+    let flags = normalized
+        .find("self.emit_native_regexp_get(&pattern,\"flags\",")
+        .unwrap();
+    let method = normalized
+        .find("letmethod=NullableStringSymbolMethod::get_method(")
+        .unwrap();
+    let dispatch = normalized.find("method.call_or_fallback(").unwrap();
+    assert!(require < flags && flags < method && method < dispatch);
+    let optional = without_whitespace(bounded(
         SYMBOL_METHOD,
-        "struct ObservedStringSymbolMethod {",
-        "impl ObservedStringSymbolMethod {",
+        "pub(super) struct NullableStringSymbolMethod {",
+        "/// Required Invoke consumes",
+    ));
+    assert!(optional.contains("receiver:ValueLocals,method:ValueLocals,"));
+    assert!(optional.contains("fncall_or_fallback(self,"));
+    assert_eq!(
+        optional
+            .matches("b.emit_object_read(receiver,receiver,&property,&pending,f)?;")
+            .count(),
+        1
     );
-    assert!(!observed.contains("pub"));
-    assert!(!SYMBOL_METHOD.contains("derive(Clone"));
-    assert!(!SYMBOL_METHOD.contains("derive(Copy"));
-    assert!(SYMBOL_METHOD.contains("emit_is_callable_i32("));
-    assert!(SYMBOL_METHOD.contains("emit_function_or_proxy_call_leave_throw_completion("));
-    assert!(SYMBOL_METHOD.contains("emit_propagate_throw_from_locals_if_needed("));
-    assert!(SYMBOL_METHOD.contains("emit_throw_current_function_realm_type_error("));
-    let required = bounded(
+    assert!(optional.contains(
+        "b.emit_function_or_proxy_call_with_argv(&self.method,&self.receiver,&vector,output,f)?;"
+    ));
+    assert!(!optional.contains("#[derive"));
+    let required = without_whitespace(bounded(
         SYMBOL_METHOD,
-        "impl RequiredStringSymbolMethod {",
-        "// RegExpCreate uses",
-    );
-    assert!(!required.contains("fallback"));
-    assert!(required.contains("pub(super) fn invoke(\n        self,"));
+        "struct RequiredStringSymbolMethod(",
+        "enum NativeStringProtocol {",
+    ));
+    assert!(required.contains("fninvoke(self,"));
+    let signature = required
+        .split_once("fninvoke(")
+        .unwrap()
+        .1
+        .split_once(")->Result")
+        .unwrap()
+        .0;
+    assert!(!signature.contains("fallback"));
+    assert!(required.contains("STRING_PROTOTYPE_SYMBOL_HOOK_IS_NOT_CALLABLE"));
+    assert!(!required.contains("#[derive"));
 }
 
 #[test]
-fn private_fallback_matches_all_five_operations_to_their_exact_algorithms() {
-    let fallback = bounded(
-        STRING,
-        "    fn emit_string_symbol_hook_fallback(",
-        "    pub(crate) fn emit_string_search_regexp_fallback_from_string_locals(",
-    );
-    let normalized = without_whitespace(fallback);
-
-    assert!(fallback.contains("operation: &StringSymbolHookOperation,"));
-    assert_eq!(fallback.matches("match operation {").count(), 1);
-    for variant in ["Match", "MatchAll", "Replace", "ReplaceAll", "Search"] {
-        let arm = format!("StringSymbolHookOperation::{variant} => {{");
-        assert_eq!(
-            fallback.matches(&arm).count(),
-            1,
-            "fallback arm `{variant}`"
-        );
-    }
-    for semantic in [
-        "StringSymbolHookOperation::Match=>{self.emit_string_match_literal_fallback_from_string_locals(",
-        "StringSymbolHookOperation::MatchAll=>{self.emit_string_match_all_literal_fallback_from_string_locals(",
-        "StringSymbolHookOperation::Replace=>{self.emit_string_replace_literal_first_occurrence_from_string_locals(",
-        "StringSymbolHookOperation::ReplaceAll=>{self.emit_string_replace_literal_all_occurrences_from_string_locals(",
-        "StringSymbolHookOperation::Search=>{self.emit_string_search_regexp_fallback_from_string_locals(",
+fn private_fallback_matches_all_six_operations_to_their_exact_algorithms() {
+    let emitter = without_whitespace(bounded(
+        SYMBOL_METHOD,
+        "fn emit_native_string_protocol(",
+        "\n}",
+    ));
+    assert_eq!(emitter.matches("matchoperation{").count(), 1);
+    for (variant, wrapper) in [
+        ("Replace", "first_occurrence"),
+        ("ReplaceAll", "all_occurrences"),
     ] {
-        assert!(normalized.contains(semantic), "fallback semantic `{semantic}`");
+        assert!(emitter.contains(&format!("NativeStringProtocol::{variant}=>b.emit_string_replace_literal_{wrapper}_from_string_locals(")));
     }
-    for forbidden in [
-        "StringSymbolHookOperation::Split",
-        "StandardBuiltinId",
-        "matches!(operation",
-        "_ =>",
-        "unreachable!",
-        "RegExp/string fallback is unsupported",
-    ] {
-        assert!(!fallback.contains(forbidden), "forbidden `{forbidden}`");
-    }
+    assert!(emitter.contains("NativeStringProtocol::Split=>{b.emit_native_string_split_literal("));
+    assert!(emitter.contains("NativeStringProtocol::Match|NativeStringProtocol::MatchAll|NativeStringProtocol::Search=>{"));
+    let create = emitter.find("b.emit_native_regexp_create(").unwrap();
+    let required = emitter
+        .find("RequiredStringSymbolMethod::get_method(")
+        .unwrap();
+    let invoke = emitter.find("required.invoke(").unwrap();
+    assert!(create < required && required < invoke);
 }
 
 #[test]
-fn standard_dispatch_names_five_operations_and_routes_split_directly() {
-    assert!(!STANDARD.contains("StringSymbolHookOperation"));
-    assert!(!STANDARD.contains("emit_string_symbol_hook_builtin("));
-    let dispatch_start = STANDARD
-        .find("            StandardBuiltinId::StringPrototypeMatch => {")
-        .expect("missing first String symbol-hook producer");
-    let dispatch_end = STANDARD[dispatch_start..]
-        .find("            StandardBuiltinId::RegExpConstructor => {")
-        .map(|offset| dispatch_start + offset)
-        .expect("missing end of String symbol-hook dispatch");
-    let dispatch = &STANDARD[dispatch_start..dispatch_end];
-    let normalized = without_whitespace(dispatch).replace(",)", ")");
-
-    for (builtin, entry, variant) in [
+fn standard_dispatch_names_all_six_fixed_entries() {
+    let standard = without_whitespace(STANDARD);
+    let owner = without_whitespace(SYMBOL_METHOD);
+    for (variant, entry, protocol) in [
         ("Match", "match", "Match"),
         ("MatchAll", "match_all", "MatchAll"),
         ("Replace", "replace", "Replace"),
         ("ReplaceAll", "replace_all", "ReplaceAll"),
         ("Search", "search", "Search"),
+        ("Split", "split", "Split"),
     ] {
-        let producer = format!(
-            "StandardBuiltinId::StringPrototype{builtin}=>{{self.emit_string_{entry}_builtin(function)?;}}"
-        );
+        assert!(standard.contains(&format!("StandardBuiltinId::StringPrototype{variant}=>{{self.emit_string_{entry}_builtin(function)?;}}")));
         assert_eq!(
-            normalized.matches(&producer).count(),
-            1,
-            "producer `{builtin}`"
-        );
-        assert_eq!(
-            STRING
+            owner
                 .matches(&format!(
-                    "self.emit_string_symbol_hook_builtin(StringSymbolHookOperation::{variant}, function)"
+                    "self.emit_native_string_protocol(NativeStringProtocol::{protocol},f)"
                 ))
                 .count(),
-            1,
-            "fixed entry `{entry}`"
+            1
         );
     }
-    assert!(normalized.contains(
-        "StandardBuiltinId::StringPrototypeSplit=>{self.emit_string_split_builtin(function)?;}"
-    ));
-    assert_eq!(dispatch.matches("emit_string_").count(), 6);
-    assert_eq!(dispatch.matches("emit_string_split_builtin(").count(), 1);
-    assert!(!dispatch.contains("| StandardBuiltinId::StringPrototype"));
-    assert!(!dispatch.contains("emit_string_symbol_hook_builtin(builtin"));
-
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(&source_root, "emit_string_symbol_hook_builtin("),
-        6,
-        "the typed emitter definition and exactly five calls must stay inventoried"
+        count_in_rust_sources(&source_root, "emit_native_string_protocol("),
+        7
     );
 }
 

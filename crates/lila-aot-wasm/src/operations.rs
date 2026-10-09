@@ -1758,14 +1758,41 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_numeric_update_to_locals(
         &mut self,
         op: NumericUpdateOp,
-        _value_kind: NumericUpdateValueKind,
+        value_kind: NumericUpdateValueKind,
+        old: &ValueLocals,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        // ToNumeric already completed. The closed IR kind is the authority for
+        // static admission; only Dynamic needs to inspect the runtime tag.
+        match value_kind {
+            NumericUpdateValueKind::Number => {
+                self.emit_number_update_from_numeric(op, old, output, function);
+            }
+            NumericUpdateValueKind::BigInt => {
+                self.emit_bigint_update_from_numeric(op, old, output, function)?;
+            }
+            NumericUpdateValueKind::Dynamic => {
+                self.emit_is_bigint_tag_i32(old.tag(), function);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_bigint_update_from_numeric(op, old, output, function)?;
+                function.instruction(&Instruction::Else);
+                self.emit_number_update_from_numeric(op, old, output, function);
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+            }
+        }
+        Ok(())
+    }
+
+    fn emit_bigint_update_from_numeric(
+        &mut self,
+        op: NumericUpdateOp,
         old: &ValueLocals,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        self.emit_is_bigint_tag_i32(old.tag(), function);
-        self.open_frame(ControlFrameKind::If, function);
         let unit = schema.reserve_value_local(function);
         self.emit_bigint_unit_value(false, &unit, function);
         self.emit_numeric_bigint_operation(
@@ -1779,7 +1806,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         unit.clear(function);
-        function.instruction(&Instruction::Else);
+        Ok(())
+    }
+
+    fn emit_number_update_from_numeric(
+        &mut self,
+        op: NumericUpdateOp,
+        old: &ValueLocals,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) {
         old.scalar().load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         function.instruction(&Instruction::F64Const(Ieee64::from(1.0)));
@@ -1790,9 +1826,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I64ReinterpretF64);
         output.scalar().store(function);
         output.set_number(output.scalar(), function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        Ok(())
     }
 
     pub(crate) fn compile_unary_minus_numeric_to_locals(

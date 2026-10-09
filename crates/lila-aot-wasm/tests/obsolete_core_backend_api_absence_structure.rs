@@ -34,6 +34,12 @@ fn obsolete_core_backend_apis_are_absent() {
         "buffer_memarg16",
         "emit_store_realm_type_error_prototype",
         "standard_builtin_prototype_global_index",
+        "emit_string_substring_method_call",
+        "emit_string_char_code_at_from_locals",
+        "buffer_memarg64",
+        "buffer_memarg8",
+        "standard_builtin_function_global_index",
+        "standard_builtin_constructor_global_index",
     ] {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, name),
@@ -46,16 +52,14 @@ fn obsolete_core_backend_apis_are_absent() {
 #[test]
 fn live_neighboring_apis_remain_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // Whole GC strings and Realm entries are the current neighboring owners.
+    // The two unused message-error store wrappers no longer establish reachability.
     for (name, expected) in [
-        ("emit_string_substring_method_call", 2),
-        // T19 retired the four consumers in the unreachable simple exec matcher.
-        ("emit_string_char_code_at_from_locals", 5),
-        ("buffer_memarg64", 11),
-        ("buffer_memarg8", 33),
-        ("emit_store_realm_message_error_prototype", 4),
-        ("emit_store_current_realm_message_error_prototype", 10),
-        ("standard_builtin_function_global_index", 3),
-        ("standard_builtin_constructor_global_index", 10),
+        ("compile_string_substring_range_builtin", 2),
+        ("emit_gc_string_slice", 36),
+        ("emit_gc_string_code_unit_i32", 47),
+        ("emit_intrinsic_callable", 7),
+        ("standard_builtin_function_realm_slot", 4),
     ] {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, name),

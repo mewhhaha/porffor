@@ -4,6 +4,7 @@ use super::super::*;
 use super::IntrinsicKey;
 use crate::functions::{NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext};
 use crate::gc_types::*;
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn emit_initialize_abstract_module_source_intrinsic(
@@ -34,8 +35,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             &prototype,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
-            Some(StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter,
+            )),
             realm,
             true,
             function,

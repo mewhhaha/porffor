@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_array_buffer_constructor_intrinsics(
@@ -24,8 +25,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::ArrayBufferSpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::ArrayBufferSpeciesGetter,
+            )),
             context.realm,
             true,
             function,
@@ -33,12 +35,11 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("byteLength"),
-            Some(if shared {
+            AccessorDescriptor::Getter(AccessorGetter::new(if shared {
                 StandardBuiltinId::SharedArrayBufferPrototypeByteLengthGetter
             } else {
                 StandardBuiltinId::ArrayBufferPrototypeByteLengthGetter
-            }),
-            None,
+            })),
             context.realm,
             true,
             function,
@@ -66,8 +67,7 @@ impl FunctionBuilder<'_> {
                 self.emit_install_intrinsic_accessor(
                     context.prototype,
                     IntrinsicKey::Name(name),
-                    Some(builtin),
-                    None,
+                    AccessorDescriptor::Getter(AccessorGetter::new(builtin)),
                     context.realm,
                     true,
                     function,
@@ -91,8 +91,7 @@ impl FunctionBuilder<'_> {
                 self.emit_install_intrinsic_accessor(
                     context.prototype,
                     IntrinsicKey::Name(name),
-                    Some(builtin),
-                    None,
+                    AccessorDescriptor::Getter(AccessorGetter::new(builtin)),
                     context.realm,
                     true,
                     function,
@@ -175,8 +174,7 @@ impl FunctionBuilder<'_> {
             self.emit_install_intrinsic_accessor(
                 context.prototype,
                 IntrinsicKey::Name(name),
-                Some(builtin),
-                None,
+                AccessorDescriptor::Getter(AccessorGetter::new(builtin)),
                 context.realm,
                 true,
                 function,

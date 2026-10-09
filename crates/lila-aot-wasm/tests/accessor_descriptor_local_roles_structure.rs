@@ -1,7 +1,10 @@
-const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
-const CLASS_DEFINITION_SOURCE: &str = include_str!("../src/functions/class_definition.rs");
-const HOST_SOURCE: &str = include_str!("../src/builtins/host.rs");
+use std::collections::BTreeMap;
+use std::path::Path;
+
+const DOMAIN: &str = include_str!("../src/objects/accessor_descriptor.rs");
+const OBJECTS: &str = include_str!("../src/objects.rs");
+const DEFINE: &str = include_str!("../src/objects/define_property.rs");
+const INTRINSICS: &str = include_str!("../src/intrinsics/mod.rs");
 const OBJECT_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/object.rs");
 const FUNCTION_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/functions.rs");
 const TYPED_ARRAY_CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/typed_array.rs");
@@ -12,142 +15,186 @@ const TASK: &str = include_str!("../../../tasks/10-object-model-descriptors-exot
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .unwrap_or_else(|| panic!("missing start marker `{start}`"))
+        .unwrap_or_else(|| panic!("missing `{start}`"))
         .1
         .split_once(end)
-        .unwrap_or_else(|| panic!("missing end marker `{end}` after `{start}`"))
+        .unwrap_or_else(|| panic!("missing `{end}` after `{start}`"))
         .0
 }
 
 fn normalized(source: &str) -> String {
-    source
-        .chars()
-        .filter(|character| !character.is_whitespace())
-        .collect()
+    source.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+fn product_sources(directory: &Path, root: &Path, output: &mut BTreeMap<String, String>) {
+    for entry in std::fs::read_dir(directory).expect("source directory") {
+        let path = entry.expect("source entry").path();
+        if path.is_dir() {
+            product_sources(&path, root, output);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            output.insert(
+                path.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                std::fs::read_to_string(path).expect("source file"),
+            );
+        }
+    }
 }
 
 #[test]
 fn accessor_descriptor_roles_form_one_exact_nonempty_domain() {
-    let declarations = normalized(bounded(
-        OBJECTS_SOURCE,
-        "pub(crate) struct AccessorGetterLocals(TaggedLocals);",
-        "/// Allocation-free stored fields consumed by descriptor compatibility.",
-    ));
-    assert!(declarations.contains(
-        "implAccessorGetterLocals{pub(crate)constfnnew(value:TaggedLocals)->Self{Self(value)}}"
-    ));
-    assert!(declarations.contains("pub(crate)structAccessorSetterLocals(TaggedLocals);"));
-    assert!(declarations.contains(
-        "implAccessorSetterLocals{pub(crate)constfnnew(value:TaggedLocals)->Self{Self(value)}}"
-    ));
-    assert!(declarations.contains(concat!(
-        "pub(crate)enumAccessorDescriptorLocals{",
-        "Getter(AccessorGetterLocals),Setter(AccessorSetterLocals),",
-        "GetterAndSetter{getter:AccessorGetterLocals,setter:AccessorSetterLocals,},}"
-    )));
-    assert!(!declarations.contains("Option<"));
-    assert!(!declarations.contains("#[derive"));
+    let source = normalized(DOMAIN);
+    for role in ["AccessorGetter", "AccessorSetter"] {
+        assert!(source.contains(&format!("pub(crate)struct{role}<T>(T);")));
+        assert!(source.contains(&format!(
+            "impl<T>{role}<T>{{pub(crate)constfnnew(value:T)->Self{{Self(value)}}}}"
+        )));
+    }
+    assert_eq!(normalized(bounded(DOMAIN, "pub(crate) enum AccessorDescriptor<T> {", "pub(crate) type AccessorGetterLocals")),
+        "Getter(AccessorGetter<T>),Setter(AccessorSetter<T>),GetterAndSetter{getter:AccessorGetter<T>,setter:AccessorSetter<T>,},}");
+    for (alias, generic) in [
+        ("AccessorGetterLocals", "AccessorGetter"),
+        ("AccessorSetterLocals", "AccessorSetter"),
+        ("AccessorDescriptorLocals", "AccessorDescriptor"),
+    ] {
+        assert!(source.contains(&format!(
+            "pub(crate)type{alias}<'v>={generic}<&'vValueLocals>;"
+        )));
+    }
+    assert!(!source.contains("#[derive"));
+    assert!(!source.contains("Option<"));
+    assert!(!source.contains("_=>"));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
-        assert!(
-            !OBJECTS_SOURCE.contains(&format!("impl {capability} for AccessorDescriptorLocals"))
-        );
+        assert!(!source.contains(&format!("impl{capability}")));
     }
 }
 
 #[test]
 fn three_definition_boundaries_consume_the_typed_descriptor() {
-    let definitions = bounded(
-        OBJECTS_SOURCE,
-        "pub(crate) fn emit_object_define_accessor(",
-        "pub(crate) fn emit_object_define_entry_validated(",
-    );
-    assert_eq!(
-        definitions
-            .matches("accessors: AccessorDescriptorLocals,")
-            .count(),
-        3
-    );
-    assert!(!definitions.contains("getter: Option<(u32, u32)>,"));
-    assert!(!definitions.contains("setter: Option<(u32, u32)>,"));
-
-    let projection = bounded(
-        definitions,
-        "let (get, set) = match accessors {",
-        "let descriptor = WasmPartialDescriptor {",
-    );
-    for marker in [
-        "AccessorDescriptorLocals::Getter(AccessorGetterLocals(getter))",
-        "AccessorDescriptorLocals::Setter(AccessorSetterLocals(setter))",
-        "AccessorDescriptorLocals::GetterAndSetter {",
-        "getter: AccessorGetterLocals(getter),",
-        "setter: AccessorSetterLocals(setter),",
+    for (source, method, next) in [
+        (
+            OBJECTS,
+            "pub(crate) fn emit_object_append_accessor_property_with_flags(",
+            "/// ArrayCreate",
+        ),
+        (
+            DEFINE,
+            "pub(crate) fn emit_object_define_accessor_with_flag_local(",
+            "fn emit_define_property_or_throw(",
+        ),
+        (
+            INTRINSICS,
+            "pub(crate) fn emit_install_intrinsic_accessor_values(",
+            "pub(crate) fn emit_install_intrinsic_string(",
+        ),
     ] {
+        let body = normalized(bounded(source, method, next));
         assert!(
-            projection.contains(marker),
-            "missing projection marker `{marker}`"
+            body.contains("accessors:AccessorDescriptorLocals<'_>,"),
+            "{method}"
         );
+        assert!(!body.contains("getter:Option<"));
+        assert!(!body.contains("setter:Option<"));
     }
-    assert_eq!(projection.matches("AccessorDescriptorLocals::").count(), 3);
-    assert!(!projection.contains("_ =>"));
-    assert!(!OBJECTS_SOURCE.contains("fn presence_of_accessor_locals("));
+    let projection = normalized(bounded(
+        DOMAIN,
+        "pub(super) fn into_fields<R>(",
+        "impl AccessorDescriptor<ValueLocals>",
+    ));
+    assert!(projection.contains(
+        "Self::Getter(AccessorGetter(getter))=>(Presence::Present(getter),Presence::Absent)"
+    ));
+    assert!(projection.contains(
+        "Self::Setter(AccessorSetter(setter))=>(Presence::Absent,Presence::Present(setter))"
+    ));
+    assert!(projection.contains("Self::GetterAndSetter{getter:AccessorGetter(getter),setter:AccessorSetter(setter),}=>(Presence::Present(getter),Presence::Present(setter))"));
+    assert_eq!(projection.matches("Self::").count(), 3);
+    assert!(!projection.contains("_=>"));
+    assert!(OBJECTS.contains("accessors.into_fields::<core::convert::Infallible>()"));
+    assert!(DEFINE.contains("let (get, set) = accessors.into_fields();"));
+}
+
+#[test]
+fn intrinsic_materialization_preserves_nonempty_roles_and_order() {
+    let materialize = normalized(bounded(
+        INTRINSICS,
+        "pub(crate) fn emit_install_intrinsic_accessor(",
+        "pub(crate) fn emit_install_intrinsic_accessor_values(",
+    ));
+    assert!(materialize.contains("accessors:AccessorDescriptor<StandardBuiltinId>,"));
+    assert!(materialize.contains("letaccessors=accessors.try_map(materialize)?;"));
+    assert!(materialize.contains("accessors.borrowed(),"));
+    assert!(materialize.contains("accessors.clear(function);"));
+    assert!(!materialize.contains("Option<"));
+    let mapping = normalized(bounded(
+        DOMAIN,
+        "pub(crate) fn try_map<U, E>(",
+        "/// Only the GC object owner",
+    ));
+    assert!(mapping.contains("getter:AccessorGetter::new(materialize(getter)?),setter:AccessorSetter::new(materialize(setter)?),"));
+    let release = normalized(bounded(DOMAIN, "pub(crate) fn clear(", "\n    }\n}"));
+    assert!(release.contains("setter.clear(function);getter.clear(function);"));
 }
 
 #[test]
 fn every_definition_producer_names_getter_and_setter_roles() {
-    let production_sources = [
-        OBJECTS_SOURCE,
-        FUNCTIONS_SOURCE,
-        CLASS_DEFINITION_SOURCE,
-        HOST_SOURCE,
-    ]
-    .join("\n");
-    assert_eq!(
-        production_sources
-            .matches("AccessorGetterLocals::new(")
-            .count(),
-        19
-    );
-    assert_eq!(
-        production_sources
-            .matches("AccessorSetterLocals::new(")
-            .count(),
-        9
-    );
-    assert_eq!(
-        production_sources
-            .matches("AccessorDescriptorLocals::")
-            .count(),
-        25
-    );
-    assert_eq!(
-        HOST_SOURCE
-            .matches("self.emit_object_define_accessor(")
-            .count(),
-        13
-    );
-    assert_eq!(
-        FUNCTIONS_SOURCE
-            .matches("self.emit_object_define_accessor(")
-            .count(),
-        0
-    );
-    assert_eq!(
-        CLASS_DEFINITION_SOURCE
-            .matches("self.emit_object_define_accessor(")
-            .count(),
-        3
-    );
-    assert_eq!(
-        OBJECTS_SOURCE
-            .matches("self.emit_object_define_enumerable_accessor(")
-            .count(),
-        4
-    );
-    for source in [FUNCTIONS_SOURCE, HOST_SOURCE] {
-        assert!(source.contains("AccessorDescriptorLocals,"));
-        assert!(source.contains("AccessorGetterLocals,"));
-        assert!(source.contains("AccessorSetterLocals,"));
-        assert!(source.contains("TaggedLocals,"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources = BTreeMap::new();
+    product_sources(&root, &root, &mut sources);
+    let methods = [
+        "emit_install_intrinsic_accessor",
+        "emit_install_intrinsic_accessor_values",
+        "emit_object_append_accessor_property_with_flags",
+        "emit_object_define_accessor_with_flag_local",
+    ];
+    let actual = sources
+        .iter()
+        .filter_map(|(path, source)| {
+            let counts = methods.map(|method| source.matches(&format!("self.{method}(")).count());
+            counts
+                .iter()
+                .any(|count| *count != 0)
+                .then_some((path.as_str(), counts))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let expected = BTreeMap::from([
+        ("builtins/bootstrap.rs", [3, 1, 0, 0]),
+        ("builtins/string/regexp_legacy.rs", [0, 1, 0, 0]),
+        ("functions/arguments_object.rs", [0, 0, 1, 0]),
+        ("functions/throw_type_error.rs", [0, 0, 1, 0]),
+        ("intrinsics/abstract_module_source.rs", [1, 0, 0, 0]),
+        ("intrinsics/array.rs", [1, 0, 0, 0]),
+        ("intrinsics/binary_data.rs", [5, 0, 0, 0]),
+        ("intrinsics/collections.rs", [5, 0, 0, 0]),
+        ("intrinsics/intl.rs", [0, 1, 0, 0]),
+        ("intrinsics/iterator.rs", [2, 0, 0, 0]),
+        ("intrinsics/mod.rs", [0, 1, 1, 0]),
+        ("intrinsics/object.rs", [1, 0, 0, 0]),
+        ("intrinsics/promise.rs", [1, 0, 0, 0]),
+        ("intrinsics/regexp.rs", [2, 0, 0, 0]),
+        ("intrinsics/resource_management.rs", [1, 0, 0, 0]),
+        ("intrinsics/symbol.rs", [1, 0, 0, 0]),
+        ("intrinsics/temporal/members.rs", [1, 0, 0, 0]),
+        ("objects/object_literal_property.rs", [0, 0, 0, 2]),
+    ]);
+    assert_eq!(actual, expected);
+    let producers = sources
+        .iter()
+        .filter(|(path, _)| path.as_str() != "objects/accessor_descriptor.rs")
+        .map(|(_, source)| source.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    for (role, count) in [
+        ("AccessorGetter::new(", 24),
+        ("AccessorSetter::new(", 3),
+        ("AccessorGetterLocals::new(", 6),
+        ("AccessorSetterLocals::new(", 5),
+        ("AccessorDescriptor::", 24),
+        ("AccessorDescriptorLocals::", 7),
+    ] {
+        assert_eq!(producers.matches(role).count(), count, "{role}");
     }
 }
 

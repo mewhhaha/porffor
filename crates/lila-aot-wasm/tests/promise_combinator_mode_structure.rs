@@ -54,7 +54,7 @@ fn standard_and_keyed_combinator_modes_are_separate_closed_domains() {
     let standard_variants = bounded(
         PROMISE_SOURCE,
         "#[derive(Clone, Copy)]\nenum PromiseCombinatorMode {",
-        "\n}\n\nimpl PromiseCombinatorMode {",
+        "\n}\nimpl PromiseCombinatorMode {",
     )
     .lines()
     .map(str::trim)
@@ -62,13 +62,13 @@ fn standard_and_keyed_combinator_modes_are_separate_closed_domains() {
     .collect::<Vec<_>>();
     assert_eq!(
         standard_variants,
-        ["Values,", "SettledRecords,", "FirstFulfillment,"]
+        ["Values,", "SettledRecords,", "FirstFulfillment,", "Race,"]
     );
 
     let keyed_declaration = bounded(
         PROMISE_KEYED_COMBINATOR_MODE_SOURCE,
         "#[derive(Clone, Copy)]\nenum PromiseKeyedCombinatorMode {",
-        "\n}\n\nimpl<'a> FunctionBuilder<'a> {",
+        "\n}\nenum PromiseKeyedReflection {",
     );
     let keyed_variants = keyed_declaration
         .lines()
@@ -95,10 +95,7 @@ fn standard_and_keyed_combinator_modes_are_separate_closed_domains() {
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let all_sources = rust_sources(&source_root);
-    assert_eq!(
-        all_sources.matches("PromiseKeyedCombinatorMode").count(),
-        10
-    );
+    assert_eq!(all_sources.matches("PromiseKeyedCombinatorMode").count(), 8);
     assert!(!all_sources.contains("promise_keyed_combinator_mode::"));
 }
 
@@ -129,18 +126,18 @@ fn keyed_lowering_accepts_only_the_restricted_mode() {
         "\n}",
     );
     assert!(keyed.contains("mode: PromiseKeyedCombinatorMode,"));
-    assert_eq!(keyed.matches("match mode {").count(), 3);
+    assert_eq!(keyed.matches("match mode {").count(), 2);
     assert_eq!(
         keyed
             .matches("PromiseKeyedCombinatorMode::Values =>")
             .count(),
-        3
+        2
     );
     assert_eq!(
         keyed
             .matches("PromiseKeyedCombinatorMode::SettledRecords =>")
             .count(),
-        3
+        2
     );
     for forbidden in [
         "PromiseCombinatorMode",
@@ -160,66 +157,105 @@ fn keyed_lowering_accepts_only_the_restricted_mode() {
 fn every_standard_combinator_policy_is_an_exhaustive_projection() {
     let wrappers = bounded(
         PROMISE_SOURCE,
-        "    pub(crate) fn emit_promise_all(",
+        "    pub(crate) fn emit_promise_race(",
         "    fn emit_promise_combinator(",
     );
-    for variant in ["Values", "SettledRecords", "FirstFulfillment"] {
+    for variant in ["Values", "SettledRecords", "FirstFulfillment", "Race"] {
         assert_eq!(
             wrappers
                 .matches(&format!("PromiseCombinatorMode::{variant}"))
                 .count(),
             1,
-            "standard wrapper producer for `{variant}`"
+            "named standard wrapper producer for `{variant}`"
         );
     }
 
-    let standard = bounded(
+    for (start, end, projections) in [
+        (
+            "    fn emit_promise_combinator(",
+            "    pub(crate) fn emit_promise_resolving_function(",
+            3,
+        ),
+        (
+            "    fn emit_finish_promise_combinator_list(",
+            "    pub(crate) fn emit_promise_all_resolve_element(",
+            1,
+        ),
+        (
+            "    fn emit_promise_combinator_element(",
+            "    pub(crate) fn emit_promise_race(",
+            1,
+        ),
+    ] {
+        let consumer = bounded(PROMISE_SOURCE, start, end);
+        assert_eq!(
+            consumer.matches("match mode {").count(),
+            projections,
+            "{start}"
+        );
+        for variant in ["Values", "SettledRecords", "FirstFulfillment", "Race"] {
+            assert_eq!(
+                consumer
+                    .matches(&format!("PromiseCombinatorMode::{variant}"))
+                    .count(),
+                projections,
+                "every `{start}` policy must name `{variant}`"
+            );
+        }
+        for forbidden in ["mode ==", "mode !=", "matches!(mode", "_ =>"] {
+            assert!(
+                !consumer.contains(forbidden),
+                "`{start}` contains `{forbidden}`"
+            );
+        }
+    }
+    let completion = bounded(
         PROMISE_SOURCE,
-        "    fn emit_promise_combinator(",
-        "    pub(crate) fn emit_promise_resolving_function(",
+        "    fn emit_finish_promise_combinator_list(",
+        "    pub(crate) fn emit_promise_all_resolve_element(",
     );
-    assert_eq!(standard.matches("match mode {").count(), 4);
+    assert!(completion.contains("self.emit_promise_any_aggregate_error("));
+    let element = bounded(
+        PROMISE_SOURCE,
+        "    fn emit_promise_combinator_element(",
+        "    pub(crate) fn emit_promise_race(",
+    );
+    assert!(element.contains(".emit_alloc_promise_settlement_record("));
+
     assert_eq!(
         PROMISE_COMBINATOR_REACTION_PAIR_SOURCE
             .matches("match mode {")
             .count(),
-        1,
+        1
     );
-    for variant in ["Values", "SettledRecords", "FirstFulfillment"] {
-        assert_eq!(
-            standard
-                .matches(&format!("PromiseCombinatorMode::{variant}"))
-                .count(),
-            4,
-            "the four parent-owned standard policies must name `{variant}`"
-        );
+    for variant in ["Values", "SettledRecords", "FirstFulfillment", "Race"] {
         assert_eq!(
             PROMISE_COMBINATOR_REACTION_PAIR_SOURCE
                 .matches(&format!("PromiseCombinatorMode::{variant}"))
                 .count(),
-            1,
-            "the child-owned reaction policy must name `{variant}`"
+            1
         );
     }
-
-    let builtin_name = bounded(
+    let diagnostics = bounded(
         PROMISE_SOURCE,
         "impl PromiseCombinatorMode {",
-        "impl AsyncAwaitContinuation",
+        "impl<'a> FunctionBuilder<'a> {",
     );
-    assert_eq!(builtin_name.matches("match self {").count(), 1);
-    for variant in ["Values", "SettledRecords", "FirstFulfillment"] {
+    assert_eq!(diagnostics.matches("match self {").count(), 5);
+    for policy in [
+        "resolve_error",
+        "input_error",
+        "method_error",
+        "method_result_error",
+        "next_result_error",
+    ] {
         assert_eq!(
-            builtin_name.matches(&format!("Self::{variant} =>")).count(),
-            1,
-            "builtin name policy for `{variant}`"
+            diagnostics.matches(&format!("const fn {policy}(")).count(),
+            1
         );
     }
-
-    for forbidden in ["mode ==", "mode !=", "matches!(mode", "_ =>"] {
-        assert!(
-            !standard.contains(forbidden),
-            "standard combinator selection must not contain `{forbidden}`"
-        );
+    for variant in ["Values", "SettledRecords", "FirstFulfillment", "Race"] {
+        assert_eq!(diagnostics.matches(&format!("Self::{variant}")).count(), 5);
     }
+    assert!(!diagnostics.contains("_ =>"));
 }

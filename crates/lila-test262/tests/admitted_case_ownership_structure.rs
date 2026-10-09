@@ -258,7 +258,7 @@ fn attempt_authorities_are_exact_debug_only_non_cloneable_types() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (identifier, expected) in [
         ("QueuedCase", 14),
-        ("AdmittedCase", 8),
+        ("AdmittedCase", 9),
         ("CaseAdmission", 15),
         ("RunPhase", 6),
     ] {
@@ -307,13 +307,31 @@ fn queue_admission_and_execution_each_consume_the_previous_authority() {
     }
 
     let runner = rust_code(
-        bounded(RUNNER_SOURCE, "fn run_case_entry(", "fn run_one_case("),
+        bounded(
+            RUNNER_SOURCE,
+            "fn run_case_entry_with_dispatch(",
+            "fn run_one_case(",
+        ),
         true,
     );
     assert!(runner.starts_with(
-        "config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
+        "dispatch:&CaseExecutionDispatch,config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
     ));
     assert!(!runner.contains("admitted:&AdmittedCase"));
+    let fixture = rust_code(
+        bounded(
+            RUNNER_SOURCE,
+            "fn run_case_entry(",
+            "fn run_case_entry_with_dispatch(",
+        ),
+        true,
+    );
+    assert!(fixture.contains("admitted:AdmittedCase,"));
+    assert!(fixture
+        .contains("CaseExecutionDispatch::admit(config,std::slice::from_ref(admitted.case()))"));
+    assert!(fixture
+        .contains("run_case_entry_with_dispatch(&dispatch,config,preludes,admitted,run_config)"));
+    assert!(!fixture.contains("admitted.clone()"));
 }
 
 #[test]
@@ -328,14 +346,14 @@ fn worker_moves_the_admitted_proof_once_then_retires_its_journal_slot() {
     );
     assert_eq!(worker.matches("CaseAdmission::Run(admitted)=>{").count(), 1);
     assert_eq!(worker.matches("CaseAdmission::Quarantined{").count(), 1);
-    assert_eq!(worker.matches("run_case_entry(").count(), 1);
+    assert_eq!(worker.matches("run_case_entry_with_dispatch(").count(), 1);
     assert!(!worker.contains("&admitted"));
     assert!(!worker.contains("_=>"));
     positions_in_order(
         &worker,
         &[
             "letadmitted_path=admitted.case().path.clone();",
-            "run_case_entry(&worker_config,&preludes,admitted,&worker_run_config,)",
+            "run_case_entry_with_dispatch(&dispatch,&worker_config,&preludes,admitted,&worker_run_config,)",
             "journal.retire(worker_slot)",
             "admitted_path",
         ],
@@ -343,8 +361,12 @@ fn worker_moves_the_admitted_proof_once_then_retires_its_journal_slot() {
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
+        count_identifier_in_rust_sources(&source_root, "run_case_entry_with_dispatch"),
+        3
+    );
+    assert_eq!(
         count_identifier_in_rust_sources(&source_root, "run_case_entry"),
-        4
+        3
     );
 }
 

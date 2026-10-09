@@ -421,12 +421,27 @@ pub fn emit_with_intl_profile_and_runtime_cache(
     intl_profile: &lila_intl::IntlCompilationProfile,
     cache: Option<&dyn crate::RuntimeArtifactCache>,
 ) -> Result<WasmArtifact, EmitError> {
+    emit_with_intl_profile_and_runtime_inputs(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        crate::RuntimeArtifactInputs::new(cache),
+    )
+}
+
+/// Compile with checked raw runtime inputs, resolved only for a linked program.
+pub fn emit_with_intl_profile_and_runtime_inputs(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+    inputs: crate::RuntimeArtifactInputs<'_>,
+) -> Result<WasmArtifact, EmitError> {
     emit_with_observation_mode(
         program,
         promise_rejection_policy,
         intl_profile,
         false,
-        cache,
+        inputs,
     )
 }
 
@@ -452,7 +467,28 @@ pub fn emit_with_rooted_snapshot_and_runtime_cache(
     intl_profile: &lila_intl::IntlCompilationProfile,
     cache: Option<&dyn crate::RuntimeArtifactCache>,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_observation_mode(program, promise_rejection_policy, intl_profile, true, cache)
+    emit_with_rooted_snapshot_and_runtime_inputs(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        crate::RuntimeArtifactInputs::new(cache),
+    )
+}
+
+/// Rooted observation shares the same checked build-package/runtime cache owner.
+pub fn emit_with_rooted_snapshot_and_runtime_inputs(
+    program: &ProgramIr,
+    promise_rejection_policy: PromiseRejectionPolicy,
+    intl_profile: &lila_intl::IntlCompilationProfile,
+    inputs: crate::RuntimeArtifactInputs<'_>,
+) -> Result<WasmArtifact, EmitError> {
+    emit_with_observation_mode(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        true,
+        inputs,
+    )
 }
 
 fn emit_with_observation_mode(
@@ -460,7 +496,7 @@ fn emit_with_observation_mode(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &lila_intl::IntlCompilationProfile,
     snapshot: bool,
-    cache: Option<&dyn crate::RuntimeArtifactCache>,
+    inputs: crate::RuntimeArtifactInputs<'_>,
 ) -> Result<WasmArtifact, EmitError> {
     // Diagnostics are scanned *before* `program.script`: a stage that reports a
     // reason for failing also declines to produce a script, so checking the
@@ -489,7 +525,7 @@ fn emit_with_observation_mode(
         promise_rejection_policy,
         &intl_selection,
         snapshot,
-        cache,
+        inputs,
     )
 }
 
@@ -498,7 +534,7 @@ fn emit_script(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_selection: &lila_intl::IntlDataSelection,
     snapshot: bool,
-    cache: Option<&dyn crate::RuntimeArtifactCache>,
+    inputs: crate::RuntimeArtifactInputs<'_>,
 ) -> Result<WasmArtifact, EmitError> {
     let uses_heap = snapshot || runtime_requirement::requires_runtime(script);
     let mut prepared_script = script.clone();
@@ -523,7 +559,7 @@ fn emit_script(
     }
 
     let runtime = uses_heap
-        .then(|| crate::runtime_artifact_with_cache(intl_selection, cache))
+        .then(|| crate::runtime_artifact_with_inputs(intl_selection, inputs))
         .transpose()?;
     let kind = match &runtime {
         Some(runtime) => ModuleKind::Program(runtime),

@@ -14,13 +14,22 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 }
 
 #[test]
-fn object_target_projection_exhaustively_classifies_every_value_kind() {
+fn object_target_projection_classifies_the_complete_runtime_value() {
     let projection = bounded(
         OPERATIONS_SOURCE,
-        "fn spec_operation_object_target_kind(",
-        "/// Whether numeric conversion may interpret",
+        "pub(crate) fn emit_is_heap_object_like_tag_i32(",
+        "fn emit_numeric_bigint_operation(",
     );
-    for kind in [
+    assert!(projection.contains("tag: I32Local"));
+    for kind in ["Object", "Array", "Arguments", "Function"] {
+        assert_eq!(
+            projection
+                .matches(&format!("WasmRuntimeValueTag::{kind}"))
+                .count(),
+            1
+        );
+    }
+    for primitive in [
         "Undefined",
         "Null",
         "Boolean",
@@ -28,35 +37,24 @@ fn object_target_projection_exhaustively_classifies_every_value_kind() {
         "BigInt",
         "Symbol",
         "String",
-        "Object",
-        "Array",
-        "Arguments",
-        "Function",
-        "Dynamic",
     ] {
-        assert_eq!(projection.matches(&format!("ValueKind::{kind}")).count(), 1);
+        assert!(!projection.contains(&format!("WasmRuntimeValueTag::{primitive}")));
     }
-    assert!(!projection.contains("_ =>"));
-    assert!(!projection.contains("unreachable!"));
+    assert!(projection.contains("Instruction::I32Eq"));
+    assert!(projection.contains("Instruction::I32Or"));
 }
 
 #[test]
-fn all_six_object_only_operations_consume_the_shared_classification() {
+fn all_six_object_only_operations_consume_one_shared_runtime_admission() {
     let body = bounded(
         OPERATIONS_SOURCE,
-        "pub(crate) fn compile_spec_operation_to_locals(",
-        "pub(crate) fn emit_primitive_to_numeric_locals(",
+        "            SpecOperationIr::Get\n            | SpecOperationIr::GetV",
+        "            SpecOperationIr::CopyDataProperties => {",
     );
-    assert_eq!(
-        body.matches("spec_operation_object_target_kind(target.kind)")
-            .count(),
-        6
-    );
-    assert_eq!(body.matches("match &object_target_kind").count(), 6);
-    assert_eq!(
-        body.matches("if let SpecOperationObjectTargetKind::RuntimeDynamic = object_target_kind")
-            .count(),
-        6
+    let admission = bounded(
+        body,
+        "                match operation {",
+        "                self.emit_value_to_property_key_completion(",
     );
     for operation in [
         "Get",
@@ -66,25 +64,55 @@ fn all_six_object_only_operations_consume_the_shared_classification() {
         "Set",
         "CreateDataPropertyOrThrow",
     ] {
-        assert!(body.contains(&format!("SpecOperationIr::{operation} =>")));
+        assert!(admission.contains(&format!("SpecOperationIr::{operation}")));
     }
+    assert_eq!(
+        admission
+            .matches("self.emit_is_heap_object_like_tag_i32(inputs[0].tag(), function);")
+            .count(),
+        1
+    );
+    let classify = admission
+        .find("self.emit_is_heap_object_like_tag_i32(")
+        .unwrap();
+    let reject = admission.find("self.emit_throw_runtime_error(").unwrap();
+    let exit = admission[reject..]
+        .find("self.emit_branch_to_target(property_exit, function);")
+        .unwrap()
+        + reject;
+    let publish = admission
+        .find("lookup.copy_from(&inputs[0], function);")
+        .unwrap();
+    assert!(classify < reject && reject < exit && exit < publish);
+    assert!(admission.contains("NativeErrorKind::TypeError,"));
+    assert_eq!(
+        admission
+            .matches("self.emit_value_to_object_locals(&inputs[0], &pending, function)?;")
+            .count(),
+        1,
+        "only GetV/GetMethod box the lookup target"
+    );
     assert!(!body.contains("match target.kind"));
     assert!(!body.contains("if target.kind == ValueKind::Dynamic"));
 }
 
 #[test]
-fn object_target_kind_has_no_incidental_capabilities() {
-    let declaration = bounded(
+fn property_operations_keep_completed_key_and_original_receiver_authorities() {
+    let body = bounded(
         OPERATIONS_SOURCE,
-        "enum SpecOperationObjectTargetKind {",
-        "fn spec_operation_object_target_kind(",
+        "            SpecOperationIr::Get\n            | SpecOperationIr::GetV",
+        "            SpecOperationIr::CopyDataProperties => {",
     );
-    assert!(!declaration.contains("derive"));
-    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq"] {
-        assert!(!OPERATIONS_SOURCE.contains(&format!(
-            "impl {capability} for SpecOperationObjectTargetKind"
-        )));
-    }
+    assert_eq!(
+        body.matches("let key = PropertyKeyLocals::from_converted_value(key_value);")
+            .count(),
+        1
+    );
+    assert!(body.contains("key_result.kind().load(function);"));
+    assert!(body.contains("pending.copy_from(&key_result, function);"));
+    assert!(body.contains("&lookup, &inputs[0], &key, &pending, function,"));
+    assert!(body.contains("crate::runtime_helpers::OrdinarySetArguments::new("));
+    assert!(body.contains("self.emit_create_data_property_or_throw("));
 }
 
 #[test]

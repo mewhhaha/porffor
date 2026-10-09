@@ -1,5 +1,60 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Workspace audit and remaining acceptance — 2026-10-08
+
+All thirty task states remain unchanged: four complete (T00/T27/T28/T29),
+25 in progress and T26 blocked. The frozen `f493e2988` tooling sweep is complete:
+38/38 commands, 405/405 Python methods, 318 recorded subtests and zero skips,
+errors or failures. Both shell regressions pass, including the actual committed
+historical-publication guard. The separate 810-target all-feature Rust sweep
+was deliberately stopped while red; its retained outcomes are diagnostic baseline
+receipts. Its final command states are 391 passed, 127 failed, one interrupted
+and 291 pending; completed verdicts record 5,762 passing checks, 355 failures
+and three ignored documentation examples. The complete repaired-source sweep
+remains pending.
+
+Prepared repairs distinguish stale pre-GC fixtures from lost type invariants and
+observed semantic defects. They restore consuming value/reference roles and
+correct actual Promise, environment, Realm, Locale, Temporal and tail-call
+owners while keeping meaningful original assertions. The joined source and
+runtime ABI need fresh type, artifact, native and cache verification before a
+new broad checkpoint. Earlier focused passes remain evidence for their recorded
+source; they do not validate unapplied repairs.
+
+The next closure evidence is concrete:
+
+| Scope | Evidence still required |
+| --- | --- |
+| T02/T03 and shared local criteria | Joined types and source guards; all affected native/artifact controls; complete workspace and fake-suite publication; default-only oracle refusal and product dependency checks. T02 also needs representative before/after behavior and comparable build-time/binary-size measurements. |
+| T01 | Complete current compiler-bound pinned matrix, two byte-identical backlog generations and actual canonical publisher output. A complete red baseline can satisfy baseline reporting; it cannot satisfy T26. |
+| T05/T21 | Genuine weak/ephemeron/finalization facilities, plus actual rooting/cycle stress. Strong copying GC is already present. |
+| T07/T08/T10–T12/T14–T24 | Their full pinned semantic families and specific native/resource criteria. Local test success does not replace the required zero-failure subtree evidence. |
+| T13 | Complete finite-source/context/Realm controls and honest unsupported accounting. The permitted unavailable-source boundary remains incompatible with literal T26 closure while any pinned case needs it. |
+| T22/T23 | Correct remaining Temporal/Intl semantics and reproducibility on the supported host set with identical pinned data. |
+| T25 | Unchanged cold/warm timing controls, the complete debug/optimized corpus, sustained differential/robustness campaigns and measured subsystem policies. The original campaign is still red at fresh Temporal P compilation after warm CrossRealm succeeds. |
+| T26 | Current all-zero complete aggregate, two fresh identical full runs, real shard/resume equivalence, required stress/product checks and compiler-bound publication. |
+
+Retain the serial resource policy: one CPU, 4096 MiB aggregate RAM, zero swap,
+one compilation/test worker and one retained native module up to 64 MiB.
+All-features excludes four default-only oracle-refusal controls; run those
+separately. Three ignored documentation examples do not cover the four ignored
+runtime acceptance controls (one heap stress and three timing tests).
+
+After the complete repair batch, refresh the workspace with the existing capped
+driver and a fresh evidence directory:
+
+```sh
+python3 scripts/limited_verification.py --memory-mib 4096 -- \
+  python3 target/verification-tmp/workspace-serial-audit.py --all-features \
+  --output target/verification-tmp/workspace-all-features-repair-checkpoint
+```
+
+Resume is valid only for identical source, toolchain, environment and feature
+scope. Preserve every failed or interrupted receipt. Refresh pinned counts only
+through the normal publisher after its complete matrix; the recovered October 2
+pair and generated README block remain historical and have no current compiler
+binding. No task status or pinned count changes in this checkpoint.
+
 ## Runtime persistence and verification — 2026-10-08
 
 Validated runtime artifacts now persist through the existing bounded cache;
@@ -23,7 +78,8 @@ stale Intl expectations, one stale publication-supervision fixture and missing
 canonical historical publication files. The affected rerun passes all 84 Python
 methods with no skips. The restored exact historical pair passes the real
 artifact guard in an isolated proposed commit view, with original repository
-files, index and refs unchanged. A full tooling rerun remains pending.
+files, index and refs unchanged. The later complete tooling sweep passes all
+38 commands and all 405 Python methods, as recorded above.
 
 `production-startup-tables1` passes its all-feature/all-target type check in
 64.886 seconds and all 40 focused controls: one exhaustive Unicode mapping,
@@ -134,7 +190,9 @@ Profiling the preceding source measured 6.452 seconds of cold emission and a
 construction. The Unicode repair preserves semantics but does not close this
 performance failure. The final checkpoint is therefore red despite the passing
 native, type and formatting steps. Canonical `published-status-wasm-aot.json`
-and `.txt` are absent. No task status or published conformance count is promoted.
+and `.txt` were absent at that earlier checkpoint; their later exact historical
+restoration is recorded above. Fresh compiler-bound publication remains pending.
+No task status or published conformance count is promoted.
 
 ## Focused iteration checkpoint — 2026-10-08
 
@@ -763,8 +821,8 @@ regeneration and canonical publication.
 Current shortcut counts and semantic-only removal ownership are derived in
 [the generated accounting report](../test262/backlog/current-shortcut-status.md).
 Run the source-level audit and generator checks before using that report.
-The current generated report has zero semantic shortcuts among 56 classified
-observations. Audit green establishes no selector drift; full conformance
+Use that report for current classification totals and removal owners.
+Audit green establishes no selector drift; full conformance
 still requires complete execution evidence.
 Each observation retains a closed classification, reason and concrete
 owner/removal task. Do not close a semantic task from focused green leaves

@@ -57,6 +57,12 @@ jobs:
           python3 scripts/limited_verification.py --memory-mib 4096 --
           cargo build --locked -p lila-cli -p lila-test262
           --features lila-cli/spec-exec-oracle,lila-test262/spec-exec-oracle --bins
+      - name: Run AsyncDisposableStack fixtures through both backends
+        if: always() && steps.oracle_build.outcome == 'success'
+        run: >-
+          python3 scripts/limited_verification.py --memory-mib 4096 --
+          cargo test --locked -p lila-engine --features spec-exec-oracle
+          --test aot_async_disposable_stack_realm -- --test-threads=1
       - name: Replay every compiled corpus entry and retain red evidence
         if: always() && steps.oracle_build.outcome == 'success'
         run: >-

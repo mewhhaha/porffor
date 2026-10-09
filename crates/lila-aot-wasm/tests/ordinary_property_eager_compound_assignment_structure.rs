@@ -241,171 +241,201 @@ fn lowering_intercepts_all_eager_access_operators_before_generic_reference_decom
     assert!(!LOWERING_SOURCE.contains("ExprIr::PropertyCompoundAssign"));
 }
 
-#[test]
-fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
-    for prefix in [
-        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must enter its operation-specific transition\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
-        "#[derive(Debug)]\n#[must_use = \"a read ordinary Property Reference must be advanced to its applied result\"]\nstruct ReadOrdinaryPropertyReferenceLocals",
-        "#[derive(Debug)]\n#[must_use = \"a ready ordinary Property Reference must be consumed by PutValue\"]\nstruct ReadyToWriteOrdinaryPropertyReferenceLocals",
-    ] {
-        assert!(EXPRESSIONS_SOURCE.contains(prefix), "missing typestate {prefix}");
-    }
+fn gc_body(start: &str, end: &str) -> String {
+    bounded(EXPRESSIONS_SOURCE, start, end)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+fn assert_gc_roles(names: &[&str]) {
     let roles = bounded(
         EXPRESSIONS_SOURCE,
         "struct EvaluatedRawOrdinaryPropertyReferenceLocals {",
-        "impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr {",
+        "/// The sealed input required",
     );
-    assert!(!roles.contains("Clone"));
-    assert!(!roles.contains("Copy"));
+    for name in names {
+        let marker = format!("struct {name} {{");
+        let before = EXPRESSIONS_SOURCE
+            .split_once(&marker)
+            .expect("phase declaration")
+            .0;
+        assert!(before.rsplit("\n\n").next().unwrap().contains("#[must_use"));
+        let fields = bounded(roles, &marker, "\n}");
+        assert!(!fields.contains("pub "));
+        assert!(fields.contains("reference: CanonicalOrdinaryPropertyReferenceLocals,"));
+        assert!(fields.contains("old_value: ValueLocals,"));
+    }
+    assert!(!roles.contains("derive("));
+    assert!(!roles.contains("impl Clone"));
+    assert!(!roles.contains("impl Copy"));
+    assert!(!roles.contains("TaggedLocals"));
+}
 
-    let evaluate = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn evaluate_raw_ordinary_property_reference(",
-        "    fn emit_get_value_from_raw_ordinary_property_reference(",
+#[test]
+fn aot_typestate_forces_raw_key_get_result_and_putvalue_transitions() {
+    assert_gc_roles(&[
+        "ReadOrdinaryPropertyReferenceLocals",
+        "ReadyToWriteOrdinaryPropertyReferenceLocals",
+    ]);
+    let evaluate = gc_body(
+        "fn evaluate_raw_ordinary_property_reference(",
+        "fn canonicalize_ordinary_property_reference(",
+    );
+    positions_in_order(&evaluate, &[
+        "self.compile_expr_to_value(reference.base_and_receiver(),&base_and_receiver,function)?;",
+        "self.compile_raw_property_key_expression_to_value(",
+        "Ok(EvaluatedRawOrdinaryPropertyReferenceLocals{",
+    ]);
+    assert!(!evaluate.contains("emit_value_to_property_key_locals("));
+    let canonical = gc_body(
+        "fn canonicalize_ordinary_property_reference(",
+        "fn emit_get_value_from_raw_ordinary_property_reference(",
     );
     positions_in_order(
-        evaluate,
+        &canonical,
         &[
-            "self.compile_expr_to_locals(\n            mutation.base_and_receiver()",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-            "self.compile_raw_property_key_expression_to_locals(",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-            "Ok(EvaluatedRawOrdinaryPropertyReferenceLocals {",
+            "letEvaluatedRawOrdinaryPropertyReferenceLocals{",
+            "self.compile_nullish_tagged_i32(",
+            "self.emit_expression_native_error(",
+            "self.emit_value_to_object_locals(",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "self.emit_value_to_property_key_locals(",
+            "referenced_name.clear(function);",
+            "Ok(CanonicalOrdinaryPropertyReferenceLocals{",
         ],
     );
     assert_eq!(
-        evaluate
-            .matches("compile_raw_property_key_expression_to_locals(")
+        canonical
+            .matches("emit_value_to_property_key_locals(")
             .count(),
         1
     );
-    assert!(!evaluate.contains("emit_value_to_property_key_locals("));
-
-    let get = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_get_value_from_raw_ordinary_property_reference(",
-        "    fn evaluate_rhs_for_raw_ordinary_property_assignment(",
+    let get = gc_body(
+        "fn emit_get_value_from_raw_ordinary_property_reference(",
+        "fn evaluate_rhs_for_raw_ordinary_property_assignment(",
     );
     positions_in_order(
-        get,
+        &get,
         &[
-            "let EvaluatedRawOrdinaryPropertyReferenceLocals {",
-            "self.compile_nullish_tagged_i32(base_and_receiver_tag, function)?;",
-            "self.emit_throw_runtime_error(",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-            "self.emit_value_to_object_locals(",
-            "self.emit_value_to_property_key_locals(",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-            "self.emit_object_read_with_key_tag(",
-            "target_object_payload,\n            target_object_tag,\n            base_and_receiver_payload,\n            base_and_receiver_tag,",
-            "Ok(ReadOrdinaryPropertyReferenceLocals {",
+            "self.canonicalize_ordinary_property_reference(",
+            "ObjectReadArguments::new(",
+            "&reference.target_object,",
+            "&reference.base_and_receiver,",
+            "&reference.property_key,",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "old_value.copy_from(",
+            "Ok(ReadOrdinaryPropertyReferenceLocals{",
         ],
     );
-    assert_eq!(get.matches("emit_value_to_property_key_locals(").count(), 1);
-    assert!(!get.contains("compile_raw_property_key_expression_to_locals("));
-
-    let result = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_result_from_read_ordinary_property_reference(",
-        "    fn emit_put_value_from_ready_ordinary_property_reference(",
+    let result = gc_body(
+        "fn emit_result_from_read_ordinary_property_reference(",
+        "fn emit_put_value_from_ready_ordinary_property_reference(",
     );
+    assert!(result.contains("read:ReadOrdinaryPropertyReferenceLocals,"));
     positions_in_order(
-        result,
+        &result,
         &[
-            "let ReadOrdinaryPropertyReferenceLocals {",
-            ".insert(\n                mutation.old_value_binding().to_string(),",
-            "self.compile_expr_to_locals(mutation.result(), result_payload, result_tag, function)",
-            "self.emit_propagate_throw_from_locals_if_needed(result_payload, result_tag, function)?;",
-            "Ok(ReadyToWriteOrdinaryPropertyReferenceLocals {",
+            "letReadOrdinaryPropertyReferenceLocals{",
+            "self.retain_expression_operand(",
+            "self.compile_expr_to_value(mutation.result(),&result,function)",
+            "self.pop_scope();",
+            "self.release_local_binding(id,function);",
+            "compiled?;",
+            "Ok(ReadyToWriteOrdinaryPropertyReferenceLocals{",
         ],
     );
-
-    let put = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_put_value_from_ready_ordinary_property_reference(",
-        "    fn compile_ordinary_property_eager_compound_assignment_to_locals(",
+    let put = gc_body(
+        "fn emit_put_value_from_ready_ordinary_property_reference(",
+        "fn compile_ordinary_property_eager_compound_assignment_to_value(",
     );
+    assert!(put.contains("ready:ReadyToWriteOrdinaryPropertyReferenceLocals,"));
     positions_in_order(
-        put,
+        &put,
         &[
-            "let ReadyToWriteOrdinaryPropertyReferenceLocals {",
-            "self.emit_ordinary_set_result_via_helper(",
-            "if strictness.throws_on_failed_set() {",
-            "self.emit_throw_runtime_error_to_active_handler(",
-            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY",
-            "Instruction::LocalGet(result_payload)",
-            "Instruction::LocalSet(payload_local)",
-            "Instruction::LocalGet(result_tag)",
-            "Instruction::LocalSet(tag_local)",
+            "letReadyToWriteOrdinaryPropertyReferenceLocals{",
+            "self.emit_ordinary_reference_set(",
+            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,",
+            "output.copy_from(&result,function);",
+            "result.clear(function);",
+            "reference.clear(function);",
+            "old_value.clear(function);",
         ],
     );
     assert!(!put.contains("emit_value_to_property_key_locals("));
-    assert!(!put.contains("compile_raw_property_key_expression_to_locals("));
-
-    let entry = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn compile_ordinary_property_eager_compound_assignment_to_locals(",
-        "    pub(crate) fn compile_expr_payload(",
+    let set = gc_body(
+        "fn emit_ordinary_reference_set(",
+        "fn emit_put_value_from_ready_ordinary_property_assignment(",
     );
     positions_in_order(
-        entry,
+        &set,
         &[
-            "self.evaluate_raw_ordinary_property_reference(mutation, function)?",
+            "OrdinarySetArguments::new(",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "ifstrictness.throws_on_failed_set(){",
+            "self.emit_expression_native_error(NativeErrorKind::TypeError,message,function)?;",
+        ],
+    );
+    let entry = gc_body(
+        "fn compile_ordinary_property_eager_compound_assignment_to_value(",
+        "fn emit_numeric_reference_old_value(",
+    );
+    positions_in_order(
+        &entry,
+        &[
+            "self.evaluate_raw_ordinary_property_reference(",
             "self.emit_get_value_from_raw_ordinary_property_reference(",
             "self.emit_result_from_read_ordinary_property_reference(",
             "self.emit_put_value_from_ready_ordinary_property_reference(",
         ],
     );
-    assert!(!EXPRESSIONS_SOURCE.contains("compile_property_compound_assign_to_locals"));
+    // Every compile_expr_to_value call routes abrupt completion before its caller continues.
+    let publisher = EXPRESSIONS_SOURCE
+        .split_once("pub(crate) fn compile_expr_to_value(")
+        .unwrap()
+        .1;
+    assert!(publisher.contains("self.emit_propagate_current_throw_if_needed(function);"));
 }
 
 #[test]
-fn exhaustive_consumers_and_temp_budget_name_every_fused_phase() {
-    for marker in [
-        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;",
-        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
+fn exhaustive_consumers_and_gc_owners_name_each_fused_phase() {
+    let marker = "ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) =>";
+    assert_eq!(
+        EXPRESSIONS_SOURCE.matches(marker).count(),
+        1,
+        "the sole whole-value publisher owns the fused node"
+    );
+    assert_eq!(DATA_SOURCE.matches(marker).count(), 1);
+    assert_eq!(PLANNING_SOURCE.matches(marker).count(), 3);
+    for owner in [
+        "fn expr_exposes_global_object(",
+        "fn collect_expr_global_property_names(",
+        "fn expr_references_function(",
     ] {
-        assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
+        assert_eq!(
+            bounded(PLANNING_SOURCE, owner, "\n}\n")
+                .matches(marker)
+                .count(),
+            1,
+            "{owner}"
+        );
     }
-    let budget = bounded(
-        PLANNING_SOURCE,
-        "        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {",
-        "        ExprIr::DeleteIdentifier { .. } => 0,",
+    assert!(
+        !PLANNING_SOURCE.contains("fn count_expr_temp_locals("),
+        "GC reservation replaced the raw temp budget"
+    );
+    let clear = gc_body(
+        "impl CanonicalOrdinaryPropertyReferenceLocals {",
+        "#[must_use =",
     );
     positions_in_order(
-        budget,
+        &clear,
         &[
-            "let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS",
-            ".max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)",
-            "let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS",
-            ".max(ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)",
-            "read_phase.max(write_phase)",
+            "fnclear(self,",
+            "self.property_key.clear(function);",
+            "self.target_object.clear(function);",
+            "self.base_and_receiver.clear(function);",
         ],
-    );
-    assert_eq!(
-        EXPRESSIONS_SOURCE
-            .matches("ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) =>")
-            .count(),
-        2,
-        "both expression emission entry points must consume the fused node"
-    );
-    assert_eq!(
-        DATA_SOURCE
-            .matches("ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) =>")
-            .count(),
-        1,
-        "data collection must traverse the fused node"
-    );
-    assert_eq!(
-        PLANNING_SOURCE
-            .matches("ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) =>")
-            .count(),
-        5,
-        "every planning traversal must name the fused node"
     );
 }
 

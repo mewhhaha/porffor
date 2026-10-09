@@ -18,6 +18,7 @@ fn assert_tail_calls(source: &str, host_surface_policy: HostSurfacePolicy) {
             },
         )
         .unwrap_or_else(|error| panic!("tail-call execution failed: {error}\n{source}"));
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(
         outcome.note.contains("boolean(true)"),
         "{}\n{source}",
@@ -205,6 +206,25 @@ function returning() { "use strict"; return target(argumentThrow()); }
 let received;
 try { returning(); } catch (error) { received = error; }
 if (received !== marker || trace !== 'cfda') throw new Error('argument throw identity');
+let disposalTrace = '';
+const disposalError = {};
+function returnsNormally() { disposalTrace += 'call;'; return marker; }
+function normalDisposed() {
+  "use strict";
+  using resource = { [Symbol.dispose]() { disposalTrace += 'dispose;'; } };
+  return returnsNormally();
+}
+if (normalDisposed() !== marker || disposalTrace !== 'call;dispose;')
+  throw new Error('normal return before disposal');
+function disposalReplacesReturn() {
+  "use strict";
+  using resource = { [Symbol.dispose]() { disposalTrace += 'throw;'; throw disposalError; } };
+  return returnsNormally();
+}
+received = undefined;
+try { disposalReplacesReturn(); } catch (error) { received = error; }
+if (received !== disposalError || disposalTrace !== 'call;dispose;call;throw;')
+  throw new Error('disposal error replaces normal return');
 true;
 "#,
         HostSurfacePolicy::Product,
@@ -226,6 +246,126 @@ function throws() { throw marker; }
 received = undefined;
 try { tail(throws); } catch (error) { received = error; }
 if (received !== marker) throw new Error('tail callee throw identity');
+true;
+"#,
+        HostSurfacePolicy::Test262,
+    );
+}
+
+#[test]
+fn ordinary_call_forms_and_intrinsic_forwarders_tail_call_one_hundred_thousand_times() {
+    assert_tail_calls(
+        r#"
+const marker = {};
+const receiver = {};
+const holder = { step };
+const bound = step.bind(receiver);
+const expected = [undefined, undefined, holder, holder, receiver, receiver, receiver, receiver];
+function step(n, route) {
+  "use strict";
+  if (n === 0) return this === expected[route] ? marker : null;
+  if (route === 0) return step(n - 1, route);
+  if (route === 1) return (0, step)(n - 1, route);
+  if (route === 2) return holder.step(n - 1, route);
+  if (route === 3) return holder.step?.(n - 1, route);
+  if (route === 4) return bound(n - 1, route);
+  if (route === 5) return step.call(receiver, n - 1, route);
+  if (route === 6) return step.apply(receiver, [n - 1, route]);
+  return Reflect.apply(step, receiver, [n - 1, route]);
+}
+for (let route = 0; route < expected.length; route++) {
+  if (step(100000, route) !== marker) throw new Error('ordinary tail form ' + route);
+}
+let argumentsRead = 0;
+function optionalAbsent() { "use strict"; return holder.absent?.(argumentsRead++); }
+if (optionalAbsent() !== undefined || argumentsRead !== 0) throw new Error('optional short circuit');
+true;
+"#,
+        HostSurfacePolicy::Product,
+    );
+}
+
+#[test]
+fn tail_results_preserve_native_values_source_fallthrough_and_constructor_continuations() {
+    assert_tail_calls(
+        r#"
+const marker = {};
+const map = new Map();
+function nativeNumber() { "use strict"; return Number('42'); }
+function nativeString() { "use strict"; return String(42); }
+function nativeObject() { "use strict"; return Object(marker); }
+function nativeUndefined() { "use strict"; return map.clear(); }
+function sourceObject() { "use strict"; return marker; }
+function fallthrough() { "use strict"; Object(marker); 99; }
+function forward(target) { "use strict"; return target(); }
+if (forward(nativeNumber) !== 42 || forward(nativeString) !== '42'
+    || forward(nativeObject) !== marker || forward(nativeUndefined) !== undefined
+    || forward(sourceObject) !== marker || forward(fallthrough) !== undefined)
+  throw new Error('normal Call value');
+function BaseObject() { "use strict"; return Object(marker); }
+function BasePrimitive() { "use strict"; this.created = true; return Number('7'); }
+function BaseFallthrough() { "use strict"; this.created = true; Object(marker); }
+class BaseClass { constructor() { return Object(marker); } }
+class DerivedObject extends Object { constructor() { return Object(marker); } }
+class DerivedPrimitive extends Object { constructor() { return Number('7'); } }
+class DerivedUndefined extends Object {
+  constructor() { super(); this.created = true; return map.clear(); }
+}
+class MissingThis extends Object { constructor() { return map.clear(); } }
+if (new BaseObject() !== marker || new BaseClass() !== marker || new DerivedObject() !== marker)
+  throw new Error('object constructor return');
+if (new BasePrimitive().created !== true || new BaseFallthrough().created !== true
+    || new DerivedUndefined().created !== true)
+  throw new Error('constructor this continuation');
+for (const [Constructor, ErrorType] of [[DerivedPrimitive, TypeError], [MissingThis, ReferenceError]]) {
+  let error;
+  try { new Constructor(); } catch (caught) { error = caught; }
+  if (error === undefined || Object.getPrototypeOf(error) !== ErrorType.prototype)
+    throw new Error('derived constructor validation');
+}
+let constructs = 0;
+const Wrapped = new Proxy(BasePrimitive, { construct(target, args, newTarget) {
+  constructs++;
+  return Reflect.construct(target, args, newTarget);
+} });
+if (new Wrapped().created !== true || constructs !== 1) throw new Error('construct trap continuation');
+const Invalid = new Proxy(BaseObject, { construct() { return nativeNumber(); } });
+let invalidError;
+try { new Invalid(); } catch (error) { invalidError = error; }
+if (invalidError === undefined || Object.getPrototypeOf(invalidError) !== TypeError.prototype)
+  throw new Error('construct trap object validation');
+true;
+"#,
+        HostSurfacePolicy::Product,
+    );
+}
+
+#[test]
+fn normal_call_boundaries_restore_the_caller_realm_after_tail_success_and_throw() {
+    assert_tail_calls(
+        r#"
+const other = __lilaCreateRealm().global;
+const foreignTail = other.eval("(function(target, argument) { 'use strict'; return target(argument); })");
+const foreignObject = other.eval("(function() { 'use strict'; return Object(); })");
+if (Object.getPrototypeOf(foreignTail(foreignObject)) !== other.Object.prototype)
+  throw new Error('tail callee realm');
+if (Object.getPrototypeOf({}) !== Object.prototype) throw new Error('normal caller realm');
+const marker = {};
+function throws() { throw marker; }
+let received;
+try { foreignTail(throws); } catch (error) { received = error; }
+if (received !== marker || Object.getPrototypeOf({}) !== Object.prototype)
+  throw new Error('throw caller realm');
+received = undefined;
+try { foreignTail(other.Number, Symbol()); } catch (error) { received = error; }
+if (received === undefined || Object.getPrototypeOf(received) !== other.TypeError.prototype)
+  throw new Error('native tail error realm');
+if (Object.getPrototypeOf({}) !== Object.prototype) throw new Error('native throw caller realm');
+received = undefined;
+try { foreignTail(Number, Symbol()); } catch (error) { received = error; }
+if (received === undefined || Object.getPrototypeOf(received) !== TypeError.prototype)
+  throw new Error('local native error realm');
+if (Object.getPrototypeOf({}) !== Object.prototype) throw new Error('local throw caller realm');
 true;
 "#,
         HostSurfacePolicy::Test262,

@@ -2,8 +2,8 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
 use std::collections::{BTreeMap, BTreeSet};
 use wasmparser::{
-    CompositeInnerType, HeapType, Operator, Parser, Payload, StorageType, StructType, TypeRef,
-    ValType, Validator, WasmFeatures,
+    CompositeInnerType, HeapType, KnownCustom, Name, Operator, Parser, Payload, StorageType,
+    StructType, TypeRef, ValType, Validator, WasmFeatures,
 };
 
 fn concrete_reference(field: StorageType) -> Option<(bool, u32)> {
@@ -37,7 +37,7 @@ fn inspect_actual_with_artifact(source: &str, check_shared_global_reads: bool) {
         .validate_all(&artifact.bytes)
         .expect("saved With cell, fresh/resumed scopes and outward completion branches typecheck");
     if check_shared_global_reads {
-        inspect_shared_global_reads(&artifact.bytes, &artifact.function_sizes);
+        inspect_shared_global_reads(&artifact);
     }
     let mut structures = BTreeMap::<u32, StructType>::new();
     let mut next_type = 0;
@@ -157,14 +157,41 @@ fn inspect_actual_with_artifact(source: &str, check_shared_global_reads: bool) {
     );
 }
 
-fn inspect_shared_global_reads(bytes: &[u8], summaries: &[lila_aot_wasm::EmittedFunctionSummary]) {
+fn inspect_shared_global_reads(artifact: &lila_aot_wasm::WasmArtifact) {
+    let runtime = artifact.runtime().expect("With reads link R");
+    let modules = [runtime.bytes(), artifact.bytes.as_slice()];
+    let mut names = BTreeMap::new();
+    for bytes in modules {
+        Validator::new_with_features(WasmFeatures::all())
+            .validate_all(bytes)
+            .expect("both linked With modules validate");
+        for payload in Parser::new(0).parse_all(bytes) {
+            if let Payload::CustomSection(section) = payload.expect("module decodes") {
+                if let KnownCustom::Name(subsections) = section.as_known() {
+                    for subsection in subsections {
+                        if let Name::Function(map) = subsection.expect("name subsection decodes") {
+                            for naming in map {
+                                let naming = naming.expect("name decodes");
+                                assert!(
+                                    names
+                                        .insert(naming.index, naming.name.to_string())
+                                        .is_none(),
+                                    "R/P own disjoint function names"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     let unique_index = |name: &str| {
-        let matches = summaries
+        let matches = names
             .iter()
-            .filter(|body| body.name == name)
+            .filter_map(|(&index, actual)| (actual == name).then_some(index))
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1, "one emitted body for {name}");
-        matches[0].wasm_index
+        matches[0]
     };
     let main = unique_index("lila::main");
     let helpers = [
@@ -174,40 +201,44 @@ fn inspect_shared_global_reads(bytes: &[u8], summaries: &[lila_aot_wasm::Emitted
         "helper::global_identifier_typeof_strict",
     ]
     .map(|name| (name, unique_index(name)));
-    let mut next_function = 0u32;
     let mut body_sizes = BTreeMap::new();
     let mut main_calls = BTreeSet::new();
-    for payload in Parser::new(0).parse_all(bytes) {
-        match payload.expect("shared global read artifact decodes") {
-            Payload::ImportSection(reader) => {
-                for import in reader.into_imports() {
-                    if matches!(
-                        import.expect("import decodes").ty,
-                        TypeRef::Func(_) | TypeRef::FuncExact(_)
-                    ) {
-                        next_function += 1;
-                    }
-                }
-            }
-            Payload::CodeSectionEntry(body) => {
-                body_sizes.insert(next_function, body.range().len());
-                if next_function == main {
-                    for operator in body.get_operators_reader().expect("main body opens") {
-                        match operator.expect("main instruction decodes") {
-                            Operator::Call { function_index }
-                            | Operator::ReturnCall { function_index } => {
-                                main_calls.insert(function_index);
-                            }
-                            _ => {}
+    for bytes in modules {
+        let mut next_function = 0u32;
+        for payload in Parser::new(0).parse_all(bytes) {
+            match payload.expect("shared global read artifact decodes") {
+                Payload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        if matches!(
+                            import.expect("import decodes").ty,
+                            TypeRef::Func(_) | TypeRef::FuncExact(_)
+                        ) {
+                            next_function += 1;
                         }
                     }
                 }
-                next_function += 1;
+                Payload::CodeSectionEntry(body) => {
+                    assert!(body_sizes
+                        .insert(next_function, body.range().len())
+                        .is_none());
+                    if next_function == main {
+                        for operator in body.get_operators_reader().expect("main body opens") {
+                            match operator.expect("main instruction decodes") {
+                                Operator::Call { function_index }
+                                | Operator::ReturnCall { function_index } => {
+                                    main_calls.insert(function_index);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    next_function += 1;
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
-    assert_eq!(body_sizes.len(), summaries.len());
+    assert_eq!(body_sizes.len(), names.len());
     for (name, index) in helpers {
         assert!(
             body_sizes.contains_key(&index),
@@ -223,22 +254,25 @@ fn inspect_shared_global_reads(bytes: &[u8], summaries: &[lila_aot_wasm::Emitted
         "main consumes the shared sloppy typeof read"
     );
     eprintln!("shared-global-read lila::main: {} bytes", body_sizes[&main]);
-    let largest = summaries
+    let largest = names
         .iter()
-        .max_by_key(|body| body_sizes[&body.wasm_index])
+        .max_by_key(|(index, _)| body_sizes[*index])
         .expect("at least main is emitted");
     eprintln!(
         "shared-global-read largest: {}: {} bytes",
-        largest.name, body_sizes[&largest.wasm_index]
+        largest.1, body_sizes[largest.0]
     );
-    let oversized = summaries
+    let oversized = names
         .iter()
-        .filter_map(|body| {
-            let bytes = body_sizes[&body.wasm_index];
-            (bytes >= 1024 * 1024).then_some((&body.name, bytes))
+        .filter_map(|(index, name)| {
+            let bytes = body_sizes[index];
+            (bytes >= 1024 * 1024).then_some((name, bytes))
         })
         .collect::<Vec<_>>();
-    assert!(oversized.is_empty(), "every encoded body must remain below the existing 1 MiB native optimization switch: {oversized:?}");
+    assert!(
+        oversized.is_empty(),
+        "every encoded body must remain below the existing 1 MiB native optimization switch: {oversized:?}"
+    );
 }
 
 #[test]

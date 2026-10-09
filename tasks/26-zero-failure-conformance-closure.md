@@ -1,5 +1,21 @@
 # T26 — Zero-failure conformance closure and release gate
 
+## Literal release boundary — 2026-10-08
+
+T26 remains blocked. The complete tooling sweep passes, but the frozen workspace
+sweep is an interrupted red baseline and the prepared repair batch has no successor
+verification yet. No current compiler-bound complete pinned aggregate or fresh
+release verdict has been produced. The October 2 publication is retained
+historical evidence, not a current compiler result.
+
+`close-release` must complete its own two fresh full families and exact result
+comparison. Workspace, fake, default-product, stress, differential, real
+shard/resume and supported-host requirements remain separate. Genuine weak
+reachability, unresolved Temporal semantics and any unsupported dynamic-source
+case prevent the literal all-zero gate. The documented AOT policy permits honest
+unsupported dynamic source; that permission does not remove those executions
+from T26's denominator or authorize a 100% claim.
+
 ## Fresh full-suite release verdict — 2026-10-05 dry source
 
 The isolated T26 source successor adds `lila test262 close-release`, the library
@@ -590,8 +606,8 @@ or the canonical README publication pair.
 
 The current shortcut classifications and semantic removal-task counts are
 [generated from canonical audit inputs](../test262/backlog/current-shortcut-status.md).
-The current report records zero semantic shortcuts across 56 classified
-observations (23 legitimate adaptations and 33 diagnostic observations).
+Use that report for the current classification totals and removal owners;
+historical source-observation counts do not describe the current census.
 The source audit must still prove no selector drift, and a zero-shortcut
 inventory does not prove conformance. Several architecture/feature lanes retain
 explicit unsupported cases. Fresh aggregate/backlog evidence, zero nonpassing

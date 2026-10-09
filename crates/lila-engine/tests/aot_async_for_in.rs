@@ -15,6 +15,10 @@ fn whole_async_for_in_preserves_native_enumeration_original_cells_and_abrupt_cle
             "async-for-in-enumeration:ok",
         ),
         (references.to_string(), "async-for-in-references:ok"),
+        (
+            include_str!("fixtures/async_for_in/lexical_cells.js").to_string(),
+            "async-for-in-lexical-cells:ok",
+        ),
     ] {
         let observed = Engine::new(RealmBuilder::new().build())
             .observe_script(

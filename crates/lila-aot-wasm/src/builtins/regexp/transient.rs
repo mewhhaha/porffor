@@ -398,69 +398,6 @@ impl FunctionBuilder<'_> {
         self.emit_regexp_scratch_increment(dst_pos_local, 1, function);
     }
 
-    pub(super) fn emit_regexp_scratch_utf16_length(
-        &mut self,
-        src_offset_local: I64Local,
-        src_len_local: I64Local,
-        dst_len_local: I64Local,
-        function: &mut Function,
-    ) {
-        let index_local = self.runtime_schema().reserve_i64_local(function);
-        let byte_local = self.runtime_schema().reserve_i64_local(function);
-        let codepoint_local = self.runtime_schema().reserve_i64_local(function);
-        let advance_local = self.runtime_schema().reserve_i64_local(function);
-        let temp_local = self.runtime_schema().reserve_i64_local(function);
-
-        function.instruction(&Instruction::I64Const(0));
-        dst_len_local.store(function);
-        function.instruction(&Instruction::I64Const(0));
-        index_local.store(function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        index_local.load(function);
-        src_len_local.load(function);
-        function.instruction(&Instruction::I64GeU);
-        function.instruction(&Instruction::BrIf(1));
-        self.emit_regexp_scratch_byte(src_offset_local, index_local, byte_local, function);
-        self.emit_regexp_scratch_decode_scalar(
-            src_offset_local,
-            index_local,
-            src_len_local,
-            byte_local,
-            codepoint_local,
-            advance_local,
-            temp_local,
-            function,
-        );
-        dst_len_local.load(function);
-        codepoint_local.load(function);
-        function.instruction(&Instruction::I64Const(0xFFFF));
-        function.instruction(&Instruction::I64GtU);
-        function.instruction(&Instruction::I64ExtendI32U);
-        function.instruction(&Instruction::I64Const(1));
-        function.instruction(&Instruction::I64Add);
-        function.instruction(&Instruction::I64Add);
-        dst_len_local.store(function);
-        index_local.load(function);
-        advance_local.load(function);
-        function.instruction(&Instruction::I64Add);
-        index_local.store(function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
-        self.runtime_schema()
-            .release_i64_local(temp_local, function);
-        self.runtime_schema()
-            .release_i64_local(advance_local, function);
-        self.runtime_schema()
-            .release_i64_local(codepoint_local, function);
-        self.runtime_schema()
-            .release_i64_local(byte_local, function);
-        self.runtime_schema()
-            .release_i64_local(index_local, function);
-    }
-
     pub(super) fn emit_regexp_scratch_load_word(
         &self,
         base_local: I64Local,

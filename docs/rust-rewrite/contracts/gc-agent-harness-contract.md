@@ -27,3 +27,12 @@ resource delivery and coercion controls belong to the complete host batch.
 This is source-only progress. Compilation and runtime verification are pending
 until the whole task source batch is complete. Later execution must use the
 confirmed 4 GiB aggregate cgroup cap and serial verification launcher.
+
+The native Engine regression prelude consumes the receiver's exact two-member
+`[SharedArrayBuffer, id]` result and calls the Test262 callback with those two
+members. Passing the pair itself as a typed-array buffer loses the shared
+resource and cannot exercise worker notification. Product execution and raw GC
+ABI observations now link the same private `wasm_agent_host::agent_call`
+dispatcher. Its operations, resource ownership, and failure paths are unchanged
+by that extraction. Verification of this repair remains pending until the
+frozen workspace sweep finishes and the complete batch is applied.

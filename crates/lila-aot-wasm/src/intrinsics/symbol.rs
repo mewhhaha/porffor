@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_symbol_constructor_intrinsics(
@@ -96,8 +97,9 @@ impl FunctionBuilder<'_> {
             self.emit_install_intrinsic_accessor(
                 context.prototype,
                 IntrinsicKey::Name("description"),
-                Some(StandardBuiltinId::SymbolPrototypeDescriptionGetter),
-                None,
+                AccessorDescriptor::Getter(AccessorGetter::new(
+                    StandardBuiltinId::SymbolPrototypeDescriptionGetter,
+                )),
                 context.realm,
                 true,
                 function,

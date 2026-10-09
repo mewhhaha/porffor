@@ -18,13 +18,20 @@ async function run() {
   check(result[0] === 37 && result[1] === whole && callThis === original && getterCalls === 1, 'retained-grouped-reference-receiver-and-callee');
   check((await iterator.next()).done && alternate.marker === 31, 'grouped-reference-completes');
 
-  var gets = 0, deletes = 0, coercions = 0, target = { selected: 43 };
-  var proxy = new Proxy(target, { get: function () { gets++; throw 'delete-invoked-get'; }, deleteProperty: function (object, name) { deletes++; return Reflect.deleteProperty(object, name); } });
+  var gets = 0, deletes = 0, coercions = 0, thenGets = 0, target = { selected: 43 };
+  var proxy = new Proxy(target, { get: function (object, name) {
+    // Plain async-generator yield awaits its value before publishing it.
+    // That required thenable probe precedes Delete Reference acquisition.
+    if (name === 'then') { thenGets++; return undefined; }
+    gets++; throw 'delete-invoked-get';
+  }, deleteProperty: function (object, name) { deletes++; return Reflect.deleteProperty(object, name); } });
   key = { [Symbol.toPrimitive]: function () { coercions++; return 'selected'; } };
   async function* deleted() { const value = delete ((yield proxy)?.[await (yield 'delete-key')]); yield value; }
   iterator = deleted(); check((await iterator.next()).value === proxy, 'delete-base-is-retained');
+  check(thenGets === 1 && gets === 0 && deletes === 0, 'yield-await-probes-then-before-delete-reference');
   check((await iterator.next(proxy)).value === 'delete-key', 'delete-key-source-suspends');
   gc(); check((await iterator.next(key)).value === true && gets === 0 && deletes === 1 && coercions === 1 && !('selected' in target), 'terminal-delete-reference-no-get-and-once-only-coercion');
+  check(thenGets === 1, 'delete-does-not-repeat-the-yield-await-probe');
   await iterator.next();
   async function* shortDelete() { const value = delete ((yield null)?.[await effect()]); yield value; }
   iterator = shortDelete(); await iterator.next(); check((await iterator.next()).value === true && effects === 0, 'shorted-delete-publishes-true-without-key'); await iterator.next();

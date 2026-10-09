@@ -178,14 +178,25 @@ fn temporal_namespace_plan_can_publish_members_only_after_complete_rooting() {
     assert!(!PLANNING_SOURCE.contains(
         "#[ignore = \"known planning gap: bare `Temporal` roots only the namespace shell\"]"
     ));
-    let active_regression = bounded(
+    let full = bounded(
         PLANNING_SOURCE,
-        "#[test]\n    fn a_bare_temporal_reference_roots_its_declared_namespace_shape()",
-        "/// No `Intl` builtin may exist outside the two namespace lists.",
+        "pub(crate) fn full() -> Self {",
+        "pub(crate) fn should_initialize_standard_builtin(",
     );
-    assert!(!active_regression.contains("#[ignore"));
-    assert!(active_regression.contains("TEMPORAL_NAMESPACE_CONSTRUCTORS"));
-    assert!(active_regression.contains("TEMPORAL_NOW_NAMESPACE_MEMBERS"));
+    ordered(
+        full,
+        &[
+            "plan.full_standard_globals = true;",
+            "StandardBuiltinId::all_functions()",
+            "plan.require_standard_builtin(*builtin);",
+        ],
+    );
+    let assembly = include_str!("../src/emit/module_assembly.rs")
+        .split_whitespace()
+        .collect::<String>();
+    assert!(assembly.contains(
+        "letruntime_bootstrap_plan=ifuses_heap{RuntimeBootstrapPlan::full()}else{RuntimeBootstrapPlan::default()};"
+    ));
 }
 
 #[test]
@@ -213,14 +224,14 @@ fn temporal_bootstrap_requires_the_witness_and_installs_without_partial_guards()
 
     let bootstrap_gate = bounded(
         BOOTSTRAP_SOURCE,
+        "fn emit_initialize_realm_intrinsics_inner(",
         "pub(crate) fn init_runtime_roots(",
-        "pub(crate) fn init_script_global_object(",
     );
     ordered(
         bootstrap_gate,
         &[
-            "self.runtime_bootstrap_plan.temporal_namespace_members()",
-            "self.init_temporal_object(temporal_namespace_members, function)?;",
+            ".temporal_namespace_members()",
+            "self.init_temporal_object(members, &context, &object_prototype, function)",
         ],
     );
     assert!(!bootstrap_gate.contains("runtime_bootstrap_plan.temporal_object"));

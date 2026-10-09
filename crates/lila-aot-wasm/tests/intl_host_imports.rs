@@ -1,4 +1,4 @@
-use lila_aot_wasm::emit;
+use lila_aot_wasm::{emit, GcHostImport};
 use lila_front::{parse, ParseOptions};
 use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
 use wasmparser::{Parser, Payload, Validator, WasmFeatures};
@@ -23,20 +23,31 @@ fn intl_import_count(source: &'static str, host_surface_policy: HostSurfacePolic
             ] {
                 features.set(feature, true);
             }
-            Validator::new_with_features(features)
-                .validate_all(&artifact.bytes)
-                .expect("optional Intl import must preserve function and call indices");
-            let mut count = 0;
-            for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                if let Payload::ImportSection(section) = payload.expect("section must decode") {
-                    for import in section.into_imports() {
-                        let import = import.expect("import must decode");
-                        count +=
-                            usize::from(import.module == "lila_host" && import.name == "intl_call");
+            let runtime = artifact.runtime().expect("Intl caller links R");
+            let mut counts = Vec::new();
+            for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
+                Validator::new_with_features(features)
+                    .validate_all(bytes)
+                    .expect("optional Intl import must preserve R/P function and call indices");
+                let mut count = 0;
+                for payload in Parser::new(0).parse_all(bytes) {
+                    if let Payload::ImportSection(section) = payload.expect("section must decode") {
+                        for import in section.into_imports() {
+                            let import = import.expect("import must decode");
+                            count += usize::from(
+                                import.module == GcHostImport::IntlProviderCall.module()
+                                    && import.name == GcHostImport::IntlProviderCall.name(),
+                            );
+                        }
                     }
                 }
+                counts.push(count);
             }
-            count
+            assert_eq!(
+                counts[0], counts[1],
+                "R/P share the exact host import prefix"
+            );
+            counts[0]
         })
         .expect("compiler worker should spawn")
         .join()

@@ -13,6 +13,7 @@ fn assert_wasm_true(source: &str) {
             },
         )
         .expect("Array callback regression must compile and execute through Wasm AOT");
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
 }
 
@@ -356,6 +357,41 @@ for (var m = 0; m < methods.length; m++) {
 ok;
 "#,
     );
+}
+
+#[test]
+fn constructed_string_receivers_keep_length_indices_and_callback_identity() {
+    const SOURCE: &str = r#"
+var methods = [Array.prototype.map, Array.prototype.filter, Array.prototype.every, Array.prototype.some];
+var text = 'A\uD83D\uDE00\uD800', expected = ['A', '\uD83D', '\uDE00', '\uD800'];
+var sources = [new String(text), Object(text)], ok = true;
+String.prototype[4] = 'outside';
+try {
+  for (var s = 0; s < sources.length; s++) {
+    var source = sources[s];
+    for (var m = 0; m < methods.length; m++) {
+      var calls = '';
+      var result = methods[m].call(source, function(value, index, receiver) {
+        calls += index;
+        ok = ok && receiver === source && receiver instanceof String && value === expected[index];
+        return m === 0 ? index : m !== 3;
+      });
+      ok = ok && calls === '0123';
+      if (m === 0) ok = ok && result.length === 4 && result[0] === 0 && result[1] === 1 && result[2] === 2 && result[3] === 3;
+      if (m === 1) ok = ok && result.length === 4 && result[0] === expected[0] && result[1] === expected[1] && result[2] === expected[2] && result[3] === expected[3];
+      if (m > 1) ok = ok && result === (m === 2);
+    }
+    var stops = '';
+    var every = Array.prototype.every.call(source, function(value, index) { stops += 'e' + index; return false; });
+    var some = Array.prototype.some.call(source, function(value, index) { stops += 's' + index; return true; });
+    ok = ok && every === false && some === true && stops === 'e0s0';
+  }
+} finally { delete String.prototype[4]; }
+ok;
+"#;
+    for directive in ["", "'use strict';\n"] {
+        assert_wasm_true(&format!("{directive}{SOURCE}"));
+    }
 }
 
 #[test]

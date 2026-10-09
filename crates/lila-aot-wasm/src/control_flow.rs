@@ -423,7 +423,6 @@ enum SyncIteratorProtocolError {
 /// Ordinary async functions strictly decode their two-way resume completion.
 /// Async generators retain their separate five-way resume-kind domain.
 #[must_use = "a for-await activation layout must be consumed by all suspension policies"]
-#[derive(Clone, Copy)]
 enum AsyncContinuationOwner {
     AsyncFunction,
     AsyncGenerator,
@@ -1261,8 +1260,8 @@ impl<'a> FunctionBuilder<'a> {
                 .statements
                 .iter()
                 .find_map(Self::async_statement_entry_state),
-            // A checked non-loop label owns its completion exit. Immediate
-            // labels still forward only a directly labelled resumable loop.
+            // Checked labels own their completion exits. Immediate labels
+            // forward the states of a directly labelled complete source owner.
             StatementIr::Labelled {
                 async_plan: Some(plan),
                 ..
@@ -1290,6 +1289,10 @@ impl<'a> FunctionBuilder<'a> {
                 .or_else(|| {
                     Self::labelled_async_generator_loop_plan(statement)
                         .map(lila_ir::AsyncGeneratorLoopIr::entry_state)
+                })
+                .or_else(|| {
+                    Self::labelled_async_generator_with_plan(statement)
+                        .map(lila_ir::AsyncGeneratorWithIr::entry_state)
                 })
                 .or_else(|| {
                     Self::labelled_complete_resource_switch_plan(statement)
@@ -1411,6 +1414,10 @@ impl<'a> FunctionBuilder<'a> {
                         .map(lila_ir::AsyncGeneratorLoopIr::exit_state)
                 })
                 .or_else(|| {
+                    Self::labelled_async_generator_with_plan(statement)
+                        .map(lila_ir::AsyncGeneratorWithIr::exit_state)
+                })
+                .or_else(|| {
                     Self::labelled_complete_resource_switch_plan(statement)
                         .map(lila_ir::AsyncGeneratorSwitchIr::exit_state)
                 }),
@@ -1479,6 +1486,20 @@ impl<'a> FunctionBuilder<'a> {
                 async_plan: None,
                 ..
             } => Self::labelled_async_generator_loop_plan(statement),
+            _ => None,
+        }
+    }
+
+    fn labelled_async_generator_with_plan(
+        statement: &StatementIr,
+    ) -> Option<&lila_ir::AsyncGeneratorWithIr> {
+        match statement {
+            StatementIr::AsyncGeneratorWith(plan) => Some(plan),
+            StatementIr::Labelled {
+                statement,
+                async_plan: None,
+                ..
+            } => Self::labelled_async_generator_with_plan(statement),
             _ => None,
         }
     }
@@ -2367,13 +2388,9 @@ impl<'a> FunctionBuilder<'a> {
                 schema,
                 function,
             );
-        row.field(AsyncGeneratorActivationSchema::EXECUTION_STATE)
-            .write(
-                &activation,
-                GcOperand::constant(AsyncGeneratorExecutionState::SuspendedYield),
-                schema,
-                function,
-            );
+        // Plain Yield first awaits its value. The body scheduler keeps this
+        // activation Executing until that Await settles; only completing the
+        // yield may publish SuspendedYield and admit another queued request.
         self.completion().set_normal(&yielded, function);
         self.emit_return_current_completion(function);
         self.pop_control(ControlFrameKind::If);
@@ -5321,12 +5338,12 @@ impl<'a> FunctionBuilder<'a> {
                 AsyncContinuationOwner::AsyncGenerator
             }
         };
-        self.emit_load_async_continuation_resume(owner, value, is_throw, function)
+        self.emit_load_async_continuation_resume(&owner, value, is_throw, function)
     }
 
     fn emit_load_async_continuation_resume(
         &mut self,
-        owner: AsyncContinuationOwner,
+        owner: &AsyncContinuationOwner,
         value: &ValueLocals,
         is_throw: I32Local,
         function: &mut Function,
@@ -5427,12 +5444,12 @@ impl<'a> FunctionBuilder<'a> {
                 AsyncContinuationOwner::AsyncGenerator
             }
         };
-        self.emit_async_continuation_await(owner, value, function)
+        self.emit_async_continuation_await(&owner, value, function)
     }
 
     fn emit_async_continuation_await(
         &mut self,
-        owner: AsyncContinuationOwner,
+        owner: &AsyncContinuationOwner,
         value: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -7990,7 +8007,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Const(plan.close_resume_state() as i32));
         function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_load_async_continuation_resume(owner, &resumed, rejected, function)?;
+        self.emit_load_async_continuation_resume(&owner, &resumed, rejected, function)?;
         closed.set_normal(&resumed, function);
         rejected.load(function);
         self.open_frame(ControlFrameKind::If, function);
@@ -8014,7 +8031,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Const(plan.value_resume_state() as i32));
         function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_load_async_continuation_resume(owner, &resumed, rejected, function)?;
+        self.emit_load_async_continuation_resume(&owner, &resumed, rejected, function)?;
         rejected.load(function);
         self.open_frame(ControlFrameKind::If, function);
         self.completion().set_throw(&resumed, function);
@@ -8114,7 +8131,7 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_set_resumable_resume_point(plan.close_resume_state(), function)?;
         let await_failure = self.open_frame(ControlFrameKind::Block, function);
         self.throw_handler_stack.push(await_failure);
-        self.emit_async_continuation_await(owner, &awaited, function)?;
+        self.emit_async_continuation_await(&owner, &awaited, function)?;
         self.emit_return_async_suspension(function)?;
         self.throw_handler_stack.pop();
         self.pop_control(ControlFrameKind::Block);
@@ -8136,7 +8153,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         self.emit_set_resumable_resume_point(plan.value_resume_state(), function)?;
-        self.emit_async_continuation_await(owner, &awaited, function)?;
+        self.emit_async_continuation_await(&owner, &awaited, function)?;
         self.emit_return_async_suspension(function)?;
         self.breakable_stack.pop();
         self.pop_control(ControlFrameKind::Block);

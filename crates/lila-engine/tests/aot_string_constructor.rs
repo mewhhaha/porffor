@@ -41,6 +41,38 @@ String() === '' && String(undefined) === 'undefined' &&
 }
 
 #[test]
+fn constructed_string_length_is_an_immutable_own_utf16_property() {
+    assert_wasm_true(
+        r#"
+var text = 'A\uD83D\uDE00\uD800', reads = 0;
+var prototype = { get length() { reads++; return 99; } };
+function Target() {}
+Target.prototype = prototype;
+var custom = Reflect.construct(String, [text], Target);
+var foreign = __lilaCreateRealm().global;
+var wrappers = [new String(), new String(undefined), Object(text), custom,
+                new foreign.String(text), String.prototype];
+var lengths = [0, 9, 4, 4, 4, 0], ok = true;
+for (var i = 0; i < wrappers.length; i++) {
+  var boxed = wrappers[i], expected = lengths[i];
+  var descriptor = Object.getOwnPropertyDescriptor(boxed, 'length');
+  ok = ok && descriptor !== undefined && descriptor.value === expected &&
+    !descriptor.writable && !descriptor.enumerable && !descriptor.configurable &&
+    boxed.length === expected && Object.keys(boxed).length === expected;
+  ok = ok && Reflect.set(boxed, 'length', 99) === false &&
+    Reflect.defineProperty(boxed, 'length', { value: expected + 1 }) === false &&
+    Reflect.defineProperty(boxed, 'length', { value: expected }) === true &&
+    Reflect.deleteProperty(boxed, 'length') === false && boxed.length === expected;
+}
+ok && reads === 0 && Object.getPrototypeOf(custom) === prototype &&
+  String.prototype.valueOf.call(custom) === text &&
+  Reflect.ownKeys(custom).join(',') === '0,1,2,3,length' &&
+  Object.getPrototypeOf(wrappers[4]) === foreign.String.prototype;
+"#,
+    );
+}
+
+#[test]
 fn descriptive_symbol_conversion_is_exclusive_to_plain_calls() {
     assert_wasm_true(
         r#"

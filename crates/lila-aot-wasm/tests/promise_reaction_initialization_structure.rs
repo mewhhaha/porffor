@@ -227,10 +227,15 @@ fn canonical_evaluate_capabilities_require_intrinsic_promise_bootstrap_even_with
     let planning = include_str!("../src/planning.rs");
     let entry = normalized(bounded(
         planning,
-        "    pub(crate) fn from_script(",
+        "    pub(crate) fn full() -> Self {",
         "    pub(crate) fn should_initialize_standard_builtin(",
     ));
-    assert!(entry.contains("script.module_entry_evaluation()"));
-    assert!(entry.contains("entry.kind()==lila_ir::ModuleEntryEvaluationKindIr::Promise"));
+    assert!(entry.contains("plan.full_standard_globals=true;"));
+    assert!(entry.contains("forbuiltininStandardBuiltinId::all_functions()"));
+    assert!(!entry.contains("script."));
+    let assembly = normalized(include_str!("../src/emit/module_assembly.rs"));
+    assert!(assembly.contains(
+        "letruntime_bootstrap_plan=ifuses_heap{RuntimeBootstrapPlan::full()}else{RuntimeBootstrapPlan::default()};"
+    ));
     assert!(entry.contains("plan.require_standard_builtin(StandardBuiltinId::PromiseConstructor);"));
 }

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+const CATALOG_SOURCE: &str = include_str!("../src/data/runtime_error_message.rs");
 const INSTANT_SOURCE: &str = include_str!("../src/builtins/temporal_instant.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-instant-diagnostic-privacy.md");
@@ -36,17 +37,27 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 }
 
 #[test]
-fn instant_diagnostics_are_owner_private() {
-    for declaration in [
-        "const TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE: &str =",
-        "const TEMPORAL_INSTANT_VALUE_OF_MESSAGE: &str =",
+fn instant_diagnostics_use_the_typed_catalog_admission() {
+    assert!(
+        CATALOG_SOURCE.contains("pub(crate) struct RuntimeErrorMessage(RuntimeErrorMessageValue);")
+    );
+    for (name, text) in [
+        (
+            "TEMPORAL_INSTANT_FROMEPOCHMILLISECONDS_REQUIRES_AN_INTEGRAL_NUMBER",
+            "Temporal.Instant.fromEpochMilliseconds requires an integral Number",
+        ),
+        (
+            "TEMPORAL_INSTANT_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE_OR_EQUALS",
+            "Temporal.Instant does not support implicit conversion; use compare() or equals()",
+        ),
     ] {
         assert_eq!(
-            INSTANT_SOURCE.matches(declaration).count(),
-            1,
-            "`{declaration}`"
+            CATALOG_SOURCE
+                .matches(&format!("{name} => \"{text}\""))
+                .count(),
+            1
         );
-        assert!(!INSTANT_SOURCE.contains(&format!("pub(crate) {declaration}")));
+        assert!(!INSTANT_SOURCE.contains(&format!("\"{text}\"")));
     }
 }
 
@@ -55,36 +66,39 @@ fn each_diagnostic_has_one_matching_throw_path() {
     let from_epoch_milliseconds = bounded(
         INSTANT_SOURCE,
         "pub(crate) fn emit_temporal_instant_from_epoch_milliseconds(",
-        "/// Temporal proposal 8.3.12 `Temporal.Instant.prototype.valueOf`.",
+        "pub(crate) fn emit_temporal_instant_compare(",
     );
     assert_eq!(
         from_epoch_milliseconds
-            .matches("TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE")
+            .matches("TEMPORAL_INSTANT_FROMEPOCHMILLISECONDS_REQUIRES_AN_INTEGRAL_NUMBER")
             .count(),
         1
     );
-    assert!(from_epoch_milliseconds.contains("emit_throw_current_function_realm_range_error("));
+    assert!(from_epoch_milliseconds.contains("emit_temporal_error_and_return("));
+    assert!(from_epoch_milliseconds.contains("lila_ir::NativeErrorKind::RangeError,"));
 
     let value_of = bounded(
         INSTANT_SOURCE,
         "pub(crate) fn emit_temporal_instant_value_of(",
-        "}\n}",
+        "pub(crate) fn emit_temporal_instant_to_zoned_date_time_iso(",
     );
     assert_eq!(
         value_of
-            .matches("TEMPORAL_INSTANT_VALUE_OF_MESSAGE")
+            .matches("TEMPORAL_INSTANT_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE_OR_EQUALS")
             .count(),
         1
     );
-    assert!(value_of.contains("emit_throw_current_function_realm_type_error("));
+    assert!(
+        value_of.contains("emit_temporal_error_and_return(lila_ir::NativeErrorKind::TypeError,")
+    );
 }
 
 #[test]
 fn instant_diagnostics_have_one_recursive_owner_and_frozen_evidence() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for name in [
-        "TEMPORAL_INSTANT_NON_INTEGRAL_EPOCH_MILLISECONDS_MESSAGE",
-        "TEMPORAL_INSTANT_VALUE_OF_MESSAGE",
+        "TEMPORAL_INSTANT_FROMEPOCHMILLISECONDS_REQUIRES_AN_INTEGRAL_NUMBER",
+        "TEMPORAL_INSTANT_DOES_NOT_SUPPORT_IMPLICIT_CONVERSION_USE_COMPARE_OR_EQUALS",
     ] {
         assert_eq!(
             count_in_rust_sources(&source_root, name),

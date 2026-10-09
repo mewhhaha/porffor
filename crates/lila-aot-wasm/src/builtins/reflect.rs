@@ -418,11 +418,10 @@ impl FunctionBuilder<'_> {
             &result,
             function,
             |builder, arguments, output, function| match builtin {
-                ReflectInvokeBuiltin::Apply => builder.emit_function_or_proxy_call_with_argv(
+                ReflectInvokeBuiltin::Apply => builder.emit_prepared_tail_call(
                     &target,
                     &receiver_or_new_target,
                     arguments,
-                    output,
                     function,
                 ),
                 ReflectInvokeBuiltin::Construct => builder

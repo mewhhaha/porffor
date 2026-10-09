@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const OWNER_SOURCE: &str = include_str!("../src/runtime_helpers.rs");
+const EXEC_SOURCE: &str = include_str!("../src/builtins/string/regexp_exec.rs");
 const STRING_SOURCE: &str = include_str!("../src/builtins/string.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -57,7 +58,7 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 fn regexp_matcher_failure_route_is_the_exact_crate_private_no_capability_domain() {
     let declaration_region = bounded(
         OWNER_SOURCE,
-        "use crate::module::{",
+        "/// How a failed RegExp matcher result becomes a JavaScript throw.",
         "/// Declares the complete RegExp matcher status ABI",
     );
     assert!(!declaration_region.contains("#["));
@@ -74,13 +75,10 @@ fn regexp_matcher_failure_route_is_the_exact_crate_private_no_capability_domain(
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(OWNER_SOURCE.matches("RegExpMatcherFailureRoute").count(), 5);
-    assert_eq!(
-        STRING_SOURCE.matches("RegExpMatcherFailureRoute").count(),
-        3
-    );
+    assert_eq!(EXEC_SOURCE.matches("RegExpMatcherFailureRoute").count(), 2);
     assert_eq!(
         count_in_rust_sources(&source_root, "RegExpMatcherFailureRoute"),
-        8,
+        7,
         "the owner and sole product consumer must own every route mention"
     );
 }
@@ -129,73 +127,41 @@ fn regexp_matcher_failure_rows_own_the_exact_error_routes() {
 
 #[test]
 fn regexp_matcher_failure_route_has_one_exact_exhaustive_product_consumer() {
-    assert_eq!(
-        STRING_SOURCE
-            .matches("RegExpMatcherFailure, RegExpMatcherFailureRoute, RegExpMatcherStatus,")
-            .count(),
-        1
-    );
     let consumer = bounded(
-        STRING_SOURCE,
-        "fn emit_regexp_matcher_failure_and_return(",
-        "fn emit_route_regexp_matcher_status_or_return(",
+        EXEC_SOURCE,
+        "fn emit_native_regexp_builtin_exec(",
+        "pub(super) fn emit_native_string_result_array(",
     );
-    let route_arms = bounded(
-        consumer,
-        "match failure.route() {",
-        "self.emit_return_current_completion(function);",
-    );
-    assert_eq!(
-        normalized(route_arms),
-        concat!(
-            "RegExpMatcherFailureRoute::GenericError=>self.emit_throw_runtime_error(",
-            "ERROR_NAME,failure.message(),payload_local,tag_local,function,)?,",
-            "RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError=>self",
-            ".emit_throw_current_function_realm_range_error(",
-            "failure.message(),payload_local,tag_local,function,)?,}"
-        )
-    );
+    let route_arms = bounded(consumer, "let kind=match failure.route() {", "};");
+    assert_eq!(normalized(route_arms), concat!(
+        "crate::runtime_helpers::RegExpMatcherFailureRoute::GenericError=>NativeErrorKind::Error,",
+        "crate::runtime_helpers::RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError=>NativeErrorKind::RangeError,"
+    ));
     assert_eq!(consumer.matches("match failure.route() {").count(), 1);
     assert_eq!(
         consumer
-            .matches("RegExpMatcherFailureRoute::GenericError =>")
-            .count(),
-        1
-    );
-    assert_eq!(
-        consumer
-            .matches("RegExpMatcherFailureRoute::CurrentFunctionRealmRangeError =>")
-            .count(),
-        1
-    );
-    assert_eq!(consumer.matches("failure.message()").count(), 2);
-    assert_eq!(consumer.matches("ERROR_NAME,").count(), 1);
-    assert_eq!(
-        consumer
-            .matches("emit_throw_current_function_realm_range_error(")
-            .count(),
-        1
-    );
-    assert!(!consumer.contains("_ =>"));
-    assert_eq!(
-        consumer
-            .matches("self.emit_return_current_completion(function);")
+            .matches("self.emit_native_string_error_if(failure.message(), kind, result, exit, f)?;")
             .count(),
         1
     );
     assert_before(
         consumer,
-        "self.emit_throw_runtime_error(",
-        "self.emit_return_current_completion(function);",
-    );
-    assert_before(
-        consumer,
-        ".emit_throw_current_function_realm_range_error(",
-        "self.emit_return_current_completion(function);",
+        "scratch.finish(self, f);",
+        "match failure.route() {",
     );
     assert_before(
         consumer,
         "match failure.route() {",
-        "self.emit_return_current_completion(function);",
+        "self.emit_native_string_error_if(failure.message(), kind, result, exit, f)?;",
     );
+    let error = bounded(
+        STRING_SOURCE,
+        "fn emit_native_string_error_if(",
+        "fn emit_native_string_require_coercible(",
+    );
+    assert!(error.contains("kind: NativeErrorKind,"));
+    assert!(
+        error.contains("self.emit_throw_current_function_realm_error(kind, message, output, f)?;")
+    );
+    assert!(error.contains("self.emit_branch_to_target(exit, f);"));
 }

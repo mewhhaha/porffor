@@ -24,7 +24,7 @@ fn normalized(source: &str) -> String {
 fn stored_property_attributes_is_the_exact_capability_free_domain() {
     let domain = bounded(
         HEAP_SOURCE,
-        "/// Static 6.2.6.6 attributes for a descriptor-kind word stored in the heap.",
+        "/// Static 6.2.6.6 attributes for a complete GC descriptor.",
         "/// A **test** against a descriptor word.",
     );
     let declaration = bounded(

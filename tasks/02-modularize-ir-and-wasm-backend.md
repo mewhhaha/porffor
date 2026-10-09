@@ -1,5 +1,19 @@
 # T02 — Modularize the IR and Wasm backend
 
+## Ownership audit and remaining proof — 2026-10-08
+
+The frozen workspace sweep exposes guards that still inspect retired raw-heap
+carriers or old file owners. The prepared repair batch retargets equivalent
+proofs to complete GC values and restores consuming phase/role types where the
+invariant itself was lost. These source proposals remain unverified until the
+joined type, artifact and native checkpoint; guard edits alone do not prove
+semantic equivalence. Existing parent budgets stay unchanged.
+
+Closure still needs a complete repaired workspace/fake checkpoint,
+representative real filters, comparable before/after artifact behavior and
+measured workspace build-time and binary-size effects. Earlier type-check
+seconds and focused extraction passes do not supply that complete comparison.
+
 ## Linked module ownership checkpoint — 2026-10-08
 
 The package retains main until final assembly and publishes runtime, main and

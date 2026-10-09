@@ -42,6 +42,35 @@ async function* wholeHead(view) {
   }
 }
 
+// A noniteration With label accepts only its named Break. An outer
+// iteration label remains a Continue target through the original cleanup.
+async function* labelledExits(view) {
+  var trace = [];
+  outer: for (let index = 0; index < 2; index++) {
+    stopped: with (view) {
+      try {
+        await Promise.resolve(0);
+        if (index === 0) continue outer;
+        break stopped;
+      } finally {
+        await Promise.resolve(0); gc(); trace.push(index + ':' + value.marker);
+      }
+    }
+    check(value === 'outside', 'labelled-break-leaves-with-before-outer-body');
+    yield index;
+  }
+  check(value === 'outside', 'labelled-continue-leaves-with-before-next-iteration');
+  return trace;
+}
+
+async function* nestedLabels(view) {
+  first: second: with (view) { await Promise.resolve(0); break second; }
+  yield value;
+  first: second: with (view) { await Promise.resolve(0); break first; }
+  await Promise.resolve(0); gc();
+  return value;
+}
+
 async function run() {
   var view = { value: whole }, other = { value: 42 };
   var iterator = environments(view, other), result = await iterator.next();
@@ -65,5 +94,15 @@ async function run() {
   iterator = wholeHead({ value: whole }); result = await iterator.next();
   check(result.value === whole && result.value.self === whole, 'head-await-retains-whole-value-through-gc');
   result = await iterator.next(); check(result.done, 'whole-head-cleanup');
+  iterator = labelledExits({ value: whole });
+  result = await iterator.next();
+  check(!result.done && result.value === 1, 'outer-continue-reaches-second-iteration');
+  result = await iterator.next();
+  check(result.done && result.value.join(',') === '0:71,1:71', 'labelled-with-finalizers-once-in-original-record');
+  iterator = nestedLabels({ value: whole });
+  result = await iterator.next();
+  check(!result.done && result.value === 'outside', 'inner-with-label-continues-following-yield');
+  result = await iterator.next();
+  check(result.done && result.value === 'outside', 'outer-with-label-continues-following-await');
 }
 run().then(function () { print('mixed-async-generator-with-environments:ok'); }, function (error) { print(error); throw error; });

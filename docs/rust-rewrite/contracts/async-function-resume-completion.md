@@ -1,5 +1,11 @@
 # Async-function resume completion as a closed wire domain
 
+## Current GC boundary — 2026-10-08
+
+The current two-way policy is private, must-use, non-Copy `AsyncContinuationOwner`. Both `emit_load_async_continuation_resume` and `emit_async_continuation_await` borrow it. They project the actual typed GC Async/AsyncGenerator activation and strictly decode the accepted resume pair; the invocation frame owns the saved lexical Environment. Saved and active for-await iteration owners are consumed by reattachment and cleanup, with cleanup publishing the restored Environment before completion dispatch. The earlier four scalar-offset projections below describe the retired heap representation.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 ## Specification boundary
 
 ECMAScript `Await` resumes an async execution context with exactly one of two

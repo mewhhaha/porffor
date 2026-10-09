@@ -399,11 +399,18 @@ fn both_execution_entry_points_produce_their_exact_stack_authority() {
         )
     );
 
+    let replay = include_str!("../src/differential/test262_seeds/worker.rs");
+    assert!(replay.contains(
+        "crate::run_one_case_on_persistent_worker(&case, &preludes, config.timeout_ms, backend)"
+    ));
+    assert!(replay.contains(".stack_size(crate::TEST262_WORKER_STACK_SIZE)"));
+    assert!(replay.contains("if original.test_id != *seed.execution_id()"));
+    assert!(replay.contains("suite_digest(&config.suite_root)? != seed.wire.suite_sha256"));
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_normalized_rust_sources(&source_root, "run_one_case_on_persistent_worker("),
-        2,
-        "one product call and one definition own the persistent-worker wrapper"
+        3,
+        "the suite worker and exact-seed replay share the persistent-worker wrapper"
     );
     assert_eq!(
         count_in_normalized_rust_sources(&source_root, "run_one_case_with_wasm_aot_execution("),

@@ -151,17 +151,22 @@ fn encode(runtime: &RuntimeArtifact, key: RuntimeArtifactCacheKey) -> Vec<u8> {
     entry.extend_from_slice(MAGIC);
     entry.extend_from_slice(&LAYOUT_VERSION.to_le_bytes());
     entry.extend_from_slice(key.as_bytes());
-    entry.extend_from_slice(&(runtime.layout.pool.static_len() as u64).to_le_bytes());
-    entry.extend_from_slice(&(runtime.layout.pool.code_unit_len() as u64).to_le_bytes());
-    entry.extend_from_slice(&runtime.layout.pool.strings().to_le_bytes());
-    entry.extend_from_slice(&(runtime.bytes.len() as u64).to_le_bytes());
-    entry.extend_from_slice(&runtime.bytes);
+    encode_payload(runtime, &mut entry);
     let digest = Sha256::digest(&entry);
     entry.extend_from_slice(&digest);
     entry
 }
 
-fn take<const N: usize>(bytes: &mut &[u8]) -> Option<[u8; N]> {
+/// Both disk and build envelopes carry this exact checked raw payload.
+pub(super) fn encode_payload(runtime: &RuntimeArtifact, entry: &mut Vec<u8>) {
+    entry.extend_from_slice(&(runtime.layout.pool.static_len() as u64).to_le_bytes());
+    entry.extend_from_slice(&(runtime.layout.pool.code_unit_len() as u64).to_le_bytes());
+    entry.extend_from_slice(&runtime.layout.pool.strings().to_le_bytes());
+    entry.extend_from_slice(&(runtime.bytes.len() as u64).to_le_bytes());
+    entry.extend_from_slice(&runtime.bytes);
+}
+
+pub(super) fn take<const N: usize>(bytes: &mut &[u8]) -> Option<[u8; N]> {
     let (value, rest) = bytes.split_at_checked(N)?;
     *bytes = rest;
     value.try_into().ok()
@@ -182,6 +187,13 @@ fn decode(
     {
         return None;
     }
+    decode_payload(payload, identity)
+}
+
+pub(super) fn decode_payload(
+    mut payload: &[u8],
+    identity: &RuntimeIdentity,
+) -> Option<RuntimeArtifact> {
     let static_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
     let code_unit_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
     let strings = u32::from_le_bytes(take(&mut payload)?);

@@ -93,8 +93,9 @@ mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_artifact;
 pub use runtime_artifact::{
-    runtime_artifact, runtime_artifact_with_cache, RuntimeArtifact, RuntimeArtifactCache,
-    RuntimeArtifactCacheKey, RuntimeArtifactKey, RUNTIME_IMPORT_NAMESPACE,
+    build_runtime_artifact, runtime_artifact, runtime_artifact_with_cache,
+    runtime_artifact_with_inputs, RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactCacheKey,
+    RuntimeArtifactInputs, RuntimeArtifactKey, RuntimeBuildArtifact, RUNTIME_IMPORT_NAMESPACE,
 };
 mod runtime_helpers;
 use abi::*;
@@ -105,10 +106,14 @@ use code_sink::{Function, LabelDepth, LocalDeclarations};
 use data::*;
 pub use emit::emit;
 pub use emit::emit_with_intl_profile;
-pub use emit::emit_with_intl_profile_and_runtime_cache;
 pub use emit::emit_with_promise_rejection_policy;
 pub use emit::emit_with_rooted_snapshot;
-pub use emit::emit_with_rooted_snapshot_and_runtime_cache;
+pub use emit::{
+    emit_with_intl_profile_and_runtime_cache, emit_with_intl_profile_and_runtime_inputs,
+};
+pub use emit::{
+    emit_with_rooted_snapshot_and_runtime_cache, emit_with_rooted_snapshot_and_runtime_inputs,
+};
 pub(crate) use emit::{
     AccessorThrowRouting, BindingStorage, CompletionKind, ControlFrameKind, ControlTarget,
     FunctionBuilder, LabelTargets, LoopTargets, PropagateCallThrow, ReturnAbi,
@@ -268,8 +273,12 @@ mod tests {
     /// so a module that emits it turns an anonymous native-compilation failure
     /// into a named one.
     fn function_names(artifact: &WasmArtifact) -> BTreeMap<u32, String> {
+        function_names_in_bytes(&artifact.bytes)
+    }
+
+    fn function_names_in_bytes(bytes: &[u8]) -> BTreeMap<u32, String> {
         let mut names = BTreeMap::new();
-        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+        for payload in Parser::new(0).parse_all(bytes) {
             let Payload::CustomSection(section) = payload.expect("module should parse") else {
                 continue;
             };
@@ -295,8 +304,12 @@ mod tests {
     /// emitter's own variable, so it is an independent witness of the base the
     /// name section indices must start from.
     fn imported_function_count(artifact: &WasmArtifact) -> u32 {
+        imported_function_count_in_bytes(&artifact.bytes)
+    }
+
+    fn imported_function_count_in_bytes(bytes: &[u8]) -> u32 {
         let mut count = 0u32;
-        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+        for payload in Parser::new(0).parse_all(bytes) {
             let Payload::ImportSection(reader) = payload.expect("module should parse") else {
                 continue;
             };
@@ -343,27 +356,42 @@ mod tests {
             names.values().any(|name| name.starts_with("js::outer")),
             "user functions must be named: {names:?}"
         );
+        let runtime = artifact.runtime().expect("heap program links R");
+        let runtime_names = function_names_in_bytes(runtime.bytes());
         assert!(
-            names
+            runtime_names
                 .values()
                 .any(|name| name == "helper::transient_byte_alloc"),
-            "runtime helpers must be named: {names:?}"
+            "runtime helpers must be named in R: {runtime_names:?}"
         );
         assert!(
-            names.values().any(|name| name.starts_with("builtin::")),
-            "compiled builtins must be named: {names:?}"
+            runtime_names
+                .values()
+                .any(|name| name.starts_with("builtin::")),
+            "compiled builtins must be named in R: {runtime_names:?}"
         );
 
         // Every code-section entry is named, because every entry goes through
         // `ModuleCode::push(EmittedFunction)` and an `EmittedFunction` cannot be
         // built without an identity.
-        let mut code_entries = 0usize;
-        for payload in Parser::new(0).parse_all(&artifact.bytes) {
-            if let Payload::CodeSectionEntry(_) = payload.expect("module should parse") {
-                code_entries += 1;
-            }
+        for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
+            let names = function_names_in_bytes(bytes);
+            let first_body = imported_function_count_in_bytes(bytes);
+            let code_entries = Parser::new(0)
+                .parse_all(bytes)
+                .filter(|payload| {
+                    matches!(
+                        payload.as_ref().expect("module should parse"),
+                        Payload::CodeSectionEntry(_)
+                    )
+                })
+                .count();
+            assert_eq!(names.len(), code_entries);
+            assert_eq!(
+                names.keys().copied().collect::<Vec<_>>(),
+                (first_body..first_body + code_entries as u32).collect::<Vec<_>>()
+            );
         }
-        assert_eq!(names.len(), code_entries);
     }
 
     #[test]
@@ -680,30 +708,20 @@ mod tests {
 
     #[test]
     fn runtime_helper_count_is_derived_not_asserted() {
-        // The point of this test is that the reported figure is *derived from
-        // the registry*, not hand-written: the literal `27` it replaces had
-        // drifted from the truth by five. So the expectation is spelled from
-        // `RuntimeHelperId::ALL` and a new helper moves both sides together.
-        //
-        // Exactly one helper is conditional (`JSON.stringify`'s value helper).
-        // That does NOT make the emitted count vary by script: `emit` gates it
-        // on `compiled_standard_builtins.contains(JsonStringify)`, and the
-        // default bootstrap installs the full global object, so
-        // `JSON.stringify` has a compiled body for every script — including one
-        // that never mentions `JSON`. Asserting a lower count for `this;` would
-        // be asserting a demand-driven bootstrap this backend does not have
-        // yet, which is why that assertion failed the first time it was run.
-        let conditional = RuntimeHelperId::ALL
-            .iter()
-            .filter(|helper| helper.is_conditional())
-            .count();
+        // The same registry partitions helpers between R and P. Full bootstrap
+        // emits the JSON helper even when source never mentions JSON.
         assert_eq!(
-            conditional, 1,
-            "only JSON.stringify's value helper is conditional; \
-             a second conditional helper needs this test to distinguish them"
+            RuntimeHelperId::ALL
+                .iter()
+                .filter(|helper| helper.is_conditional())
+                .count(),
+            1
         );
-
-        let expected = format!("runtime helper functions: {}", RuntimeHelperId::ALL.len());
+        let expected_program = RuntimeHelperId::ALL
+            .iter()
+            .filter(|helper| helper.is_program_owned())
+            .count();
+        let expected = format!("runtime helper functions: {expected_program}");
         for source in ["this;", "JSON.stringify({});"] {
             let artifact = emit_script(source).expect("script should emit");
             assert!(
@@ -711,6 +729,19 @@ mod tests {
                 "expected `{expected}` for `{source}`\n{}",
                 artifact.debug_dump
             );
+            let program_names = function_names(&artifact);
+            let runtime_names =
+                function_names_in_bytes(artifact.runtime().expect("heap program links R").bytes());
+            for helper in RuntimeHelperId::ALL {
+                let name = format!("helper::{}", helper.debug_name());
+                for (program_owned, names) in [(true, &program_names), (false, &runtime_names)] {
+                    assert_eq!(
+                        names.values().filter(|actual| *actual == &name).count(),
+                        usize::from(helper.is_program_owned() == program_owned),
+                        "helper {name} must occur exactly in its declared R/P owner"
+                    );
+                }
+            }
         }
     }
 
@@ -842,15 +873,12 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
     }
 
     #[test]
-    fn async_generator_await_conditional_suspension_remains_explicit() {
-        let error = emit_script(
+    fn async_generator_await_conditional_suspension_module_validates() {
+        let artifact = emit_script(
             "async function* choose(flag) { if (flag) await 1; return 2; } choose(true).next();",
         )
-        .expect_err("async-generator conditional Await should remain explicit");
-
-        assert!(error
-            .to_string()
-            .contains("does not yet support branches containing suspension"));
+        .expect("conditional Await has a checked resumable branch");
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]
@@ -989,15 +1017,11 @@ result.visible + result[symbol] + result[0] + result[1] + calls.length;
     }
 
     #[test]
-    fn async_generator_yield_spread_conditional_remains_explicit() {
-        let error = emit_script(
+    fn async_generator_yield_spread_conditional_module_validates() {
+        let artifact = emit_script(
             "async function* stream(flag) { yield [...(flag ? yield [] : [])]; } stream(true).next();",
-        )
-        .expect_err("conditional yield inside spread should remain explicit");
-
-        assert!(error
-            .to_string()
-            .contains("generator expression suspension"));
+        ).expect("conditional spread yield has a checked resumable branch");
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]
@@ -1143,23 +1167,11 @@ result.first === 1 && result.second === 2;
     }
 
     #[test]
-    fn async_generator_body_dispatcher_rejects_for_await_iteration() {
-        // A `yield` in the body is supported: its resume states are allocated
-        // inside the loop's own state span, so the loop re-enters on them. A
-        // nested `for await` is not, because its four states nest inside that
-        // same span and the inner loop would be entered by the outer loop's
-        // per-iteration gate rather than by its own.
-        let error = emit_script(
+    fn async_generator_body_dispatcher_nested_for_await_module_validates() {
+        let artifact = emit_script(
             "async function* stream(source) { for await (const outer of source) { for await (const inner of outer) { print(inner); } } }",
-        )
-        .expect_err("a nested for-await body should remain refused");
-
-        assert!(
-            error
-                .to_string()
-                .contains("does not yet support for-await iteration"),
-            "{error}"
-        );
+        ).expect("nested for-await owns independent continuation states");
+        expect_valid_module(&artifact, 1);
     }
 
     #[test]
@@ -1800,12 +1812,28 @@ pick(true);"#,
 
     #[test]
     fn operations_emits_same_value_spec_operation() {
-        let source =
-            parse("Object.is(NaN, NaN);", ParseOptions::script()).expect("script should parse");
-        let program = lower(&source);
+        // Object.is is an observable property call, not a source-level intrinsic.
+        // Exercise the exact spec-operation IR, as the SameValueZero test does.
+        let source = parse("0;", ParseOptions::script()).expect("script should parse");
+        let mut program = lower(&source);
+        let script = program.script.as_mut().expect("script ir should exist");
+        script.body.statements[0] = StatementIr::Expression(TypedExpr::spec_same_value(
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(f64::NAN.to_bits()),
+            ),
+            TypedExpr::from_info(
+                ValueInfo::new(ValueKind::Number),
+                ExprIr::Number(f64::NAN.to_bits()),
+            ),
+        ));
+        script.body.result_kind = ValueKind::Boolean;
         assert!(program.ir_summary().contains("spec_operations=1"));
         let artifact = emit(&program).expect("SameValue spec operation should emit");
-        assert!(!artifact.bytes.is_empty());
+        expect_valid_module(&artifact, 0);
+        let property_call =
+            emit_script("Object.is(NaN, NaN);").expect("ordinary Object.is call should emit");
+        expect_valid_module(&property_call, 0);
     }
 
     #[test]
@@ -2074,6 +2102,21 @@ pick(true);"#,
         assert!(program.ir_summary().contains("constructs=1"));
         let artifact = emit(&program).expect("Construct spec operation should emit");
         assert!(!artifact.bytes.is_empty());
+    }
+
+    fn data_segment_at(bytes: &[u8], index: usize) -> Vec<u8> {
+        for payload in Parser::new(0).parse_all(bytes) {
+            if let Payload::DataSection(reader) = payload.expect("module should parse") {
+                return reader
+                    .into_iter()
+                    .nth(index)
+                    .expect("data segment exists")
+                    .expect("data segment should decode")
+                    .data
+                    .to_vec();
+            }
+        }
+        panic!("module has no data section");
     }
 
     fn data_segment_bytes(bytes: &[u8]) -> Vec<u8> {
@@ -2429,18 +2472,30 @@ pick(true);"#,
         let artifact = emit_script("Intl.getCanonicalLocales(['iw-IL']);")
             .expect("canonical locale list should emit");
         expect_valid_module(&artifact, 0);
+        let runtime_bytes = artifact.runtime().expect("Intl program links R").bytes();
+        assert!(Parser::new(0).parse_all(runtime_bytes).any(|payload| {
+            let Payload::ImportSection(reader) = payload.expect("runtime should parse") else {
+                return false;
+            };
+            reader.into_imports().any(|import| {
+                let import = import.expect("host import should parse");
+                import.module == GcHostImport::IntlProviderCall.module()
+                    && import.name == GcHostImport::IntlProviderCall.name()
+                    && matches!(
+                        import.ty,
+                        wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                    )
+            })
+        }));
         assert!(
-            artifact
-                .debug_dump
-                .contains("import func: lila_host.intl_call"),
-            "{}",
-            artifact.debug_dump
+            components(&artifact.bytes).is_empty(),
+            "Intl images belong to R"
         );
         let expected_identity = lila_intl::embedded_intl_data_identity()
             .expect("embedded Intl identity should be valid")
             .artifact_identity();
         let identity_sections = Parser::new(0)
-            .parse_all(&artifact.bytes)
+            .parse_all(runtime_bytes)
             .filter_map(|payload| {
                 let Payload::CustomSection(section) = payload.expect("module should parse") else {
                     return None;
@@ -2450,7 +2505,7 @@ pick(true);"#,
             })
             .collect::<Vec<_>>();
         assert_eq!(identity_sections, [expected_identity.as_bytes().to_vec()]);
-        let actual = components(&artifact.bytes);
+        let actual = components(runtime_bytes);
         let expected = [
             (
                 lila_intl::INTL_LOCALE_DATA_CUSTOM_SECTION,
@@ -2543,7 +2598,12 @@ pick(true);"#,
         )
         .expect("selected catalogues and host images should emit together");
         expect_valid_module(&custom, 0);
-        let custom_sections = components(&custom.bytes);
+        let custom_runtime = custom
+            .runtime()
+            .expect("custom Intl program links R")
+            .bytes();
+        assert!(components(&custom.bytes).is_empty());
+        let custom_sections = components(custom_runtime);
         assert_eq!(custom_sections.len(), 12);
         for (name, bytes) in selected.component_sections() {
             assert_eq!(
@@ -2566,7 +2626,7 @@ pick(true);"#,
         let custom_identity = selected.identity().artifact_identity();
         assert_ne!(custom_identity.as_bytes(), expected_identity.as_bytes());
         let actual_identity = Parser::new(0)
-            .parse_all(&custom.bytes)
+            .parse_all(custom_runtime)
             .filter_map(|payload| {
                 let Payload::CustomSection(section) = payload.expect("module should parse") else {
                     return None;
@@ -2948,10 +3008,47 @@ setterReceiver === receiver;
     #[test]
     fn string_script_emits_memory_and_data() {
         let artifact = emit_script("const s = \"hi\"; s;").expect("emit should work");
-        assert!(artifact
-            .debug_dump
-            .contains("memory: exported linear memory"));
-        assert!(artifact.debug_dump.contains("data segments: 1"));
+        expect_valid_module(&artifact, 0);
+        assert!(artifact.runtime().is_some(), "GC string literal links R");
+        assert!(Parser::new(0).parse_all(&artifact.bytes).any(|payload| {
+            let Payload::ExportSection(reader) = payload.expect("program should parse") else {
+                return false;
+            };
+            reader.into_iter().any(|export| {
+                let export = export.expect("export should parse");
+                export.name == "memory"
+                    && export.kind == wasmparser::ExternalKind::Memory
+                    && export.index == 0
+            })
+        }));
+        let units = data_segment_at(&artifact.bytes, 0);
+        assert!(
+            units.windows(4).any(|units| units == b"h\0i\0"),
+            "literal UTF-16 remains in P"
+        );
+        let segments = Parser::new(0)
+            .parse_all(&artifact.bytes)
+            .filter_map(|payload| {
+                let Payload::DataSection(reader) = payload.expect("program should parse") else {
+                    return None;
+                };
+                Some(
+                    reader
+                        .into_iter()
+                        .map(|segment| {
+                            assert!(matches!(
+                                segment.expect("segment should parse").kind,
+                                wasmparser::DataKind::Passive
+                            ));
+                        })
+                        .count(),
+                )
+            })
+            .sum::<usize>();
+        assert_eq!(
+            segments, 2,
+            "P owns separate UTF-16 and static-data suffixes"
+        );
     }
 
     #[test]
@@ -2959,36 +3056,41 @@ setterReceiver === receiver;
         for source in ["\",\";", "({ value: \",\" });"] {
             let artifact = emit_script(source).expect("emit should work");
             expect_valid_module(&artifact, 0);
-            let data = data_segment_bytes(&artifact.bytes);
+            let runtime = artifact.runtime().expect("heap program links R");
+            let data = data_segment_at(runtime.bytes(), 1);
             let mut expected_prefix = vec![b' '; 11];
             expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");
             assert!(data.starts_with(&expected_prefix));
-            let mut static_segments = 0;
-            for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                let Payload::DataSection(reader) = payload.expect("module should parse") else {
+            let mut active_segments = 0;
+            let mut passive_segments = 0;
+            for payload in Parser::new(0).parse_all(runtime.bytes()) {
+                let Payload::DataSection(reader) = payload.expect("runtime should parse") else {
                     continue;
                 };
                 for segment in reader {
-                    let segment = segment.expect("static wire segment should decode");
-                    static_segments += 1;
-                    let wasmparser::DataKind::Active {
-                        memory_index,
-                        offset_expr,
-                    } = segment.kind
-                    else {
-                        panic!("wire data requires its actual active private-memory segment");
-                    };
-                    assert_eq!(memory_index, 0);
-                    let mut offset = offset_expr.get_operators_reader();
-                    assert!(matches!(offset.read().expect("wire offset"),
-                        Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32));
-                    assert!(matches!(
-                        offset.read().expect("wire offset end"),
-                        Operator::End
-                    ));
+                    let segment = segment.expect("runtime segment should decode");
+                    match segment.kind {
+                        wasmparser::DataKind::Passive => passive_segments += 1,
+                        wasmparser::DataKind::Active {
+                            memory_index,
+                            offset_expr,
+                        } => {
+                            active_segments += 1;
+                            assert_eq!(memory_index, 0);
+                            let mut offset = offset_expr.get_operators_reader();
+                            assert!(
+                                matches!(offset.read().expect("wire offset"), Operator::I32Const { value } if value == STATIC_DATA_OFFSET as i32)
+                            );
+                            assert!(matches!(
+                                offset.read().expect("wire offset end"),
+                                Operator::End
+                            ));
+                            assert!(offset.eof());
+                        }
+                    }
                 }
             }
-            assert_eq!(static_segments, 1);
+            assert_eq!((passive_segments, active_segments), (1, 1));
             assert!(artifact
                 .gc_host_imports()
                 .contains(&GcHostImport::CollectGc));
@@ -3010,17 +3112,42 @@ setterReceiver === receiver;
         let artifact = emit_script("\",\"; /[a-c]/; /[a-c]/g;").expect("emit should work");
         let program = lila_ir::RegExpProgram::compile("[a-c]", "").unwrap();
         let encoded = lila_ir::ValidatedRegExpProgram::from_program(&program).unwrap();
-        let data = data_segment_bytes(&artifact.bytes);
+        let runtime = artifact.runtime().expect("RegExp program links R");
+        let runtime_data = data_segment_at(runtime.bytes(), 1);
+        let data = data_segment_at(&artifact.bytes, 1);
         let offsets = data
             .windows(encoded.bytes().len())
             .enumerate()
             .filter_map(|(offset, candidate)| (candidate == encoded.bytes()).then_some(offset))
             .collect::<Vec<_>>();
         assert_eq!(offsets.len(), 1);
-        let pointer = STATIC_DATA_OFFSET as usize + offsets[0];
+        let pointer = STATIC_DATA_OFFSET as usize + runtime_data.len() + offsets[0];
         assert_eq!(pointer % 8, 0);
         expect_valid_module(&artifact, 0);
-        assert!(global_init_i64s(&artifact.bytes).contains(&(align_heap_start(data.len()) as i64)));
+        assert!(global_init_i64s(runtime.bytes())
+            .contains(&(align_heap_start(runtime_data.len()) as i64)));
+        let heap_start = align_heap_start(runtime_data.len() + data.len()) as i64;
+        let first_body = Parser::new(0)
+            .parse_all(&artifact.bytes)
+            .find_map(|payload| match payload.expect("program should parse") {
+                Payload::CodeSectionEntry(body) => Some(body),
+                _ => None,
+            })
+            .expect("main has a code body");
+        let operators = first_body
+            .get_operators_reader()
+            .expect("main operators")
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("main operators decode");
+        assert!(
+            operators
+                .windows(2)
+                .any(|pair| matches!((&pair[0], &pair[1]),
+            (Operator::I64Const { value }, Operator::GlobalSet { global_index })
+                if *value == heap_start && *global_index == PRIVATE_BYTE_CURSOR_GLOBAL_INDEX)),
+            "main advances the byte cursor past both R and P static data"
+        );
     }
 
     #[test]
@@ -3287,6 +3414,97 @@ object[key];
         let repeated = emit_writes(10);
         expect_valid_module(&single, 1);
         expect_valid_module(&repeated, 1);
+        // R and P share declared function indices. Pin actual call edges,
+        // not just the existence of a helper with the right name.
+        for artifact in [&single, &repeated] {
+            let runtime = artifact.runtime().expect("With writes link R");
+            let runtime_names = function_names_in_bytes(runtime.bytes());
+            let helper_index = |name: &str| {
+                let indices = runtime_names
+                    .iter()
+                    .filter_map(|(&index, actual)| (actual == name).then_some(index))
+                    .collect::<Vec<_>>();
+                assert_eq!(indices.len(), 1, "{name} has one body in R");
+                indices[0]
+            };
+            let sloppy = helper_index("helper::environment_identifier_put_sloppy");
+            let strict = helper_index("helper::environment_identifier_put_strict");
+            let set = helper_index("helper::ordinary_set");
+            let calls_by_index = |bytes: &[u8]| {
+                let mut next = imported_function_count_in_bytes(bytes);
+                let mut calls = BTreeMap::new();
+                for payload in Parser::new(0).parse_all(bytes) {
+                    if let Payload::CodeSectionEntry(body) = payload.expect("module decodes") {
+                        let direct = body
+                            .get_operators_reader()
+                            .expect("body opens")
+                            .into_iter()
+                            .filter_map(|operator| match operator.expect("operator decodes") {
+                                Operator::Call { function_index }
+                                | Operator::ReturnCall { function_index } => Some(function_index),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+                        calls.insert(next, direct);
+                        next += 1;
+                    }
+                }
+                calls
+            };
+            let runtime_calls = calls_by_index(runtime.bytes());
+            for index in [sloppy, strict] {
+                let calls = &runtime_calls[&index];
+                assert!(
+                    calls.contains(&set),
+                    "PutValue keeps the actual OrdinarySet call"
+                );
+                assert!(
+                    !calls.contains(&sloppy) && !calls.contains(&strict),
+                    "a PutValue helper must never reenter its own facade"
+                );
+            }
+            let program_calls = calls_by_index(&artifact.bytes);
+            let names = function_names(artifact);
+            let probes = names
+                .iter()
+                .filter(|(_, name)| name.starts_with("js::probe#"))
+                .map(|(&index, _)| index)
+                .collect::<Vec<_>>();
+            assert!(!probes.is_empty());
+            assert!(
+                probes
+                    .iter()
+                    .any(|index| program_calls[index].contains(&sloppy)),
+                "the actual nested With probe calls shared PutValue"
+            );
+            let mut imported = 0u32;
+            let mut matched_import = false;
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                if let Payload::ImportSection(section) = payload.expect("P decodes") {
+                    for import in section.into_imports() {
+                        let import = import.expect("import decodes");
+                        if matches!(
+                            import.ty,
+                            wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                        ) {
+                            if imported == sloppy {
+                                assert_eq!(
+                                    import.module,
+                                    crate::runtime_artifact::RUNTIME_IMPORT_NAMESPACE
+                                );
+                                assert_eq!(import.name, format!("f{sloppy}"));
+                                matched_import = true;
+                            }
+                            imported += 1;
+                        }
+                    }
+                }
+            }
+            assert!(
+                matched_import,
+                "P's call reaches R's exact exported function"
+            );
+        }
         let largest_probe = |artifact: &WasmArtifact| {
             artifact
                 .function_sizes
@@ -3301,8 +3519,9 @@ object[key];
         let growth = repeated_bytes
             .checked_sub(single_bytes)
             .expect("additional observable assignments must not shrink the body");
-        // The frozen baseline added 538,272 bytes by copying array dispatch
-        // into each possible SetMutableBinding branch.
+        // The pre-outline baseline added 538,272 bytes. The GC rewrite
+        // regressed to 247,068 by repeating complete Reference PutValue paths;
+        // preserve the original bound while sharing that dispatch in R.
         assert!(
             growth < 180_000,
             "nine nested With assignments added {growth} bytes ({single_bytes} -> {repeated_bytes})"
@@ -3631,9 +3850,11 @@ delete proxy[0];"#,
             let artifact = emit_script(source).expect("Atomics script should emit");
             expect_valid_module(&artifact, 0);
 
-            let mut memory_imports = Vec::new();
+            let runtime = artifact.runtime().expect("Atomics program links R");
             let mut atomic_memory_indexes = Vec::new();
-            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
+            let mut memory_imports = Vec::new();
+            for payload in Parser::new(0).parse_all(bytes) {
                 match payload.expect("wasm parse should succeed") {
                     Payload::ImportSection(reader) => {
                         for imports in reader {
@@ -3702,6 +3923,7 @@ delete proxy[0];"#,
                 ],
                 "source: {source}"
             );
+            }
             assert!(!atomic_memory_indexes.is_empty(), "source: {source}");
             assert!(
                 atomic_memory_indexes.iter().all(|index| *index == 1),

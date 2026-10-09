@@ -61,12 +61,14 @@ assert(
 
 let proxyReceiver;
 let proxyArgumentCount = -1;
+let proxyArguments;
 let callableProxy = new Proxy(function () {
   throw new Error("callable Proxy target should not run directly");
 }, {
   apply: function (target, receiver, args) {
     proxyReceiver = receiver;
     proxyArgumentCount = args.length;
+    proxyArguments = args;
     return "proxy";
   }
 });
@@ -76,7 +78,14 @@ assert(
   "callable Proxy result"
 );
 assert(proxyReceiver === proxyElement, "callable Proxy receiver");
-assert(proxyArgumentCount === 0, "callable Proxy argument count");
+assert(proxyArgumentCount === 2, "callable Proxy argument count");
+assert(proxyArguments[0] === undefined && proxyArguments[1] === undefined,
+  "omitted locale arguments are forwarded as undefined");
+let locales = {}, options = {}, extra = {};
+assert(Array.prototype.toLocaleString.call([proxyElement], locales, options, extra) === "proxy",
+  "callable Proxy receives explicit locale arguments");
+assert(proxyArgumentCount === 2 && proxyArguments[0] === locales && proxyArguments[1] === options,
+  "locale argument identity and ignored extra argument");
 
 let revoked = Proxy.revocable(function () {
   return "unreachable";

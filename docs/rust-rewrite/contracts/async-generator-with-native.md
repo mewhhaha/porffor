@@ -58,3 +58,22 @@ Return/Throw or rejected Await through inner and outer awaiting/yielding
 finalizers with whole reason identity and GC. These controls are authored but
 unrun in this source-only batch. Compilation and runtime verification remain a
 mandatory joined checkpoint.
+
+Async-generator admission recognizes a labelled complete `AsyncGeneratorWithIr`
+as a noniteration control scope. Only a matching named Break is owned by that
+scope. An unlabelled Break or a Continue to an outer iteration remains with its
+enclosing scope; a matching With label cannot be a Continue destination. The
+existing generic label emitter supplies the named exit, and the checked With
+cleanup leaves and saves the original enclosing environment before dispatching
+that whole completion. No new continuation plan or dispatcher is introduced.
+The surrounding resumable StatementList forwards the exact entry and exit
+states of the labelled `AsyncGeneratorWithIr`, including nested immediate
+labels. It cannot treat that checked owner as a synchronous statement and gate
+its resumed body behind the preceding segment. Other unannotated noniteration
+labels retain their existing checked-plan requirements.
+The original labelled-With fixture remains unchanged at its failing source
+site. Additional source controls exercise an outer Continue and a matching
+Break through an awaiting finalizer, requiring each finalizer once while the
+With record is still active and the outer record restored afterward.
+Compilation and native verification remain pending batch application after the
+immutable baseline sweep.

@@ -73,18 +73,38 @@ fn lowering_nests_reached_suffixes_without_generic_finally_or_double_initializat
 
 #[test]
 fn acquisition_publishes_only_after_validation_then_initializes_the_binding() {
-    let acquire = bounded(
+    let evaluate = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn compile_sync_disposable_resource(",
-        "    fn capture_pending_sync_dispose_completion(",
+        "    fn emit_control_flow_type_error(",
+    );
+    assert_before(
+        evaluate,
+        "self.compile_expr_to_value(",
+        "self.emit_propagate_current_throw_if_needed(function)",
+    );
+    assert_before(
+        evaluate,
+        "self.emit_propagate_current_throw_if_needed(function)",
+        "self.compile_sync_disposable_resource_from_locals(binding, locals, function)",
+    );
+    let acquire = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn acquire_sync_disposable_resource_from_locals(",
+        "    fn compile_sync_disposable_resource_from_locals(",
     );
     for boundary in [
+        "self.compile_nullish_tagged_i32(resource.value.tag(), function)",
         "RuntimeErrorMessage::USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT",
-        "property_key_symbol_payload(\"Symbol.dispose\")",
+        "lila_ir::WellKnownSymbol::Dispose",
+        "PropertyKeyLocals::from_symbol(schema, &symbol, function)",
+        "self.emit_object_read(&resource.value, &resource.value, &key, &pending, function)",
+        "self.emit_propagate_current_throw_if_needed(function)",
+        "resource.method.copy_from(pending.value(), function)",
         "RuntimeErrorMessage::USING_DECLARATION_RESOURCE_HAS_NO_SYMBOL_DISPOSE_METHOD",
+        "self.emit_is_callable_i32(&resource.method, function)",
         "RuntimeErrorMessage::USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE",
-        "LocalSet(locals.registered)",
-        "self.write_binding_from_locals(",
+        "resource.registered.store(function)",
     ] {
         assert!(
             acquire.contains(boundary),
@@ -93,21 +113,36 @@ fn acquisition_publishes_only_after_validation_then_initializes_the_binding() {
     }
     assert_before(
         acquire,
-        "compile_expr_to_locals(",
-        "property_key_symbol_payload",
+        "USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT",
+        "WellKnownSymbol::Dispose",
     );
     assert_before(
         acquire,
-        "RuntimeErrorMessage::USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE",
-        "LocalSet(locals.registered)",
+        "self.emit_object_read(",
+        "self.emit_propagate_current_throw_if_needed(function)",
     );
     assert_before(
         acquire,
-        "LocalSet(locals.registered)",
-        "self.write_binding_from_locals(",
+        "USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE",
+        "resource.registered.store(function)",
     );
-    assert_eq!(acquire.matches("LocalSet(locals.registered)").count(), 1);
-
+    assert_eq!(
+        acquire
+            .matches("resource.registered.store(function)")
+            .count(),
+        1
+    );
+    assert_eq!(acquire.matches("self.emit_object_read(").count(), 1);
+    let initialize = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn compile_sync_disposable_resource_from_locals(",
+        "    fn capture_pending_sync_dispose_completion(",
+    );
+    assert_before(
+        initialize,
+        "self.acquire_sync_disposable_resource_from_locals(resource, function)",
+        "self.write_binding_from_locals(binding, &resource.value, function)",
+    );
     for witness in [
         "dispose method acquired once",
         "dispose getter observes TDZ",
@@ -177,97 +212,91 @@ fn noncopyable_completion_is_captured_walked_in_reverse_folded_and_restored_once
         "    pub(crate) fn compile_try_catch_finally(",
     );
     assert!(walk.contains("pending: PendingSyncDisposeCompletionLocals"));
-    assert!(walk.contains("acquired: Vec<AcquiredSyncDisposableResourceLocals>"));
-    assert!(walk.contains("for resource in acquired.iter().rev()"));
-    assert!(walk.contains("emit_function_or_proxy_call_leave_throw_completion("));
-    assert!(walk.contains("emit_alloc_suppressed_error_instance_from_locals("));
-    assert_eq!(
-        walk.matches("self.set_completion_kind(CompletionKind::Normal")
-            .count(),
-        2
-    );
-    assert!(walk.contains(
-        "Instruction::LocalSet(pending.aux));\n            self.set_completion_kind(CompletionKind::Normal"
-    ));
-    let after_throw_capture = walk
-        .split_once("Instruction::LocalSet(pending.aux));")
-        .expect("throw completion capture")
-        .1;
+    assert!(walk.contains("resources: Vec<AcquiredSyncDisposableResourceLocals>"));
+    assert!(walk.contains("for resource in resources.iter().rev()"));
+    assert!(walk.contains("self.emit_function_or_proxy_call_with_argv("));
+    assert!(walk.contains("self.emit_alloc_suppressed_error_instance("));
     assert_before(
-        after_throw_capture,
-        "self.set_completion_kind(CompletionKind::Normal",
-        "emit_alloc_suppressed_error_instance_from_locals(",
+        walk,
+        "resource.registered.store(function)",
+        "self.emit_function_or_proxy_call_with_argv(",
+    );
+    let call = bounded(walk, "self.emit_function_or_proxy_call_with_argv(", ")?;");
+    assert_before(call, "&resource.method", "&resource.value");
+    assert_before(call, "&resource.value", "&arguments");
+    assert_before(
+        walk,
+        "called.kind().load(function)",
+        "pending.completion.kind().load(function)",
     );
     assert_before(
         walk,
-        "for resource in acquired.iter().rev()",
-        "emit_alloc_suppressed_error_instance_from_locals(",
+        "pending.completion.kind().load(function)",
+        "self.emit_alloc_suppressed_error_instance(",
+    );
+    let suppress = bounded(walk, "self.emit_alloc_suppressed_error_instance(", ")?;");
+    assert_before(suppress, "called.value()", "pending.completion.value()");
+    assert_before(
+        walk,
+        "self.emit_alloc_suppressed_error_instance(",
+        "pending.completion.set_throw(combined.value(), function)",
+    );
+    assert!(walk.contains("pending.completion.copy_from(&called, function)"));
+    assert!(
+        !walk.contains("self.set_completion_kind("),
+        "the separate called/combined completions must not overwrite the parked completion"
+    );
+    let restore = "self.completion().copy_from(&pending.completion, function)";
+    assert_eq!(walk.matches(restore).count(), 1);
+    assert_before(
+        walk,
+        "pending.completion.set_throw(combined.value(), function)",
+        restore,
+    );
+    assert_before(walk, restore, "pending.completion.clear(function)");
+    assert_before(
+        walk,
+        "pending.completion.clear(function)",
+        "for resource in resources.into_iter().rev()",
     );
     assert_before(
         walk,
-        "LocalGet(pending.kind)",
-        "emit_alloc_suppressed_error_instance_from_locals(",
+        "for resource in resources.into_iter().rev()",
+        "self.release_sync_disposable_resource_locals(resource, function)",
     );
     assert_before(
         walk,
-        "emit_alloc_suppressed_error_instance_from_locals(",
-        "LocalSet(pending.payload)",
+        "self.release_sync_disposable_resource_locals(resource, function)",
+        "match continuation",
     );
-    assert_before(
-        walk,
-        "LocalSet(pending.payload)",
-        "self.restore_saved_completion(",
-    );
-    assert_before(
-        walk,
-        "self.restore_saved_completion(",
-        "self.emit_dispatch_current_completion(function)",
-    );
-    assert_eq!(walk.matches("self.restore_saved_completion(").count(), 1);
     assert_eq!(
         walk.matches("self.emit_dispatch_current_completion(function)")
             .count(),
         1
-    );
-    assert_before(
-        walk,
-        "self.emit_dispatch_current_completion(function)",
-        "self.release_temp_local(prototype_local)",
-    );
-    assert_before(
-        walk,
-        "self.release_temp_local(prototype_local)",
-        "self.release_temp_local(call_result_payload_local)",
-    );
-    assert_before(
-        walk,
-        "self.release_temp_local(call_result_payload_local)",
-        "self.release_temp_local(pending.aux)",
-    );
-    assert_before(
-        walk,
-        "self.release_temp_local(pending.aux)",
-        "self.release_temp_local(pending.payload)",
-    );
-    assert_before(
-        walk,
-        "self.release_temp_local(pending.payload)",
-        "for resource in acquired.into_iter().rev()",
-    );
-    assert_before(
-        walk,
-        "for resource in acquired.into_iter().rev()",
-        "self.release_sync_disposable_resource_locals(resource)",
     );
     let release = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn release_sync_disposable_resource_locals(",
         "    fn compile_sync_disposable_resource(",
     );
-    assert_before(release, "resource.method_tag", "resource.method_payload");
-    assert_before(release, "resource.method_payload", "resource.value_tag");
-    assert_before(release, "resource.value_tag", "resource.value_payload");
-    assert_before(release, "resource.value_payload", "resource.registered");
+    assert!(release.contains("resource: AcquiredSyncDisposableResourceLocals"));
+    assert_before(
+        release,
+        "resource.method.clear(function)",
+        "resource.value.clear(function)",
+    );
+    assert_before(
+        release,
+        "resource.value.clear(function)",
+        "release_i32_local(resource.registered, function)",
+    );
+    let capture = bounded(
+        CONTROL_FLOW_SOURCE,
+        "    fn capture_pending_sync_dispose_completion(",
+        "    fn consume_sync_disposable_resources(",
+    );
+    assert!(capture.contains("completion.copy_from(self.completion(), function)"));
+    assert!(capture.contains("PendingSyncDisposeCompletionLocals { completion }"));
 
     for witness in [
         "single error identity",

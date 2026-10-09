@@ -14,8 +14,8 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn duration_fields_cannot_be_used_as_integer_scratch_arrays() {
-    assert!(FIELDS.contains("pub(crate) struct TemporalDurationFields([u32; 10]);"));
-    assert!(FIELDS.contains("fn number_bits(&self, unit: TemporalUnit) -> u32"));
+    assert!(FIELDS.contains("pub(crate) struct TemporalDurationFields([I64Local; 10]);"));
+    assert!(FIELDS.contains("fn number_bits(&self, unit: TemporalUnit) -> I64Local"));
     assert!(!FIELDS.contains("impl Index"));
     assert!(!FIELDS.contains("impl Deref"));
     for (source, function) in [
@@ -86,13 +86,13 @@ fn observable_conversion_precedes_range_validation() {
                 .find("emit_temporal_duration_reject_invalid(")
                 .unwrap()
     );
-    assert!(to_duration.contains("emit_is_heap_object_like_tag_i32(value_tag_local"));
+    assert!(to_duration.contains("emit_is_heap_object_like_tag_i32(input.tag()"));
     let options = bounded(
         METHODS,
         "fn emit_temporal_duration_options_object(",
         "fn emit_temporal_duration_option_get(",
     );
-    assert!(options.contains("emit_is_heap_object_like_tag_i32(options_tag_local"));
+    assert!(options.contains("emit_is_heap_object_like_tag_i32(options.tag()"));
 }
 
 #[test]
@@ -138,15 +138,26 @@ fn wide_arithmetic_crosses_one_exact_number_boundary() {
 
 #[test]
 fn calendar_consumers_use_bounded_integer_projections_and_shared_negation() {
-    for source in [
-        include_str!("../src/builtins/temporal_plain_date_methods.rs"),
-        include_str!("../src/builtins/temporal_plain_date_time_methods.rs"),
-        include_str!("../src/builtins/temporal_plain_year_month_methods.rs"),
+    for (source, fields) in [
+        (
+            include_str!("../src/builtins/temporal_plain_date_methods.rs"),
+            "duration",
+        ),
+        (
+            include_str!("../src/builtins/temporal_plain_date_time_methods.rs"),
+            "duration_locals",
+        ),
+        (
+            include_str!("../src/builtins/temporal_plain_year_month_methods.rs"),
+            "duration",
+        ),
     ] {
-        assert!(source.contains("reserve_temporal_duration_date_field_locals(&duration_locals"));
-        assert!(source.contains("emit_temporal_duration_negate_fields(&duration_locals"));
-        assert!(!source.contains("duration_locals["));
-        assert!(!source.contains("duration_locals.iter()"));
+        assert!(source.contains(&format!(
+            "reserve_temporal_duration_date_field_locals(&{fields}"
+        )));
+        assert!(source.contains(&format!("emit_temporal_duration_negate_fields(&{fields}")));
+        assert!(!source.contains(&format!("{fields}[")));
+        assert!(!source.contains(&format!("{fields}.iter()")));
     }
     let time = include_str!("../src/builtins/temporal_plain_time_methods.rs");
     assert!(time.contains("emit_temporal_duration_negate_fields(&duration_locals"));

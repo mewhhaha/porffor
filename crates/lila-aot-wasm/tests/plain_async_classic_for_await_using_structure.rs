@@ -2,7 +2,9 @@ const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const FOR_LOOP_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_loop.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
-const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
+const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/tests/resource_disposal.rs");
+const COMPLETE_CLASSIC_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/async_classic_loop.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
 const FIXTURE: &str =
@@ -176,15 +178,19 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
     let ir_test = bounded(
         IR_TEST_SOURCE,
         "fn plain_async_classic_for_await_using_owns_closed_initializer_capability()",
-        "fn synchronous_using_for_of_is_a_closed_generic_iterator_head()",
+        "fn plain_async_for_of_await_using_owns_repeating_iteration_capability()",
     );
     for marker in [
         "StatementIr::Labelled {",
-        "StatementIr::For {",
-        "init: Some(ForInitIr::AsyncDisposable(init))",
-        "lexical_environment: Some(environment)",
-        "assert_eq!(init.resources().len(), 2)",
-        "assert!(!init.resources().is_empty())",
+        "StatementIr::AsyncGeneratorLoop(plan)",
+        "plan.execution(), ResumableRegionProtocolIr::Async",
+        "plan.lexical_environment().expect(\"captured head environment\")",
+        "assert_eq!(init.capacity(), 2)",
+        "StatementIr::AsyncGeneratorResourceRegistration(registration)",
+        "registration.capability_binding() == init.capability_binding()",
+        "registration.hint() == ResourceDisposalHintIr::Async",
+        "assert_eq!(registrations.len(), 2)",
+        "classic-for capability must own exactly one activation slot",
         "assert!(environment.per_iteration_slots.is_empty())",
         "assert!(finalizer.entry_state() < finalizer.dispose_state())",
         "assert!(finalizer.dispose_state() < finalizer.resume_state())",
@@ -192,6 +198,27 @@ fn lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered() {
     ] {
         assert!(ir_test.contains(marker), "{marker}");
     }
+    assert!(ir_test
+        .contains("assert!(capability.finalizer().dispose_state() > plan.body().end_state())"));
+    assert!(for_loop.contains("if self.plain_async_entry_state().is_some()"));
+    assert!(for_loop.contains("return self.lower_plain_async_classic_loop("));
+    let complete = COMPLETE_CLASSIC_LOWERING_SOURCE;
+    positions_in_order(
+        complete,
+        &[
+            "fn lower_plain_async_classic_phases(",
+            "allocate_mixed_resource_capability(",
+            "lower_mixed_classic_resource_initialization(",
+            "self.lower_for_lexical_environment(source, head.as_ref())",
+            "self.finish_resumable_resource_region(",
+            "self.lower_plain_async_loop_expression(",
+            "self.lower_plain_async_loop_body(",
+            "self.lower_plain_async_loop_expression(",
+            "AsyncGeneratorScopedResourceIr::new_resumable(",
+            "AsyncGeneratorLoopIr::new_plain_async(",
+        ],
+    );
+    assert!(complete.contains("StatementIr::AsyncGeneratorLoop(Box::new(plan))"));
 }
 
 #[test]

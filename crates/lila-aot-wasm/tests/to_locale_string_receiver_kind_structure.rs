@@ -62,164 +62,120 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 
 #[test]
 fn receiver_kind_is_an_exact_private_non_derived_domain() {
-    let declaration_region = bounded(
+    let declaration = bounded(
         ARRAY_SOURCE,
-        concat!(
-            "\nenum ArraySortOutput {\n",
-            "    Receiver,\n",
-            "    Copy,\n",
-            "}\n\n"
-        ),
-        "\n\npub(crate) enum ArrayInheritedIndexSetState {",
+        "\nenum ToLocaleStringReceiverKind {",
+        "\n}\n#[derive(Clone, Copy)]\nenum ArrayCallbackReceiverKind",
     );
-    assert_eq!(
-        normalized(declaration_region),
-        "enumToLocaleStringReceiverKind{ArrayLike,TypedArray,}"
-    );
-    assert!(!declaration_region.contains("#["));
-    assert!(!declaration_region.contains("pub"));
+    assert_eq!(normalized(declaration), "ArrayLike,TypedArray,");
+    assert!(!ARRAY_SOURCE.contains("#[derive(Clone, Copy)]\nenum ToLocaleStringReceiverKind"));
+    assert!(!ARRAY_SOURCE.contains("pub enum ToLocaleStringReceiverKind"));
+    assert!(!ARRAY_SOURCE.contains("pub(crate) enum ToLocaleStringReceiverKind"));
     assert!(!ARRAY_SOURCE.contains("impl ToLocaleStringReceiverKind"));
-
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "ToLocaleStringReceiverKind"),
-        11,
-        "the declaration, two producers, two typed parameters and six exhaustive arms own every mention"
+        10,
+        "declaration, four fixed Join/Locale producers, owned parameter and four arms"
     );
-    assert_eq!(
-        count_in_rust_sources(&source_root, "ToLocaleStringReceiverKind::ArrayLike"),
-        4
-    );
-    assert_eq!(
-        count_in_rust_sources(&source_root, "ToLocaleStringReceiverKind::TypedArray"),
-        4
-    );
+    for variant in ["ArrayLike", "TypedArray"] {
+        assert_eq!(
+            count_in_rust_sources(
+                &source_root,
+                &format!("ToLocaleStringReceiverKind::{variant}")
+            ),
+            4
+        );
+    }
     for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
         assert!(!ARRAY_SOURCE.contains(&format!("{capability} for ToLocaleStringReceiverKind")));
     }
 }
 
 #[test]
-fn exactly_two_entry_producers_choose_their_receiver_kind() {
+fn exactly_four_string_entry_producers_choose_their_receiver_and_operation() {
+    for (name, next, receiver, operation) in [
+        (
+            "compile_array_prototype_join_builtin",
+            "compile_typed_array_prototype_join_builtin",
+            "ArrayLike",
+            "Join",
+        ),
+        (
+            "compile_typed_array_prototype_join_builtin",
+            "compile_array_prototype_to_locale_string_builtin",
+            "TypedArray",
+            "Join",
+        ),
+        (
+            "compile_array_prototype_to_locale_string_builtin",
+            "compile_typed_array_prototype_to_locale_string_builtin",
+            "ArrayLike",
+            "Locale",
+        ),
+        (
+            "compile_typed_array_prototype_to_locale_string_builtin",
+            "compile_array_string_operation",
+            "TypedArray",
+            "Locale",
+        ),
+    ] {
+        let entry = normalized(bounded(
+            ARRAY_SOURCE,
+            &format!("fn {name}("),
+            &format!("fn {next}("),
+        ));
+        assert_eq!(entry.matches(&format!("self.compile_array_string_operation(ToLocaleStringReceiverKind::{receiver},ArrayStringOperation::{operation},f,)" )).count(), 1);
+    }
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(&source_root, "compile_to_locale_string_builtin("),
-        3,
-        "the definition and two builtin entries are the complete call census"
-    );
-
-    let entries = bounded(
-        ARRAY_SOURCE,
-        "pub(crate) fn compile_array_prototype_to_locale_string_builtin(",
-        "fn emit_validate_to_locale_string_invocation(",
-    );
-    for producer in [
-        "compile_to_locale_string_builtin(ToLocaleStringReceiverKind::ArrayLike, function)",
-        "compile_to_locale_string_builtin(ToLocaleStringReceiverKind::TypedArray, function)",
-    ] {
-        assert_eq!(
-            entries.matches(producer).count(),
-            1,
-            "producer `{producer}`"
-        );
-    }
-    assert_before(
-        entries,
-        "ToLocaleStringReceiverKind::ArrayLike",
-        "ToLocaleStringReceiverKind::TypedArray",
+        count_in_rust_sources(&source_root, "compile_array_string_operation("),
+        5
     );
 }
 
 #[test]
-fn all_three_receiver_decisions_are_exhaustive_and_ordered() {
-    let validator = bounded(
+fn receiver_validation_precedes_exhaustive_locale_diagnostics_and_invocation() {
+    let shared = normalized(bounded(
         ARRAY_SOURCE,
-        "fn emit_validate_to_locale_string_invocation(",
-        "fn emit_call_validated_to_locale_string_invocation(",
-    );
-    assert!(validator.contains("receiver_kind: &ToLocaleStringReceiverKind,"));
-    let error_projection = normalized(bounded(
-        validator,
-        "let error_message = match receiver_kind {",
-        "self.emit_throw_current_function_realm_type_error(",
+        "fn compile_array_string_operation(",
+        "pub(crate) fn compile_typed_array_prototype_to_string_builtin(",
     ));
-    assert_eq!(
-        error_projection,
-        concat!(
-            "ToLocaleStringReceiverKind::ArrayLike=>{",
-            "RuntimeErrorMessage::ARRAY_PROTOTYPE_TOLOCALESTRING_ELEMENT_METHOD_IS_NOT_CALLABLE}",
-            "ToLocaleStringReceiverKind::TypedArray=>{",
-            "RuntimeErrorMessage::TYPEDARRAY_PROTOTYPE_TOLOCALESTRING_ELEMENT_METHOD_IS_NOT_CALLABLE}};"
-        )
-    );
-
-    let shared = bounded(
-        ARRAY_SOURCE,
-        "fn compile_to_locale_string_builtin(",
-        "pub(crate) fn emit_object_has_array_index_key_in_range_i32(",
-    );
-    let method_projection = normalized(bounded(
-        shared,
-        "let method_name = match &receiver_kind {",
-        "let receiver_payload_local = self.this_payload_local.ok_or_else(|| {",
+    assert!(shared.contains("receiver_kind:ToLocaleStringReceiverKind,"));
+    assert_eq!(shared.matches("match&receiver_kind{").count(), 1);
+    assert_eq!(shared.matches("matchreceiver_kind{").count(), 1);
+    assert!(shared.contains("ToLocaleStringReceiverKind::ArrayLike=>{self.emit_array_like_length_snapshot(&receiver,length,&pending,f)?}"));
+    assert!(shared.contains(
+        "ToLocaleStringReceiverKind::TypedArray=>{letarray=self.emit_array_native_typed_receiver("
     ));
-    assert_eq!(
-        method_projection,
-        concat!(
-            "ToLocaleStringReceiverKind::ArrayLike=>\"Array.prototype.toLocaleString\",",
-            "ToLocaleStringReceiverKind::TypedArray=>\"TypedArray.prototype.toLocaleString\",};"
-        )
-    );
-    let entry_projection = normalized(bounded(
-        shared,
-        "let typed_array_entry = match &receiver_kind {",
-        "if typed_array_entry {",
-    ));
-    assert_eq!(
-        entry_projection,
-        concat!(
-            "ToLocaleStringReceiverKind::ArrayLike=>false,",
-            "ToLocaleStringReceiverKind::TypedArray=>true,};"
-        )
-    );
-    assert_eq!(shared.matches("match &receiver_kind {").count(), 2);
-    assert_eq!(
-        shared
-            .matches("emit_validate_to_locale_string_invocation(\n            &receiver_kind,")
-            .count(),
-        1
-    );
+    for (variant, error) in [("ArrayLike", "ARRAY"), ("TypedArray", "TYPEDARRAY")] {
+        assert!(shared.contains(&format!("ToLocaleStringReceiverKind::{variant}=>RuntimeErrorMessage::{error}_PROTOTYPE_TOLOCALESTRING_ELEMENT_METHOD_IS_NOT_CALLABLE")));
+    }
     for forbidden in [
         "matches!(receiver_kind",
-        "receiver_kind ==",
-        "receiver_kind !=",
-        "_ =>",
+        "receiver_kind==",
+        "receiver_kind!=",
+        "_=>",
         "unreachable!",
     ] {
-        assert!(
-            !validator.contains(forbidden),
-            "validator found `{forbidden}`"
-        );
-        assert!(
-            !shared.contains(forbidden),
-            "shared emitter found `{forbidden}`"
-        );
+        assert!(!shared.contains(forbidden));
     }
     assert_before(
-        shared,
-        "let method_name = match",
-        "let receiver_payload_local",
+        &shared,
+        "match&receiver_kind{",
+        "self.emit_array_native_get(&element,\"toLocaleString\",&pending,f)?;",
     );
     assert_before(
-        shared,
-        "let typed_array_entry = match",
-        "if typed_array_entry {",
+        &shared,
+        "self.emit_is_callable_i32(&method,f)?;",
+        "matchreceiver_kind{",
     );
     assert_before(
-        shared,
-        "if typed_array_entry {",
-        "emit_validate_to_locale_string_invocation(",
+        &shared,
+        "matchreceiver_kind{",
+        "self.emit_function_or_proxy_call_with_argv(&method,&element,&argv,&pending,f)?;",
     );
+    assert!(shared.contains("self.emit_pre_evaluated_arg_vector(&[&argument,&options],f)"));
 }
 
 #[test]

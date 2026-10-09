@@ -306,6 +306,7 @@ macro_rules! gc_host_imports {
 }
 gc_host_imports! {
     CollectGc => ("collect_gc", HostCollectGc),
+    ByteArrayAllocate => ("byte_array_allocate", HostByteArrayAllocate),
     SharedBufferAllocate => ("shared_buffer_allocate", HostSharedBufferAllocate),
     SharedBufferBase => ("shared_buffer_base", HostSharedBufferBase),
     SharedBufferLength => ("shared_buffer_length", HostSharedBufferLength),
@@ -375,7 +376,7 @@ impl GcHostImports {
         let mut declarations = Vec::new();
         for import in GcHostImport::ALL {
             let needed = match import {
-                GcHostImport::CollectGc => true,
+                GcHostImport::CollectGc | GcHostImport::ByteArrayAllocate => true,
                 GcHostImport::SharedBufferAllocate
                 | GcHostImport::SharedBufferBase
                 | GcHostImport::SharedBufferLength

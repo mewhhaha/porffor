@@ -1,6 +1,6 @@
 const ERROR_SOURCE: &str = include_str!("../src/builtins/errors/runtime_error.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
-const ARRAY_SOURCE: &str = include_str!("../src/builtins/array.rs");
+const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
 const EXPRESSIONS_SOURCE: &str = include_str!("../src/expressions.rs");
 const FIXTURE_SOURCE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_object_prevent_extensions_missing_writes.js");
@@ -26,13 +26,28 @@ fn fresh_runtime_error_delegates_to_the_canonical_current_throw_router() {
         .find("self.emit_throw_runtime_error(")
         .expect("wrapper must create the native error");
     let route = wrapper
-        .find("self.emit_propagate_current_throw(function);")
+        .find("self.emit_propagate_current_throw_if_needed(function);")
         .expect("wrapper must delegate its published Throw completion");
-    assert!(create < route);
+    let publish = wrapper
+        .find("self.completion().copy_from(result, function);")
+        .unwrap();
+    assert!(create < publish && publish < route);
+    let checked_route = section(
+        EMIT_SOURCE,
+        "pub(crate) fn emit_propagate_current_throw_if_needed(",
+        "pub(crate) fn emit_clear_throw_diagnostic(",
+    );
+    assert!(checked_route.contains("CompletionKind::Throw.code() as i32"));
+    assert_eq!(
+        checked_route
+            .matches("self.emit_propagate_current_throw(function);")
+            .count(),
+        1
+    );
     assert_eq!(wrapper.matches("emit_throw_runtime_error(").count(), 1);
     assert_eq!(
         wrapper
-            .matches("emit_propagate_current_throw(function);")
+            .matches("emit_propagate_current_throw_if_needed(function);")
             .count(),
         1
     );
@@ -66,15 +81,8 @@ fn canonical_router_prefers_a_typed_active_target_and_returns_only_without_one()
 
 #[test]
 fn strict_array_index_failure_and_internal_catch_remain_the_consumer_contract() {
-    let array_write = section(
-        ARRAY_SOURCE,
-        "pub(crate) fn emit_array_assignment_write(",
-        "pub(crate) fn emit_array_inherited_index_set_state(",
-    );
-    assert!(array_write.contains(
-        "self.emit_object_write_set_failure_else(\n            RuntimeErrorMessage::CANNOT_ASSIGN_TO_ARRAY_INDEX,\n            function,\n        )?;"
-    ));
-
+    // Array index writes use the same complete ordinary Reference as other
+    // dynamic property assignments, including its strict failure route.
     assert!(FIXTURE_SOURCE.contains("function catchesStrictArrayIndexWriteInOwnBody(target)"));
     let internal_catch = section(
         FIXTURE_SOURCE,
@@ -125,18 +133,26 @@ fn strict_array_index_failure_and_internal_catch_remain_the_consumer_contract() 
     let put_value = section(
         EXPRESSIONS_SOURCE,
         "fn emit_put_value_from_ready_ordinary_property_assignment(",
-        "fn compile_ordinary_property_assignment_to_locals(",
+        "fn compile_ordinary_property_assignment_to_value(",
     );
-    let failed_set = put_value
-        .find("if strictness.throws_on_failed_set() {")
-        .expect("PutValue must throw only for a strict Reference");
-    let throw = put_value
-        .find("self.emit_throw_runtime_error_to_active_handler(")
-        .expect("the failed Set must route through the active handler");
-    let message = put_value
-        .find("RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,")
-        .expect("the failed Set publishes the message the fixture checks");
-    assert!(failed_set < throw && throw < message);
+    assert!(put_value.contains("self.emit_ordinary_reference_set("));
+    assert!(put_value.contains("RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,"));
+    let set = section(
+        EXPRESSIONS_SOURCE,
+        "fn emit_ordinary_reference_set(",
+        "fn emit_put_value_from_ready_ordinary_property_assignment(",
+    );
+    let failed_set = set.find("if strictness.throws_on_failed_set() {").unwrap();
+    let throw = set
+        .find("self.emit_expression_native_error(NativeErrorKind::TypeError, message, function)?;")
+        .unwrap();
+    assert!(failed_set < throw);
+    let error = section(
+        EXPRESSIONS_SOURCE,
+        "fn emit_expression_native_error(",
+        "fn compile_raw_property_key_expression_to_value(",
+    );
+    assert_eq!(error.matches("self.emit_throw_runtime_error_to_active_handler(kind, message, &pending, function)?;").count(), 1);
     assert!(nested_finally.contains("caught.message === \"Cannot assign to property\""));
     assert!(FIXTURE_SOURCE.contains("&& internalStrictArrayIndexFinallyThrew === true"));
 

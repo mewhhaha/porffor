@@ -1,5 +1,21 @@
 # T01 — Reproducible baseline and generated failure backlog
 
+## Current evidence boundary — 2026-10-08
+
+The frozen workspace run executes the deterministic backlog, injected-regression,
+pin-mismatch and ownership-map controls successfully inside a Test262 library
+target that also has unrelated failures. Those individual passes retain their
+exact source scope. The complete tooling sweep passes all 405 Python methods
+and both shell regressions, including the committed historical-publication pair.
+Schema-8 provenance code has passed earlier all-target type checkpoints; its
+complete current CLI/runtime acceptance is still required.
+
+The restored October 2 publisher pair is exact historical evidence without
+current compiler binding. A new complete current-image pinned aggregate,
+deterministic backlog replay and actual publisher output remain necessary.
+T01 allows a complete red baseline; it does not require the T26 all-zero verdict.
+No task or generated conformance status changes here.
+
 ## Mandatory compiler provenance — 2026-10-04 dry source
 
 Current execution snapshots use schema 8 with mandatory checked build-source

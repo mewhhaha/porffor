@@ -162,12 +162,22 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm(function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            crate::functions::NonArrayRealmIntrinsicSlot::ObjectPrototype,
+            &prototype,
+            function,
+        );
         let object = schema
             .reserve_gc_local::<OrdinaryObject, NonNullable>(function)
             .initialize(
-                self.emit_alloc_plain_object_with_prototype(None, function)?,
+                self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
                 function,
             );
+        prototype.clear(function);
+        realm.clear(function);
         output.set_reference(&object, schema, function);
         let pending = schema.reserve_completion(function);
         self.emit_copy_data_properties_into(source, excluded_keys, output, &pending, function)?;

@@ -42,11 +42,11 @@ fn generator_instance_prototype_has_one_private_owner() {
     );
     assert_eq!(
         OWNER_SOURCE
-            .matches("pub(super) fn emit_install_generator_instance_prototype(")
+            .matches("pub(super) fn emit_generator_instance_prototype(")
             .count(),
         1
     );
-    assert!(!FUNCTIONS_SOURCE.contains("fn emit_install_generator_instance_prototype("));
+    assert!(!FUNCTIONS_SOURCE.contains("fn emit_generator_instance_prototype("));
     assert!(!FUNCTIONS_SOURCE.contains("enum GeneratorInstanceFamily"));
 }
 

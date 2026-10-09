@@ -18,21 +18,18 @@ fn without_whitespace(source: &str) -> String {
 }
 
 #[test]
-fn activation_layout_is_must_use_and_capability_free() {
+fn activation_owner_is_must_use_and_capability_free() {
     let declaration = bounded(
         CONTROL_FLOW_SOURCE,
-        "/// The activation layout shared by the two execution kinds",
-        "impl ForAwaitActivationLayout {",
+        "/// The activation layout shared",
+        "/// An identifier PutValue",
     );
-    assert!(declaration.contains(
-        "#[must_use = \"a for-await activation layout must be consumed by all suspension policies\"]"
-    ));
+    assert!(declaration.contains("#[must_use ="));
     assert!(!declaration.contains("#[derive("));
     assert_eq!(
-        without_whitespace(bounded(declaration, "enum ForAwaitActivationLayout {", "}",)),
+        without_whitespace(bounded(declaration, "enum AsyncContinuationOwner {", "}")),
         "AsyncFunction,AsyncGenerator,"
     );
-
     for capability in [
         "Clone",
         "Copy",
@@ -45,70 +42,88 @@ fn activation_layout_is_must_use_and_capability_free() {
         "Hash",
     ] {
         assert!(
-            !CONTROL_FLOW_SOURCE
-                .contains(&format!("impl {capability} for ForAwaitActivationLayout")),
-            "for-await activation layout must not manually implement {capability}"
+            !CONTROL_FLOW_SOURCE.contains(&format!("impl {capability} for AsyncContinuationOwner"))
         );
     }
 }
 
 #[test]
-fn one_borrowed_layout_owns_every_suspension_policy() {
-    let projection = bounded(
+fn one_borrowed_owner_selects_typed_activation_resume_and_await_policies() {
+    let decoder = without_whitespace(bounded(
         CONTROL_FLOW_SOURCE,
-        "impl ForAwaitActivationLayout {",
-        "impl DestructuringIteratorLocals {",
-    );
-    for method in [
-        "const fn environment_offset(&self) -> u64",
-        "const fn resume_state_offset(&self) -> u64",
-        "const fn resume_payload_offset(&self) -> u64",
-        "const fn resume_tag_offset(&self) -> u64",
+        "fn emit_load_async_continuation_resume(",
+        "fn emit_activation_async_dispose_await_reactions(",
+    ));
+    assert!(decoder.contains("owner:&AsyncContinuationOwner,"));
+    assert_eq!(decoder.matches("matchowner{").count(), 1);
+    assert!(!decoder.contains("_=>"));
+    for marker in [
+        "AsyncActivationSchema::RESUME_COMPLETION",
+        "AsyncActivationSchema::RESUME_VALUE",
+        "AwaitCompletionKind::Normal",
+        "AwaitCompletionKind::Throw",
+        "AsyncGeneratorActivationSchema::RESUME_KIND",
+        "AsyncGeneratorActivationSchema::RESUME_VALUE",
+        "AsyncGeneratorResumeKind::Fulfill",
+        "AsyncGeneratorResumeKind::Reject",
     ] {
-        assert!(projection.contains(method), "missing borrowed {method}");
+        assert!(decoder.contains(marker), "{marker}");
     }
-    assert_eq!(projection.matches("match self {").count(), 4);
-    assert!(!projection.contains("is_async_generator"));
-    assert!(!projection.contains("-> bool"));
-
-    let decoder = bounded(
-        CONTROL_FLOW_SOURCE,
-        "fn emit_load_for_await_resume_is_throw(",
-        "pub(crate) fn compile_async_for_of_iterator(",
+    assert_eq!(
+        decoder.matches("Instruction::Unreachable").count(),
+        2,
+        "both continuation protocols strictly decode their allowed completion pair"
     );
-    assert!(decoder.contains("layout: &ForAwaitActivationLayout"));
-    assert_eq!(decoder.matches("match layout {").count(), 1);
-    assert!(!decoder.contains("layout: ForAwaitActivationLayout"));
-
-    let compiler = bounded(
+    assert_eq!(
+        decoder
+            .matches(".read_into(&stored,value,schema,function)")
+            .count(),
+        2
+    );
+    let awaiter = without_whitespace(bounded(
+        CONTROL_FLOW_SOURCE,
+        "fn emit_async_continuation_await(",
+        "fn emit_dispatch_activation_async_dispose_completion(",
+    ));
+    assert!(awaiter.contains("owner:&AsyncContinuationOwner,"));
+    assert_eq!(awaiter.matches("matchowner{").count(), 1);
+    assert!(!awaiter.contains("_=>"));
+    for marker in [
+        "self.emit_save_resumable_environment(function)?;",
+        "self.emit_async_await_reactions(&activation,value,function)?;",
+        "self.emit_async_generator_await_reactions(&activation,value,function)?;",
+        "AsyncGeneratorBodyStatus::Await",
+        "AsyncGeneratorExecutionState::Executing",
+    ] {
+        assert!(awaiter.contains(marker), "{marker}");
+    }
+    let compiler = without_whitespace(bounded(
         CONTROL_FLOW_SOURCE,
         "pub(crate) fn compile_async_for_of_iterator(",
         "pub(crate) fn compile_async_disposable_for_of_iterator(",
-    );
-    assert_eq!(compiler.matches("let resume_layout = match").count(), 1);
-    assert_eq!(compiler.matches("match &resume_layout {").count(), 4);
-    let normalized_compiler = without_whitespace(compiler);
+    ));
+    assert_eq!(compiler.matches("letowner=match").count(), 1);
+    assert!(compiler.contains("!plan.requires_plain_async_activation()"));
     assert_eq!(
-        normalized_compiler
-            .matches("emit_load_for_await_resume_is_throw(&resume_layout,")
+        compiler
+            .matches("self.emit_load_async_continuation_resume(&owner,")
             .count(),
         2
     );
     assert_eq!(
         compiler
-            .matches("ForAwaitActivationLayout::AsyncFunction")
+            .matches("self.emit_async_continuation_await(&owner,")
             .count(),
-        5
+        2
     );
-    assert_eq!(
-        compiler
-            .matches("ForAwaitActivationLayout::AsyncGenerator")
-            .count(),
-        5
-    );
-    assert!(!compiler.contains("is_async_generator"));
-    assert!(!compiler.contains("match resume_layout"));
-    assert!(!compiler.contains("resume_layout.clone()"));
+    assert!(!compiler.contains("owner.clone()"));
+    let save = without_whitespace(bounded(
+        CONTROL_FLOW_SOURCE,
+        "pub(crate) fn emit_save_resumable_environment(",
+        "fn compile_resumable_generator_if(",
+    ));
+    assert!(save.contains("InvocationFrameSchema::LEXICAL_ENVIRONMENT"));
+    assert!(save.contains("GcOperand::reference(self.current_environment(),schema)"));
 }
 
 #[test]
@@ -125,21 +140,18 @@ fn contract_and_task_record_the_capability_boundary_and_nonclaims() {
 }
 
 #[test]
-fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
-    let lifecycle = include_str!("../src/control_flow/for_await_iteration_environment.rs");
-    assert!(!lifecycle.contains("#[derive("));
-    assert_eq!(lifecycle.matches("#[must_use =").count(), 2);
-    assert!(!lifecycle.contains("pub(crate) struct"));
-    assert!(lifecycle.contains("environment_offset: layout.environment_offset()"));
-    let enter = bounded(
-        lifecycle,
+fn captured_iteration_cleanup_consumes_the_saved_gc_environment_authority() {
+    let source = include_str!("../src/control_flow/for_await_iteration_environment.rs");
+    assert!(!source.contains("#[derive("));
+    assert_eq!(source.matches("#[must_use =").count(), 2);
+    assert!(!source.contains("pub(crate) struct"));
+    assert!(source.contains("environment: GcLocal<Environment, Nullable>"));
+    let enter = without_whitespace(bounded(
+        source,
         "pub(super) fn enter_suspended_for_await_iteration_environment(",
         "pub(super) fn leave_suspended_for_await_iteration_environment(",
-    );
-    assert!(enter.contains("saved: SavedForAwaitIterationEnvironment"));
-    assert!(enter.contains("environment_offset: saved.environment_offset"));
-    assert!(enter.contains("activation_local: saved.activation_local"));
-    assert!(!enter.contains("emit_enter_lexical_environment("));
+    ));
+    assert!(enter.contains("saved:SavedForAwaitIterationEnvironment,"));
     assert_eq!(
         enter
             .matches("emit_allocate_lexical_environment_record(")
@@ -152,63 +164,81 @@ fn captured_iteration_cleanup_consumes_the_same_activation_authority() {
             .count(),
         1
     );
-    let allocate_position = enter
-        .find("emit_allocate_lexical_environment_record(")
-        .unwrap();
-    let resume_position = enter.find("Instruction::Else").unwrap();
-    let join_position = enter.find("Instruction::End").unwrap();
-    let attach_position = enter
-        .find("begin_existing_lexical_environment_scope(")
-        .unwrap();
-    let publish_position = enter.find("store_i64_local_at_offset(").unwrap();
-    let cleanup_position = enter.find("self.finally_stack.push(cleanup)").unwrap();
-    assert!(allocate_position < resume_position && resume_position < join_position);
-    assert!(join_position < attach_position && attach_position < publish_position);
-    assert!(
-        publish_position < cleanup_position,
-        "the cleanup must record the attached child depth, not unwind the child twice"
+    assert!(!enter.contains("emit_enter_lexical_environment("));
+    let markers = [
+        "self.emit_allocate_lexical_environment_record(",
+        "Instruction::Else",
+        "saved.environment.load(schema,function)",
+        "Instruction::End",
+        "self.begin_existing_lexical_environment_scope(",
+        "saved.environment.clear(function);",
+        "self.emit_save_resumable_environment(function)?;",
+        "self.finally_stack.push(cleanup)",
+    ];
+    let mut cursor = 0;
+    for marker in markers {
+        cursor += enter[cursor..]
+            .find(marker)
+            .unwrap_or_else(|| panic!("missing {marker}"))
+            + marker.len();
+    }
+    let leave = without_whitespace(
+        source
+            .split_once("pub(super) fn leave_suspended_for_await_iteration_environment(")
+            .unwrap()
+            .1,
     );
-    let leave = lifecycle
-        .split_once("pub(super) fn leave_suspended_for_await_iteration_environment(")
-        .unwrap()
-        .1;
-    assert!(leave.contains("active: ActiveForAwaitIterationEnvironment"));
-    assert!(leave.contains("assert_eq!(self.finally_stack.pop(), Some(active.cleanup))"));
+    assert!(leave.contains("active:ActiveForAwaitIterationEnvironment,"));
+    assert!(leave.contains("assert_eq!(self.finally_stack.pop(),Some(active.cleanup))"));
     assert_eq!(leave.matches("emit_leave_lexical_environment(").count(), 1);
-    assert!(leave.contains("active.activation_local"));
-    assert!(leave.contains("active.environment_offset"));
     let leave_position = leave.find("emit_leave_lexical_environment(").unwrap();
-    let publish_position = leave.find("store_i64_local_at_offset(").unwrap();
+    let save_position = leave.find("emit_save_resumable_environment(").unwrap();
     let dispatch_position = leave.find("emit_dispatch_current_completion(").unwrap();
-    assert!(leave_position < publish_position && publish_position < dispatch_position);
+    assert!(leave_position < save_position && save_position < dispatch_position);
 }
 
 #[test]
 fn allocation_does_not_attach_the_compiler_binding_view() {
-    let environments = include_str!("../src/environments.rs");
+    let source = include_str!("../src/environments.rs");
     let allocate = bounded(
-        environments,
+        source,
         "pub(crate) fn emit_allocate_lexical_environment_record(",
         "pub(crate) fn begin_existing_lexical_environment_scope(",
     );
-    assert_eq!(allocate.matches("self.emit_heap_alloc_const(").count(), 1);
-    assert!(!allocate.contains("self.begin_existing_lexical_environment_scope("));
-    assert!(!allocate.contains("self.push_scope("));
-    assert!(!allocate.contains("self.binding_scopes"));
-    assert!(!allocate.contains("self.environment_depth"));
-    let ordinary_enter = bounded(
-        environments,
+    assert_eq!(
+        allocate
+            .matches("self.emit_initialize_named_environment_header(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        allocate
+            .matches("self.emit_allocate_environment_cells(")
+            .count(),
+        1
+    );
+    for forbidden in [
+        "self.begin_existing_lexical_environment_scope(",
+        "self.push_scope(",
+        "self.binding_scopes",
+        "self.environment_depth",
+        "emit_heap_alloc_const(",
+    ] {
+        assert!(!allocate.contains(forbidden), "{forbidden}");
+    }
+    let ordinary = bounded(
+        source,
         "pub(crate) fn emit_enter_lexical_environment(",
         "pub(crate) fn emit_allocate_lexical_environment_record(",
     );
     assert_eq!(
-        ordinary_enter
+        ordinary
             .matches("self.emit_allocate_lexical_environment_record(")
             .count(),
         1
     );
     assert_eq!(
-        ordinary_enter
+        ordinary
             .matches("self.begin_existing_lexical_environment_scope(")
             .count(),
         1

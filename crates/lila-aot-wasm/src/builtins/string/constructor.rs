@@ -71,6 +71,11 @@ impl FunctionBuilder<'_> {
             self.emit_alloc_plain_object_with_prototype(Some(pending.value()), f)?,
             f,
         );
+        let string = s
+            .reserve_gc_local(f)
+            .initialize(primitive.cast_reference::<StringValue>(s, f), f);
+        self.emit_initialize_string_object_length(&header, &string, f)?;
+        string.clear(f);
         let stored = s
             .reserve_gc_local(f)
             .initialize(s.struct_type::<StoredValue>().from_value(&primitive, f), f);

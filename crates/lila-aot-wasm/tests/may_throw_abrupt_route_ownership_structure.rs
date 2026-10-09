@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const MATH_SOURCE: &str = include_str!("../src/builtins/math.rs");
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/may-throw-operation-abrupt-route-ownership.md"
 );
@@ -72,40 +73,51 @@ fn generic_abrupt_route_authority_is_absent() {
 }
 
 #[test]
-fn get_v_wrapper_owns_active_handler_propagation() {
+fn get_v_owner_propagates_the_whole_abrupt_completion_before_publication() {
     let get_v = normalized(bounded(
         OPERATIONS_SOURCE,
-        "    fn compile_property_get_v_to_locals(",
-        "    fn emit_builtin_arg_to_number_payload(",
+        "pub(crate) fn compile_spec_operation_to_locals(",
+        "fn emit_spec_operation_abrupt_exit(",
     ));
-    let compile = get_v
-        .find("self.compile_spec_operation_to_locals(SpecOperationIr::GetV,")
-        .expect("GetV wrapper must select its exact descriptor");
+    assert!(get_v.contains("SpecOperationIr::GetV|SpecOperationIr::GetMethod=>"));
+    assert!(get_v.contains("self.emit_value_to_object_locals(&inputs[0],&pending,function)?"));
+    let copy = get_v
+        .rfind("self.completion().copy_from(&pending,function)")
+        .unwrap();
+    let normal = get_v[copy..].find("CompletionKind::Normal.code()").unwrap() + copy;
+    let publish = get_v
+        .find("output.copy_from(pending.value(),function)")
+        .unwrap();
     let propagate = get_v
-        .find("self.emit_propagate_throw_from_locals_if_needed(payload_local,tag_local,function)")
-        .expect("GetV wrapper must route throws to its active handler");
-    assert!(compile < propagate);
-    assert!(!get_v.contains("emit_return_current_completion_if_throw"));
+        .rfind("self.emit_propagate_current_throw_if_needed(function)")
+        .unwrap();
+    assert!(copy < normal && normal < publish && publish < propagate);
+    assert!(!get_v.contains("ReturnCurrentFunction"));
 }
 
 #[test]
-fn builtin_to_number_wrapper_owns_current_function_return() {
+fn builtin_to_number_owner_routes_throw_to_cleanup_before_reading_number_bits() {
     let to_number = normalized(bounded(
-        OPERATIONS_SOURCE,
-        "    fn emit_builtin_arg_to_number_payload(",
-        "    pub(crate) fn emit_construct(",
+        MATH_SOURCE,
+        "fn emit_math_coerce_number(",
+        "fn emit_math_hypot_argument_reduction(",
     ));
     let convert = to_number
-        .find("self.emit_value_to_number_payload(tag_local,payload_local,function)?")
-        .expect("ToNumber wrapper must perform its exact conversion");
-    let store = to_number
-        .find("function.instruction(&Instruction::LocalSet(payload_local))")
-        .expect("ToNumber wrapper must remove the conversion result from the stack");
-    let finish = to_number
-        .find("self.emit_return_current_completion_if_throw(function)")
-        .expect("ToNumber wrapper must return its current function on throw");
-    assert!(convert < store && store < finish);
-    assert!(!to_number.contains("emit_propagate_throw_from_locals_if_needed"));
+        .find("self.emit_value_to_number_payload(input,pending,function)?")
+        .unwrap();
+    let throw = to_number.find("CompletionKind::Throw.code()").unwrap();
+    let copy = to_number
+        .find("output.copy_from(pending,function)")
+        .unwrap();
+    let exit = to_number
+        .find("self.emit_branch_to_target(exit,function)")
+        .unwrap();
+    let normal = to_number
+        .find("pending.value().scalar().load(function)")
+        .unwrap();
+    let store = to_number.find("bits.store(function)").unwrap();
+    assert!(convert < throw && throw < copy && copy < exit && exit < normal && normal < store);
+    assert!(!to_number.contains("emit_propagate_current_throw"));
 }
 
 #[test]

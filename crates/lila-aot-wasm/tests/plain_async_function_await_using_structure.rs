@@ -2,7 +2,7 @@ const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
-const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
+const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/tests/resource_disposal.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const HEAP_SOURCE: &str = include_str!("../src/heap.rs");
 const FIXTURE: &str = include_str!(
@@ -245,14 +245,30 @@ fn lowering_selects_the_plain_async_owner_before_minting_one_finalizer() {
     positions_in_order(
         allocate_finalizer,
         &[
-            "let dispose_state = self",
-            "let resume_state = dispose_state",
-            "let exit_state = resume_state",
-            "self.current_async_resume_state = Some(exit_state)",
-            "AsyncDisposableFinalizerPlanIr::new(entry_state, dispose_state, resume_state, exit_state)",
+            "let suffix_end = self",
+            "AsyncDisposableFinalizerPlanIr::after_source_suffix(entry_state, suffix_end)",
+            "self.current_async_resume_state = Some(finalizer.exit_state())",
+            "self.current_generator_resume_state = Some(finalizer.exit_state())",
         ],
     );
-    assert_eq!(allocate_finalizer.matches("checked_add(1)").count(), 3);
+    let checked_states = bounded(
+        IR_SOURCE,
+        "pub(crate) fn after_source_suffix(",
+        "pub(crate) fn new(",
+    );
+    positions_in_order(
+        checked_states,
+        &[
+            "if entry_state > suffix_end",
+            "return None",
+            "let dispose_state = suffix_end.checked_add(1)?",
+            "let resume_state = dispose_state.checked_add(1)?",
+            "let exit_state = suffix_end.checked_add(Self::IMPLICIT_STATE_COUNT)?",
+            "Some(Self::new(",
+        ],
+    );
+    assert!(IR_SOURCE.contains("pub(crate) const IMPLICIT_STATE_COUNT: u32 = 3"));
+    assert_eq!(checked_states.matches("checked_add(").count(), 3);
     assert!(IR_TEST_SOURCE
         .contains("fn plain_async_function_await_using_owns_closed_finalizer_states()"));
     assert!(LOWERING_SOURCE.contains("mod async_disposable;"));
@@ -292,10 +308,10 @@ fn backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle() {
         "pub(crate) enum ActivationAsyncDisposeEntryKind",
         "impl AsyncDisposableStackEntryKind",
     );
-    for variant in ["Empty", "AsyncMethod", "SyncFallbackMethod"] {
+    for variant in ["Empty", "AsyncMethod", "SyncFallbackMethod", "SyncMethod"] {
         assert!(kinds.contains(variant));
     }
-    assert!(kinds.contains("pub(crate) const ALL: [Self; 3]"));
+    assert!(kinds.contains("pub(crate) const ALL: [Self; 4]"));
     assert!(!kinds.contains("_ =>"));
 
     let compile = bounded(

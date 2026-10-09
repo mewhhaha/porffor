@@ -11682,12 +11682,18 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
             compile_options_for_case(&case).promise_rejection_policy,
             PromiseRejectionPolicy::Ignore
         );
+        let root = unique_temp_path("module-evaluation-rejection");
+        fs::create_dir_all(&root).expect("module fixture directory should create");
+        case.source_path = root.join("entry.js");
+        fs::write(&case.source_path, case.original_source.as_ref())
+            .expect("module fixture source should write");
         let result = run_one_case(
             &case,
             &fixture_preludes(),
             30_000,
             ExecutionBackend::WasmAot,
         );
+        fs::remove_dir_all(root).expect("module fixture directory should clean up");
         let TestStatus::Failed(failure) = result.status else {
             panic!("module evaluation rejection must not become a passing Script completion");
         };
@@ -11720,6 +11726,11 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         case.execution_id = TestExecutionId::new(path, TestExecutionMode::Module);
         case.flags.insert("module".into());
         case.original_source = Arc::from("Promise.reject(new RangeError('background')); await 0;");
+        let root = unique_temp_path("module-entry-background");
+        fs::create_dir_all(&root).expect("module fixture directory should create");
+        case.source_path = root.join("entry.js");
+        fs::write(&case.source_path, case.original_source.as_ref())
+            .expect("module fixture source should write");
         let result = run_one_case(
             &case,
             &fixture_preludes(),
@@ -11733,12 +11744,15 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
         );
         case.original_source =
             Arc::from("Promise.reject(new RangeError('background')); await 0; throw undefined;");
+        fs::write(&case.source_path, case.original_source.as_ref())
+            .expect("updated module fixture source should write");
         let result = run_one_case(
             &case,
             &fixture_preludes(),
             30_000,
             ExecutionBackend::WasmAot,
         );
+        fs::remove_dir_all(root).expect("module fixture directory should clean up");
         let TestStatus::Failed(failure) = result.status else {
             panic!("undefined rejection must fail");
         };
@@ -11758,12 +11772,18 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
             phase: NegativePhase::Runtime,
             error_type: "TypeError".into(),
         }));
+        let root = unique_temp_path("module-entry-pending");
+        fs::create_dir_all(&root).expect("module fixture directory should create");
+        case.source_path = root.join("entry.js");
+        fs::write(&case.source_path, case.original_source.as_ref())
+            .expect("module fixture source should write");
         let result = run_one_case(
             &case,
             &fixture_preludes(),
             30_000,
             ExecutionBackend::WasmAot,
         );
+        fs::remove_dir_all(root).expect("module fixture directory should clean up");
         let TestStatus::Failed(failure) = result.status else {
             panic!("pending is not a JavaScript exception");
         };
@@ -27505,6 +27525,37 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let mut file = read_snapshot_file(&verified.snapshot_paths.json_path)
             .expect("snapshot file should parse");
         file.pinned_revisions.test262 = head_commit.clone();
+        let legacy_pinned = PinnedRevisions {
+            ecma262: pinned.ecma262.clone(),
+            test262: head_commit.clone(),
+        };
+        let nodes = build_run_matrix(&config).expect("matrix should build");
+        // A legacy publication bound every node to the recorded pin string.
+        // Rebind its node bytes, filenames and aggregate joins coherently;
+        // changing only the aggregate pin is an integrity failure.
+        for entry in &mut file.aggregate_entries {
+            let node = nodes
+                .iter()
+                .find(|node| node.node_id == entry.node_id)
+                .unwrap();
+            let node_name = format!(
+                "{}-{}",
+                run_config.snapshot_name,
+                sanitize_filter_for_snapshot(&node.node_id)
+            );
+            let old_paths = snapshot_paths_for_name(&config, &node_name, entry.manifest_hash);
+            let mut node_file = read_snapshot_file(&old_paths.json_path).unwrap();
+            node_file.pinned_revisions.test262 = head_commit.clone();
+            node_file.manifest_hash = matrix_node_manifest_hash(&legacy_pinned, node);
+            entry.manifest_hash = node_file.manifest_hash;
+            let new_paths = snapshot_paths_for_name(&config, &node_name, entry.manifest_hash);
+            fs::write(
+                &new_paths.json_path,
+                serde_json::to_string_pretty(&node_file).unwrap(),
+            )
+            .expect("legacy node should write at its recorded manifest hash");
+            fs::remove_file(&old_paths.json_path).expect("old node identity should be removed");
+        }
         fs::write(
             &verified.snapshot_paths.json_path,
             serde_json::to_string_pretty(&file).expect("snapshot json should serialize"),

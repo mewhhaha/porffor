@@ -1,35 +1,11 @@
 use super::*;
 use lila_ir::{RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram, REGEXP_MAX_INSTRUCTIONS};
 
-fn append_uleb(bytes: &mut Vec<u8>, mut value: u32) {
-    loop {
-        let low = (value & 0x7f) as u8;
-        value >>= 7;
-        bytes.push(low | if value == 0 { 0 } else { 0x80 });
-        if value == 0 {
-            break;
-        }
-    }
-}
+use wasmtime::{ArrayRef, ArrayRefPre, Rooted, StructRef, StructRefPre};
 
-fn read_uleb(bytes: &[u8], cursor: &mut usize) -> u32 {
-    let mut value = 0;
-    for shift in (0..35).step_by(7) {
-        let byte = bytes[*cursor];
-        *cursor += 1;
-        value |= u32::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return value;
-        }
-    }
-    panic!("invalid test artifact length");
-}
-
-/// Adds exports to a copied artifact only. The product has no compiler/debug
-/// entry point, and the test discovers helper indices from encoded names.
-fn with_compiler_exports(bytes: &[u8]) -> Vec<u8> {
-    let mut compiler = None;
-    let mut allocator = None;
+/// R already exports every helper at its declared index. Discover that index
+/// from the physical runtime's name section without rewriting its cache identity.
+fn runtime_export(bytes: &[u8], helper: &str) -> String {
     for payload in WasmParser::new(0).parse_all(bytes) {
         let WasmPayload::CustomSection(section) = payload.unwrap() else {
             continue;
@@ -41,52 +17,17 @@ fn with_compiler_exports(bytes: &[u8]) -> Vec<u8> {
             if let wasmparser::Name::Function(names) = subsection.unwrap() {
                 for naming in names {
                     let naming = naming.unwrap();
-                    match naming.name {
-                        "helper::regexp_compiler" => compiler = Some(naming.index),
-                        "helper::heap_alloc" => allocator = Some(naming.index),
-                        _ => {}
+                    if naming.name == helper {
+                        return format!("f{}", naming.index);
                     }
                 }
             }
         }
     }
-    let exports = [
-        ("test_pattern_compiler", compiler.unwrap()),
-        ("test_pattern_allocate", allocator.unwrap()),
-    ];
-    let mut rewritten = bytes[..8].to_vec();
-    let mut cursor = 8;
-    let mut found = false;
-    while cursor < bytes.len() {
-        let id = bytes[cursor];
-        cursor += 1;
-        let length = read_uleb(bytes, &mut cursor) as usize;
-        let end = cursor + length;
-        if id == 7 {
-            found = true;
-            let count = read_uleb(bytes, &mut cursor);
-            let mut body = Vec::new();
-            append_uleb(&mut body, count + exports.len() as u32);
-            body.extend_from_slice(&bytes[cursor..end]);
-            for (name, index) in exports {
-                append_uleb(&mut body, name.len() as u32);
-                body.extend_from_slice(name.as_bytes());
-                body.push(0);
-                append_uleb(&mut body, index);
-            }
-            rewritten.push(id);
-            append_uleb(&mut rewritten, body.len() as u32);
-            rewritten.extend_from_slice(&body);
-        } else {
-            rewritten.push(id);
-            append_uleb(&mut rewritten, length as u32);
-            rewritten.extend_from_slice(&bytes[cursor..end]);
-        }
-        cursor = end;
-    }
-    assert!(found, "ordinary artifact must export main and memory");
-    rewritten
+    panic!("runtime has no declared {helper}")
 }
+
+type ProgramRoot = Option<Rooted<StructRef>>;
 
 struct CompilerStore {
     limits: WasmtimeStoreLimits,
@@ -95,7 +36,9 @@ struct RuntimeCompiler {
     store: WasmtimeStore<CompilerStore>,
     memory: WasmtimeMemory,
     allocate: wasmtime::TypedFunc<i64, i64>,
-    compile: wasmtime::TypedFunc<(i64, i64, i64, i64, i64, i64, i64), (i64, i64, i64, i64)>,
+    compile: wasmtime::Func,
+    string_allocator: StructRefPre,
+    units_allocator: ArrayRefPre,
 }
 
 impl RuntimeCompiler {
@@ -106,7 +49,10 @@ impl RuntimeCompiler {
             .compile_script("new RegExp('');", CompileOptions::default())
             .unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        let bytes = with_compiler_exports(&artifact.bytes);
+        let runtime = artifact.runtime.as_ref().expect("linked runtime");
+        let bytes = runtime.0.bytes();
+        let compiler_export = runtime_export(bytes, "helper::regexp_compiler");
+        let allocator_export = runtime_export(bytes, "helper::transient_byte_alloc");
         let wasm_engine = shared_wasm_engine().unwrap();
         let module = WasmtimeModule::new(&wasm_engine, bytes).unwrap();
         let mut store = WasmtimeStore::new(
@@ -131,8 +77,13 @@ impl RuntimeCompiler {
                         })
                         .unwrap();
                 }
+                WasmtimeExternType::Memory(memory_type) if memory_type.is_shared() => {
+                    let memory = WasmtimeSharedMemory::new(&wasm_engine, memory_type).unwrap();
+                    linker
+                        .define(&store, import.module(), import.name(), memory)
+                        .unwrap();
+                }
                 WasmtimeExternType::Memory(memory_type) => {
-                    assert!(!memory_type.is_shared(), "fixture uses unshared memory");
                     let memory = WasmtimeMemory::new(&mut store, memory_type).unwrap();
                     linker
                         .define(&store, import.module(), import.name(), memory)
@@ -144,49 +95,119 @@ impl RuntimeCompiler {
         let instance = linker.instantiate(&mut store, &module).unwrap();
         let memory = instance.get_memory(&mut store, "memory").unwrap();
         let allocate = instance
-            .get_typed_func(&mut store, "test_pattern_allocate")
+            .get_typed_func(&mut store, &allocator_export)
             .unwrap();
-        let compile = instance
-            .get_typed_func(&mut store, "test_pattern_compiler")
-            .unwrap();
+        let compile = instance.get_func(&mut store, &compiler_export).unwrap();
+        let signature = compile.ty(&store);
+        assert_eq!(signature.params().len(), 2, "two non-null GC Strings");
+        assert_eq!(signature.results().len(), 4, "program plus typed status");
+        let parameter = signature.params().next().unwrap();
+        let string_type = parameter
+            .as_ref()
+            .unwrap()
+            .heap_type()
+            .as_concrete_struct()
+            .unwrap()
+            .clone();
+        assert_eq!(string_type.fields().len(), 1);
+        let field = string_type.field(0).unwrap();
+        let units_type = field
+            .element_type()
+            .as_val_type()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .heap_type()
+            .as_concrete_array()
+            .unwrap()
+            .clone();
+        assert!(matches!(
+            units_type.element_type(),
+            wasmtime::StorageType::I16
+        ));
+        let string_allocator = StructRefPre::new(&mut store, string_type);
+        let units_allocator = ArrayRefPre::new(&mut store, units_type);
         Self {
             store,
             memory,
             allocate,
             compile,
+            string_allocator,
+            units_allocator,
         }
     }
 
-    fn string(&mut self, bytes: &[u8]) -> i64 {
-        let pointer = self
-            .allocate
-            .call(&mut self.store, bytes.len() as i64)
-            .unwrap();
-        self.memory
-            .write(&mut self.store, pointer as usize, bytes)
-            .unwrap();
-        (pointer << 32) | bytes.len() as i64
+    fn string(&mut self, text: &str) -> Rooted<StructRef> {
+        let values: Vec<_> = text
+            .encode_utf16()
+            .map(|unit| WasmtimeVal::I32(i32::from(unit)))
+            .collect();
+        let units = ArrayRef::new_fixed(&mut self.store, &self.units_allocator, &values)
+            .expect("actual compiler CodeUnitArray");
+        StructRef::new(
+            &mut self.store,
+            &self.string_allocator,
+            &[WasmtimeVal::from(units)],
+        )
+        .expect("actual compiler StringValue")
     }
 
     fn heap_pointer(&mut self) -> i64 {
         self.allocate.call(&mut self.store, 0).unwrap()
     }
 
-    fn call(&mut self, source: &str, flags: &str) -> (i64, i64, i64, i64, i64) {
-        let source = self.string(source.as_bytes());
-        let flags = self.string(flags.as_bytes());
-        let before = self.heap_pointer();
-        let (handle, status, offset, detail) = self
-            .compile
-            .call(&mut self.store, (source, flags, 0, 0, 0, 0, 0))
-            .unwrap();
-        (handle, status, offset, detail, before)
+    fn compile_strings(
+        &mut self,
+        source: Rooted<StructRef>,
+        flags: Rooted<StructRef>,
+    ) -> (ProgramRoot, i32, i64, i64) {
+        let mut result = [
+            WasmtimeVal::AnyRef(None),
+            WasmtimeVal::I32(0),
+            WasmtimeVal::I64(0),
+            WasmtimeVal::I64(0),
+        ];
+        self.compile
+            .call(
+                &mut self.store,
+                &[WasmtimeVal::from(source), WasmtimeVal::from(flags)],
+                &mut result,
+            )
+            .expect("compiler failures return typed status, never trap");
+        let [WasmtimeVal::AnyRef(program), WasmtimeVal::I32(status), WasmtimeVal::I64(offset), WasmtimeVal::I64(detail)] =
+            result
+        else {
+            panic!("RegExpCompile result signature")
+        };
+        let program = program.map(|value| {
+            value
+                .as_struct(&self.store)
+                .unwrap()
+                .expect("RegExpProgram result")
+        });
+        (program, status, offset, detail)
     }
 
-    fn descriptor(&self, handle: i64) -> Vec<u8> {
-        let pointer = (handle as u64 >> 32) as usize;
-        let length = handle as u32 as usize;
-        self.memory.data(&self.store)[pointer..pointer + length].to_vec()
+    fn call(&mut self, source: &str, flags: &str) -> (ProgramRoot, i32, i64, i64, i64) {
+        let source = self.string(source);
+        let flags = self.string(flags);
+        let before = self.heap_pointer();
+        let (program, status, offset, detail) = self.compile_strings(source, flags);
+        (program, status, offset, detail, before)
+    }
+
+    fn descriptor(&mut self, program: ProgramRoot) -> Vec<u8> {
+        let program = program.expect("success publishes a rooted immutable program");
+        let field = program.field(&mut self.store, 0).unwrap();
+        let WasmtimeVal::AnyRef(Some(bytes)) = field else {
+            panic!("RegExpProgram owns a non-null encoded-byte array")
+        };
+        let bytes = bytes.as_array(&self.store).unwrap().unwrap();
+        let mut output = vec![0; bytes.len(&self.store).unwrap() as usize];
+        bytes
+            .copy_to_i8_slice(&mut self.store, &mut output)
+            .unwrap();
+        output
     }
 }
 
@@ -198,7 +219,7 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
         let nested_modifiers = format!("{}^a${}", "(?m-s:".repeat(200), ")".repeat(200));
         // The single-body loop plus its final MATCH must exactly fill the
         // shared cap; a duplicated star body would reject this valid program.
-        let limit_plus = format!("(?:a{{{}}})+", REGEXP_MAX_INSTRUCTIONS - 2);
+        let limit_plus = format!("(?:{})+", "a".repeat(REGEXP_MAX_INSTRUCTIONS - 2));
         for (source, flags) in [
             ("", ""),
             ("abc", ""),
@@ -219,6 +240,8 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
             (r"\c0", ""),
             (r"\c_", ""),
             (r"\c+", ""),
+            (r"\u{3}", ""),
+            (r"\p{2}", ""),
             ("a|bc|", ""),
             ("(ab)+?", ""),
             ("(a?)*b", ""),
@@ -249,11 +272,11 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
         ] {
             let (handle, status, _, _, before) = runtime.call(source, flags);
             assert_eq!(status, 0, "{source:?}/{flags}");
-            assert_ne!(handle, 0);
+            assert!(handle.is_some(), "success publishes a rooted program");
             assert_eq!(
-                (handle as u64 >> 32) as i64,
+                runtime.heap_pointer(),
                 before,
-                "workspace must compact to entry checkpoint"
+                "GC publication releases all private compiler workspace"
             );
             let bytes = runtime.descriptor(handle);
             let program = ValidatedRegExpProgram::from_bytes(bytes.clone()).unwrap();
@@ -268,10 +291,7 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
                     REGEXP_MAX_INSTRUCTIONS as u64,
                 );
             }
-            assert_eq!(
-                runtime.heap_pointer(),
-                (before + bytes.len() as i64 + 7) & !7
-            );
+            assert_eq!(runtime.heap_pointer(), before);
         }
         let (first, status, _, _, _) = runtime.call("(ab)+", "d");
         assert_eq!(status, 0);
@@ -279,6 +299,10 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
         for _ in 0..6 {
             assert_eq!(runtime.call("(x?)*y", "i").1, 0);
         }
+        runtime
+            .store
+            .gc(None)
+            .expect("collect with retained program roots");
         assert_eq!(
             runtime.descriptor(first),
             retained,
@@ -291,7 +315,7 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
 fn emitted_pattern_compiler_distinguishes_syntax_resources_and_rolls_back_each_failure() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();
-        let resource_probe = format!("a{{{REGEXP_MAX_INSTRUCTIONS}}}");
+        let resource_probe = "a".repeat(REGEXP_MAX_INSTRUCTIONS);
         for (source, flags, expected) in [
             ("(", "", 1),
             ("[", "", 1),
@@ -317,9 +341,15 @@ fn emitted_pattern_compiler_distinguishes_syntax_resources_and_rolls_back_each_f
         ] {
             let (handle, status, _, detail, before) = runtime.call(source, flags);
             assert_eq!(status, expected, "{source:?}/{flags}; detail={detail}");
-            assert_eq!(handle, 0, "failure cannot publish a program");
+            assert!(handle.is_none(), "failure cannot publish a program");
             assert_eq!(runtime.heap_pointer(), before, "{source:?}/{flags}");
         }
+        let (counted, status, _, _, before) =
+            runtime.call(&format!("a{{{REGEXP_MAX_INSTRUCTIONS}}}"), "");
+        assert_eq!(status, 0, "large finite bounds retain one counted body");
+        let counted = ValidatedRegExpProgram::from_bytes(runtime.descriptor(counted)).unwrap();
+        assert!(counted.word(RegExpProgramWord::InstructionCount) < 10);
+        assert_eq!(runtime.heap_pointer(), before);
         let (handle, status, _, _, _) = runtime.call("(?:){999999999999999999999999}", "");
         assert_eq!(
             status, 0,
@@ -359,7 +389,7 @@ fn emitted_pattern_compiler_elides_only_structurally_pure_empty_composition() {
         ] {
             let (handle, status, _, _, before) = runtime.call(source, "d");
             assert_eq!(status, 0, "{source}");
-            assert_eq!((handle as u64 >> 32) as i64, before);
+            assert_eq!(runtime.heap_pointer(), before);
             let actual = ValidatedRegExpProgram::from_bytes(runtime.descriptor(handle)).unwrap();
             let literal =
                 ValidatedRegExpProgram::from_program(&RegExpProgram::compile(source, "d").unwrap())
@@ -383,7 +413,7 @@ fn emitted_pattern_compiler_elides_only_structurally_pure_empty_composition() {
         ] {
             let (handle, status, _, _, before) = runtime.call(source, "u");
             assert_eq!(status, 1, "{source}");
-            assert_eq!(handle, 0, "{source}");
+            assert!(handle.is_none(), "{source}");
             assert_eq!(runtime.heap_pointer(), before, "{source}");
         }
     });
@@ -393,10 +423,13 @@ fn emitted_pattern_compiler_elides_only_structurally_pure_empty_composition() {
 fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();
-        let sentinel = runtime.string(&[0xa5; 128]);
-        let sentinel_pointer = (sentinel as u64 >> 32) as usize;
+        let sentinel_pointer = runtime.allocate.call(&mut runtime.store, 128).unwrap() as usize;
+        runtime
+            .memory
+            .write(&mut runtime.store, sentinel_pointer, &[0xa5; 128])
+            .unwrap();
         let mut retained = Vec::new();
-        let resource_probe = format!("(ab){{{REGEXP_MAX_INSTRUCTIONS}}}");
+        let resource_probe = "a".repeat(REGEXP_MAX_INSTRUCTIONS);
         for (source, flags, expected_status) in [
             (r"(a)?\1*", "", 0),
             (r"(?:(a)|b)\1*", "", 0),
@@ -419,10 +452,10 @@ fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
             if status == 0 {
                 let bytes = runtime.descriptor(handle);
                 ValidatedRegExpProgram::from_bytes(bytes.clone()).unwrap();
-                assert_eq!(after, (before + bytes.len() as i64 + 7) & !7);
+                assert_eq!(after, before, "descriptor is rooted GC data, not scratch");
                 retained.push((handle, bytes));
             } else {
-                assert_eq!(handle, 0);
+                assert!(handle.is_none());
                 assert_eq!(after, before);
             }
             let abandoned = &runtime.memory.data(&runtime.store)[after as usize..];
@@ -451,12 +484,11 @@ fn emitted_pattern_compiler_clears_released_memory_before_allocator_reuse() {
 }
 
 fn with_resource_probe(fixture: &str) -> String {
-    // Keep the fixture's computed UTF-16 source path while deriving its
-    // exhaustion probe from the same cap as both Pattern compilers.
-    let pattern = format!("a{{{REGEXP_MAX_INSTRUCTIONS}}}");
+    // Counted repetition retains one body, so a{32768} is valid. This computed
+    // UTF-16 source has one instruction per atom plus MATCH and exceeds the
+    // unchanged instruction cap. Repeat avoids quadratic fixture concatenation.
     format!(
-        "var regexpResourceProbeUnits = {:?};\n{fixture}",
-        pattern.as_bytes()
+        "var regexpResourceProbe = String.fromCharCode(97).repeat({REGEXP_MAX_INSTRUCTIONS});\n{fixture}"
     )
 }
 
@@ -483,18 +515,16 @@ fn computed_pattern_workspace_reuse_preserves_capture_arrays_and_fresh_objects()
 fn runtime_workspace_memory_growth_failure_is_a_typed_rollback_not_a_trap() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();
-        let source = runtime.string(b"(abc)+");
-        let flags = runtime.string(b"i");
+        let source = runtime.string("(abc)+");
+        let flags = runtime.string("i");
         let before = runtime.heap_pointer();
         let physical = runtime.memory.data_size(&runtime.store);
         runtime.store.data_mut().limits = WasmtimeStoreLimitsBuilder::new()
             .memory_size(physical)
             .build();
-        let (handle, status, _, detail) = runtime
-            .compile
-            .call(&mut runtime.store, (source, flags, 0, 0, 0, 0, 0))
-            .expect("memory.grow refusal must be caught inside compiler");
-        assert_eq!((handle, status, detail), (0, 3, 2));
+        let (handle, status, _, detail) = runtime.compile_strings(source, flags);
+        assert!(handle.is_none());
+        assert_eq!((status, detail), (3, 2));
         assert_eq!(runtime.heap_pointer(), before);
     });
 }

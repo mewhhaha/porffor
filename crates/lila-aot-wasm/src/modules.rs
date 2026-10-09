@@ -43,7 +43,6 @@ mod runtime;
 mod synchronous;
 mod traversal;
 pub(crate) use runtime::ModuleRuntimeOperation;
-pub(crate) use synchronous::module_execution_record_count;
 
 /// Message every unimplemented module emission reports, so a module compile
 /// fails with one recognisable diagnostic rather than a generic backend error.

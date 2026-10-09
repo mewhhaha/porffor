@@ -83,9 +83,12 @@ fn module_cycles_and_dynamic_aliases_retain_identity_and_declared_meta_urls() {
         import * as first from 'child';
         export function readRoot() { return 'root'; }
         print('root-url:' + import.meta.url);
-        const again = await import('child-alias');
-        if (first !== again) throw new Error('duplicated module namespace');
-        print(again.read() + ':' + globalThis.childRuns);
+        // Awaiting an import from this cycle would make entry wait on itself.
+        // The host job flush must still execute the identity check and print.
+        import('child-alias').then(again => {
+            if (first !== again) throw new Error('duplicated module namespace');
+            print(again.read() + ':' + globalThis.childRuns);
+        });
     "#;
     let child = r#"
         import { readRoot } from 'root';

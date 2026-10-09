@@ -49,6 +49,26 @@ struct ReadOrdinaryPropertyReferenceLocals {
     old_value: ValueLocals,
 }
 
+#[must_use = "an eager result must enter PutValue before publication"]
+struct ReadyToWriteOrdinaryPropertyReferenceLocals {
+    reference: CanonicalOrdinaryPropertyReferenceLocals,
+    old_value: ValueLocals,
+    result: ValueLocals,
+}
+
+#[must_use = "a numeric Reference must advance before it can be written"]
+struct ReadOrdinaryPropertyNumericUpdateLocals {
+    reference: CanonicalOrdinaryPropertyReferenceLocals,
+    old_value: ValueLocals,
+}
+
+#[must_use = "a numeric update must enter PutValue before publication"]
+struct ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+    reference: CanonicalOrdinaryPropertyReferenceLocals,
+    old_value: ValueLocals,
+    new_value: ValueLocals,
+}
+
 /// The sealed input required by the shared ordinary Reference evaluator.
 ///
 /// The fused IR carriers and retained Get capture own the same base/raw-key
@@ -482,19 +502,17 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_ordinary_property_eager_compound_assignment_to_value(
+    fn emit_result_from_read_ordinary_property_reference(
         &mut self,
+        read: ReadOrdinaryPropertyReferenceLocals,
         mutation: &OrdinaryPropertyEagerCompoundAssignmentIr,
-        output: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let schema = self.runtime_schema();
-        let raw = self.evaluate_raw_ordinary_property_reference(mutation, function)?;
+    ) -> Result<ReadyToWriteOrdinaryPropertyReferenceLocals, EmitError> {
         let ReadOrdinaryPropertyReferenceLocals {
             reference,
             old_value,
-        } = self.emit_get_value_from_raw_ordinary_property_reference(raw, function)?;
-        let result = schema.reserve_value_local(function);
+        } = read;
+        let result = self.runtime_schema().reserve_value_local(function);
         self.push_scope();
         let (_, id) =
             self.retain_expression_operand(mutation.old_value_binding(), &old_value, function);
@@ -502,10 +520,29 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_scope();
         self.release_local_binding(id, function);
         compiled?;
+        Ok(ReadyToWriteOrdinaryPropertyReferenceLocals {
+            reference,
+            old_value,
+            result,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_reference(
+        &mut self,
+        ready: ReadyToWriteOrdinaryPropertyReferenceLocals,
+        strictness: Strictness,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyReferenceLocals {
+            reference,
+            old_value,
+            result,
+        } = ready;
         self.emit_ordinary_reference_set(
             &reference,
             &result,
-            mutation.strictness(),
+            strictness,
             RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,
             function,
         )?;
@@ -514,6 +551,24 @@ impl<'a> FunctionBuilder<'a> {
         reference.clear(function);
         old_value.clear(function);
         Ok(())
+    }
+
+    fn compile_ordinary_property_eager_compound_assignment_to_value(
+        &mut self,
+        mutation: &OrdinaryPropertyEagerCompoundAssignmentIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let raw = self.evaluate_raw_ordinary_property_reference(mutation, function)?;
+        let read = self.emit_get_value_from_raw_ordinary_property_reference(raw, function)?;
+        let ready =
+            self.emit_result_from_read_ordinary_property_reference(read, mutation, function)?;
+        self.emit_put_value_from_ready_ordinary_property_reference(
+            ready,
+            mutation.strictness(),
+            output,
+            function,
+        )
     }
 
     fn emit_numeric_reference_old_value(
@@ -546,20 +601,34 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn compile_ordinary_property_numeric_update_to_value(
+    fn emit_get_numeric_value_from_raw_ordinary_property_reference(
         &mut self,
-        update: &OrdinaryPropertyNumericUpdateIr,
-        output: &ValueLocals,
+        raw: EvaluatedRawOrdinaryPropertyReferenceLocals,
+        value_kind: NumericUpdateValueKind,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let schema = self.runtime_schema();
-        let raw = self.evaluate_raw_ordinary_property_reference(update, function)?;
+    ) -> Result<ReadOrdinaryPropertyNumericUpdateLocals, EmitError> {
         let ReadOrdinaryPropertyReferenceLocals {
             reference,
             old_value,
         } = self.emit_get_value_from_raw_ordinary_property_reference(raw, function)?;
-        self.emit_numeric_reference_old_value(update.value_kind(), &old_value, function)?;
-        let new_value = schema.reserve_value_local(function);
+        self.emit_numeric_reference_old_value(value_kind, &old_value, function)?;
+        Ok(ReadOrdinaryPropertyNumericUpdateLocals {
+            reference,
+            old_value,
+        })
+    }
+
+    fn emit_numeric_update_from_read_ordinary_property_reference(
+        &mut self,
+        read: ReadOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        function: &mut Function,
+    ) -> Result<ReadyToWriteOrdinaryPropertyNumericUpdateLocals, EmitError> {
+        let ReadOrdinaryPropertyNumericUpdateLocals {
+            reference,
+            old_value,
+        } = read;
+        let new_value = self.runtime_schema().reserve_value_local(function);
         self.emit_numeric_update_to_locals(
             update.op(),
             update.value_kind(),
@@ -567,6 +636,25 @@ impl<'a> FunctionBuilder<'a> {
             &new_value,
             function,
         )?;
+        Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            reference,
+            old_value,
+            new_value,
+        })
+    }
+
+    fn emit_put_value_from_ready_ordinary_property_numeric_update(
+        &mut self,
+        ready: ReadyToWriteOrdinaryPropertyNumericUpdateLocals,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {
+            reference,
+            old_value,
+            new_value,
+        } = ready;
         self.emit_ordinary_reference_set(
             &reference,
             &new_value,
@@ -585,6 +673,25 @@ impl<'a> FunctionBuilder<'a> {
         reference.clear(function);
         old_value.clear(function);
         Ok(())
+    }
+
+    fn compile_ordinary_property_numeric_update_to_value(
+        &mut self,
+        update: &OrdinaryPropertyNumericUpdateIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let raw = self.evaluate_raw_ordinary_property_reference(update, function)?;
+        let read = self.emit_get_numeric_value_from_raw_ordinary_property_reference(
+            raw,
+            update.value_kind(),
+            function,
+        )?;
+        let ready =
+            self.emit_numeric_update_from_read_ordinary_property_reference(read, update, function)?;
+        self.emit_put_value_from_ready_ordinary_property_numeric_update(
+            ready, update, output, function,
+        )
     }
 
     /// The sole expression publisher carries all three value words. A static
@@ -1129,7 +1236,13 @@ impl<'a> FunctionBuilder<'a> {
             ExprIr::ObjectDestructuringOperation(operation) => {
                 self.compile_object_destructuring_operation_to_value(operation, output, function)?
             }
-            ExprIr::CallNamed { name, args } => self.emit_call(name, args, output, function)?,
+            ExprIr::CallNamed { name, args } => self.emit_call(
+                name,
+                args,
+                &crate::functions::CallContinuation::Continue,
+                output,
+                function,
+            )?,
             ExprIr::CaptureOptionalCallReference(capture) => {
                 let ExprIr::OptionalPropertyChain { target, chain } =
                     &capture.chain_expression().expr
@@ -1140,6 +1253,7 @@ impl<'a> FunctionBuilder<'a> {
                     target,
                     chain,
                     Some(capture.receiver()),
+                    &crate::functions::CallContinuation::Continue,
                     output,
                     function,
                 )?;
@@ -1186,6 +1300,7 @@ impl<'a> FunctionBuilder<'a> {
                 args,
                 static_regexp_compilation.as_ref(),
                 direct_eval.as_ref(),
+                &crate::functions::CallContinuation::Continue,
                 output,
                 function,
             )?,
@@ -1207,7 +1322,14 @@ impl<'a> FunctionBuilder<'a> {
                 receiver,
                 key,
                 args,
-            } => self.emit_method_call(receiver, key, args, output, function)?,
+            } => self.emit_method_call(
+                receiver,
+                key,
+                args,
+                &crate::functions::CallContinuation::Continue,
+                output,
+                function,
+            )?,
             ExprIr::InstanceOf { lhs, rhs } | ExprIr::In { lhs, rhs } => {
                 let result = schema.reserve_i32_local(function);
                 if matches!(&expr.expr, ExprIr::InstanceOf { .. }) {
@@ -1223,7 +1345,14 @@ impl<'a> FunctionBuilder<'a> {
                 self.compile_property_read_to_locals(target, key, output, function)?
             }
             ExprIr::OptionalPropertyChain { target, chain } => self
-                .compile_optional_property_chain_to_value(target, chain, None, output, function)?,
+                .compile_optional_property_chain_to_value(
+                    target,
+                    chain,
+                    None,
+                    &crate::functions::CallContinuation::Continue,
+                    output,
+                    function,
+                )?,
             ExprIr::SuperConstruct { args } => {
                 let constructor = schema.reserve_value_local(function);
                 let new_target = schema.reserve_value_local(function);

@@ -2,12 +2,13 @@ use std::fs;
 use std::path::Path;
 
 const PLANNING_SOURCE: &str = include_str!("../src/planning.rs");
+const GC_HOST_SOURCE: &str = include_str!("../src/gc_types/host.rs");
 const EMIT_SOURCE: &str = include_str!("../src/emit/module_assembly.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/host-import-function-indices-authority.md");
 const TASK: &str = include_str!("../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
-const ROLES: [(&str, &str, &str, &str); 29] = [
+const ROLES: [(&str, &str, &str, &str); 26] = [
     (
         "NumberPowImportFunctionIndex",
         "number_pow",
@@ -19,12 +20,6 @@ const ROLES: [(&str, &str, &str, &str); 29] = [
         "wall_clock_millis",
         "wall_clock_millis_import_function_index",
         "wall_clock_millis_import_function_index",
-    ),
-    (
-        "SharedMemoryAllocImportFunctionIndex",
-        "shared_memory_alloc",
-        "shared_memory_alloc_function_index",
-        "shared_memory_alloc_function_index",
     ),
     (
         "MonotonicClockNanosImportFunctionIndex",
@@ -43,12 +38,6 @@ const ROLES: [(&str, &str, &str, &str); 29] = [
         "agent_call",
         "agent_call_import_function_index",
         "agent_call_import_function_index",
-    ),
-    (
-        "IntlCallImportFunctionIndex",
-        "intl_call",
-        "intl_call_import_function_index",
-        "intl_call_import_function_index",
     ),
     (
         "RandomF64ImportFunctionIndex",
@@ -175,12 +164,6 @@ const ROLES: [(&str, &str, &str, &str); 29] = [
         "math_atan2",
         "math_atan2_import_function_index",
         "math_atan2_import_function_index",
-    ),
-    (
-        "SystemTimeZoneImportFunctionIndex",
-        "system_time_zone",
-        "system_time_zone_import_function_index",
-        "system_time_zone_import_function_index",
     ),
 ];
 
@@ -384,7 +367,7 @@ fn count_identifier_in_rust_sources(dir: &Path, identifier: &str) -> usize {
 }
 
 #[test]
-fn authority_has_twenty_nine_optional_and_one_required_private_non_derived_roles() {
+fn authority_has_twenty_six_scalar_roles_and_one_required_role_plus_gc_imports() {
     let lexical_probe = rust_code(
         r###"
         // HostImportFunctionIndices
@@ -403,7 +386,7 @@ fn authority_has_twenty_nine_optional_and_one_required_private_non_derived_roles
     let domain = rust_code(bounded(
         PLANNING_SOURCE,
         "pub(crate) struct NumberPowImportFunctionIndex(u32);",
-        "pub(crate) struct FunctionMetaRegistry {",
+        "/// Only the runtime schema",
     ));
     for (role, field, _, _) in ROLES {
         if role != "NumberPowImportFunctionIndex" {
@@ -428,6 +411,38 @@ fn authority_has_twenty_nine_optional_and_one_required_private_non_derived_roles
         assert!(
             !domain.normalized.contains(forbidden),
             "found `{forbidden}`"
+        );
+    }
+    let host = rust_code(GC_HOST_SOURCE).normalized;
+    let domain = bounded(&host, "gc_host_imports!{", "}");
+    assert_eq!(domain.matches("=>(").count(), 14);
+    for marker in [
+        "SharedBufferAllocate=>(\"shared_buffer_allocate\",HostSharedBufferAllocate)",
+        "IntlProviderCall=>(\"intl_provider_call\",HostIntlProviderCall)",
+        "SystemTimeZoneSnapshot=>(\"system_time_zone_snapshot\",HostSystemTimeZoneSnapshot)",
+    ] {
+        assert!(domain.contains(marker), "replacement import {marker}");
+    }
+    assert!(host
+        .contains("pub(crate)structDeclaredGcHostImport{import:GcHostImport,function_index:u32,}"));
+    assert!(host.contains("forimportinGcHostImport::ALL{"));
+    let plan = bounded(&host, "pub(crate)fnplan(", "pub(crate)fnget(");
+    assert!(!plan.contains("_=>"));
+    assert!(plan.contains("declarations.push(DeclaredGcHostImport{import:*import,function_index:*next_function_index,})"));
+    assert!(plan.contains(".checked_add(1)"));
+    assert!(host.contains(".find(|entry|entry.import==import)"));
+    assert!(host.contains("EntityType::Function(entry.import.signature().type_index())"));
+    for retired in [
+        "SharedMemoryAllocImportFunctionIndex",
+        "IntlCallImportFunctionIndex",
+        "SystemTimeZoneImportFunctionIndex",
+    ] {
+        assert_eq!(
+            count_identifier_in_rust_sources(
+                &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+                retired
+            ),
+            0
         );
     }
 }
@@ -463,7 +478,7 @@ fn sole_producer_builds_every_typed_role_and_registry_stores_authority_intact() 
     let producer = rust_code(bounded(
         EMIT_SOURCE,
         "let host_import_function_indices = HostImportFunctionIndices::new(",
-        "    let function_metas = FunctionMetaRegistry::new(",
+        "    let source = SourceFunctions::partition(script);",
     ));
     for (role, _, source_variable, _) in ROLES {
         assert_eq!(
@@ -483,6 +498,13 @@ fn sole_producer_builds_every_typed_role_and_registry_stores_authority_intact() 
         1,
     );
 
+    assert_eq!(
+        producer
+            .normalized
+            .matches(".with_gc_imports(gc_host_imports)")
+            .count(),
+        1
+    );
     let registry = rust_code(bounded(
         PLANNING_SOURCE,
         "pub(crate) struct FunctionMetaRegistry {",
@@ -503,7 +525,7 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
     let getters = rust_code(bounded(
         PLANNING_SOURCE,
         "    pub(crate) fn number_pow_import_function_index(&self) -> Option<u32> {",
-        "    /// Set the recording-suppression flag",
+        "    pub(crate) fn get(&self, function_id:",
     ));
     for (_, field, _, getter) in ROLES {
         assert_eq!(
@@ -527,7 +549,7 @@ fn named_registry_getters_are_the_only_raw_index_projections() {
     }
     assert_eq!(
         getters.normalized.matches("map(|index|index.0)").count(),
-        29
+        26
     );
     assert_eq!(
         getters

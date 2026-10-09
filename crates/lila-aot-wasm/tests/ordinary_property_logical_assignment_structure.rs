@@ -349,16 +349,55 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
 fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
     for marker in [
         "fn dynamic_property_keys_root_every_possible_shape_accessor()",
-        "fn joined_logical_property_base_roots_every_carried_builtin_accessor()",
-        "fn joined_eager_property_base_roots_every_carried_builtin_getter()",
-        "fn joined_numeric_property_base_roots_every_carried_builtin_getter()",
-        "fn joined_plain_property_base_roots_its_carried_builtin_setter()",
         "selection: ShapeAccessorReferenceSelection,",
         "any_accessor(shape, target, selection)",
         "assignment.possible_getters().contains(target)",
         "assignment.possible_setters().contains(target)",
     ] {
         assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
+    }
+    // Joined getter/setter provenance is now consumed directly by the shared
+    // visitor. Pin its actual edges, not names of retired planning fixtures.
+    let visitor = bounded(PLANNING_SOURCE, "fn expr_references_function(", "\n}\n");
+    for (variant, binding, end, selection) in [
+        (
+            "OrdinaryPropertyAssignment",
+            "assignment",
+            "OrdinaryPropertyLogicalAssignment",
+            "Setter",
+        ),
+        (
+            "OrdinaryPropertyLogicalAssignment",
+            "assignment",
+            "OrdinaryPropertyGetCapture",
+            "GetterOrSetter",
+        ),
+        (
+            "OrdinaryPropertyNumericUpdate",
+            "update",
+            "OrdinaryPropertyEagerCompoundAssignment",
+            "GetterOrSetter",
+        ),
+        (
+            "OrdinaryPropertyEagerCompoundAssignment",
+            "mutation",
+            "PropertyWrite",
+            "GetterOrSetter",
+        ),
+    ] {
+        let arm = bounded(
+            visitor,
+            &format!("ExprIr::{variant}({binding}) => {{"),
+            &format!("ExprIr::{end}"),
+        );
+        assert!(arm.contains(&format!("{binding}.possible_setters().contains(target)")));
+        if selection == "GetterOrSetter" {
+            assert!(arm.contains(&format!("{binding}.possible_getters().contains(target)")));
+        }
+        assert!(arm.contains(&format!(
+            "{binding}.base_and_receiver().heap_shape.as_deref()"
+        )));
+        assert!(arm.contains(&format!("ShapeAccessorReferenceSelection::{selection}")));
     }
     assert!(
         EARLY_ERRORS_SOURCE.contains("ExprIr::OrdinaryPropertyLogicalAssignment(assignment) => {")

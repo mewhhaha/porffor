@@ -12,12 +12,13 @@ function freshObjects() {
       array.length !== 1 || array[0] !== 'fresh' || object.value !== array)
     throw 'released compiler storage poisoned a fresh object';
 }
-function failure(units, expected) {
+function failureSource(source, expected) {
   var caught;
-  try { new RegExp(sourceFromUnits(units)); } catch (error) { caught = error; }
+  try { new RegExp(source); } catch (error) { caught = error; }
   if (!(caught instanceof expected)) throw 'wrong compile failure';
   freshObjects();
 }
+function failure(units, expected) { failureSource(sourceFromUnits(units), expected); }
 var optional = new RegExp(sourceFromUnits([40,97,41,63,92,49,42]));
 var first = optional.exec('');
 if (first === null || first[0] !== '' || first[1] !== undefined ||
@@ -30,7 +31,7 @@ if (second === null || second[0] !== 'b' || second[1] !== undefined ||
 freshObjects();
 failure([40,97,98,99], SyntaxError);
 failure([91,122,45,97,93], SyntaxError);
-failure(regexpResourceProbeUnits, RangeError);
+failureSource(regexpResourceProbe, RangeError);
 var indexed = new RegExp(sourceFromUnits([40,97,98,41,43]), 'd');
 var third = indexed.exec('abab');
 if (third[0] !== 'abab' || third[1] !== 'ab' || third.indices[0][1] !== 4 ||

@@ -184,28 +184,28 @@ fn ir_encoder_and_wasm_decoder_share_the_typed_operand_codes() {
     let decoder = bounded(
         WASM,
         "// `.`, `^` and `$` carry a RegExp-modifier override in `operand0`:",
-        "        function.instruction(&Instruction::LocalGet(opcode));",
+        "        opcode.load(&mut function);",
     );
     let normalized_decoder = without_whitespace(decoder);
     assert!(normalized_decoder.contains(concat!(
-        "function.instruction(&Instruction::LocalGet(operand0));",
+        "operand0.load(&mutfunction);",
         "function.instruction(&Instruction::I64Const(",
         "RegExpModifierOverride::ForceOn.operand_code()asi64,));",
         "function.instruction(&Instruction::I64Eq);",
         "function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));",
         "function.instruction(&Instruction::I64Const(1));",
         "function.instruction(&Instruction::Else);",
-        "function.instruction(&Instruction::LocalGet(operand0));",
+        "operand0.load(&mutfunction);",
         "function.instruction(&Instruction::I64Const(",
         "RegExpModifierOverride::ForceOff.operand_code()asi64,));",
         "function.instruction(&Instruction::I64Eq);",
         "function.instruction(&Instruction::If(BlockType::Result(ValType::I64)));",
         "function.instruction(&Instruction::I64Const(0));",
         "function.instruction(&Instruction::Else);",
-        "function.instruction(&Instruction::LocalGet(source));",
+        "source.load(&mutfunction);",
         "function.instruction(&Instruction::End);",
         "function.instruction(&Instruction::End);",
-        "function.instruction(&Instruction::LocalSet(effective));",
+        "effective.store(&mutfunction);",
     )));
     assert_eq!(
         decoder
@@ -219,7 +219,7 @@ fn ir_encoder_and_wasm_decoder_share_the_typed_operand_codes() {
             .count(),
         1
     );
-    assert!(decoder.contains("function.instruction(&Instruction::LocalGet(source));"));
+    assert!(normalized_decoder.contains("source.load(&mutfunction);"));
 }
 
 #[test]

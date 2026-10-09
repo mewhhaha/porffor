@@ -49,7 +49,7 @@ export function replace() { á = 11; }
 }
 
 #[test]
-fn unicode_namespace_and_source_aliases_preserve_module_identity_and_phase() {
+fn unicode_namespace_aliases_keep_identity_and_source_aliases_reject_before_evaluation() {
     assert_namespace_modules(
         &[
             (
@@ -57,21 +57,42 @@ fn unicode_namespace_and_source_aliases_preserve_module_identity_and_phase() {
                 r#"
 import * as nा from './value.js';
 import * as n‿ from './value.js';
-import source s\u0301 from './source.js';
-import source s‿ from './source.js';
-if (nा !== n‿ || nा.value !== 42 || ś !== s‿ ||
-    Object.getPrototypeOf(ś) !== null || Object.isExtensible(ś))
-  throw 'Unicode aliases or module identity';
-print('Unicode aliases and source phase');
+if (nा !== n‿ || nा.value !== 42 ||
+    Object.getPrototypeOf(nा) !== null || Object.isExtensible(nा))
+  throw 'Unicode namespace aliases or module identity';
+globalThis.aliasEvaluations = 0;
+globalThis.sourceEvaluations = 0;
+const s\u0301 = import('./source-aliases.js');
+const s‿ = import('./source-aliases.js');
+Promise.all([ś, s‿].map(request => request.then(
+  () => { throw 'source aliases fulfilled'; },
+  error => {
+    if (!(error instanceof SyntaxError) || !error.message.includes('no source representation'))
+      throw 'Unicode source alias rejection';
+  }
+))).then(() => {
+  if (globalThis.aliasEvaluations !== 0 || globalThis.sourceEvaluations !== 0)
+    throw 'source import evaluated an unavailable record';
+  print('Unicode aliases and source rejection');
+});
 "#,
             ),
             ("value.js", "export const value = 42;"),
             (
+                "source-aliases.js",
+                r#"
+import source s\u0301 from './source.js';
+import source s‿ from './source.js';
+globalThis.aliasEvaluations++;
+throw 'source aliases evaluated';
+"#,
+            ),
+            (
                 "source.js",
-                "throw 'source-only module evaluated'; export const value = 1;",
+                "globalThis.sourceEvaluations++; throw 'source-only module evaluated'; export const value = 1;",
             ),
         ],
-        &["Unicode aliases and source phase"],
+        &["Unicode aliases and source rejection"],
     );
 }
 

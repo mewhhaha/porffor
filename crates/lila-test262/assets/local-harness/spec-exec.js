@@ -20,7 +20,7 @@ function $DONOTEVALUATE() {
 }
 
 function __lilaUnsupportedHost(name) {
-  throw new Test262Error('local harness host ' + name + ' unsupported');
+  return __lilaUnsupportedHostCapability(name);
 }
 
 function __lilaUnsupportedAgentMethod(name) {

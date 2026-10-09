@@ -9,6 +9,7 @@ impl FunctionBuilder<'_> {
         arguments: &[TypedExpr],
         static_regexp_compilation: Option<&StaticRegExpCompilation>,
         direct_eval: Option<&lila_ir::DirectEvalContextIr>,
+        continuation: &CallContinuation,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -18,6 +19,7 @@ impl FunctionBuilder<'_> {
                 callee_expression,
                 this_expression,
                 arguments,
+                continuation,
                 output,
                 function,
             );
@@ -25,7 +27,8 @@ impl FunctionBuilder<'_> {
         // Static regexp annotations have already populated the native program
         // cache during StringPool planning. Only the actual native constructor
         // may use that cache after it performs its own argument coercions.
-        if arguments.is_empty()
+        if matches!(continuation, CallContinuation::Continue)
+            && arguments.is_empty()
             && static_regexp_compilation.is_none()
             && self
                 .current_function_meta()
@@ -84,7 +87,14 @@ impl FunctionBuilder<'_> {
             }
             None => receiver.set_undefined(function),
         }
-        self.emit_indirect_call_from_locals(&callee, Some(&receiver), arguments, output, function)?;
+        self.emit_indirect_call_from_locals(
+            &callee,
+            Some(&receiver),
+            arguments,
+            continuation,
+            output,
+            function,
+        )?;
         receiver.clear(function);
         callee.clear(function);
         Ok(())

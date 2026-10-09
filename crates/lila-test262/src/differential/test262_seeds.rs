@@ -574,6 +574,7 @@ fn suite_digest(root: &Path) -> Result<String, DifferentialError> {
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Test262ReplayResult {
     Passed {
+        #[serde(with = "worker_duration_ms")]
         duration_ms: u128,
     },
     Failed {
@@ -582,6 +583,7 @@ pub enum Test262ReplayResult {
         origin: FailureOrigin,
         detail: String,
         detail_hash: u64,
+        #[serde(with = "worker_duration_ms")]
         duration_ms: u128,
     },
     AdmissionRejected {
@@ -591,6 +593,24 @@ pub enum Test262ReplayResult {
         failure: super::DifferentialWorkerFailure,
         cleanup_error: Option<String>,
     },
+}
+
+// Internally tagged Serde frames buffer integer tokens as u64. Keep the
+// in-process duration type while admitting an exact, bounded wire integer;
+// neither JSON floating-point fallback nor serialization truncation is allowed.
+mod worker_duration_ms {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub(super) fn serialize<S: Serializer>(value: &u128, serializer: S) -> Result<S::Ok, S::Error> {
+        let value = u64::try_from(*value).map_err(serde::ser::Error::custom)?;
+        serializer.serialize_u64(value)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<u128, D::Error> {
+        u64::deserialize(deserializer).map(u128::from)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -180,6 +180,17 @@ fn rust_code(source: &str) -> RustCode {
     }
 }
 
+// rustfmt may add a trailing comma to a multiline call. Both spellings
+// retain the complete, ordered arguments; literals and tuple syntax are untouched.
+fn call_count(source: &str, call: &str) -> usize {
+    let (arguments, suffix) = if let Some(arguments) = call.strip_suffix(");") {
+        (arguments, ";")
+    } else {
+        (call.strip_suffix(')').expect("a complete call pattern"), "")
+    };
+    source.matches(call).count() + source.matches(&format!("{arguments},){suffix}")).count()
+}
+
 fn exact_identifier_count(source: &str, identifier: &str) -> usize {
     source
         .match_indices(identifier)
@@ -227,6 +238,11 @@ fn receiver_value_is_the_private_whole_non_copy_domain() {
     assert_eq!(
         exact_identifier_count(&lexical_probe.identifiers, "ValueLocals"),
         1
+    );
+    assert_eq!(call_count("call(value);call(value,);", "call(value);"), 2);
+    assert_eq!(
+        call_count("call(value,extra);call((value,));", "call(value);"),
+        0
     );
 
     let value_fields = rust_code(bounded(
@@ -278,13 +294,13 @@ fn five_prototype_operations_share_the_captured_whole_this_value() {
         "self.completion().copy_from(&result,function);",
     );
     let capture = "receiver.copy_from(self.body_entry_locals().expect(\"native Function entry is cached\").this_value(),function);";
-    assert_eq!(owner.matches(capture).count(), 1);
+    assert_eq!(call_count(owner, capture), 1);
     assert!(owner.contains("letreceiver=schema.reserve_value_local(function);"));
     assert!(
         owner
             .find("returnself.compile_function_constructor_builtin(function);")
             .unwrap()
-            < owner.find(capture).unwrap()
+            < owner.find("receiver.copy_from(").unwrap()
     );
     for variant in [
         "PrototypeSymbolHasInstance",
@@ -316,13 +332,65 @@ fn five_prototype_operations_share_the_captured_whole_this_value() {
 fn operations_and_bound_dispatch_retain_complete_values_and_completions() {
     let code = rust_code(SOURCE).normalized;
     for (start, end, semantic_owner) in [
-        ("PrototypeSymbolHasInstance", "PrototypeCall", "emit_ordinary_has_instance_from_locals(&receiver,&argument,&result,function)"),
-        ("PrototypeCall", "PrototypeApply", "emit_function_or_proxy_call_with_argv(&receiver,&argument,&arguments,&result,function)"),
-        ("PrototypeApply", "PrototypeBind", "emit_function_or_proxy_call_with_argv(&receiver,&argument,"),
-        ("PrototypeBind", "PrototypeToString", "emit_alloc_bound_function_for_bind(&receiver,&arguments,&result,function)"),
+        (
+            "PrototypeSymbolHasInstance",
+            "PrototypeCall",
+            "emit_ordinary_has_instance_from_locals(&receiver,&argument,&result,function)",
+        ),
+        (
+            "PrototypeCall",
+            "PrototypeApply",
+            "emit_prepared_tail_call(&receiver,&argument,&arguments,function)",
+        ),
+        (
+            "PrototypeApply",
+            "PrototypeBind",
+            "emit_prepared_tail_call(&receiver,&argument,&empty,function)",
+        ),
+        (
+            "PrototypeBind",
+            "PrototypeToString",
+            "emit_alloc_bound_function_for_bind(&receiver,&arguments,&result,function)",
+        ),
     ] {
-        let branch = bounded(&code, &format!("FunctionBuiltin::{start}=>{{"), &format!("FunctionBuiltin::{end}=>{{"));
-        assert!(branch.contains(semantic_owner), "{start} must consume its captured whole receiver");
+        let branch = bounded(
+            &code,
+            &format!("FunctionBuiltin::{start}=>{{"),
+            &format!("FunctionBuiltin::{end}=>{{"),
+        );
+        assert_eq!(
+            call_count(branch, semantic_owner),
+            1,
+            "{start} must consume its captured whole receiver"
+        );
+    }
+    let apply = bounded(
+        &code,
+        "FunctionBuiltin::PrototypeApply=>{",
+        "FunctionBuiltin::PrototypeBind=>{",
+    );
+    assert_eq!(
+        call_count(
+            apply,
+            "emit_prepared_tail_call(&receiver,&argument,arguments,function)"
+        ),
+        1
+    );
+    for owner in [
+        bounded(
+            &code,
+            "FunctionBuiltin::PrototypeCall=>{",
+            "FunctionBuiltin::PrototypeApply=>{",
+        ),
+        apply,
+    ] {
+        assert!(
+            owner
+                .find("emit_is_callable_i32(&receiver,function)")
+                .unwrap()
+                < owner.find("emit_prepared_tail_call(").unwrap()
+        );
+        assert!(!owner.contains("emit_function_or_proxy_call_with_argv("));
     }
     let to_string = bounded(
         &code,
@@ -405,13 +473,15 @@ fn contract_and_fixed_entries_record_the_current_receiver_authority() {
             "current contract marker `{marker}`"
         );
     }
-    let domain = rust_code(bounded(
-        SOURCE,
-        "pub(crate) use dynamic_constructor::append_empty_dynamic_function_bodies;",
-        "impl FunctionBuilder<'_> {",
-    ));
-    assert_eq!(domain.normalized, "enumFunctionBuiltin{Constructor,Prototype,PrototypeSymbolHasInstance,PrototypeCall,PrototypeApply,PrototypeBind,PrototypeToString,}");
     let source = rust_code(SOURCE).normalized;
+    // The preceding declaration may re-export more constructor helpers. The
+    // semicolon still proves that no attribute, derive or visibility intervenes.
+    let domain = bounded(
+        &source,
+        ";enumFunctionBuiltin{",
+        "}implFunctionBuilder<'_>{",
+    );
+    assert_eq!(domain, "Constructor,Prototype,PrototypeSymbolHasInstance,PrototypeCall,PrototypeApply,PrototypeBind,PrototypeToString,");
     let standard = rust_code(STANDARD).normalized;
     assert!(!standard.contains("FunctionBuiltin"));
     assert!(!standard.contains("emit_function_builtin("));

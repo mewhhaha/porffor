@@ -29,14 +29,25 @@ fn unreachable_planning_analysis_is_absent() {
 #[test]
 fn live_planning_and_ir_authorities_remain() {
     for declaration in [
-        "pub(crate) fn count_param_binding_locals(",
-        "pub(crate) fn count_block_lexicals(",
+        "pub(crate) struct RuntimeBootstrapPlan {",
+        "pub(crate) fn collect_hoisted_vars_block_root(",
         "pub(crate) fn block_references_function(",
-        "pub(crate) fn should_stub_standard_builtin(",
+        "fn require_standard_builtin(&mut self, builtin: StandardBuiltinId)",
+        "pub(crate) fn build_function_metas<",
         "pub(crate) fn values(&self)",
         "pub(crate) fn metas(&self)",
     ] {
         assert!(PLANNING_SOURCE.contains(declaration), "`{declaration}`");
+    }
+    for retired in [
+        "fn count_param_binding_locals(",
+        "fn count_block_lexicals(",
+        "fn should_stub_standard_builtin(",
+    ] {
+        assert!(
+            !PLANNING_SOURCE.contains(retired),
+            "retired raw budget/stub entry {retired}"
+        );
     }
     assert!(!PLANNING_SOURCE.contains("super_constructor_target"));
     assert!(!PLANNING_SOURCE.contains("pub(crate) fn iter(&self)"));

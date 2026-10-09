@@ -94,7 +94,7 @@ fn static_and_dynamic_shape_accessors_project_the_selection_directly() {
 }
 
 #[test]
-fn exactly_eight_product_producers_choose_their_accessor_selection() {
+fn exactly_nine_product_producers_choose_their_accessor_selection() {
     let producers = bounded(
         SOURCE,
         "        ExprIr::OptionalPropertyChain {\n            target: object,\n            chain,",
@@ -105,13 +105,13 @@ fn exactly_eight_product_producers_choose_their_accessor_selection() {
         producers
             .matches("shape_accessor_references_function(")
             .count(),
-        8
+        9
     );
     assert_eq!(
         producers
             .matches("ShapeAccessorReferenceSelection::Getter,")
             .count(),
-        3
+        4
     );
     assert_eq!(
         producers
@@ -132,11 +132,18 @@ fn exactly_eight_product_producers_choose_their_accessor_selection() {
 
     assert_single_selection(
         producers
-            .split_once("        ExprIr::PropertyRead {")
-            .expect("missing property-read producer after optional-chain producer")
+            .split_once("        ExprIr::DeleteOptionalPropertyChain(deletion) => {")
+            .expect("missing optional-chain deletion producer")
             .0,
         "Getter",
     );
+    let optional_deletion = bounded(
+        producers,
+        "        ExprIr::DeleteOptionalPropertyChain(deletion) => {",
+        "        ExprIr::PropertyRead {",
+    );
+    assert!(optional_deletion.contains("let chain = deletion.prefix();"));
+    assert_single_selection(optional_deletion, "Getter");
     assert_single_selection(
         bounded(
             producers,

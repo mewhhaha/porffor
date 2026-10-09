@@ -66,10 +66,14 @@ for (const { label, args } of testCases) {
     toLocaleString: function (...receivedArgs) {
       let captured = "case:" + label;
       if (captured.length < 6) return "bad";
+      if (receivedArgs.length !== 2 ||
+          !Object.is(receivedArgs[0], args[0]) || !Object.is(receivedArgs[1], args[1])) {
+        throw new Error("locale argument forwarding: " + label);
+      }
       return String(receivedArgs.length);
     }
   };
-  if ([spy].toLocaleString(...args) !== "0") failures |= 512;
+  if ([spy].toLocaleString(...args) !== "2") failures |= 512;
 }
 
 let rab = new ArrayBuffer(4, { maxByteLength: 8 });

@@ -219,7 +219,11 @@ void 0;
 
 fn assert_gc_stack_fixture(source: &str, marker: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    for backend in [ExecutionBackend::SpecExec, ExecutionBackend::WasmAot] {
+    for backend in [
+        #[cfg(feature = "spec-exec-oracle")]
+        ExecutionBackend::SpecExec,
+        ExecutionBackend::WasmAot,
+    ] {
         for directive in ["", "'use strict';\n"] {
             let source = format!("{directive}{source}");
             let observed = Engine::new(RealmBuilder::new().build())

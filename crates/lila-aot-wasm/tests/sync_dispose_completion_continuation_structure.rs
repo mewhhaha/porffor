@@ -113,7 +113,7 @@ fn producers_move_one_continuation_into_the_sole_exhaustive_consumer() {
     assert!(!consumer.contains("_ =>"));
     assert!(!consumer.contains("continuation.clone()"));
     let restore = consumer
-        .find("self.restore_saved_completion(")
+        .find("self.completion().copy_from(&pending.completion, function);")
         .expect("saved completion restoration");
     let dispatch = consumer
         .find("match continuation {")

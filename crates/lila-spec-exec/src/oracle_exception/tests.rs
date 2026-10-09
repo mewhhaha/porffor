@@ -20,7 +20,7 @@ fn module_error(source: &str, child: Option<&str>) -> ExecutionError {
         .map(|source| EmbeddedModuleSourceInput {
             identity: "child.js".into(),
             source: source.into(),
-            meta_url: "lila:child".into(),
+            meta_url: "lila://urls/child.js".into(),
         })
         .into_iter()
         .collect();
@@ -38,7 +38,7 @@ fn module_error(source: &str, child: Option<&str>) -> ExecutionError {
             goal: EmbeddedModuleGoal::Module,
             identity: "entry.js".into(),
             source: source.into(),
-            meta_url: "lila:entry".into(),
+            meta_url: "lila://urls/entry.js".into(),
         },
         modules,
         resolutions,
@@ -146,6 +146,30 @@ fn original_host_failures_keep_their_provenance_after_catch_and_rethrow() {
         error.javascript_exception_type(),
         Some(OracleExceptionType::Type)
     );
+}
+
+#[test]
+fn host_diagnostics_survive_rethrow_without_observing_mutated_error_properties() {
+    for source in [
+        "print('Test262:AsyncTestFailure:original marker');",
+        "try { print('Test262:AsyncTestFailure:original marker'); } catch (error) { for (let key of ['name', 'message', 'constructor']) Object.defineProperty(error, key, {get() { throw 'must not observe'; }}); throw error; }",
+    ] {
+        let error = script_error(source);
+        assert!(error.message().contains("Test262:AsyncTestFailure:original marker"));
+        assert_eq!(error.javascript_exception_type(), None);
+    }
+    let error = script_error("__lilaUnsupportedHostCapability('createRealm');");
+    assert!(error
+        .message()
+        .contains("local harness host createRealm unsupported"));
+    assert_eq!(error.javascript_exception_type(), None);
+    let user_error =
+        script_error("throw { message: 'local harness host createRealm unsupported' };");
+    assert_eq!(
+        user_error.javascript_exception_type(),
+        Some(OracleExceptionType::UnclassifiedObject)
+    );
+    assert!(!user_error.message().contains("createRealm"));
 }
 
 #[test]

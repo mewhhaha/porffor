@@ -63,13 +63,18 @@ fn primitive_tables_check_producer_identity_before_host_image_emission() {
     assert!(POOL.contains("ProviderIdentityMismatch"));
     assert!(POOL.contains("self.checked_intl_supported_values()?"));
     assert!(DATA.contains("pool.collect_intl_supported_values(intl_selection)"));
+    let emission = EMISSION
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
     ordered(
-        EMISSION,
+        &emission,
         &[
-            "let intl_selection = lila_intl::IntlDataSelection::new(intl_profile.clone())",
-            "emit_script(script, promise_rejection_policy, &intl_selection)",
-            "loop {",
-            "module_assembly::emit_script_with_forced_builtins(",
+            "letintl_selection=lila_intl::IntlDataSelection::new(intl_profile.clone())",
+            "emit_script(script,promise_rejection_policy,&intl_selection,snapshot,cache,)",
+            "fnemit_script(",
+            "get_or_emit(intl_selection,cache)",
+            "module_assembly::emit_script_module(",
             "intl_selection,",
         ],
     );
@@ -77,7 +82,7 @@ fn primitive_tables_check_producer_identity_before_host_image_emission() {
         EMIT,
         &[
             "string_pool.check_intl_supported_values()?",
-            "if uses_intl_host || uses_system_time_zone || uses_intl_catalogue {",
+            "if kind.owns_globals() && (uses_intl_host || uses_system_time_zone || uses_intl_catalogue) {",
             "intl_selection.selected()",
             "selected.identity().artifact_identity()",
             "INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION",

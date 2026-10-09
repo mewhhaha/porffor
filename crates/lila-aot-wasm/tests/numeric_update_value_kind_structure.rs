@@ -49,7 +49,7 @@ fn every_numeric_update_ir_carrier_stores_the_closed_kind() {
         IR_SOURCE
             .matches("value_kind: NumericUpdateValueKind,")
             .count(),
-        2
+        1
     );
     assert_eq!(
         REFERENCE_SOURCE
@@ -57,6 +57,27 @@ fn every_numeric_update_ir_carrier_stores_the_closed_kind() {
             .count(),
         3
     );
+    // The remaining direct ExprIr carrier is UpdateIdentifier; ordinary and
+    // Super references own their fields in reference.rs. The third occurrence
+    // there is the checked Super constructor parameter, not another carrier.
+    assert!(bounded(
+        IR_SOURCE,
+        "    UpdateIdentifier {",
+        "    CompoundAssignIdentifier {"
+    )
+    .contains("value_kind: NumericUpdateValueKind,"));
+    assert!(bounded(
+        REFERENCE_SOURCE,
+        "pub struct OrdinaryPropertyNumericUpdateIr {",
+        "impl OrdinaryPropertyNumericUpdateIr {"
+    )
+    .contains("value_kind: NumericUpdateValueKind,"));
+    assert!(bounded(
+        REFERENCE_SOURCE,
+        "pub enum SuperPropertyMutationOperationIr {",
+        "impl SuperPropertyMutationIr {"
+    )
+    .contains("value_kind: NumericUpdateValueKind,"));
     assert!(!IR_SOURCE.contains("value_kind: ValueKind"));
     assert!(!REFERENCE_SOURCE.contains("value_kind: ValueKind"));
 }
@@ -66,7 +87,7 @@ fn backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch() {
     let delta = bounded(
         BACKEND_OPERATIONS_SOURCE,
         "pub(crate) fn emit_numeric_update_to_locals(",
-        "pub(crate) fn compile_truthy_i32(",
+        "pub(crate) fn compile_unary_minus_numeric_to_locals(",
     );
     for variant in ["Number", "BigInt", "Dynamic"] {
         assert_eq!(
@@ -78,17 +99,27 @@ fn backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch() {
     }
     assert!(!delta.contains("unreachable!"));
     assert!(!delta.contains("_ =>"));
-    assert!(delta.contains("self.emit_is_bigint_tag_i32(old_tag_local, function)"));
+    assert!(delta.contains("self.emit_is_bigint_tag_i32(old.tag(), function)"));
     assert_eq!(
-        delta
-            .matches("self.emit_bigint_binary_op_to_locals(")
-            .count(),
+        delta.matches("self.emit_numeric_bigint_operation(").count(),
         1
     );
     assert!(delta.contains("NumericUpdateOp::Increment => BigIntHelperOp::Add"));
     assert!(delta.contains("NumericUpdateOp::Decrement => BigIntHelperOp::Sub"));
-    assert!(delta.contains("new_payload_local,"));
-    assert!(delta.contains("new_tag_local,"));
+    assert!(delta.contains("old: &ValueLocals,"));
+    assert!(delta.contains("output: &ValueLocals,"));
+    assert!(!delta.contains("_value_kind"));
+    assert!(delta.contains("output.set_number(output.scalar(), function)"));
+    let dynamic = delta
+        .split_once("NumericUpdateValueKind::Dynamic => {")
+        .unwrap()
+        .1;
+    assert_eq!(
+        dynamic
+            .matches("self.emit_is_bigint_tag_i32(old.tag(), function)")
+            .count(),
+        1
+    );
     assert!(!delta.contains("Instruction::I64Add"));
     assert!(!delta.contains("Instruction::I64Sub"));
     assert!(!BACKEND_OPERATIONS_SOURCE.contains("fn emit_update_delta_from_locals("));

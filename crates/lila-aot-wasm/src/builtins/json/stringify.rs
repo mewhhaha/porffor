@@ -488,7 +488,16 @@ impl FunctionBuilder<'_> {
         stored.clear(f);
         self.emit_is_callable_i32(&method, f)?;
         self.open_frame(ControlFrameKind::If, f);
-        self.emit_json_call(&method, holder, &[&key_value, &value], &replacement, f)?;
+        self.emit_json_apply_replacer_with_this(
+            JsonStringifyReplacerInvocationLocals::new(
+                JsonStringifyReplacerFunctionLocals::new(&method),
+                JsonStringifyReplacerReceiverLocals::new(holder),
+                JsonStringifyReplacerPropertyKeyLocals::new(&key_value),
+                JsonStringifyReplacerValueLocals::new(&value),
+            ),
+            &replacement,
+            f,
+        )?;
         value.copy_from(&replacement, f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);

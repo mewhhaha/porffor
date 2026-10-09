@@ -2,8 +2,7 @@ use super::*;
 use lila_ir::{ExprIr, StatementIr};
 use std::collections::{BTreeMap, BTreeSet};
 
-type ModuleArguments = (i64, i64, i64, i64, i64, i64, i64);
-type ModuleResult = (i64, i64, i64, i64);
+use wasmtime::{AsContextMut, OwnedRooted, Rooted, StructRef};
 
 fn append_uleb(bytes: &mut Vec<u8>, mut value: u32) {
     loop {
@@ -52,7 +51,7 @@ fn function_names(bytes: &[u8]) -> BTreeMap<u32, String> {
 /// Stop a copied main immediately before its one entry Evaluate call. The
 /// original trusted IR and emitted artifact retain the mandatory entry owner;
 /// private tests can inspect allocation and instantiation without executing source.
-fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
+fn paused_before_entry_evaluation(bytes: &[u8]) -> (Vec<u8>, u32) {
     let evaluate = *function_names(bytes)
         .iter()
         .find(|(_, name)| name.as_str() == "helper::module_evaluate")
@@ -61,6 +60,7 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
     let mut types = Vec::new();
     let mut function_types = Vec::new();
     let mut imported = 0;
+    let mut global_count = 0;
     let mut main = None;
     for payload in WasmParser::new(0).parse_all(bytes) {
         match payload.unwrap() {
@@ -71,14 +71,18 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
             }
             WasmPayload::ImportSection(imports) => {
                 for import in imports.into_imports() {
-                    if let wasmparser::TypeRef::Func(index)
-                    | wasmparser::TypeRef::FuncExact(index) = import.unwrap().ty
-                    {
-                        function_types.push(index);
-                        imported += 1;
+                    match import.unwrap().ty {
+                        wasmparser::TypeRef::Func(index)
+                        | wasmparser::TypeRef::FuncExact(index) => {
+                            function_types.push(index);
+                            imported += 1;
+                        }
+                        wasmparser::TypeRef::Global(_) => global_count += 1,
+                        _ => {}
                     }
                 }
             }
+            WasmPayload::GlobalSection(globals) => global_count += globals.count(),
             WasmPayload::FunctionSection(functions) => {
                 function_types.extend(functions.into_iter().map(Result::unwrap));
             }
@@ -97,10 +101,23 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
     let main = main.unwrap();
     let main_type = types[function_types[main as usize] as usize].unwrap_func();
     assert!(main_type.params().is_empty());
-    assert_eq!(main_type.results(), &[wasmparser::ValType::I64]);
+    assert_eq!(
+        main_type.results(),
+        &[
+            wasmparser::ValType::I32,
+            wasmparser::ValType::I64,
+            wasmparser::ValType::Ref(wasmparser::RefType::EQREF),
+            wasmparser::ValType::I32,
+            wasmparser::ValType::I32,
+        ]
+    );
     let evaluate_type = types[function_types[evaluate as usize] as usize].unwrap_func();
-    assert_eq!(evaluate_type.params(), &[wasmparser::ValType::I64; 7]);
-    assert_eq!(evaluate_type.results(), &[wasmparser::ValType::I64; 4]);
+    assert!(
+        matches!(evaluate_type.params(), [wasmparser::ValType::Ref(reference)]
+        if !reference.is_nullable()),
+        "one typed ModuleRecord input"
+    );
+    assert_eq!(evaluate_type.results(), main_type.results());
 
     let mut defined = 0;
     let mut main_body = None;
@@ -132,12 +149,34 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
     let mut rewritten = bytes[..8].to_vec();
     let mut cursor = 8;
     let mut replacements = 0;
+    let mut added_global = false;
+    // Test-only (mut eqref), initialized null. The intercepted typed input is
+    // its only writer; the product publishes no private ModuleRecord export.
+    let root_global = [0x6d, 0x01, 0xd0, 0x6d, 0x0b];
     while cursor < bytes.len() {
         let section_start = cursor;
         let id = bytes[cursor];
         cursor += 1;
         let length = read_uleb(bytes, &mut cursor) as usize;
         let end = cursor + length;
+        if id == 6 {
+            let count = read_uleb(bytes, &mut cursor);
+            let mut globals = Vec::new();
+            append_uleb(&mut globals, count + 1);
+            globals.extend_from_slice(&bytes[cursor..end]);
+            globals.extend_from_slice(&root_global);
+            rewritten.push(6);
+            append_uleb(&mut rewritten, globals.len().try_into().unwrap());
+            rewritten.extend_from_slice(&globals);
+            added_global = true;
+            cursor = end;
+            continue;
+        }
+        if id == 7 && !added_global {
+            rewritten.extend_from_slice(&[6, 6, 1]);
+            rewritten.extend_from_slice(&root_global);
+            added_global = true;
+        }
         if id != 10 {
             rewritten.extend_from_slice(&bytes[section_start..end]);
             cursor = end;
@@ -153,10 +192,11 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
             if imported + ordinal == main {
                 assert_eq!(cursor..body_end, main_body);
                 let mut body = bytes[cursor..call.start].to_vec();
-                // Discard the complete private-call ABI, return main's i64
-                // result, and retain its remaining code as unreachable bytes.
-                body.extend_from_slice(&[0x1a; 7]); // drop
-                body.extend_from_slice(&[0x42, 0x00, 0x0f]); // i64.const 0; return
+                // Retain the actual typed record, then return a normal
+                // Undefined Completion without entering source or draining jobs.
+                body.push(0x24); // global.set
+                append_uleb(&mut body, global_count);
+                body.extend_from_slice(&[0x41, 0, 0x42, 0, 0xd0, 0x6d, 0x41, 0, 0x41, 0, 0x0f]);
                 body.extend_from_slice(&bytes[call.end..body_end]);
                 append_uleb(&mut code, body.len().try_into().unwrap());
                 code.extend_from_slice(&body);
@@ -172,24 +212,15 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> Vec<u8> {
         rewritten.extend_from_slice(&code);
     }
     assert_eq!(replacements, 1);
-    rewritten
+    assert!(added_global);
+    (rewritten, global_count)
 }
 
 /// Export private operations and the single module root from a copied artifact.
 /// Product artifacts never publish these names or private memory mutation APIs.
-fn with_private_exports(bytes: &[u8]) -> Vec<u8> {
+fn with_private_exports(bytes: &[u8], module_root: u32) -> Vec<u8> {
     let names = function_names(bytes);
-    let mut module_root = None;
-    for payload in WasmParser::new(0).parse_all(bytes) {
-        if let WasmPayload::GlobalSection(globals) = payload.unwrap() {
-            for (index, global) in globals.into_iter().enumerate() {
-                if global.unwrap().ty.content_type == wasmparser::ValType::I64 {
-                    module_root = Some(index as u32);
-                }
-            }
-        }
-    }
-    let mut exports = vec![("test_module_record", 3, module_root.unwrap())];
+    let mut exports = vec![("test_module_record", 3, module_root)];
     for (export, helper) in [
         ("test_module_evaluate", "helper::module_evaluate"),
         ("test_module_execute", "helper::module_execute"),
@@ -236,19 +267,83 @@ fn with_private_exports(bytes: &[u8]) -> Vec<u8> {
     rewritten
 }
 
-fn word(memory: &[u8], record: i64, offset: usize) -> i64 {
-    let start = usize::try_from(record).unwrap() + offset;
-    i64::from_le_bytes(memory[start..start + 8].try_into().unwrap())
+// Ordinals of the actual typed GC schemas. Reads/writes use Wasmtime's field
+// APIs, so a field-kind mismatch fails rather than indexing unrelated bytes.
+mod record_field {
+    pub const GRAPH: usize = 0;
+    pub const ENVIRONMENT: usize = 3;
+    pub const ACTIVATION_KIND: usize = 6;
+    pub const ASYNC_ACTIVATION: usize = 8;
+    pub const EVALUATION_PROMISE: usize = 11;
+    pub const STATE: usize = 12;
+    pub const COMPLETION: usize = 13;
+    pub const BODY_STATE: usize = 14;
+}
+mod activation_field {
+    pub const FRAME: usize = 0;
+    pub const PROMISE: usize = 3;
+    pub const RESUME_POINT: usize = 4;
+    pub const COMPLETED: usize = 5;
+    pub const MODULE_ENTRY_MODE: usize = 7;
+}
+
+fn structure(store: impl AsContext, value: WasmtimeVal) -> Rooted<StructRef> {
+    let WasmtimeVal::AnyRef(Some(value)) = value else {
+        panic!("non-null GC record")
+    };
+    value.as_struct(store).unwrap().expect("GC struct")
+}
+fn reference_field(
+    store: &mut impl AsContextMut,
+    record: Rooted<StructRef>,
+    index: usize,
+) -> Rooted<StructRef> {
+    let value = record.field(&mut *store, index).unwrap();
+    structure(store, value)
+}
+fn scalar_field(store: &mut impl AsContextMut, record: Rooted<StructRef>, index: usize) -> i32 {
+    record
+        .field(store, index)
+        .unwrap()
+        .i32()
+        .expect("typed scalar field")
+}
+fn null_field(store: &mut impl AsContextMut, record: Rooted<StructRef>, index: usize) -> bool {
+    matches!(
+        record.field(store, index).unwrap(),
+        WasmtimeVal::AnyRef(None)
+    )
+}
+fn same_record(store: impl AsContext, left: Rooted<StructRef>, right: Rooted<StructRef>) {
+    assert!(Rooted::ref_eq(store, &left, &right).unwrap());
+}
+fn call_completion(
+    store: &mut impl AsContextMut,
+    operation: wasmtime::Func,
+    record: Rooted<StructRef>,
+) -> wasmtime::Result<[WasmtimeVal; 5]> {
+    let mut result = [
+        WasmtimeVal::I32(0),
+        WasmtimeVal::I64(0),
+        WasmtimeVal::AnyRef(None),
+        WasmtimeVal::I32(0),
+        WasmtimeVal::I32(0),
+    ];
+    operation.call(store, &[WasmtimeVal::from(record)], &mut result)?;
+    Ok(result)
 }
 
 struct ModuleStore {
     limits: WasmtimeStoreLimits,
     source_allowed: bool,
     reentrant_calls: usize,
-    reentrant_promise: i64,
+    record: Option<Rooted<StructRef>>,
+    evaluate: Option<wasmtime::Func>,
+    reentrant_promise: Option<OwnedRooted<StructRef>>,
 }
 struct ModuleFixture {
     engine: WasmtimeEngine,
+    runtime: WasmtimeModule,
     module: WasmtimeModule,
 }
 impl ModuleFixture {
@@ -272,11 +367,20 @@ impl ModuleFixture {
             .module_entry_evaluation()
             .is_some());
         let original = compiler.emit_wasm(&unit).unwrap();
-        let paused = paused_before_entry_evaluation(&original.bytes);
-        let bytes = with_private_exports(&paused);
+        let (paused, root) = paused_before_entry_evaluation(&original.bytes);
+        let bytes = with_private_exports(&paused, root);
         let engine = shared_wasm_engine().unwrap();
+        let runtime = WasmtimeModule::new(
+            &engine,
+            original.runtime.as_ref().expect("linked runtime").0.bytes(),
+        )
+        .unwrap();
         let module = WasmtimeModule::new(&engine, bytes).unwrap();
-        Self { engine, module }
+        Self {
+            engine,
+            runtime,
+            module,
+        }
     }
     fn instantiate(&self) -> PrivateModule {
         let mut store = WasmtimeStore::new(
@@ -287,13 +391,15 @@ impl ModuleFixture {
                     .build(),
                 source_allowed: false,
                 reentrant_calls: 0,
-                reentrant_promise: 0,
+                record: None,
+                evaluate: None,
+                reentrant_promise: None,
             },
         );
         store.limiter(|state| &mut state.limits);
         store.set_epoch_deadline(u64::MAX / 2);
         let mut linker = WasmtimeLinker::<ModuleStore>::new(&self.engine);
-        for import in self.module.imports() {
+        for import in self.runtime.imports() {
             match import.ty() {
                 WasmtimeExternType::Func(signature) => {
                     let is_print = import.name() == WASM_HOST_IMPORT_PRINT_LINE_UTF8;
@@ -301,24 +407,30 @@ impl ModuleFixture {
                         if !is_print || !caller.data().source_allowed {
                             return Err(wasmtime::Error::msg("module allocation/instantiation called source or host code"));
                         }
-                        let root = caller.get_export("test_module_record").unwrap().into_global().unwrap();
-                        let module = root.get(&mut caller).i64().unwrap();
-                        let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
-                        assert_eq!(word(memory.data(&caller), module, 184), 1, "body is Executing before a reentrant call");
-                        let promise = word(memory.data(&caller), module, 96);
-                        assert_ne!(promise, 0, "Evaluate owns its capability before source entry");
-                        let evaluate = caller.get_export("test_module_evaluate").unwrap().into_func().unwrap()
-                            .typed::<ModuleArguments, ModuleResult>(&caller).unwrap();
-                        let result = evaluate.call(&mut caller, (module, 0, 0, 0, 0, 0, 0))?;
-                        assert_eq!(result.0, promise, "reentrant Evaluate returns the owned capability");
-                        assert_eq!(result.2, 0);
+                        // This import belongs to R, so P's private handles are
+                        // held in Store data instead of Caller::get_export.
+                        let module = caller.data().record.expect("initialized program record");
+                        assert_eq!(scalar_field(&mut caller, module, record_field::BODY_STATE), 1,
+                            "body is Executing before a reentrant call");
+                        let promise = reference_field(&mut caller, module, record_field::EVALUATION_PROMISE);
+                        let evaluate = caller.data().evaluate.unwrap();
+                        let result = call_completion(&mut caller, evaluate, module)?;
+                        assert_eq!(result[3].i32(), Some(0));
+                        let returned = structure(&caller, result[2]);
+                        same_record(&caller, promise, returned);
                         caller.data_mut().reentrant_calls += 1;
-                        caller.data_mut().reentrant_promise = promise;
+                        let retained = promise.to_owned_rooted(&mut caller)?;
+                        caller.data_mut().reentrant_promise = Some(retained);
                         Ok(())
                     }).unwrap();
                 }
+                WasmtimeExternType::Memory(memory_type) if memory_type.is_shared() => {
+                    let memory = WasmtimeSharedMemory::new(&self.engine, memory_type).unwrap();
+                    linker
+                        .define(&store, import.module(), import.name(), memory)
+                        .unwrap();
+                }
                 WasmtimeExternType::Memory(memory_type) => {
-                    assert!(!memory_type.is_shared());
                     let memory = WasmtimeMemory::new(&mut store, memory_type).unwrap();
                     linker
                         .define(&store, import.module(), import.name(), memory)
@@ -327,40 +439,54 @@ impl ModuleFixture {
                 other => panic!("unexpected fixture import: {other:?}"),
             }
         }
-        let instance = linker.instantiate(&mut store, &self.module).unwrap();
-        let main = instance
-            .get_typed_func::<(), i64>(&mut store, "main")
+        let runtime = linker.instantiate(&mut store, &self.runtime).unwrap();
+        linker
+            .instance(&mut store, lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE, runtime)
             .unwrap();
-        main.call(&mut store, ()).unwrap();
-        let memory = instance.get_memory(&mut store, "memory").unwrap();
-        let record = instance
+        let instance = linker.instantiate(&mut store, &self.module).unwrap();
+        let main = instance.get_func(&mut store, "main").unwrap();
+        let mut completion = [
+            WasmtimeVal::I32(0),
+            WasmtimeVal::I64(0),
+            WasmtimeVal::AnyRef(None),
+            WasmtimeVal::I32(0),
+            WasmtimeVal::I32(0),
+        ];
+        main.call(&mut store, &[], &mut completion).unwrap();
+        assert_eq!(completion[3].i32(), Some(0), "paused main returns Normal");
+        let root = instance
             .get_global(&mut store, "test_module_record")
             .unwrap()
-            .get(&mut store)
-            .i64()
-            .unwrap();
+            .get(&mut store);
+        let record = structure(&store, root);
+        assert_eq!(
+            record.ty(&store).unwrap().fields().len(),
+            22,
+            "ModuleRecord schema"
+        );
         let evaluate = instance
-            .get_typed_func(&mut store, "test_module_evaluate")
+            .get_func(&mut store, "test_module_evaluate")
             .unwrap();
         let execute = instance
-            .get_typed_func(&mut store, "test_module_execute")
+            .get_func(&mut store, "test_module_execute")
             .unwrap();
-        let ready = instance
-            .get_typed_func(&mut store, "test_module_ready")
-            .unwrap();
-        assert_ne!(record, 0);
+        let ready = instance.get_func(&mut store, "test_module_ready").unwrap();
+        let graph = reference_field(&mut store, record, record_field::GRAPH);
+        let WasmtimeVal::AnyRef(Some(modules)) = graph.field(&mut store, 0).unwrap() else {
+            panic!("ModuleGraph owns its registry")
+        };
+        let modules = modules.as_array(&store).unwrap().unwrap();
         assert_eq!(
-            word(
-                memory.data(&store),
-                word(memory.data(&store), record, 168),
-                0
-            ),
+            modules.len(&store).unwrap(),
             1,
             "single-record fixture root"
         );
+        let member = modules.get(&mut store, 0).unwrap();
+        same_record(&store, record, structure(&store, member));
+        store.data_mut().record = Some(record);
+        store.data_mut().evaluate = Some(evaluate);
         PrivateModule {
             store,
-            memory,
             record,
             evaluate,
             execute,
@@ -370,23 +496,15 @@ impl ModuleFixture {
 }
 struct PrivateModule {
     store: WasmtimeStore<ModuleStore>,
-    memory: WasmtimeMemory,
-    record: i64,
-    evaluate: wasmtime::TypedFunc<ModuleArguments, ModuleResult>,
-    execute: wasmtime::TypedFunc<ModuleArguments, ModuleResult>,
-    ready: wasmtime::TypedFunc<ModuleArguments, ModuleResult>,
+    record: Rooted<StructRef>,
+    evaluate: wasmtime::Func,
+    execute: wasmtime::Func,
+    ready: wasmtime::Func,
 }
 impl PrivateModule {
-    fn read(&self, record: i64, offset: usize) -> i64 {
-        word(self.memory.data(&self.store), record, offset)
-    }
-    fn write(&mut self, record: i64, offset: usize, value: i64) {
-        self.memory
-            .write(
-                &mut self.store,
-                record as usize + offset,
-                &value.to_le_bytes(),
-            )
+    fn write(&mut self, record: Rooted<StructRef>, index: usize, value: i32) {
+        record
+            .set_field(&mut self.store, index, WasmtimeVal::I32(value))
             .unwrap();
     }
 }
@@ -395,22 +513,50 @@ impl PrivateModule {
 fn private_module_instantiation_has_no_source_effect_or_await_job_and_keeps_body_promise_pending() {
     run_on_sized_stack(|| {
         let fixture = ModuleFixture::new();
-        let runtime = fixture.instantiate();
+        let mut runtime = fixture.instantiate();
         let record = runtime.record;
-        let activation = runtime.read(record, 0);
-        assert_eq!(runtime.read(record, 80), 1); // Async owner.
-        assert_eq!(runtime.read(record, 16), 0); // Linked, never Evaluating.
-        assert_eq!(runtime.read(record, 176), 0); // No completion.
-        assert_eq!(runtime.read(record, 184), 0); // Body not started.
-        assert_eq!(runtime.read(record, 96), 0); // Evaluate not requested.
-        assert_eq!(runtime.read(activation, 152), 2); // Execute mode after instantiation.
-        assert_eq!(runtime.read(activation, 48), 1); // Private boundary only.
-        assert_eq!(runtime.read(activation, 112), 0); // Body not completed.
-        assert_eq!(runtime.read(activation, 88), 1); // One initialized invocation.
-        assert_ne!(runtime.read(record, 72), 0);
-        assert_eq!(runtime.read(record, 72), runtime.read(activation, 144));
-        assert_ne!(runtime.read(activation, 80), 0);
-        assert_eq!(runtime.read(runtime.read(activation, 104), 0), 0); // Intrinsic body Promise Pending.
+        let activation =
+            reference_field(&mut runtime.store, record, record_field::ASYNC_ACTIVATION);
+        assert_eq!(activation.ty(&runtime.store).unwrap().fields().len(), 8);
+        for (field, expected) in [
+            (record_field::ACTIVATION_KIND, 1),
+            (record_field::STATE, 0),
+            (record_field::COMPLETION, 0),
+            (record_field::BODY_STATE, 0),
+        ] {
+            assert_eq!(scalar_field(&mut runtime.store, record, field), expected);
+        }
+        assert!(null_field(
+            &mut runtime.store,
+            record,
+            record_field::EVALUATION_PROMISE
+        ));
+        for (field, expected) in [
+            (activation_field::MODULE_ENTRY_MODE, 2),
+            (activation_field::RESUME_POINT, 1),
+            (activation_field::COMPLETED, 0),
+        ] {
+            assert_eq!(
+                scalar_field(&mut runtime.store, activation, field),
+                expected
+            );
+        }
+        let frame = reference_field(&mut runtime.store, activation, activation_field::FRAME);
+        assert_eq!(
+            scalar_field(&mut runtime.store, frame, 13),
+            1,
+            "InvocationFrame initialized"
+        );
+        let environment = reference_field(&mut runtime.store, record, record_field::ENVIRONMENT);
+        let invocation_environment = reference_field(&mut runtime.store, frame, 3);
+        same_record(&runtime.store, environment, invocation_environment);
+        reference_field(&mut runtime.store, frame, 1); // Live lexical execution environment.
+        let promise = reference_field(&mut runtime.store, activation, activation_field::PROMISE);
+        assert_eq!(
+            scalar_field(&mut runtime.store, promise, 4),
+            0,
+            "body Promise Pending"
+        );
         assert_eq!(runtime.store.data().reentrant_calls, 0);
     });
 }
@@ -419,37 +565,51 @@ fn private_module_instantiation_has_no_source_effect_or_await_job_and_keeps_body
 fn invalid_private_module_modes_and_lifecycle_words_trap_before_source_entry() {
     run_on_sized_stack(|| {
         let fixture = ModuleFixture::new();
-        for (offset, value) in [(152, 99), (152, 1), (48, 0), (48, i64::MAX)] {
+        for (field, value) in [
+            (activation_field::MODULE_ENTRY_MODE, 99),
+            (activation_field::MODULE_ENTRY_MODE, 1),
+            (activation_field::RESUME_POINT, 0),
+            (activation_field::RESUME_POINT, i32::MAX),
+        ] {
             let mut runtime = fixture.instantiate();
-            let activation = runtime.read(runtime.record, 0);
-            runtime.write(activation, offset, value);
-            let result = runtime
-                .execute
-                .call(&mut runtime.store, (runtime.record, 0, 0, 0, 0, 0, 0));
+            let activation = reference_field(
+                &mut runtime.store,
+                runtime.record,
+                record_field::ASYNC_ACTIVATION,
+            );
+            runtime.write(activation, field, value);
+            let result = call_completion(&mut runtime.store, runtime.execute, runtime.record);
             assert!(
                 result.unwrap_err().downcast_ref::<WasmtimeTrap>().is_some(),
                 "private mode/state corruption must be a Wasm trap"
             );
             assert_eq!(runtime.store.data().reentrant_calls, 0);
         }
-        for (offset, execute) in [(16, false), (184, true), (80, true)] {
+        for (field, execute) in [
+            (record_field::STATE, false),
+            (record_field::BODY_STATE, true),
+            (record_field::ACTIVATION_KIND, true),
+        ] {
             let mut runtime = fixture.instantiate();
-            runtime.write(runtime.record, offset, 99);
-            let operation = if execute {
-                &runtime.execute
+            runtime.write(runtime.record, field, 99);
+            let result = if execute {
+                call_completion(&mut runtime.store, runtime.execute, runtime.record).map(|_| ())
             } else {
-                &runtime.ready
+                runtime.ready.call(
+                    &mut runtime.store,
+                    &[WasmtimeVal::from(runtime.record)],
+                    &mut [WasmtimeVal::I32(0)],
+                )
             };
-            let result = operation.call(&mut runtime.store, (runtime.record, 0, 0, 0, 0, 0, 0));
             assert!(result.unwrap_err().downcast_ref::<WasmtimeTrap>().is_some());
+            assert_eq!(runtime.store.data().reentrant_calls, 0);
         }
         let mut runtime = fixture.instantiate();
-        runtime.write(runtime.record, 16, 3);
-        runtime.write(runtime.record, 176, 99);
-        let result = runtime
-            .evaluate
-            .call(&mut runtime.store, (runtime.record, 0, 0, 0, 0, 0, 0));
+        runtime.write(runtime.record, record_field::STATE, 3);
+        runtime.write(runtime.record, record_field::COMPLETION, 99);
+        let result = call_completion(&mut runtime.store, runtime.evaluate, runtime.record);
         assert!(result.unwrap_err().downcast_ref::<WasmtimeTrap>().is_some());
+        assert_eq!(runtime.store.data().reentrant_calls, 0);
     });
 }
 
@@ -459,19 +619,30 @@ fn reentrant_evaluate_while_an_async_body_is_executing_reuses_its_owned_capabili
         let fixture = ModuleFixture::new();
         let mut runtime = fixture.instantiate();
         runtime.store.data_mut().source_allowed = true;
-        let result = runtime
-            .evaluate
-            .call(&mut runtime.store, (runtime.record, 0, 0, 0, 0, 0, 0))
-            .unwrap();
-        assert_eq!(result.2, 0);
+        let result = call_completion(&mut runtime.store, runtime.evaluate, runtime.record).unwrap();
+        assert_eq!(result[3].i32(), Some(0));
+        let promise = structure(&runtime.store, result[2]);
         assert_eq!(runtime.store.data().reentrant_calls, 1);
-        assert_eq!(runtime.store.data().reentrant_promise, result.0);
-        assert_eq!(runtime.read(runtime.record, 184), 1); // Suspended body remains Executing.
-        assert_eq!(runtime.read(runtime.record, 16), 2); // DFS closed as EvaluatingAsync.
-        assert_eq!(runtime.read(runtime.record, 96), result.0);
-        let duplicate = runtime
-            .execute
-            .call(&mut runtime.store, (runtime.record, 0, 0, 0, 0, 0, 0));
+        let observed = runtime.store.data_mut().reentrant_promise.take().unwrap();
+        let observed = observed.to_rooted(&mut runtime.store);
+        same_record(&runtime.store, observed, promise);
+        assert_eq!(
+            scalar_field(&mut runtime.store, runtime.record, record_field::BODY_STATE),
+            1,
+            "suspended body remains Executing"
+        );
+        assert_eq!(
+            scalar_field(&mut runtime.store, runtime.record, record_field::STATE),
+            2,
+            "DFS closed as EvaluatingAsync"
+        );
+        let retained = reference_field(
+            &mut runtime.store,
+            runtime.record,
+            record_field::EVALUATION_PROMISE,
+        );
+        same_record(&runtime.store, retained, promise);
+        let duplicate = call_completion(&mut runtime.store, runtime.execute, runtime.record);
         assert!(duplicate
             .unwrap_err()
             .downcast_ref::<WasmtimeTrap>()
@@ -480,7 +651,7 @@ fn reentrant_evaluate_while_an_async_body_is_executing_reuses_its_owned_capabili
     });
 }
 
-fn compiled(source: &str, module: bool) -> Vec<u8> {
+fn compiled(source: &str, module: bool) -> Artifact {
     let engine = Engine::new(RealmBuilder::new().build());
     let unit = if module {
         engine.compile_module(source, CompileOptions::default())
@@ -488,84 +659,128 @@ fn compiled(source: &str, module: bool) -> Vec<u8> {
         engine.compile_script(source, CompileOptions::default())
     }
     .unwrap();
-    engine.emit_wasm(&unit).unwrap().bytes
+    engine.emit_wasm(&unit).unwrap()
 }
 
 #[test]
 fn graphless_scripts_have_only_unreachable_module_slots_and_no_edges_to_them() {
     run_on_sized_stack(|| {
-        let bytes = compiled("const values = [1]; values.length;", false);
-        let names = function_names(&bytes);
-        let helpers: BTreeSet<_> = names
-            .iter()
-            .filter_map(|(&index, name)| name.starts_with("helper::module_").then_some(index))
-            .collect();
-        assert_eq!(helpers.len(), 7);
-        let mut imported = 0;
-        let mut defined = 0;
-        let mut total_module_bytes = 0;
-        for payload in WasmParser::new(0).parse_all(&bytes) {
-            match payload.unwrap() {
-                WasmPayload::ImportSection(imports) => {
-                    for import in imports.into_imports() {
-                        if matches!(
-                            import.unwrap().ty,
-                            wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
-                        ) {
-                            imported += 1;
+        for source in [
+            "const values = [1]; values.length;",
+            "const realm = new ShadowRealm(); realm.evaluate('1');",
+        ] {
+            let artifact = compiled(source, false);
+            let bytes = &artifact.bytes;
+            let names = function_names(bytes);
+            let helpers: BTreeSet<_> = names
+                .iter()
+                .filter_map(|(&index, name)| name.starts_with("helper::module_").then_some(index))
+                .collect();
+            assert_eq!(
+                helpers
+                    .iter()
+                    .map(|index| names[index].as_str())
+                    .collect::<BTreeSet<_>>(),
+                [
+                    "helper::module_initialize",
+                    "helper::module_evaluate",
+                    "helper::module_ready",
+                    "helper::module_gather",
+                    "helper::module_execute",
+                    "helper::module_fulfilled",
+                    "helper::module_rejected",
+                    "helper::module_deferred_import",
+                    "helper::module_body_reaction"
+                ]
+                .into_iter()
+                .collect()
+            );
+            let mut imported = 0;
+            let mut defined = 0;
+            let mut total_module_bytes = 0;
+            for payload in WasmParser::new(0).parse_all(&bytes) {
+                match payload.unwrap() {
+                    WasmPayload::ImportSection(imports) => {
+                        for import in imports.into_imports() {
+                            if matches!(
+                                import.unwrap().ty,
+                                wasmparser::TypeRef::Func(_) | wasmparser::TypeRef::FuncExact(_)
+                            ) {
+                                imported += 1;
+                            }
                         }
                     }
-                }
-                WasmPayload::CodeSectionEntry(body) => {
-                    let index = imported + defined;
-                    defined += 1;
-                    let operators = body
-                        .get_operators_reader()
-                        .unwrap()
-                        .into_iter()
-                        .map(Result::unwrap)
-                        .collect::<Vec<_>>();
-                    if helpers.contains(&index) {
-                        total_module_bytes += body.range().len();
-                        assert!(matches!(
-                            &operators[..],
-                            [wasmparser::Operator::Unreachable, wasmparser::Operator::End]
-                        ));
-                    }
-                    for operator in operators {
-                        if let wasmparser::Operator::Call { function_index }
-                        | wasmparser::Operator::RefFunc { function_index } = operator
-                        {
-                            assert!(
-                                !helpers.contains(&function_index),
-                                "graphless artifact has a caller edge to a private module slot"
-                            );
+                    WasmPayload::CodeSectionEntry(body) => {
+                        let index = imported + defined;
+                        defined += 1;
+                        let operators = body
+                            .get_operators_reader()
+                            .unwrap()
+                            .into_iter()
+                            .map(Result::unwrap)
+                            .collect::<Vec<_>>();
+                        if helpers.contains(&index) {
+                            total_module_bytes += body.range().len();
+                            assert!(matches!(
+                                &operators[..],
+                                [wasmparser::Operator::Unreachable, wasmparser::Operator::End]
+                            ));
+                        }
+                        for operator in operators {
+                            if let wasmparser::Operator::Call { function_index }
+                            | wasmparser::Operator::RefFunc { function_index } = operator
+                            {
+                                assert!(
+                                    !helpers.contains(&function_index),
+                                    "graphless artifact has a caller edge to a private module slot"
+                                );
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
+            assert_eq!(
+                total_module_bytes,
+                helpers.len() * 3,
+                "one three-byte reserved body per exact program module role"
+            );
+            // Array intrinsic installation also roots Array.fromAsync and its
+            // Promise dependencies. Graph isolation is the absence of module edges,
+            // together with the nine minimal unreachable bodies asserted above.
         }
-        assert_eq!(
-            total_module_bytes, 21,
-            "seven three-byte reserved bodies, including local declarations"
-        );
-        // Array intrinsic installation also roots Array.fromAsync and its
-        // Promise dependencies. Graph isolation is the absence of module edges,
-        // together with the seven minimal unreachable bodies asserted above.
     });
 }
 
 #[test]
 fn synchronous_module_graph_roots_real_evaluation_bodies_and_private_generator_resume() {
     run_on_sized_stack(|| {
-        let bytes = compiled("export const value = 1;", true);
-        let names = function_names(&bytes);
+        let artifact = compiled("export const value = 1;", true);
+        let bytes = &artifact.bytes;
+        let names = function_names(bytes);
         let helpers: BTreeSet<_> = names
             .iter()
             .filter_map(|(&index, name)| name.starts_with("helper::module_").then_some(index))
             .collect();
-        assert_eq!(helpers.len(), 7);
+        assert_eq!(
+            helpers
+                .iter()
+                .map(|index| names[index].as_str())
+                .collect::<BTreeSet<_>>(),
+            [
+                "helper::module_initialize",
+                "helper::module_evaluate",
+                "helper::module_ready",
+                "helper::module_gather",
+                "helper::module_execute",
+                "helper::module_fulfilled",
+                "helper::module_rejected",
+                "helper::module_deferred_import",
+                "helper::module_body_reaction"
+            ]
+            .into_iter()
+            .collect()
+        );
         let mut imported = 0;
         let mut defined = 0;
         let mut sizes = Vec::new();
@@ -591,13 +806,13 @@ fn synchronous_module_graph_roots_real_evaluation_bodies_and_private_generator_r
                 _ => {}
             }
         }
-        assert_eq!(sizes.len(), 7);
+        assert_eq!(sizes.len(), helpers.len());
         assert!(
             sizes.iter().all(|&size| size > 3 && size < 1024 * 1024),
             "outlined module bodies have bounded per-function size: {sizes:?}"
         );
         assert!(
-            names
+            function_names(artifact.runtime.as_ref().expect("linked runtime").0.bytes())
                 .values()
                 .any(|name| name == "builtin::Generator.prototype.next"),
             "private synchronous body resume must have an emitted intrinsic body: {names:?}"

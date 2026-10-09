@@ -1,4 +1,12 @@
 mod compiler_fingerprint;
+#[path = "src/embedded_runtime/build.rs"]
+mod native_runtime_build;
+#[path = "src/wasmtime_config.rs"]
+#[allow(dead_code)] // Both runtime modes are defined in the shared configuration.
+mod wasmtime_config;
+#[path = "src/wasmtime_policy.rs"]
+#[allow(dead_code)] // Runtime reporting methods share the same policy owner.
+mod wasmtime_policy;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,6 +23,15 @@ fn main() {
     let fingerprint = compiler_fingerprint::fingerprint(&workspace)
         .unwrap_or_else(|error| panic!("failed to fingerprint Lila compiler inputs: {error}"));
     println!("cargo:rustc-env=LILA_COMPILER_FINGERPRINT={fingerprint}");
+    let target = std::env::var("TARGET").expect("Cargo target triple");
+    println!("cargo:rustc-env=LILA_RUNTIME_BUILD_TARGET={target}");
+    native_runtime_build::write_bundle(
+        &PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo build output directory")),
+        &fingerprint,
+        &target,
+        &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo target architecture"),
+        &std::env::var("CARGO_CFG_TARGET_ENDIAN").expect("Cargo target endian"),
+    );
     println!(
         "cargo:rustc-env=LILA_COMPILER_FINGERPRINT_SCHEME={}",
         compiler_fingerprint::FINGERPRINT_SCHEME

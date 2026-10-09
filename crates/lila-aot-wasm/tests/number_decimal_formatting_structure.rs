@@ -43,9 +43,9 @@ fn decimal_format_domain_is_private_closed_and_exhaustive() {
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>(),
         [
-            "Fixed { fraction_digits_local: u32 },",
+            "Fixed { fraction_digits_local: I64Local },",
             "Exponential(NumberExponentialFormat),",
-            "Precision { significant_digits_local: u32 },",
+            "Precision { significant_digits_local: I64Local },",
         ]
     );
     let exponential_domain = bounded(
@@ -61,7 +61,7 @@ fn decimal_format_domain_is_private_closed_and_exhaustive() {
             .collect::<Vec<_>>(),
         [
             "Shortest,",
-            "FractionDigits { fraction_digits_local: u32 },"
+            "FractionDigits { fraction_digits_local: I64Local },"
         ]
     );
     assert_eq!(

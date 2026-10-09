@@ -1,9 +1,11 @@
 //! Exercise the production disk-cache provider in separate Engine processes.
 
 use lila_engine::{
-    CompileOptions, Engine, ExecutionBackend, ObservedCompletion, ObservedJsValue, ObservedNumber,
-    RealmBuilder, RunOptions,
+    CompileOptions, CustomIntlProfile, CustomProfileId, Engine, ExecutionBackend,
+    IntlCompilationProfile, ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder,
+    RunOptions, SnapshotLimits, SnapshotOutcome,
 };
+use lila_runtime::rooted_snapshot::{SnapshotCompletionKind, SnapshotValue};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Read;
@@ -14,6 +16,27 @@ use std::time::{Duration, SystemTime};
 const ROLE: &str = "LILA_RUNTIME_CACHE_PROCESS_TEST_ROLE";
 const TEST: &str = "raw_runtime_artifacts_are_reused_by_fresh_engine_processes";
 const NATIVE_TEST: &str = "native_runtime_is_reused_by_executables_with_different_mtimes";
+
+// Keep these regressions on a real profile outside the embedded Minimal R.
+// They must continue proving raw disk and Wasmtime native cache reuse.
+fn unbundled_options() -> CompileOptions {
+    let projection = CustomIntlProfile::new(
+        CustomProfileId::parse("runtime-cache-regression").unwrap(),
+        Some(&["en-US"]),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    CompileOptions {
+        intl_profile: IntlCompilationProfile::CustomProjection(projection),
+        ..CompileOptions::default()
+    }
+}
 
 struct CacheDirectory(PathBuf);
 
@@ -29,6 +52,9 @@ fn child(executable: &Path, test: &str, role: &str, directory: &Path) -> Output 
         .env(ROLE, role)
         .env("LILA_CACHE_DIR", directory)
         .env("LILA_WASM_TRACE", "1")
+        // This fixture exercises the default native configuration; the unit
+        // compatibility control separately rejects nondefault valid images.
+        .env_remove("WASMTIME_BACKTRACE_DETAILS")
         .output()
         .expect("fresh Engine test process starts");
     assert!(
@@ -62,9 +88,7 @@ fn raw_runtime_artifacts_are_reused_by_fresh_engine_processes() {
             "consumer" => "const values = ['consumer', 'different source']; values.length;",
             _ => panic!("unknown test role"),
         };
-        let unit = engine
-            .compile_script(source, CompileOptions::default())
-            .unwrap();
+        let unit = engine.compile_script(source, unbundled_options()).unwrap();
         let artifact = engine.emit_wasm(&unit).expect("program and runtime emit");
         let runtime = artifact.runtime.as_ref().expect("heap program has R");
         println!(
@@ -87,7 +111,15 @@ fn raw_runtime_artifacts_are_reused_by_fresh_engine_processes() {
     let executable = std::env::current_exe().unwrap();
     let producer = child(&executable, TEST, "producer", &directory.0);
     let consumer = child(&executable, TEST, "consumer", &directory.0);
-    assert!(String::from_utf8_lossy(&producer.stderr).contains("runtime-cache miss:"));
+    let producer_trace = String::from_utf8_lossy(&producer.stderr);
+    assert!(
+        producer_trace.contains("runtime-cache miss:"),
+        "{producer_trace}"
+    );
+    assert!(
+        !producer_trace.contains("runtime-build-package hit:"),
+        "disk-cache fixture must remain unbundled: {producer_trace}"
+    );
     let consumer_trace = String::from_utf8_lossy(&consumer.stderr);
     assert!(
         consumer_trace.contains("runtime-cache hit:"),
@@ -151,7 +183,7 @@ fn native_runtime_is_reused_by_executables_with_different_mtimes() {
             _ => panic!("unknown native test role"),
         };
         let unit = engine
-            .compile_script(source, CompileOptions::default())
+            .compile_script(source, unbundled_options())
             .expect("native cache fixture compiles");
         let artifact = engine.emit_wasm(&unit).expect("program and runtime emit");
         let runtime = artifact.runtime.as_ref().expect("heap program has R");
@@ -166,7 +198,7 @@ fn native_runtime_is_reused_by_executables_with_different_mtimes() {
         let observed = engine
             .observe_script(
                 source,
-                CompileOptions::default(),
+                unbundled_options(),
                 RunOptions {
                     backend: ExecutionBackend::WasmAot,
                     ..RunOptions::default()
@@ -236,4 +268,160 @@ fn native_runtime_is_reused_by_executables_with_different_mtimes() {
     assert_ne!(first_program, second_program, "each source has its own P");
     assert_native_cache_counts(&producer, 0, 2);
     assert_native_cache_counts(&consumer, 1, 1);
+    for output in [&producer, &consumer] {
+        let trace = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !trace.contains("runtime-native-bundle hit:"),
+            "native disk-cache fixture must remain unbundled: {trace}"
+        );
+    }
+}
+
+#[cfg(all(
+    target_endian = "little",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )
+))]
+#[test]
+fn embedded_runtime_executes_fresh_programs_without_a_native_runtime_compile() {
+    const EMBEDDED_TEST: &str =
+        "embedded_runtime_executes_fresh_programs_without_a_native_runtime_compile";
+    if let Ok(role) = std::env::var(ROLE) {
+        lila_engine::configure_compilation_jobs(1).unwrap();
+        let engine = Engine::new(RealmBuilder::new().build());
+        if role == "graph" {
+            let observed = engine
+                .observe_script_graph(
+                    "const root = { value: 3 }; root.value;",
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        ..RunOptions::default()
+                    },
+                    SnapshotLimits::default(),
+                )
+                .expect("rooted observation uses the same admitted embedded runtime");
+            assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
+            assert_eq!(observed.completion.kind, SnapshotCompletionKind::Normal);
+            let SnapshotOutcome::Captured { graph } = observed.completion.outcome else {
+                panic!("rooted completion was rejected");
+            };
+            assert_eq!(
+                graph.root(),
+                &SnapshotValue::Number {
+                    bits: 3.0_f64.to_bits()
+                }
+            );
+            assert!(observed.output_events.is_empty());
+            return;
+        }
+        let (source, expected) = match role.as_str() {
+            "producer" => ("const values = ['embedded first']; values.length;", 1.0),
+            "consumer" => (
+                "const values = ['embedded second', 'new P']; values.length;",
+                2.0,
+            ),
+            _ => panic!("unknown embedded test role"),
+        };
+        let observed = engine
+            .observe_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    ..RunOptions::default()
+                },
+            )
+            .expect("fresh linked program executes with embedded R");
+        assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
+        assert_eq!(
+            observed.completion,
+            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(expected)))
+        );
+        assert!(observed.output_events.is_empty());
+        return;
+    }
+    let directory = CacheDirectory(std::env::temp_dir().join(format!(
+            "lila-embedded-runtime-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )));
+    fs::create_dir(&directory.0).unwrap();
+    let executable = std::env::current_exe().unwrap();
+    for role in ["producer", "consumer", "graph"] {
+        let cache = directory.0.join(role);
+        assert!(
+            !cache.exists(),
+            "each independent process starts with empty caches"
+        );
+        let output = child(&executable, EMBEDDED_TEST, role, &cache);
+        let trace = String::from_utf8_lossy(&output.stderr);
+        assert!(trace.contains("runtime-build-package hit:"), "{trace}");
+        assert_embedded_compilation_modes(&trace);
+        assert!(
+            !trace.contains("runtime-cache miss:"),
+            "no raw R regeneration: {trace}"
+        );
+        assert_native_cache_counts(&output, 0, 1); // Only this fresh P compiles natively.
+    }
+    // A same-source hit must reattach R through the same checked package path.
+    let cached = child(
+        &executable,
+        EMBEDDED_TEST,
+        "producer",
+        &directory.0.join("producer"),
+    );
+    let trace = String::from_utf8_lossy(&cached.stderr);
+    assert!(trace.contains("runtime-build-package hit:"), "{trace}");
+    assert_embedded_compilation_modes(&trace);
+    assert!(trace.contains("program-cache hit:"), "{trace}");
+    assert_native_cache_counts(&cached, 1, 0); // Only P uses the native disk cache.
+                                               // A regular file makes all cache directory creation fail. This is an
+                                               // unavailable-cache control, with every configured budget left unchanged.
+    let unavailable = directory.0.join("unavailable");
+    fs::write(
+        &unavailable,
+        b"cache directories cannot be created under this file",
+    )
+    .unwrap();
+    let output = child(&executable, EMBEDDED_TEST, "consumer", &unavailable);
+    let trace = String::from_utf8_lossy(&output.stderr);
+    assert!(trace.contains("runtime-build-package hit:"), "{trace}");
+    assert_embedded_compilation_modes(&trace);
+    assert!(
+        trace.contains("module-cache result unavailable:"),
+        "{trace}"
+    );
+}
+
+#[cfg(all(
+    target_endian = "little",
+    any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "riscv64"
+    )
+))]
+fn assert_embedded_compilation_modes(trace: &str) {
+    assert!(
+        trace.lines().any(|line| {
+            line.contains("runtime-native-bundle hit:")
+                && line.ends_with("(runtime: size-optimized, execution: fast)")
+        }),
+        "the exact optimized R image must load in the Fast execution Engine: {trace}"
+    );
+    assert!(
+        trace.contains("lila wasm trace: native compiler: fast ("),
+        "the real program retains its original Fast compilation plan: {trace}"
+    );
+    assert!(
+        !trace.contains("lila wasm trace: native compiler: size-optimized ("),
+        "R image optimization must not change the program's plan: {trace}"
+    );
 }

@@ -1,70 +1,63 @@
-const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
-
+const OBJECTS: &str = include_str!("../src/objects.rs");
+const HELPERS: &str = include_str!("../src/runtime_helpers.rs");
+const EMIT: &str = include_str!("../src/emit.rs");
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
         .split_once(start)
-        .expect("start boundary")
+        .unwrap_or_else(|| panic!("missing {start}"))
         .1
         .split_once(end)
-        .expect("end boundary")
+        .unwrap_or_else(|| panic!("missing {end}"))
         .0
 }
-
+fn normalized(source: &str) -> String {
+    source.chars().filter(|c| !c.is_whitespace()).collect()
+}
 #[test]
-fn indexed_get_forwards_only_the_trusted_read_realm_in_argument_six() {
-    let seam = bounded(
-        OBJECTS_SOURCE,
+fn indexed_get_forwards_one_typed_environment_and_whole_completion() {
+    assert!(HELPERS.contains(r#"IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable) } => Completion;"#));
+    let seam = normalized(bounded(
+        OBJECTS,
         "pub(crate) fn emit_typed_array_or_object_index_read_from_locals(",
         "pub(crate) fn compile_indexed_element_read_helper(",
-    );
-    let normalized: String = seam.chars().filter(|ch| !ch.is_whitespace()).collect();
-    let call = concat!(
-        "function.instruction(&Instruction::LocalGet(target_local));",
-        "function.instruction(&Instruction::LocalGet(target_tag_local));",
-        "function.instruction(&Instruction::LocalGet(index_local));",
-        "function.instruction(&Instruction::I64Const(0));",
-        "function.instruction(&Instruction::I64Const(0));",
-        "function.instruction(&Instruction::I64Const(0));",
-        "self.emit_outlined_object_read_realm_argument(function);",
-        "function.instruction(&Instruction::Call(helper));",
-    );
-    assert_eq!(normalized.matches(call).count(), 1);
+    ));
     assert_eq!(
-        seam.matches("emit_outlined_object_read_realm_argument(")
+        seam.matches("IndexedElementReadArguments::new(target,index,self.current_environment(),)")
             .count(),
         1
     );
-    assert!(
-        !seam.contains("LocalGet(self.current_env_local)"),
-        "never pass an unclassified lexical environment"
-    );
-    assert!(seam.contains("emit_propagate_throw_from_locals_if_needed("));
+    assert!(seam.contains(".store(result,function)"));
+    assert!(seam.contains("result:&CompletionLocals"));
+    assert!(!seam.contains("Instruction::Call("));
+    assert!(!seam.contains("GlobalGet"));
 }
-
 #[test]
-fn indexed_get_body_enters_the_classified_helper_domain_before_emission() {
+fn indexed_get_enters_its_typed_helper_domain_before_property_emission() {
     let body = bounded(
-        OBJECTS_SOURCE,
+        OBJECTS,
         "pub(crate) fn compile_indexed_element_read_helper(",
-        "fn emit_typed_array_or_object_index_read_from_locals_inner(",
+        "pub(crate) fn emit_typed_array_or_object_index_write_from_locals(",
     );
-    let classify = body
+    let start = body
         .find("self.begin_helper_body(RuntimeHelperId::IndexedElementRead)")
         .unwrap();
-    let read = body
-        .find("self.emit_typed_array_or_object_index_read_from_locals_inner(")
-        .unwrap();
-    let normalized: String = body.chars().filter(|ch| !ch.is_whitespace()).collect();
-    let binding = concat!(
-        "function.instruction(&Instruction::LocalGet(6));",
-        "function.instruction(&Instruction::LocalSet(self.current_env_local));",
-    );
-    assert_eq!(normalized.matches(binding).count(), 1);
     let bind = body
-        .find("function.instruction(&Instruction::LocalSet(self.current_env_local))")
+        .find("helper_parameters::<crate::runtime_helpers::IndexedElementReadParameters>")
         .unwrap();
-    assert!(classify < bind && bind < read);
-    assert_eq!(body.matches("LocalSet(self.current_env_local)").count(), 1);
-    assert_eq!(body.matches("begin_helper_body(").count(), 1);
-    assert!(!body.contains("current_env_local ="));
+    let read = body
+        .find("self.emit_object_read_with_throw_routing(")
+        .unwrap();
+    let emit = body.find("result.emit(&mut function)").unwrap();
+    assert!(start < bind && bind < read && read < emit);
+    assert!(body.contains("AccessorThrowRouting::LeaveInCompletion"));
+    assert_eq!(body.matches("&parameters.target,").count(), 2);
+    let parameters = normalized(bounded(
+        EMIT,
+        "pub(crate) fn helper_parameters<P:",
+        "\n    }",
+    ));
+    assert!(parameters.contains("parameters.caller_environment()"));
+    assert!(parameters.contains(
+        "self.current_environment.replace(environment.load(self.schema,function),function)"
+    ));
 }

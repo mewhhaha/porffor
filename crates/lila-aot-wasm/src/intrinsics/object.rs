@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter, AccessorSetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_object_constructor_intrinsics(
@@ -59,8 +60,10 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("__proto__"),
-            Some(StandardBuiltinId::ObjectPrototypeProtoGetter),
-            Some(StandardBuiltinId::ObjectPrototypeProtoSetter),
+            AccessorDescriptor::GetterAndSetter {
+                getter: AccessorGetter::new(StandardBuiltinId::ObjectPrototypeProtoGetter),
+                setter: AccessorSetter::new(StandardBuiltinId::ObjectPrototypeProtoSetter),
+            },
             context.realm,
             true,
             function,

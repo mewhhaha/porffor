@@ -14,6 +14,43 @@ private domain and fixed routing, together with actual whole GC bound-record
 call/construct ownership. Compilation, guards, semantic tests and runtime
 verification of this successor are unrun. Root owns the capped batch checkpoint.
 
+## Whole completions and proper tail calls
+
+The proposed tail-call successor keeps the captured whole receiver and rooted
+argument vector. `Function.prototype.call`, both `Function.prototype.apply`
+paths, and `Reflect.apply` perform their specified callable/argument-list checks
+before retiring the native activation and forwarding the complete Completion.
+These are the specification's
+[PrepareForTailCall operations for call/apply](https://tc39.es/ecma262/multipage/fundamental-objects.html#sec-function.prototype.call)
+and [Reflect.apply](https://tc39.es/ecma262/multipage/reflection.html#sec-reflect.apply).
+
+`ProxyCall` and `FunctionCall` forward raw whole Completions. The typed helper
+route accepts only Completion-result arguments; ordinary body dispatch uses a
+reference whose role is `OrdinaryCallable`. Their Wasm `return_call` and
+`return_call_ref` instructions retain no dispatcher continuation. Bound target
+unwrapping and absent Proxy traps remain loops; a Proxy apply trap tail-forwards
+its final Call. Construct retains its result validation and caller Realm restore.
+
+Every normal Call boundary saves/restores the caller Realm and converts source
+Return to Normal without discarding a native Normal value. Source fallthrough
+already publishes undefined in its body. Strict ordinary return-position calls
+preserve callee/receiver acquisition before all argument evaluation, then retire
+activation References and unwind environments while retaining the original
+caller Environment for dispatch errors. Conditional branches, logical right
+operands, comma right operands, receiver captures and final optional calls keep
+tail position. Genuine direct eval, active catch/finally/disposal, derived
+constructor validation and resumable bodies retain their required continuations.
+
+`proper_tail_call_emission` validates both actual linked modules and inspects
+indexed physical bodies for the expected tail edges and retained normal Calls.
+`aot_tail_call_environment` retains the seven existing native controls, including
+100,000-call environment and Proxy chains, and adds ordinary/bound/intrinsic
+forwarding, native return-value, constructor and Realm-restoration controls.
+The receiver lexical guard accepts only the two equivalent Rust trailing-comma
+call spellings; it still pins every complete ordered operand, the private domain
+and all seven fixed producers. This scratch proposal has not been compiled or
+executed; it establishes no new passing receipt or conformance count.
+
 ## Historical source checkpoint
 
 The complete earlier body below is preserved as history from preimage SHA-256

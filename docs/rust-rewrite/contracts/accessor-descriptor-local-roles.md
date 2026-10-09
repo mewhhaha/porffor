@@ -1,56 +1,52 @@
 # Accessor descriptor local roles
 
-## Closed definition boundary
+## Current GC definition boundary
 
-The three ordinary-object accessor definition entries consume one
-`AccessorDescriptorLocals::{Getter, Setter, GetterAndSetter}` value. There is no
-empty variant: a call named as an accessor definition must carry at least one
-present accessor field.
+The GC object owner consumes the nonempty
+`AccessorDescriptorLocals::{Getter, Setter, GetterAndSetter}` domain at
+`emit_object_define_accessor_with_flag_local`,
+`emit_object_append_accessor_property_with_flags`, and
+`emit_install_intrinsic_accessor_values`. An accessor definition cannot carry
+neither endpoint. `AccessorGetterLocals` and `AccessorSetterLocals` borrow
+complete rooted `ValueLocals`; exchanging their roles is a type error.
 
-Getter and setter values cross the boundary as distinct
-`AccessorGetterLocals` and `AccessorSetterLocals` roles. Each role contains one
-`TaggedLocals`, whose named payload and tag fields retain the existing
-same-value boundary. The `GetterAndSetter` variant requires both distinct role
-types, so transposing the two endpoints does not compile.
+The private `objects/accessor_descriptor.rs` owner defines the generic
+`AccessorDescriptor<T>` and distinct `AccessorGetter<T>`/`AccessorSetter<T>`
+roles. Their concrete borrowed aliases are the GC publication boundary.
+Intrinsic bootstrap uses the same domain over `StandardBuiltinId`, then
+materializes the getter before the setter into owned rooted values. Borrowing
+preserves both roles and the nonempty state, and release clears the setter
+before the getter. The domain has no Clone, Copy, Default or optional endpoint
+capabilities.
 
-`emit_object_define_accessor`,
-`emit_object_define_enumerable_accessor`, and
-`emit_object_define_accessor_with_flag_local` all consume the closed domain.
-One exhaustive match projects it into the descriptor lattice's `[[Get]]` and
-`[[Set]]` presences before validation. Adding a fourth state therefore requires
-stating both field presences, and neither a wildcard nor an independently
-writable accessor-kind Boolean exists.
+Only the object owner can project this definition into the descriptor lattice's
+`[[Get]]` and `[[Set]]` presences. One exhaustive match names all three cases.
+Fresh property append uses statically known presences, while object-literal
+definition preserves absent endpoints through descriptor compatibility.
 
-## Scope
+## Scope and evidence
 
-This boundary covers object-literal accessors, public class accessors and host
-prototype accessor installation. The separate `Object.defineProperty`
-positional adapter was subsequently retired by the closed branch boundary in
-`object-define-property-descriptor-roles.md`; that later change does not widen
-this accessor-definition claim.
+This covers the named object-literal accessor boundary, intrinsic accessor
+installation, and the Function/Arguments restricted accessors. General
+`Object.defineProperty` and class descriptor construction continue through
+their separate validated descriptor-lattice owners. The migration preserves
+instruction and property order, flags, identities and Realm selection.
 
-The migration changes Rust types and source spelling only. It does not change
-emitted instruction order, descriptor attributes, function identity, host
-publication, property ordering or Realm selection. Existing object-form, class
-auto-accessor and TypedArray-accessor CLI fixtures are the focused behavior
-controls.
-
-## Verification
+The source control pins the exact nonempty domain, all three borrowed
+signatures, intrinsic materialization ordering, the sole field projection,
+and the recursive producer/caller census. Existing object-form, class
+auto-accessor and TypedArray-accessor CLI fixtures remain focused behavioral
+controls. Current native and artifact verification is pending; the historical
+checkpoint below does not establish that this GC revision passes.
 
 ```sh
 cargo test -p lila-aot-wasm --test accessor_descriptor_local_roles_structure
 cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_object_form_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli functions::run_wasm_class_auto_accessor_fixture -- --exact --test-threads=1
 cargo test -p lila-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_accessors_fixture -- --exact --test-threads=1
-cargo fmt --all -- --check
-git diff --check
 ```
 
-The recursive source guard pins the exact nonempty role domain, the three typed
-API signatures, one exhaustive presence projection, every role constructor and
-all focused behavior/evidence links. Broad `Object.defineProperty`, Proxy,
-Array-index and Arguments-index descriptor conformance remain outside this
-source-equivalent type-hardening claim.
+## Historical verification
 
 At the 2026-08-28 Batch U checkpoint, the structure target passed `4/4`, the
 three exact CLI behavior controls passed `3/3`, and the shared `cargo xc` gate

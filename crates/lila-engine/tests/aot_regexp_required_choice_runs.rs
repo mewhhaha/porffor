@@ -37,6 +37,78 @@ fn assert_literal_and_computed(cases: &[(&str, &str, &str, &str)]) {
 }
 
 #[test]
+fn capture_free_counted_repetition_uses_actual_utf16_input_length() {
+    assert_literal_and_computed(&[
+        // Without captures the input extent still governs the counted Begin
+        // proof. These legacy escapes leave the braces as exact quantifiers.
+        (
+            r"\u{3}",
+            "d",
+            "uuu",
+            "m !== null && m.length === 1 && m[0] === 'uuu' && m.input === 'uuu' && m.index === 0 && m.indices[0][0] === 0 && m.indices[0][1] === 3",
+        ),
+        (r"\u{3}", "d", "u", "m === null"),
+        (
+            r"\u{3}",
+            "d",
+            "xuuu",
+            "m !== null && m[0] === 'uuu' && m.index === 1 && m.indices[0][0] === 1 && m.indices[0][1] === 4",
+        ),
+        (
+            r"\p{2}",
+            "d",
+            "pp",
+            "m !== null && m[0] === 'pp' && m.indices[0][1] === 2",
+        ),
+        (
+            r"^a{3}$",
+            "d",
+            "aaa",
+            "m !== null && m[0] === 'aaa' && m.length === 1",
+        ),
+        (r"^a{3}$", "d", "a", "m === null"),
+        (
+            r"a{2,4}",
+            "d",
+            "aaaaa",
+            "m !== null && m[0] === 'aaaa' && m.indices[0][1] === 4",
+        ),
+        (
+            r"a{2,4}?",
+            "d",
+            "aaaaa",
+            "m !== null && m[0] === 'aa' && m.indices[0][1] === 2",
+        ),
+        (
+            r"^(?:|a){5}$",
+            "d",
+            "aa",
+            "m !== null && m[0] === 'aa' && m.length === 1 && m.indices[0][1] === 2",
+        ),
+        // Legacy dot consumes each surrogate separately: a scalar count would
+        // give an unsound bound of three for four required UTF-16 transitions.
+        (
+            r"^(?:|.){4}$",
+            "d",
+            "😀😀",
+            "m !== null && m[0] === '😀😀' && m.length === 1 && m.indices[0][1] === 4",
+        ),
+        (
+            r"^😀{2}$",
+            "du",
+            "😀😀",
+            "m !== null && m[0] === '😀😀' && m.indices[0][0] === 0 && m.indices[0][1] === 4",
+        ),
+        (
+            r"(?<=^a{3})b",
+            "d",
+            "aaab",
+            "m !== null && m[0] === 'b' && m.index === 3 && m.indices[0][0] === 3 && m.indices[0][1] === 4",
+        ),
+    ]);
+}
+
+#[test]
 fn pure_empty_producer_composition_preserves_real_continuation_effects() {
     assert_literal_and_computed(&[
         (r"^(?:(?:|){18446744073709551616}){18446744073709551616}$", "d", "", "m !== null && m[0] === '' && m.length === 1"),

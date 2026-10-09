@@ -1,6 +1,7 @@
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 const LIB_SOURCE: &str = include_str!("../src/lib.rs");
 const OPERATIONS_SOURCE: &str = include_str!("../src/operations.rs");
+const GC_LAYOUTS: &str = include_str!("../src/gc_types/layouts.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../src/functions.rs");
 const HOST_BUILTINS_SOURCE: &str = include_str!("../src/builtins/host.rs");
 const CONTRACT: &str =
@@ -12,38 +13,46 @@ fn property_read_source() -> &'static str {
         .find("    pub(crate) fn compile_property_read_from_locals(")
         .expect("property-read entry");
     let end = OBJECTS_SOURCE[start..]
-        .find("    pub(crate) fn compile_dynamic_property_read_from_locals(")
+        .find("    pub(crate) fn emit_dynamic_property_read_with_key_locals(")
         .map(|offset| start + offset)
         .expect("dynamic property-read entry");
     &OBJECTS_SOURCE[start..end]
 }
 
 #[test]
-fn property_read_dispatch_has_one_arm_per_value_kind() {
+fn property_read_dispatch_has_one_whole_value_route() {
     let source = property_read_source();
     assert_eq!(
         source
-            .matches("            ValueKind::Dynamic => {")
+            .matches("self.emit_dynamic_property_read_with_key_locals(")
             .count(),
         1
     );
-    assert_eq!(
-        source
-            .matches("            ValueKind::String => match key {")
-            .count(),
-        1
-    );
-    assert!(!source.contains("            ValueKind::String => {"));
-    assert!(source.contains("return self.compile_dynamic_property_read_from_locals("));
+    assert!(!source.contains("ValueKind::"));
+    assert!(source.contains("receiver: &ValueLocals,"));
+    let key = source.find("self.compile_property_key_operand(").unwrap();
+    let coercible = source
+        .find("self.compile_nullish_tagged_i32(receiver.tag(), function)?;")
+        .unwrap();
+    let convert = source
+        .find("self.emit_value_to_property_key_completion(")
+        .unwrap();
+    let lookup = source
+        .find("self.emit_dynamic_property_read_with_key_locals(")
+        .unwrap();
+    assert!(key < coercible && coercible < convert && convert < lookup);
 }
 
 #[test]
 fn private_types_and_imports_have_direct_owners() {
-    assert!(!LIB_SOURCE.contains("pub(crate) use functions::RealmRecordLocal;"));
-    assert!(!OPERATIONS_SOURCE.contains("NativeErrorKind"));
+    for source in [LIB_SOURCE, FUNCTIONS_SOURCE, HOST_BUILTINS_SOURCE] {
+        assert!(!source.contains("RealmRecordLocal"));
+    }
+    assert!(GC_LAYOUTS.contains("struct RealmRecord => RealmRecordSchema {"));
+    assert!(HOST_BUILTINS_SOURCE.contains("use crate::gc_types::*;"));
+    assert!(OPERATIONS_SOURCE.contains("use lila_ir::NativeErrorKind;"));
     assert!(OPERATIONS_SOURCE.contains("use lila_ir::StaticRegExpCompilation;"));
-    assert!(FUNCTIONS_SOURCE.contains("pub(crate) struct RealmRecordLocal(u32);"));
-    assert!(HOST_BUILTINS_SOURCE.contains("    RealmRecordLocal,"));
+    assert!(OPERATIONS_SOURCE.contains("NativeErrorKind::TypeError"));
 }
 
 #[test]

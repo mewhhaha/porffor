@@ -329,3 +329,71 @@ fn async_for_in_owns_awaited_prefix_target_default_and_body_as_one_tape() {
         assert_eq!(plan.continue_state(), plan.advance_state());
     }
 }
+
+#[test]
+fn nested_for_in_lexical_cells_survive_all_resumable_protocols_without_duplicating_captures() {
+    for (protocol, suspend) in [
+        ("async function", "await"),
+        ("function*", "yield"),
+        ("async function*", "yield"),
+    ] {
+        for captured_inner in [false, true] {
+            let capture = if captured_inner {
+                "var read = function read() { return inner; };"
+            } else {
+                ""
+            };
+            let observe_capture = if captured_inner { "read();" } else { "" };
+            let source = format!(
+                "{protocol} values(input) {{ {{ for (const outer in {suspend} input) {{ for (let inner in {suspend} input) {{ {capture} {suspend} input; outer; inner; {observe_capture} }} }} }} }}"
+            );
+            let function = values(&source);
+            let mut ordered = Vec::new();
+            rows(&function.body.statements, &mut ordered);
+            let plans = ordered
+                .iter()
+                .filter_map(|row| match row {
+                    StatementIr::AsyncGeneratorForIn(plan) => Some(plan.as_ref()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(plans.len(), 2, "{source}");
+            for (index, plan) in plans.iter().enumerate() {
+                let StatementIr::Lexical { name, .. } = &plan.initialization().statements[0] else {
+                    panic!("the original lexical key initializer is retained: {source}");
+                };
+                let lexical = plan.lexical_environment().unwrap();
+                for tdz_name in &lexical.tdz_binding_names {
+                    assert!(
+                        function.owned_env_bindings.iter().any(|binding| &binding.name == tdz_name),
+                        "head TDZ survives a suspended head even inside a block: {source} / {tdz_name}"
+                    );
+                }
+                let activation_cell = function
+                    .owned_env_bindings
+                    .iter()
+                    .find(|binding| &binding.name == name);
+                if captured_inner && index == 1 {
+                    assert!(
+                        activation_cell.is_none(),
+                        "a captured key cannot have a second activation cell: {source}"
+                    );
+                    let record = lexical
+                        .iteration_environment
+                        .as_ref()
+                        .expect("captured key retains its per-iteration Environment");
+                    assert!(
+                        record.bindings.iter().any(|binding| &binding.name == name),
+                        "the capture and source body use the same original cell: {source}"
+                    );
+                } else {
+                    assert!(activation_cell.is_some(), "uncaptured key is live after suspension and must not use a Wasm local: {source} / {name}");
+                    assert!(
+                        lexical.iteration_environment.is_none(),
+                        "uncaptured keys need no duplicate lexical record: {source}"
+                    );
+                }
+            }
+        }
+    }
+}

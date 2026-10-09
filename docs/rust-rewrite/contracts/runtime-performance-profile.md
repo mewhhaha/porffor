@@ -217,6 +217,88 @@ is still red. Deadlines, cache budgets and verification resource limits remain
 unchanged. Retained failure evidence is
 `target/verification-tmp/lila-generated-campaign-759906-1791488252109251786-1`.
 
+The pending normalization startup change moves the original complete ICU scalar
+walk into the compiler build. Its versioned little-endian image contains the same
+canonical and compatibility sequences, sequence-relative mapping rows, combining
+classes and compositions. The consumer checks the complete extent before
+allocating, then admits scalar domains, sparse row order and complete sequence
+partitions once per process. It retains the existing table owner and unchanged
+pool serializer, including alignment, sequence-pointer relocation and emitted
+row padding. The build uses the same pinned ICU dependency and checks its image
+against the constructed rows; the independent full-scalar oracle and actual pool
+bytes across all eight prefix alignments provide exhaustive parity controls.
+Malformed extents and row domains have focused rejection controls. This batch
+has no measured performance result yet and does not claim the remaining Temporal
+or cold native-R acceptance paths are complete.
+
+The cold-start batch builds one exact Minimal runtime with Cargo. Its native
+image uses the existing SizeOptimized setting; ordinary P retains its existing
+Fast compiler plan and settings.
+The AOT build-package owner emits raw R, checks it through the same complete
+Wasm/Intl/layout decoder used by the raw disk cache, and exposes the paired
+Wasm and package only through read-only getters. Its separate envelope binds
+compiler source, runtime ABI, admitted physical Intl sections, pool extents and
+the actual R key. Ordinary source/executable cache identities are unchanged.
+Target-side Intl admission still precedes package lookup; malformed or mismatched
+packages use the existing raw cache/emitter. Scalar-only programs leave the
+candidate unresolved. Ordinary, rooted and cached-P paths share this resolver.
+
+A shared configuration owner supplies the existing feature, copying-collector,
+epoch, stack, memory and register-allocation settings to both Cargo and the
+product Engine. Cargo selects the existing SpeedAndSize optimization for R;
+Fast P still uses OptLevel::None. The ordinary size threshold, retry and fallback
+configuration are unchanged. Cargo explicitly selects TARGET and baseline ISA,
+uses serial native precompilation on the existing compiler stack, and disables
+ambient backtrace-detail selection. It produces a bundle only for supported
+little-endian x86_64, aarch64 and riscv64 targets. Other targets retain ordinary
+runtime compilation and capability checks. The initial bundle covers exact
+Minimal R for Fast execution; other raw identities or execution modes use the
+original path. R is deserialized into the actual P Engine, not returned from a
+separate optimized Engine.
+
+The Engine's private native authority accepts only immutable include_bytes
+outputs from that Cargo producer. No file, cache blob or caller-provided native
+slice can enter its unsafe deserializer. A manifest binds source, target,
+configuration, the explicit pair of R image and execution modes, and both image
+digests to the actual admitted R key. The version-two manifest requires exactly
+SizeOptimized R with Fast execution; neither mode is inferred from the other.
+Wasmtime still checks compiler version, proposals, collector, tunables and ISA;
+an incompatible known-valid image is an optimization miss. The pinned compiler
+[treats optimization level as semantics-neutral for deserialization](https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/engine.rs),
+while product mode admission still rejects each unsupported pair. The shared
+module-cache key remains the execution Engine's mode and raw Wasm digest, so
+an image compiled in a different mode cannot cross Engine ownership.
+Native deserialization runs only inside the existing shared R/P cache factory.
+Actual mapped-image accounting, one-entry/64-MiB retention, oversized-module
+behavior, explicit bypass and agent bypass all retain their existing owner.
+The bundle retains metadata, never a native Module or mutable Store state.
+
+Authored controls compare the host-produced package with fresh target emission,
+reject identity/framing/Wasm/pool corruption, and exercise native compatibility
+rejection using valid embedded machine code. Fresh-process controls cover
+independent empty caches, an unavailable cache directory, linked P cache hits
+and rooted observation with exact Wasm-AOT completions. The prior disk-cache
+process controls use a valid unbundled custom projection and retain their exact
+raw reuse and native 0/2 then 1/1 assertions. Native controls retain incompatible
+execution-mode rejection and separately reject the wrong R image mode. Actual
+Fast Engine ownership and fresh-process Fast P / SizeOptimized R traces are
+checked with the same exact completions and cache counts. Source changes still
+invalidate the ordinary compiler fingerprint.
+
+The initial Fast-R build produced a 41,151,160-byte raw package and a
+292,798,624-byte native image. Its ELF text section accounts for 265,093,120
+bytes (90.5%); the size problem is mainly native instructions. Those numbers are
+from the initial build, not a measurement of the SizeOptimized-R candidate.
+The candidate still requires build-time/RSS, image-size and startup acceptance
+under the unchanged limits; smaller output is not yet established.
+
+This batch has no measured acceptance result yet. Native precompilation adds
+build work whenever watched compiler inputs change; raw and native embedding
+also enlarge executables and their first whole-file fingerprint pass. Cold build,
+rebuild, executable size, startup RSS, admission and unchanged one/five-second
+gates require the joined capped verification. No previous warmed-cache result
+establishes cold-start acceptance, and no deadline or resource cap changes.
+
 The SDK shares the actual product execution method, required copying collector,
 imports, limits, epoch timeout mechanism, host work and structured completion
 decoder. Only a requested runtime profile starts the memory sampler; ordinary

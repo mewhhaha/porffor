@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::Path;
 
+const REPLACER_SOURCE: &str = include_str!("../src/builtins/json/stringify_replacer.rs");
+const STRINGIFY_SOURCE: &str = include_str!("../src/builtins/json/stringify.rs");
 const JSON_SOURCE: &str = include_str!("../src/builtins/json.rs");
 const CLI_SOURCE: &str = include_str!("../../lila-cli/tests/cli/language_numerics.rs");
 const FIXTURE: &str =
@@ -230,118 +232,130 @@ fn invocation_authority_is_the_exact_private_move_only_domain() {
         2
     );
 
-    let module = rust_code(bounded(
-        JSON_SOURCE,
-        "mod json_stringify_replacer_invocation {",
-        "\n}\n\nuse self::json_stringify_replacer_invocation::{",
-    ));
+    let module = rust_code(REPLACER_SOURCE);
     for role in ["Function", "Receiver", "PropertyKey", "Value"] {
         assert!(module.normalized.contains(&format!(
-            "pub(super)structJsonStringifyReplacer{role}Locals(TaggedLocals);"
+            "pub(super)structJsonStringifyReplacer{role}Locals<'v>(&'vValueLocals);"
+        )));
+        assert!(module.normalized.contains(&format!(
+            "{0}:JsonStringifyReplacer{role}Locals<'v>",
+            match role {
+                "Function" => "replacer",
+                "Receiver" => "receiver",
+                "PropertyKey" => "property_key",
+                "Value" => "value",
+                _ => unreachable!(),
+            }
         )));
     }
-    assert!(module.normalized.contains(concat!(
-        "pub(super)constfnnew(",
-        "replacer:JsonStringifyReplacerFunctionLocals,",
-        "receiver:JsonStringifyReplacerReceiverLocals,",
-        "property_key:JsonStringifyReplacerPropertyKeyLocals,",
-        "value:JsonStringifyReplacerValueLocals,",
-        ")->Self"
-    )));
-    for forbidden in ["derive(", "implClonefor", "implCopyfor"] {
-        assert!(
-            !module.normalized.contains(forbidden),
-            "found `{forbidden}`"
-        );
+    assert!(REPLACER_SOURCE.contains("#[must_use"));
+    assert!(module
+        .normalized
+        .contains("invocation:JsonStringifyReplacerInvocationLocals<'_>,"));
+    for forbidden in [
+        "derive(",
+        "implClonefor",
+        "implCopyfor",
+        "pub(crate)",
+        "TaggedLocals",
+    ] {
+        assert!(!module.normalized.contains(forbidden), "found {forbidden}");
     }
+    assert!(JSON_SOURCE.contains("mod stringify_replacer;"));
+    assert!(!JSON_SOURCE.contains("pub mod stringify_replacer"));
 }
 
 #[test]
 fn role_and_authority_census_is_closed_over_product_sources() {
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_identifier_in_rust_sources(&source_root, "JsonStringifyReplacerInvocationLocals"),
-        10
+        count_identifier_in_rust_sources(&root, "JsonStringifyReplacerInvocationLocals"),
+        6
     );
     for role in ["Function", "Receiver", "PropertyKey", "Value"] {
         assert_eq!(
-            count_identifier_in_rust_sources(
-                &source_root,
-                &format!("JsonStringifyReplacer{role}Locals")
-            ),
-            11,
-            "JsonStringifyReplacer{role}Locals census"
+            count_identifier_in_rust_sources(&root, &format!("JsonStringifyReplacer{role}Locals")),
+            6
         );
     }
+    assert_eq!(REPLACER_SOURCE.matches("= invocation;").count(), 1);
     assert_eq!(
-        exact_identifier_count(&rust_code(JSON_SOURCE).identifiers, "into_parts"),
-        2
+        STRINGIFY_SOURCE
+            .matches("self.emit_json_apply_replacer_with_this(")
+            .count(),
+        1
     );
 }
 
 #[test]
-fn six_producers_construct_complete_roles_with_exact_receivers() {
-    let normalized = rust_code(JSON_SOURCE).normalized;
+fn sole_serialize_property_producer_constructs_roles_for_every_holder() {
+    let source = rust_code(STRINGIFY_SOURCE).normalized;
     assert_eq!(
-        JSON_SOURCE
+        source
             .matches("JsonStringifyReplacerInvocationLocals::new(")
             .count(),
-        6
+        1
     );
-    for role in ["Function", "PropertyKey", "Value"] {
-        assert_eq!(
-            JSON_SOURCE
-                .matches(&format!("JsonStringifyReplacer{role}Locals::new("))
-                .count(),
-            6
-        );
-    }
-    for (receiver, count) in [
-        ("wrapper_payload_local", 1),
-        ("array_payload_local", 2),
-        ("keys_arg_payload_local", 1),
-        ("object_payload_local", 2),
+    for (role, value) in [
+        ("Function", "&method"),
+        ("Receiver", "holder"),
+        ("PropertyKey", "&key_value"),
+        ("Value", "&value"),
     ] {
         assert_eq!(
-            normalized
-                .matches(&format!(
-                    "JsonStringifyReplacerReceiverLocals::new({receiver}"
-                ))
+            source
+                .matches(&format!("JsonStringifyReplacer{role}Locals::new({value})"))
                 .count(),
-            count,
-            "receiver source `{receiver}`"
+            1
         );
     }
+    // Array/object share one container walk; it and the root wrapper use the same helper.
+    assert!(source.contains("JsonStringifyValueArguments::new(holder,key,context,indent,seen)"));
+    assert!(
+        source.contains("self.emit_json_serialize_property(&parameters.holder,&parameters.key,")
+    );
+    assert_eq!(
+        STRINGIFY_SOURCE
+            .matches("fn emit_json_serialize_property(")
+            .count(),
+        1
+    );
+    assert_eq!(
+        STRINGIFY_SOURCE
+            .matches("self.emit_json_stringify_call(")
+            .count(),
+        2
+    );
+    assert!(source.contains("self.emit_json_index_key(index,f)?"));
+    assert!(
+        source.contains("self.emit_argument_vector_entry_to_value(&list,scan_index,&key_value,f);")
+    );
+    assert!(source.contains(
+        "self.emit_json_stringify_call(value,&name,context,child_depth,&descendants,&result,f,"
+    ));
+    assert!(source.contains("self.emit_json_define(&holder,&key,&value,false,f)?;"));
 }
 
 #[test]
 fn sole_consumer_preserves_argument_result_and_abrupt_roles() {
-    let consumer = bounded(
-        JSON_SOURCE,
-        "    fn emit_json_apply_replacer_with_this(",
-        "    pub(crate) fn emit_json_omits_value_i32(",
-    );
-    let normalized = rust_code(consumer).normalized;
-    assert!(normalized
-        .contains("invocation:JsonStringifyReplacerInvocationLocals,function:&mutFunction,"));
-    assert!(
-        normalized.contains("let(replacer,receiver,property_key,value)=invocation.into_parts();")
-    );
-    for forbidden in [
-        "replacer_payload_local:u32",
-        "this_payload_local:u32",
-        "key_payload_local:u32",
-        "value_payload_local:u32",
-    ] {
-        assert!(!normalized.contains(forbidden), "found `{forbidden}`");
-    }
-    for mapping in [
-        "(property_key.payload,property_key.tag)",
-        "(value.payload,value.tag)",
-        "replacer.payload,replacer.tag,receiver.payload,receiver.tag",
-        "value.payload,value.tag,function)?;",
-    ] {
-        assert!(normalized.contains(mapping), "missing `{mapping}`");
+    let source = rust_code(REPLACER_SOURCE).normalized;
+    assert!(source.contains("letJsonStringifyReplacerInvocationLocals{replacer,receiver,property_key,value}=invocation;"));
+    assert!(source
+        .contains("self.emit_json_call(replacer.0,receiver.0,&[property_key.0,value.0],output,f)"));
+    let call = rust_code(bounded(JSON_SOURCE, "fn emit_json_call(", "\n}\n")).normalized;
+    let order = [
+        "self.emit_pre_evaluated_arg_vector(args,f)",
+        "self.emit_function_or_proxy_call_with_argv(callee,receiver,&argv,&pending,f)?;",
+        "self.completion().copy_from(&pending,f);",
+        "self.emit_propagate_current_throw_if_needed(f);",
+        "out.copy_from(pending.value(),f);",
+    ];
+    let mut cursor = 0;
+    for marker in order {
+        cursor += call[cursor..]
+            .find(marker)
+            .unwrap_or_else(|| panic!("missing {marker}"))
+            + marker.len();
     }
 }
 

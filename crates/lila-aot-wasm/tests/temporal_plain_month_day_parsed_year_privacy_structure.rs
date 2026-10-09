@@ -50,7 +50,7 @@ fn parsed_year_carrier_and_raw_parser_are_owner_private() {
     let carrier = bounded(
         MONTH_DAY_SOURCE,
         "struct TemporalParsedMonthDayYear {",
-        "impl<'a> FunctionBuilder<'a>",
+        "impl FunctionBuilder<'_>",
     );
     assert!(!carrier.contains("pub("));
     assert_eq!(carrier.matches("year_local:").count(), 1);
@@ -75,7 +75,7 @@ fn parsed_year_moves_from_the_only_parser_to_the_reference_year_step() {
     ));
     assert!(parser.contains(")->Result<TemporalParsedMonthDayYear,EmitError>{"));
     assert_eq!(parser.matches("Ok(TemporalParsedMonthDayYear{").count(), 1);
-    assert!(parser.contains("year_local,year_present_local,"));
+    assert!(parser.contains("year_local:year,year_present_local:year_present,"));
 
     let consumer = normalized(bounded(
         MONTH_DAY_SOURCE,
@@ -87,7 +87,7 @@ fn parsed_year_moves_from_the_only_parser_to_the_reference_year_step() {
         consumer.matches("letTemporalParsedMonthDayYear{").count(),
         1
     );
-    assert!(consumer.contains("year_local,year_present_local,}=parsed;"));
+    assert!(consumer.contains("year_local:year,year_present_local:year_present,}=parsed;"));
     let reference = consumer
         .find("letreference=self.emit_temporal_calendar_partial_reference(")
         .expect("completed calendar reference producer");
@@ -96,9 +96,8 @@ fn parsed_year_moves_from_the_only_parser_to_the_reference_year_step() {
         .expect("parsed non-ISO date range check");
     assert!(parsed_range < reference);
     assert!(consumer[reference..].contains("TemporalPartialDateType::PlainMonthDay"));
-    assert!(consumer[reference..]
-        .contains("reference.fields().into_iter().zip([year_local,month_local,day_local])"));
-    assert!(consumer[reference..].contains("reference.release(self);"));
+    assert!(consumer[reference..].contains("reference.fields().into_iter().zip([year,month,day])"));
+    assert!(consumer[reference..].contains("reference.release(self,function);"));
     assert!(!consumer[reference..].contains("I64Const(1972)"));
 
     let parse = MONTH_DAY_SOURCE

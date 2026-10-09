@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+const EPOCH_SOURCE: &str = include_str!("../src/builtins/temporal/epoch.rs");
 const INSTANT_SOURCE: &str = include_str!("../src/builtins/temporal_instant.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/temporal-instant-epoch-proof.md");
@@ -208,80 +209,147 @@ fn validated_epoch_is_one_private_non_copy_proof() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mentions = rust_sources(&source_root)
         .iter()
-        .map(|source| exact_identifier_count(&rust_code(source), "EpochNanoseconds"))
+        .map(|source| exact_identifier_count(&rust_code(source), "TemporalEpochNanoseconds"))
         .sum::<usize>();
-    assert_eq!(mentions, 5, "review every new validated-epoch observer");
-
-    let declaration_prefix = bounded(
-        INSTANT_SOURCE,
-        "/// The same pair, after `emit_temporal_instant_validate_range` has accepted it.",
-        "struct EpochNanoseconds(",
+    assert_eq!(mentions, 18, "review every new completed GC epoch observer");
+    let declaration = compact_rust(bounded(
+        EPOCH_SOURCE,
+        "pub(in crate::builtins) struct TemporalEpochNanoseconds {",
+        "impl TemporalEpochNanoseconds {",
+    ));
+    assert_eq!(
+        declaration,
+        "value:GcLocal<BigIntValue>,seconds:I64Local,nanosecond:I64Local,}"
     );
-    assert!(!declaration_prefix.contains("#[derive"));
-    assert!(!declaration_prefix.contains("pub "));
-    assert!(!INSTANT_SOURCE.contains("impl Clone for EpochNanoseconds"));
-    assert!(!INSTANT_SOURCE.contains("impl Copy for EpochNanoseconds"));
+    assert!(!EPOCH_SOURCE.contains("#[derive"));
+    for capability in ["Clone", "Copy", "Default"] {
+        assert!(!EPOCH_SOURCE.contains(&format!("impl {capability} for TemporalEpochNanoseconds")));
+    }
 }
 
 #[test]
-fn range_validation_is_the_only_proof_constructor() {
-    let source = compact_rust(INSTANT_SOURCE);
-    assert_eq!(source.matches("Ok(EpochNanoseconds(epoch))").count(), 1);
-
+fn range_validation_and_completed_views_are_the_only_proof_constructors() {
     let constructor = compact_rust(bounded(
-        INSTANT_SOURCE,
-        "    fn emit_temporal_instant_validated_epoch(",
-        "    /// `CreateTemporalInstant(epochNanoseconds)`",
+        EPOCH_SOURCE,
+        "fn emit_temporal_instant_validated_epoch(",
+        "fn emit_temporal_instant_range_error(",
     ));
-    let validation = constructor
-        .find("self.emit_temporal_instant_validate_range(epoch.payload_local,epoch.tag_local,function)?;")
-        .expect("validated-epoch range check");
-    let proof = constructor
-        .find("Ok(EpochNanoseconds(epoch))")
-        .expect("validated-epoch proof construction");
-    assert!(validation < proof);
+    assert!(constructor.contains("input:&GcLocal<BigIntValue>"));
+    assert_eq!(
+        constructor
+            .matches("self.emit_temporal_instant_range_error(function)?;")
+            .count(),
+        2
+    );
+    for bound in [
+        "TEMPORAL_INSTANT_LIMIT_HIGH_LIMB",
+        "TEMPORAL_INSTANT_LIMIT_LOW_LIMB",
+    ] {
+        assert!(constructor.contains(bound));
+    }
+    assert!(
+        constructor
+            .rfind("self.emit_temporal_instant_range_error(function)?;")
+            .unwrap()
+            < constructor
+                .find("Ok(TemporalEpochNanoseconds{value,seconds,nanosecond,})")
+                .unwrap()
+    );
+    let relative = bounded(
+        EPOCH_SOURCE,
+        "fn emit_temporal_epoch_from_relative_view(",
+        "fn emit_temporal_epoch_from_string_rounding(",
+    );
+    assert!(
+        relative.contains("input: &crate::builtins::temporal_zone_provider::RelativeEpochView<'_>")
+    );
+    let rounding = bounded(
+        EPOCH_SOURCE,
+        "fn emit_temporal_epoch_from_string_rounding(",
+        "fn emit_temporal_instant_validated_epoch(",
+    );
+    assert!(rounding.contains(
+        "input: &super::super::temporal_zoned_arithmetic::CompletedTemporalStringRoundingLocals"
+    ));
+    for completed in [relative, rounding] {
+        assert!(completed.contains("input.floor_seconds().load(function)"));
+        assert!(completed.contains("input.nanosecond().load(function)"));
+        assert_eq!(
+            completed.matches("TemporalEpochNanoseconds {").count(),
+            2,
+            "typed return plus one owned construction"
+        );
+    }
+    assert_eq!(
+        EPOCH_SOURCE
+            .matches("        TemporalEpochNanoseconds {")
+            .count(),
+        2
+    );
+    assert_eq!(
+        EPOCH_SOURCE
+            .matches("Ok(TemporalEpochNanoseconds {")
+            .count(),
+        1
+    );
 }
 
 #[test]
-fn allocation_exhaustively_consumes_the_validated_epoch() {
-    let source = compact_rust(INSTANT_SOURCE);
-    assert_eq!(source.matches("epoch:EpochNanoseconds").count(), 1);
-    assert!(!source.contains("epoch.0"));
-
+fn allocation_borrows_only_a_completed_epoch_and_release_consumes_it() {
     let consumer = compact_rust(bounded(
-        INSTANT_SOURCE,
-        "    fn emit_alloc_validated_temporal_instant(",
-        "    /// `ℤ(epochMilliseconds) × 10^6`",
+        EPOCH_SOURCE,
+        "fn emit_alloc_temporal_instant(",
+        "\n}",
     ));
-    let consume = consumer
-        .find("letEpochNanoseconds(UnvalidatedEpochNanoseconds{payload_local,tag_local,})=epoch;")
-        .expect("validated-epoch exhaustive destructuring");
-    let allocation = consumer
-        .find("self.emit_alloc_temporal_instant(payload_local,tag_local,TemporalPrototypeSource::Intrinsic,function,)?;")
-        .expect("validated Temporal.Instant allocation");
-    assert!(consume < allocation);
+    assert!(consumer.contains("epoch:&TemporalEpochNanoseconds,"));
+    assert!(consumer.contains("schema.struct_type::<TemporalInstantObject>().construct((GcOperand::reference(&header,schema),GcOperand::reference(epoch.value(),schema),),function,)"));
+    assert!(!consumer.contains("input:&GcLocal<BigIntValue>"));
+    let proof = compact_rust(bounded(
+        EPOCH_SOURCE,
+        "impl TemporalEpochNanoseconds {",
+        "impl FunctionBuilder<'_> {",
+    ));
+    assert!(proof.contains("fnvalue(&self)->&GcLocal<BigIntValue>"));
+    assert!(proof.contains("fnclear(self,builder:&mutFunctionBuilder<'_>,function:&mutFunction,)"));
+    assert!(proof.contains("release_i64_local(self.nanosecond,function)"));
+    assert!(proof.contains("release_i64_local(self.seconds,function)"));
+    assert!(proof.contains("self.value.clear(function)"));
 }
 
 #[test]
 fn both_epoch_builtins_follow_validate_then_allocate() {
-    for (start, end) in [
+    let from_value = compact_rust(bounded(
+        INSTANT_SOURCE,
+        "fn emit_temporal_epoch_from_value(",
+        "pub(crate) fn emit_temporal_instant_from_epoch_nanoseconds(",
+    ));
+    assert!(
+        from_value
+            .find("self.emit_value_to_bigint_locals(")
+            .unwrap()
+            < from_value
+                .find("self.emit_temporal_instant_validated_epoch(&value,f)?")
+                .unwrap()
+    );
+    for (start, end, admission) in [
         (
-            "    pub(crate) fn emit_temporal_instant_from_epoch_nanoseconds(",
-            "    /// Temporal proposal 8.2.2 `Temporal.Instant.fromEpochMilliseconds`.",
+            "pub(crate) fn emit_temporal_instant_from_epoch_nanoseconds(",
+            "pub(in crate::builtins) fn emit_temporal_epoch_milliseconds_to_epoch_nanoseconds(",
+            "self.emit_temporal_epoch_from_value(&input,f)?",
         ),
         (
-            "    pub(crate) fn emit_temporal_instant_from_epoch_milliseconds(",
-            "    /// Temporal proposal 8.3.12 `Temporal.Instant.prototype.valueOf`.",
+            "pub(crate) fn emit_temporal_instant_from_epoch_milliseconds(",
+            "pub(crate) fn emit_temporal_instant_compare(",
+            "self.emit_temporal_instant_validated_epoch(&value,f)?",
         ),
     ] {
         let builtin = compact_rust(bounded(INSTANT_SOURCE, start, end));
-        let validate = builtin
-            .find("self.emit_temporal_instant_validated_epoch(")
-            .expect("validated-epoch constructor call");
+        let validate = builtin.find(admission).unwrap();
         let allocate = builtin
-            .find("self.emit_alloc_validated_temporal_instant(epoch,function)?;")
-            .expect("validated-epoch allocation call");
-        assert!(validate < allocate);
+            .find("self.emit_alloc_temporal_instant(&epoch,TemporalPrototypeSource::Intrinsic,f)?;")
+            .unwrap();
+        let release = builtin.find("epoch.clear(self,f);").unwrap();
+        assert!(validate < allocate && allocate < release);
     }
 }
 

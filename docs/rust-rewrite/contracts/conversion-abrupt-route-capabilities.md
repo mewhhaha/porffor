@@ -1,5 +1,11 @@
 # Conversion abrupt-route capabilities
 
+## Current GC boundary — 2026-10-08
+
+The current non-Copy `ToPrimitiveAbruptRoute` and `PrimitiveToStringAbruptRoute` each retain ActiveHandler and ReturnCurrentFunction, with exhaustive whole-completion routing. ToLength now fills a borrowed `CompletionLocals` and writes its numeric result only on Normal. Exceptional consumers own their continuation directly: Object.fromEntries passes failed property-key conversion to the rooted IteratorClose owner, and Array.fromAsync rejects its typed PromiseCapability before continuing. The raw iterator/capability tuple route variants described below belong to the earlier representation.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 ## Closed ownership domains
 
 The crate-visible `ToPrimitiveAbruptRoute`, `PrimitiveToStringAbruptRoute` and

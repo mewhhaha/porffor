@@ -405,7 +405,25 @@ fn closed_plan_couples_the_iterator_record_checked_body_states_and_environments(
     assert!(!FOR_AWAIT_PLAN_SOURCE.contains("pub(crate) enum ForAwaitIteratorExecution"));
     assert!(FOR_AWAIT_PLAN_SOURCE.contains("pub(super) fn existing("));
     assert!(FOR_AWAIT_PLAN_SOURCE.contains("pub(super) fn awaited("));
-    assert!(CONTROL_FLOW_SOURCE.contains("async_plan.requires_plain_async_activation()"));
+    let activation = bounded(
+        CONTROL_FLOW_SOURCE,
+        "pub(crate) fn compile_async_for_of_iterator(",
+        "let body_suspends = plan.body_suspends()",
+    );
+    assert!(activation
+        .contains("Some(FunctionExecutionKind::Async) => AsyncContinuationOwner::AsyncFunction"));
+    assert!(compact(activation).contains(
+        "Some(FunctionExecutionKind::AsyncGenerator)if!plan.requires_plain_async_activation()=>"
+    ));
+    assert!(activation.contains("for-await requires its checked async activation owner"));
+    let policy = bounded(
+        FOR_AWAIT_PLAN_SOURCE,
+        "pub(super) fn requires_plain_async_activation(",
+        "pub(super) fn entry_state(",
+    );
+    assert!(policy.contains("ForAwaitIteratorExecution::Existing { .. } => false"));
+    assert!(policy.contains("ForAwaitIteratorExecution::Awaited(_) => true"));
+    assert!(!policy.contains("_ =>"));
     assert!(ASYNC_FUNCTION_FOR_OF_ITERATOR_SOURCE.contains("ForAwaitIteratorPlan::awaited(plan)"));
     assert!(FOR_AWAIT_PLAN_SOURCE.contains("plan.plan().body().statements()"));
     assert!(FOR_AWAIT_PLAN_SOURCE.contains("plan.plan().body().entry_state()"));
@@ -640,11 +658,24 @@ fn shared_identifier_head_and_generator_plan_are_validated_before_backend_use() 
         "!contains(for_of.initializer(), ContainsSymbol::YieldExpression)",
         "!contains(for_of.initializer(), ContainsSymbol::AwaitExpression)",
         "resumable_sync_for_of_body_has_local_control_owners(for_of.body())",
-        "GeneratorSuspensionRegion::IteratorBody => return None",
         "current_state.checked_add(1)?",
     ] {
-        assert!(GENERATOR_SOURCE_PLAN_SOURCE.contains(source_boundary));
+        assert!(
+            GENERATOR_SOURCE_PLAN_SOURCE.contains(source_boundary),
+            "{source_boundary}"
+        );
     }
+    let nested_iterator = bounded(
+        GENERATOR_SOURCE_PLAN_SOURCE,
+        "if let Statement::ForOfLoop(for_of) = statement.as_ref()",
+        "if let Statement::Try(try_statement)",
+    );
+    assert!(compact(nested_iterator).contains("GeneratorSuspensionRegion::IteratorBodyifcontains(for_of,ContainsSymbol::YieldExpression)=>{returnNone}"));
+    assert!(nested_iterator.contains("GeneratorSuspensionRegion::IteratorBody => {}"));
+    assert!(GENERATOR_SOURCE_PLAN_SOURCE.contains(
+        "GeneratorSuspensionRegion::IteratorBody => GeneratorValueBranchAdmission::LinearOnly"
+    ));
+    assert!(!nested_iterator.contains("_ =>"));
     assert!(LOWERING_SOURCE
         .contains("!resumable_sync_for_of_body_has_local_control_owners(for_of.body())"));
     for owner_boundary in [
@@ -791,8 +822,11 @@ fn lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk() {
         access_assignment_prefix,
         &[
             "ExprIr::Identifier(storage_name.clone())",
-            "let access = access.clone()",
-            "self.lower_property_assign_value(&access, value)",
+            "let assignment = match (generator_entry_state, access)",
+            "(Some(_), PropertyAccess::Simple(access))",
+            "self.lower_ordinary_property_reference_plan(access)",
+            "self.complete_ordinary_property_plain_assignment(",
+            "_ => self.lower_property_assign_value(access, value)",
         ],
     );
 

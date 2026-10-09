@@ -10,6 +10,7 @@ use crate::runtime_helpers::{
 };
 
 mod captured_identifier_reference;
+mod environment_identifier_put;
 mod global_identifier_read;
 
 #[derive(Clone, Copy)]
@@ -502,7 +503,7 @@ impl FunctionBuilder<'_> {
         Ok(())
     }
 
-    pub(crate) fn emit_environment_identifier_put(
+    fn emit_environment_identifier_put_body(
         &mut self,
         reference: &EnvironmentIdentifierReference,
         value: &ValueLocals,

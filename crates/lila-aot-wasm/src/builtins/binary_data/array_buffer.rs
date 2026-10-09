@@ -35,11 +35,30 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I64And);
         f.instruction(&Instruction::I32WrapI64);
         size.store(f);
-        let bytes = s.reserve_gc_local(f).initialize(
-            s.array_type::<ByteArray>()
-                .filled(GcOperand::i32(0), size, f),
+        let import = self
+            .functions
+            .gc_host_imports()
+            .get(GcHostImport::ByteArrayAllocate)
+            .ok_or_else(|| {
+                EmitError::unsupported("ArrayBuffer backing requires its native GC allocator")
+            })?;
+        let allocation = s
+            .reserve_gc_local::<ByteArray, Nullable>(f)
+            .initialize(import.allocate_byte_array(size, f)?, f);
+        allocation.load(s, f).is_null(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_range_error(
+            RuntimeErrorMessage::ARRAYBUFFER_ALLOCATION_SIZE_IS_TOO_LARGE,
+            output,
+            exit,
             f,
-        );
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        let bytes = s
+            .reserve_gc_local(f)
+            .initialize(allocation.load(s, f).require_non_null(f), f);
+        allocation.clear(f);
         let object = s.reserve_gc_local(f).initialize(
             self.emit_alloc_plain_object_with_prototype(Some(prototype), f)?,
             f,

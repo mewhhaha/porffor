@@ -2787,7 +2787,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_report_serialization_remains_byte_for_byte_stable() {
+    fn v1_report_serialization_pins_current_isolated_worker_observation_gaps() {
         let case = case_v1();
         let report = compare_executions(
             &case,
@@ -2831,9 +2831,7 @@ mod tests {
     "uncaptured_property_descriptors",
     "uncaptured_own_key_order",
     "uncaptured_prototype_identity",
-    "uncaptured_side_effect_log",
-    "unisolated_panic_and_host_crash",
-    "spec_exec_timeout_not_enforced"
+    "uncaptured_side_effect_log"
   ],
   "wasm_aot": {
     "backend": "wasm-aot",

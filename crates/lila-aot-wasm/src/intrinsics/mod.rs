@@ -16,6 +16,7 @@
 //! keep calling them in the same order it always did.
 
 use super::*;
+use crate::objects::{AccessorDescriptor, AccessorDescriptorLocals};
 
 mod abstract_module_source;
 pub(crate) mod array;
@@ -300,36 +301,28 @@ impl FunctionBuilder<'_> {
         &mut self,
         target: &crate::gc_types::ValueLocals,
         key: IntrinsicKey<'_>,
-        getter: Option<StandardBuiltinId>,
-        setter: Option<StandardBuiltinId>,
+        accessors: AccessorDescriptor<StandardBuiltinId>,
         realm: &crate::functions::RealmFunctionMaterializationContext,
         configurable: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let mut materialize = |builtin| -> Result<crate::gc_types::ValueLocals, EmitError> {
+        let materialize = |builtin| -> Result<crate::gc_types::ValueLocals, EmitError> {
             let callable = self.emit_intrinsic_callable(builtin, realm, function)?;
             let value = schema.reserve_value_local(function);
             value.set_reference(&callable, schema, function);
             callable.clear(function);
             Ok(value)
         };
-        let getter = getter.map(&mut materialize).transpose()?;
-        let setter = setter.map(&mut materialize).transpose()?;
+        let accessors = accessors.try_map(materialize)?;
         self.emit_install_intrinsic_accessor_values(
             target,
             key,
-            getter.as_ref(),
-            setter.as_ref(),
+            accessors.borrowed(),
             configurable,
             function,
         )?;
-        if let Some(value) = setter {
-            value.clear(function);
-        }
-        if let Some(value) = getter {
-            value.clear(function);
-        }
+        accessors.clear(function);
         Ok(())
     }
 
@@ -337,8 +330,7 @@ impl FunctionBuilder<'_> {
         &mut self,
         target: &crate::gc_types::ValueLocals,
         key: IntrinsicKey<'_>,
-        getter: Option<&crate::gc_types::ValueLocals>,
-        setter: Option<&crate::gc_types::ValueLocals>,
+        accessors: AccessorDescriptorLocals<'_>,
         configurable: bool,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -351,8 +343,7 @@ impl FunctionBuilder<'_> {
         self.emit_object_append_accessor_property_with_flags(
             &header,
             &key,
-            getter,
-            setter,
+            accessors,
             false,
             configurable,
             function,

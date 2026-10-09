@@ -3,6 +3,7 @@
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
 use crate::functions::NonArrayRealmIntrinsicSlot;
+use crate::objects::{AccessorDescriptor, AccessorGetter, AccessorSetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_iterator_constructor_intrinsics(
@@ -52,8 +53,10 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("constructor"),
-            Some(StandardBuiltinId::IteratorPrototypeConstructorGetter),
-            Some(StandardBuiltinId::IteratorPrototypeConstructorSetter),
+            AccessorDescriptor::GetterAndSetter {
+                getter: AccessorGetter::new(StandardBuiltinId::IteratorPrototypeConstructorGetter),
+                setter: AccessorSetter::new(StandardBuiltinId::IteratorPrototypeConstructorSetter),
+            },
             context.realm,
             true,
             function,
@@ -79,8 +82,10 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
-            Some(StandardBuiltinId::IteratorPrototypeToStringTagGetter),
-            Some(StandardBuiltinId::IteratorPrototypeToStringTagSetter),
+            AccessorDescriptor::GetterAndSetter {
+                getter: AccessorGetter::new(StandardBuiltinId::IteratorPrototypeToStringTagGetter),
+                setter: AccessorSetter::new(StandardBuiltinId::IteratorPrototypeToStringTagSetter),
+            },
             context.realm,
             true,
             function,

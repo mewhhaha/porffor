@@ -1,25 +1,21 @@
 # Named may-throw operation completion ownership
 
-The first two shared may-throw operation wrappers own their fixed completion
-policies directly. `compile_property_get_v_to_locals` selects the exact `GetV`
-descriptor and then propagates a throw to the active handler using the result
-locals. `emit_builtin_arg_to_number_payload` converts argument zero, removes
-the conversion result from the Wasm stack and then returns the current function
-when the completion is a throw.
+The generic `AbruptRoute` is gone, together with `finish_may_throw_operation`.
+The GC backend keeps named operations responsible for their own complete
+`CompletionLocals`, so mixing a value payload with an unrelated throw route is
+unrepresentable at those interfaces.
 
-The generic `AbruptRoute` is gone, together with
-`finish_may_throw_operation`. Both variants had exactly one producer, so the
-shared enum only made the two wrong combinations expressible inside the
-module: GetV could select current-function return, and builtin ToNumber could
-select active-handler propagation. Inlining each fixed continuation into its
-named wrapper makes both mismatches unrepresentable and removes an abstraction
-with no shared policy selection.
+`compile_spec_operation_to_locals` handles GetV with its actual ToObject and
+property Get semantics. Its common tail copies the whole pending completion,
+publishes a value only for Normal, and propagates Throw to the active handler.
+`emit_math_coerce_number` performs builtin ToNumber, copies a Throw to the
+builtin's output and branches to its cleanup edge before reading Number bits.
+These current owners replace the retired scalar-local wrapper names.
 
-The bounded Rust-lexical regression recursively rejects either deleted generic
-symbol. It separately pins descriptor/conversion selection, stack cleanup and
-the exact named continuation order in both wrappers. This is a
-source-equivalent ownership invariant; it changes neither the completion ABI
-nor emitted Wasm.
+The source guard rejects both deleted generic symbols recursively and pins the
+actual conversion, whole-completion transport, normal-only publication and
+named cleanup order. Current compilation and native verification is pending.
+The following checkpoint predates this GC-owner migration.
 
 Focused verification on 2026-08-28:
 

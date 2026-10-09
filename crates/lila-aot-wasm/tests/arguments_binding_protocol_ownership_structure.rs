@@ -340,7 +340,7 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
         &[
             "protocol:PresentArgumentsObjectProtocol",
             "self.emit_arguments_object_payload(&protocol,function)?",
-            "self.write_binding_from_locals(storage,payload_local,tag_local,function)",
+            "self.write_binding_from_locals(storage,&value,function)",
         ],
     );
     assert_eq!(exact_identifier_count(&initialization, "clone"), 0);

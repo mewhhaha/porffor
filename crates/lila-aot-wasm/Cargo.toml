@@ -19,6 +19,7 @@ wasmparser = "0.245.1"
 
 [build-dependencies]
 icu_calendar = { version = "=2.0.6", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
 
 [lib]
 path = "src/lib.rs"

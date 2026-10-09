@@ -101,7 +101,42 @@ impl NullableStringSymbolMethod {
     }
 }
 
-#[derive(Clone, Copy)]
+/// Required Invoke consumes the acquired method and owns its missing-method error.
+#[must_use]
+struct RequiredStringSymbolMethod(NullableStringSymbolMethod);
+impl RequiredStringSymbolMethod {
+    fn get_method(
+        b: &mut FunctionBuilder<'_>,
+        receiver: &ValueLocals,
+        key: StringSymbolMethodKey,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<Self, EmitError> {
+        NullableStringSymbolMethod::get_method(b, receiver, key, output, exit, f).map(Self)
+    }
+    fn invoke(
+        self,
+        b: &mut FunctionBuilder<'_>,
+        arguments: &[&ValueLocals],
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.0
+            .call_or_fallback(b, arguments, output, exit, f, |b, f| {
+                b.emit_throw_current_function_realm_error(
+                    NativeErrorKind::TypeError,
+                    RuntimeErrorMessage::STRING_PROTOTYPE_SYMBOL_HOOK_IS_NOT_CALLABLE,
+                    output,
+                    f,
+                )?;
+                b.emit_branch_to_target(exit, f);
+                Ok(())
+            })
+    }
+}
+
 enum NativeStringProtocol {
     Match,
     MatchAll,
@@ -111,7 +146,7 @@ enum NativeStringProtocol {
     Split,
 }
 impl NativeStringProtocol {
-    fn key(self) -> StringSymbolMethodKey {
+    fn key(&self) -> StringSymbolMethodKey {
         match self {
             Self::Match => StringSymbolMethodKey::Match,
             Self::MatchAll => StringSymbolMethodKey::MatchAll,
@@ -170,48 +205,53 @@ impl FunctionBuilder<'_> {
         output.initialize(f);
         let exit = self.open_frame(ControlFrameKind::Block, f);
         self.emit_native_string_require_coercible(&receiver, &output, exit, f)?;
-        if matches!(
-            operation,
-            NativeStringProtocol::MatchAll | NativeStringProtocol::ReplaceAll
-        ) {
-            self.compile_nullish_tagged_i32(pattern.tag(), f)?;
-            f.instruction(&Instruction::I32Eqz);
-            self.open_frame(ControlFrameKind::If, f);
-            self.emit_string_search_argument_is_regexp_to_local(&pattern, is_regexp, &pending, f)?;
-            self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
-            is_regexp.load(f);
-            self.open_frame(ControlFrameKind::If, f);
-            self.emit_native_regexp_get(&pattern, "flags", &pending, f)?;
-            self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
-            self.emit_native_string_require_coercible(pending.value(), &output, exit, f)?;
-            let flag_value = s.reserve_value_local(f);
-            flag_value.copy_from(pending.value(), f);
-            self.emit_value_to_string_payload(&flag_value, &pending, f)?;
-            self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
-            let flags = s
-                .reserve_gc_local(f)
-                .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
-            self.emit_native_regexp_has_flag(
-                &flags,
-                super::regexp_protocol::NativeRegExpFlag::Global,
-                global,
-                f,
-            );
-            global.load(f);
-            f.instruction(&Instruction::I32Eqz);
-            self.emit_native_string_error_if(
-                RuntimeErrorMessage::STRING_METHOD_REGEXP_FLAGS_MUST_CONTAIN_G,
-                NativeErrorKind::TypeError,
-                &output,
-                exit,
-                f,
-            )?;
-            flags.clear(f);
-            flag_value.clear(f);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
+        match &operation {
+            NativeStringProtocol::MatchAll | NativeStringProtocol::ReplaceAll => {
+                self.compile_nullish_tagged_i32(pattern.tag(), f)?;
+                f.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, f);
+                self.emit_string_search_argument_is_regexp_to_local(
+                    &pattern, is_regexp, &pending, f,
+                )?;
+                self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
+                is_regexp.load(f);
+                self.open_frame(ControlFrameKind::If, f);
+                self.emit_native_regexp_get(&pattern, "flags", &pending, f)?;
+                self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
+                self.emit_native_string_require_coercible(pending.value(), &output, exit, f)?;
+                let flag_value = s.reserve_value_local(f);
+                flag_value.copy_from(pending.value(), f);
+                self.emit_value_to_string_payload(&flag_value, &pending, f)?;
+                self.emit_native_string_abrupt_exit(&pending, &output, exit, f);
+                let flags = s
+                    .reserve_gc_local(f)
+                    .initialize(pending.value().cast_reference::<StringValue>(s, f), f);
+                self.emit_native_regexp_has_flag(
+                    &flags,
+                    super::regexp_protocol::NativeRegExpFlag::Global,
+                    global,
+                    f,
+                );
+                global.load(f);
+                f.instruction(&Instruction::I32Eqz);
+                self.emit_native_string_error_if(
+                    RuntimeErrorMessage::STRING_METHOD_REGEXP_FLAGS_MUST_CONTAIN_G,
+                    NativeErrorKind::TypeError,
+                    &output,
+                    exit,
+                    f,
+                )?;
+                flags.clear(f);
+                flag_value.clear(f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+            }
+            NativeStringProtocol::Match
+            | NativeStringProtocol::Replace
+            | NativeStringProtocol::Search
+            | NativeStringProtocol::Split => {}
         }
         let method = NullableStringSymbolMethod::get_method(
             self,
@@ -221,7 +261,7 @@ impl FunctionBuilder<'_> {
             exit,
             f,
         )?;
-        let arguments = match operation {
+        let arguments = match &operation {
             NativeStringProtocol::Match
             | NativeStringProtocol::MatchAll
             | NativeStringProtocol::Search => vec![&receiver],
@@ -241,20 +281,25 @@ impl FunctionBuilder<'_> {
                 | NativeStringProtocol::Search => {
                     let regexp = s.reserve_value_local(f);
                     let flags = s.reserve_value_local(f);
-                    if matches!(operation, NativeStringProtocol::MatchAll) {
-                        let g = s
-                            .reserve_gc_local(f)
-                            .initialize(b.emit_native_string_static("g", f), f);
-                        flags.set_reference(&g, s, f);
-                        g.clear(f);
-                    } else {
-                        flags.set_undefined(f);
+                    match &operation {
+                        NativeStringProtocol::MatchAll => {
+                            let g = s
+                                .reserve_gc_local(f)
+                                .initialize(b.emit_native_string_static("g", f), f);
+                            flags.set_reference(&g, s, f);
+                            g.clear(f);
+                        }
+                        NativeStringProtocol::Match
+                        | NativeStringProtocol::Replace
+                        | NativeStringProtocol::ReplaceAll
+                        | NativeStringProtocol::Search
+                        | NativeStringProtocol::Split => flags.set_undefined(f),
                     }
                     let created =
                         b.emit_native_regexp_create(&pattern, &flags, &output, exit, f)?;
                     regexp.set_reference(&created, s, f);
                     created.clear(f);
-                    let required = NullableStringSymbolMethod::get_method(
+                    let required = RequiredStringSymbolMethod::get_method(
                         b,
                         &regexp,
                         operation.key(),
@@ -264,16 +309,7 @@ impl FunctionBuilder<'_> {
                     )?;
                     let value = s.reserve_value_local(f);
                     value.set_reference(&input, s, f);
-                    required.call_or_fallback(b, &[&value], &output, exit, f, |b, f| {
-                        b.emit_throw_current_function_realm_error(
-                            NativeErrorKind::TypeError,
-                            RuntimeErrorMessage::STRING_PROTOTYPE_SYMBOL_HOOK_IS_NOT_CALLABLE,
-                            &output,
-                            f,
-                        )?;
-                        b.emit_branch_to_target(exit, f);
-                        Ok(())
-                    })?;
+                    required.invoke(b, &[&value], &output, exit, f)?;
                     value.clear(f);
                     flags.clear(f);
                     regexp.clear(f);

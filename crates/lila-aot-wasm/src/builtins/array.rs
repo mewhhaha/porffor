@@ -30,7 +30,6 @@ enum ArrayStringOperation {
     Join,
     Locale,
 }
-#[derive(Clone, Copy)]
 enum ToLocaleStringReceiverKind {
     ArrayLike,
     TypedArray,
@@ -3977,7 +3976,7 @@ impl FunctionBuilder<'_> {
         let length = s.reserve_i64_local(f);
         let index = s.reserve_i64_local(f);
         self.compile_this_to_locals(&receiver, f)?;
-        match receiver_kind {
+        match &receiver_kind {
             ToLocaleStringReceiverKind::ArrayLike => {
                 self.emit_array_like_length_snapshot(&receiver, length, &pending, f)?
             }

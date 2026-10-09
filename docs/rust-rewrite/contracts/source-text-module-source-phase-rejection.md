@@ -73,6 +73,16 @@ of this pin. The proposal permits a record kind without a source representation,
 and [`HostGetModuleSourceModuleRecord`](https://tc39.es/proposal-source-phase-imports/#sec-hostgetmodulesourcemodulerecord)
 defaults to `not-a-source`.
 
+The current Unicode namespace regression retains two distinct Unicode namespace
+alias spellings for one canonical module. Its source-alias child retains both
+Unicode source bindings for the same JavaScript target, but now requires the
+actual SyntaxError from linking instead of an invented null-prototype source
+object. Two dynamic imports reject, and explicit counters prove neither the
+source-binding child nor the source-only target body evaluated. The ordinary
+namespace remains a single non-extensible null-prototype object. These corrected
+native assertions are prepared for the joined executable checkpoint; they have
+not run during the frozen sweep.
+
 The current product graph consumes rooted GC ModuleRecord and ModuleRegistry
 owners through the semantic GC schemas; record-state reads take rooted owners.
 Full module acceptance and joined executable verification remain open. Any future

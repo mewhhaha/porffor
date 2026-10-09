@@ -3,6 +3,10 @@ use super::atomics::ATOMICS_PUBLICATION_ORDER;
 use crate::functions::{NonArrayRealmIntrinsicSlot, RealmFunctionMaterializationContext};
 use crate::gc_types::*;
 use crate::intrinsics::IntrinsicKey;
+use crate::objects::{
+    AccessorDescriptor, AccessorDescriptorLocals, AccessorGetter, AccessorGetterLocals,
+    AccessorSetterLocals,
+};
 use lila_ir::StandardBuiltinInstaller;
 
 mod realm_initialization;
@@ -409,8 +413,10 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_install_intrinsic_accessor_values(
                 &prototype,
                 IntrinsicKey::Name(name),
-                Some(&value),
-                Some(&value),
+                AccessorDescriptorLocals::GetterAndSetter {
+                    getter: AccessorGetterLocals::new(&value),
+                    setter: AccessorSetterLocals::new(&value),
+                },
                 true,
                 function,
             )?;
@@ -771,8 +777,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_install_intrinsic_accessor(
             &constructor_value,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::TypedArraySpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::TypedArraySpeciesGetter,
+            )),
             realm,
             true,
             function,
@@ -792,8 +799,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_install_intrinsic_accessor(
                 &prototype,
                 IntrinsicKey::Name(name),
-                Some(builtin),
-                None,
+                AccessorDescriptor::Getter(AccessorGetter::new(builtin)),
                 realm,
                 true,
                 function,
@@ -802,8 +808,9 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_install_intrinsic_accessor(
             &prototype,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::ToStringTag),
-            Some(StandardBuiltinId::TypedArrayPrototypeToStringTagGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::TypedArrayPrototypeToStringTagGetter,
+            )),
             realm,
             true,
             function,

@@ -510,16 +510,16 @@ impl FunctionBuilder<'_> {
         &mut self,
         target: &ValueLocals,
         key: &PropertyKeyLocals,
-        getter: Option<&ValueLocals>,
-        setter: Option<&ValueLocals>,
+        accessors: AccessorDescriptorLocals<'_>,
         enumerable: I32Local,
         configurable: I32Local,
         result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let (get, set) = accessors.into_fields();
         let fields = DescriptorObjectFields {
-            get: getter.map_or(Presence::Absent, Presence::Present),
-            set: setter.map_or(Presence::Absent, Presence::Present),
+            get,
+            set,
             enumerable: Presence::Present(DescriptorFlag::BooleanPayload(enumerable)),
             configurable: Presence::Present(DescriptorFlag::BooleanPayload(configurable)),
             ..DescriptorObjectFields::empty()
@@ -542,12 +542,10 @@ impl FunctionBuilder<'_> {
         self.compile_truthy_tagged_i32(result.value(), function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            lila_ir::NativeErrorKind::TypeError,
-            RuntimeErrorMessage::CANNOT_REDEFINE_NON_CONFIGURABLE_PROPERTY,
-            result,
-            function,
-        )?;
+        // A failed internal definition synthesizes its TypeError in the
+        // executing operation's Realm. Preserve the no-message error shape;
+        // a proxy's own abrupt completion above remains untouched.
+        self.emit_throw_runtime_type_error_without_message(result, function)?;
         function.instruction(&Instruction::Else);
         result.initialize(function);
         self.pop_control(ControlFrameKind::If);

@@ -282,7 +282,7 @@ fn timing_admission_binds_exact_bytes_compiler_pins_backend_and_node() {
     reserialized.push(b' ');
     assert_eq!(
         snapshot_from_file(decode_snapshot_bytes(&reserialized, &path).unwrap()).unwrap(),
-        snapshot
+        snapshot_from_file(decode_snapshot_bytes(&bytes, &path).unwrap()).unwrap()
     );
     assert!(
         original.admit(&snapshot, node, &reserialized).is_err(),

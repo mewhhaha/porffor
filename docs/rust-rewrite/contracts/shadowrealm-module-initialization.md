@@ -23,6 +23,14 @@ the same helper. `RealmRecord.MODULES` caches fresh records, environments,
 namespace cells, activations, evaluation promises and rejection state per Realm;
 repeat imports never replace another Realm's registry or the current registry.
 
+Programs without a validated module graph reserve each private module helper
+as an unreachable three-byte body, including initialization. Their emitted
+functions contain no call or function-reference edge to those slots. Both the
+initialization facade and helper emitter require the actual graph plan before
+emitting a call or body; absence cannot fabricate a normal initialization
+completion. Prepared scripts in a graphless ShadowRealm still use their own
+installed script hook and do not acquire a module graph.
+
 `ModuleGraphSources.realm_requests` is a separate request domain. Loaded rows
 name a real Module Record; rejected rows retain the host or parse/link failure.
 `EmbeddedModuleReferrer::Realm` has its own validated and fingerprinted role,

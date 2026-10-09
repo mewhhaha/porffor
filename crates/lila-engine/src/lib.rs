@@ -18,10 +18,9 @@ use wasmparser::{Parser as WasmParser, Payload as WasmPayload};
 use wasmtime::{
     Caller as WasmtimeCaller, Config as WasmtimeConfig, Engine as WasmtimeEngine,
     Extern as WasmtimeExtern, ExternType as WasmtimeExternType, Linker as WasmtimeLinker,
-    Memory as WasmtimeMemory, Module as WasmtimeModule, OptLevel, RegallocAlgorithm,
-    SharedMemory as WasmtimeSharedMemory, Store as WasmtimeStore,
-    StoreLimits as WasmtimeStoreLimits, StoreLimitsBuilder as WasmtimeStoreLimitsBuilder,
-    Trap as WasmtimeTrap, Val as WasmtimeVal,
+    Memory as WasmtimeMemory, Module as WasmtimeModule, SharedMemory as WasmtimeSharedMemory,
+    Store as WasmtimeStore, StoreLimits as WasmtimeStoreLimits,
+    StoreLimitsBuilder as WasmtimeStoreLimitsBuilder, Trap as WasmtimeTrap, Val as WasmtimeVal,
 };
 
 use std::collections::{HashMap, VecDeque};
@@ -75,13 +74,22 @@ mod intl_segmenter_host;
 mod intl_time_zone_host;
 mod memory_module_cache;
 use memory_module_cache::MemoryWasmModuleCache;
+mod embedded_runtime;
 mod module_loader;
 #[cfg(test)]
 mod system_time_zone_host_tests;
 mod wasm_shared_resource;
+mod wasmtime_config;
 mod wasmtime_policy;
 use wasm_shared_resource::{
     WasmSharedBufferResource, WasmSharedMemoryBacking, WasmStoreAsyncWaiters,
+};
+mod wasm_agent_host;
+mod wasm_gc_byte_array_host;
+#[cfg(test)]
+use wasmtime_config::WASM_MAX_STACK_SIZE;
+use wasmtime_config::{
+    WasmNativeCompilationMode, ENGINE_WORKER_STACK_SIZE, WASM_STORE_MEMORY_CAP_BYTES,
 };
 mod wasm_gc_completion;
 mod wasm_gc_host;
@@ -153,10 +161,6 @@ const SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
 /// per-function attribution key on it, and a single constant keeps the two from
 /// drifting apart.
 const WASM_CODE_TOO_LARGE_MESSAGE: &str = "Code for function is too large";
-/// Large AOT functions can have multi-megabyte native stack frames even
-/// without deep JavaScript recursion. Keep half of the 64MiB worker stack
-/// available to Wasmtime while leaving the other half for host calls.
-const WASM_MAX_STACK_SIZE: usize = 32 * 1024 * 1024;
 
 fn number_is_odd_integer(value: f64) -> bool {
     value.is_finite()
@@ -336,23 +340,6 @@ const WASM_MATH_UNARY_IMPORTS: [(&str, fn(f64) -> f64); 19] = [
     (WASM_HOST_IMPORT_MATH_TAN, wasm_math_tan),
     (WASM_HOST_IMPORT_MATH_TANH, wasm_math_tanh),
 ];
-/// Stack size for the worker thread that runs lowering, Wasm codegen, and
-/// Wasm execution.
-///
-/// Wasmtime's `max_wasm_stack` config (see `run_with_wasm_aot_inner`) tells
-/// the engine how much of the *host* thread's real stack a Wasm call is
-/// allowed to use; Wasmtime does not provide a separate stack for sync
-/// execution, so the calling native thread must already have at least that
-/// much stack available. Deep IR lowering/codegen recursion has the same
-/// requirement. The platform default thread stack (as small as ~2MiB for
-/// `cargo test` worker threads) is not big enough, so every heavy
-/// compile/codegen/run entry point below is routed through
-/// `run_on_sized_stack` onto a worker thread sized the same way the test262
-/// harness sizes its worker threads (see `crates/lila-test262/src/lib.rs`),
-/// so this crate is safe to call from any host thread by default.
-const ENGINE_WORKER_STACK_SIZE: usize = 64 * 1024 * 1024;
-const _: () = assert!(WASM_MAX_STACK_SIZE > 0 && WASM_MAX_STACK_SIZE < ENGINE_WORKER_STACK_SIZE);
-
 /// Runs `f` on a dedicated worker thread with `ENGINE_WORKER_STACK_SIZE`
 /// bytes of stack, then joins and returns its result.
 ///
@@ -1013,21 +1000,6 @@ enum WasmModuleMemoryCacheOutcome {
     Bypassed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum WasmNativeCompilationMode {
-    Fast,
-    SizeOptimized,
-}
-
-impl WasmNativeCompilationMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Fast => "fast",
-            Self::SizeOptimized => "size-optimized",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WasmNativeCompilationPlan {
     mode: WasmNativeCompilationMode,
@@ -1233,9 +1205,9 @@ fn compile_wasm_module(
 }
 
 fn memory_cached_wasm_module(
-    engine: &WasmtimeEngine,
     bytes: &[u8],
     native_compilation_mode: WasmNativeCompilationMode,
+    create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     let key = wasm_module_memory_cache_key(bytes, native_compilation_mode);
     let modules = memory_wasm_modules();
@@ -1248,7 +1220,7 @@ fn memory_cached_wasm_module(
         }
     }
 
-    let module = compile_wasm_module(engine, bytes)?;
+    let module = create()?;
     let mut modules = modules
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1262,14 +1234,27 @@ fn wasm_module_for_execution(
     memory_cache_policy: WasmModuleMemoryCachePolicy,
     native_compilation_mode: WasmNativeCompilationMode,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
+    wasm_module_for_execution_with_factory(
+        bytes,
+        memory_cache_policy,
+        native_compilation_mode,
+        || compile_wasm_module(engine, bytes),
+    )
+}
+
+fn wasm_module_for_execution_with_factory(
+    bytes: &[u8],
+    memory_cache_policy: WasmModuleMemoryCachePolicy,
+    native_compilation_mode: WasmNativeCompilationMode,
+    create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
+) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     match memory_cache_policy {
         WasmModuleMemoryCachePolicy::Retain => {
-            memory_cached_wasm_module(engine, bytes, native_compilation_mode)
+            memory_cached_wasm_module(bytes, native_compilation_mode, create)
         }
-        WasmModuleMemoryCachePolicy::BypassRetention => Ok((
-            compile_wasm_module(engine, bytes)?,
-            WasmModuleMemoryCacheOutcome::Bypassed,
-        )),
+        WasmModuleMemoryCachePolicy::BypassRetention => {
+            Ok((create()?, WasmModuleMemoryCacheOutcome::Bypassed))
+        }
     }
 }
 
@@ -1289,28 +1274,6 @@ fn memory_wasm_module_is_cached(bytes: &[u8]) -> bool {
 /// per second, process-wide, not per test) while staying far tighter than
 /// the tens-of-seconds bounds test262 runs use in practice.
 const WASM_EPOCH_TICK_MS: u64 = 100;
-
-/// Generous per-store linear memory cap applied via `wasmtime::StoreLimits`.
-/// This exists only to stop a pathological Wasm-AOT module that both loops
-/// forever *and* keeps allocating (so epoch interruption alone would not
-/// bound its memory use before the interrupt is observed) from growing
-/// without bound and OOM-killing the whole in-process worker. 1GiB is far
-/// above what any legitimate test262 case needs, so this must never reject a
-/// conformant test.
-const WASM_STORE_MEMORY_CAP_BYTES: usize = 1024 * 1024 * 1024;
-const WASM_LINEAR_MEMORY_GUARD_BYTES: u64 = 32 * 1024 * 1024;
-
-fn configure_wasm_linear_memory(config: &mut WasmtimeConfig) {
-    // Shared Wasm memories cannot relocate, so their initial reservation must
-    // cover every byte permitted by StoreLimits. Ordinary memories may
-    // relocate, but the same cap means no valid growth can exhaust this
-    // reservation.
-    config.memory_reservation(WASM_STORE_MEMORY_CAP_BYTES as u64);
-    config.memory_reservation_for_growth(0);
-    config.memory_may_move(true);
-    config.memory_guard_size(WASM_LINEAR_MEMORY_GUARD_BYTES);
-    config.guard_before_linear_memory(true);
-}
 
 /// Retained, typed context for a product Wasmtime configuration failure.
 #[derive(Debug, Clone)]
@@ -1351,17 +1314,8 @@ impl core::fmt::Display for WasmtimeEngineSetupError {
 fn product_wasmtime_config(
     mode: WasmNativeCompilationMode,
 ) -> Result<WasmtimeConfig, WasmtimeEngineSetupError> {
-    let mut config = WasmtimeConfig::new();
-    config.cranelift_opt_level(match mode {
-        WasmNativeCompilationMode::Fast => OptLevel::None,
-        WasmNativeCompilationMode::SizeOptimized => OptLevel::SpeedAndSize,
-    });
-    config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
-    config.max_wasm_stack(WASM_MAX_STACK_SIZE);
-    // Wasmtime 47 validates this bound even for synchronous engines.
-    config.async_stack_size(ENGINE_WORKER_STACK_SIZE);
-    configure_wasm_linear_memory(&mut config);
-    PRODUCT_WASMTIME_POLICY.configure(&mut config);
+    let mut config =
+        wasmtime_config::base_config(mode, wasmtime::WasmBacktraceDetails::Environment);
     config.parallel_compilation(compilation_jobs() > 1);
     config.cache(wasmtime_module_cache());
     if let Some(function_cache) = cranelift_function_cache() {
@@ -1386,11 +1340,6 @@ fn product_wasmtime_config(
             config.cranelift_flag_enable("enable_incremental_compilation_cache_checks");
         }
     }
-    // Instruments emitted Wasm with epoch checks at loop back-edges and
-    // function entries. Combined with `ensure_wasm_epoch_ticker` and a
-    // per-store `set_epoch_deadline` below, this lets Wasm-AOT execution run
-    // in-process by default while still bounding hangs.
-    config.epoch_interruption(true);
     Ok(config)
 }
 
@@ -2835,13 +2784,15 @@ impl Engine {
         cache: Option<&cache::FunctionCache>,
     ) -> Result<Artifact, EngineError> {
         let runtime_cache = cache.map(wasm_runtime_link::RuntimeWasmCache);
-        match lila_aot_wasm::emit_with_intl_profile_and_runtime_cache(
+        match lila_aot_wasm::emit_with_intl_profile_and_runtime_inputs(
             &unit.ir,
             unit.promise_rejection_policy,
             &unit.intl_profile,
-            runtime_cache
-                .as_ref()
-                .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
+            embedded_runtime::inputs(
+                runtime_cache
+                    .as_ref()
+                    .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
+            ),
         ) {
             Ok(wasm) => {
                 // `lila build wasm` and the Test262 wasm-aot backend both reach
@@ -3277,13 +3228,15 @@ impl Engine {
         let emit_started = std::time::Instant::now();
         let cache = program_wasm_cache();
         let runtime_cache = cache.as_deref().map(wasm_runtime_link::RuntimeWasmCache);
-        let artifact = lila_aot_wasm::emit_with_intl_profile_and_runtime_cache(
+        let artifact = lila_aot_wasm::emit_with_intl_profile_and_runtime_inputs(
             &unit.ir,
             unit.promise_rejection_policy,
             &unit.intl_profile,
-            runtime_cache
-                .as_ref()
-                .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
+            embedded_runtime::inputs(
+                runtime_cache
+                    .as_ref()
+                    .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
+            ),
         )
         .map_err(|err| EngineError::from_wasm_emit_error(&unit.ir, err))?;
         if std::env::var_os("LILA_WASM_TRACE_DUMP").is_some() {
@@ -3686,170 +3639,7 @@ impl Engine {
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_AGENT_CALL,
-                |mut caller: WasmtimeCaller<'_, WasmHostState>,
-                 operation: i64,
-                 first: i64,
-                 second: i64|
-                 -> wasmtime::Result<i64> {
-                    let group = caller.data().agent_group.clone();
-                    let private_memory = match caller.get_export("memory") {
-                        Some(WasmtimeExtern::Memory(memory)) => memory,
-                        _ => {
-                            return Err(wasmtime::Error::msg(
-                                "Test262 agent host call requires exported private memory",
-                            ));
-                        }
-                    };
-                    let read_bytes =
-                        |caller: &WasmtimeCaller<'_, WasmHostState>,
-                         ptr: i64,
-                         len: i64|
-                         -> wasmtime::Result<Vec<u8>> {
-                            let ptr = usize::try_from(ptr).map_err(|_| {
-                                wasmtime::Error::msg("Test262 agent pointer is negative")
-                            })?;
-                            let len = usize::try_from(len).map_err(|_| {
-                                wasmtime::Error::msg("Test262 agent length is negative")
-                            })?;
-                            let mut bytes = vec![0; len];
-                            private_memory.read(caller, ptr, &mut bytes).map_err(|err| {
-                                wasmtime::Error::msg(format!(
-                                    "failed to read Test262 agent memory at {ptr} for {len} bytes: {err}"
-                                ))
-                            })?;
-                            Ok(bytes)
-                        };
-                    let write_bytes =
-                        |caller: &mut WasmtimeCaller<'_, WasmHostState>,
-                         ptr: i64,
-                         bytes: &[u8]|
-                         -> wasmtime::Result<()> {
-                            let ptr = usize::try_from(ptr).map_err(|_| {
-                                wasmtime::Error::msg("Test262 agent pointer is negative")
-                            })?;
-                            private_memory.write(caller, ptr, bytes).map_err(|err| {
-                                wasmtime::Error::msg(format!(
-                                    "failed to write Test262 agent memory at {ptr} for {} bytes: {err}",
-                                    bytes.len()
-                                ))
-                            })
-                        };
-
-                    let operation = AgentHostOperation::from_wire(operation).ok_or_else(|| {
-                        wasmtime::Error::msg(format!(
-                            "unknown Test262 agent host operation {operation}"
-                        ))
-                    })?;
-                    match operation {
-                        AgentHostOperation::Start => {
-                            let group = group.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "agent.start used without an active Test262 agent group",
-                                )
-                            })?;
-                            let source = String::from_utf8(read_bytes(&caller, first, second)?)
-                                .map_err(|err| {
-                                    wasmtime::Error::msg(format!(
-                                        "Test262 agent source is not UTF-8: {err}"
-                                    ))
-                                })?;
-                            group.start(source).map_err(|err| {
-                                wasmtime::Error::new(err)
-                                    .context("failed to compile or start Test262 agent")
-                            })?;
-                            if std::env::var_os("LILA_WASM_TRACE").is_some() {
-                                eprintln!("lila wasm trace: Test262 agent started");
-                            }
-                            Ok(0)
-                        }
-                        AgentHostOperation::Report => {
-                            let group = group.as_ref().ok_or_else(|| {
-                                wasmtime::Error::msg(
-                                    "agent.report used without an active Test262 agent group",
-                                )
-                            })?;
-                            let report = read_bytes(&caller, first, second)?;
-                            let trace_report = std::env::var_os("LILA_WASM_TRACE")
-                                .is_some()
-                                .then(|| String::from_utf8_lossy(&report).into_owned());
-                            group
-                                .reports
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .push_back(report);
-                            if let Some(report) = trace_report {
-                                eprintln!(
-                                    "lila wasm trace: Test262 agent queued report {report:?}"
-                                );
-                            }
-                            Ok(0)
-                        }
-                        AgentHostOperation::ReportLength => Ok(group.as_ref().map_or(-1, |group| {
-                            group
-                                .reports
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .front()
-                                .map_or(-1, |report| report.len() as i64)
-                        })),
-                        AgentHostOperation::ReportCopy => {
-                            let report = group
-                                .as_ref()
-                                .ok_or_else(|| {
-                                    wasmtime::Error::msg(
-                                        "agent.getReport used without an active Test262 agent group",
-                                    )
-                                })?
-                                .reports
-                                .lock()
-                                .unwrap_or_else(|error| error.into_inner())
-                                .pop_front()
-                                .ok_or_else(|| {
-                                    wasmtime::Error::msg(
-                                        "Test262 agent report queue changed before copy",
-                                    )
-                                })?;
-                            if report.len() != usize::try_from(second).unwrap_or(usize::MAX) {
-                                return Err(wasmtime::Error::msg(format!(
-                                    "Test262 agent report length changed: expected {second}, observed {}",
-                                    report.len()
-                                )));
-                            }
-                            write_bytes(&mut caller, first, &report)?;
-                            Ok(second)
-                        }
-                        AgentHostOperation::Sleep => {
-                            let milliseconds = f64::from_bits(first as u64);
-                            if milliseconds.is_finite() && milliseconds > 0.0 {
-                                std::thread::sleep(std::time::Duration::from_secs_f64(
-                                    milliseconds / 1000.0,
-                                ));
-                            }
-                            Ok(0)
-                        }
-                        AgentHostOperation::MonotonicNow => {
-                            let now = caller.data().realm.host_clock().monotonic_instant();
-                            let origin = group.as_ref().map_or(
-                                caller.data().monotonic_clock_origin,
-                                |group| group.started_at,
-                            );
-                            let elapsed = now.saturating_duration_since(origin);
-                            Ok(elapsed.as_milliseconds_f64().to_bits() as i64)
-                        }
-                        AgentHostOperation::Leaving => {
-                            if let Some(leaving) = &caller.data().agent_leaving {
-                                leaving.store(true, std::sync::atomic::Ordering::Release);
-                            }
-                            Ok(0)
-                        }
-                        AgentHostOperation::PollAsyncWaiter => {
-                            Ok(caller.data().async_waiters.poll(first))
-                        }
-                        AgentHostOperation::CancelAsyncWaiter => {
-                            Ok(caller.data().async_waiters.cancel(first))
-                        }
-                    }
-                },
+                wasm_agent_host::agent_call,
             )
             .map_err(|err| EngineError::new(format!("wasmtime linker setup failed: {err}")))?;
         linker
@@ -4319,7 +4109,8 @@ var $262 = {
     start: function (source) { return __lilaAgentStart(source); },
     broadcast: function (sab) { return __lilaAgentBroadcast(sab); },
     receiveBroadcast: function (callback) {
-      return callback(__lilaAgentReceiveBroadcast());
+      var message = __lilaAgentReceiveBroadcast();
+      return callback(message[0], message[1]);
     },
     report: function (value) { return __lilaAgentReport(value); },
     getReport: function () { return __lilaAgentGetReport(); },
@@ -4339,7 +4130,7 @@ var $262 = {
 
     #[test]
     fn invalid_runtime_semantic_host_codes_remain_abi_errors() {
-        for code in [-1, 9, i64::MAX] {
+        for code in [i64::MIN, -1, 11, i64::MAX] {
             let error = wasm_reject_runtime_semantics(code)
                 .expect_err("an invalid host operation must fail");
             assert!(error.downcast_ref::<RuntimeSemanticRejection>().is_none());
@@ -5994,7 +5785,10 @@ report;
         let source = "true;";
         let options = CompileOptions::default();
         let key = program_wasm_cache_key(source, ParseGoal::Script, &options);
-        assert!(cache.write(&key, vec![0, 1, 2, 3]));
+        assert!(cache.write(
+            &key,
+            wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(&[0, 1, 2, 3], None)),
+        ));
 
         let artifact = engine()
             .load_or_compile_program_wasm_on_current_thread(
@@ -6012,7 +5806,10 @@ report;
             "wasmtime module validation failed: invalid magic"
         )));
         assert!(!cache.contains(&key));
-        assert!(cache.write(&key, vec![0, 1, 2, 3]));
+        assert!(cache.write(
+            &key,
+            wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(&[0, 1, 2, 3], None)),
+        ));
         assert!(
             artifact.evict_if_invalid(&EngineError::from_intl_artifact_identity(
                 IntlArtifactIdentityError::MissingSection,
@@ -7085,6 +6882,40 @@ report;
         linker
             .func_wrap(
                 WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_AGENT_CALL,
+                wasm_agent_host::agent_call,
+            )
+            .expect("actual host agent dispatch should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS,
+                |caller: WasmtimeCaller<'_, WasmHostState>| -> i64 {
+                    caller
+                        .data()
+                        .realm
+                        .host_clock()
+                        .monotonic_instant()
+                        .saturating_duration_since(caller.data().monotonic_clock_origin)
+                        .as_i64_saturating()
+                },
+            )
+            .expect("actual monotonic host clock should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
+                WASM_HOST_IMPORT_SLEEP_NANOS,
+                |_caller: WasmtimeCaller<'_, WasmHostState>, nanos: i64| {
+                    let Ok(nanos) = u64::try_from(nanos) else {
+                        return;
+                    };
+                    std::thread::sleep(std::time::Duration::from_nanos(nanos.min(1_000_000)));
+                },
+            )
+            .expect("actual host sleep operation should link");
+        linker
+            .func_wrap(
+                WASM_HOST_IMPORT_NAMESPACE,
                 WASM_HOST_IMPORT_PRINT_LINE_UTF8,
                 |_caller: WasmtimeCaller<'_, WasmHostState>,
                  _ptr: i32,
@@ -7350,31 +7181,85 @@ locales.length === 1 && locales[0] === "he-IL";
                 .emit_wasm(&unit)
                 .unwrap_or_else(|err| panic!("{label} should emit wasm: {err:?}"));
             let (imports, exports) = wasm_import_export_names(&artifact.bytes);
-            // Every case declares a binding, allocates an object or throws, so
-            // the conservative runtime-free proof
-            // (`lila-aot-wasm/src/emit/runtime_requirement.rs`) retains the
-            // ordinary Realm bootstrap. That fixes the import surface:
-            // - `reject_runtime_semantics` is mandatory in every artifact
-            //   (contracts/dynamic-source-capability.md);
-            // - `print_line_utf8` belongs to every heap-backed module, because
-            //   the job checkpoint reports unhandled rejections through it;
-            // - `intl_call` and `wall_clock_millis` come from the bootstrap's
-            //   intrinsics: Number/BigInt.prototype.toLocaleString are ECMA-402
-            //   provider callers that root the Intl namespace, whose
-            //   DateTimeFormat reads the clock.
-            // The runtime-free counterpart below locks the elided surface.
+            // Heap-backed programs import the current typed GC host boundary.
+            // Shared R functions remain named imports, admitted against that
+            // artifact's actual exports rather than a retired manual-heap ABI.
+            let host_imports: Vec<_> = imports
+                .iter()
+                .filter(|name| name.starts_with("lila_host::"))
+                .map(String::as_str)
+                .collect();
             assert_eq!(
-                imports,
+                host_imports,
                 [
+                    "lila_host::agent_broadcast_resource",
+                    "lila_host::agent_call",
                     "lila_host::agent_can_suspend",
-                    "lila_host::intl_call",
+                    "lila_host::agent_receive_resource",
+                    "lila_host::byte_array_allocate",
+                    "lila_host::collect_gc",
+                    "lila_host::intl_provider_call",
+                    "lila_host::math_acos",
+                    "lila_host::math_acosh",
+                    "lila_host::math_asin",
+                    "lila_host::math_asinh",
+                    "lila_host::math_atan",
+                    "lila_host::math_atan2",
+                    "lila_host::math_atanh",
+                    "lila_host::math_cbrt",
+                    "lila_host::math_cos",
+                    "lila_host::math_cosh",
+                    "lila_host::math_exp",
+                    "lila_host::math_expm1",
+                    "lila_host::math_log",
+                    "lila_host::math_log10",
+                    "lila_host::math_log1p",
+                    "lila_host::math_log2",
+                    "lila_host::math_sin",
+                    "lila_host::math_sinh",
+                    "lila_host::math_tan",
+                    "lila_host::math_tanh",
+                    "lila_host::monotonic_clock_nanos",
+                    "lila_host::notify_async_waiters",
+                    "lila_host::number_pow",
                     "lila_host::print_line_utf8",
+                    "lila_host::private_memory",
+                    "lila_host::random_f64",
+                    "lila_host::register_async_waiter",
                     "lila_host::reject_runtime_semantics",
-                    "lila_host::system_time_zone",
+                    "lila_host::shared_buffer_allocate",
+                    "lila_host::shared_buffer_base",
+                    "lila_host::shared_buffer_grow",
+                    "lila_host::shared_buffer_growable",
+                    "lila_host::shared_buffer_length",
+                    "lila_host::shared_buffer_maximum",
+                    "lila_host::shared_buffer_wait",
+                    "lila_host::shared_memory",
+                    "lila_host::sleep_nanos",
+                    "lila_host::system_time_zone_snapshot",
                     "lila_host::wall_clock_millis",
                 ],
-                "{label} imports: {imports:?}"
+                "{label} host imports: {host_imports:?}"
             );
+            let runtime_exports: std::collections::BTreeSet<_> = artifact
+                .runtime
+                .as_ref()
+                .map(|runtime| wasm_import_export_names(runtime.bytes()).1)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            for import in imports
+                .iter()
+                .filter(|name| !name.starts_with("lila_host::"))
+            {
+                let name = import
+                    .strip_prefix("lila_runtime::")
+                    .unwrap_or_else(|| panic!("{label} unexpected import namespace: {import}"));
+                assert!(
+                    runtime_exports.contains(name),
+                    "{label} import {name} must be exported by its exact linked R"
+                );
+            }
             for export in [
                 "main",
                 "memory",
@@ -10829,8 +10714,11 @@ Object.getOwnPropertyNames(array).join(",") === "length,visible"
   const symbols = Object.getOwnPropertySymbols(arguments);
   return names.length === 4
     && names.indexOf("visible") !== -1
-    && symbols.length === 1
-    && symbols[0] === argumentsSymbol;
+    && symbols.length === 2
+    && symbols[0] === Symbol.iterator
+    && symbols[1] === argumentsSymbol
+    && arguments[Symbol.iterator] === Array.prototype.values
+    && Reflect.ownKeys(arguments).length === 6;
 })(0);
 "#,
                 CompileOptions::default(),
@@ -10969,13 +10857,44 @@ const shared = new BigInt64Array(new SharedArrayBuffer(16), 8);
     #[test]
     fn wasm_backend_typed_array_length_reports_backing_store_allocation_failure() {
         let source = r#"
-let threwRangeError = false;
-try {
-  new Uint8Array(1024 * 1024 * 1024);
-} catch (error) {
-  threwRangeError = error instanceof RangeError;
+const huge = 1024 * 1024 * 1024;
+function checkRangeError(operation) {
+  let caught;
+  try { operation(); } catch (error) { caught = error; }
+  if (!(caught instanceof RangeError)) throw "missing catchable allocation failure";
 }
-threwRangeError;
+checkRangeError(function () { new Uint8Array(huge); });
+checkRangeError(function () { new Float64Array(huge / 8); });
+let prototypeReads = 0;
+const target = new Proxy(function Target() {}, {
+  get(object, key, receiver) {
+    if (key === "prototype") { prototypeReads++; return Object.prototype; }
+    return Reflect.get(object, key, receiver);
+  }
+});
+checkRangeError(function () { Reflect.construct(ArrayBuffer, [huge], target); });
+if (prototypeReads !== 1) throw "allocation failure preceded prototype selection";
+const original = {};
+const abruptTarget = new Proxy(function Target() {}, {
+  get(object, key, receiver) {
+    if (key === "prototype") throw original;
+    return Reflect.get(object, key, receiver);
+  }
+});
+let prototypeError;
+try { Reflect.construct(ArrayBuffer, [huge], abruptTarget); }
+catch (error) { prototypeError = error; }
+if (prototypeError !== original) throw "allocation replaced the original prototype exception";
+const buffer = new ArrayBuffer(8, {maxByteLength: huge});
+const view = new Uint8Array(buffer);
+view[0] = 41;
+checkRangeError(function () { buffer.resize(huge); });
+if (buffer.byteLength !== 8 || view[0] !== 41) throw "failed resize changed the original backing";
+checkRangeError(function () { buffer.transfer(huge); });
+if (buffer.byteLength !== 8 || view[0] !== 41) throw "failed transfer detached the original backing";
+const small = new Uint8Array(16);
+if (small.length !== 16 || small[0] !== 0 || small[15] !== 0) throw "successful backing lost zero initialization";
+true;
 "#;
         let outcome = engine()
             .run_script(
@@ -15705,6 +15624,8 @@ for (let i = 0; i < checks.length; i++) {
 let other = __lilaCreateRealm().global;
 let C = other.Iterator;
 let throwResults = [];
+let nextPrimitive;
+let returnPrimitive;
 function recordThrow(label, thunk) {
   try {
     thunk();
@@ -15733,11 +15654,12 @@ recordThrow("nextMethod", function() {
   value[Symbol.iterator] = function() { return this; };
   C.from(value).next();
 });
-recordThrow("nextResult", function() {
+// WrapForValidIterator forwards the Call result without IteratorResult validation.
+{
   let value = { next: function() { return 1; } };
   value[Symbol.iterator] = function() { return this; };
-  C.from(value).next();
-});
+  nextPrimitive = C.from(value).next();
+}
 recordThrow("nextReceiver", function() {
   let value = { next: function() { return { done: true }; } };
   value[Symbol.iterator] = function() { return this; };
@@ -15751,14 +15673,14 @@ recordThrow("returnMethod", function() {
   value[Symbol.iterator] = function() { return this; };
   C.from(value).return();
 });
-recordThrow("returnResult", function() {
+{
   let value = {
     next: function() { return { done: false, value: 1 }; },
     return: function() { return 1; }
   };
   value[Symbol.iterator] = function() { return this; };
-  C.from(value).return();
-});
+  returnPrimitive = C.from(value).return();
+}
 recordThrow("returnReceiver", function() {
   let value = {
     next: function() { return { done: false, value: 1 }; },
@@ -15782,7 +15704,9 @@ let nextResult = wrapper.next();
   throwResults.join(","),
   nextThis,
   nextResult === result,
-  typeof wrapper.next
+  typeof wrapper.next,
+  nextPrimitive === 1,
+  returnPrimitive === 1
 ].join("|");
 "#,
                 CompileOptions::default(),
@@ -15794,7 +15718,7 @@ let nextResult = wrapper.next();
             .expect("cross-realm Iterator.from should use its defining realm");
         assert!(
             outcome.note.contains(
-                "string(null:true:true:false,method:true:true:false,methodResult:true:true:false,nextMethod:true:true:false,nextResult:true:true:false,nextReceiver:true:true:false,returnMethod:true:true:false,returnResult:true:true:false,returnReceiver:true:true:false|true|true|function)"
+                "string(null:true:true:false,method:true:true:false,methodResult:true:true:false,nextMethod:true:true:false,nextReceiver:true:true:false,returnMethod:true:true:false,returnReceiver:true:true:false|true|true|function|true|true)"
             ),
             "note: {}",
             outcome.note
@@ -16475,15 +16399,19 @@ let typeError = new other.TypeError("m");
         let outcome = engine()
             .run_script(
                 r#"
-let other = __lilaCreateRealm().global;
+let otherRealm = __lilaCreateRealm();
+let other = otherRealm.global;
 let originalOtherErrorPrototype = other.Error.prototype;
-other.Error.prototype = 7;
-let error = Reflect.construct(Error, ["m"], other.Error);
-let proxyError = Reflect.construct(Error, ["m"], new Proxy(other.Error, {}));
+// An ordinary function has a writable prototype; Error.prototype does not.
+let otherConstructor = otherRealm.evalScript("function Other() {} Other;");
+otherConstructor.prototype = 7;
+if (otherConstructor.prototype !== 7) throw new Error("fallback precondition");
+let error = Reflect.construct(Error, ["m"], otherConstructor);
+let proxyError = Reflect.construct(Error, ["m"], new Proxy(otherConstructor, {}));
 [
   Object.getPrototypeOf(error) === originalOtherErrorPrototype,
   Object.getPrototypeOf(error) === Error.prototype,
-  Object.getPrototypeOf(error) === other.Error.prototype,
+  Object.getPrototypeOf(error) === otherConstructor.prototype,
   Object.getPrototypeOf(proxyError) === originalOtherErrorPrototype,
   Object.getPrototypeOf(proxyError) === Error.prototype
 ].join("|");
@@ -26977,9 +26905,12 @@ try { prototype.next.call({}); } catch (error) { brandThrows = error instanceof 
         let outcome = engine()
             .run_script(
                 r#"
-let other = __lilaCreateRealm().global;
-let otherConstructor = other.Object;
+let otherRealm = __lilaCreateRealm();
+let other = otherRealm.global;
+// An ordinary constructor admits a non-object prototype without mutating an intrinsic.
+let otherConstructor = otherRealm.evalScript("function Other() {} Other;");
 otherConstructor.prototype = null;
+if (otherConstructor.prototype !== null) throw new Error("fallback precondition");
 let direct = Reflect.construct(Map, [], otherConstructor);
 let proxied = Reflect.construct(Map, [], new Proxy(otherConstructor, {}));
 let boundConstructed = Reflect.construct(Map, [], otherConstructor.bind(null));
@@ -27973,9 +27904,12 @@ var setIterator = other.Set.prototype.values.call(new other.Set([1]));
         let outcome = engine()
             .run_script(
                 r#"
-let other = __lilaCreateRealm().global;
-let otherConstructor = other.Object;
+let otherRealm = __lilaCreateRealm();
+let other = otherRealm.global;
+// An ordinary constructor admits a non-object prototype without mutating an intrinsic.
+let otherConstructor = otherRealm.evalScript("function Other() {} Other;");
 otherConstructor.prototype = null;
+if (otherConstructor.prototype !== null) throw new Error("fallback precondition");
 let direct = Reflect.construct(Set, [], otherConstructor);
 let proxied = Reflect.construct(Set, [], new Proxy(otherConstructor, {}));
 let boundConstructed = Reflect.construct(Set, [], otherConstructor.bind(null));
@@ -30049,7 +29983,7 @@ try {
             lines.lock().expect("capture mutex poisoned").as_slice(),
             &[
                 "sync:0:7".to_string(),
-                "return:1:1:1:1".to_string(),
+                "return:1:0:1:1".to_string(),
                 "settled:7:2:3:2".to_string(),
             ]
         );

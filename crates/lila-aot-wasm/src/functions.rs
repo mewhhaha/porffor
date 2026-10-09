@@ -54,6 +54,7 @@ use function_realm::ResolvedFunctionRealmLocal;
 pub(crate) use proxy_creation_execution_realm::ProxyCreationExecutionRealm;
 pub(crate) use required_resolved_realm_ordinary_prototype::OrdinaryDefaultPrototype;
 
+#[derive(Clone, Copy)]
 pub(crate) enum CallContinuation {
     Continue,
     Return,
@@ -729,6 +730,7 @@ impl FunctionBuilder<'_> {
         result: &crate::gc_types::CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let caller_realm = self.load_current_realm(function);
         let base = self.runtime_helper_base()?;
         self.runtime_schema()
             .call_helper(
@@ -742,6 +744,17 @@ impl FunctionBuilder<'_> {
                 function,
             )
             .store(result, function);
+        self.replace_current_realm(&caller_realm, function);
+        caller_realm.clear(function);
+        // Every raw dispatch path forwards one whole Completion. A source
+        // Return becomes a normal Call value here; native Normal values survive.
+        result.kind().load(function);
+        function.instruction(&Instruction::I32Const(CompletionKind::Return as i32));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        result.set_normal(result.value(), function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(())
     }
 
@@ -1151,6 +1164,7 @@ impl FunctionBuilder<'_> {
         callee: &crate::gc_types::ValueLocals,
         this_value: Option<&crate::gc_types::ValueLocals>,
         arguments: &[TypedExpr],
+        continuation: &CallContinuation,
         output: &crate::gc_types::ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1162,7 +1176,14 @@ impl FunctionBuilder<'_> {
         }
         let list = self.emit_call_args_vector(arguments, function)?;
         let result = schema.reserve_completion(function);
-        self.emit_function_or_proxy_call_with_argv(callee, &receiver, &list, &result, function)?;
+        match continuation {
+            CallContinuation::Continue => self.emit_function_or_proxy_call_with_argv(
+                callee, &receiver, &list, &result, function,
+            )?,
+            CallContinuation::Return => {
+                self.emit_prepared_tail_call(callee, &receiver, &list, function)?;
+            }
+        }
         self.completion().copy_from(&result, function);
         self.emit_propagate_current_throw_if_needed(function);
         output.copy_from(result.value(), function);
@@ -1177,6 +1198,7 @@ impl FunctionBuilder<'_> {
         receiver_expression: &TypedExpr,
         key: &PropertyKeyIr,
         arguments: &[TypedExpr],
+        continuation: &CallContinuation,
         output: &crate::gc_types::ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1195,7 +1217,14 @@ impl FunctionBuilder<'_> {
         self.emit_propagate_current_throw_if_needed(function);
         // The original primitive or object receiver reaches Call unchanged;
         // only the actual callee's this-mode decides boxing or global-this.
-        self.emit_indirect_call_from_locals(&callee, Some(&receiver), arguments, output, function)?;
+        self.emit_indirect_call_from_locals(
+            &callee,
+            Some(&receiver),
+            arguments,
+            continuation,
+            output,
+            function,
+        )?;
         callee.clear(function);
         receiver.clear(function);
         Ok(())
@@ -1205,6 +1234,7 @@ impl FunctionBuilder<'_> {
         &mut self,
         name: &str,
         arguments: &[TypedExpr],
+        continuation: &CallContinuation,
         output: &crate::gc_types::ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
@@ -1239,7 +1269,14 @@ impl FunctionBuilder<'_> {
             key.clear(function);
         }
         self.emit_propagate_current_throw_if_needed(function);
-        self.emit_indirect_call_from_locals(&callee, Some(&receiver), arguments, output, function)?;
+        self.emit_indirect_call_from_locals(
+            &callee,
+            Some(&receiver),
+            arguments,
+            continuation,
+            output,
+            function,
+        )?;
         receiver.clear(function);
         callee.clear(function);
         Ok(())

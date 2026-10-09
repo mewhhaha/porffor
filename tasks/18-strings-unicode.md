@@ -585,13 +585,14 @@ cargo test -p lila-cli wasm_string --quiet
 
 Add focused representation tests for every surrogate boundary and rerun JSON, RegExp, URI, Date and Intl-adjacent filters that consume strings.
 
-### Separate queued batch5: parseInt radix ToInt32 — source-only, UNRUN
+### Historical queued batch5: parseInt radix ToInt32 — source-only at preparation
 
 The published `current-pin-wasm-aot-20260930-2885103bea4c-2x1` backlog retains
 four sloppy/strict Runtime/Bug executions for complete
 `staging/sm/Number/parseInt-01.js` and `staging/sm/global/parseInt-01.js`, with
-NaN instead of 16. The current radix emitter still saturates a Number to i64
-before wrapping to i32. Finite 1e308 therefore becomes an invalid radix;
+NaN instead of 16. At that source-only checkpoint, the radix emitter
+saturated a Number to i64 before wrapping to i32. Finite 1e308 therefore
+became an invalid radix;
 ToInt32 requires zero and default hexadecimal prefix handling yields 16.
 
 The separately queued patch routes radix conversion through the existing
@@ -600,8 +601,14 @@ ToString precedes the single ToNumber and both retain exact abrupt values.
 Six Engine tests specify twelve fresh mode observations, including both
 complete pinned sources with full sta.js/assert.js and native coercion,
 mutation, huge/fractional wrapping, signed range and nonfinite controls.
-Actual Source binding, compilation and all runtime evidence are deferred.
+Source binding, compilation and runtime evidence were deferred in that packet.
 See `docs/rust-rewrite/contracts/parse-int-radix-conversion.md` and the separate
 packet's hashes, inverse and source-only receipts. No status count or T18
 closure changes are claimed. Append these exact bytes after the then-current
 concat note; preserve every preceding Task18 byte.
+
+The [current parseInt emitter](../crates/lila-aot-wasm/src/builtins/host/parse_int.rs)
+now uses the shared binary64-to-uint32 modulo operation followed by
+signed extension for radix ToInt32. The saturation defect above is a
+historical source diagnosis; this correction does not claim a new
+runtime replay, pinned count or T18 acceptance result.

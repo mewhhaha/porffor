@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const ENGINE_SOURCE: &str = include_str!("../src/lib.rs");
+const GRAPH_SOURCE: &str = include_str!("../src/graph_observation.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -44,7 +45,7 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
     assert_eq!(
         ENGINE_SOURCE
             .matches(
-                "pub struct Engine {\n    realm: Realm,\n}\n\nenum WasmExecutionMode {\n    Legacy,\n    Structured,\n}\n\nenum WasmExecutionOutcome {"
+                "pub struct Engine {\n    realm: Realm,\n}\n\nenum WasmExecutionMode {\n    Legacy,\n    Structured,\n    Graph(SnapshotLimits),\n}\n\nenum WasmExecutionOutcome {"
             )
             .count(),
         1
@@ -54,17 +55,20 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
         "enum WasmExecutionMode {",
         "enum WasmExecutionOutcome {",
     );
-    assert_eq!(normalized(declaration), "Legacy,Structured,}");
+    assert_eq!(
+        normalized(declaration),
+        "Legacy,Structured,Graph(SnapshotLimits),}"
+    );
     assert!(!declaration.contains("#[derive"));
 
     let production = ENGINE_SOURCE
         .split_once("\n#[cfg(test)]\nmod tests {")
         .expect("engine unit-test boundary")
         .0;
-    assert_eq!(production.matches("WasmExecutionMode").count(), 14);
-    assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 16);
+    assert_eq!(production.matches("WasmExecutionMode").count(), 18);
+    assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 20);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "WasmExecutionMode"), 17);
+    assert_eq!(count_in_rust_sources(&source_root, "WasmExecutionMode"), 25);
     for forbidden in [
         "pub enum WasmExecutionMode",
         "impl WasmExecutionMode",
@@ -83,7 +87,7 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
 }
 
 #[test]
-fn five_entry_points_fix_their_exact_execution_mode() {
+fn ordinary_and_graph_entry_points_fix_their_exact_execution_mode() {
     let entries = [
         (
             "fn run_source_with_cached_wasm(",
@@ -124,7 +128,23 @@ fn five_entry_points_fix_their_exact_execution_mode() {
         .split_once("\n#[cfg(test)]\nmod tests {")
         .expect("engine unit-test boundary")
         .0;
-    assert_eq!(production.matches("mode: &WasmExecutionMode,").count(), 3);
+    assert_eq!(production.matches("mode: &WasmExecutionMode,").count(), 4);
+    let graph_entry = bounded(
+        GRAPH_SOURCE,
+        "let result = self.execute_with_wasm_bytes_inner(",
+        "fn compile_graph_artifact(",
+    );
+    assert_eq!(
+        graph_entry
+            .matches("&WasmExecutionMode::Graph(limits),")
+            .count(),
+        2
+    );
+    assert_eq!(graph_entry.matches("WasmExecutionMode::").count(), 2);
+    assert!(graph_entry.contains("WasmExecutionOutcome::Graph(outcome) => Ok(outcome)"));
+    assert!(graph_entry
+        .contains("WasmExecutionOutcome::Legacy(_) | WasmExecutionOutcome::Structured(_) =>"));
+    assert!(!graph_entry.contains("_ =>"));
 }
 
 #[test]
@@ -136,7 +156,7 @@ fn both_consumers_exhaustively_project_output_ownership_and_result_shape() {
     );
     assert_eq!(
         normalized(output_projection),
-        "matchmode{WasmExecutionMode::Legacy=>Self::DelegateOnly,WasmExecutionMode::Structured=>Self::Capture(Arc::new(Mutex::new(Vec::new()))),}}"
+        "matchmode{WasmExecutionMode::Legacy=>Self::DelegateOnly,WasmExecutionMode::Structured|WasmExecutionMode::Graph(_)=>{Self::Capture(Arc::new(Mutex::new(Vec::new())))}}}"
     );
 
     let execution = bounded(
@@ -145,6 +165,27 @@ fn both_consumers_exhaustively_project_output_ownership_and_result_shape() {
         "enum WasmtimeExportedMemory {",
     );
     assert!(execution.contains("output_events: WasmOutputEvents::for_mode(mode),"));
+    let graph_projection = bounded(
+        execution,
+        "if let WasmExecutionMode::Graph(limits) = mode {",
+        "let (result_tag, completion_kind, value) =",
+    );
+    assert!(graph_projection.contains(
+        "wasm_rooted_snapshot::observe(&mut roots, &observed_instance, completion, *limits)?"
+    ));
+    assert_eq!(
+        graph_projection
+            .matches("return Ok(WasmExecutionOutcome::Graph(")
+            .count(),
+        1
+    );
+    assert!(
+        graph_projection.contains("output_events: roots.as_context().data().output_events.take()")
+    );
+    assert!(
+        execution.find("wasm_rooted_snapshot::observe(")
+            < execution.find("wasm_gc_completion::observe(")
+    );
     let result_projection = bounded(execution, "match mode {", "\n    }\n}");
     assert_eq!(
         result_projection
@@ -193,6 +234,7 @@ fn both_consumers_exhaustively_project_output_ownership_and_result_shape() {
         1
     );
     assert!(!structured_arm.contains("WasmExecutionOutcome::Legacy"));
+    assert_eq!(result_projection.matches("WasmExecutionMode::Graph(_) => unreachable!(\"graph mode returned before scalar decoding\")").count(), 1);
     assert!(!result_projection.contains("_ =>"));
     assert!(execution.find("WasmOutputEvents::for_mode(mode)") < execution.find("match mode {"));
 }

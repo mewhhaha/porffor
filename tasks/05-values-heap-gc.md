@@ -288,13 +288,30 @@ or representation and does not diagnose the historical URI failure. The atomic
 semantic Wasm-GC switch remains required. See the
 [allocation boundary contract](../docs/rust-rewrite/contracts/memory32-allocation-bound.md).
 
-**Status:** In progress — GC and weak runtime limits are explicit; cyclic collection and real weak reachability remain blocked
+**Status:** In progress — strong copying GC supports cycle collection; cyclic stress acceptance and real weak reachability remain open
 
 **Parallel group:** Core foundations  
 **Depends on:** T02, T04  
 **Blocks:** T06, T10, T14, T17, T21 and long-running full-suite stability
 
 ## Current repository state
+
+The current [product runtime policy](../crates/lila-engine/src/wasmtime_policy.rs)
+requires Wasmtime's copying collector for the strong semantic Wasm-GC
+graph. The [typed GC schema](../crates/lila-aot-wasm/src/gc_types.rs) and
+rooted host boundary implement that graph; it is no longer only an
+anchor beside the earlier linear object model. Cyclic allocation/rooting
+stress acceptance remains separate.
+
+[Weak reachability](../crates/lila-ir/src/runtime_semantics.rs) remains
+explicitly unavailable. Strong cycle collection does not supply the
+weak/ephemeron/finalization facility required by T21.
+
+### Historical pre-cutover foundation
+
+The foundation notes below retain the earlier staged proposal and its
+verification limits; references to the linear product heap or pending
+Wasmtime 47 setup describe that earlier checkpoint.
 
 [`docs/rust-rewrite/value-heap-gc.md`](../docs/rust-rewrite/value-heap-gc.md)
 is now the checked-in architecture and phased cutover contract. The new

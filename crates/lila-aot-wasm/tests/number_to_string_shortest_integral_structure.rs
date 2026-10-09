@@ -67,7 +67,7 @@ fn ryu_power_domain_is_closed_and_traps_if_its_proof_is_violated() {
         "\n    fn emit_unsigned_multiply_128(",
     );
     assert!(lookup.contains("for index in 0..=table.last_index()"));
-    assert!(lookup.contains("Instruction::LocalGet(high_local)"));
+    assert!(lookup.contains("high_local.load(function)"));
     assert!(lookup.contains("Instruction::I64Eqz"));
     assert!(lookup.contains("Instruction::Unreachable"));
 }
@@ -80,14 +80,38 @@ fn dynamic_formatter_uses_shortest_decimal_and_ecmascript_spelling_projections()
         "fn emit_ryu_shortest_decimal(",
         "fn emit_ryu_common_digit_removal(",
         "fn emit_ryu_trailing_zero_digit_removal(",
-        "fn emit_ecmascript_decimal_payload(",
-        "fn emit_scientific_decimal_payload(",
+        "fn emit_ecmascript_decimal_string(",
+        "fn emit_decimal_digit_count(",
+        "fn emit_decimal_digit_at(",
     ] {
         assert!(RYU_SOURCE.contains(operation), "missing `{operation}`");
     }
     for threshold in ["I64Const(21)", "I64Const(-6)"] {
         assert!(RYU_SOURCE.contains(threshold), "missing `{threshold}`");
     }
+    let formatter = bounded(RYU_SOURCE, "fn emit_ecmascript_decimal_string(", "\n}\n");
+    for marker in [
+        "StringConstruction::allocate(",
+        "construction.write(index, unit, schema, function)",
+        "scientific.store(function)",
+        "magnitude.store(function)",
+        "Instruction::I32Const(i32::from(b'e'))",
+        "Instruction::I32Const(i32::from(b'+'))",
+        "self.emit_decimal_digit_at(magnitude, exponent_digits, digit_index, function)",
+    ] {
+        assert!(
+            formatter.contains(marker),
+            "GC decimal/scientific owner lost {marker}"
+        );
+    }
+    let entry = bounded(
+        RYU_SOURCE,
+        "pub(super) fn emit_ryu_number_to_string_payload(",
+        "fn emit_decimal_digit_count(",
+    );
+    let shortest = entry.find("self.emit_ryu_shortest_decimal(").unwrap();
+    let spelling = entry.find("self.emit_ecmascript_decimal_string(").unwrap();
+    assert!(shortest < spelling);
     for removed_heuristic in [
         "1_000_000.0",
         "frac_scaled_local",
@@ -110,7 +134,7 @@ fn static_number_spelling_uses_the_pinned_ecmascript_authority() {
     let formatter = bounded(
         LOWERING_SOURCE,
         "fn js_number_to_string(value: f64) -> String {",
-        "\n    }\n\n    fn parse_float_string",
+        "\n    }\n\n    fn read_object_shape",
     );
     assert!(formatter.contains("ryu_js::Buffer::new().format(value).to_string()"));
     assert!(!formatter.contains("value.to_string()"));

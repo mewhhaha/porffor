@@ -384,7 +384,7 @@ impl Program {
         let entry = EmbeddedModuleEntryInput {
             goal: EmbeddedModuleGoal::Module,
             source: self.source(ModuleId(0)),
-            meta_url: format!("lila-generated:{identity}"),
+            meta_url: format!("lila://generated/{identity}"),
             identity,
         };
         let modules = (1..self.modules.len())
@@ -393,7 +393,7 @@ impl Program {
                 let identity = self.identity(id);
                 EmbeddedModuleSourceInput {
                     source: self.source(id),
-                    meta_url: format!("lila-generated:{identity}"),
+                    meta_url: format!("lila://generated/{identity}"),
                     identity,
                 }
             })

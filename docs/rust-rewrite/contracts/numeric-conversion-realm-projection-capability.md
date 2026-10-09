@@ -1,5 +1,11 @@
 # Numeric conversion Realm projection capability
 
+## Current GC boundary — 2026-10-08
+
+The current authority is `builtins/errors/runtime_error.rs::emit_execution_realm`, which returns a rooted non-null Realm reference. Selection is explicit helper execution Realm, current FunctionContext Realm, defining Realm found through the caller Environment chain, then active Realm. Typed helper parameters install their Environment/context/Realm roles before emission. Numeric TypeError, RangeError and SyntaxError use the shared factory and its exhaustive prototype mapping; no scalar environment is reinterpreted as a Realm. The numeric projection enum and positional ABI described below are historical.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 Status: the original projection consolidation was focused-verified on
 2026-08-28. The 2026-10-03 shared ToBigInt error repair is implemented in the
 invariant-first source batch; compilation and runtime verification are pending.

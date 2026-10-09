@@ -42,28 +42,37 @@ fn diagnostic_publisher_accepts_only_native_error_kind() {
         "    pub(crate) fn emit_throw_runtime_error(",
     );
     assert!(publisher.contains("kind: NativeErrorKind,"));
-    assert!(publisher.contains("let name = kind.as_str();"));
-    assert!(publisher.contains("message: Option<&str>,"));
+    assert!(publisher.contains("self.emit_interned_string_reference(kind.as_str(), function)?"));
+    assert!(publisher.contains("message: Option<RuntimeErrorMessage>,"));
     assert!(!publisher.contains("name: &str"));
     assert!(!publisher.contains("native_error_kind("));
-    assert_eq!(publisher.matches("GlobalSet(").count(), 2);
-    let normalized_publisher = normalized(publisher);
-    assert_eq!(
-        normalized_publisher
-            .matches("throw_error_name_global_index(self.uses_heap")
-            .count(),
-        1
-    );
-    assert_eq!(
-        normalized_publisher
-            .matches("throw_error_message_global_index(self.uses_heap")
-            .count(),
-        1
+    for role in ["Name", "Message"] {
+        assert_eq!(
+            publisher
+                .matches(&format!(
+                    "self.emit_clear_throw_diagnostic(ThrowDiagnosticRole::{role}, function);"
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            publisher
+                .matches(&format!(
+                    "self.emit_store_throw_diagnostic(ThrowDiagnosticRole::{role},"
+                ))
+                .count(),
+            1
+        );
+    }
+    assert_before(
+        publisher,
+        "self.emit_interned_string_reference(kind.as_str(), function)?",
+        "self.emit_store_throw_diagnostic(ThrowDiagnosticRole::Name, &name, function);",
     );
     assert_before(
         publisher,
-        "let name = kind.as_str();",
-        "self.strings.payload(name)",
+        "self.emit_runtime_error_message_reference(message, function)?",
+        "self.emit_store_throw_diagnostic(ThrowDiagnosticRole::Message, &text, function);",
     );
 }
 
@@ -80,14 +89,16 @@ fn all_three_producers_forward_the_error_kind_they_already_own() {
     );
     assert_eq!(
         ERRORS_SOURCE
-            .matches("self.emit_set_thrown_error_text(kind, Some(message), function);")
+            .matches("self.emit_set_thrown_error_text(kind, Some(message), function)?;")
             .count(),
         2,
         "global-prototype and resolved-prototype paths forward their existing kind"
     );
     assert_eq!(
         ERRORS_SOURCE
-            .matches("self.emit_set_thrown_error_text(NativeErrorKind::TypeError, None, function);")
+            .matches(
+                "self.emit_set_thrown_error_text(NativeErrorKind::TypeError, None, function)?;"
+            )
             .count(),
         1,
         "message-less TypeError names its closed kind"
@@ -106,34 +117,34 @@ fn all_three_producers_forward_the_error_kind_they_already_own() {
 fn diagnostic_publication_follows_object_creation_and_precedes_throw_completion() {
     let global_prototype_path = bounded(
         ERRORS_SOURCE,
-        "    fn emit_throw_runtime_error_kind(",
+        "    pub(crate) fn emit_throw_runtime_error(",
         "    pub(crate) fn emit_throw_current_function_realm_error(",
     );
     assert_before(
         global_prototype_path,
-        "self.emit_runtime_error_object(kind, message, payload_local, tag_local, function)?;",
-        "self.emit_set_thrown_error_text(kind, Some(message), function);",
+        "self.emit_runtime_error_object(kind, message, &value, function)?;",
+        "self.emit_set_thrown_error_text(kind, Some(message), function)?;",
     );
     assert_before(
         global_prototype_path,
-        "self.emit_set_thrown_error_text(kind, Some(message), function);",
-        "self.set_completion_kind_with_aux(",
+        "self.emit_set_thrown_error_text(kind, Some(message), function)?;",
+        "result.set_throw(&value, function);",
     );
 
     let resolved_prototype_path = bounded(
         ERRORS_SOURCE,
-        "    fn emit_throw_runtime_error_with_prototype_local_kind(",
-        "    pub(crate) fn emit_capture_throw_error_name(",
+        "    pub(crate) fn emit_throw_runtime_error_with_prototype(",
+        "    pub(crate) fn emit_throw_current_function_realm_type_error(",
     );
     assert_before(
         resolved_prototype_path,
-        "self.emit_fresh_native_error_object_call(",
-        "self.emit_set_thrown_error_text(kind, Some(message), function);",
+        "self.emit_fresh_native_error_object(",
+        "self.emit_set_thrown_error_text(kind, Some(message), function)?;",
     );
     assert_before(
         resolved_prototype_path,
-        "self.emit_set_thrown_error_text(kind, Some(message), function);",
-        "self.set_completion_kind_with_aux(",
+        "self.emit_set_thrown_error_text(kind, Some(message), function)?;",
+        "result.set_throw(&value, function);",
     );
 }
 

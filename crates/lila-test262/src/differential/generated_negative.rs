@@ -279,7 +279,7 @@ impl Program {
                 },
                 identity: identity.into(),
                 source: self.source(),
-                meta_url: format!("lila-generated:{identity}"),
+                meta_url: format!("lila://generated/{identity}"),
             },
             vec![],
             vec![],

@@ -86,6 +86,46 @@ impl FunctionBuilder<'_> {
         Ok(self.finish_function(function))
     }
 
+    /// Install StringCreate's own UTF-16 length before the wrapper is exposed.
+    /// The fresh header receives a data property without invoking its prototype.
+    pub(crate) fn emit_initialize_string_object_length(
+        &mut self,
+        header: &GcLocal<crate::gc_types::OrdinaryObject>,
+        string: &GcLocal<StringValue>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let units = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(string, schema, function)
+                .reference(),
+            function,
+        );
+        let length = schema.reserve_value_local(function);
+        schema
+            .array_type::<CodeUnitArray>()
+            .length(&units, schema, function);
+        function.instruction(&Instruction::F64ConvertI32U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        length.scalar().store(function);
+        length.set_number(length.scalar(), function);
+        let name = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("length", function)?,
+            function,
+        );
+        let key = PropertyKeyLocals::from_string(schema, &name, function);
+        self.emit_object_append_data_property_with_flags(
+            header, &key, &length, false, false, false, function,
+        )?;
+        key.clear(function);
+        name.clear(function);
+        length.clear(function);
+        units.clear(function);
+        Ok(())
+    }
+
     fn emit_value_to_object_in_realm_kernel(
         &mut self,
         realm: &GcLocal<crate::gc_types::RealmRecord>,
@@ -140,34 +180,7 @@ impl FunctionBuilder<'_> {
                     input.cast_reference::<StringValue>(schema, function),
                     function,
                 );
-                let units = schema.reserve_gc_local(function).initialize(
-                    schema
-                        .struct_type::<StringValue>()
-                        .field(StringValueSchema::CODE_UNITS)
-                        .read(&string, schema, function)
-                        .reference(),
-                    function,
-                );
-                let length = schema.reserve_value_local(function);
-                schema
-                    .array_type::<CodeUnitArray>()
-                    .length(&units, schema, function);
-                function.instruction(&Instruction::F64ConvertI32U);
-                function.instruction(&Instruction::I64ReinterpretF64);
-                length.scalar().store(function);
-                length.set_number(length.scalar(), function);
-                let name = schema.reserve_gc_local(function).initialize(
-                    self.emit_interned_string_reference("length", function)?,
-                    function,
-                );
-                let key = PropertyKeyLocals::from_string(schema, &name, function);
-                self.emit_object_append_data_property_with_flags(
-                    &header, &key, &length, false, false, false, function,
-                )?;
-                key.clear(function);
-                name.clear(function);
-                length.clear(function);
-                units.clear(function);
+                self.emit_initialize_string_object_length(&header, &string, function)?;
                 string.clear(function);
             }
             let primitive = schema.reserve_gc_local(function).initialize(

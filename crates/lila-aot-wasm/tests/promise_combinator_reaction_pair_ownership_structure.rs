@@ -64,16 +64,16 @@ fn reaction_pair_is_the_exact_private_non_copy_authority() {
     assert!(REACTION_PAIR_SOURCE.lines().count() <= 90);
     assert!(REACTION_PAIR_SOURCE.contains(concat!(
         "#[must_use = \"a Promise combinator reaction pair must be consumed by its then ",
-        "invocation\"]\nstruct PromiseCombinatorReactionPairLocals {"
+        "invocation\"]\nstruct PromiseCombinatorReactionPairLocals<'a> {"
     )));
     let declaration = normalized(bounded(
         REACTION_PAIR_SOURCE,
-        "struct PromiseCombinatorReactionPairLocals {",
-        "impl<'a> FunctionBuilder<'a>",
+        "struct PromiseCombinatorReactionPairLocals<'a> {",
+        "impl FunctionBuilder<'_>",
     ));
     assert_eq!(
         declaration,
-        "on_fulfilled:TaggedLocals,on_rejected:TaggedLocals,}"
+        "on_fulfilled:&'aValueLocals,on_rejected:&'aValueLocals,}"
     );
     for forbidden in [
         "#[derive",
@@ -96,7 +96,7 @@ fn reaction_pair_is_the_exact_private_non_copy_authority() {
         all_sources
             .matches("PromiseCombinatorReactionPairLocals")
             .count(),
-        5
+        6
     );
     assert!(!all_sources.contains("promise_combinator_reaction_pair::"));
     assert_eq!(
@@ -124,37 +124,21 @@ fn one_exhaustive_mode_match_selects_both_callback_roles() {
         selection
             .matches("PromiseCombinatorReactionPairLocals{")
             .count(),
-        3
+        4
     );
-    for variant in ["Values", "SettledRecords", "FirstFulfillment"] {
-        assert_eq!(
-            selection
-                .matches(&format!("PromiseCombinatorMode::{variant}=>"))
-                .count(),
-            1,
-            "missing exhaustive reaction pair for {variant}"
-        );
-    }
-    for callback_pair in [
-        concat!(
-            "on_fulfilled:TaggedLocals::new(resolve_element_payload_local,",
-            "resolve_element_tag_local,),on_rejected:TaggedLocals::new(",
-            "reject_payload_local,reject_tag_local),"
-        ),
-        concat!(
-            "on_fulfilled:TaggedLocals::new(resolve_element_payload_local,",
-            "resolve_element_tag_local,),on_rejected:TaggedLocals::new(",
-            "reject_element_payload_local,reject_element_tag_local,),"
-        ),
-        concat!(
-            "on_fulfilled:TaggedLocals::new(resolve_payload_local,resolve_tag_local),",
-            "on_rejected:TaggedLocals::new(reject_element_payload_local,",
-            "reject_element_tag_local,),"
-        ),
+    for (mode, fulfilled, rejected) in [
+        ("Values", "resolve_element", "reject"),
+        ("SettledRecords", "resolve_element", "reject_element"),
+        ("FirstFulfillment", "resolve", "reject_element"),
+        ("Race", "resolve", "reject"),
     ] {
-        assert!(
-            selection.contains(callback_pair),
-            "missing `{callback_pair}`"
+        let expected = format!(
+            "PromiseCombinatorMode::{mode}=>PromiseCombinatorReactionPairLocals{{on_fulfilled:{fulfilled},on_rejected:{rejected},}}"
+        );
+        assert_eq!(
+            selection.matches(&expected).count(),
+            1,
+            "complete callback roles for {mode}"
         );
     }
     assert!(!selection.contains("_=>"));
@@ -165,7 +149,7 @@ fn then_invocation_consumes_only_the_selected_pair() {
     let handoff = normalized(bounded(
         REACTION_PAIR_SOURCE,
         "        let PromiseCombinatorReactionPairLocals {",
-        "        Ok(())",
+        "        emitted\n",
     ));
     assert_eq!(
         handoff
@@ -173,10 +157,23 @@ fn then_invocation_consumes_only_the_selected_pair() {
             .count(),
         1
     );
-    assert!(handoff.contains(concat!(
-        "&[(on_fulfilled.payload,on_fulfilled.tag),",
-        "(on_rejected.payload,on_rejected.tag),],"
-    )));
+    assert!(handoff
+        .contains("self.emit_pre_evaluated_arg_vector(&[on_fulfilled,on_rejected],function)"));
+    assert!(handoff.contains(
+        "self.emit_function_or_proxy_call_with_argv(then,promise,&arguments,result,function)"
+    ));
+    assert!(
+        handoff.find("emit_pre_evaluated_arg_vector").unwrap()
+            < handoff
+                .find("emit_function_or_proxy_call_with_argv")
+                .unwrap()
+    );
+    assert!(
+        handoff
+            .find("emit_function_or_proxy_call_with_argv")
+            .unwrap()
+            < handoff.find("arguments.clear(function)").unwrap()
+    );
     for removed in [
         "on_fulfilled_payload_local",
         "on_fulfilled_tag_local",

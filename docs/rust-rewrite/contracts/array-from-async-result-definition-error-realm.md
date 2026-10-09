@@ -9,6 +9,17 @@ All earlier implementation details and proof below are historical to their
 original source; none is inherited by this GC source.
 
 
+The current `objects/define_property.rs::emit_define_property_or_throw` converts
+a false descriptor-definition result through
+`emit_throw_runtime_type_error_without_message`, preserving the existing
+non-extensible `Array.fromAsync` error-shape control. Its actual execution Realm
+owns the TypeError prototype; constructors and Proxy traps still propagate their
+original abrupt values. This restores Lila's documented no-own-message shape
+after the GC migration. The five index/length definitions in the existing CLI
+fixture remain the executable acceptance controls. No retired raw-offset source
+guard is reintroduced. The successor repair awaits the joined native checkpoint.
+
+
 Status: implemented on 2026-08-26; focused verification is recorded below.
 
 ## Authority

@@ -136,7 +136,7 @@ check({"name":"nested empty groups","pattern":[40,63,58,40,63,58,41,41,42],"flag
 var resourceExpression = new RegExp(fromUnits([40,97,41]));
 resourceExpression.lastIndex = 4;
 var exhausted = false;
-try { resourceExpression.compile(fromUnits(regexpResourceProbeUnits)); }
+try { resourceExpression.compile(regexpResourceProbe); }
 catch (error) { exhausted = error instanceof RangeError; }
 require(exhausted && resourceExpression.source === fromUnits([40,97,41]) && resourceExpression.lastIndex === 4, 'resource recompile rollback');
 require(resourceExpression.exec(fromUnits([97]))[1] === fromUnits([97]), 'resource failure retains old program');

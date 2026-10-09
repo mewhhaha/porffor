@@ -84,6 +84,21 @@ impl NativeSharedBufferResult {
 }
 
 impl DeclaredGcHostImport {
+    pub(crate) fn allocate_byte_array(
+        self,
+        length: I32Local,
+        function: &mut Function,
+    ) -> Result<GcStackReference<ByteArray, Nullable>, crate::EmitError> {
+        if self.import() != GcHostImport::ByteArrayAllocate {
+            return Err(crate::EmitError::unsupported(
+                "byte backing allocation requires its declared host import",
+            ));
+        }
+        length.load(function);
+        self.emit_call_instruction(function);
+        Ok(GcStackReference::new())
+    }
+
     pub(crate) fn allocate_shared_buffer(
         self,
         initial: I64Local,
@@ -1740,6 +1755,19 @@ impl RuntimeSchema {
         callee.load(function);
         function.instruction(&Instruction::CallRef(R::SIGNATURE.type_index()));
         GcCallResult::emitted()
+    }
+
+    /// Ordinary JavaScript/native bodies return the complete Completion ABI.
+    /// Resumable entries retain their activation-specific call continuation.
+    pub(crate) fn return_call_ordinary_reference(
+        &self,
+        callee: &FunctionLocal<OrdinaryCallable>,
+        function: &mut Function,
+    ) {
+        callee.load(function);
+        function.instruction(&Instruction::ReturnCallRef(
+            OrdinaryCallable::SIGNATURE.type_index(),
+        ));
     }
 
     /// Consumes only a registered typed helper's already-emitted reference.

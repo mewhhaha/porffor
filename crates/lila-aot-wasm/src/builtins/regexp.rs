@@ -543,17 +543,9 @@ impl<'a> FunctionBuilder<'a> {
             ScratchFailure::Matcher { checkpoint, start },
             &mut function,
         )?;
-        capture_count.load(&mut function);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_scratch_utf16_length(
-            input_offset,
-            input_len,
-            input_utf16_len,
-            &mut function,
-        );
-        function.instruction(&Instruction::End);
+        // Counted-repeat proofs need the full UTF-16 extent even when the
+        // pattern has no captures. The immutable String owns that exact length.
+        self.emit_native_gc_string_length(&parameters.input, input_utf16_len, &mut function);
         // All immutable program/text transients are complete. Only this owner
         // may extend the tail until the match checkpoint is rewound.
         let workspace = MatcherWorkspace::allocate(

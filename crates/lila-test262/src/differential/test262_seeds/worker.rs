@@ -25,6 +25,50 @@ mod tests {
         bytes
     }
     #[test]
+    fn test262_duration_wire_is_exact_and_round_trips_both_execution_results() {
+        for duration_ms in [0, 2, u128::from(u64::MAX)] {
+            for result in [
+                Test262ReplayResult::Passed { duration_ms },
+                Test262ReplayResult::Failed {
+                    kind: FailureKind::Runtime,
+                    outcome: OutcomeKind::Bug,
+                    origin: FailureOrigin::SpecExecHost,
+                    detail: "runtime marker".into(),
+                    detail_hash: 17,
+                    duration_ms,
+                },
+            ] {
+                let frame = WorkerFrame::Test262Terminal {
+                    result: result.clone(),
+                };
+                let wire = serde_json::to_string(&frame).unwrap();
+                let WorkerFrame::Test262Terminal { result: decoded } =
+                    serde_json::from_str(&wire).unwrap()
+                else {
+                    panic!("execution result must retain its terminal frame");
+                };
+                assert_eq!(decoded, result);
+                assert!(wire.contains(&format!("\"duration_ms\":{duration_ms}")));
+            }
+        }
+        for number in ["-1", "1.5", "2.0", "18446744073709551616", "null", "\"2\""] {
+            let wire = format!(
+                r#"{{"kind":"test262_terminal","result":{{"state":"passed","duration_ms":{number}}}}}"#
+            );
+            assert!(
+                serde_json::from_str::<WorkerFrame>(&wire).is_err(),
+                "{wire}"
+            );
+        }
+        let oversized = WorkerFrame::Test262Terminal {
+            result: Test262ReplayResult::Passed {
+                duration_ms: u128::from(u64::MAX) + 1,
+            },
+        };
+        assert!(serde_json::to_string(&oversized).is_err());
+    }
+
+    #[test]
     fn selected_worker_journal_binds_mode_backend_image_and_committed_admission() {
         let runner = DifferentialWorkerRunner::new(std::env::current_exe().unwrap()).unwrap();
         let identity = CompilerProvenance::current().unwrap();
@@ -46,7 +90,11 @@ mod tests {
             result: Test262ReplayResult::Passed { duration_ms: 2 },
         };
         let complete = bytes(&[header(), admitted(), terminal()]);
-        assert!(runner.decode_test262(&complete, &binding).1.is_ok());
+        let (_, decoded) = runner.decode_test262(&complete, &binding);
+        assert_eq!(
+            decoded.unwrap(),
+            Test262ReplayResult::Passed { duration_ms: 2 }
+        );
         let mut foreign = binding.clone();
         foreign.backend = DifferentialBackend::SpecExec;
         assert!(runner.decode_test262(&complete, &foreign).1.is_err());

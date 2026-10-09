@@ -17,6 +17,10 @@ enum ControlScope<'a> {
         parent: &'a ControlScope<'a>,
         labels: &'a [String],
     },
+    Labelled {
+        parent: &'a ControlScope<'a>,
+        labels: &'a [String],
+    },
 }
 
 impl ControlScope<'_> {
@@ -27,6 +31,16 @@ impl ControlScope<'_> {
                 label.is_none_or(|label| labels.iter().any(|name| name == label))
                     || parent.accepts(branch, label)
             }
+            Self::Labelled { parent, labels } => match branch {
+                Branch::Break => {
+                    label.is_some_and(|label| labels.iter().any(|name| name == label))
+                        || parent.accepts(branch, label)
+                }
+                Branch::Continue => {
+                    !label.is_some_and(|label| labels.iter().any(|name| name == label))
+                        && parent.accepts(branch, label)
+                }
+            },
             Self::CaseBlock { parent, labels } => match branch {
                 Branch::Break => {
                     label.is_none_or(|label| labels.iter().any(|name| name == label))
@@ -345,6 +359,7 @@ fn unsupported(statement: &StatementIr, scope: &ControlScope<'_>) -> Option<&'st
                 | StatementIr::AsyncGeneratorForIn(_)
                 | StatementIr::AsyncGeneratorForOf(_) => ControlScope::Iteration { parent: scope, labels },
                 StatementIr::AsyncGeneratorSwitch(_) => ControlScope::CaseBlock { parent: scope, labels },
+                StatementIr::AsyncGeneratorWith(_) => ControlScope::Labelled { parent: scope, labels },
                 _ => return Some("labelled statements without a checked control owner"),
             };
             unsupported(statement, &scope)

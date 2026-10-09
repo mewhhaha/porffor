@@ -41,86 +41,51 @@ fn aot_mutation_lifecycle_has_one_private_file_owner_and_closed_callers() {
             .count(),
         1
     );
-    assert!(!EXPRESSIONS_SOURCE.contains("\npub mod super_property_mutation;\n"));
-    assert!(!EXPRESSIONS_SOURCE.contains("\nmod super_property_mutation {\n"));
-    assert!(SUPER_PROPERTY_MUTATION_SOURCE.starts_with("use super::*;\n\n"));
-
-    for state in [
-        "EvaluatedRawSuperPropertyReferenceLocals",
-        "CoercedSuperPropertyReferenceLocals",
+    assert!(!EXPRESSIONS_SOURCE.contains("pub mod super_property_mutation"));
+    for (state, count) in [
+        ("EvaluatedRawSuperPropertyReferenceLocals", 7),
+        ("CoercedSuperPropertyReferenceLocals", 6),
     ] {
-        assert_eq!(
-            SUPER_PROPERTY_MUTATION_SOURCE.matches(state).count(),
-            5,
-            "closed carrier census for `{state}`"
-        );
-        assert!(
-            !EXPRESSIONS_SOURCE.contains(state),
-            "parent retained `{state}`"
-        );
+        assert_eq!(SUPER_PROPERTY_MUTATION_SOURCE.matches(state).count(), count);
+        assert!(!EXPRESSIONS_SOURCE.contains(state));
     }
-    assert_eq!(
-        SUPER_PROPERTY_MUTATION_SOURCE
-            .lines()
-            .map(str::trim_start)
-            .filter(|line| {
-                line.starts_with("struct ")
-                    || line.starts_with("enum ")
-                    || line.starts_with("pub struct ")
-                    || line.starts_with("pub enum ")
-                    || line.starts_with("pub(") && line.contains(" struct ")
-                    || line.starts_with("pub(") && line.contains(" enum ")
-            })
-            .collect::<Vec<_>>(),
-        [
-            "struct EvaluatedRawSuperPropertyReferenceLocals {",
-            "struct CoercedSuperPropertyReferenceLocals {",
-        ]
-    );
-
-    for (transition, expected_count) in [
-        ("evaluate_raw_super_property_reference(", 2),
-        ("emit_get_value_from_raw_super_property_reference(", 2),
-        ("emit_put_value_from_coerced_super_property_reference(", 3),
+    for (transition, count) in [
+        ("evaluate_raw_super_property_reference(", 5),
+        ("canonicalize_super_property_reference(", 4),
+        ("emit_get_value_from_raw_super_property_reference(", 4),
+        ("emit_put_value_from_coerced_super_property_reference(", 5),
     ] {
         assert_eq!(
             SUPER_PROPERTY_MUTATION_SOURCE.matches(transition).count(),
-            expected_count,
-            "closed transition census for `{transition}`"
+            count
         );
-        assert!(
-            !EXPRESSIONS_SOURCE.contains(transition),
-            "parent retained `{transition}`"
+        assert!(!EXPRESSIONS_SOURCE.contains(transition));
+    }
+    for entry in ["read", "write", "mutation"] {
+        assert_eq!(
+            SUPER_PROPERTY_MUTATION_SOURCE
+                .matches(&format!(
+                    "pub(super) fn compile_super_property_{entry}_to_value("
+                ))
+                .count(),
+            1
+        );
+        assert_eq!(
+            EXPRESSIONS_SOURCE
+                .matches(&format!(".compile_super_property_{entry}_to_value("))
+                .count(),
+            1
         );
     }
     assert_eq!(
         SUPER_PROPERTY_MUTATION_SOURCE
-            .matches("pub(super) fn compile_super_property_mutation_to_locals(")
-            .count(),
-        1
-    );
-    assert!(!SUPER_PROPERTY_MUTATION_SOURCE
-        .contains("pub(crate) fn compile_super_property_mutation_to_locals("));
-    assert_eq!(
-        EXPRESSIONS_SOURCE
-            .matches(".compile_super_property_mutation_to_locals(")
-            .count(),
-        2
-    );
-
-    assert_eq!(
-        SUPER_PROPERTY_MUTATION_SOURCE
             .lines()
             .map(str::trim_start)
-            .filter(
-                |line| line.starts_with("fn ") || line.starts_with("pub") && line.contains(" fn ")
-            )
+            .filter(|line| line.starts_with("struct "))
             .collect::<Vec<_>>(),
         [
-            "fn evaluate_raw_super_property_reference(",
-            "fn emit_get_value_from_raw_super_property_reference(",
-            "fn emit_put_value_from_coerced_super_property_reference(",
-            "pub(super) fn compile_super_property_mutation_to_locals(",
+            "struct EvaluatedRawSuperPropertyReferenceLocals {",
+            "struct CoercedSuperPropertyReferenceLocals {"
         ]
     );
 }
@@ -247,155 +212,160 @@ fn lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_op
 #[test]
 fn aot_typestate_forces_one_key_coercion_get_and_putvalue() {
     assert!(SUPER_PROPERTY_MUTATION_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a raw Super Property Reference must be consumed by GetValue\"]\nstruct EvaluatedRawSuperPropertyReferenceLocals"
+        "#[must_use = \"raw Super Reference operands must enter GetValue or PutValue\"]"
     ));
-    assert!(SUPER_PROPERTY_MUTATION_SOURCE.contains(
-        "#[derive(Debug)]\n#[must_use = \"a coerced Super Property Reference must be consumed by PutValue\"]\nstruct CoercedSuperPropertyReferenceLocals"
-    ));
-
+    assert!(SUPER_PROPERTY_MUTATION_SOURCE
+        .contains("#[must_use = \"a canonical Super Reference must be consumed by PutValue\"]"));
+    assert!(!SUPER_PROPERTY_MUTATION_SOURCE.contains("#[derive"));
     let evaluate = bounded(
         SUPER_PROPERTY_MUTATION_SOURCE,
         "fn evaluate_raw_super_property_reference(",
-        "fn emit_get_value_from_raw_super_property_reference(",
+        "fn canonicalize_super_property_reference(",
     );
     ordered(
         evaluate,
         &[
-            "self.compile_expr_to_locals(receiver, receiver_payload, receiver_tag, function)?;",
-            "self.compile_raw_property_key_expression_to_locals(",
-            "self.emit_load_super_base(base_payload, base_tag, function)?;",
-            "self.emit_throw_if_null_super_base(base_payload, base_tag, function)?;",
+            "self.compile_expr_to_value(receiver,",
+            "self.compile_raw_property_key_expression_to_value(",
+            "self.emit_load_super_base(&base, function)?;",
             "Ok(EvaluatedRawSuperPropertyReferenceLocals {",
         ],
     );
     assert!(!evaluate.contains("emit_value_to_property_key_locals"));
-
-    let get_value = bounded(
+    assert!(!evaluate.contains("emit_throw_if_null_super_base"));
+    let canonicalize = bounded(
+        SUPER_PROPERTY_MUTATION_SOURCE,
+        "fn canonicalize_super_property_reference(",
+        "fn emit_get_value_from_raw_super_property_reference(",
+    );
+    ordered(
+        canonicalize,
+        &[
+            "let EvaluatedRawSuperPropertyReferenceLocals {",
+            "self.emit_throw_if_null_super_base(&base, function)?;",
+            "self.emit_value_to_property_key_locals(",
+            "referenced_name.clear(function);",
+            "Ok(CoercedSuperPropertyReferenceLocals {",
+        ],
+    );
+    assert_eq!(
+        canonicalize
+            .matches("emit_value_to_property_key_locals(")
+            .count(),
+        1
+    );
+    let get = bounded(
         SUPER_PROPERTY_MUTATION_SOURCE,
         "fn emit_get_value_from_raw_super_property_reference(",
         "fn emit_put_value_from_coerced_super_property_reference(",
     );
     ordered(
-        get_value,
+        get,
         &[
-            "let EvaluatedRawSuperPropertyReferenceLocals {",
-            "self.emit_value_to_property_key_locals(",
-            "self.emit_object_read_with_key_tag(",
-            "Ok(CoercedSuperPropertyReferenceLocals {",
+            "self.canonicalize_super_property_reference(raw, function)?;",
+            "crate::runtime_helpers::ObjectReadArguments::new(",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "old.copy_from(self.completion().value(), function);",
         ],
     );
-    assert_eq!(
-        get_value
-            .matches("emit_value_to_property_key_locals(")
-            .count(),
-        1
-    );
-    assert!(!get_value.contains("emit_load_super_base"));
-
-    let put_value = bounded(
+    let put = bounded(
         SUPER_PROPERTY_MUTATION_SOURCE,
         "fn emit_put_value_from_coerced_super_property_reference(",
-        "fn compile_super_property_mutation_to_locals(",
+        "pub(super) fn compile_super_property_read_to_value(",
     );
+    assert!(put.contains("reference: CoercedSuperPropertyReferenceLocals,"));
     ordered(
-        put_value,
+        put,
         &[
-            "let CoercedSuperPropertyReferenceLocals {",
-            "self.emit_ordinary_set_result_via_helper(",
-            "self.with_reference_strictness(strictness, function",
-            "emitter.emit_object_write_set_failure_else(\n                RuntimeErrorMessage::CANNOT_ASSIGN_TO_SUPER_PROPERTY,\n                function,\n            )",
-            "self.release_temp_local(property_key_tag);",
-            "self.release_temp_local(property_key_payload);",
-            "self.release_temp_local(receiver_tag);",
-            "self.release_temp_local(receiver_payload);",
-            "self.release_temp_local(base_tag);",
-            "self.release_temp_local(base_payload);",
+            "crate::runtime_helpers::OrdinarySetArguments::new(",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "if strictness.throws_on_failed_set()",
+            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_SUPER_PROPERTY,",
+            "reference.clear(function);",
         ],
     );
-    assert!(!put_value.contains("emit_value_to_property_key_locals"));
-    assert!(!put_value.contains("emit_load_super_base"));
+    assert!(!put.contains("emit_value_to_property_key_locals"));
+    assert!(!put.contains("emit_load_super_base"));
+    let clear = bounded(
+        SUPER_PROPERTY_MUTATION_SOURCE,
+        "impl CoercedSuperPropertyReferenceLocals {",
+        "impl FunctionBuilder<'_> {",
+    );
+    ordered(
+        clear,
+        &[
+            "fn clear(self,",
+            "self.property_key.clear(function);",
+            "self.receiver.clear(function);",
+            "self.base.clear(function);",
+        ],
+    );
 }
 
 #[test]
 fn fused_consumer_publishes_results_only_after_putvalue() {
     let body = bounded(
         SUPER_PROPERTY_MUTATION_SOURCE,
-        "pub(super) fn compile_super_property_mutation_to_locals(",
-        "\n    }\n}\n",
+        "pub(super) fn compile_super_property_mutation_to_value(",
+        "fn compile_super_property_capture(",
     );
     ordered(
         body,
         &[
-            "let raw_reference = self.evaluate_raw_super_property_reference(",
-            "let coerced_reference = self.emit_get_value_from_raw_super_property_reference(",
+            "let raw = self.evaluate_raw_super_property_reference(",
+            "self.emit_get_value_from_raw_super_property_reference(raw, &old, function)?;",
             "match mutation.operation()",
         ],
     );
-
-    let numeric_start = body
-        .find("SuperPropertyMutationOperationIr::NumericUpdate {")
-        .expect("numeric operation arm");
-    let eager_start = body
-        .find("SuperPropertyMutationOperationIr::EagerCompound {")
-        .expect("eager operation arm");
-    let numeric = &body[numeric_start..eager_start];
+    let numeric = bounded(body, "            SuperPropertyMutationOperationIr::NumericUpdate {\n                op,",
+        "            SuperPropertyMutationOperationIr::EagerCompound {\n                old_value_binding,");
     ordered(
         numeric,
         &[
+            "self.emit_numeric_reference_old_value(",
+            "self.emit_numeric_update_to_locals(",
             "self.emit_put_value_from_coerced_super_property_reference(",
-            "function.instruction(&Instruction::LocalSet(payload_local));",
-            "function.instruction(&Instruction::LocalSet(tag_local));",
+            "output.copy_from(",
         ],
     );
-    let eager = &body[eager_start..];
+    assert!(numeric.contains("UpdateReturnMode::Prefix => &new"));
+    assert!(numeric.contains("UpdateReturnMode::Postfix => &old"));
+    let eager = &body[body
+        .find(
+            "SuperPropertyMutationOperationIr::EagerCompound {\n                old_value_binding,",
+        )
+        .unwrap()..];
     ordered(
         eager,
         &[
-            "self.compile_expr_to_locals(",
+            "self.retain_expression_operand(",
+            "self.compile_expr_to_value(result, &new, function)",
+            "compiled?;",
             "self.emit_put_value_from_coerced_super_property_reference(",
-            "function.instruction(&Instruction::LocalSet(payload_local));",
-            "function.instruction(&Instruction::LocalSet(tag_local));",
+            "output.copy_from(&new, function);",
         ],
     );
-
-    let budget_constants = bounded(
-        PLANNING_SOURCE,
-        "const SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS",
-        "fn count_sync_disposable_resources_temp_locals(",
-    );
-    assert!(
-        budget_constants.contains("SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS: usize = 5 + 6;")
-    );
-    assert!(budget_constants.contains("SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;"));
-    assert!(budget_constants.contains("SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;"));
-    assert!(
-        budget_constants.contains("SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;")
-    );
-    let budget = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_expr_temp_locals(",
-        "pub(crate) fn collect_hoisted_vars_block_root(",
-    );
-    let mutation_budget = bounded(
-        budget,
-        "ExprIr::SuperPropertyMutation(mutation) => {",
-        "ExprIr::PrivateRead { target, .. }",
+    let write = bounded(
+        SUPER_PROPERTY_MUTATION_SOURCE,
+        "pub(super) fn compile_super_property_write_to_value(",
+        "pub(super) fn compile_super_property_mutation_to_value(",
     );
     ordered(
-        mutation_budget,
+        write,
         &[
-            "let key_child = match mutation.referenced_name()",
-            "let operation_child = match mutation.operation()",
-            "SUPER_PROPERTY_MUTATION_PERSISTENT_TEMP_LOCALS",
-            "+ count_expr_temp_locals(mutation.receiver())",
-            ".max(key_child)",
-            ".max(operation_child)",
-            ".max(SUPER_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)",
-            ".max(SUPER_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS)",
-            ".max(SUPER_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS)",
-            ".max(REFERENCE_STRICTNESS_FLAG_LOCALS)",
+            "self.evaluate_raw_super_property_reference(",
+            "self.compile_expr_to_value(value, &rhs, function)?;",
+            "self.canonicalize_super_property_reference(raw, function)?;",
+            "self.emit_put_value_from_coerced_super_property_reference(",
+            "output.copy_from(&rhs, function);",
         ],
     );
+    for operation in ["Capture", "PutCaptured"] {
+        assert!(body.contains(&format!("SuperPropertyMutationOperationIr::{operation}")));
+        assert!(PLANNING_SOURCE.contains(&format!("SuperPropertyMutationOperationIr::{operation}")));
+    }
+    assert!(body.contains("new.clear(function);"));
+    assert!(body.contains("old.clear(function);"));
 }
 
 #[test]

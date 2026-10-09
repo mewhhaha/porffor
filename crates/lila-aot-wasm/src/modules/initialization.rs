@@ -9,6 +9,11 @@ impl FunctionBuilder<'_> {
         result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.functions.module_graph().is_none() {
+            return Err(EmitError::unsupported(
+                "module initialization requires its validated execution graph",
+            ));
+        }
         self.runtime_schema()
             .call_helper(
                 ModuleInitializeArguments::new(realm),
@@ -26,9 +31,9 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         result.initialize(function);
-        let Some(plan) = self.functions.module_graph() else {
-            return Ok(());
-        };
+        let plan = self.functions.module_graph().ok_or_else(|| {
+            EmitError::unsupported("module initialization requires its validated execution graph")
+        })?;
         let meta = self
             .functions
             .get(plan.initializer())

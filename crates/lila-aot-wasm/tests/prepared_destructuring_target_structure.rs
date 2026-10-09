@@ -55,10 +55,11 @@ fn prepared_target_is_one_private_must_use_capability_free_domain() {
     for variant in [
         "Binding {",
         "AssignmentIdentifier(",
-        "EnvironmentIdentifier {",
+        "EnvironmentIdentifier(",
         "WithObjectIdentifier {",
         "Property {",
         "Private {",
+        "Super {",
         "NestedArray(",
         "NestedObject(",
     ] {
@@ -94,7 +95,7 @@ fn prepared_identifier_write_cannot_spell_an_environment_reference() {
     let declaration = bounded(
         CONTROL_FLOW_SOURCE,
         "#[must_use = \"a prepared identifier write must be consumed by its write\"]",
-        "enum DestructuringIteratorStepKind {",
+        "#[must_use = \"a prepared destructuring target must be consumed by its write\"]",
     );
     assert!(!declaration.contains("#[derive("));
     assert_eq!(
@@ -140,7 +141,7 @@ fn prepared_identifier_write_cannot_spell_an_environment_reference() {
 
     let write = bounded(
         CONTROL_FLOW_SOURCE,
-        "            PreparedDestructuringTarget::AssignmentIdentifier(write) => {",
+        "            PreparedDestructuringTarget::AssignmentIdentifier(write) => ",
         "            PreparedDestructuringTarget::Property {",
     );
     assert!(write.contains("match write {"));
@@ -181,6 +182,7 @@ fn preparation_exhaustively_constructs_the_matching_target_variant() {
         "AssignmentIdentifier",
         "AssignmentProperty",
         "AssignmentPrivate",
+        "AssignmentSuper",
         "NestedArray",
         "NestedObject",
     ] {
@@ -199,6 +201,7 @@ fn preparation_exhaustively_constructs_the_matching_target_variant() {
         "WithObjectIdentifier",
         "Property",
         "Private",
+        "Super",
         "NestedArray",
         "NestedObject",
     ] {
@@ -217,7 +220,7 @@ fn write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant() 
     let write = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn put_destructuring_target(",
-        "    pub(crate) fn emit_iterator_close_condition_i32(",
+        "\n}",
     );
     let signature = bounded(write, "&mut self,", ") -> Result<(), EmitError> {");
     assert!(signature.contains("prepared: PreparedDestructuringTarget<'_>,"));
@@ -234,6 +237,7 @@ fn write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant() 
         "WithObjectIdentifier",
         "Property",
         "Private",
+        "Super",
         "NestedArray",
         "NestedObject",
     ] {
@@ -247,24 +251,45 @@ fn write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant() 
     }
     assert_eq!(
         write
-            .matches("match key {\n                    PreparedDestructuringPropertyKey::Static(_)")
+            .matches(
+                "match key {\n                    PreparedDestructuringPropertyKey::Static(name)"
+            )
             .count(),
         1
     );
-    assert_eq!(
-        CONTROL_FLOW_SOURCE
-            .matches("put_destructuring_target(")
-            .count(),
-        5
-    );
-    assert_eq!(
-        CONTROL_FLOW_SOURCE
-            .matches("prepare_destructuring_target(")
-            .count(),
-        4
-    );
-
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    assert_eq!(
+        count_in_rust_sources(&source_root, "put_destructuring_target("),
+        6,
+        "one consumer plus two Array and three Object pattern calls"
+    );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "prepare_destructuring_target("),
+        5,
+        "two Array and three Object pattern preparation calls; generic declaration is excluded"
+    );
+    let super_prepare = bounded(
+        CONTROL_FLOW_SOURCE,
+        "DestructuringTargetIr::AssignmentSuper {",
+        "DestructuringTargetIr::NestedArray(",
+    );
+    assert!(
+        super_prepare
+            .find("self.compile_expr_to_value(capture,")
+            .unwrap()
+            < super_prepare
+                .find("Ok(PreparedDestructuringTarget::Super { value_binding, put })")
+                .unwrap()
+    );
+    let super_write = bounded(
+        write,
+        "PreparedDestructuringTarget::Super {",
+        "PreparedDestructuringTarget::NestedArray(",
+    );
+    assert!(
+        super_write.find("self.write_binding_from_locals(").unwrap()
+            < super_write.find("self.compile_expr_to_value(put,").unwrap()
+    );
     assert_eq!(
         count_in_rust_sources(&source_root, "enum PreparedDestructuringTarget"),
         1

@@ -42,7 +42,7 @@ fn well_formed_operation_is_a_private_capability_free_domain() {
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    assert_eq!(variants, ["Check,", "Repair,"]);
+    assert_eq!(variants, ["IsWellFormed,", "ToWellFormed,"]);
 
     for capability in ["Clone", "Copy", "Debug", "Default", "PartialEq", "Eq"] {
         assert!(
@@ -58,49 +58,76 @@ fn named_builtin_entry_points_are_the_only_operation_producers() {
     let wrappers = normalized(bounded(
         OPERATION_SOURCE,
         "impl FunctionBuilder<'_> {",
-        "\n}\n\nfn emit(",
+        "    fn emit_native_string_well_formed(",
     ));
     assert!(wrappers.contains("fnemit_string_is_well_formed_builtin("));
-    assert!(wrappers.contains("emit(self,StringWellFormedOperation::Check,function)"));
+    assert!(wrappers.contains(
+        "self.emit_native_string_well_formed(StringWellFormedOperation::IsWellFormed,f)"
+    ));
     assert!(wrappers.contains("fnemit_string_to_well_formed_builtin("));
-    assert!(wrappers.contains("emit(self,StringWellFormedOperation::Repair,function)"));
+    assert!(wrappers.contains(
+        "self.emit_native_string_well_formed(StringWellFormedOperation::ToWellFormed,f)"
+    ));
 
     assert_eq!(
         OPERATION_SOURCE
-            .matches("StringWellFormedOperation::Check")
+            .matches("StringWellFormedOperation::IsWellFormed")
             .count(),
-        2
+        3
     );
     assert_eq!(
         OPERATION_SOURCE
-            .matches("StringWellFormedOperation::Repair")
+            .matches("StringWellFormedOperation::ToWellFormed")
             .count(),
-        2
+        3
     );
 }
 
 #[test]
 fn consuming_match_owns_algorithm_and_result_tag_together() {
+    let allocation = normalized(bounded(
+        OPERATION_SOURCE,
+        "let construction = match &operation {",
+        "valid.store(f);",
+    ));
+    assert!(allocation.contains("StringWellFormedOperation::IsWellFormed=>None,"));
+    assert!(allocation
+        .contains("StringWellFormedOperation::ToWellFormed=>Some(StringConstruction::allocate("));
+    assert!(!allocation.contains("_=>"));
+
     let projection = normalized(bounded(
         OPERATION_SOURCE,
         "match operation {",
-        "\n    }\n    function.instruction(&Instruction::End);",
+        "output.set_normal(&result, f);",
     ));
     let check = bounded(
         &projection,
-        "StringWellFormedOperation::Check=>{",
-        "}StringWellFormedOperation::Repair=>{",
+        "StringWellFormedOperation::IsWellFormed=>",
+        "StringWellFormedOperation::ToWellFormed=>{",
     );
-    let repair = bounded(&projection, "StringWellFormedOperation::Repair=>{", "}");
-
-    assert!(check.contains("emit_string_is_well_formed_payload_from_local"));
-    assert!(check.contains("ValueKind::Boolean.tag()"));
-    assert!(!check.contains("ValueKind::String.tag()"));
-    assert!(repair.contains("emit_string_to_well_formed_payload_from_local"));
-    assert!(repair.contains("ValueKind::String.tag()"));
-    assert!(!repair.contains("ValueKind::Boolean.tag()"));
+    let repair = bounded(
+        &projection,
+        "StringWellFormedOperation::ToWellFormed=>{",
+        "repaired.clear(f);",
+    );
+    assert_eq!(check, "result.set_boolean(valid,f),");
+    assert!(repair
+        .contains("construction.expect(\"ToWellFormedownsitscompleteconstruction\").publish(s,f)"));
+    assert!(repair.contains("result.set_reference(&repaired,s,f)"));
+    assert!(!repair.contains("set_boolean"));
     assert!(!projection.contains("_=>"));
     assert!(!projection.contains("unreachable!"));
+    assert_eq!(OPERATION_SOURCE.matches("match &operation {").count(), 1);
+    assert_eq!(OPERATION_SOURCE.matches("match operation {").count(), 1);
+    assert!(OPERATION_SOURCE
+        .contains("self.emit_with_native_string_receiver(f, |b, string, output, _, f|"));
+    assert!(OPERATION_SOURCE.contains("b.emit_gc_string_code_unit_i32(string, index, f)"));
+    assert!(
+        OPERATION_SOURCE.find("match operation {").unwrap()
+            < OPERATION_SOURCE
+                .find("output.set_normal(&result, f)")
+                .unwrap()
+    );
 }
 
 #[test]
@@ -112,7 +139,7 @@ fn standard_dispatch_cannot_supply_a_mode_or_retag_the_result() {
     ));
     assert_eq!(
         is_well_formed,
-        "self.emit_string_is_well_formed_builtin(function)?;}"
+        "self.emit_string_is_well_formed_builtin(function)?}"
     );
 
     let to_well_formed = normalized(bounded(
@@ -122,23 +149,22 @@ fn standard_dispatch_cannot_supply_a_mode_or_retag_the_result() {
     ));
     assert_eq!(
         to_well_formed,
-        "self.emit_string_to_well_formed_builtin(function)?;}"
+        "self.emit_string_to_well_formed_builtin(function)?}"
     );
 
-    for raw_emitter in [
-        "emit_string_is_well_formed_payload_from_local",
-        "emit_string_to_well_formed_payload_from_local",
-    ] {
-        assert_eq!(STANDARD_SOURCE.matches(raw_emitter).count(), 0);
-        assert_eq!(
-            STRING_SOURCE.matches(&format!("fn {raw_emitter}(")).count(),
-            1
-        );
-        assert_eq!(
-            STRING_SOURCE
-                .matches(&format!("pub(crate) fn {raw_emitter}("))
-                .count(),
-            0
-        );
-    }
+    let helper = "emit_native_string_well_formed(";
+    assert_eq!(
+        OPERATION_SOURCE.matches(helper).count(),
+        3,
+        "one private typed consumer and two named producers"
+    );
+    assert_eq!(
+        OPERATION_SOURCE
+            .matches("    fn emit_native_string_well_formed(")
+            .count(),
+        1
+    );
+    assert!(!OPERATION_SOURCE.contains("pub(crate) fn emit_native_string_well_formed("));
+    assert!(!STRING_SOURCE.contains(helper));
+    assert!(!STANDARD_SOURCE.contains(helper));
 }

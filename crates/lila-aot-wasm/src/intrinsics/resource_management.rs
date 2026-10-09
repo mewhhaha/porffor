@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_disposable_stack_constructor_intrinsics(
@@ -40,8 +41,9 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.prototype,
             IntrinsicKey::Name("disposed"),
-            Some(StandardBuiltinId::DisposableStackPrototypeDisposedGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(
+                StandardBuiltinId::DisposableStackPrototypeDisposedGetter,
+            )),
             context.realm,
             true,
             function,

@@ -5,9 +5,10 @@
 //! [`RUNTIME_IMPORT_NAMESPACE`]. `R` is identical for every program with the
 //! same Intl profile. Raw R uses the bounded program-Wasm disk cache; native R
 //! uses the same bounded memory cache as P and Wasmtime's module disk cache.
-//! `R` and `P` must be
-//! compiled by the same `wasmtime::Engine`, so `R` is always requested for the
-//! native compilation mode that was chosen for the execution.
+//! `R` and `P` must belong to the same execution `wasmtime::Engine`. The
+//! embedded R image may use its separately admitted build optimization mode;
+//! deserialization attaches it to the Engine chosen for P. Retention keys and
+//! ordinary fallback compilation always use that execution Engine's mode.
 
 use super::*;
 use lila_aot_wasm::{
@@ -137,9 +138,10 @@ pub(super) fn decode_cache_entry(
         (&ENTRY_LINKED, rest) => {
             let (recorded, program) = rest.split_at_checked(KEY_BYTES)?;
             let selection = IntlDataSelection::new(intl_profile.clone());
-            let runtime = lila_aot_wasm::runtime_artifact_with_cache(
+            let runtime_cache = RuntimeWasmCache(cache);
+            let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
                 &selection,
-                Some(&RuntimeWasmCache(cache)),
+                embedded_runtime::inputs(Some(&runtime_cache)),
             )
             .ok()?;
             (runtime.key().as_bytes().as_slice() == recorded)
@@ -162,8 +164,9 @@ fn runtime_native_compilation_mode(runtime: &RuntimeArtifact) -> WasmNativeCompi
         .or_insert_with(|| plan_wasm_native_compilation(runtime.bytes()).mode)
 }
 
-/// Chooses the one native mode for both modules: the program's own plan, raised
-/// to size-optimized when the runtime needs it.
+/// Chooses the execution Engine and ordinary fallback mode for both modules:
+/// the program's own plan, raised to size-optimized when the runtime needs it.
+/// An embedded R image's independent optimization never changes this decision.
 pub(super) fn plan_native_compilation(program: WasmProgramRef<'_>) -> WasmNativeCompilationPlan {
     let mut plan = plan_wasm_native_compilation(program.bytes);
     if let Some(runtime) = program.runtime {
@@ -228,35 +231,46 @@ pub(super) fn compile_modules(
     mode: WasmNativeCompilationMode,
 ) -> Result<WasmModules, EngineError> {
     let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
-    let module_for_execution = |label: &str, bytes: &[u8]| -> Result<_, EngineError> {
-        let started = std::time::Instant::now();
-        if trace {
-            eprintln!(
-                "lila wasm trace: {label}-module loading: {} bytes",
-                bytes.len()
-            );
-        }
-        let result = if bypass_retention {
-            (
-                compile_wasm_module(engine, bytes)?,
-                WasmModuleMemoryCacheOutcome::Bypassed,
-            )
-        } else {
-            wasm_module_for_execution(engine, bytes, memory_cache_policy, mode)?
+    let module_for_execution =
+        |label: &str, bytes: &[u8], runtime: Option<&RuntimeArtifact>| -> Result<_, EngineError> {
+            let started = std::time::Instant::now();
+            if trace {
+                eprintln!(
+                    "lila wasm trace: {label}-module loading: {} bytes",
+                    bytes.len()
+                );
+            }
+            let policy = if bypass_retention {
+                WasmModuleMemoryCachePolicy::BypassRetention
+            } else {
+                memory_cache_policy
+            };
+            let result = if let Some(runtime) = runtime {
+                wasm_module_for_execution_with_factory(bytes, policy, mode, || {
+                    if let Some(module) = embedded_runtime::load_native(engine, runtime, mode) {
+                        return Ok(module);
+                    }
+                    compile_wasm_module(engine, bytes)
+                })?
+            } else {
+                wasm_module_for_execution(engine, bytes, policy, mode)?
+            };
+            if trace {
+                eprintln!(
+                    "lila wasm trace: {label}-module loaded: {:?}",
+                    started.elapsed()
+                );
+            }
+            Ok(result)
         };
-        if trace {
-            eprintln!(
-                "lila wasm trace: {label}-module loaded: {:?}",
-                started.elapsed()
-            );
-        }
-        Ok(result)
-    };
     let runtime = program
         .runtime
-        .map(|runtime| module_for_execution("runtime", runtime.bytes()).map(|(module, _)| module))
+        .map(|runtime| {
+            module_for_execution("runtime", runtime.bytes(), Some(runtime))
+                .map(|(module, _)| module)
+        })
         .transpose()?;
-    let (module, memory_cache_outcome) = module_for_execution("program", program.bytes)?;
+    let (module, memory_cache_outcome) = module_for_execution("program", program.bytes, None)?;
     Ok(WasmModules {
         program: module,
         runtime,

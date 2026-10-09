@@ -58,3 +58,16 @@ prepared-target/iterator ownership controls remain required regression coverage.
 Those controls are not executed by this source packet. Pattern-owned suspension
 is admitted only where the checked source/lowering owner supplies the complete
 operation sequence; this native seam does not widen source admission.
+
+The shared Rest allocator loads the canonical `%Object.prototype%` from the
+actual execution Realm before allocating the result. An absent prototype operand
+means a null prototype in the GC allocator and is not a request for the ordinary
+default. The checked Realm and prototype remain rooted until the new object is
+published, then their temporary roots are cleared before CopyDataProperties.
+The suspended source controls retain their own-key and getter-order assertions
+and additionally check ordinary assignment, boxed-primitive and Proxy rest
+prototypes. A prepared foreign generator resumed through a main-Realm `next`
+must use its execution Realm's prototype, preserve whole values and exclusions,
+and retain that same rest object across another yield and GC checkpoint.
+Verification of this repair is pending the frozen workspace sweep and batch
+application; no runtime success is claimed by the source packet.

@@ -486,6 +486,7 @@ fn all_six_deliveries_and_both_constructor_rows_are_exact() {
             manifest_hash,
             expected_backend,
             expected_pinned,
+            &CompilerProvenance::current().map_err(ResumeCheckpointLoadError::integrity)?,
         )?;
         let snapshot = snapshot_from_file(file).map_err(ResumeCheckpointLoadError::integrity)?;
         validate_case_snapshot_contract(

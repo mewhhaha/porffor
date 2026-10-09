@@ -23,7 +23,27 @@ assertErrorPrototype(function() {
     }
   });
 }, TypeError.prototype, "detached receiver entry");
-assertSame(detachedOffsetCoercions, 0, "entry detach skips offset coercion");
+assertSame(detachedOffsetCoercions, 1, "offset coercion precedes detached bounds validation");
+
+var offsetMarker = {};
+var caughtOffset;
+try {
+  detachedReceiver.set([], { valueOf: function() { throw offsetMarker; } });
+} catch (error) {
+  caughtOffset = error;
+}
+assertSame(caughtOffset, offsetMarker, "offset abrupt completion precedes detached bounds validation");
+assertErrorPrototype(function() {
+  detachedReceiver.set([], -1);
+}, RangeError.prototype, "negative offset precedes detached bounds validation");
+var invalidReceiverOffsetCoercions = 0;
+assertErrorPrototype(function() {
+  Uint8Array.prototype.set.call({}, [], { valueOf: function() {
+    invalidReceiverOffsetCoercions++;
+    return 0;
+  }});
+}, TypeError.prototype, "receiver brand precedes offset coercion");
+assertSame(invalidReceiverOffsetCoercions, 0, "wrong receiver skips offset coercion");
 
 var growBuffer = new ArrayBuffer(1, { maxByteLength: 3 });
 var growTarget = new Uint8Array(growBuffer);

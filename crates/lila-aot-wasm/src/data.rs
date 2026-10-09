@@ -466,7 +466,6 @@ impl CompilerOwnedPool {
                     .clone(),
             );
         }
-        || compiled_standard_builtins.contains(&StandardBuiltinId::RegExpPrototypeCompile);
         for value in [
             "",
             " ",
@@ -3602,7 +3601,7 @@ impl StringPool {
                 // never called.
                 //
                 // What *does* set the flag for this shape is the
-                // `RegExpPrototypeCompile` disjunct in `collect`'s initialiser.
+                // `RegExpPrototypeCompile` disjunct in `collect_script`'s initialiser.
                 // Without it this arm was strictly inert for the very program
                 // its comment above cites, because no other setter fires on a
                 // `CallMethod` node: read the two together.
@@ -4579,7 +4578,9 @@ mod host_created_realm_property_name_pool_tests {
         let pool = StringPool::collect(
             &script,
             &BTreeMap::new(),
-            &[],
+            // The R/P compiler pre-seeds host keys in the heap runtime's
+            // compiler-owned pool, before it visits this program's source.
+            &[StandardBuiltinId::ObjectConstructor],
             false,
             &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
         )
@@ -4607,7 +4608,9 @@ mod host_created_realm_property_name_pool_tests {
         let pool = StringPool::collect(
             &script,
             &BTreeMap::new(),
-            &[],
+            // The R/P compiler pre-seeds host keys in the heap runtime's
+            // compiler-owned pool, before it visits this program's source.
+            &[StandardBuiltinId::ObjectConstructor],
             false,
             &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::default()),
         )

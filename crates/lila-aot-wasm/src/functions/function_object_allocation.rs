@@ -27,7 +27,7 @@ pub(super) struct FunctionAllocationInputs<'a> {
 }
 
 impl FunctionBuilder<'_> {
-    pub(super) fn emit_ordinary_function_entry_call(
+    pub(super) fn emit_ordinary_function_entry_tail_call(
         &mut self,
         entry: &crate::function_entry::RuntimeOrdinaryBodyEntry,
         this_value: &ValueLocals,
@@ -151,42 +151,19 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        result.store_call(
-            entry.emit_call(
-                crate::function_entry::OrdinaryBodyInputs::call(
-                    &call_this,
-                    crate::function_entry::EntryArguments::new(arguments),
-                    &caller_realm,
-                ),
-                schema,
-                function,
+        // The normal Call boundary owns Return normalization and Realm
+        // restoration. Forward the body's complete result without a frame.
+        entry.emit_return_call(
+            crate::function_entry::OrdinaryBodyInputs::call(
+                &call_this,
+                crate::function_entry::EntryArguments::new(arguments),
+                &caller_realm,
             ),
+            schema,
             function,
         );
-        // Source Return is a normal Call result. Source fallthrough returns
-        // undefined; native methods retain their specified normal value.
-        result.kind().load(function);
-        function.instruction(&Instruction::I32Const(CompletionKind::Return as i32));
-        function.instruction(&Instruction::I32Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        result.set_normal(result.value(), function);
-        function.instruction(&Instruction::Else);
-        result.kind().load(function);
-        function.instruction(&Instruction::I32Const(CompletionKind::Normal as i32));
-        function.instruction(&Instruction::I32Eq);
-        native.load(function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, function);
-        call_this.set_undefined(function);
-        result.set_normal(&call_this, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        self.replace_current_realm(&caller_realm, function);
         binding.clear(function);
         call_this.clear(function);
         schema.release_i32_local(strict, function);

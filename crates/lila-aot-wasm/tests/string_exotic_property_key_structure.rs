@@ -1,4 +1,5 @@
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const DESCRIPTOR_SOURCE: &str = include_str!("../src/objects/define_property.rs");
 const OBJECTS_SOURCE: &str = include_str!("../src/objects.rs");
 
 fn between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -73,30 +74,60 @@ fn failure_to_prove_a_string_index_preserves_the_property_key() {
 
 #[test]
 fn backend_classifies_dynamic_keys_and_preserves_prototype_fallback() {
-    let string_read = between(
+    let index = between(
         OBJECTS_SOURCE,
-        "ValueKind::String => match key {",
-        "ValueKind::Arguments => match key {",
+        "pub(crate) fn emit_property_key_array_index(",
+        "pub(crate) fn emit_delete_ordinary_by_tag(",
     );
-    let dynamic_key = between(
-        string_read,
-        "PropertyKeyIr::StringExpr(_) => {",
-        "\n                _ => {",
+    assert!(index.contains("key: &PropertyKeyLocals"));
+    assert_eq!(
+        index
+            .matches("self.emit_canonical_numeric_index_string(")
+            .count(),
+        1
     );
-    assert!(dynamic_key.contains("compile_object_key_to_locals("));
-    assert!(dynamic_key.contains("emit_canonical_numeric_index_string("));
-    assert!(dynamic_key.contains("emit_string_index_read("));
-    assert!(dynamic_key.contains("STRING_PROTOTYPE_GLOBAL_INDEX"));
-    assert!(dynamic_key.contains("emit_object_read_with_key_tag("));
-    assert!(!dynamic_key.contains("emit_string_index_0_to_4_or_minus_one("));
-
-    let proven_index = between(
-        string_read,
-        "PropertyKeyIr::ArrayIndex(_) => {",
-        "PropertyKeyIr::StringExpr(_) => {",
+    for check in [
+        "(-0.0_f64).to_bits()",
+        "Instruction::F64Ge",
+        "u32::MAX as f64",
+        "Instruction::F64Lt",
+        "Instruction::F64Trunc",
+        "Instruction::F64Eq",
+    ] {
+        assert!(
+            index.contains(check),
+            "canonical String index check `{check}`"
+        );
+    }
+    let descriptor = between(
+        DESCRIPTOR_SOURCE,
+        "fn emit_string_index_descriptor(",
+        "    pub(crate) fn emit_non_proxy_own_descriptor(",
     );
-    assert!(proven_index.contains("Instruction::I64LtU"));
-    assert!(proven_index.contains("Instruction::Else"));
-    assert!(proven_index.contains("STRING_PROTOTYPE_GLOBAL_INDEX"));
-    assert!(proven_index.contains("emit_object_read("));
+    assert!(
+        descriptor.contains("self.emit_property_key_array_index(key, index, valid, function)?;")
+    );
+    assert!(descriptor.contains("Instruction::I32LtU"));
+    assert!(descriptor.contains("StringValueSchema::CODE_UNITS"));
+    assert!(descriptor.contains("writable: false,"));
+    assert!(descriptor.contains("enumerable: true,"));
+    assert!(descriptor.contains("configurable: false,"));
+    let read = between(
+        OBJECTS_SOURCE,
+        "fn emit_non_proxy_object_get(",
+        "pub(crate) fn emit_canonical_numeric_property_key_i32(",
+    );
+    let own = read
+        .find("self.emit_proxy_target_own_descriptor(target, key, function)?;")
+        .unwrap();
+    let prototype = read
+        .find("self.emit_ordinary_get_prototype_of(target, &value, function);")
+        .unwrap();
+    let inherited = read
+        .find("crate::runtime_helpers::ObjectReadArguments::new(")
+        .unwrap();
+    assert!(own < prototype && prototype < inherited);
+    assert!(read.contains("receiver,"));
+    assert!(!read.contains("ValueKind::String =>"));
+    assert!(!read.contains("emit_string_index_0_to_4_or_minus_one("));
 }

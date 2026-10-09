@@ -168,7 +168,7 @@ fn matcher_result_is_the_exact_private_no_capability_domain() {
     assert!(!matcher.contains("pubenumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(crate)enumRegExpMatcherResult"));
     assert!(!matcher.contains("pub(super)enumRegExpMatcherResult"));
-    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 53);
+    assert_eq!(matcher.matches("RegExpMatcherResult").count(), 51);
 }
 
 #[test]
@@ -215,12 +215,21 @@ fn sole_writer_consumes_and_exhaustively_projects_the_result() {
     let writer = bounded(
         &matcher,
         "fnemit_regexp_match_result(",
-        "function.instruction(&Instruction::I64Const(status.abi_word()));}",
+        "function.instruction(&Instruction::I32Const(status.abi_word()asi32));}",
     );
     assert!(writer.starts_with(
         "&self,checkpoint:I64Local,start_local:I64Local,end_local:I64Local,result:RegExpMatcherResult,function:&mutFunction,){"
     ));
     assert!(!writer.contains("found:i64"));
+    let rewind = writer
+        .find("self.emit_regexp_scratch_rewind(checkpoint,function);")
+        .unwrap();
+    let found = writer
+        .find("function.instruction(&Instruction::I32Const(found));")
+        .unwrap();
+    let start = writer.find("start_local.load(function);").unwrap();
+    let end = writer.find("end_local.load(function);").unwrap();
+    assert!(rewind < found && found < start && start < end);
     assert!(!writer.contains("status:RegExpMatcherStatus"));
     assert_eq!(writer.matches("matchresult{").count(), 1);
     for projection in [

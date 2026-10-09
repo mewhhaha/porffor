@@ -777,8 +777,8 @@ fn recursive_required_runs_keep_current_and_original_reset_domains_separate() {
         ],
     );
     assert!(RUN_PATH_SOURCE.contains("enum PathWord"));
-    assert!(RUN_TREE_SOURCE.contains("fn with_template_snapshots(&self"));
-    assert!(RUN_TREE_SOURCE.contains("fn compare_template_tree(&self,other:&ChoiceEntry"));
+    assert!(compact(RUN_TREE_SOURCE).contains("fnwith_template_snapshots(&self"));
+    assert!(compact(RUN_TREE_SOURCE).contains("fncompare_template_tree(&self,other:&ChoiceEntry"));
     assert!(RUN_TREE_SOURCE.contains("fn check_distinct_ancestry"));
     assert!(compact(RUN_EXHAUSTION_SOURCE).contains("workspace.active_run_node.load(f)"));
 }

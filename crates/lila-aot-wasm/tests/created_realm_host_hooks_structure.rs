@@ -3,7 +3,8 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{
     lower_with_host_surface_policy, HostBuiltinId, HostSurfacePolicy, StandardBuiltinId,
 };
-use wasmparser::{Validator, WasmFeatures};
+use std::collections::{BTreeMap, BTreeSet};
+use wasmparser::{KnownCustom, Name, Parser, Payload, TypeRef, Validator, WasmFeatures};
 
 #[test]
 fn created_realm_global_carries_dollar262_detach() {
@@ -37,35 +38,66 @@ fn created_realm_global_carries_dollar262_detach() {
             ] {
                 features.set(feature, true);
             }
-            Validator::new_with_features(features)
-                .validate_all(&artifact.bytes)
-                .expect("created Realm callable entries preserve valid Wasm");
-            for (name, category) in [
-                (
-                    format!("host::{}", HostBuiltinId::DetachArrayBuffer.as_str()),
-                    "host-builtin",
+            let runtime = artifact.runtime().expect("created Realm links R");
+            let mut names = BTreeMap::new();
+            let mut bodies = BTreeSet::new();
+            for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
+                Validator::new_with_features(features)
+                    .validate_all(bytes)
+                    .expect("created Realm callable entries preserve valid R and P Wasm");
+                let mut index = 0u32;
+                for payload in Parser::new(0).parse_all(bytes) {
+                    match payload.expect("module decodes") {
+                        Payload::ImportSection(section) => {
+                            for import in section.into_imports() {
+                                if matches!(
+                                    import.expect("import decodes").ty,
+                                    TypeRef::Func(_) | TypeRef::FuncExact(_)
+                                ) {
+                                    index += 1;
+                                }
+                            }
+                        }
+                        Payload::CodeSectionEntry(body) => {
+                            assert!(!body.range().is_empty());
+                            assert!(bodies.insert(index), "R/P own disjoint bodies");
+                            index += 1;
+                        }
+                        Payload::CustomSection(section) => {
+                            if let KnownCustom::Name(subsections) = section.as_known() {
+                                for subsection in subsections {
+                                    if let Name::Function(map) =
+                                        subsection.expect("name subsection decodes")
+                                    {
+                                        for naming in map {
+                                            let naming = naming.expect("function name decodes");
+                                            assert!(names
+                                                .insert(naming.index, naming.name.to_string())
+                                                .is_none());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            for name in [
+                format!("host::{}", HostBuiltinId::DetachArrayBuffer.as_str()),
+                format!(
+                    "builtin::{}",
+                    StandardBuiltinId::AbstractModuleSourceConstructor.debug_name()
                 ),
-                (
-                    format!(
-                        "builtin::{}",
-                        StandardBuiltinId::AbstractModuleSourceConstructor.debug_name()
-                    ),
-                    "builtin",
-                ),
-                (
-                    format!(
-                        "builtin::{}",
-                        StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter
-                            .debug_name()
-                    ),
-                    "builtin",
+                format!(
+                    "builtin::{}",
+                    StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter.debug_name()
                 ),
             ] {
                 assert!(
-                    artifact
-                        .function_sizes
+                    names
                         .iter()
-                        .any(|body| body.name == name && body.category == category),
+                        .any(|(index, actual)| actual == &name && bodies.contains(index)),
                     "implicit Realm callable has no real body: {name}"
                 );
             }

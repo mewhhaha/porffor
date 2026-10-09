@@ -14,6 +14,12 @@ mod parse_frame_state;
 mod quote;
 mod reviver;
 mod stringify;
+mod stringify_replacer;
+use stringify_replacer::{
+    JsonStringifyReplacerFunctionLocals, JsonStringifyReplacerInvocationLocals,
+    JsonStringifyReplacerPropertyKeyLocals, JsonStringifyReplacerReceiverLocals,
+    JsonStringifyReplacerValueLocals,
+};
 
 enum JsonBuiltin {
     Parse,

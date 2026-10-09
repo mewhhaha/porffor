@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_array_constructor_intrinsics(
@@ -28,8 +29,7 @@ impl FunctionBuilder<'_> {
         self.emit_install_intrinsic_accessor(
             context.constructor,
             IntrinsicKey::Symbol(lila_ir::WellKnownSymbol::Species),
-            Some(StandardBuiltinId::ArraySpeciesGetter),
-            None,
+            AccessorDescriptor::Getter(AccessorGetter::new(StandardBuiltinId::ArraySpeciesGetter)),
             context.realm,
             true,
             function,

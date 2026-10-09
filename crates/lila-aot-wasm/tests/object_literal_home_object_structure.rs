@@ -2,6 +2,7 @@ const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
 const LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering.rs");
+const OBJECT_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/object_literal.rs");
 const SUPER_LOWERING_SOURCE: &str =
     include_str!("../../lila-ir/src/lowering/super_property_mutation.rs");
 const FUNCTION_LOWERING_SOURCE: &str =
@@ -198,9 +199,9 @@ fn object_method_protocol_and_private_carrier_close_the_ir_domain() {
     assert!(analysis.contains(".function_protocol()"));
 
     let producer = bounded(
-        LOWERING_SOURCE,
+        OBJECT_LOWERING_SOURCE,
         "    fn lower_object_method_function(",
-        "    fn observe_proxy_handler_trap_expression_hints(",
+        "    pub(super) fn lower_object_literal(",
     );
     assert!(producer.contains("ObjectMethodFunctionIr::new("));
     assert!(producer.contains("object_method_protocol(method.kind())"));
@@ -259,10 +260,19 @@ fn super_references_carry_receiver_and_parameter_initializers_gain_context_first
     );
     assert_before(
         reference_parts,
-        "lower_current_this",
+        "lower_super_property_receiver()?",
         "lower_super_property_key",
     );
-    assert!(reference_parts.contains("let receiver = Box::new(self.lower_current_this());"));
+    assert!(
+        reference_parts.contains("let receiver = Box::new(self.lower_super_property_receiver()?);")
+    );
+    let receiver_gate = bounded(
+        SUPER_LOWERING_SOURCE,
+        "pub(super) fn lower_super_property_receiver(",
+        "pub(super) fn lower_super_property_reference_parts(",
+    );
+    assert!(receiver_gate.contains("Some(self.lower_current_this())"));
+    assert!(receiver_gate.contains("self.class_context.is_none()"));
     assert!(reference_parts.contains("Some((key, receiver, info))"));
 
     let super_write = bounded(

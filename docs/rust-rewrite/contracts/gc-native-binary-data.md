@@ -34,3 +34,22 @@ implicit-length failures, explicit views of a partial-tail buffer, and allowed
 tracking tails. Finite 1/2/4/8-byte Number and 8-byte BigInt constructors use
 both private and shared backing. All old assertions and the four paired
 strict/sloppy cohort registrations are retained. These additions are unrun.
+
+ArrayBuffer backing allocation uses the same canonical mutable GC ByteArray
+through the private `byte_array_allocate` import. The closed signature accepts
+one checked I32 extent and returns that exact nullable array type. The native
+callback runs Wasmtime's zero-filled allocator, including its normal collection
+and growth attempt. Only `GcHeapOutOfMemory<()>` becomes null; invalid ABI,
+schema, and other host errors retain their ordinary failure paths. The Wasm
+consumer checks null and creates a RangeError through its existing defining-
+Realm Completion before attempting to publish the buffer. This preserves the
+existing per-Store memory bound and makes actual backing-store failure catchable
+without a manual heap or a fabricated capacity threshold.
+
+Prototype selection still precedes allocation. Resize and transfer continue to
+allocate the replacement before mutating or detaching the original owner.
+The existing native allocation regression retains its 1 GiB Uint8Array request
+and additionally checks Float64Array, observed/abrupt prototype selection,
+failed resize and transfer preserving the original bytes, and zeroed successful
+allocation. Compilation, Wasm validation and native verification remain pending
+the frozen baseline sweep and complete batch application.

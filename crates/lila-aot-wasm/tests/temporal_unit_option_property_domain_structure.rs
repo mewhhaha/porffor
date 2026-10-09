@@ -1,11 +1,16 @@
+const RECORDS_SOURCE: &str = include_str!("../src/builtins/temporal/records.rs");
+const TEMPORAL_SOURCE: &str = include_str!("../src/builtins/temporal.rs");
+const INSTANT_ROUND_SOURCE: &str =
+    include_str!("../src/builtins/temporal_instant/round/options.rs");
 const OPTIONS_SOURCE: &str = include_str!("../src/builtins/temporal_options.rs");
 const DURATION_SOURCE: &str = include_str!("../src/builtins/temporal_duration_methods.rs");
-const PLAIN_DATE_SOURCE: &str = include_str!("../src/builtins/temporal_plain_date_methods.rs");
+const PLAIN_DATE_SOURCE: &str =
+    include_str!("../src/builtins/temporal_plain_date_methods/difference.rs");
 const PLAIN_DATE_TIME_SOURCE: &str =
     include_str!("../src/builtins/temporal_plain_date_time_methods.rs");
 const PLAIN_TIME_SOURCE: &str = include_str!("../src/builtins/temporal_plain_time_methods.rs");
 const PLAIN_YEAR_MONTH_SOURCE: &str =
-    include_str!("../src/builtins/temporal_plain_year_month_methods.rs");
+    include_str!("../src/builtins/temporal_plain_year_month_methods/difference.rs");
 const ZONED_DATE_TIME_FORMAT_SOURCE: &str =
     include_str!("../src/builtins/temporal_zoned_date_time_format.rs");
 const ZONED_DATE_TIME_ROUND_SOURCE: &str =
@@ -70,28 +75,40 @@ fn temporal_unit_option_reader_validates_spelling_before_returning_to_its_consum
     assert!(!reader.contains("allows_auto"));
     assert!(!reader.contains("TemporalUnitOptionProperty::"));
     let auto = reader
-        .find("self.emit_temporal_string_matches(value_payload_local,\"auto\",scratch_local,function);")
+        .find("self.emit_temporal_string_matches(&string,\"auto\",function)?;")
         .expect("auto is a recognized spelling for every property");
     let units = reader
         .find("forunitinTemporalUnit::ALL{")
         .expect("the parser recognizes every unit before the consumer restricts its range");
     let rejection = reader
         .find(concat!(
-            "function.instruction(&Instruction::LocalGet(output_local));",
+            "output.load(function);",
             "function.instruction(&Instruction::I64Const(TemporalUnitSlot::Invalid.code()));",
             "function.instruction(&Instruction::I64Eq);",
-            "function.instruction(&Instruction::If(BlockType::Empty));",
+            "self.open_frame(ControlFrameKind::If,function);",
         ))
         .expect("unknown spellings are rejected within the reader");
     let rejection_body = &reader[rejection..];
-    let throw = rejection_body
-        .find("self.emit_throw_current_function_realm_range_error(")
-        .expect("unknown spellings throw RangeError in the active builtin realm");
-    let abrupt_return = rejection_body
+    assert!(rejection_body.contains(concat!(
+        "self.emit_temporal_error_and_return(lila_ir::NativeErrorKind::RangeError,",
+        "RuntimeErrorMessage::INVALID_TEMPORAL_DURATION_UNIT_OPTION,function,)?;"
+    )));
+    let error = normalized(bounded(
+        RECORDS_SOURCE,
+        "fn emit_temporal_error_and_return(",
+        "fn emit_temporal_require_construct_call(",
+    ));
+    let throw = error
+        .find("self.emit_throw_runtime_error(kind,message,&pending,function)?;")
+        .expect("the common error owner selects the execution Realm");
+    let publish = error
+        .find("self.completion().copy_from(&pending,function);")
+        .unwrap();
+    let abrupt_return = error
         .find("self.emit_return_current_completion(function);")
-        .expect("a spelling error cannot reach the consumer's later option reads");
+        .expect("a spelling error cannot reach later option reads");
     assert!(auto < units && units < rejection);
-    assert!(throw < abrupt_return);
+    assert!(throw < publish && publish < abrupt_return);
     assert!(!reader.contains("emit_temporal_require_unit_range("));
 }
 
@@ -105,6 +122,8 @@ fn temporal_unit_option_callers_use_named_properties() {
         (PLAIN_YEAR_MONTH_SOURCE, 2),
         (ZONED_DATE_TIME_FORMAT_SOURCE, 1),
         (ZONED_DATE_TIME_ROUND_SOURCE, 1),
+        (TEMPORAL_SOURCE, 1),
+        (INSTANT_ROUND_SOURCE, 1),
     ];
     let mut calls = Vec::new();
     for (source, expected_count) in callers {
@@ -123,7 +142,7 @@ fn temporal_unit_option_callers_use_named_properties() {
         calls.extend(source_calls);
     }
 
-    assert_eq!(calls.len(), 18);
+    assert_eq!(calls.len(), 20);
     assert_eq!(
         calls
             .iter()
@@ -136,7 +155,7 @@ fn temporal_unit_option_callers_use_named_properties() {
             .iter()
             .filter(|call| call.contains("TemporalUnitOptionProperty::SmallestUnit"))
             .count(),
-        12
+        14
     );
     assert_eq!(
         calls

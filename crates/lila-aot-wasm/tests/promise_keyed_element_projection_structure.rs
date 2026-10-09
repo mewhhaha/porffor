@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::Path;
 
+const SETTLEMENT_SOURCE: &str =
+    include_str!("../src/builtins/promise/promise_settlement_record_allocation.rs");
+
 const PROMISE_SOURCE: &str = include_str!("../src/builtins/promise.rs");
 const PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE: &str =
     include_str!("../src/builtins/promise/promise_keyed_element_projection.rs");
@@ -52,7 +55,7 @@ fn keyed_element_projection_is_one_private_closed_domain() {
     let declaration = bounded(
         PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE,
         "enum PromiseKeyedElementProjection {",
-        "impl<'a> FunctionBuilder<'a> {",
+        "impl FunctionBuilder<'_> {",
     );
     assert_eq!(declaration.matches("FulfilledValue,").count(), 1);
     assert_eq!(
@@ -109,7 +112,7 @@ fn named_wrappers_own_the_projection_choice() {
     let settlement_record = bounded(
         PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE,
         "pub(crate) fn emit_promise_all_settled_keyed_element(",
-        "fn emit_promise_all_keyed_element(",
+        "fn emit_promise_keyed_element(",
     );
     assert!(settlement_record.contains("settlement: PromiseSettlement,"));
     assert_eq!(
@@ -126,7 +129,7 @@ fn named_wrappers_own_the_projection_choice() {
 fn keyed_element_helper_exhaustively_projects_the_stored_value() {
     let signature = bounded(
         PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE,
-        "fn emit_promise_all_keyed_element(",
+        "fn emit_promise_keyed_element(",
         ") -> Result<(), EmitError> {",
     );
     assert!(signature.contains("projection: PromiseKeyedElementProjection,"));
@@ -136,13 +139,13 @@ fn keyed_element_helper_exhaustively_projects_the_stored_value() {
 
     let helper = bounded(
         PROMISE_KEYED_ELEMENT_PROJECTION_SOURCE,
-        "fn emit_promise_all_keyed_element(",
+        "fn emit_promise_keyed_element(",
         "\n}",
     );
     let projection = bounded(
         helper,
         "match projection {",
-        "self.emit_object_define_enumerable_data(",
+        "self.emit_create_data_property_or_throw(",
     );
     assert_eq!(
         projection
@@ -168,12 +171,25 @@ fn keyed_element_helper_exhaustively_projects_the_stored_value() {
             .count(),
         1
     );
+    assert!(projection.contains("allocation, settlement, &value, function,"));
+    assert!(projection.contains("value.set_reference(&record, schema, function);"));
+    let settlement_projection = bounded(
+        SETTLEMENT_SOURCE,
+        "let (status, property) = match settlement {",
+        "let status_string =",
+    );
     for arm in [
         "PromiseSettlement::Fulfill => (\"fulfilled\", \"value\")",
         "PromiseSettlement::Reject => (\"rejected\", \"reason\")",
     ] {
-        assert_eq!(projection.matches(arm).count(), 1, "settlement arm `{arm}`");
+        assert_eq!(
+            settlement_projection.matches(arm).count(),
+            1,
+            "settlement arm `{arm}`"
+        );
     }
+    assert!(!settlement_projection.contains("_ =>"));
+    assert!(!settlement_projection.contains("unreachable!"));
     assert!(!projection.contains("_ =>"));
     assert!(!projection.contains("unreachable!"));
 

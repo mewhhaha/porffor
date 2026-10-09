@@ -3,6 +3,7 @@ use crate::gc_types::{
     FunctionContext, FunctionContextSchema, FunctionObject, FunctionObjectSchema, GcLocal,
     ValueLocals,
 };
+use crate::objects::{AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals};
 
 impl FunctionBuilder<'_> {
     /// Publish the Realm's one thrower before Function.prototype or an
@@ -47,8 +48,10 @@ impl FunctionBuilder<'_> {
             self.emit_object_append_accessor_property_with_flags(
                 &header,
                 &key,
-                Some(&value),
-                Some(&value),
+                AccessorDescriptorLocals::GetterAndSetter {
+                    getter: AccessorGetterLocals::new(&value),
+                    setter: AccessorSetterLocals::new(&value),
+                },
                 false,
                 true,
                 function,

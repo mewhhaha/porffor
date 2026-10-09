@@ -74,7 +74,7 @@ fn duration_unary_wrappers_and_dispatch_pin_both_transforms() {
     let abs = bounded(
         DURATION_SOURCE,
         "    pub(crate) fn emit_temporal_duration_abs(",
-        "    /// Both unary transforms rebuild the duration",
+        "    fn emit_temporal_duration_with_field_transform(",
     );
     assert_eq!(
         abs.matches("TemporalDurationFieldTransform::AbsoluteValue")

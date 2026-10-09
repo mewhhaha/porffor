@@ -40,6 +40,31 @@ Static proof is an optimization only. Failure to prove that a key is an index
 must select `OrdinaryPropertyKey`, never `Unsupported`. The runtime remains the
 authority for dynamic canonical-index recognition and prototype fallback.
 
+## Constructed String length
+
+[StringCreate](https://tc39.es/ecma262/multipage/ordinary-and-exotic-objects-behaviours.html#sec-stringcreate)
+installs an own `length` data property with the number of UTF-16 code units and
+with writable, enumerable and configurable all false. This property belongs to
+the ordinary header; the String-exotic descriptor path supplies virtual indexed
+characters. Inheriting `%String.prototype%.length` is insufficient for a wrapper.
+
+String construction and `ToObject` share
+`emit_initialize_string_object_length`, which accepts a rooted `StringValue`
+and fresh ordinary header. Construction invokes it after String conversion and
+the observable `newTarget.prototype` lookup, and before publishing the wrapper.
+The initializer appends the own data property without invoking prototype hooks.
+The prototype, wrapped primitive, conversion errors and error Realm continue
+through their existing owners.
+
+The native String constructor controls retain the UTF-16 surrogate and property
+descriptor assertions, and cover empty/undefined values, ordinary boxing,
+custom prototypes, foreign constructors, mutation refusal and own-key order.
+The native Array callback control borrows map/filter/every/some onto constructed
+Strings in strict and sloppy code, asserting the captured UTF-16 length, exact
+callback receiver and indices, inherited out-of-bounds exclusion and quantifier
+short circuit. These controls require native verification; their presence does
+not establish a passing runtime or pinned Test262 result.
+
 ## Evidence boundary
 
 The structural regression pins the closed two-variant classifier, exhaustive

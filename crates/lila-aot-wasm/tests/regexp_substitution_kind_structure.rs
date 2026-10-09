@@ -3,10 +3,9 @@ use std::path::Path;
 
 const STRING_PARENT: &str = include_str!("../src/builtins/string.rs");
 const REGEXP_SUBSTITUTION: &str = include_str!("../src/builtins/string/regexp_substitution.rs");
-const STRING_RECURSIVE: &str = concat!(
-    include_str!("../src/builtins/string.rs"),
-    include_str!("../src/builtins/string/regexp_substitution.rs")
-);
+const REGEXP_PROTOCOL: &str = include_str!("../src/builtins/string/regexp_protocol.rs");
+const LITERAL_REPLACEMENT: &str =
+    include_str!("../src/builtins/string/string_literal_replacement_scope.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -44,217 +43,187 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
         .sum()
 }
 
-#[test]
-fn regexp_substitution_kind_owns_six_private_rows_and_the_runtime_codes() {
-    let domain = bounded(
-        REGEXP_SUBSTITUTION,
-        "enum RegExpSubstitutionKind {",
-        "\n\nimpl RegExpSubstitutionKind {",
-    );
-    let variants = domain
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && *line != "}")
-        .collect::<Vec<_>>();
-    assert_eq!(
-        variants,
-        [
-            "LiteralDollar,",
-            "MatchedSubstring,",
-            "Prefix,",
-            "Suffix,",
-            "NumberedCapture,",
-            "NamedCapture,",
-        ]
-    );
+fn assert_before(source: &str, earlier: &str, later: &str) {
+    assert!(source.find(earlier).expect(earlier) < source.find(later).expect(later));
+}
 
-    let declaration_start = REGEXP_SUBSTITUTION
-        .find("enum RegExpSubstitutionKind {")
-        .expect("missing substitution-kind domain");
-    let preceding_declaration = REGEXP_SUBSTITUTION[..declaration_start]
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .expect("missing preceding declaration");
-    assert_eq!(preceding_declaration.trim(), "use super::*;");
-    for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
-        assert!(!domain.contains(capability));
-        assert!(
-            !REGEXP_SUBSTITUTION.contains(&format!("impl {capability} for RegExpSubstitutionKind"))
-        );
-    }
-    assert!(!REGEXP_SUBSTITUTION.contains("pub enum RegExpSubstitutionKind"));
-    assert!(!REGEXP_SUBSTITUTION.contains("pub(crate) enum RegExpSubstitutionKind"));
-    assert!(!REGEXP_SUBSTITUTION.contains("pub(super) enum RegExpSubstitutionKind"));
+#[test]
+fn substitution_owns_four_literal_rows_and_completed_capture_domains() {
+    let domain = bounded(REGEXP_SUBSTITUTION, "enum LiteralSubstitution {", "}");
+    assert_eq!(
+        domain
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>(),
+        ["Dollar,", "Matched,", "Prefix,", "Suffix,"]
+    );
+    assert!(!REGEXP_SUBSTITUTION.contains("pub enum LiteralSubstitution"));
+    assert!(!REGEXP_SUBSTITUTION.contains("pub(crate) enum LiteralSubstitution"));
+    assert!(!REGEXP_SUBSTITUTION.contains("pub(super) enum LiteralSubstitution"));
+    assert!(!REGEXP_SUBSTITUTION.contains("#[derive"));
     assert_eq!(STRING_PARENT.matches("mod regexp_substitution;").count(), 1);
-    assert!(!STRING_PARENT.contains("RegExpSubstitutionKind"));
-    assert!(!STRING_PARENT.contains("regexp_substitution::"));
+    let captures = bounded(
+        REGEXP_SUBSTITUTION,
+        "pub(super) struct SubstitutionCaptureList(",
+        "impl FunctionBuilder<'_>",
+    );
+    for marker in [
+        "ArgumentListConstruction)",
+        "pub(super) struct SubstitutionCaptures(GcLocal<ValueArray>)",
+        "text: &GcLocal<StringValue>",
+        "pub(super) fn append_undefined(&self",
+        "SubstitutionCaptures(self.0.finish(b, f))",
+        "pub(super) fn values(&self) -> &GcLocal<ValueArray>",
+        "pub(super) fn clear(self, f: &mut Function)",
+        "pub(super) struct NamedSubstitutionCaptures(ValueLocals)",
+    ] {
+        assert!(captures.contains(marker), "{marker}");
+    }
+    assert!(!captures.contains("pub(super) fn append("));
+    let named = bounded(
+        REGEXP_SUBSTITUTION,
+        "pub(super) fn emit_complete_named_substitution_captures(",
+        "pub(super) fn emit_regexp_get_substitution(",
+    );
+    assert_before(
+        named,
+        "WasmRuntimeValueTag::Undefined.tag()",
+        "self.emit_value_to_current_function_realm_object_locals(input, &pending, f)",
+    );
+    assert_before(
+        named,
+        "self.emit_value_to_current_function_realm_object_locals(input, &pending, f)",
+        "self.emit_native_string_abrupt_exit(&pending, output, exit, f)",
+    );
+    assert_before(
+        named,
+        "self.emit_native_string_abrupt_exit(&pending, output, exit, f)",
+        "Ok(NamedSubstitutionCaptures(value))",
+    );
+    let emitter = REGEXP_SUBSTITUTION
+        .split_once("pub(super) fn emit_regexp_get_substitution(")
+        .unwrap()
+        .1;
+    assert!(emitter.contains("captures: &SubstitutionCaptures"));
+    assert!(emitter.contains("named: &NamedSubstitutionCaptures"));
     assert_eq!(
-        REGEXP_SUBSTITUTION
-            .matches("RegExpSubstitutionKind")
+        REGEXP_PROTOCOL
+            .matches("b.emit_regexp_get_substitution(")
             .count(),
-        15
+        1
     );
     assert_eq!(
-        STRING_RECURSIVE.matches("RegExpSubstitutionKind").count(),
-        15
-    );
-    assert_eq!(
-        STRING_PARENT
+        LITERAL_REPLACEMENT
             .matches("self.emit_regexp_get_substitution(")
             .count(),
         1
     );
-
-    let authority = without_whitespace(bounded(
-        REGEXP_SUBSTITUTION,
-        "impl RegExpSubstitutionKind {",
-        "\n\nimpl<'a> FunctionBuilder<'a> {",
-    ));
-    assert!(authority.contains(
-        "constALL:[Self;6]=[Self::LiteralDollar,Self::MatchedSubstring,Self::Prefix,Self::Suffix,Self::NumberedCapture,Self::NamedCapture,];"
-    ));
-    assert!(authority.contains("constfnruntime_code(&self)->i64{"));
-    for mapping in [
-        "Self::LiteralDollar=>1",
-        "Self::MatchedSubstring=>2",
-        "Self::Prefix=>3",
-        "Self::Suffix=>4",
-        "Self::NumberedCapture=>5",
-        "Self::NamedCapture=>6",
-    ] {
-        assert_eq!(authority.matches(mapping).count(), 1, "mapping `{mapping}`");
-    }
-    assert!(!authority.contains("_=>"));
-    assert!(!authority.contains("unreachable!"));
 }
 
 #[test]
-fn recognizers_store_only_named_runtime_codes_and_keep_zero_as_the_sentinel() {
-    let emitter = bounded(
-        REGEXP_SUBSTITUTION,
-        "    pub(super) fn emit_regexp_get_substitution(",
-        "\n    }\n}",
-    );
-    let normalized = without_whitespace(emitter);
-
-    for mapping in [
-        "(b'$',RegExpSubstitutionKind::LiteralDollar)",
-        "(b'&',RegExpSubstitutionKind::MatchedSubstring)",
-        "(b'`',RegExpSubstitutionKind::Prefix)",
-        "(b'\\'',RegExpSubstitutionKind::Suffix)",
-    ] {
-        assert_eq!(
-            normalized.matches(mapping).count(),
-            1,
-            "byte row `{mapping}`"
-        );
-    }
-    assert_eq!(normalized.matches("kind.runtime_code()").count(), 2);
-    assert!(normalized.contains(
-        "Instruction::I64Const(RegExpSubstitutionKind::NumberedCapture.runtime_code(),));function.instruction(&Instruction::LocalSet(substitution_kind_local))"
-    ));
-    assert!(normalized.contains(
-        "Instruction::I64Const(RegExpSubstitutionKind::NamedCapture.runtime_code(),));function.instruction(&Instruction::LocalSet(substitution_kind_local))"
-    ));
-    assert_eq!(
-        normalized
-            .matches("Instruction::I64Const(0));function.instruction(&Instruction::LocalSet(substitution_kind_local))")
-            .count(),
-        1,
-        "zero must remain the sole no-recognized-substitution sentinel"
-    );
-    for raw_code in 1..=6 {
-        let raw_store = format!(
-            "Instruction::I64Const({raw_code}));function.instruction(&Instruction::LocalSet(substitution_kind_local))"
-        );
-        assert!(!normalized.contains(&raw_store), "raw store `{raw_store}`");
-    }
-    assert!(!emitter.contains("for (byte, kind) in [(b'$', 1)"));
-    assert!(!emitter.contains("Instruction::I64Const(kind)"));
-}
-
-#[test]
-fn handler_walks_all_rows_and_matches_semantics_exhaustively_in_order() {
-    let emitter = bounded(
-        REGEXP_SUBSTITUTION,
-        "    pub(super) fn emit_regexp_get_substitution(",
-        "\n    }\n}",
-    );
+fn literal_recognizers_are_typed_and_exhaustively_select_their_meaning() {
     let handler = bounded(
-        emitter,
-        "        for kind in RegExpSubstitutionKind::ALL {",
-        "        function.instruction(&Instruction::LocalGet(replacement_index_local));\n        function.instruction(&Instruction::LocalGet(consumed_local));",
+        REGEXP_SUBSTITUTION,
+        "for (code, kind) in [",
+        "        next_unit.load(f);\n        f.instruction(&Instruction::I32Const(48))",
     );
-
-    assert_eq!(handler.matches("kind.runtime_code()").count(), 1);
-    assert_eq!(handler.matches("match &kind {").count(), 1);
-    let mut previous = 0;
-    for variant in [
-        "LiteralDollar",
-        "MatchedSubstring",
-        "Prefix",
-        "Suffix",
-        "NumberedCapture",
-        "NamedCapture",
+    let code = without_whitespace(handler);
+    for row in [
+        "(36,LiteralSubstitution::Dollar)",
+        "(38,LiteralSubstitution::Matched)",
+        "(96,LiteralSubstitution::Prefix)",
+        "(39,LiteralSubstitution::Suffix)",
     ] {
-        let marker = format!("RegExpSubstitutionKind::{variant} => {{");
-        assert_eq!(handler.matches(&marker).count(), 1, "handler `{variant}`");
-        let offset = handler.find(&marker).expect("missing semantic arm");
-        assert!(
-            previous < offset,
-            "semantic arm `{variant}` moved out of order"
-        );
-        previous = offset;
+        assert_eq!(code.matches(row).count(), 1, "{row}");
     }
-    assert!(!handler.contains("for kind in 1..=6"));
-    assert!(!handler.contains("match kind"));
+    assert_eq!(handler.matches("match kind {").count(), 1);
+    for arm in [
+        "LiteralSubstitution::Dollar=>{piece.replace(self.emit_native_string_static(\"$\",f),f)}",
+        "LiteralSubstitution::Matched=>piece.replace(matched.load(s,f),f)",
+        "LiteralSubstitution::Prefix=>{piece.replace(self.emit_gc_string_slice(input,zero,position,f),f)}",
+        "LiteralSubstitution::Suffix=>{piece.replace(self.emit_gc_string_slice(input,end,input_length,f),f)}",
+    ] { assert!(code.contains(arm), "{arm}"); }
     assert!(!handler.contains("_ =>"));
     assert!(!handler.contains("unreachable!"));
-
-    let normalized = without_whitespace(handler);
-    for semantic_anchor in [
-        "RegExpSubstitutionKind::LiteralDollar=>{function.instruction(&Instruction::I64Const(self.strings.payload(\"$\")))",
-        "RegExpSubstitutionKind::MatchedSubstring=>{function.instruction(&Instruction::LocalGet(match_string_local))",
-        "RegExpSubstitutionKind::Prefix=>{self.emit_utf16_code_unit_range_payload_from_locals(input_string_local,zero_local,position_local,function,)?;",
-        "RegExpSubstitutionKind::Suffix=>{function.instruction(&Instruction::LocalGet(position_local))",
-        "RegExpSubstitutionKind::NumberedCapture=>{self.emit_index_to_flat_map_key_local(capture_index_local,number_payload_local,key_local,function,)?;",
-        "RegExpSubstitutionKind::NamedCapture=>{function.instruction(&Instruction::LocalGet(replacement_index_local))",
-    ] {
-        assert!(normalized.contains(semantic_anchor), "semantic anchor `{semantic_anchor}`");
-    }
+    assert_before(handler, "Instruction::I64Const(2)", "consumed.store(f)");
+    assert_before(handler, "consumed.store(f)", "match kind");
 }
 
 #[test]
-fn consumed_and_source_updates_remain_after_the_typed_handler() {
-    let emitter = without_whitespace(bounded(
+fn numbered_and_named_captures_require_valid_indices_and_observable_gets() {
+    let code = without_whitespace(REGEXP_SUBSTITUTION);
+    for proof in [
+        "capture.load(f);f.instruction(&Instruction::I64Eqz);f.instruction(&Instruction::I32Eqz);capture.load(f);capture_count.load(f);f.instruction(&Instruction::I64LeU)",
+        "candidate.load(f);f.instruction(&Instruction::I64Eqz);f.instruction(&Instruction::I32Eqz);candidate.load(f);capture_count.load(f);f.instruction(&Instruction::I64LeU)",
+        "capture.load(f);f.instruction(&Instruction::I64Const(10));f.instruction(&Instruction::I64Mul)",
+        "consumed.load(f);f.instruction(&Instruction::I64Const(1));f.instruction(&Instruction::I64GtU)",
+        "capture.load(f);f.instruction(&Instruction::I64Const(1));f.instruction(&Instruction::I64Sub)",
+        "self.emit_argument_vector_entry_to_value(captures.values(),ordinal,&value,f)",
+    ] { assert!(code.contains(proof), "{proof}"); }
+    let named = bounded(
         REGEXP_SUBSTITUTION,
-        "    pub(super) fn emit_regexp_get_substitution(",
-        "\n    }\n}",
-    ));
+        "        next_unit.load(f);\n        f.instruction(&Instruction::I32Const(60))",
+        "        accumulated.replace(",
+    );
+    for marker in [
+        "named.0.tag().load(f)",
+        "WasmRuntimeValueTag::Undefined.tag()",
+        "Instruction::I32Const(62)",
+        "found.load(f)",
+        "PropertyKeyLocals::from_string(s, &name, f)",
+        "self.emit_object_read(&named.0, &named.0, &key, &pending, f)",
+        "self.emit_value_to_string_payload(&value, &pending, f)",
+    ] {
+        assert!(named.contains(marker), "{marker}");
+    }
+    assert_eq!(named.matches("self.emit_object_read(").count(), 1);
+    assert_eq!(
+        named
+            .matches("self.emit_native_string_abrupt_exit(")
+            .count(),
+        2
+    );
+    assert_before(named, "found.load(f)", "self.emit_object_read(");
+    assert_before(
+        named,
+        "self.emit_object_read(",
+        "self.emit_native_string_abrupt_exit(",
+    );
+    assert_before(
+        named,
+        "WasmRuntimeValueTag::Undefined.tag()",
+        "self.emit_value_to_string_payload(",
+    );
+    assert_before(
+        named,
+        "self.emit_value_to_string_payload(",
+        "consumed.store(f)",
+    );
+}
 
-    assert!(emitter.contains(
-        "Instruction::I64Const(2));function.instruction(&Instruction::LocalSet(consumed_local))"
-    ));
-    assert!(emitter.contains(
-        "Instruction::I64Const(3));function.instruction(&Instruction::LocalSet(consumed_local))"
-    ));
-    assert!(emitter.contains(
-        "Instruction::LocalGet(group_end_local));function.instruction(&Instruction::LocalGet(replacement_index_local));function.instruction(&Instruction::I64Sub);function.instruction(&Instruction::I64Const(1));function.instruction(&Instruction::I64Add);function.instruction(&Instruction::LocalSet(consumed_local))"
-    ));
-    assert!(emitter.contains(
-        "Instruction::LocalGet(replacement_index_local));function.instruction(&Instruction::LocalGet(consumed_local));function.instruction(&Instruction::I64Add);function.instruction(&Instruction::LocalSet(replacement_index_local));function.instruction(&Instruction::LocalGet(replacement_index_local));function.instruction(&Instruction::LocalSet(literal_start_local))"
-    ));
-
+#[test]
+fn consumed_and_source_updates_follow_the_completed_replacement_piece() {
+    let code = without_whitespace(REGEXP_SUBSTITUTION);
+    for width in [1, 2, 3] {
+        assert!(code.contains(&format!(
+            "Instruction::I64Const({width}));consumed.store(f)"
+        )));
+    }
+    assert!(code.contains("scan.load(f);index.load(f);f.instruction(&Instruction::I64Sub);f.instruction(&Instruction::I64Const(1));f.instruction(&Instruction::I64Add);consumed.store(f)"));
+    assert!(code.contains("accumulated.replace(self.emit_concat_gc_strings(&accumulated,&piece,f),f);piece.clear(f);index.load(f);consumed.load(f);f.instruction(&Instruction::I64Add);index.store(f)"));
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(&source_root, "RegExpSubstitutionKind"),
-        15,
-        "the domain, projections and every recognizer/handler use must stay inventoried"
+        count_in_rust_sources(&source_root, "LiteralSubstitution"),
+        9
     );
     assert_eq!(
-        REGEXP_SUBSTITUTION.matches(".runtime_code()").count(),
-        4,
-        "all runtime code writes and comparisons must use the one projection"
+        count_in_rust_sources(&source_root, "emit_regexp_get_substitution("),
+        3
     );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "RegExpSubstitutionKind"),
+        0
+    );
+    assert!(!REGEXP_SUBSTITUTION.contains("substitution_kind_local"));
 }

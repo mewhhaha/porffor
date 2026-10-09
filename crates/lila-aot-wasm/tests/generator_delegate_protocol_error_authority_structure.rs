@@ -10,46 +10,26 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
         .0
 }
 
-const PROTOCOL_ERRORS: [(&str, &str, usize); 8] = [
+const PROTOCOL_ERRORS: [(&str, &str, usize); 4] = [
     (
         "TargetNotIterable",
         "RuntimeErrorMessage::YIELD_TARGET_IS_NOT_ITERABLE",
-        2,
-    ),
-    (
-        "IteratorMethodNotCallable",
-        "RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_BE_CALLABLE",
-        2,
+        1,
     ),
     (
         "IteratorMethodResultNotObject",
         "RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_RETURN_OBJECT",
-        2,
+        1,
     ),
     (
         "IteratorResultNotObject",
         "RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT",
-        2,
+        3,
     ),
     (
         "MissingThrowMethod",
         "RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD",
         3,
-    ),
-    (
-        "ReturnMethodNotCallable",
-        "RuntimeErrorMessage::YIELD_RETURN_METHOD_MUST_BE_CALLABLE",
-        3,
-    ),
-    (
-        "ThrowMethodNotCallable",
-        "RuntimeErrorMessage::YIELD_THROW_METHOD_MUST_BE_CALLABLE",
-        2,
-    ),
-    (
-        "NextMethodNotCallable",
-        "RuntimeErrorMessage::YIELD_NEXT_METHOD_MUST_BE_CALLABLE",
-        2,
     ),
 ];
 
@@ -67,7 +47,7 @@ fn generator_delegation_protocol_errors_have_one_private_closed_domain() {
     let domain = bounded(
         DELEGATION_SOURCE,
         "enum GeneratorDelegateProtocolError {",
-        "impl GeneratorDelegateProperty {",
+        "impl FunctionBuilder<'_> {",
     );
     assert_eq!(
         domain
@@ -86,14 +66,14 @@ fn generator_delegation_protocol_errors_have_one_private_closed_domain() {
 fn every_generator_delegation_error_producer_names_its_protocol_failure() {
     let producers = bounded(
         DELEGATION_SOURCE,
-        "impl<'a> FunctionBuilder<'a> {",
-        "    #[allow(clippy::too_many_arguments)]\n    fn emit_generator_delegate_call(",
+        "    fn emit_acquire_generator_delegate(",
+        "\n}",
     );
     assert_eq!(
         producers
             .matches("GeneratorDelegateProtocolError::")
             .count(),
-        18
+        8
     );
     for (variant, message, producer_count) in PROTOCOL_ERRORS {
         assert_eq!(
@@ -148,21 +128,24 @@ fn shared_delegation_checks_require_the_closed_error_authority() {
     let call = bounded(
         DELEGATION_SOURCE,
         "    fn emit_generator_delegate_call(",
-        "    #[allow(clippy::too_many_arguments)]\n    fn emit_generator_delegate_property_read(",
+        "    fn emit_acquire_generator_delegate(",
     );
-    assert!(call.contains("protocol_error: GeneratorDelegateProtocolError,"));
-    assert!(
-        call.contains("self.emit_generator_delegate_protocol_error(protocol_error, function)?;")
-    );
-    assert!(!call.contains("message: &str"));
+    // Callability, proxy recursion and its Realm-correct TypeError are now
+    // owned by the canonical Call boundary, not duplicated by delegation.
+    assert!(call.contains(
+        "self.emit_function_or_proxy_call_with_argv(method, receiver, &argv, result, function)?;"
+    ));
+    assert!(!call.contains("RuntimeErrorMessage"));
+    assert!(!call.contains("emit_is_callable"));
+    assert!(!call.contains("Instruction::Call("));
 
     let object_check = bounded(
         DELEGATION_SOURCE,
         "    fn emit_require_generator_delegate_object(",
-        "    fn emit_generator_delegate_protocol_error(",
+        "    fn emit_generator_delegate_call(",
     );
     assert!(object_check.contains("protocol_error: GeneratorDelegateProtocolError,"));
     assert!(object_check
         .contains("self.emit_generator_delegate_protocol_error(protocol_error, function)?;"));
-    assert!(!object_check.contains("message: &str"));
+    assert!(!object_check.contains("RuntimeErrorMessage"));
 }

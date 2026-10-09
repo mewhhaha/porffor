@@ -2432,13 +2432,12 @@ impl<'a> AnalysisBuilder<'a> {
                 }
                 self.collect_scoped_bindings_from_statement(interner, for_of.body(), bindings);
             }
-            Statement::ForInLoop(for_in) => {
-                if let IterableLoopInitializer::Var(variable) = for_in.initializer() {
-                    if let Binding::Identifier(identifier) = variable.binding() {
-                        bindings.insert(interner.resolve_expect(identifier.sym()).to_string());
-                    }
-                }
-                self.collect_scoped_bindings_from_statement(interner, for_in.body(), bindings);
+            Statement::ForInLoop(_) => {
+                // A lexical head nested in a block still belongs to this
+                // invocation. Collect its original TDZ and iteration names so
+                // uncaptured resumable keys receive activation cells; captured
+                // keys retain their separately discovered lexical records.
+                self.collect_owner_root_bindings_from_statement(interner, statement, bindings);
             }
             Statement::Switch(switch) => {
                 for case in switch.cases() {

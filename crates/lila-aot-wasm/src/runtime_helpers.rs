@@ -398,6 +398,7 @@ impl InstalledHook {
 pub(crate) trait HelperArguments: helper_sealed::Arguments {
     type Result;
     const ID: RuntimeHelperId;
+    fn emit_arguments(&self, schema: &RuntimeSchema, function: &mut Function);
     fn emit_call(
         self,
         schema: &RuntimeSchema,
@@ -778,8 +779,11 @@ macro_rules! runtime_helper_domain {
             impl HelperArguments for $arguments<'_> {
                 type Result = helper_field!(@result_type $result);
                 const ID: RuntimeHelperId = RuntimeHelperId::$id;
-                fn emit_call(self, schema: &RuntimeSchema, route: HelperRoute, function: &mut Function) -> Self::Result {
+                fn emit_arguments(&self, schema: &RuntimeSchema, function: &mut Function) {
                     $(helper_field!(@emit self.$field, schema, function, $shape);)*
+                }
+                fn emit_call(self, schema: &RuntimeSchema, route: HelperRoute, function: &mut Function) -> Self::Result {
+                    self.emit_arguments(schema, function);
                     Self::ID.emit_invocation(schema, route, function);
                     helper_field!(@result $result)
                 }
@@ -894,6 +898,8 @@ runtime_helper_domain! {
     AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierPutSloppy / EnvironmentIdentifierPutSloppyArguments / EnvironmentIdentifierPutSloppyParameters / "environment_identifier_put_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierPutStrict / EnvironmentIdentifierPutStrictArguments / EnvironmentIdentifierPutStrictParameters / "environment_identifier_put_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierReadSloppy / GlobalIdentifierReadSloppyArguments / GlobalIdentifierReadSloppyParameters / "global_identifier_read_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierReadStrict / GlobalIdentifierReadStrictArguments / GlobalIdentifierReadStrictParameters / "global_identifier_read_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierTypeofSloppy / GlobalIdentifierTypeofSloppyArguments / GlobalIdentifierTypeofSloppyParameters / "global_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
@@ -1002,6 +1008,8 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorYieldReturnReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorAwaitReturnReactions => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierPutSloppy => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierPutStrict => HelperOwner::Runtime,
             Self::GlobalIdentifierReadSloppy => HelperOwner::Runtime,
             Self::GlobalIdentifierReadStrict => HelperOwner::Runtime,
             Self::GlobalIdentifierTypeofSloppy => HelperOwner::Runtime,
@@ -1066,6 +1074,8 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => true,
             Self::ObjectHasProperty => true,
             Self::WithEnvironmentHasBinding => true,
+            Self::EnvironmentIdentifierPutSloppy => true,
+            Self::EnvironmentIdentifierPutStrict => true,
             Self::GlobalIdentifierReadSloppy => true,
             Self::GlobalIdentifierReadStrict => true,
             Self::GlobalIdentifierTypeofSloppy => true,
@@ -1161,6 +1171,22 @@ impl RuntimeSchema {
     ) -> A::Result {
         arguments.emit_call(self, HelperRoute::Direct(base), function)
     }
+    /// Tail dispatch is available only to registered whole-Completion helpers.
+    /// Scalar/reference-result helpers cannot satisfy this argument bound.
+    pub(crate) fn return_call_helper<A: HelperArguments<Result = HelperCompletion>>(
+        &self,
+        arguments: A,
+        base: RuntimeHelperFunctionBase,
+        function: &mut Function,
+    ) {
+        assert!(
+            matches!(A::ID.owner(), HelperOwner::Runtime | HelperOwner::Program),
+            "a hook cannot use a direct tail-call route"
+        );
+        arguments.emit_arguments(self, function);
+        function.instruction(&Instruction::ReturnCall(A::ID.index(base)));
+    }
+
     /// Calls a program hook through its global. The token proves the caller
     /// branched on the hook being installed.
     pub(crate) fn call_hook<A: HelperArguments>(

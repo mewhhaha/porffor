@@ -216,23 +216,43 @@ fn lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_ac
     assert!(!LOWERING_SOURCE.contains("ExprIr::PropertyUpdate"));
 }
 
-#[test]
-fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
-    for prefix in [
-        "#[derive(Debug)]\n#[must_use = \"a raw ordinary Property Reference must enter its operation-specific transition\"]\nstruct EvaluatedRawOrdinaryPropertyReferenceLocals",
-        "#[derive(Debug)]\n#[must_use = \"a numeric ordinary Property Reference must be advanced to its new value\"]\nstruct ReadOrdinaryPropertyNumericUpdateLocals",
-        "#[derive(Debug)]\n#[must_use = \"a ready numeric ordinary Property Reference must be consumed by PutValue\"]\nstruct ReadyToWriteOrdinaryPropertyNumericUpdateLocals",
-    ] {
-        assert!(EXPRESSIONS_SOURCE.contains(prefix), "missing typestate {prefix}");
-    }
+fn gc_body(start: &str, end: &str) -> String {
+    bounded(EXPRESSIONS_SOURCE, start, end)
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect()
+}
+
+fn assert_gc_roles(names: &[&str]) {
     let roles = bounded(
         EXPRESSIONS_SOURCE,
         "struct EvaluatedRawOrdinaryPropertyReferenceLocals {",
-        "/// The sealed input required by the shared ordinary Reference evaluator.",
+        "/// The sealed input required",
     );
-    assert!(!roles.contains("Clone"));
-    assert!(!roles.contains("Copy"));
+    for name in names {
+        let marker = format!("struct {name} {{");
+        let before = EXPRESSIONS_SOURCE
+            .split_once(&marker)
+            .expect("phase declaration")
+            .0;
+        assert!(before.rsplit("\n\n").next().unwrap().contains("#[must_use"));
+        let fields = bounded(roles, &marker, "\n}");
+        assert!(!fields.contains("pub "));
+        assert!(fields.contains("reference: CanonicalOrdinaryPropertyReferenceLocals,"));
+        assert!(fields.contains("old_value: ValueLocals,"));
+    }
+    assert!(!roles.contains("derive("));
+    assert!(!roles.contains("impl Clone"));
+    assert!(!roles.contains("impl Copy"));
+    assert!(!roles.contains("TaggedLocals"));
+}
 
+#[test]
+fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
+    assert_gc_roles(&[
+        "ReadOrdinaryPropertyNumericUpdateLocals",
+        "ReadyToWriteOrdinaryPropertyNumericUpdateLocals",
+    ]);
     let sealed = bounded(
         EXPRESSIONS_SOURCE,
         "trait OrdinaryPropertyReferenceSource {",
@@ -244,177 +264,160 @@ fn aot_typestate_forces_get_tonumeric_delta_put_and_result_publication() {
             .count(),
         5
     );
-    assert!(
-        sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyAssignmentIr")
+    for name in [
+        "Assignment",
+        "LogicalAssignment",
+        "GetCapture",
+        "EagerCompoundAssignment",
+        "NumericUpdate",
+    ] {
+        assert!(sealed.contains(&format!(
+            "impl OrdinaryPropertyReferenceSource for OrdinaryProperty{name}Ir"
+        )));
+    }
+    let get = gc_body(
+        "fn emit_get_numeric_value_from_raw_ordinary_property_reference(",
+        "fn emit_numeric_update_from_read_ordinary_property_reference(",
     );
-    assert!(sealed.contains(
-        "impl OrdinaryPropertyReferenceSource for OrdinaryPropertyEagerCompoundAssignmentIr"
-    ));
-    assert!(
-        sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyNumericUpdateIr")
-    );
-    assert!(sealed
-        .contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyLogicalAssignmentIr"));
-    assert!(
-        sealed.contains("impl OrdinaryPropertyReferenceSource for OrdinaryPropertyGetCaptureIr")
-    );
-
-    let get_numeric = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_get_numeric_value_from_raw_ordinary_property_reference(",
-        "    fn emit_numeric_update_from_read_ordinary_property_reference(",
-    );
+    assert!(get.contains("raw:EvaluatedRawOrdinaryPropertyReferenceLocals,"));
     positions_in_order(
-        get_numeric,
+        &get,
         &[
             "self.emit_get_value_from_raw_ordinary_property_reference(",
-            "let ReadOrdinaryPropertyReferenceLocals {",
-            "match value_kind {",
-            "NumericUpdateValueKind::Dynamic =>",
-            "self.emit_value_to_numeric_locals(old_value_payload, old_value_tag, function)?",
-            "NumericUpdateValueKind::Number =>",
-            "NumericUpdateValueKind::BigInt => {}",
-            "Ok(ReadOrdinaryPropertyNumericUpdateLocals {",
+            "self.emit_numeric_reference_old_value(value_kind,&old_value,function)?;",
+            "Ok(ReadOrdinaryPropertyNumericUpdateLocals{",
         ],
     );
-    assert!(!get_numeric.contains("_ =>"));
-    assert!(!get_numeric.contains("unreachable!"));
-
-    let delta = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_numeric_update_from_read_ordinary_property_reference(",
-        "    fn emit_put_value_from_ready_ordinary_property_numeric_update(",
+    let conversion = gc_body(
+        "fn emit_numeric_reference_old_value(",
+        "fn emit_get_numeric_value_from_raw_ordinary_property_reference(",
     );
+    for marker in [
+        "NumericUpdateValueKind::Dynamic=>",
+        "NumericUpdateValueKind::Number=>",
+        "NumericUpdateValueKind::BigInt=>{}",
+        "self.emit_value_to_numeric_locals(old,&pending,function)?",
+        "self.emit_value_to_number_payload(old,&pending,function)?",
+    ] {
+        assert!(conversion.contains(marker), "lost {marker}");
+    }
     positions_in_order(
-        delta,
+        &conversion,
         &[
-            "let ReadOrdinaryPropertyNumericUpdateLocals {",
+            "self.completion().copy_from(&pending,function);",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "old.copy_from(pending.value(),function);",
+            "pending.clear(function);",
+        ],
+    );
+    let delta = gc_body(
+        "fn emit_numeric_update_from_read_ordinary_property_reference(",
+        "fn emit_put_value_from_ready_ordinary_property_numeric_update(",
+    );
+    assert!(delta.contains("read:ReadOrdinaryPropertyNumericUpdateLocals,"));
+    positions_in_order(
+        &delta,
+        &[
+            "letReadOrdinaryPropertyNumericUpdateLocals{",
             "self.emit_numeric_update_to_locals(",
             "update.op(),",
             "update.value_kind(),",
-            "new_value_payload,",
-            "new_value_tag,",
-            "Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals {",
+            "&old_value,",
+            "&new_value,",
+            "Ok(ReadyToWriteOrdinaryPropertyNumericUpdateLocals{",
         ],
     );
-    assert!(!delta.contains("_ =>"));
-    assert!(!delta.contains("Instruction::LocalSet(old_value_tag)"));
-
-    let put = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn emit_put_value_from_ready_ordinary_property_numeric_update(",
-        "    fn compile_ordinary_property_numeric_update_to_locals(",
+    let put = gc_body(
+        "fn emit_put_value_from_ready_ordinary_property_numeric_update(",
+        "fn compile_ordinary_property_numeric_update_to_value(",
     );
+    assert!(put.contains("ready:ReadyToWriteOrdinaryPropertyNumericUpdateLocals,"));
     positions_in_order(
-        put,
+        &put,
         &[
-            "let ReadyToWriteOrdinaryPropertyNumericUpdateLocals {",
-            "self.emit_ordinary_set_result_via_helper(",
-            "if update.strictness().throws_on_failed_set() {",
-            "self.emit_throw_runtime_error_to_active_handler(",
-            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY",
-            "match update.return_mode() {",
-            "UpdateReturnMode::Prefix => (new_value_payload, new_value_tag)",
-            "UpdateReturnMode::Postfix => (old_value_payload, old_value_tag)",
-            "Instruction::LocalGet(published_payload)",
-            "Instruction::LocalSet(payload_local)",
-            "Instruction::LocalGet(published_tag)",
-            "Instruction::LocalSet(tag_local)",
+            "letReadyToWriteOrdinaryPropertyNumericUpdateLocals{",
+            "self.emit_ordinary_reference_set(",
+            "update.strictness(),",
+            "RuntimeErrorMessage::CANNOT_ASSIGN_TO_PROPERTY,",
+            "output.copy_from(",
+            "matchupdate.return_mode(){",
+            "UpdateReturnMode::Prefix=>&new_value,",
+            "UpdateReturnMode::Postfix=>&old_value,",
+            "new_value.clear(function);",
+            "reference.clear(function);",
+            "old_value.clear(function);",
         ],
     );
-    assert!(!put.contains("_ =>"));
+    assert!(!put.contains("_=>"));
     assert!(!put.contains("emit_value_to_property_key_locals("));
-
-    let entry = bounded(
-        EXPRESSIONS_SOURCE,
-        "    fn compile_ordinary_property_numeric_update_to_locals(",
-        "    pub(crate) fn compile_expr_payload(",
+    let set = gc_body(
+        "fn emit_ordinary_reference_set(",
+        "fn emit_put_value_from_ready_ordinary_property_assignment(",
     );
     positions_in_order(
-        entry,
+        &set,
         &[
-            "self.evaluate_raw_ordinary_property_reference(update, function)?",
+            "OrdinarySetArguments::new(",
+            "self.emit_propagate_current_throw_if_needed(function);",
+            "ifstrictness.throws_on_failed_set(){",
+            "self.emit_expression_native_error(NativeErrorKind::TypeError,message,function)?;",
+        ],
+    );
+    let entry = gc_body(
+        "fn compile_ordinary_property_numeric_update_to_value(",
+        "/// The sole expression publisher",
+    );
+    positions_in_order(
+        &entry,
+        &[
+            "self.evaluate_raw_ordinary_property_reference(",
             "self.emit_get_numeric_value_from_raw_ordinary_property_reference(",
             "self.emit_numeric_update_from_read_ordinary_property_reference(",
             "self.emit_put_value_from_ready_ordinary_property_numeric_update(",
         ],
     );
-    assert!(!EXPRESSIONS_SOURCE.contains("compile_property_update_to_locals"));
 }
 
 #[test]
-fn exhaustive_consumers_and_temp_budget_name_each_numeric_update_phase() {
-    for marker in [
-        "const ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2;",
-        "const ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS: usize = 2 + 4 + 2 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_OBJECT_TEMP_LOCALS: usize = 2 + 3 + 3;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_PROPERTY_KEY_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS: usize = 2;",
-        "const ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS: usize = 4;",
-        "const ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS: usize = 4 + 2;",
-    ] {
-        assert!(PLANNING_SOURCE.contains(marker), "planning lost {marker}");
-    }
-    let expr_budgets = bounded(
-        PLANNING_SOURCE,
-        "pub(crate) fn count_expr_temp_locals(expr: &TypedExpr) -> usize {",
-        "pub(crate) fn collect_hoisted_vars_block_root(",
-    );
-    let budget = bounded(
-        expr_budgets,
-        "        ExprIr::OrdinaryPropertyNumericUpdate(update) => {",
-        "        ExprIr::OrdinaryPropertyEagerCompoundAssignment(mutation) => {",
-    );
-    positions_in_order(
-        budget,
-        &[
-            "let to_numeric_temps = match update.value_kind()",
-            "NumericUpdateValueKind::Dynamic =>",
-            "ORDINARY_PROPERTY_MUTATION_TO_NUMERIC_TEMP_LOCALS",
-            "let read_phase = ORDINARY_PROPERTY_MUTATION_READ_PERSISTENT_TEMP_LOCALS",
-            ".max(ORDINARY_PROPERTY_MUTATION_GET_VALUE_TEMP_LOCALS)",
-            ".max(to_numeric_temps)",
-            "let write_phase = ORDINARY_PROPERTY_MUTATION_WRITE_PERSISTENT_TEMP_LOCALS",
-            "+ ORDINARY_PROPERTY_MUTATION_SET_HELPER_TEMP_LOCALS",
-            "read_phase.max(write_phase)",
-        ],
-    );
+fn exhaustive_consumers_and_gc_owners_name_each_fused_phase() {
+    let marker = "ExprIr::OrdinaryPropertyNumericUpdate(update) =>";
     assert_eq!(
-        EXPRESSIONS_SOURCE
-            .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
-            .count(),
-        2,
-        "both expression emission entry points must consume the fused update"
-    );
-    assert_eq!(
-        DATA_SOURCE
-            .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
-            .count(),
+        EXPRESSIONS_SOURCE.matches(marker).count(),
         1,
-        "data collection must traverse the fused update"
+        "the sole whole-value publisher owns the fused node"
     );
-    assert_eq!(
-        PLANNING_SOURCE
-            .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
-            .count(),
-        5,
-        "every planning traversal must name the fused update"
-    );
+    assert_eq!(DATA_SOURCE.matches(marker).count(), 1);
+    assert_eq!(PLANNING_SOURCE.matches(marker).count(), 3);
     for owner in [
         "fn expr_exposes_global_object(",
         "fn collect_expr_global_property_names(",
         "fn expr_references_function(",
-        "fn expr_result_tag_is_runtime_dynamic(",
-        "fn count_expr_temp_locals(",
     ] {
         assert_eq!(
             bounded(PLANNING_SOURCE, owner, "\n}\n")
-                .matches("ExprIr::OrdinaryPropertyNumericUpdate(update) =>")
+                .matches(marker)
                 .count(),
             1,
-            "planning owner {owner}",
+            "{owner}"
         );
     }
+    assert!(
+        !PLANNING_SOURCE.contains("fn count_expr_temp_locals("),
+        "GC reservation replaced the raw temp budget"
+    );
+    let clear = gc_body(
+        "impl CanonicalOrdinaryPropertyReferenceLocals {",
+        "#[must_use =",
+    );
+    positions_in_order(
+        &clear,
+        &[
+            "fnclear(self,",
+            "self.property_key.clear(function);",
+            "self.target_object.clear(function);",
+            "self.base_and_receiver.clear(function);",
+        ],
+    );
 }
 
 #[test]

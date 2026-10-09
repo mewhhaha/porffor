@@ -2,6 +2,7 @@
 use super::*;
 use crate::builtins::regexp::ValidatedRegExpProgramLayoutLocals;
 use crate::intrinsics::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals};
 
 pub(in crate::builtins) enum RegExpLegacyAccessorKind {
     Getter,
@@ -172,8 +173,10 @@ impl FunctionBuilder<'_> {
                 self.emit_install_intrinsic_accessor_values(
                     context.constructor,
                     IntrinsicKey::Name(name),
-                    Some(&get_value),
-                    Some(&set_value),
+                    AccessorDescriptorLocals::GetterAndSetter {
+                        getter: AccessorGetterLocals::new(&get_value),
+                        setter: AccessorSetterLocals::new(&set_value),
+                    },
                     true,
                     f,
                 )?;

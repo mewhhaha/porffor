@@ -6,18 +6,28 @@ use boa_engine::context::intrinsics::StandardConstructors;
 use boa_engine::{JsNativeErrorKind, JsObject};
 use lila_runtime::{OracleExceptionPhase, OracleExceptionType};
 
+struct HostFailure {
+    value: JsObject,
+    diagnostic: String,
+}
+
 thread_local! {
     // Original opaque objects keep host-failure provenance across a caught
-    // rethrow without adding JS-visible fields or retaining a second model.
-    static HOST_FAILURES: RefCell<Vec<JsObject>> = const { RefCell::new(Vec::new()) };
+    // rethrow. Capture host diagnostics before exposure to JavaScript so later
+    // reporting neither loses the host reason nor reads mutated JS properties.
+    static HOST_FAILURES: RefCell<Vec<HostFailure>> = const { RefCell::new(Vec::new()) };
 }
 pub(super) fn reset_host_failures() {
     HOST_FAILURES.with(|errors| errors.borrow_mut().clear());
 }
 pub(super) fn host_failure(error: JsError, context: &mut Context) -> JsError {
+    let diagnostic = match error.as_opaque() {
+        Some(value) => observe_opaque_throw(value).1,
+        None => error.to_string(),
+    };
     let value = error.to_opaque(context);
-    if let Some(object) = value.as_object() {
-        HOST_FAILURES.with(|errors| errors.borrow_mut().push(object));
+    if let Some(value) = value.as_object() {
+        HOST_FAILURES.with(|errors| errors.borrow_mut().push(HostFailure { value, diagnostic }));
     }
     JsError::from_opaque(value)
 }
@@ -67,20 +77,26 @@ pub(super) fn thrown(
     phase: OracleExceptionPhase,
     context: &mut Context,
 ) -> ExecutionError {
-    let host_failure = error
+    let host_diagnostic = error
         .as_opaque()
         .and_then(JsValue::as_object)
-        .is_some_and(|object| {
-            HOST_FAILURES.with(|errors| errors.borrow().iter().any(|actual| actual == &object))
+        .and_then(|object| {
+            HOST_FAILURES.with(|errors| {
+                errors
+                    .borrow()
+                    .iter()
+                    .find(|actual| actual.value == object)
+                    .map(|actual| actual.diagnostic.clone())
+            })
         });
-    let kind = if host_failure {
+    let kind = if host_diagnostic.is_some() {
         None
     } else {
         exception_type(&error, context)
     };
-    let (_, note) = observe_js_error(&error, context);
+    let message = host_diagnostic.unwrap_or_else(|| observe_js_error(&error, context).1);
     ExecutionError {
-        message: note,
+        message,
         entry_syntax_rejection: false,
         javascript_exception: kind.map(|kind| (phase, kind)),
     }

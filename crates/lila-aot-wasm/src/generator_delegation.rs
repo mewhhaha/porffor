@@ -17,6 +17,13 @@ enum GeneratorDelegateProperty {
     Value,
 }
 
+enum GeneratorDelegateProtocolError {
+    TargetNotIterable,
+    IteratorMethodResultNotObject,
+    IteratorResultNotObject,
+    MissingThrowMethod,
+}
+
 impl FunctionBuilder<'_> {
     fn emit_generator_delegate_property_read(
         &mut self,
@@ -99,11 +106,25 @@ impl FunctionBuilder<'_> {
         self.emit_propagate_current_throw_if_needed(function);
     }
 
-    fn emit_generator_delegate_error(
+    fn emit_generator_delegate_protocol_error(
         &mut self,
-        message: RuntimeErrorMessage,
+        protocol_error: GeneratorDelegateProtocolError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let message = match protocol_error {
+            GeneratorDelegateProtocolError::TargetNotIterable => {
+                RuntimeErrorMessage::YIELD_TARGET_IS_NOT_ITERABLE
+            }
+            GeneratorDelegateProtocolError::IteratorMethodResultNotObject => {
+                RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_RETURN_OBJECT
+            }
+            GeneratorDelegateProtocolError::IteratorResultNotObject => {
+                RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT
+            }
+            GeneratorDelegateProtocolError::MissingThrowMethod => {
+                RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD
+            }
+        };
         let error = self.runtime_schema().reserve_completion(function);
         self.emit_throw_runtime_error(
             lila_ir::NativeErrorKind::TypeError,
@@ -120,13 +141,13 @@ impl FunctionBuilder<'_> {
     fn emit_require_generator_delegate_object(
         &mut self,
         value: &ValueLocals,
-        message: RuntimeErrorMessage,
+        protocol_error: GeneratorDelegateProtocolError,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.emit_is_heap_object_like_tag_i32(value.tag(), function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_generator_delegate_error(message, function)?;
+        self.emit_generator_delegate_protocol_error(protocol_error, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())
@@ -161,8 +182,8 @@ impl FunctionBuilder<'_> {
         is_async.store(function);
         self.compile_nullish_tagged_i32(source.tag(), function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_generator_delegate_error(
-            RuntimeErrorMessage::YIELD_TARGET_IS_NOT_ITERABLE,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::TargetNotIterable,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -201,7 +222,7 @@ impl FunctionBuilder<'_> {
         self.emit_generator_delegate_propagate(&iterator, function);
         self.emit_require_generator_delegate_object(
             iterator.value(),
-            RuntimeErrorMessage::YIELD_ITERATOR_METHOD_MUST_RETURN_OBJECT,
+            GeneratorDelegateProtocolError::IteratorMethodResultNotObject,
             function,
         )?;
         self.emit_generator_delegate_property_read(
@@ -454,8 +475,8 @@ impl FunctionBuilder<'_> {
         close_pending.initialize(function);
         self.emit_iterator_close_with_completion(&iterator, &close_pending, &closed, function)?;
         self.emit_generator_delegate_propagate(&closed, function);
-        self.emit_generator_delegate_error(
-            RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::MissingThrowMethod,
             function,
         )?;
         function.instruction(&Instruction::Else);
@@ -507,7 +528,7 @@ impl FunctionBuilder<'_> {
         result_value.copy_from(called.value(), function);
         self.emit_require_generator_delegate_object(
             &result_value,
-            RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT,
+            GeneratorDelegateProtocolError::IteratorResultNotObject,
             function,
         )?;
         self.emit_generator_delegate_property_read(
@@ -1011,7 +1032,7 @@ impl FunctionBuilder<'_> {
             self.open_frame(ControlFrameKind::If, function);
             self.emit_require_generator_delegate_object(
                 &incoming,
-                RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT,
+                GeneratorDelegateProtocolError::IteratorResultNotObject,
                 function,
             )?;
             self.emit_async_for_await_delegate_completion(
@@ -1025,7 +1046,7 @@ impl FunctionBuilder<'_> {
         }
         self.emit_require_generator_delegate_object(
             &incoming,
-            RuntimeErrorMessage::YIELD_ITERATOR_RESULT_MUST_BE_OBJECT,
+            GeneratorDelegateProtocolError::IteratorResultNotObject,
             function,
         )?;
         pending.load(function);
@@ -1034,8 +1055,8 @@ impl FunctionBuilder<'_> {
         )));
         function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_generator_delegate_error(
-            RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD,
+        self.emit_generator_delegate_protocol_error(
+            GeneratorDelegateProtocolError::MissingThrowMethod,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
@@ -1255,8 +1276,8 @@ impl FunctionBuilder<'_> {
             self.emit_generator_delegate_propagate(&method, function);
             self.compile_nullish_tagged_i32(method.value().tag(), function)?;
             self.open_frame(ControlFrameKind::If, function);
-            self.emit_generator_delegate_error(
-                RuntimeErrorMessage::YIELD_ITERATOR_HAS_NO_THROW_METHOD,
+            self.emit_generator_delegate_protocol_error(
+                GeneratorDelegateProtocolError::MissingThrowMethod,
                 function,
             )?;
             function.instruction(&Instruction::Else);

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+const PROTOCOL: &str = include_str!("../src/builtins/string/symbol_method.rs");
 const STRING: &str = include_str!("../src/builtins/string.rs");
 const STRING_LITERAL_REPLACEMENT_SCOPE: &str =
     include_str!("../src/builtins/string/string_literal_replacement_scope.rs");
@@ -46,7 +47,7 @@ fn string_literal_replacement_scope_is_a_private_non_copyable_two_variant_domain
     let domain = bounded(
         STRING_LITERAL_REPLACEMENT_SCOPE,
         "enum StringLiteralReplacementScope {",
-        "\n\nimpl<'a> FunctionBuilder<'a> {",
+        "\n\nimpl FunctionBuilder<'_> {",
     );
     let variants = domain
         .lines()
@@ -59,7 +60,8 @@ fn string_literal_replacement_scope_is_a_private_non_copyable_two_variant_domain
         .find("enum StringLiteralReplacementScope {")
         .expect("missing literal-replacement scope");
     let preceding_declaration = STRING_LITERAL_REPLACEMENT_SCOPE[..declaration_start].trim();
-    assert_eq!(preceding_declaration, "use super::*;");
+    assert!(!preceding_declaration.contains("#[derive"));
+    assert!(preceding_declaration.ends_with("use crate::functions::ArgumentListConstruction;"));
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
         assert!(!domain.contains(capability));
         assert!(!STRING_LITERAL_REPLACEMENT_SCOPE.contains(&format!(
@@ -107,139 +109,74 @@ fn string_literal_replacement_scope_is_a_private_non_copyable_two_variant_domain
 fn literal_replace_helper_projects_break_or_continuation_once_in_instruction_order() {
     let emitter = bounded(
         STRING_LITERAL_REPLACEMENT_SCOPE,
-        "    fn emit_string_replace_literal_from_string_locals(",
-        "\n}\n",
+        "    fn emit_native_string_replace_literal(",
+        "    pub(super) fn emit_native_string_split_literal(",
     );
-
     assert!(emitter.contains("scope: StringLiteralReplacementScope,"));
-    assert!(!emitter.contains("builtin: StandardBuiltinId"));
-    assert_eq!(emitter.matches("match &scope {").count(), 1);
-    assert_eq!(
-        emitter
-            .matches("StringLiteralReplacementScope::FirstOccurrence => {")
-            .count(),
-        1
-    );
-    assert_eq!(
-        emitter
-            .matches("StringLiteralReplacementScope::AllOccurrences => {")
-            .count(),
-        1
-    );
+    assert_eq!(emitter.matches("match scope {").count(), 1);
+    let projection = without_whitespace(bounded(
+        emitter,
+        "match scope {",
+        "self.pop_control(ControlFrameKind::Loop);",
+    ));
+    assert_eq!(projection, concat!(
+        "StringLiteralReplacementScope::FirstOccurrence=>{self.emit_branch_to_target(positions_done,f)}",
+        "StringLiteralReplacementScope::AllOccurrences=>{position.load(f);advance.load(f);",
+        "f.instruction(&Instruction::I64Add);cursor.store(f);self.emit_branch_to_target(position_next,f);}}"
+    ));
     for forbidden in [
-        ": bool",
         "scope ==",
         "scope !=",
         "matches!(scope",
         "_ =>",
         "unreachable!",
         "Default::default",
-        "StandardBuiltinId::StringPrototypeReplace",
+        "StandardBuiltinId",
     ] {
         assert!(!emitter.contains(forbidden));
     }
-
-    let first = without_whitespace(bounded(
+    let advance = without_whitespace(bounded(
         emitter,
-        "StringLiteralReplacementScope::FirstOccurrence => {",
-        "            StringLiteralReplacementScope::AllOccurrences => {",
+        "needle_length.load(f);",
+        "// Complete the position List before the first replacement callback.",
     ));
-    assert_eq!(first, "function.instruction(&Instruction::Br(2));}");
-
-    let all = without_whitespace(bounded(
-        emitter,
-        "StringLiteralReplacementScope::AllOccurrences => {",
-        "        }\n        function.instruction(&Instruction::End);",
-    ));
-    assert_eq!(
-        all,
-        "function.instruction(&Instruction::LocalGet(last_end_local));function.instruction(&Instruction::LocalSet(scan_index_local));function.instruction(&Instruction::LocalGet(search_len_local));function.instruction(&Instruction::I64Eqz);function.instruction(&Instruction::If(BlockType::Empty));function.instruction(&Instruction::LocalGet(scan_index_local));function.instruction(&Instruction::I64Const(1));function.instruction(&Instruction::I64Add);function.instruction(&Instruction::LocalSet(scan_index_local));function.instruction(&Instruction::End);}"
-    );
-
-    let common_last_end = emitter
-        .find("function.instruction(&Instruction::LocalSet(last_end_local));")
-        .expect("missing common last-end update");
-    let scope_match = emitter
-        .find("match &scope {")
-        .expect("missing scope projection");
-    let continuation = emitter[scope_match..]
-        .find("function.instruction(&Instruction::Br(0));")
-        .map(|offset| scope_match + offset)
-        .expect("missing outer scan continuation");
-    assert!(common_last_end < scope_match);
-    assert!(scope_match < continuation);
+    assert!(advance.contains("advance.store(f);advance.load(f);f.instruction(&Instruction::I64Eqz);self.open_frame(ControlFrameKind::If,f);f.instruction(&Instruction::I64Const(1));advance.store(f);"));
+    let append = emitter.find("positions.append(&value, s, f);").unwrap();
+    let select = emitter.find("match scope {").unwrap();
+    let finished = emitter
+        .find("let positions = positions.finish(self, f);")
+        .unwrap();
+    let callback = emitter
+        .find("self.emit_function_or_proxy_call_with_argv(")
+        .unwrap();
+    assert!(append < select && select < finished && finished < callback);
 }
 
 #[test]
 fn replace_and_replace_all_fallbacks_choose_their_exact_scopes() {
-    let fallback = bounded(
-        STRING,
-        "    fn emit_string_symbol_hook_fallback(",
-        "    pub(crate) fn emit_string_search_regexp_fallback_from_string_locals(",
-    );
-    let normalized = without_whitespace(fallback);
-
-    assert!(fallback.contains("operation: &StringSymbolHookOperation,"));
-    assert_eq!(
-        fallback
-            .matches("StringSymbolHookOperation::Replace => {")
-            .count(),
-        1
-    );
-    assert_eq!(
-        fallback
-            .matches("StringSymbolHookOperation::ReplaceAll => {")
-            .count(),
-        1
-    );
-    assert!(!fallback.contains("StandardBuiltinId::StringPrototypeReplace"));
-    assert_eq!(
-        normalized
-            .matches("self.emit_string_replace_literal_first_occurrence_from_string_locals(string_local,arg_payload_local,arg_tag_local,second_payload_local,second_tag_local,function,)?;")
-            .count(),
-        1
-    );
-    assert_eq!(
-        normalized
-            .matches("self.emit_string_replace_literal_all_occurrences_from_string_locals(string_local,arg_payload_local,arg_tag_local,second_payload_local,second_tag_local,function,)?;")
-            .count(),
-        1
-    );
-    assert_eq!(fallback.matches("emit_string_replace_literal_").count(), 2);
-
+    let protocol = without_whitespace(PROTOCOL);
+    for (variant, wrapper) in [
+        ("Replace", "first_occurrence"),
+        ("ReplaceAll", "all_occurrences"),
+    ] {
+        assert_eq!(protocol.matches(&format!("NativeStringProtocol::{variant}=>b.emit_string_replace_literal_{wrapper}_from_string_locals(&input,&pattern,&second,&output,exit,f,)?")).count(), 1);
+    }
     let owner = without_whitespace(STRING_LITERAL_REPLACEMENT_SCOPE);
-    assert_eq!(
-        owner.matches("self.emit_string_replace_literal_from_string_locals(StringLiteralReplacementScope::FirstOccurrence,string_local,search_payload_local,search_tag_local,replacement_payload_local,replacement_tag_local,function,)").count(),
-        1
-    );
-    assert_eq!(
-        owner.matches("self.emit_string_replace_literal_from_string_locals(StringLiteralReplacementScope::AllOccurrences,string_local,search_payload_local,search_tag_local,replacement_payload_local,replacement_tag_local,function,)").count(),
-        1
-    );
-
+    for variant in ["FirstOccurrence", "AllOccurrences"] {
+        assert_eq!(owner.matches(&format!("self.emit_native_string_replace_literal(StringLiteralReplacementScope::{variant},input,search,replacement,output,exit,f,)" )).count(), 1);
+    }
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
-        count_in_rust_sources(
-            &source_root,
-            "emit_string_replace_literal_from_string_locals(",
-        ),
-        3,
-        "the private helper definition and exactly two semantic-wrapper calls must stay inventoried"
+        count_in_rust_sources(&source_root, "emit_native_string_replace_literal("),
+        3
     );
-    assert_eq!(
-        count_in_rust_sources(
-            &source_root,
-            "emit_string_replace_literal_first_occurrence_from_string_locals(",
-        ),
-        2,
-        "the first-occurrence wrapper and its sole parent call must stay inventoried"
-    );
-    assert_eq!(
-        count_in_rust_sources(
-            &source_root,
-            "emit_string_replace_literal_all_occurrences_from_string_locals(",
-        ),
-        2,
-        "the all-occurrences wrapper and its sole parent call must stay inventoried"
-    );
+    for wrapper in ["first_occurrence", "all_occurrences"] {
+        assert_eq!(
+            count_in_rust_sources(
+                &source_root,
+                &format!("emit_string_replace_literal_{wrapper}_from_string_locals(")
+            ),
+            2
+        );
+    }
 }

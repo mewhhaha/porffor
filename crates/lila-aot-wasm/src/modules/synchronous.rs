@@ -6,21 +6,6 @@ use lila_ir::{
     ModuleExecutionGraphIr, ModuleImportBindingIr, ModuleNamespaceModeIr, ModuleRequestPhaseIr,
 };
 
-pub(crate) fn module_execution_record_count(script: &ScriptIr) -> u32 {
-    script
-        .executable_script_bodies()
-        .flat_map(|body| &body.statements)
-        .filter_map(|statement| match statement {
-            StatementIr::Expression(TypedExpr {
-                expr: ExprIr::ModuleExecutionGraph(graph),
-                ..
-            }) => Some(graph.record_count()),
-            _ => None,
-        })
-        .max()
-        .unwrap_or(0)
-}
-
 impl FunctionBuilder<'_> {
     pub(crate) fn json_module_realm(
         &mut self,

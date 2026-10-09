@@ -192,8 +192,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_object_define_accessor_with_flag_local(
                     target,
                     &key,
-                    Some(value),
-                    None,
+                    AccessorDescriptorLocals::Getter(AccessorGetterLocals::new(value)),
                     enumerable,
                     enumerable,
                     pending,
@@ -214,8 +213,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_object_define_accessor_with_flag_local(
                     target,
                     &key,
-                    None,
-                    Some(value),
+                    AccessorDescriptorLocals::Setter(AccessorSetterLocals::new(value)),
                     enumerable,
                     enumerable,
                     pending,

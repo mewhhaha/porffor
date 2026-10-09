@@ -1,5 +1,11 @@
 # JSON.stringify replacer invocation authority
 
+## Current GC boundary — 2026-10-08
+
+The current private owner is `builtins/json/stringify_replacer.rs`. Its four distinct borrowed `ValueLocals` roles and consuming `JsonStringifyReplacerInvocationLocals` constructor preserve the non-swappable call boundary. The single recursive SerializeJSONProperty producer in `stringify.rs` now serves the root wrapper and shared array/object container walk. Its argument order is `[key, value]`, its receiver is the acquired holder, and the shared callback emitter propagates the entire abrupt completion before publishing its result. The six-producer tagged-local census below records the former implementation.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 Status: normative for the AOT JSON.stringify replacer call boundary.
 
 ## Closed invocation roles

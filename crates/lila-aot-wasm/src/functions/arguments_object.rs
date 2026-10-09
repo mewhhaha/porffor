@@ -5,6 +5,7 @@ use crate::gc_types::{
     ArgumentsObject, ArgumentsParameterMap, ArrayObject, GcOperand, GcStackReference, IndexedTable,
     NonNullable, Nullable, PropertyDescriptor, StoredValue, ValueArray,
 };
+use crate::objects::{AccessorDescriptorLocals, AccessorGetterLocals, AccessorSetterLocals};
 use crate::operations::PropertyKeyLocals;
 
 impl FunctionBuilder<'_> {
@@ -207,8 +208,10 @@ impl FunctionBuilder<'_> {
                 self.emit_object_append_accessor_property_with_flags(
                     &header,
                     &callee_key,
-                    Some(&property),
-                    Some(&property),
+                    AccessorDescriptorLocals::GetterAndSetter {
+                        getter: AccessorGetterLocals::new(&property),
+                        setter: AccessorSetterLocals::new(&property),
+                    },
                     false,
                     false,
                     function,

@@ -323,7 +323,8 @@ impl FunctionBuilder<'_> {
         dispatch.ordinary(self, function, |entry, builder, function| {
             function.instruction(&Instruction::I32Const(1));
             entered.store(function);
-            builder.emit_ordinary_function_entry_call(entry, &receiver, &list, result, function)
+            builder
+                .emit_ordinary_function_entry_tail_call(entry, &receiver, &list, result, function)
         })?;
         dispatch.generator(self, function, |entry, builder, function| {
             function.instruction(&Instruction::I32Const(1));
@@ -360,7 +361,7 @@ impl FunctionBuilder<'_> {
                 .heap_type,
         ));
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_function_or_proxy_call_with_argv(&current, &receiver, &list, result, function)?;
+        self.emit_prepared_tail_call(&current, &receiver, &list, function)?;
         function.instruction(&Instruction::Else);
         self.emit_proxy_execution_realm_type_error(
             RuntimeErrorMessage::VALUE_IS_NOT_CALLABLE,
@@ -527,13 +528,21 @@ impl FunctionBuilder<'_> {
                         function,
                     ),
                 };
-                builder.emit_function_or_proxy_call_with_argv(
-                    &trap,
-                    slots.handler(),
-                    &trap_arguments,
-                    result,
-                    function,
-                )?;
+                match operation {
+                    ProxyInvocation::Call => builder.emit_prepared_tail_call(
+                        &trap,
+                        slots.handler(),
+                        &trap_arguments,
+                        function,
+                    )?,
+                    ProxyInvocation::Construct => builder.emit_function_or_proxy_call_with_argv(
+                        &trap,
+                        slots.handler(),
+                        &trap_arguments,
+                        result,
+                        function,
+                    )?,
+                }
                 trap_arguments.clear(function);
                 argument_array_value.clear(function);
                 argument_array.clear(function);
@@ -567,18 +576,16 @@ impl FunctionBuilder<'_> {
                 let base = self.runtime_helper_base.ok_or_else(|| {
                     EmitError::unsupported("compiler invariant: FunctionCall helper is absent")
                 })?;
-                schema
-                    .call_helper(
-                        crate::runtime_helpers::FunctionCallArguments::new(
-                            &current,
-                            receiver_or_new_target,
-                            arguments,
-                            self.current_environment(),
-                        ),
-                        base,
-                        function,
-                    )
-                    .store(result, function);
+                schema.return_call_helper(
+                    crate::runtime_helpers::FunctionCallArguments::new(
+                        &current,
+                        receiver_or_new_target,
+                        arguments,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                );
             }
             ProxyInvocation::Construct => self.emit_plain_function_construct_dispatch(
                 &current,

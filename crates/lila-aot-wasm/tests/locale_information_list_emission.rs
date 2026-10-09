@@ -1,4 +1,4 @@
-use lila_aot_wasm::emit;
+use lila_aot_wasm::{emit, GcHostImport};
 use lila_front::{parse, ParseOptions};
 use lila_ir::{lower_with_host_surface_policy, HostSurfacePolicy};
 use wasmparser::{Parser, Payload, Validator, WasmFeatures};
@@ -12,23 +12,31 @@ fn validate_provider_caller(source: &'static str, policy: HostSurfacePolicy) {
             let program = lower_with_host_surface_policy(&parsed, policy);
             assert!(program.is_wasm_supported(), "Locale information must lower");
             let artifact = emit(&program).expect("Locale information must emit");
-            Validator::new_with_features(WasmFeatures::all())
-                .validate_all(&artifact.bytes)
-                .expect("checked list loops and defining-Realm allocation must form valid Wasm");
-            let mut provider_imports = 0;
-            for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                if let Payload::ImportSection(section) = payload.expect("section should decode") {
-                    for import in section.into_imports() {
-                        let import = import.expect("import should decode");
-                        provider_imports +=
-                            usize::from(import.module == "lila_host" && import.name == "intl_call");
+            let runtime = artifact.runtime().expect("Locale information links R");
+            for bytes in [runtime.bytes(), artifact.bytes.as_slice()] {
+                Validator::new_with_features(WasmFeatures::all())
+                    .validate_all(bytes)
+                    .expect(
+                        "checked list loops and defining-Realm allocation must form valid Wasm",
+                    );
+                let mut provider_imports = 0;
+                for payload in Parser::new(0).parse_all(bytes) {
+                    if let Payload::ImportSection(section) = payload.expect("section should decode")
+                    {
+                        for import in section.into_imports() {
+                            let import = import.expect("import should decode");
+                            provider_imports += usize::from(
+                                import.module == GcHostImport::IntlProviderCall.module()
+                                    && import.name == GcHostImport::IntlProviderCall.name(),
+                            );
+                        }
                     }
                 }
+                assert_eq!(
+                    provider_imports, 1,
+                    "each standalone caller must root the provider in both R and P"
+                );
             }
-            assert_eq!(
-                provider_imports, 1,
-                "each standalone caller must root the provider"
-            );
         })
         .expect("compiler worker should spawn")
         .join()

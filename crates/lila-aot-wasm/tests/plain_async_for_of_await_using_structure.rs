@@ -1,10 +1,15 @@
 const IR_SOURCE: &str = include_str!("../../lila-ir/src/ir.rs");
 const FOR_OF_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/for_of.rs");
 const ASYNC_LOWERING_SOURCE: &str = include_str!("../../lila-ir/src/lowering/async_disposable.rs");
-const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
+const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/tests/resource_disposal.rs");
 const CONTROL_FLOW_SOURCE: &str = include_str!("../src/control_flow.rs");
 const DATA_SOURCE: &str = include_str!("../src/data.rs");
-const EMIT_SOURCE: &str = include_str!("../src/emit.rs");
+const EMIT_SOURCE: &str = concat!(
+    include_str!("../src/emit.rs"),
+    include_str!("../src/emit/async_generator_admission.rs")
+);
+const COMPLETE_FOR_OF_LOWERING_SOURCE: &str =
+    include_str!("../../lila-ir/src/lowering/async_generator_for_of.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_await_using_for_of_lifecycle.js");
 const CLI_TEST_SOURCE: &str = include_str!("../../lila-cli/tests/cli/resource_management.rs");
@@ -278,28 +283,49 @@ fn lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states(
         "fn synchronous_using_for_of_is_a_closed_generic_iterator_head()",
     );
     for marker in [
-        "head: ForOfIteratorHeadIr::AsyncDisposable(head)",
-        "lexical_environment: Some(environment)",
+        "StatementIr::AsyncGeneratorForOf(plan)",
+        "plan.execution(), ResumableRegionProtocolIr::Async",
+        "plan.resource().expect(\"per-iteration disposal capability\")",
+        "StatementIr::AsyncGeneratorResourceRegistration(head)",
+        "head.capability_binding(), resource.capability_binding()",
+        "plan.lexical_environment().expect(\"original per-key environment\")",
         "tdz_binding_names",
         "ExprIr::RuntimeThrow",
         "name: NativeErrorKind::ReferenceError",
         "iteration_environment",
         "capture.mode, BindingMode::Const",
         "name: NativeErrorKind::TypeError",
-        "$async.function.forof.await.dispose.capability.",
-        "record.iterator().as_str()",
-        "record.next_method().as_str()",
-        "record.done().as_str()",
+        "capability.binding_name()",
+        "plan.head_binding().name.as_str()",
+        "plan.incoming_binding().name.as_str()",
+        "plan.value_binding().name.as_str()",
         "let owned_names = [",
         "owned_names.iter().copied().collect::<BTreeSet<_>>().len(),",
         "every activation-backed role must own exactly one slot",
         "finalizer.entry_state() < finalizer.dispose_state()",
         "finalizer.dispose_state() < finalizer.resume_state()",
         "finalizer.resume_state() < finalizer.exit_state()",
-        "source suspension in await using for-of loop",
+        "assert!(capability.finalizer().dispose_state() > plan.body().end_state())",
     ] {
         assert!(ir_test.contains(marker), "{marker}");
     }
+    assert!(
+        FOR_OF_LOWERING_SOURCE.contains("return self.lower_async_generator_for_of(for_of, owner)")
+    );
+    positions_in_order(
+        COMPLETE_FOR_OF_LOWERING_SOURCE,
+        &[
+            "owner.checked_source(source)",
+            "self.lower_complete_resumable_for_of(source)",
+            "let states = source.states(entry)?",
+            "self.lower_complete_for_of_operand(execution, ast.iterable())",
+            "let incoming_binding = owned_pattern_binding(",
+            "self.lower_checked_async_generator_for_of_initializer(",
+            "let (body, kind) = self.lower_loop_body(ast.body())",
+            "let plan = AsyncGeneratorForOfIr::new(",
+            "Some((StatementIr::AsyncGeneratorForOf(Box::new(plan)), kind))",
+        ],
+    );
 }
 
 #[test]
@@ -507,13 +533,34 @@ fn backend_disposes_and_awaits_before_choosing_next_or_iterator_close() {
     for marker in [
         "await using for-of head requires a plain async function",
         "ActivationAsyncDisposeOwner::AsyncFunctionForOf(head.capability())",
-        "await using for-of Iterator is missing its activation-owned binding",
-        "await using for-of NextMethod is missing its activation-owned binding",
-        "await using for-of Done is missing its activation-owned binding",
-        "await using for-of DisposeCapability is missing its activation-owned binding",
+        "await using for-of Iterator lacks its activation-owned cell",
+        "await using for-of NextMethod lacks its activation-owned cell",
+        "await using for-of Done lacks its activation-owned cell",
+        "await using for-of DisposeCapability lacks its activation-owned cell",
         "AsyncDisposableForOfIterationEnvironment::Active",
         "AsyncDisposableForOfIterationEnvironment::Absent",
     ] {
         assert!(compile.contains(marker), "{marker}");
     }
+    positions_in_order(
+        compile,
+        &[
+            "self.emit_get_sync_iterator(&source, SyncIteratorConsumer::ForOf, function)",
+            "self.write_binding_from_locals(iterator_storage, &iterator_value, function)",
+            "self.write_binding_from_locals(next_storage, &next_method, function)",
+            "self.write_binding_from_locals(done_storage, &done_value, function)",
+            "let iterator = OwnedSyncIterator",
+            "self.emit_sync_iterator_step_value(&iterator, done, &value, function)",
+            "self.acquire_async_disposable_resource_from_locals(&acquired, function)",
+            "self.append_activation_async_disposable_resource(&capability, &acquired, function)",
+            "self.write_binding_from_locals(binding, &acquired.value, function)",
+            "self.compile_statement(body, function)",
+            "self.begin_async_dispose_pending_completion(function)",
+            "self.begin_activation_async_dispose_capability(storage, finalizer, function)",
+            "self.consume_activation_async_dispose_capability(",
+            "ActivationAsyncDisposeCompletionContinuation::ForOf(",
+            "iterator: &iterator",
+            "iterator.clear(function)",
+        ],
+    );
 }

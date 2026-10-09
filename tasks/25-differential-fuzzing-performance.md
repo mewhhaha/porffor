@@ -1,5 +1,21 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Broad verification and remaining performance proof — 2026-10-08
+
+The complete frozen tooling sweep passes all 38 commands, 405 Python methods
+and both shell regressions without skips. The 810-target all-feature workspace
+sweep was deliberately stopped while red and remains incomplete. Its failed native, corpus, worker and source
+controls have prepared repairs; the complete repaired-source sweep remains pending.
+
+The runtime/tail-call and environment batch changes the linked R/P ABI and needs
+fresh artifact/cache/native proof. The earlier ABI-2 helper/startup receipts below
+retain their original scope. The unchanged five-second campaign still needs a
+complete pass, followed by ignored cold/warm controls, the full deterministic
+corpus in debug and optimized builds, sustained differential and robustness
+tiers, and calibrated subsystem budgets. Existing generators, reducers, reporters
+and policy checkers are implemented; execution and measured acceptance remain.
+Unavailable allocation/live-GC/pause metrics must stay explicit.
+
 **Status:** Source batch in progress — selected-worker replay, durable campaigns, arithmetic/object/module/control-flow, negative-source and stateful/metamorphic grammars with preserving reducers are authored; compilation/execution, broader fuzz boundaries, subsystem budgets and sustained campaigns remain open
 
 **Parallel group:** Validation lane  
@@ -38,9 +54,9 @@ not close the campaign or cold-start gates.
 
 The tooling repair rerun passes all 84 affected Python methods and the restored
 historical artifact pair passes the guard in an isolated proposed commit view.
-A full tooling rerun and complete all-feature workspace coverage,
-ignored default-product timing controls, sustained debug/optimized campaigns
-and subsystem budgets remain required. The launcher retains one CPU, 4096 MiB,
+The later complete tooling sweep passes. Complete repaired all-feature workspace
+coverage, ignored default-product timing controls, sustained debug/optimized
+campaigns and subsystem budgets remain required. The launcher retains one CPU, 4096 MiB,
 zero swap and one-entry/64-MiB native retention. No deadline, task status or pinned
 conformance count changes. See the [current checkpoint](README.md#runtime-persistence-and-verification--2026-10-08)
 and [runtime artifact contract](../docs/rust-rewrite/contracts/runtime-artifact-persistence.md).

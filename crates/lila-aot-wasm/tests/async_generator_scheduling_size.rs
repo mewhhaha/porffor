@@ -93,7 +93,7 @@ struct EncodedBody {
 fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
     // Match other product-artifact controls: enough Rust stack for recursive
     // compiler emission, without executing the resulting Wasm.
-    let bytes = std::thread::Builder::new()
+    let artifact = std::thread::Builder::new()
         .name("async-generator-scheduling-size".to_owned())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
@@ -102,7 +102,6 @@ fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
             assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
             lila_aot_wasm::emit(&program)
                 .expect("nested Array and queued completions emit through the product compiler")
-                .bytes
         })
         .expect("compiler worker starts")
         .join()
@@ -110,59 +109,74 @@ fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
 
     let mut names = BTreeMap::<u32, String>::new();
     let mut bodies = BTreeMap::<u32, EncodedBody>::new();
-    let mut next_function = 0u32;
-    for payload in Parser::new(0).parse_all(&bytes) {
-        match payload.expect("emitted module decodes") {
-            Payload::ImportSection(reader) => {
-                for import in reader.into_imports() {
-                    if matches!(
-                        import.expect("import decodes").ty,
-                        TypeRef::Func(_) | TypeRef::FuncExact(_)
-                    ) {
-                        next_function += 1;
+    let runtime = artifact.runtime().expect("async scheduling links R");
+    let modules = [runtime.bytes(), artifact.bytes.as_slice()];
+    for bytes in modules {
+        wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+            .validate_all(bytes)
+            .expect("both scheduling modules validate");
+        let mut next_function = 0u32;
+        for payload in Parser::new(0).parse_all(bytes) {
+            match payload.expect("emitted module decodes") {
+                Payload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        if matches!(
+                            import.expect("import decodes").ty,
+                            TypeRef::Func(_) | TypeRef::FuncExact(_)
+                        ) {
+                            next_function += 1;
+                        }
                     }
                 }
-            }
-            Payload::CodeSectionEntry(body) => {
-                let mut calls = Vec::new();
-                for operator in body.get_operators_reader().expect("body reader opens") {
-                    match operator.expect("operator decodes") {
-                        Operator::Call { function_index }
-                        | Operator::ReturnCall { function_index } => calls.push(function_index),
-                        _ => {}
+                Payload::CodeSectionEntry(body) => {
+                    let mut calls = Vec::new();
+                    for operator in body.get_operators_reader().expect("body reader opens") {
+                        match operator.expect("operator decodes") {
+                            Operator::Call { function_index }
+                            | Operator::ReturnCall { function_index } => calls.push(function_index),
+                            _ => {}
+                        }
                     }
+                    assert!(
+                        bodies
+                            .insert(
+                                next_function,
+                                EncodedBody {
+                                    bytes: body.range().len(),
+                                    calls
+                                },
+                            )
+                            .is_none(),
+                        "R/P own disjoint function bodies"
+                    );
+                    next_function += 1;
                 }
-                bodies.insert(
-                    next_function,
-                    EncodedBody {
-                        bytes: body.range().len(),
-                        calls,
-                    },
-                );
-                next_function += 1;
-            }
-            Payload::CustomSection(section) => {
-                if let KnownCustom::Name(subsections) = section.as_known() {
-                    for subsection in subsections {
-                        if let Name::Function(map) = subsection.expect("name subsection decodes") {
-                            for naming in map {
-                                let naming = naming.expect("function name decodes");
-                                assert!(
-                                    names.insert(naming.index, naming.name.to_owned()).is_none(),
-                                    "a function index must have one emitted name"
-                                );
+                Payload::CustomSection(section) => {
+                    if let KnownCustom::Name(subsections) = section.as_known() {
+                        for subsection in subsections {
+                            if let Name::Function(map) =
+                                subsection.expect("name subsection decodes")
+                            {
+                                for naming in map {
+                                    let naming = naming.expect("function name decodes");
+                                    assert!(
+                                        names
+                                            .insert(naming.index, naming.name.to_owned())
+                                            .is_none(),
+                                        "a function index must have one emitted name"
+                                    );
+                                }
                             }
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
-
     eprintln!(
-        "scheduling artifact: {} bytes, {} code-body bytes",
-        bytes.len(),
+        "scheduling linked artifact: {} bytes, {} code-body bytes",
+        modules.iter().map(|bytes| bytes.len()).sum::<usize>(),
         bodies.values().map(|body| body.bytes).sum::<usize>()
     );
     let mut largest_bodies = bodies.iter().collect::<Vec<_>>();
@@ -271,14 +285,15 @@ fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
             .expect("shared bootstrap helper is named")
             .0
     };
+    let initialize = helper_index("helper::realm_initialize_intrinsics");
     let metadata = helper_index("helper::function_metadata_publish");
     let append = helper_index("helper::ordinary_property_append");
     let projection = helper_index("helper::object_header_projection");
     assert!(
         names
             .iter()
-            .any(|(index, name)| name == "lila::main" && bodies[index].calls.contains(&metadata)),
-        "Realm bootstrap must call the shared metadata publisher"
+            .any(|(index, name)| name == "lila::main" && bodies[index].calls.contains(&initialize)),
+        "main must call the shared Realm bootstrap"
     );
     assert!(
         names.iter().any(
@@ -291,10 +306,12 @@ fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
         "metadata must use the original shared property append algorithm"
     );
     assert!(
-        names
-            .iter()
-            .any(|(index, name)| name == "lila::main" && bodies[index].calls.contains(&projection)),
-        "Realm bootstrap installation must call the shared actual header projection"
+        bodies[&initialize].calls.contains(&metadata),
+        "shared Realm bootstrap must publish metadata through the same owner"
+    );
+    assert!(
+        bodies[&initialize].calls.contains(&projection),
+        "shared Realm bootstrap installation must call the actual header projection"
     );
 
     let mut run_bodies = 0;

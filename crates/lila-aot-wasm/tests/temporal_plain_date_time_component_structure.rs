@@ -82,7 +82,7 @@ fn component_emitter_extracts_the_receiver_then_projects_once() {
     );
     assert_eq!(
         emitter
-            .matches("TemporalPlainDateTimeComponent::PlainTime => {")
+            .matches("TemporalPlainDateTimeComponent::PlainTime =>")
             .count(),
         1
     );
@@ -90,28 +90,33 @@ fn component_emitter_extracts_the_receiver_then_projects_once() {
     let plain_date = bounded(
         emitter,
         "TemporalPlainDateTimeComponent::PlainDate => {",
-        "            TemporalPlainDateTimeComponent::PlainTime => {",
+        "            TemporalPlainDateTimeComponent::PlainTime =>",
     );
     assert!(plain_date.contains("TemporalPrototypeSource::Intrinsic"));
     assert!(plain_date.contains("self.emit_alloc_temporal_plain_date("));
-    assert!(plain_date.contains("calendar_payload_local,"));
+    assert!(plain_date
+        .contains("self.emit_temporal_plain_date_time_calendar_slot(&calendar_value, function)?"));
+    assert!(plain_date.contains("&calendar,"));
+    assert!(plain_date.contains("calendar.release(self, function)"));
     let allocation = bounded(
         PLAIN_DATE,
         "pub(crate) fn emit_alloc_temporal_plain_date(",
         "    /// The `[[InitializedTemporalDate]]` brand check.",
     );
     assert!(allocation.contains("prototype: TemporalPrototypeSource<'_>"));
-    assert!(allocation.contains("self.emit_alloc_temporal_object("));
+    assert!(allocation.contains("self.emit_alloc_temporal_object_header("));
+    assert!(allocation.contains("schema.struct_type::<TemporalPlainDateObject>().construct("));
+    assert!(allocation.contains("GcOperand::reference(calendar.identifier(), schema)"));
     assert!(allocation.contains("TemporalIntrinsicFamily::PlainDate"));
     assert!(!plain_date.contains("temporal_plain_date_time_time_locals"));
     assert!(!plain_date.contains("emit_alloc_temporal_plain_time"));
 
     let plain_time = bounded(
         emitter,
-        "TemporalPlainDateTimeComponent::PlainTime => {",
-        "        }\n\n        self.release_temporal_plain_date_time_field_locals",
+        "TemporalPlainDateTimeComponent::PlainTime =>",
+        "        }\n        self.release_temporal_plain_date_time_field_locals",
     );
-    assert!(plain_time.contains("Self::temporal_plain_date_time_time_locals(&field_locals)"));
+    assert!(plain_time.contains("Self::temporal_plain_date_time_time_locals(&fields)"));
     assert!(plain_time.contains("self.emit_alloc_temporal_plain_time("));
     assert!(!plain_time.contains("TEMPORAL_PLAIN_DATE_PROTOTYPE_GLOBAL_INDEX"));
     assert!(!plain_time.contains("emit_alloc_temporal_plain_date("));

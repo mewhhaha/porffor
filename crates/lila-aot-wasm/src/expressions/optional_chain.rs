@@ -1,11 +1,13 @@
 //! One native optional-chain pipeline with an explicit final Reference destination.
 use super::*;
+use crate::functions::CallContinuation;
 use lila_ir::{OptionalChainCallReceiverIr, OptionalChainOperationIr};
 
 /// A Delete destination cannot publish a callee receiver or perform a final Get.
 enum TerminalDestination<'a> {
     Get {
         captured_receiver: Option<&'a lila_ir::CapturedCallReceiverIr>,
+        continuation: CallContinuation,
     },
     DeleteProperty {
         key: &'a PropertyKeyIr,
@@ -28,13 +30,17 @@ impl FunctionBuilder<'_> {
         target: &TypedExpr,
         chain: &[OptionalChainOperationIr],
         captured_receiver: Option<&lila_ir::CapturedCallReceiverIr>,
+        continuation: &CallContinuation,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         self.compile_optional_chain_to_destination(
             target,
             chain,
-            TerminalDestination::Get { captured_receiver },
+            TerminalDestination::Get {
+                captured_receiver,
+                continuation: *continuation,
+            },
             output,
             function,
         )
@@ -109,7 +115,7 @@ impl FunctionBuilder<'_> {
         // A grouped call starts a new short-circuit segment. The receiver stays
         // rooted through key evaluation/Get, and arguments precede callability.
         self.open_frame(ControlFrameKind::Block, function);
-        for operation in chain {
+        for (ordinal, operation) in chain.iter().enumerate() {
             match operation {
                 OptionalChainOperationIr::Property { key, shorted } => {
                     if *shorted {
@@ -206,9 +212,21 @@ impl FunctionBuilder<'_> {
                     }
                     let pending = schema.reserve_completion(function);
                     pending.initialize(function);
-                    self.emit_function_or_proxy_call_with_argv(
-                        &receiver, &call_this, &arguments, &pending, function,
-                    )?;
+                    if ordinal + 1 == chain.len()
+                        && matches!(
+                            &terminal,
+                            TerminalDestination::Get {
+                                captured_receiver: None,
+                                continuation: CallContinuation::Return,
+                            }
+                        )
+                    {
+                        self.emit_prepared_tail_call(&receiver, &call_this, &arguments, function)?;
+                    } else {
+                        self.emit_function_or_proxy_call_with_argv(
+                            &receiver, &call_this, &arguments, &pending, function,
+                        )?;
+                    }
                     self.completion().copy_from(&pending, function);
                     self.emit_propagate_current_throw_if_needed(function);
                     output.copy_from(pending.value(), function);
@@ -253,6 +271,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         if let TerminalDestination::Get {
             captured_receiver: Some(captured),
+            ..
         } = terminal
         {
             call_this.set_undefined(function);

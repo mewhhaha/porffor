@@ -192,15 +192,10 @@ impl FunctionBuilder<'_> {
         let index = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(0));
         index.store(function);
-        let prototype = schema.reserve_value_local(function);
-        self.emit_load_non_array_realm_intrinsic(
-            materialization.realm(),
-            NonArrayRealmIntrinsicSlot::ObjectPrototype,
-            &prototype,
-            function,
-        );
+        // Both keyed combinators collect their own keys on a null-prototype
+        // result. Settlement records still use the callback Realm's Object.prototype.
         let object = schema.reserve_gc_local(function).initialize(
-            self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
+            self.emit_alloc_plain_object_with_prototype(None, function)?,
             function,
         );
         let result = schema.reserve_value_local(function);
@@ -444,7 +439,6 @@ impl FunctionBuilder<'_> {
         stored_result.clear(function);
         result.clear(function);
         object.clear(function);
-        prototype.clear(function);
         schema.release_i32_local(index, function);
         schema.release_i32_local(length, function);
         schema.release_i64_local(index64, function);

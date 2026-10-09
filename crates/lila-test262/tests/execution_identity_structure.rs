@@ -89,7 +89,9 @@ fn durable_schemas_and_child_selection_are_execution_identity_aware() {
     let journal = fs::read_to_string(root.join("crates/lila-test262/src/attempt_journal.rs"))
         .expect("attempt journal source should read");
 
-    assert!(source.contains("const SNAPSHOT_VERSION: u32 = 7;"));
+    assert!(source.contains("const SNAPSHOT_VERSION: u32 = 8;"));
+    assert!(source.contains("const LEGACY_EXECUTION_IDENTITY_SNAPSHOT_VERSION: u32 = 7;"));
+    assert!(source.contains("compiler_identity: WireCompilerIdentity"));
     assert!(source.contains("const MATRIX_STRATEGY_VERSION: u32 = 3;"));
     assert!(journal.contains("const ATTEMPT_JOURNAL_VERSION: u32 = 3;"));
     assert!(source.contains(".arg(case.execution_id.wire_key())"));

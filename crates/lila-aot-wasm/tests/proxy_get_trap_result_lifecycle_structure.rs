@@ -15,22 +15,23 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn proxy_get_trap_result_roles_have_no_incidental_capabilities() {
-    for (role, declaration_start) in [
-        (
-            "PendingProxyGetTrapResultLocals",
-            "/// A Proxy `[[Get]]` trap result whose completion has not yet been consumed.",
-        ),
-        (
-            "NormalProxyGetTrapResultLocals",
-            "/// A Proxy `[[Get]]` trap result after abrupt completion has been routed.",
-        ),
+    let declaration = bounded(
+        OBJECTS_SOURCE,
+        "/// A Proxy Get result whose abrupt completion still needs routing.",
+        "/// Where a revoked-Proxy TypeError",
+    );
+    assert!(!declaration.contains("#[derive"));
+    assert!(declaration.contains("struct PendingProxyGetTrapResultLocals<'value>"));
+    assert!(
+        declaration.contains("struct NormalProxyGetTrapResultLocals<'value>(&'value ValueLocals)")
+    );
+    assert!(declaration.contains("completion: &'value CompletionLocals"));
+    assert!(declaration.contains("value: &'value ValueLocals"));
+    for role in [
+        "PendingProxyGetTrapResultLocals",
+        "NormalProxyGetTrapResultLocals",
     ] {
-        let declaration = bounded(OBJECTS_SOURCE, declaration_start, &format!("impl {role}"));
-        assert!(
-            !declaration.contains("#[derive"),
-            "{role} derives a capability"
-        );
-
+        assert!(!declaration.contains(&format!("pub(crate) struct {role}")));
         for capability in [
             "Clone",
             "Copy",
@@ -42,19 +43,15 @@ fn proxy_get_trap_result_roles_have_no_incidental_capabilities() {
             "Ord",
             "Hash",
         ] {
-            assert!(
-                !OBJECTS_SOURCE.contains(&format!("impl {capability} for {role}")),
-                "{role} manually implements {capability}"
-            );
+            assert!(!OBJECTS_SOURCE.contains(&format!("impl {capability} for {role}")));
         }
     }
-
-    assert!(OBJECTS_SOURCE.contains(
-        "#[must_use = \"a pending Proxy Get trap result must be normalized before inspection\"]"
-    ));
-    assert!(OBJECTS_SOURCE.contains(
-        "#[must_use = \"a normal Proxy Get trap result must be consumed by its invariant\"]"
-    ));
+    for message in [
+        "a pending Proxy Get trap result must be normalized before inspection",
+        "a normal Proxy Get trap result must be consumed by its invariant",
+    ] {
+        assert!(declaration.contains(&format!("#[must_use = \"{message}\"]")));
+    }
 }
 
 #[test]
@@ -63,40 +60,27 @@ fn one_transition_routes_completion_before_publishing_the_normal_result() {
         OBJECTS_SOURCE
             .matches("PendingProxyGetTrapResultLocals")
             .count(),
-        4
+        4,
+        "declaration, construction, consuming argument and destructure"
     );
-    assert_eq!(
-        OBJECTS_SOURCE
-            .matches("NormalProxyGetTrapResultLocals")
-            .count(),
-        6
-    );
-    assert_eq!(
-        OBJECTS_SOURCE
-            .matches("PendingProxyGetTrapResultLocals::new(payload_local, tag_local)")
-            .count(),
-        1
-    );
-
+    assert_eq!(OBJECTS_SOURCE.matches("NormalProxyGetTrapResultLocals").count(), 5,
+        "declaration, borrowed observer impl, transition return/construction and invariant argument");
     let transition = bounded(
         OBJECTS_SOURCE,
-        "fn emit_normal_proxy_get_trap_result(",
-        "fn emit_proxy_get_descriptor_same_value_i32(",
+        "fn emit_normal_proxy_get_trap_result<'value>(",
+        "fn emit_proxy_get_invariant_check(",
     );
-    assert!(transition.contains("pending: PendingProxyGetTrapResultLocals"));
-    assert!(transition.contains(") -> NormalProxyGetTrapResultLocals"));
-    assert_eq!(
-        transition
-            .matches("self.emit_return_current_completion_if_throw(function);")
-            .count(),
-        1
-    );
-    assert_eq!(
-        transition
-            .matches("NormalProxyGetTrapResultLocals(pending.0)")
-            .count(),
-        1
-    );
+    assert!(transition.contains("pending: PendingProxyGetTrapResultLocals<'value>"));
+    let route = transition
+        .find("self.emit_object_operation_abrupt_exit(completion, result, exit, function);")
+        .unwrap();
+    let copy = transition
+        .find("value.copy_from(completion.value(), function);")
+        .unwrap();
+    let publish = transition
+        .find("NormalProxyGetTrapResultLocals(value)")
+        .unwrap();
+    assert!(route < copy && copy < publish);
 }
 
 #[test]
@@ -104,34 +88,45 @@ fn the_normal_result_has_one_consuming_invariant_and_borrowed_observers() {
     let invariant = bounded(
         OBJECTS_SOURCE,
         "fn emit_proxy_get_invariant_check(",
-        "pub(crate) fn reserve_own_descriptor_fact_locals(",
+        "pub(crate) fn emit_object_write(",
     );
-    assert!(invariant.contains("trap_result: NormalProxyGetTrapResultLocals"));
+    assert!(invariant.contains("trap_result: NormalProxyGetTrapResultLocals<'_>"));
     assert_eq!(
         invariant
-            .matches("trap_result.emit_undefined_i32(function);")
+            .matches("trap_result.value().tag().load(function);")
             .count(),
         1
     );
-    assert_eq!(
-        invariant
-            .matches("&trap_result,\n            descriptor.data_value(),")
-            .count(),
-        1
-    );
-
-    let trap_call = bounded(
+    let normalized = invariant
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    assert_eq!(normalized.matches("self.emit_tagged_payload_same_value_i32(trap_result.value(),&invariant_value,function)?;").count(), 1);
+    assert!(invariant.contains("descriptor.read_getter(&invariant_value, schema, function);"));
+    assert!(invariant.contains("descriptor.read_value(&invariant_value, schema, function);"));
+    let trap = bounded(
         OBJECTS_SOURCE,
-        "self.emit_function_handle_call_without_throw_propagation(",
-        "function.instruction(&Instruction::Else);",
+        "fn emit_proxy_get(",
+        "fn emit_normal_proxy_get_trap_result<'value>(",
     );
-    let transition_offset = trap_call
+    let call = trap
+        .find("self.emit_function_handle_call_with_argv_inner(")
+        .unwrap();
+    let transition = trap
         .find("self.emit_normal_proxy_get_trap_result(")
-        .expect("trap result must cross the normal-completion transition");
-    let invariant_offset = trap_call
-        .find("self.emit_proxy_get_invariant_check(")
-        .expect("normal trap result must reach the invariant");
-    assert!(transition_offset < invariant_offset);
+        .unwrap();
+    let check = trap.find("self.emit_proxy_get_invariant_check(").unwrap();
+    let close = trap
+        .find("self.pop_control(ControlFrameKind::Block);")
+        .unwrap();
+    let clear = trap.find("trap_result.clear(function);").unwrap();
+    assert!(call < transition && transition < check && check < close && close < clear);
+    assert_eq!(
+        OBJECTS_SOURCE
+            .matches("self.emit_proxy_get_invariant_check(")
+            .count(),
+        1
+    );
 }
 
 #[test]

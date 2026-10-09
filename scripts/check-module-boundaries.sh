@@ -3228,6 +3228,37 @@ require_fixed_string_count \
   'module_package.append_to_module(' \
   1 \
   'compiled-package assembly consumer'
+# Cargo and product execution share the native configuration owner, with an
+# explicit R-image/execution-mode pair. The only build-native loader is an
+# embedded authority inside the existing cache factory.
+engine_native_config="crates/lila-engine/src/wasmtime_config.rs"
+engine_embedded_runtime="crates/lila-engine/src/embedded_runtime.rs"
+engine_embedded_build="crates/lila-engine/src/embedded_runtime/build.rs"
+wasm_build_package="crates/lila-aot-wasm/src/runtime_artifact/build_package.rs"
+for native_owner in "$engine_native_config" "$engine_embedded_runtime" "$engine_embedded_build" "$wasm_build_package"; do
+  require_file "$native_owner"
+done
+require_exact_line_count crates/lila-engine/src/lib.rs 'mod wasmtime_config;' 1 'shared native configuration owner'
+require_exact_line_count crates/lila-engine/src/lib.rs 'mod embedded_runtime;' 1 'private embedded native authority'
+require_exact_line_count crates/lila-engine/build.rs '#[path = "src/wasmtime_config.rs"]' 1 'same Cargo configuration owner'
+require_exact_line_count crates/lila-engine/build.rs '#[path = "src/wasmtime_policy.rs"]' 1 'same Cargo capability policy'
+require_exact_line_count crates/lila-aot-wasm/src/runtime_artifact.rs 'mod build_package;' 1 'private checked build-package owner'
+require_fixed_string_count "$engine_native_config" 'pub(crate) fn base_config(' 1 'one shared native configuration constructor'
+require_fixed_string_count "$engine_native_config" 'PRODUCT_WASMTIME_POLICY.configure(&mut config);' 1 'same required product capability configuration'
+require_fixed_string_count "$engine_embedded_build" 'manifest::COMPILATION_MODES.runtime' 1 'build R uses the admitted image compilation mode'
+require_fixed_string_count "$engine_embedded_runtime" 'manifest.modes != manifest::COMPILATION_MODES' 1 'native authority checks both image and execution modes'
+require_fixed_string_count "$engine_embedded_build" '.target(target)' 1 'explicit Cargo target without host ISA inference'
+require_fixed_string_count "$engine_embedded_build" 'config.parallel_compilation(false);' 1 'serial native build compilation'
+require_fixed_string_count "$engine_embedded_build" '.precompile_module(runtime.wasm())' 1 'precompile only the checked raw owner'
+require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, NATIVE)' 1 'native load accepts only immutable embedded bytes'
+require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
+require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
+require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity)?' 1 'canonical complete raw layout admission'
+require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(bytes, policy, mode, || {' 1 'embedded R uses the shared bounded retention owner'
+check_raw_line_budget "$engine_native_config" 100
+check_raw_line_budget "$engine_embedded_runtime" 180
+check_raw_line_budget "$engine_embedded_build" 140
+check_raw_line_budget "$wasm_build_package" 230
 # The cache damage controls deliberately construct foreign Wasm layouts. The
 # file-level gate makes those constructors unavailable to production Rust,
 # even if a future parent accidentally drops its own test-only module gate.
@@ -4365,7 +4396,7 @@ wasm_json_reviver="crates/lila-aot-wasm/src/builtins/json/reviver.rs"
 wasm_json_stringify="crates/lila-aot-wasm/src/builtins/json/stringify.rs"
 require_file "$wasm_json_builtins"
 check_no_inline_legacy_includes "$wasm_json_builtins"
-for json_child in grammar parse parse_frame_state quote reviver stringify; do
+for json_child in grammar parse parse_frame_state quote reviver stringify stringify_replacer; do
   json_child_source="crates/lila-aot-wasm/src/builtins/json/${json_child}.rs"
   require_file "$json_child_source"
   check_no_inline_legacy_includes "$json_child_source"
@@ -4418,6 +4449,11 @@ check_raw_line_budget "$wasm_json_parse_frame_state" 200
 check_raw_line_budget "$wasm_json_parse" 550
 check_raw_line_budget "$wasm_json_reviver" 550
 check_raw_line_budget "$wasm_json_stringify" 950
+wasm_json_replacer="crates/lila-aot-wasm/src/builtins/json/stringify_replacer.rs"
+require_fixed_string_count "$wasm_json_replacer" 'pub(super) struct JsonStringifyReplacerInvocationLocals' 1 'one private JSON replacer role authority'
+require_fixed_string_count "$wasm_json_replacer" 'pub(super) fn emit_json_apply_replacer_with_this(' 1 'one consuming JSON replacer boundary'
+require_fixed_string_count "$wasm_json_stringify" 'self.emit_json_apply_replacer_with_this(' 1 'shared SerializeJSONProperty replacer producer'
+check_raw_line_budget "$wasm_json_replacer" 120
 
 # Real finite semantic witnesses retain their live registration and fixtures.
 # These controls exercise the compiler/Engine/CLI rather than count old ABI
@@ -6291,6 +6327,15 @@ require_fixed_string_count "$wasm_normalization_data" "pub(super) fn tables() ->
 require_fixed_string_count crates/lila-aot-wasm/src/data.rs 'normalization::tables()' 1 'data construction consumes the normalization authority'
 check_no_inline_legacy_includes "$wasm_normalization_data"
 check_raw_line_budget "$wasm_normalization_data" 170
+for normalization_child in format construction tests; do
+  require_module_decl "$wasm_normalization_data" "$normalization_child"
+  normalization_owner="crates/lila-aot-wasm/src/data/normalization/$normalization_child.rs"
+  require_file "$normalization_owner"
+  check_no_inline_legacy_includes "$normalization_owner"
+  check_raw_line_budget "$normalization_owner" 250
+done
+require_fixed_string_count "$wasm_normalization_data" 'NormalizationTables::from_image(EMBEDDED_IMAGE)' 1 'normalization consumes admitted immutable rows'
+require_fixed_string_count crates/lila-aot-wasm/build.rs 'normalization_construction::build()' 1 'normalization construction belongs to Cargo build'
 require_module_decl crates/lila-aot-wasm/src/data.rs unicode_case_tables
 for case_data_owner in \
   crates/lila-aot-wasm/src/data/unicode_case_tables.rs \
@@ -6669,6 +6714,24 @@ done
 require_module_decl crates/lila-aot-wasm/src/builtins/string.rs symbol_method
 require_file crates/lila-aot-wasm/src/builtins/string/symbol_method.rs
 check_no_inline_legacy_includes crates/lila-aot-wasm/src/builtins/string/symbol_method.rs
+
+# The product and raw GC ABI fixtures consume the same agent operation handler.
+require_module_decl crates/lila-engine/src/lib.rs wasm_agent_host
+require_file crates/lila-engine/src/wasm_agent_host.rs
+check_raw_line_budget crates/lila-engine/src/wasm_agent_host.rs 200
+check_no_inline_legacy_includes crates/lila-engine/src/wasm_agent_host.rs
+require_fixed_string_count crates/lila-engine/src/lib.rs \
+  'wasm_agent_host::agent_call,' 2 'shared native agent operation handler'
+require_fixed_string_count crates/lila-engine/src/wasm_agent_host.rs \
+  'pub(super) fn agent_call(' 1 'single actual agent dispatch owner'
+
+# Private typed GC allocation reports only actual collector OOM as a nullable result.
+require_module_decl crates/lila-engine/src/lib.rs wasm_gc_byte_array_host
+require_file crates/lila-engine/src/wasm_gc_byte_array_host.rs
+check_raw_line_budget crates/lila-engine/src/wasm_gc_byte_array_host.rs 180
+check_no_inline_legacy_includes crates/lila-engine/src/wasm_gc_byte_array_host.rs
+require_fixed_string_count crates/lila-engine/src/wasm_gc_host.rs \
+  'wasm_gc_byte_array_host::link(linker, module)?;' 1 'current collector allocation linker'
 
 if [ "$failures" -ne 0 ]; then
   exit 1

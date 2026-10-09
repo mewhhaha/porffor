@@ -2358,6 +2358,13 @@ fn install_host_globals(context: &mut Context, argv: &[String]) -> Result<(), Ex
         )
         .map_err(|err| format_js_error(err, context))?;
     context
+        .register_global_builtin_callable(
+            js_string!("__lilaUnsupportedHostCapability"),
+            1,
+            NativeFunction::from_fn_ptr(host_unsupported_test262_capability),
+        )
+        .map_err(|err| format_js_error(err, context))?;
+    context
         .register_global_builtin_callable(js_string!("gc"), 0, NativeFunction::from_fn_ptr(host_gc))
         .map_err(|err| format_js_error(err, context))?;
     context
@@ -2613,6 +2620,30 @@ fn check_test262_async_done(context: &mut Context) -> Result<(), ExecutionError>
     }
 
     Ok(())
+}
+
+// The local Test262 harness uses this host-owned throw so missing capability
+// diagnostics retain host provenance after catch/rethrow without inspecting a
+// user-created object's name, message, constructor or accessors.
+fn host_unsupported_test262_capability(
+    _this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let Some(name) = args.first().and_then(JsValue::as_string) else {
+        return Err(JsNativeError::typ()
+            .with_message("Test262 host capability name must be a String")
+            .into());
+    };
+    Err(oracle_exception::host_failure(
+        JsNativeError::error()
+            .with_message(format!(
+                "local harness host {} unsupported",
+                name.to_std_string_escaped()
+            ))
+            .into(),
+        context,
+    ))
 }
 
 fn host_gc(_this: &JsValue, _args: &[JsValue], _context: &mut Context) -> JsResult<JsValue> {

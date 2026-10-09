@@ -133,6 +133,7 @@ static_signature_domain! {
         I32, I64, EqRef, I64, Gc(GcLayout::ValueArray, Nullable),
         Gc(GcLayout::Environment, Nullable), Gc(GcLayout::PrivateEnvironment, Nullable),
         Gc(GcLayout::DirectEvalExecutionContext, Nullable)], COMPLETION_TYPES),
+    HostByteArrayAllocate => ([I32], [Gc(GcLayout::ByteArray, Nullable)]),
     HostIntlProviderCall => ([Gc(GcLayout::ByteArray, NonNullable)], [Gc(GcLayout::ByteArray, Nullable)]),
     HostSystemTimeZoneSnapshot => ([], [Gc(GcLayout::ByteArray, NonNullable)]),
 }

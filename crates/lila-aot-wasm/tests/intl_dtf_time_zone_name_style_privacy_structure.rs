@@ -1,12 +1,25 @@
 use lila_intl::TimeZoneNameStyle;
 
 const DTF_SOURCE: &str = include_str!("../src/builtins/intl_datetimeformat.rs");
+const INITIALIZATION_SOURCE: &str =
+    include_str!("../src/builtins/intl_datetimeformat/initialization.rs");
 const DOMAIN_SOURCE: &str = include_str!("../../lila-intl/src/time_zone.rs");
 
 #[test]
 fn constructor_and_provider_share_one_closed_style_domain() {
     assert!(!DTF_SOURCE.contains("enum TimeZoneNameStyle"));
-    assert!(DTF_SOURCE.contains("&TimeZoneNameStyle::OPTIONS"));
+    let normalized = |source: &str| {
+        source
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+    };
+    let initialization = normalized(INITIALIZATION_SOURCE);
+    assert!(initialization.contains("zone_name:GcI32DomainLocal<Option<TimeZoneNameStyle>>"));
+    assert!(initialization
+        .contains("TimeZoneNameStyle::ALL.into_iter().map(|v|(v.spelling(),Some(v)))"));
+    assert!(normalized(DTF_SOURCE)
+        .contains("TimeZoneNameStyle::ALL.into_iter().map(|v|(v,v.spelling()))"));
     assert_eq!(
         DOMAIN_SOURCE
             .matches("pub enum TimeZoneNameStyle {")

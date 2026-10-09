@@ -115,7 +115,7 @@ fn all_three_aggregate_consumers_choose_an_exact_evidence_policy() {
         (
             "\npub fn load_aggregate_progress_summary(",
             "\npub fn load_matrix_triage_entries(",
-            "SnapshotUse::ReadOnlyEvidence",
+            "SnapshotUse::CurrentState",
             "Envelope",
         ),
         (

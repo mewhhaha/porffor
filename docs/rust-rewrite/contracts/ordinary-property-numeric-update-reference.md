@@ -1,5 +1,11 @@
 # Ordinary property numeric-update Reference
 
+## Current GC boundary — 2026-10-08
+
+The current backend uses `ReadOrdinaryPropertyNumericUpdateLocals` only after GetValue and successful ToNumeric, then consumes it to produce `ReadyToWriteOrdinaryPropertyNumericUpdateLocals`. PutValue consumes that owner before selecting the prefix new value or postfix numeric old value. All are private non-Copy owners of whole GC values. The raw-local budgets below are historical; current source checks retain conversion/write/publication order and explicit root release.
+
+This source/guard repair does not establish a new runtime or conformance result.
+
 Status: normative implementation contract for prefix and postfix `++` / `--`
 through an ordinary property Reference.
 

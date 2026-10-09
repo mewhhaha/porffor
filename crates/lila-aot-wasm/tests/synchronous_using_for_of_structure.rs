@@ -102,31 +102,37 @@ fn lowering_keeps_tdz_and_protocol_decisions_at_the_closed_head_boundary() {
 
 #[test]
 fn comma_operands_route_abrupt_completion_before_the_right_operand() {
-    let sites = EXPRESSIONS_SOURCE
-        .match_indices("ExprIr::Comma { lhs, rhs } => {")
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
     assert_eq!(
-        sites.len(),
-        2,
-        "both ordinary comma emitters must be pinned"
+        EXPRESSIONS_SOURCE
+            .matches("ExprIr::Comma { lhs, rhs } => {")
+            .count(),
+        1
     );
-
-    for (site, rhs) in sites.into_iter().zip([
-        "self.compile_expr_payload(rhs, function)?;",
-        "self.compile_expr_to_locals(rhs, payload_local, tag_local, function)?;",
-    ]) {
-        let arm = EXPRESSIONS_SOURCE[site..]
-            .split_once("            ExprIr::MaterializeBinding")
-            .expect("comma arm must end before MaterializeBinding")
-            .0;
-        assert_before(
-            arm,
-            "self.compile_expr_to_locals(",
-            "self.emit_propagate_throw_from_locals_if_needed(",
-        );
-        assert_before(arm, "self.emit_propagate_throw_from_locals_if_needed(", rhs);
-    }
+    let arm = bounded(
+        EXPRESSIONS_SOURCE,
+        "ExprIr::Comma { lhs, rhs } => {",
+        "ExprIr::MaterializeBinding",
+    );
+    assert_before(
+        arm,
+        "self.compile_expr_to_value(lhs, &value, function)?;",
+        "value.clear(function);",
+    );
+    assert_before(
+        arm,
+        "value.clear(function);",
+        "self.compile_expr_to_value(rhs, output, function)?;",
+    );
+    // Every recursive expression evaluation now routes Throw before returning;
+    // the sole comma arm inherits that boundary before evaluating its RHS.
+    let publisher = bounded(
+        EXPRESSIONS_SOURCE,
+        "pub(crate) fn compile_expr_to_value(",
+        "fn compile_identifier_to_value(",
+    );
+    assert!(publisher.trim_end().ends_with(
+        "self.emit_propagate_current_throw_if_needed(function);\n        Ok(())\n    }"
+    ));
 }
 
 #[test]
@@ -166,15 +172,15 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
         "    fn consume_sync_disposable_resources(",
         "    pub(crate) fn compile_try_catch_finally(",
     );
-    assert!(consumer.contains("self.restore_saved_completion("));
+    assert!(consumer.contains("self.completion().copy_from(&pending.completion, function)"));
     assert!(consumer.contains("match continuation"));
     assert!(consumer.contains(
-        "SyncDisposeCompletionContinuation::Dispatch => {\n                self.emit_dispatch_current_completion(function)?;"
+        "SyncDisposeCompletionContinuation::Dispatch => {\n                self.emit_dispatch_current_completion(function)?"
     ));
     assert!(consumer.contains("SyncDisposeCompletionContinuation::DeferToIteratorClose => {}"));
     assert_before(
         consumer,
-        "self.restore_saved_completion(",
+        "self.completion().copy_from(&pending.completion, function)",
         "match continuation",
     );
 
@@ -209,120 +215,107 @@ fn backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close(
         "SyncForOfIterationLifecycleLocals::SyncDisposable {",
         "self.reserve_sync_disposable_resource_locals(function)",
         "self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?",
-        "self.compile_expr_to_locals(",
+        "self.compile_expr_to_value(iterable, &source, function)?",
         "self.emit_leave_for_in_of_tdz_scope(environment, function)",
         "self.emit_enter_lexical_environment(environment, function)?",
         "let continue_frame = self.open_frame(ControlFrameKind::Block, function)",
         "self.loop_stack.push(LoopTargets { continue_frame })",
-        "self.finally_stack.push(finally_frame)",
-        "self.initialize_binding_uninitialized(storage, function)",
+        "self.finally_stack.push(finalizer)",
+        "self.initialize_binding_uninitialized(binding, function)",
         "self.reset_sync_disposable_resource_locals(acquired, function)",
-        "self.finally_stack.push(disposal_frame)",
-        "self.compile_sync_disposable_resource_from_locals(storage, acquired, function)?",
+        "self.finally_stack.push(disposal)",
+        "self.compile_sync_disposable_resource_from_locals(binding, acquired, function)?",
         "self.push_labels(labels, break_frame, Some(continue_frame))",
         "self.compile_statement(body, function)?",
         "self.capture_pending_sync_dispose_completion(function)",
         "self.consume_sync_disposable_resources(",
         "SyncDisposeCompletionContinuation::DeferToIteratorClose",
-        "self.save_current_completion(",
-        "COMPLETION_KIND_CONTINUE",
+        "pending.copy_from(self.completion(), function)",
         "self.emit_leave_lexical_environment(function)",
-        "self.emit_iterator_close_condition_i32(",
-        "self.emit_iterator_close_preserving_current_throw(",
-        "self.emit_iterator_close(",
+        "CompletionKind::Continue.code()",
+        "pending.target().load(function)",
+        "pending.set_normal(pending.value(), function)",
+        "CompletionKind::Normal.code()",
+        "self.emit_sync_iterator_close(&iterator, &pending, &closed, function)?",
         "self.emit_dispatch_current_completion(function)?",
-        "function.branch_to_label(loop_frame.label)",
+        "self.emit_branch_to_target(loop_frame, function)",
     ] {
         assert!(
             lifecycle.contains(boundary),
             "missing backend boundary: {boundary}"
         );
     }
-
-    assert_before(
-        lifecycle,
-        "self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?",
-        "self.compile_expr_to_locals(",
-    );
-    assert_before(
-        lifecycle,
-        "self.compile_expr_to_locals(",
-        "self.emit_leave_for_in_of_tdz_scope(environment, function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.emit_enter_lexical_environment(environment, function)?",
-        "self.initialize_binding_uninitialized(storage, function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.finally_stack.push(finally_frame)",
-        "self.initialize_binding_uninitialized(storage, function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.finally_stack.push(disposal_frame)",
-        "self.compile_sync_disposable_resource_from_locals(storage, acquired, function)?",
-    );
-    assert_before(
-        lifecycle,
-        "self.compile_sync_disposable_resource_from_locals(storage, acquired, function)?",
-        "self.compile_statement(body, function)?",
-    );
-    assert_before(
-        lifecycle,
-        "self.compile_statement(body, function)?",
-        "self.capture_pending_sync_dispose_completion(function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.capture_pending_sync_dispose_completion(function)",
-        "self.consume_sync_disposable_resources(",
-    );
-    assert_before(
-        lifecycle,
-        "self.consume_sync_disposable_resources(",
-        "SyncDisposeCompletionContinuation::DeferToIteratorClose",
-    );
-    assert_before(
-        lifecycle,
-        "SyncDisposeCompletionContinuation::DeferToIteratorClose",
-        "self.save_current_completion(",
-    );
-    assert_before(
-        lifecycle,
-        "COMPLETION_KIND_CONTINUE",
-        "self.emit_iterator_close_condition_i32(",
-    );
-    assert_before(
-        lifecycle,
-        "SyncDisposeCompletionContinuation::DeferToIteratorClose",
-        "self.emit_leave_lexical_environment(function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.save_current_completion(",
-        "self.emit_leave_lexical_environment(function)",
-    );
-    assert_before(
-        lifecycle,
-        "self.emit_leave_lexical_environment(function)",
-        "COMPLETION_KIND_CONTINUE",
-    );
-    assert_before(
-        lifecycle,
-        "self.emit_leave_lexical_environment(function)",
-        "self.emit_iterator_close_condition_i32(",
-    );
-    assert_before(
-        lifecycle,
-        "self.emit_iterator_close_condition_i32(",
-        "self.emit_dispatch_current_completion(function)?",
-    );
-    assert_before(
-        lifecycle,
-        "self.emit_dispatch_current_completion(function)?",
-        "function.branch_to_label(loop_frame.label)",
+    for (earlier, later) in [
+        (
+            "self.emit_enter_for_in_of_tdz_scope(mode, environment, function)?",
+            "self.compile_expr_to_value(iterable, &source, function)?",
+        ),
+        (
+            "self.compile_expr_to_value(iterable, &source, function)?",
+            "self.emit_leave_for_in_of_tdz_scope(environment, function)",
+        ),
+        (
+            "self.emit_enter_lexical_environment(environment, function)?",
+            "self.initialize_binding_uninitialized(binding, function)",
+        ),
+        (
+            "self.finally_stack.push(finalizer)",
+            "self.initialize_binding_uninitialized(binding, function)",
+        ),
+        (
+            "self.finally_stack.push(disposal)",
+            "self.compile_sync_disposable_resource_from_locals(binding, acquired, function)?",
+        ),
+        (
+            "self.compile_sync_disposable_resource_from_locals(binding, acquired, function)?",
+            "self.compile_statement(body, function)?",
+        ),
+        (
+            "self.compile_statement(body, function)?",
+            "self.capture_pending_sync_dispose_completion(function)",
+        ),
+        (
+            "self.capture_pending_sync_dispose_completion(function)",
+            "self.consume_sync_disposable_resources(",
+        ),
+        (
+            "SyncDisposeCompletionContinuation::DeferToIteratorClose",
+            "pending.copy_from(self.completion(), function)",
+        ),
+        (
+            "pending.copy_from(self.completion(), function)",
+            "self.emit_leave_lexical_environment(function)",
+        ),
+        (
+            "self.emit_leave_lexical_environment(function)",
+            "CompletionKind::Continue.code()",
+        ),
+        (
+            "CompletionKind::Continue.code()",
+            "pending.target().load(function)",
+        ),
+        (
+            "pending.target().load(function)",
+            "pending.set_normal(pending.value(), function)",
+        ),
+        (
+            "pending.set_normal(pending.value(), function)",
+            "self.emit_sync_iterator_close(&iterator, &pending, &closed, function)?",
+        ),
+        (
+            "self.emit_sync_iterator_close(&iterator, &pending, &closed, function)?",
+            "self.emit_dispatch_current_completion(function)?",
+        ),
+        (
+            "self.emit_dispatch_current_completion(function)?",
+            "self.emit_branch_to_target(loop_frame, function)",
+        ),
+    ] {
+        assert_before(lifecycle, earlier, later);
+    }
+    assert_eq!(
+        lifecycle.matches("self.emit_sync_iterator_close(").count(),
+        1
     );
 }
 

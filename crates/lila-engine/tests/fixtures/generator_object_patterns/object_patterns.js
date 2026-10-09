@@ -36,6 +36,7 @@ next(iterator, whole, source, true);
 check(events.join(',') === 'key,get,target-key,rest-get', 'one-key-get-and-rest-order');
 check(destination[selected] === whole && destination.rest.remaining === whole, 'whole-put-rest');
 check(!Object.prototype.hasOwnProperty.call(destination.rest, selected), 'symbol-excluded');
+check(Object.getPrototypeOf(destination.rest) === Object.prototype, 'assignment-rest-prototype');
 
 // Nonundefined values skip the complete default region, including all yields.
 function* lazy(input) {
@@ -58,6 +59,7 @@ iterator = primitive('ab'); next(iterator, undefined, 'primitive-key', false);
 result = iterator.next('patternReceiver');
 check(result.done && primitiveReceiver === 'ab' && result.value[0] === whole, 'raw-primitive-getv-receiver');
 check(result.value[1][0] === 'a' && result.value[1][1] === 'b', 'boxed-primitive-rest');
+check(Object.getPrototypeOf(result.value[1]) === Object.prototype, 'primitive-rest-prototype');
 delete String.prototype.patternReceiver;
 
 // Nullish ToObject happens before even the first pattern key is evaluated.
@@ -126,6 +128,7 @@ iterator = proxyRest(proxy); next(iterator, undefined, 'proxy-key', false);
 next(iterator, 'x', 'proxy-default', false); check(events.join(',') === 'x', 'proxy-get-before-default');
 gc(); result = iterator.next(whole);
 check(result.done && result.value.tail === whole && result.value[restSymbol] === 11, 'proxy-rest-whole');
+check(Object.getPrototypeOf(result.value) === Object.prototype, 'proxy-rest-prototype');
 check(events.join(',') === 'x,keys,descriptor,tail,descriptor,symbol', 'rest-exclusion-and-trap-order');
 
 // Member Put nullish refusal happens after default, before raw key coercion.
@@ -180,4 +183,31 @@ function* caught() { var value = 0; try { ({x: value = yield 'caught-default'} =
 iterator = caught(); next(iterator, undefined, 'caught-default', false);
 result = iterator.throw(whole); check(result.value === whole && !result.done, 'caught-whole-reference-abrupt');
 next(iterator, undefined, 'fresh-default', false); gc(); next(iterator, 23, 23, true);
+// A borrowed main-Realm next must allocate suspended foreign rest in the
+// generator's execution Realm, retaining getters and whole Symbol values.
+var foreignRealm = __lilaCreateRealm();
+var foreignObjectPrototype = foreignRealm.global.Object.prototype;
+var foreignFactory = foreignRealm.evalScript('function* copy(input) { const {[yield "foreign-key"]: selected = yield "foreign-default", ...rest} = input; yield rest; return [selected, rest]; } copy;');
+var mainNext = Object.getPrototypeOf((function* () {})()).next;
+var foreignEvents = [], foreignInput = {};
+Object.defineProperty(foreignInput, 'x', { enumerable: true, get: function () {
+  foreignEvents.push('x'); return undefined;
+} });
+Object.defineProperty(foreignInput, 'tail', { enumerable: true, get: function () {
+  foreignEvents.push('tail'); return whole;
+} });
+foreignInput[restSymbol] = whole;
+iterator = foreignFactory(foreignInput);
+result = mainNext.call(iterator);
+check(!result.done && result.value === 'foreign-key', 'foreign-key-suspension');
+result = mainNext.call(iterator, 'x');
+check(!result.done && result.value === 'foreign-default' && foreignEvents.join(',') === 'x', 'foreign-get-before-default');
+gc(); result = mainNext.call(iterator, whole);
+var foreignRest = result.value;
+check(!result.done && Object.getPrototypeOf(foreignRest) === foreignObjectPrototype, 'foreign-rest-execution-realm');
+check(Object.getPrototypeOf(foreignRest) !== Object.prototype, 'foreign-rest-differs-from-caller-realm');
+check(foreignRest.tail === whole && foreignRest[restSymbol] === whole, 'foreign-rest-retains-whole-values');
+check(!Object.prototype.hasOwnProperty.call(foreignRest, 'x') && foreignEvents.join(',') === 'x,tail', 'foreign-rest-exclusion-get-order');
+gc(); result = mainNext.call(iterator);
+check(result.done && result.value[0] === whole && result.value[1] === foreignRest, 'foreign-rest-retained-through-next-yield');
 print('generator-object-patterns:ok');

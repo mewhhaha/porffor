@@ -1,6 +1,6 @@
 const FUNCTION_PROTOCOL_SOURCE: &str = include_str!("../../lila-ir/src/function_protocol.rs");
 const ANALYSIS_SOURCE: &str = include_str!("../../lila-ir/src/analysis.rs");
-const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/lib.rs");
+const IR_TEST_SOURCE: &str = include_str!("../../lila-ir/src/tests/class_initialization.rs");
 const FIXTURE: &str =
     include_str!("../../lila-cli/tests/fixtures/wasm_object_method_arrow_super.js");
 const CONTRACT: &str =
@@ -253,8 +253,8 @@ fn exact_witnesses_controls_fixture_and_nonclaims_are_pinned() {
 
     let ir_test = bounded(
         IR_TEST_SOURCE,
-        "    fn object_method_arrow_super_captures_paired_home_object_authority()",
-        "    #[test]\n    fn exact_context_specialization_preserves_escaped_closure_environment()",
+        "fn object_method_arrow_super_captures_paired_home_object_authority()",
+        "#[test]\nfn exact_context_specialization_preserves_escaped_closure_environment()",
     );
     for marker in [
         "function.protocol.is_object_literal_method()",

@@ -40,12 +40,12 @@ fn all_four_plain_arithmetic_emitters_consume_the_operation_exhaustively() {
         (
             DATE_SOURCE,
             "    pub(super) fn emit_temporal_plain_date_add_or_subtract(",
-            "    pub(super) fn emit_temporal_plain_date_until_or_since(",
+            "    pub(crate) fn emit_temporal_plain_date_to_plain_date_time(",
         ),
         (
             YEAR_MONTH_SOURCE,
             "    pub(super) fn emit_temporal_plain_year_month_add_or_subtract(",
-            "    pub(super) fn emit_temporal_plain_year_month_until_or_since(",
+            "    pub(crate) fn emit_temporal_plain_year_month_to_locale_string(",
         ),
         (
             TIME_SOURCE,

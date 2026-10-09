@@ -36,6 +36,8 @@ fn obsolete_builtin_emitters_are_absent_from_backend_sources() {
     for name in [
         "emit_date_time_within_day",
         "emit_throw_if_shared_array_buffer",
+        "emit_throw_if_array_buffer_immutable",
+        "emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start",
         "emit_string_match_all_global_ascii_word_iterator_from_string_locals",
     ] {
         assert_eq!(
@@ -50,13 +52,11 @@ fn obsolete_builtin_emitters_are_absent_from_backend_sources() {
 fn live_neighboring_emitters_remain_owned_and_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (name, expected) in [
-        ("emit_date_positive_mod", 9),
+        ("emit_date_positive_mod", 8),
         ("emit_date_make_time", 2),
-        ("emit_throw_if_array_buffer_immutable", 6),
-        (
-            "emit_string_match_all_global_ascii_word_iterator_from_string_locals_from_start",
-            2,
-        ),
+        ("emit_binary_buffer_immutable_i32", 3),
+        ("emit_string_match_all_builtin", 2),
+        ("emit_regexp_prototype_symbol_match_all_builtin", 2),
     ] {
         assert_eq!(
             count_identifier_in_rust_sources(&source_root, name),
@@ -69,7 +69,7 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
     // Keep the helper census attached to those actual owners after their extraction.
     for (owner, positive_mod_mentions, make_time_mentions) in [
         ("builtins/date.rs", 6, 2),
-        ("builtins/date/local_string.rs", 1, 0),
+        ("builtins/date/local_string.rs", 0, 0),
         ("builtins/date/components.rs", 1, 0),
         ("builtins/date/date_string_parse/components.rs", 1, 0),
     ] {

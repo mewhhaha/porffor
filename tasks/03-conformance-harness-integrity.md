@@ -1,5 +1,20 @@
 # T03 — Test262 harness integrity and host contract
 
+## Harness acceptance audit — 2026-10-08
+
+The complete frozen tooling sweep passes all 38 commands and 405 Python methods
+without skips. The four actual pinned-harness integration controls also pass.
+The broader Test262/Engine/CLI checkpoint remains red or incomplete, including
+async-completion, worker, module-evidence and publication acceptance. Prepared
+fixture/ownership repairs need actual reruns; they do not close T03.
+
+Current host assets route agents, Realms, detachment and GC through typed native
+owners. Complete method-by-method positive or explicit-failure controls and real
+harness/module/Atomics/cross-Realm acceptance remain required. A typed capability
+rejection must stay nonpassing and must not satisfy a JavaScript negative test.
+The canonical shortcut inventory has been regenerated since the source-only
+notes below; use its generated accounting rather than those historical counts.
+
 ## Compiler source identity — 2026-10-07 dry source
 
 The compiler no longer invents `1` for an unbound identifier named `BPE`, nor
@@ -181,13 +196,16 @@ entry; observations inside a declaration retain a local occurrence ordinal. It
 rejects new, missing, duplicated or drifted entries, invalid classifications
 and non-concrete task IDs, then byte-compares the generated inventory.
 
-The source audit refreshed on **2026-09-29** verifies 56 observations: 23
+The historical audit on **2026-09-29** verified 56 observations: 23
 legitimate harness adaptations, 33 diagnostic instrumentation sites and **zero
 semantic shortcuts**. The removal-task summary assigns 23 adaptations to T03,
 one diagnostic observation to T13 and 32 diagnostics to T17. Every entry has a
-concrete owner, removal task and closed reason code; none use
-`T26-unclassified`. The [generated accounting](../test262/backlog/current-shortcut-status.md)
-records the exact source, ledger and inventory hashes.
+concrete owner, removal task and closed reason code; none used
+`T26-unclassified`. Current totals and ownership come from the
+[generated accounting](../test262/backlog/current-shortcut-status.md) and
+[source inventory](../test262/backlog/shortcut-inventory.md), with their
+exact source, ledger and inventory hashes. The historical census is not
+the current observation count.
 
 The per-path rewrite dispatcher, the resizable-helper static-subclass
 substitution and the TypedArray literal/split-helper plan are deleted. Normal
@@ -1143,7 +1161,12 @@ The Wasm-AOT product runner owns this ABI. The spec-exec oracle runner may imple
 
 ### 3. Remove fake concurrency behavior
 
-The local harness currently contains source-pattern handling and `new Function`-based agent simulation. Replace this with real host-managed agents, shared backing stores and waiter queues. Never parse agent source with regexes to infer its expected behavior.
+The source-pattern and `new Function` agent simulator has been retired.
+The [Wasm-AOT host asset](../crates/lila-test262/assets/local-harness/wasm-aot-host.js)
+routes agent methods to typed native operations under the
+[host ABI contract](../test262/backlog/host-abi.tsv). Complete real-agent
+lifecycle, shared-store and waiter-queue acceptance remains required;
+agent source must never be pattern-matched to infer expected reports.
 
 ### 4. Separate harness adaptation from product semantics
 

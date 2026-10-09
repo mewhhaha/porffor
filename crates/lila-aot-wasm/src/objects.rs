@@ -12,16 +12,18 @@ use crate::runtime_helpers::HelperParameters;
 
 use lila_ir::{ComputedPropertyNameInferenceIr, ObjectMethodFunctionIr};
 
-// The Property Descriptor lattice (ECMA-262 6.2.6). Imported here rather than
-// through the crate root's `use lila_ir::{..}` list because that list is a
-// shared hub this lane does not own. See
-// `docs/rust-rewrite/contracts/property-descriptor-lattice.md`.
+// The Property Descriptor lattice follows ECMA-262 6.2.6.
 use lila_ir::property_descriptor::{
     classify, DescriptorCarrier, DescriptorClassification, DescriptorField, DescriptorSide,
     KindTerms, KnownPresence, PartialDescriptor, Presence, PropertyDescriptorKind,
     ValidatedDescriptor, TO_PROPERTY_DESCRIPTOR_ORDER,
 };
 
+mod accessor_descriptor;
+pub(crate) use accessor_descriptor::{
+    AccessorDescriptor, AccessorDescriptorLocals, AccessorGetter, AccessorGetterLocals,
+    AccessorSetter, AccessorSetterLocals,
+};
 mod allocation;
 mod arguments_properties;
 mod define_property;
@@ -65,6 +67,23 @@ impl ProxySlotLocals {
     fn clear(self, function: &mut Function) {
         self.handler.clear(function);
         self.target.clear(function);
+    }
+}
+
+/// A Proxy Get result whose abrupt completion still needs routing.
+#[must_use = "a pending Proxy Get trap result must be normalized before inspection"]
+struct PendingProxyGetTrapResultLocals<'value> {
+    completion: &'value CompletionLocals,
+    value: &'value ValueLocals,
+}
+
+/// A normal trap result can reach only the consuming descriptor invariant.
+#[must_use = "a normal Proxy Get trap result must be consumed by its invariant"]
+struct NormalProxyGetTrapResultLocals<'value>(&'value ValueLocals);
+
+impl NormalProxyGetTrapResultLocals<'_> {
+    fn value(&self) -> &ValueLocals {
+        self.0
     }
 }
 
@@ -675,8 +694,7 @@ impl<'a> FunctionBuilder<'a> {
         &mut self,
         object: &GcLocal<OrdinaryObject>,
         key: &PropertyKeyLocals,
-        getter: Option<&ValueLocals>,
-        setter: Option<&ValueLocals>,
+        accessors: AccessorDescriptorLocals<'_>,
         enumerable: bool,
         configurable: bool,
         function: &mut Function,
@@ -684,14 +702,15 @@ impl<'a> FunctionBuilder<'a> {
         let schema = self.runtime_schema();
         let undefined = schema.reserve_value_local(function);
         undefined.set_undefined(function);
+        let (getter, setter) = accessors.into_fields::<core::convert::Infallible>();
         let descriptor = self.emit_alloc_property_descriptor(
             StoredPropertyAttributes::Accessor {
                 enumerable,
                 configurable,
             },
             &undefined,
-            getter.unwrap_or(&undefined),
-            setter.unwrap_or(&undefined),
+            getter.into_static_value().unwrap_or(&undefined),
+            setter.into_static_value().unwrap_or(&undefined),
             function,
         );
         self.emit_ordinary_append_property_entry(object, key, &descriptor, function)?;
@@ -2125,9 +2144,16 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         arguments.clear(function);
-        self.emit_object_operation_abrupt_exit(&pending, result, exit, function);
-        trap_result.copy_from(pending.value(), function);
-        self.emit_proxy_get_invariant_check(slots.target(), key, &trap_result, result, function)?;
+        let normal = self.emit_normal_proxy_get_trap_result(
+            PendingProxyGetTrapResultLocals {
+                completion: &pending,
+                value: &trap_result,
+            },
+            result,
+            exit,
+            function,
+        );
+        self.emit_proxy_get_invariant_check(slots.target(), key, normal, result, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         pending.clear(function);
@@ -2136,18 +2162,31 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    fn emit_normal_proxy_get_trap_result<'value>(
+        &mut self,
+        pending: PendingProxyGetTrapResultLocals<'value>,
+        result: &CompletionLocals,
+        exit: ControlTarget,
+        function: &mut Function,
+    ) -> NormalProxyGetTrapResultLocals<'value> {
+        let PendingProxyGetTrapResultLocals { completion, value } = pending;
+        self.emit_object_operation_abrupt_exit(completion, result, exit, function);
+        value.copy_from(completion.value(), function);
+        NormalProxyGetTrapResultLocals(value)
+    }
+
     fn emit_proxy_get_invariant_check(
         &mut self,
         target: &ValueLocals,
         key: &PropertyKeyLocals,
-        trap_result: &ValueLocals,
+        trap_result: NormalProxyGetTrapResultLocals<'_>,
         result: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let descriptor = self.emit_direct_own_descriptor_for_proxy_get(target, key, function)?;
         let invariant_value = schema.reserve_value_local(function);
-        result.set_normal(trap_result, function);
+        result.set_normal(trap_result.value(), function);
         descriptor.emit_found_i32(schema, function);
         descriptor.emit_configurable_i32(schema, function);
         function.instruction(&Instruction::I32Eqz);
@@ -2161,7 +2200,7 @@ impl<'a> FunctionBuilder<'a> {
             WasmRuntimeValueTag::Undefined as i32,
         ));
         function.instruction(&Instruction::I32Eq);
-        trap_result.tag().load(function);
+        trap_result.value().tag().load(function);
         function.instruction(&Instruction::I32Const(
             WasmRuntimeValueTag::Undefined as i32,
         ));
@@ -2180,7 +2219,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         descriptor.read_value(&invariant_value, schema, function);
-        self.emit_tagged_payload_same_value_i32(trap_result, &invariant_value, function)?;
+        self.emit_tagged_payload_same_value_i32(trap_result.value(), &invariant_value, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
         self.emit_proxy_execution_realm_type_error(
