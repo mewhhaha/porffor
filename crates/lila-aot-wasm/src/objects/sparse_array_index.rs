@@ -732,7 +732,7 @@ impl FunctionBuilder<'_> {
         result
     }
 
-    fn emit_array_index_sort(
+    pub(super) fn emit_array_index_sort(
         &mut self,
         keys: &ArrayIndexKeyConstruction,
         count: I32Local,

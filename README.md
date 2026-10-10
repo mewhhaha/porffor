@@ -62,6 +62,15 @@ See the [indexed-lookup receipt](docs/rust-rewrite/property-index-20261010.md),
 [storage receipt](docs/rust-rewrite/property-storage-20261010.md) and
 [storage contract](docs/rust-rewrite/contracts/ordinary-allocation-and-to-object-runtime-helpers.md).
 
+Ordinary/exotic own-key construction now uses unique physical key owners,
+a shared numeric heap sort and insertion-ordered String/Symbol passes. All 969
+backend controls, 52 focused native controls and a fresh identity-checked
+191-ID product fake run pass. The same 4,096-key diagnostic measures 2.026
+seconds of execution versus 88.424 seconds before this enumeration change;
+these single samples establish no general speedup. Proxy validation and
+module-namespace ordering retain their separate paths. See the
+[own-key receipt](docs/rust-rewrite/own-keys-20261010.md).
+
 Managed cloud verification uses `python3 scripts/limited_verification.py --cloud
 -- <command>` with the machine's finite inherited memory limit and serial
 workers by default. Optional `--cloud-cpus auto` bounds affinity by inherited

@@ -209,12 +209,21 @@ this single sample is not a general benchmark. See the
 [indexed-lookup receipt](docs/rust-rewrite/property-index-20261010.md).
 Folded HasProperty/Get remains further work.
 Geometric ordinary/Arguments table growth is committed as `9c0862ddd`.
-A further measured-performance candidate is ordinary/exotic own-key construction:
-its candidate insertion linearly deduplicates, and its numeric ordering repeatedly
-scans the whole list. Preserve ascending numeric-index order even when a plain object stores those
-keys in a different insertion order, followed by other Strings and Symbols in
-insertion order; retain the separate observable Proxy duplicate/invariant checks. No timing or implementation
-claim for that follow-up is made here. Previously recorded compiler
+Indexed lookup is committed and pushed as `7fedbd9cd`.
+The next implemented source batch removes quadratic ordinary/exotic own-key
+construction. Unique, disjoint physical key owners append directly; canonical
+numeric indices use the existing unsigned heap sort before String/Symbol
+insertion-order passes. A new native control covers reverse numeric insertion,
+high unsigned indices, deletion/re-addition, accessors, empty and single-key
+objects. Proxy duplicate/invariant checks and namespace order remain separate.
+The frozen source passes all 969 backend controls, 52 focused native controls,
+all-feature/all-target types, CLI build and final guards. Fresh identity-checked
+product fake acceptance passes all 191 exact IDs, including all 187 raw
+Wasm-safe IDs, with zero failures/timeouts. The unchanged probe measures
+2.026 seconds of execution versus 88.424 seconds before this enumeration
+change; these are single diagnostic samples. No fresh complete engine/CLI sweep
+is claimed. See the [own-key receipt](docs/rust-rewrite/own-keys-20261010.md).
+Previously recorded compiler
 gaps include the vendored parser's parenthesized member assignment target, Bytes
 module kind, logical/compound `with` RHS representation and AST-based module
 syntax stripping. These are separate follow-up scopes, not results of this batch.

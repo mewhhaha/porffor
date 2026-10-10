@@ -49,6 +49,18 @@ identity. Number/BigInt/object collection hashing retains its original rules.
 Find, append and delete keep keys, entries and replacement arrays rooted; no
 JavaScript callback occurs between an index lookup and its physical mutation.
 
+Ordinary/exotic own-key collection relies on unique, disjoint physical key
+owners: named entries; Array or Arguments indexed entries; virtual String or
+TypedArray indices; and the Array's separate `length`. It appends each candidate
+once without comparing it against all previous keys. Numeric indices are
+gathered into a rooted ArrayIndexKeyConstruction, sorted by the shared unsigned
+heap sort, and reified as canonical decimal Strings. Other Strings and Symbols
+retain insertion order in two following passes. Empty lists and sparse high
+indices use candidate-count storage, never logical array length. The
+[indexed-storage contract](gc-array-indexed-storage.md) supplies the indexed
+uniqueness invariant. Module namespace order and Proxy trap duplicate/invariant
+validation use their existing separate paths.
+
 The facade consumes `ReferenceHelperResult` through the shared
 `RuntimeSchema::helper_reference_on_stack` converter. This returns the existing
 typed GC stack reference and preserves all allocation caller signatures. It

@@ -257,44 +257,16 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Add);
         index.store(function);
     }
+    /// Every source phase owns disjoint keys: occupied indices, virtual
+    /// indices/length, and the canonical unique named-property table.
     fn emit_own_keys_candidate_push(
-        &mut self,
+        &self,
         list: &GcLocal<crate::gc_types::ValueArray>,
         count: I32Local,
         value: &ValueLocals,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) {
         let schema = self.runtime_schema();
-        let index = schema.reserve_i32_local(function);
-        let existing = schema.reserve_value_local(function);
-        function.instruction(&Instruction::I32Const(0));
-        index.store(function);
-        let exit = self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Loop, function);
-        index.load(function);
-        count.load(function);
-        function.instruction(&Instruction::I32GeU);
-        function.instruction(&Instruction::BrIf(1));
-        let stored = schema.reserve_gc_local(function).initialize(
-            schema
-                .array_type::<crate::gc_types::ValueArray>()
-                .read(list, index, schema, function)
-                .reference(),
-            function,
-        );
-        schema
-            .struct_type::<StoredValue>()
-            .read_into(&stored, &existing, schema, function);
-        stored.clear(function);
-        self.emit_tagged_payload_same_value_i32(&existing, value, function)?;
-        self.emit_branch_if_to_target(exit, function);
-        self.emit_own_keys_increment(index, function);
-        function.instruction(&Instruction::Br(0));
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
         let stored = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<StoredValue>()
@@ -310,11 +282,6 @@ impl FunctionBuilder<'_> {
         );
         stored.clear(function);
         self.emit_own_keys_increment(count, function);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        existing.clear(function);
-        schema.release_i32_local(index, function);
-        Ok(())
     }
     fn emit_own_keys_index_value(
         &mut self,
@@ -641,7 +608,7 @@ impl FunctionBuilder<'_> {
             .read(&array_keys, index, schema, function)
             .store_i64(index64, function);
         self.emit_own_keys_index_value(index64, &value, function)?;
-        self.emit_own_keys_candidate_push(&candidates, count, &value, function)?;
+        self.emit_own_keys_candidate_push(&candidates, count, &value, function);
         function.instruction(&Instruction::Else);
         let descriptor = schema.reserve_gc_local(function).initialize(
             schema
@@ -658,7 +625,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64ExtendI32U);
         index64.store(function);
         self.emit_own_keys_index_value(index64, &value, function)?;
-        self.emit_own_keys_candidate_push(&candidates, count, &value, function)?;
+        self.emit_own_keys_candidate_push(&candidates, count, &value, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         descriptor.clear(function);
@@ -679,7 +646,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64GeU);
         function.instruction(&Instruction::BrIf(1));
         self.emit_own_keys_index_value(index64, &value, function)?;
-        self.emit_own_keys_candidate_push(&candidates, count, &value, function)?;
+        self.emit_own_keys_candidate_push(&candidates, count, &value, function);
         index64.load(function);
         function.instruction(&Instruction::I64Const(1));
         function.instruction(&Instruction::I64Add);
@@ -697,7 +664,7 @@ impl FunctionBuilder<'_> {
         );
         value.set_reference(&length_string, schema, function);
         length_string.clear(function);
-        self.emit_own_keys_candidate_push(&candidates, count, &value, function)?;
+        self.emit_own_keys_candidate_push(&candidates, count, &value, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::I32Const(0));
@@ -730,7 +697,7 @@ impl FunctionBuilder<'_> {
             .struct_type::<StoredValue>()
             .read_into(&stored, &value, schema, function);
         stored.clear(function);
-        self.emit_own_keys_candidate_push(&candidates, count, &value, function)?;
+        self.emit_own_keys_candidate_push(&candidates, count, &value, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         entry.clear(function);
@@ -772,10 +739,11 @@ impl FunctionBuilder<'_> {
         let ordinal = schema.reserve_i32_local(function);
         let is_index = schema.reserve_i32_local(function);
         let output_index = schema.reserve_i32_local(function);
-        let previous = schema.reserve_i64_local(function);
-        let best_index = schema.reserve_i64_local(function);
+        let numeric_count = schema.reserve_i32_local(function);
+        let numeric_value = schema.reserve_i64_local(function);
         let value = schema.reserve_value_local(function);
-        let best = schema.reserve_value_local(function);
+        let numeric =
+            crate::gc_types::ArrayIndexKeyConstruction::allocate(schema, length, function);
         let construction = PropertyKeyConstruction::allocate(
             schema,
             schema.reserve_gc_local(function),
@@ -783,14 +751,7 @@ impl FunctionBuilder<'_> {
             function,
         );
         function.instruction(&Instruction::I32Const(0));
-        output_index.store(function);
-        function.instruction(&Instruction::I64Const(-1));
-        previous.store(function);
-        self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Loop, function);
-        function.instruction(&Instruction::I64Const(u32::MAX as i64));
-        best_index.store(function);
-        best.set_undefined(function);
+        numeric_count.store(function);
         function.instruction(&Instruction::I32Const(0));
         index.store(function);
         self.open_frame(ControlFrameKind::Block, function);
@@ -813,21 +774,12 @@ impl FunctionBuilder<'_> {
         let key = self.emit_value_to_property_key_locals(&value, function)?;
         self.emit_property_key_array_index(&key, ordinal, is_index, function)?;
         is_index.load(function);
-        ordinal.load(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        previous.load(function);
-        function.instruction(&Instruction::I64GtS);
-        function.instruction(&Instruction::I32And);
-        ordinal.load(function);
-        function.instruction(&Instruction::I64ExtendI32U);
-        best_index.load(function);
-        function.instruction(&Instruction::I64LtU);
-        function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
         ordinal.load(function);
         function.instruction(&Instruction::I64ExtendI32U);
-        best_index.store(function);
-        best.copy_from(&value, function);
+        numeric_value.store(function);
+        numeric.write(numeric_count, numeric_value, schema, function);
+        self.emit_own_keys_increment(numeric_count, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         key.clear(function);
@@ -837,18 +789,21 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
-        best.tag().load(function);
-        function.instruction(&Instruction::I32Const(
-            WasmRuntimeValueTag::Undefined as i32,
-        ));
-        function.instruction(&Instruction::I32Eq);
+        self.emit_array_index_sort(&numeric, numeric_count, function);
+        function.instruction(&Instruction::I32Const(0));
+        output_index.store(function);
+        self.open_frame(ControlFrameKind::Block, function);
+        self.open_frame(ControlFrameKind::Loop, function);
+        output_index.load(function);
+        numeric_count.load(function);
+        function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
-        let key = self.emit_value_to_property_key_locals(&best, function)?;
+        numeric.read(output_index, numeric_value, schema, function);
+        self.emit_own_keys_index_value(numeric_value, &value, function)?;
+        let key = self.emit_value_to_property_key_locals(&value, function)?;
         construction.write(output_index, &key, schema, function);
         key.clear(function);
         self.emit_own_keys_increment(output_index, function);
-        best_index.load(function);
-        previous.store(function);
         function.instruction(&Instruction::Br(0));
         self.pop_control(ControlFrameKind::Loop);
         function.instruction(&Instruction::End);
@@ -896,10 +851,10 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::End);
         }
         output.replace(construction.publish(schema, function), function);
-        best.clear(function);
+        numeric.clear(function);
         value.clear(function);
-        schema.release_i64_local(best_index, function);
-        schema.release_i64_local(previous, function);
+        schema.release_i64_local(numeric_value, function);
+        schema.release_i32_local(numeric_count, function);
         schema.release_i32_local(output_index, function);
         schema.release_i32_local(is_index, function);
         schema.release_i32_local(ordinal, function);

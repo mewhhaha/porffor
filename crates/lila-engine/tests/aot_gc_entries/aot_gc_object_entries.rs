@@ -372,3 +372,30 @@ catch (error) {assert(error === foreignError && error instanceof other.TypeError
 "#,
     );
 }
+
+#[test]
+fn own_keys_sort_sparse_unsigned_indices_and_preserve_string_symbol_order() {
+    assert_object(
+        r#"
+var object = Object.create(null), first = Symbol('first'), second = Symbol('second');
+object.z = 1; object[first] = 1;
+for (var i = 256; i >= 0; i--) object[String(i)] = i;
+object['4294967294'] = 'max index'; object['2147483648'] = 'high index';
+object['4294967295'] = 'non-index'; object['01'] = 1; object['-0'] = 1;
+object['\uD800'] = 1; object[second] = 2;
+delete object['7']; object['7'] = 70;
+delete object.z; object.z = 2;
+var keys = Reflect.ownKeys(object);
+assert(keys.length === 266, 'all and only own keys');
+for (var i = 0; i < 257; i++) assert(keys[i] === String(i), 'ascending indices despite reverse insertion and re-addition');
+assert(keys[257] === '2147483648' && keys[258] === '4294967294', 'unsigned sparse high indices');
+assert(keys.slice(259, 264).join('|') === '4294967295|01|-0|\uD800|z', 'non-index strings retain insertion order');
+assert(keys[264] === first && keys[265] === second, 'symbols follow strings in insertion order');
+var reads = 0;
+Object.defineProperty(object, '5', {get: function() { reads++; return 5; }});
+assert(Reflect.ownKeys(object)[5] === '5' && reads === 0, 'key enumeration never invokes accessors');
+assert(Reflect.ownKeys(Object.create(null)).length === 0, 'empty list');
+assert(Reflect.ownKeys({'3': true}).join(',') === '3', 'single numeric key');
+"#,
+    );
+}
