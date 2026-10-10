@@ -2653,6 +2653,27 @@ where
         value.emit(function);
         self.emit_set(function);
     }
+
+    /// Copies the rooted prefix without exposing untyped array instructions.
+    /// Source and destination have the same declared element and owner types.
+    pub(crate) fn copy_prefix_from(
+        &self,
+        destination: &GcLocal<T>,
+        source: &GcLocal<T>,
+        length: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        destination.load(schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        source.load(schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        length.load(function);
+        function.instruction(&Instruction::ArrayCopy {
+            array_type_index_dst: self.type_index().raw(),
+            array_type_index_src: self.type_index().raw(),
+        });
+    }
 }
 
 pub(crate) struct StringConstruction {

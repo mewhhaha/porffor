@@ -48,6 +48,17 @@ The red checkpoints and original deadlines are preserved.
 See the [cloud receipt](docs/rust-rewrite/cloud-continuation-20261009.md)
 and [operational handoff](CONTINUE.md).
 
+Ordinary named-property storage now separates insertion extent from capacity.
+Appending grows the table geometrically and copies its rooted prefix with
+Wasm GC `array.copy`; deletion and re-addition preserve String/Symbol key order.
+Arguments indexed descriptors also grow geometrically, while spare null slots
+remain absent and their parameter mapping stays independent. Named-key lookup
+is still linear. All 969 backend controls, 44 focused native controls and a fresh
+identity-checked 191-ID product fake run pass; the earlier complete engine/CLI
+sweeps describe the preceding checkpoint. See the
+[storage receipt](docs/rust-rewrite/property-storage-20261010.md) and
+[storage contract](docs/rust-rewrite/contracts/ordinary-allocation-and-to-object-runtime-helpers.md).
+
 Managed cloud verification uses `python3 scripts/limited_verification.py --cloud
 -- <command>` with the machine's finite inherited memory limit and serial
 workers by default. Optional `--cloud-cpus auto` bounds affinity by inherited

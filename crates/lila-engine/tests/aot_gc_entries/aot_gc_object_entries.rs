@@ -31,6 +31,48 @@ fn assert_object(source: &str) {
 }
 
 #[test]
+fn property_growth_preserves_order_descriptors_and_reentrant_gc_roots() {
+    assert_object(
+        r#"
+var object = Object.create(null), token = {}, first = Symbol('same'), second = Symbol('same');
+object.before = token;
+object[first] = token;
+for (var i = 0; i < 129; i++) object['key' + i] = i;
+object[second] = 2;
+object['2'] = 'two'; object['1'] = 'one'; object['01'] = 'named';
+object['\uD83D\uDE00\uD800'] = token;
+var names = Object.getOwnPropertyNames(object);
+assert(names.slice(0, 4).join(',') === '1,2,before,key0', 'numeric keys precede insertion-ordered names');
+assert(object[first] === token && object[second] === 2 && object['\uD83D\uDE00\uD800'] === token, 'distinct symbols and exact UTF16 keys');
+for (var i = 0; i < 129; i++) assert(object['key' + i] === i, 'old entries survive each growth');
+var snapshot = Object.getOwnPropertyDescriptor(object, 'key64');
+object.key64 = token;
+assert(snapshot.value === 64 && object.key64 === token, 'descriptor snapshot remains separate from stored descriptor');
+assert(delete object.before && delete object.key0 && delete object.key128 && delete object[first], 'delete ordered entries');
+object.before = token; object.key0 = 1000; object[first] = token;
+names = Object.getOwnPropertyNames(object);
+assert(names.slice(-2).join(',') === 'before,key0' && names.indexOf('key128') === -1, 're-added strings append after surviving names');
+var symbols = Object.getOwnPropertySymbols(object);
+assert(symbols.length === 2 && symbols[0] === second && symbols[1] === first, 're-added symbol appends after surviving symbols');
+var reads = 0;
+Object.defineProperty(object, 'key63', {get: function() {
+    reads++;
+    for (var j = 0; j < 140; j++) object['grown' + j] = j;
+    gc();
+    return token;
+}, configurable: true});
+assert(object.key63 === token && reads === 1, 'one getter survives table replacement and collection');
+assert(Object.getOwnPropertyDescriptor(object, 'key63').get !== undefined && reads === 1, 'descriptor reads do not invoke getter');
+Object.defineProperty(object, 'fixed', {value: undefined});
+assert(Object.hasOwn(object, 'fixed') && !Reflect.set(object, 'fixed', 9), 'all-false descriptor remains present');
+Object.preventExtensions(object);
+assert(!Reflect.defineProperty(object, 'absent', {value: 1}) && !Object.hasOwn(object, 'absent'), 'spare capacity cannot bypass extensibility');
+assert(object.before === token && object.key64 === token, 'rooted values remain live');
+"#,
+    );
+}
+
+#[test]
 fn define_properties_converts_all_before_applying_and_retains_partial_presence() {
     assert_object(
         r#"

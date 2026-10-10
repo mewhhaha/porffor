@@ -30,7 +30,7 @@ fn async_generator_classic_for_registers_activation_owned_lexicals_before_loop_p
     );
 
     for initializer in [
-        "Some(ForInitIr::Lexical { name, .. })",
+        "Some(ForInitIr::Lexical { mode, name, .. })",
         "Some(ForInitIr::LexicalBlock(bindings))",
     ] {
         assert!(activation_ownership.contains(initializer), "{initializer}");
@@ -45,6 +45,14 @@ fn async_generator_classic_for_registers_activation_owned_lexicals_before_loop_p
         3,
         "the lexical initializer, initializer block and direct body lexical paths must register"
     );
+    assert_eq!(
+        activation_ownership
+            .matches("self.add_suspension_owned_binding(name.clone(), *mode);")
+            .count(),
+        2,
+        "initializer and body bindings retain their actual write policy"
+    );
+    assert!(activation_ownership.contains("binding.mode,"));
 
     assert_before(
         activation_ownership,
@@ -54,11 +62,11 @@ fn async_generator_classic_for_registers_activation_owned_lexicals_before_loop_p
     assert_before(
         activation_ownership,
         ".chain(after_suspension.iter())",
-        "if let StatementIr::Lexical { name, .. } = statement",
+        "if let StatementIr::Lexical { mode, name, .. } = statement",
     );
     assert_before(
         loop_split,
-        "self.add_suspension_owned_binding(name.clone());",
+        "self.add_suspension_owned_binding(name.clone(), *mode);",
         "let exit_state = if self.current_resumable_plan.is_some()",
     );
 }

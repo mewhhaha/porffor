@@ -44,6 +44,58 @@ fn property<'a>(
 }
 
 #[test]
+fn property_growth_snapshot_preserves_live_insertion_extent_without_spare_slots() {
+    let outcome = observe(
+        r#"
+var object = Object.create(null);
+for (var i = 0; i < 65; i++) object['key' + i] = i;
+delete object.key0; delete object.key32; delete object.key64;
+object.key0 = 1000;
+object['2'] = 2; object['1'] = 1;
+object[Symbol('last')] = object;
+gc();
+object;
+"#,
+        SnapshotLimits::default(),
+    );
+    let SnapshotOutcome::Captured { graph } = outcome.completion.outcome else {
+        panic!("graph was rejected: {:?}", outcome.completion.outcome);
+    };
+    assert_eq!(graph.root(), &SnapshotValue::Object { id: 0 });
+    let root = &graph.nodes()[0];
+    assert_eq!(root.properties.len(), 66);
+    let names = root
+        .properties
+        .iter()
+        .filter_map(|property| match &property.key {
+            SnapshotKey::String { units } => Some(String::from_utf16(units.units()).unwrap()),
+            SnapshotKey::Symbol { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let expected = ["1".into(), "2".into()]
+        .into_iter()
+        .chain(
+            (1..64)
+                .filter(|index| *index != 32)
+                .map(|index| format!("key{index}")),
+        )
+        .chain(["key0".into()])
+        .collect::<Vec<String>>();
+    assert_eq!(names, expected);
+    assert!(matches!(
+        root.properties.last().unwrap().key,
+        SnapshotKey::Symbol { .. }
+    ));
+    assert!(matches!(
+        root.properties.last().unwrap().descriptor,
+        SnapshotDescriptor::Data {
+            value: SnapshotValue::Object { id: 0 },
+            ..
+        }
+    ));
+}
+
+#[test]
 fn original_throw_is_rooted_through_jobs_without_running_getters_or_symbol_hooks() {
     let outcome = observe(
         r#"

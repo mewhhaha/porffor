@@ -2,9 +2,9 @@ use super::*;
 use crate::functions::FunctionNamePrefix;
 use crate::gc_types::{
     CompletionLocals, GcLocal, GcOperand, GcStackReference, I32Local, I64Local, Nullable,
-    OrdinaryObject, OrdinaryObjectSchema, PrivateElementTable, PropertyDescriptor,
-    PropertyDescriptorSchema, PropertyEntry, PropertyEntrySchema, PropertyTable, ProxyObject,
-    ScalarValue, StoredValue, ValueLocals,
+    OrdinaryObject, OrdinaryObjectSchema, OrdinaryPropertyStorage, OrdinaryPropertyStorageSchema,
+    PrivateElementTable, PropertyDescriptor, PropertyDescriptorSchema, PropertyEntry,
+    PropertyEntrySchema, PropertyTable, ProxyObject, ScalarValue, StoredValue, ValueLocals,
 };
 use crate::operations::BigIntNumberPolicy;
 pub(crate) use crate::operations::PropertyKeyLocals;
@@ -42,6 +42,7 @@ pub(crate) use descriptor_object::{
 use module_namespace::NamespaceBindingRead;
 pub(crate) use module_namespace::NamespaceOwnKeys;
 mod private_elements;
+mod property_storage;
 mod proxy_own_keys_list;
 pub(crate) use proxy_own_keys_list::CompletedOwnPropertyKeys;
 mod proxy_target_descriptor;
@@ -366,12 +367,18 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<GcLocal<PropertyDescriptor, Nullable>, EmitError> {
         let schema = self.runtime_schema();
-        let table_slot = schema.reserve_gc_local(function);
-        let table = table_slot.initialize(
+        let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<OrdinaryObject>()
                 .field(OrdinaryObjectSchema::PROPERTIES)
                 .read(object, schema, function)
+                .reference(),
+            function,
+        );
+        let table = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(OrdinaryPropertyStorageSchema::ENTRIES)
+                .read(&storage, schema, function)
                 .reference(),
             function,
         );
@@ -381,8 +388,10 @@ impl<'a> FunctionBuilder<'a> {
         let length = schema.reserve_i32_local(function);
         let index = schema.reserve_i32_local(function);
         let entries = schema.array_type::<PropertyTable>();
-        entries.length(&table, schema, function);
-        length.store(function);
+        schema
+            .field(OrdinaryPropertyStorageSchema::LENGTH)
+            .read(&storage, schema, function)
+            .store(length, function);
         // Own keys are unique, so scan order cannot change the match; newest
         // first finds script-created properties before the builtin prefix.
         length.load(function);
@@ -449,6 +458,7 @@ impl<'a> FunctionBuilder<'a> {
         schema.release_i32_local(index, function);
         schema.release_i32_local(length, function);
         table.clear(function);
+        storage.clear(function);
         Ok(result)
     }
 
@@ -865,147 +875,6 @@ impl<'a> FunctionBuilder<'a> {
         stored_getter.clear(function);
         stored_value.clear(function);
         descriptor
-    }
-
-    fn emit_ordinary_append_property_entry(
-        &self,
-        object: &GcLocal<OrdinaryObject>,
-        key: &PropertyKeyLocals,
-        descriptor: &GcLocal<PropertyDescriptor>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.runtime_schema().call_helper(
-            crate::runtime_helpers::OrdinaryPropertyAppendArguments::new(object, key, descriptor),
-            self.runtime_helper_base()?,
-            function,
-        );
-        Ok(())
-    }
-
-    pub(crate) fn compile_ordinary_property_append_helper(
-        &mut self,
-    ) -> Result<Function, EmitError> {
-        let mut function =
-            self.begin_helper_body(crate::runtime_helpers::RuntimeHelperId::OrdinaryPropertyAppend);
-        let parameters = self
-            .helper_parameters::<crate::runtime_helpers::OrdinaryPropertyAppendParameters>(
-                &mut function,
-            );
-        self.emit_ordinary_append_property_entry_inner(
-            &parameters.object,
-            &parameters.key,
-            &parameters.descriptor,
-            &mut function,
-        );
-        parameters.release(&mut function);
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
-    }
-
-    /// Appends the actual GC entry and preserves existing table order and holes.
-    /// The object retains the replacement table before temporary roots retire.
-    /// Only the registered helper body emits this physical copying algorithm.
-    fn emit_ordinary_append_property_entry_inner(
-        &self,
-        object: &GcLocal<OrdinaryObject>,
-        key: &PropertyKeyLocals,
-        descriptor: &GcLocal<PropertyDescriptor>,
-        function: &mut Function,
-    ) {
-        let schema = self.runtime_schema();
-        let table_slot = schema.reserve_gc_local(function);
-        let table = table_slot.initialize(
-            schema
-                .struct_type::<OrdinaryObject>()
-                .field(OrdinaryObjectSchema::PROPERTIES)
-                .read(object, schema, function)
-                .reference(),
-            function,
-        );
-        let length = schema.reserve_i32_local(function);
-        let new_length = schema.reserve_i32_local(function);
-        let index = schema.reserve_i32_local(function);
-        let entries = schema.array_type::<PropertyTable>();
-        entries.length(&table, schema, function);
-        length.store(function);
-        length.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        new_length.store(function);
-        let replacement_slot = schema.reserve_gc_local(function);
-        let replacement = replacement_slot.initialize(
-            entries.filled(GcOperand::null(schema), new_length, function),
-            function,
-        );
-        function.instruction(&Instruction::I32Const(0));
-        index.store(function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        index.load(function);
-        length.load(function);
-        function.instruction(&Instruction::I32GeU);
-        function.instruction(&Instruction::BrIf(1));
-        let old_entry_slot = schema.reserve_gc_local(function);
-        let old_entry = old_entry_slot.initialize(
-            entries.read(&table, index, schema, function).reference(),
-            function,
-        );
-        entries.write(
-            &replacement,
-            index,
-            GcOperand::reference(&old_entry, schema),
-            schema,
-            function,
-        );
-        old_entry.clear(function);
-        index.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        index.store(function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        let stored_key_slot = schema.reserve_gc_local(function);
-        let stored_key = stored_key_slot.initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(key.value(), function),
-            function,
-        );
-        let entry_slot = schema.reserve_gc_local(function);
-        let entry = entry_slot.initialize(
-            schema.struct_type::<PropertyEntry>().construct(
-                (
-                    GcOperand::reference(&stored_key, schema),
-                    GcOperand::reference(descriptor, schema),
-                ),
-                function,
-            ),
-            function,
-        );
-        entries.write(
-            &replacement,
-            length,
-            GcOperand::nullable_reference(&entry, schema),
-            schema,
-            function,
-        );
-        schema
-            .struct_type::<OrdinaryObject>()
-            .field(OrdinaryObjectSchema::PROPERTIES)
-            .write(
-                object,
-                GcOperand::reference(&replacement, schema),
-                schema,
-                function,
-            );
-        entry.clear(function);
-        stored_key.clear(function);
-        replacement.clear(function);
-        schema.release_i32_local(index, function);
-        schema.release_i32_local(new_length, function);
-        schema.release_i32_local(length, function);
-        table.clear(function);
     }
 
     fn emit_object_method_value_to_locals(
@@ -3191,7 +3060,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_header_projection(object, function),
             function,
         );
-        let table = schema.reserve_gc_local(function).initialize(
+        let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<OrdinaryObject>()
                 .field(OrdinaryObjectSchema::PROPERTIES)
@@ -3199,12 +3068,19 @@ impl<'a> FunctionBuilder<'a> {
                 .reference(),
             function,
         );
+        let table = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(OrdinaryPropertyStorageSchema::ENTRIES)
+                .read(&storage, schema, function)
+                .reference(),
+            function,
+        );
         let index = schema.reserve_i32_local(function);
         let length = schema.reserve_i32_local(function);
         schema
-            .array_type::<PropertyTable>()
-            .length(&table, schema, function);
-        length.store(function);
+            .field(OrdinaryPropertyStorageSchema::LENGTH)
+            .read(&storage, schema, function)
+            .store(length, function);
         function.instruction(&Instruction::I32Const(0));
         index.store(function);
         self.open_frame(ControlFrameKind::Block, function);
@@ -3269,6 +3145,7 @@ impl<'a> FunctionBuilder<'a> {
         schema.release_i32_local(length, function);
         schema.release_i32_local(index, function);
         table.clear(function);
+        storage.clear(function);
         header.clear(function);
         Ok(())
     }

@@ -130,6 +130,43 @@ fn assert_arguments_output(source: &str) {
 }
 
 #[test]
+fn indexed_growth_keeps_spare_slots_absent_and_parameter_mapping_independent() {
+    assert_arguments_output(
+        r#"
+function make(first, second) {
+  var args = arguments;
+  for (var i = 2; i < 131; i++) {
+    Object.defineProperty(args, '' + i, {value: i, writable: true, enumerable: true, configurable: true});
+  }
+  assert(args.length === 2 && first === 11 && second === 22, 'capacity is neither Arguments length nor ParameterMap extent');
+  assert(!Object.hasOwn(args, '131') && !(131 in args) && args[131] === undefined, 'spare slots remain absent');
+  var names = Object.getOwnPropertyNames(args);
+  assert(names.length === 133 && names[0] === '0' && names[130] === '130' && names[131] === 'length' && names[132] === 'callee', 'only present indices enumerate before named keys');
+  args[1] = 44;
+  assert(second === 44, 'growth preserves the second mapped environment slot');
+  Object.defineProperty(args, '1', {writable: false});
+  second = 55;
+  assert(args[1] === 44 && second === 55, 'detaching after growth retains the current mapped value');
+  delete args[64];
+  assert(!Object.hasOwn(args, '64'), 'deleted index is absent');
+  Object.defineProperty(args, '64', {value: undefined});
+  var descriptor = Object.getOwnPropertyDescriptor(args, '64');
+  assert(Object.hasOwn(args, '64') && descriptor.value === undefined && !descriptor.writable && !descriptor.enumerable && !descriptor.configurable, 'all-false descriptor survives a reused empty index');
+  Object.defineProperty(args, '400', {value: 400, configurable: true});
+  assert(args[400] === 400 && !Object.hasOwn(args, '399') && !Object.hasOwn(args, '401'), 'large index growth leaves intervening and spare slots absent');
+  Object.preventExtensions(args);
+  assert(!Reflect.defineProperty(args, '132', {value: 1}) && !Object.hasOwn(args, '132'), 'spare capacity cannot create on a nonextensible object');
+}
+make(11, 22);
+var strict = (function() { 'use strict'; return arguments; })(7);
+strict[64] = 64;
+assert(strict.length === 1 && strict[0] === 7 && strict[64] === 64 && !Object.hasOwn(strict, '63'), 'unmapped strict Arguments grows without fabricating properties');
+print('ok');
+"#,
+    );
+}
+
+#[test]
 fn every_attribute_combination_remains_present_in_each_arguments_mode() {
     assert_arguments_output(
         r#"

@@ -23,6 +23,19 @@ zero.
 
 ## Indexed presence
 
+The Wasm GC representation owns nullable PropertyDescriptor entries in an
+IndexedTable. A null slot is absent; a nonnull descriptor is present even when
+all its attributes are false and its value is Undefined. Capacity grows to at
+least twice its old size (or the required index extent), with four slots as the
+minimum. Typed Wasm GC `array.copy` preserves descriptor references and null
+holes. Spare null slots do not create properties or enlarge the observable
+`length`, and do not extend the separate exact ParameterMap. Own-key enumeration
+and deletion inspect presence, while descriptor admission still checks
+extensibility before growth or publication. Array index storage remains separate.
+
+The following descriptor-word rules describe the retained scalar lowering and
+mapping carrier; they do not redefine GC null-slot presence.
+
 A zero indexed descriptor word denotes an absent property. A data property
 whose writable, enumerable and configurable attributes are all false is still
 present, including when its value is `undefined` and it has no ParameterMap

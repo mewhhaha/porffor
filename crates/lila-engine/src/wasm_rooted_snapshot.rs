@@ -606,9 +606,16 @@ impl<S: AsContextMut<Data = WasmHostState>> SnapshotBackend for NativeSnapshot<'
                 },
             ));
         }
-        let properties = self.required_reference(header, F::ObjectProperties)?;
+        let storage = self.required_reference(header, F::ObjectProperties)?;
+        let length = match self.field(storage, F::PropertiesLength)? {
+            WasmtimeVal::I32(extent) => extent as u32,
+            _ => return Err(invariant("invalid ordinary property extent")),
+        };
+        let properties = self.required_reference(storage, F::PropertiesEntries)?;
         let properties = self.array(properties, L::Properties)?;
-        let length = properties.len(&*self.store).map_err(invariant)?;
+        if length > properties.len(&*self.store).map_err(invariant)? {
+            return Err(invariant("ordinary property extent exceeds capacity"));
+        }
         budget.work(length as usize)?;
         for ordinal in 0..length {
             let raw = properties

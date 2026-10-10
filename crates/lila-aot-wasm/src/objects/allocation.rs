@@ -106,11 +106,20 @@ impl FunctionBuilder<'_> {
         let zero = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(0));
         zero.store(function);
-        let properties_slot = schema.reserve_gc_local(function);
-        let properties = properties_slot.initialize(
+        let entries = schema.reserve_gc_local(function).initialize(
             schema
                 .array_type::<PropertyTable>()
                 .filled(GcOperand::null(schema), zero, function),
+            function,
+        );
+        let properties = schema.reserve_gc_local(function).initialize(
+            schema.struct_type::<OrdinaryPropertyStorage>().construct(
+                (
+                    GcOperand::reference(&entries, schema),
+                    GcOperand::i32_local(zero),
+                ),
+                function,
+            ),
             function,
         );
         let private_elements_slot = schema.reserve_gc_local(function);
@@ -135,6 +144,7 @@ impl FunctionBuilder<'_> {
         );
         private_elements.clear(function);
         properties.clear(function);
+        entries.clear(function);
         schema.release_i32_local(zero, function);
         prototype_record.clear(function);
         Ok(object)

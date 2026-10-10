@@ -170,6 +170,28 @@ script and startup instructions are tested and saved through the environment
 configuration draft workflow; Review/Publish is its activation step. No task
 states or publisher conformance totals are changed by hand.
 
+## Property storage checkpoint — 2026-10-10
+
+The next verified batch gives ordinary named-property tables an explicit logical
+insertion extent and geometric capacity. Typed Wasm GC `array.copy` preserves
+the rooted live prefix; deletion holes and String/Symbol insertion order stay
+intact. Arguments indexed descriptors also grow geometrically with null spare
+slots kept absent and the parameter map independently bounded. Rooted completion
+snapshots read the logical extent. Lookup remains linear.
+
+All 969 unique backend controls and 44 focused native controls pass, including
+GC during a getter, descriptor attributes, deletion/re-addition, sparse Arguments,
+Proxy/global-reference behavior and snapshots. The first backend sweep exposed
+a stale source guard for already-correct loop binding modes; the corrected guard
+and all remaining targets pass. A fresh identity-checked product fake run passes
+all 191 exact IDs over 190 files, including all 187 Wasm-safe IDs, in 209.105
+watched seconds with the original 60,000-ms deadlines and four isolated cases.
+The fixed three-round 4,096-key ordinary/Arguments probe passes before and after;
+execution measures 110.275 and 105.292 seconds respectively. These single samples
+do not establish a general speedup. Full engine/CLI sweeps above describe the
+prior checkpoint, not a fresh complete sweep of this storage change.
+See the [storage receipt](docs/rust-rewrite/property-storage-20261010.md).
+
 ## Blocked historical replay and remaining work
 
 The requested September 30 aggregate with 5,365 exact failing execution IDs is
@@ -177,8 +199,8 @@ absent; the owner believes it was local and never pushed. Do not ask again,
 substitute another snapshot or claim the historical replay completed.
 Its former path was `target/publication-freeze-20260930-*/test262/snapshots/`.
 
-Further work includes amortized ordinary/indexed property-table growth, an index
-for large global objects and folded HasProperty/Get. Previously recorded compiler
+Further work includes an index for large global objects and folded
+HasProperty/Get. Geometric ordinary/Arguments table growth is now implemented. Previously recorded compiler
 gaps include the vendored parser's parenthesized member assignment target, Bytes
 module kind, logical/compound `with` RHS representation and AST-based module
 syntax stripping. These are separate follow-up scopes, not results of this batch.

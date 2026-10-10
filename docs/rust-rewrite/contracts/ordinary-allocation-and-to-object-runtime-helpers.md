@@ -17,10 +17,22 @@ closed `ObjectPrototypeMutability` policy, the registered helper compiler, and
 the private physical allocation kernel. The ordinary facade selects Mutable;
 the Object.prototype bootstrap facade selects Immutable. An absent prototype
 becomes the original Null Value before the call. The kernel retains the
-prototype in a StoredValue, allocates independent empty PropertyTable and
+prototype in a StoredValue, allocates independent OrdinaryPropertyStorage and
 PrivateElementTable records, and constructs the original extensible header
 with its selected mutation policy and zero identity hash. The allocator does
 not choose a Realm or invoke JavaScript.
+
+The header retains an immutable edge to its property storage. That record owns
+the ordered PropertyTable and logical insertion extent; only its table edge and
+extent mutate. Named-property append doubles capacity when full, starting at
+four slots, and uses typed Wasm GC `array.copy` to retain the old prefix. Spare
+slots are null and lie outside the logical extent. Lookup, deletion, own-key
+enumeration and rooted snapshots read the logical extent. Deletion clears an
+entry without rewinding it, so re-adding a String or Symbol key appends in the
+proper insertion order. Descriptor replacement keeps its original entry.
+Capacity arithmetic never wraps into a smaller allocation. Physical limits
+remain runtime resource failures. Linear key lookup is unchanged; the aggregate
+copying and table allocation cost of repeated appends is now amortized linear.
 
 The facade consumes `ReferenceHelperResult` through the shared
 `RuntimeSchema::helper_reference_on_stack` converter. This returns the existing

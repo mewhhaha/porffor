@@ -708,7 +708,7 @@ gc_layout_registry! {
         }
         struct OrdinaryObject => OrdinaryObjectSchema {
             PROTOTYPE: GcRef<StoredValue>, Mutable, NonNullable;
-            PROPERTIES: GcRef<PropertyTable>, Mutable, NonNullable;
+            PROPERTIES: GcRef<OrdinaryPropertyStorage>, Immutable, NonNullable;
             PRIVATE_ELEMENTS: GcRef<PrivateElementTable>, Mutable, NonNullable;
             EXTENSIBLE: bool, Mutable, NonNullable;
             IMMUTABLE_PROTOTYPE: bool, Immutable, NonNullable;
@@ -746,6 +746,12 @@ gc_layout_registry! {
             DESCRIPTOR: GcRef<PropertyDescriptor>, Mutable, NonNullable;
         }
         array PropertyTable => PropertyTableSchema { ELEMENT: GcRef<PropertyEntry>, Mutable, Nullable; }
+        // Logical insertion extent is independent of spare capacity and holes.
+        // Existing descriptors stay in place; deletion never rewinds LENGTH.
+        struct OrdinaryPropertyStorage => OrdinaryPropertyStorageSchema {
+            ENTRIES: GcRef<PropertyTable>, Mutable, NonNullable;
+            LENGTH: I32Value, Mutable, NonNullable;
+        }
         array IndexedTable => IndexedTableSchema { ELEMENT: GcRef<PropertyDescriptor>, Mutable, Nullable; }
         // Arrays retain occupied indices independently of observable length.
         // Only the storage constructor and registered mutation bodies own the

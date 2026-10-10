@@ -430,10 +430,17 @@ impl FunctionBuilder<'_> {
             self.emit_object_header_projection(target, function),
             function,
         );
-        let properties = schema.reserve_gc_local(function).initialize(
+        let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryObjectSchema::PROPERTIES)
                 .read(&header, schema, function)
+                .reference(),
+            function,
+        );
+        let properties = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(OrdinaryPropertyStorageSchema::ENTRIES)
+                .read(&storage, schema, function)
                 .reference(),
             function,
         );
@@ -571,9 +578,9 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         schema
-            .array_type::<PropertyTable>()
-            .length(&properties, schema, function);
-        named_length.store(function);
+            .field(OrdinaryPropertyStorageSchema::LENGTH)
+            .read(&storage, schema, function)
+            .store(named_length, function);
         named_length.load(function);
         function.instruction(&Instruction::I64ExtendI32U);
         indexed_length.load(function);
@@ -748,6 +755,7 @@ impl FunctionBuilder<'_> {
         array_keys.clear(function);
         indexed.clear(function);
         properties.clear(function);
+        storage.clear(function);
         header.clear(function);
         Ok(())
     }

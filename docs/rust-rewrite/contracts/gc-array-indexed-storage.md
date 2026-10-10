@@ -5,7 +5,8 @@ Status: the MAIN139 fresh-literal initialization changes are authored on
 
 ArrayObject retains one ArrayIndexStorage reference and an independent unsigned
 Array length. ArrayCreate allocates eight empty hash buckets regardless of that
-length. ArgumentsObject retains its bounded argv descriptor table; it is not an
+length. ArgumentsObject retains a separate geometrically grown descriptor table
+with absent null slots and an independently sized ParameterMap; it is not an
 alternative Array representation. There is no dense Array backing store, hole
 bitmap, numeric semantic address or size threshold that changes Array behavior.
 

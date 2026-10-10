@@ -883,8 +883,8 @@ impl FunctionBuilder<'_> {
     ) {
         let schema = self.runtime_schema();
         let length = schema.reserve_i32_local(function);
+        let required = schema.reserve_i32_local(function);
         let replacement_length = schema.reserve_i32_local(function);
-        let cursor = schema.reserve_i32_local(function);
         let array = schema.array_type::<crate::gc_types::IndexedTable>();
         array.length(table, schema, function);
         length.store(function);
@@ -895,43 +895,18 @@ impl FunctionBuilder<'_> {
         index.load(function);
         function.instruction(&Instruction::I32Const(1));
         function.instruction(&Instruction::I32Add);
-        replacement_length.store(function);
+        required.store(function);
+        self.emit_property_table_growth_capacity(length, required, replacement_length, function);
         let replacement = schema.reserve_gc_local(function).initialize(
             array.filled(GcOperand::null(schema), replacement_length, function),
             function,
         );
-        function.instruction(&Instruction::I32Const(0));
-        cursor.store(function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        cursor.load(function);
-        length.load(function);
-        function.instruction(&Instruction::I32GeU);
-        function.instruction(&Instruction::BrIf(1));
-        let descriptor = schema.reserve_gc_local(function).initialize(
-            array.read(table, cursor, schema, function).reference(),
-            function,
-        );
-        array.write(
-            &replacement,
-            cursor,
-            GcOperand::reference(&descriptor, schema),
-            schema,
-            function,
-        );
-        descriptor.clear(function);
-        cursor.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        cursor.store(function);
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
+        array.copy_prefix_from(&replacement, table, length, schema, function);
         table.replace(replacement.load(schema, function), function);
         replacement.clear(function);
         function.instruction(&Instruction::End);
-        schema.release_i32_local(cursor, function);
         schema.release_i32_local(replacement_length, function);
+        schema.release_i32_local(required, function);
         schema.release_i32_local(length, function);
     }
 
