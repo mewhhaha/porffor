@@ -211,6 +211,7 @@ fn nested_array_requests_share_bounded_async_generator_scheduling_helpers() {
     let bootstrap_helpers = [
         "helper::function_metadata_publish",
         "helper::ordinary_property_append",
+        "helper::ordinary_property_find",
         "helper::object_header_projection",
         "helper::ordinary_object_allocate",
         "helper::value_to_object",

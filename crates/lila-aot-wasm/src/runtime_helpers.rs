@@ -825,6 +825,7 @@ runtime_helper_domain! {
     ObjectRead / ObjectReadArguments / ObjectReadParameters / "object_read" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectWrite / ObjectWriteArguments / ObjectWriteParameters / "object_write" { target:Value,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectDefineData / ObjectDefineDataArguments / ObjectDefineDataParameters / "object_define_data" { target:Value,key:Key,value:Value,writable:I32,enumerable:I32,configurable:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    OrdinaryPropertyFind / OrdinaryPropertyFindArguments / OrdinaryPropertyFindParameters / "ordinary_property_find" { object:(Ref OrdinaryObject NonNullable),key:Key } => (Ref PropertyEntry Nullable);
     OrdinaryPropertyAppend / OrdinaryPropertyAppendArguments / OrdinaryPropertyAppendParameters / "ordinary_property_append" { object:(Ref OrdinaryObject NonNullable),key:Key,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
     ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
     OrdinaryObjectAllocate / OrdinaryObjectAllocateArguments / OrdinaryObjectAllocateParameters / "ordinary_object_allocate" { prototype:Value,immutable_prototype:I32 } => (Ref OrdinaryObject NonNullable);
@@ -933,6 +934,7 @@ impl RuntimeHelperId {
             Self::ObjectRead => HelperOwner::Runtime,
             Self::ObjectWrite => HelperOwner::Runtime,
             Self::ObjectDefineData => HelperOwner::Runtime,
+            Self::OrdinaryPropertyFind => HelperOwner::Runtime,
             Self::OrdinaryPropertyAppend => HelperOwner::Runtime,
             Self::ObjectHeaderProjection => HelperOwner::Runtime,
             Self::OrdinaryObjectAllocate => HelperOwner::Runtime,
@@ -1027,6 +1029,7 @@ impl RuntimeHelperId {
             Self::ObjectRead => true,
             Self::ObjectWrite => true,
             Self::ObjectDefineData => true,
+            Self::OrdinaryPropertyFind => true,
             Self::OrdinaryPropertyAppend => true,
             Self::ObjectHeaderProjection => true,
             Self::OrdinaryObjectAllocate => true,

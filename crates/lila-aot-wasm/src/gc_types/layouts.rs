@@ -744,6 +744,8 @@ gc_layout_registry! {
         struct PropertyEntry => PropertyEntrySchema {
             KEY: GcRef<StoredValue>, Immutable, NonNullable;
             DESCRIPTOR: GcRef<PropertyDescriptor>, Mutable, NonNullable;
+            HASH: I64Value, Immutable, NonNullable;
+            POSITION: I32Value, Immutable, NonNullable;
         }
         array PropertyTable => PropertyTableSchema { ELEMENT: GcRef<PropertyEntry>, Mutable, Nullable; }
         // Logical insertion extent is independent of spare capacity and holes.
@@ -751,7 +753,10 @@ gc_layout_registry! {
         struct OrdinaryPropertyStorage => OrdinaryPropertyStorageSchema {
             ENTRIES: GcRef<PropertyTable>, Mutable, NonNullable;
             LENGTH: I32Value, Mutable, NonNullable;
+            INDEX: GcRef<OrdinaryPropertyIndex>, Mutable, NonNullable;
         }
+        // Zero is empty; other buckets are ordered entry positions plus one.
+        array OrdinaryPropertyIndex => OrdinaryPropertyIndexSchema { ELEMENT: I32Value, Mutable, NonNullable; }
         array IndexedTable => IndexedTableSchema { ELEMENT: GcRef<PropertyDescriptor>, Mutable, Nullable; }
         // Arrays retain occupied indices independently of observable length.
         // Only the storage constructor and registered mutation bodies own the

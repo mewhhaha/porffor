@@ -47,6 +47,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::ObjectRead
             | RuntimeHelperId::ObjectWrite
             | RuntimeHelperId::ObjectDefineData
+            | RuntimeHelperId::OrdinaryPropertyFind
             | RuntimeHelperId::OrdinaryPropertyAppend
             | RuntimeHelperId::ObjectHeaderProjection
             | RuntimeHelperId::OrdinaryObjectAllocate

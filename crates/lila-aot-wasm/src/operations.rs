@@ -15,6 +15,7 @@ mod coercive_add;
 mod has_instance;
 mod number_remainder;
 mod number_to_string;
+mod property_key_hash;
 mod string_trim;
 mod to_object;
 

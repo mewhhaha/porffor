@@ -43,51 +43,7 @@ impl FunctionBuilder<'_> {
         let text = s
             .reserve_gc_local(f)
             .initialize(key.cast_reference::<StringValue>(s, f), f);
-        let units = s.reserve_gc_local(f).initialize(
-            s.struct_type::<StringValue>()
-                .field(StringValueSchema::CODE_UNITS)
-                .read(&text, s, f)
-                .reference(),
-            f,
-        );
-        let index = s.reserve_i32_local(f);
-        let count = s.reserve_i32_local(f);
-        let unit = s.reserve_i32_local(f);
-        s.array_type::<CodeUnitArray>().length(&units, s, f);
-        count.store(f);
-        f.instruction(&Instruction::I32Const(0));
-        index.store(f);
-        f.instruction(&Instruction::I64Const(-3750763034362895579));
-        hash.store(f);
-        let exit = self.open_frame(ControlFrameKind::Block, f);
-        let again = self.open_frame(ControlFrameKind::Loop, f);
-        index.load(f);
-        count.load(f);
-        f.instruction(&Instruction::I32GeU);
-        self.emit_branch_if_to_target(exit, f);
-        s.array_type::<CodeUnitArray>()
-            .read(&units, index, s, f)
-            .store(unit, f);
-        hash.load(f);
-        unit.load(f);
-        f.instruction(&Instruction::I64ExtendI32U);
-        f.instruction(&Instruction::I64Xor);
-        f.instruction(&Instruction::I64Const(1099511628211));
-        f.instruction(&Instruction::I64Mul);
-        hash.store(f);
-        index.load(f);
-        f.instruction(&Instruction::I32Const(1));
-        f.instruction(&Instruction::I32Add);
-        index.store(f);
-        self.emit_branch_to_target(again, f);
-        self.pop_control(ControlFrameKind::Loop);
-        f.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        f.instruction(&Instruction::End);
-        s.release_i32_local(unit, f);
-        s.release_i32_local(count, f);
-        s.release_i32_local(index, f);
-        units.clear(f);
+        self.emit_string_key_hash(&text, hash, f);
         text.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
@@ -159,19 +115,7 @@ impl FunctionBuilder<'_> {
         let symbol = s
             .reserve_gc_local(f)
             .initialize(key.cast_reference::<SymbolValue>(s, f), f);
-        s.struct_type::<SymbolValue>()
-            .field(SymbolValueSchema::KEY_HASH_ID)
-            .read(&symbol, s, f)
-            .store_i64(hash, f);
-        hash.load(f);
-        f.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, f);
-        s.emit_next_collection_key_hash_id(hash, f);
-        s.struct_type::<SymbolValue>()
-            .field(SymbolValueSchema::KEY_HASH_ID)
-            .write(&symbol, GcOperand::i64_local(hash), s, f);
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
+        self.emit_symbol_key_hash(&symbol, hash, f);
         symbol.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
@@ -196,28 +140,7 @@ impl FunctionBuilder<'_> {
         header.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        // Final mixing spreads scalar/id sequences before bucket reduction.
-        hash.load(f);
-        key.tag().load(f);
-        f.instruction(&Instruction::I64ExtendI32U);
-        f.instruction(&Instruction::I64Xor);
-        hash.store(f);
-        for (shift, multiplier) in [(33, -49064778989728563i64), (33, -4265267296055464877i64)] {
-            hash.load(f);
-            hash.load(f);
-            f.instruction(&Instruction::I64Const(shift));
-            f.instruction(&Instruction::I64ShrU);
-            f.instruction(&Instruction::I64Xor);
-            f.instruction(&Instruction::I64Const(multiplier));
-            f.instruction(&Instruction::I64Mul);
-            hash.store(f);
-        }
-        hash.load(f);
-        hash.load(f);
-        f.instruction(&Instruction::I64Const(33));
-        f.instruction(&Instruction::I64ShrU);
-        f.instruction(&Instruction::I64Xor);
-        hash.store(f);
+        self.emit_key_hash_tag_mix(key, hash, f);
     }
     pub(super) fn emit_collection_hash_bucket(
         &self,

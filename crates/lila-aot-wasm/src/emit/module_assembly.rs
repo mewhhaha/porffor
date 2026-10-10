@@ -1248,6 +1248,7 @@ pub(super) fn emit_script_module(
                 helper_bodies.insert(RuntimeHelperId::$id, builder.$compile()?);
             }};
         }
+        register_runtime_helper!(OrdinaryPropertyFind, compile_ordinary_property_find_helper);
         register_runtime_helper!(
             OrdinaryPropertyAppend,
             compile_ordinary_property_append_helper

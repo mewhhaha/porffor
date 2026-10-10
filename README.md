@@ -48,14 +48,17 @@ The red checkpoints and original deadlines are preserved.
 See the [cloud receipt](docs/rust-rewrite/cloud-continuation-20261009.md)
 and [operational handoff](CONTINUE.md).
 
-Ordinary named-property storage now separates insertion extent from capacity.
-Appending grows the table geometrically and copies its rooted prefix with
-Wasm GC `array.copy`; deletion and re-addition preserve String/Symbol key order.
-Arguments indexed descriptors also grow geometrically, while spare null slots
-remain absent and their parameter mapping stays independent. Named-key lookup
-is still linear. All 969 backend controls, 44 focused native controls and a fresh
-identity-checked 191-ID product fake run pass; the earlier complete engine/CLI
-sweeps describe the preceding checkpoint. See the
+Ordinary named-property storage separates insertion extent from capacity.
+Appending grows the table geometrically with typed Wasm GC `array.copy`;
+an auxiliary hash index resolves keys while the ordered table retains observable
+String/Symbol order. Deleted collision entries stay traversable, and re-adding a
+key appends it in order. Arguments indexed descriptors also grow geometrically,
+with spare null slots absent and their parameter mapping independent. Indexed
+lookup passes all 969 backend controls, 193 native controls and a fresh
+identity-checked 191-ID product fake run with zero failures/timeouts. The fixed
+4,096-key diagnostic measures 88.424 seconds of execution versus 105.292 seconds
+for geometric storage alone; these single samples establish no general speedup.
+See the [indexed-lookup receipt](docs/rust-rewrite/property-index-20261010.md),
 [storage receipt](docs/rust-rewrite/property-storage-20261010.md) and
 [storage contract](docs/rust-rewrite/contracts/ordinary-allocation-and-to-object-runtime-helpers.md).
 

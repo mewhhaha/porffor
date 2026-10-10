@@ -31,6 +31,46 @@ fn assert_object(source: &str) {
 }
 
 #[test]
+fn property_index_keeps_collision_chains_and_string_symbol_equality() {
+    assert_object(
+        r#"
+var object = Object.create(null);
+// These different UTF-16 strings share the low ten bits of the key hash.
+var keys = ['prop-98', 'prop-105', 'prop-120', 'prop-142'];
+for (var i = 0; i < keys.length; i++) object[keys[i]] = i;
+assert(delete object[keys[0]] && object[keys[3]] === 3, 'lookup crosses a deleted collision head');
+object[keys[2]] = 42;
+assert(Object.keys(object).join(',') === keys.slice(1).join(','), 'update preserves ordered slot');
+for (var i = 0; i < 130; i++) object['filler' + i] = i;
+assert(object[keys[1]] === 1 && object[keys[2]] === 42 && object[keys[3]] === 3, 'rehash preserves colliding entries');
+assert(delete object[keys[1]] && object[keys[3]] === 3, 'deleted collision middle stays traversable after growth');
+object[keys[0]] = 10; object[keys[1]] = 11;
+var names = Object.getOwnPropertyNames(object);
+assert(names.length === 134 && names.slice(-2).join(',') === keys[0] + ',' + keys[1], 'tombstone reuse does not change re-addition order');
+assert(object[keys[0]] === 10 && object[keys[1]] === 11 && !Object.hasOwn(object, 'missing'), 'exact key match after reuse');
+var text = 'prefix\uD83D\uDE00\uD800';
+object[text] = 23;
+assert(object['prefix' + String.fromCharCode(0xD83D, 0xDE00, 0xD800)] === 23, 'equal UTF16 content finds one entry');
+object['prefix\uD83D\uDE00\uFFFD'] = 24;
+assert(object[text] === 23 && object['prefix\uD83D\uDE00\uFFFD'] === 24, 'lone surrogate remains distinct from replacement character');
+var first = Symbol('same'), second = Symbol('same'), third = Symbol('same'), token = {};
+object[first] = token; object[second] = 2;
+var map = new Map([[first, 1], [second, 2], [third, 3]]);
+object[third] = 3;
+gc();
+assert(object[first] === token && object[second] === 2 && object[third] === 3, 'Symbol identity survives property-first and collection-first hashing');
+assert(map.get(first) === 1 && map.get(second) === 2 && map.get(third) === 3, 'property hashing preserves collection identity');
+assert(delete object[first] && !Object.hasOwn(object, first) && object[second] === 2, 'Symbol deletion remains separate');
+object[first] = token;
+var symbols = Object.getOwnPropertySymbols(object);
+assert(symbols.length === 3 && symbols[0] === second && symbols[1] === third && symbols[2] === first, 'Symbol re-addition order');
+Object.defineProperty(object, keys[3], {value: 30, writable: false, configurable: false});
+assert(!Reflect.set(object, keys[3], 40) && !Reflect.deleteProperty(object, keys[3]) && object[keys[3]] === 30, 'indexed descriptor retains attributes');
+"#,
+    );
+}
+
+#[test]
 fn property_growth_preserves_order_descriptors_and_reentrant_gc_roots() {
     assert_object(
         r#"

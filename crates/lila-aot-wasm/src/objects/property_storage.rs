@@ -1,6 +1,8 @@
 //! Capacity growth shared by the named and Arguments descriptor tables.
 use super::*;
 
+mod index;
+
 impl FunctionBuilder<'_> {
     pub(super) fn emit_ordinary_append_property_entry(
         &self,
@@ -31,7 +33,7 @@ impl FunctionBuilder<'_> {
             &parameters.key,
             &parameters.descriptor,
             &mut function,
-        );
+        )?;
         parameters.release(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
@@ -41,13 +43,18 @@ impl FunctionBuilder<'_> {
     /// Capacity doubles only when full; the storage retains a replacement
     /// before temporary roots retire. Deletion holes never become new slots.
     fn emit_ordinary_append_property_entry_inner(
-        &self,
+        &mut self,
         object: &GcLocal<OrdinaryObject>,
         key: &PropertyKeyLocals,
         descriptor: &GcLocal<PropertyDescriptor>,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
+        // Every publication path, including intrinsic installation, keeps one
+        // entry per key. Replacement preserves the first insertion position.
+        let previous = self.emit_ordinary_property_entry(object, key, function)?;
+        previous.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
         let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<OrdinaryObject>()
@@ -63,6 +70,16 @@ impl FunctionBuilder<'_> {
                 .reference(),
             function,
         );
+        let buckets = schema.reserve_gc_local(function).initialize(
+            schema
+                .field(OrdinaryPropertyStorageSchema::INDEX)
+                .read(&storage, schema, function)
+                .reference(),
+            function,
+        );
+        let hash = schema.reserve_i64_local(function);
+        self.emit_property_key_hash(key, hash, function);
+        let new_index_capacity = schema.reserve_i32_local(function);
         let length = schema.reserve_i32_local(function);
         let new_length = schema.reserve_i32_local(function);
         let capacity = schema.reserve_i32_local(function);
@@ -83,18 +100,52 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_property_table_growth_capacity(capacity, new_length, new_capacity, function);
+        // The index has twice the ordered capacity: a probe always reaches
+        // an empty bucket, even with every historical entry still present.
+        new_capacity.load(function);
+        function.instruction(&Instruction::I32Const(i32::MIN));
+        function.instruction(&Instruction::I32GeU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        new_capacity.load(function);
+        function.instruction(&Instruction::I32Const(1));
+        function.instruction(&Instruction::I32Shl);
+        new_index_capacity.store(function);
         let replacement_slot = schema.reserve_gc_local(function);
         let replacement = replacement_slot.initialize(
             entries.filled(GcOperand::null(schema), new_capacity, function),
             function,
         );
         entries.copy_prefix_from(&replacement, &table, length, schema, function);
+        let replacement_index = schema.reserve_gc_local(function).initialize(
+            schema.array_type::<OrdinaryPropertyIndex>().filled(
+                GcOperand::i32(0),
+                new_index_capacity,
+                function,
+            ),
+            function,
+        );
+        self.emit_ordinary_property_index_rehash(
+            &replacement_index,
+            &replacement,
+            length,
+            function,
+        );
         schema.field(OrdinaryPropertyStorageSchema::ENTRIES).write(
             &storage,
             GcOperand::reference(&replacement, schema),
             schema,
             function,
         );
+        schema.field(OrdinaryPropertyStorageSchema::INDEX).write(
+            &storage,
+            GcOperand::reference(&replacement_index, schema),
+            schema,
+            function,
+        );
+        buckets.replace(replacement_index.load(schema, function), function);
+        replacement_index.clear(function);
         table.replace(replacement.load(schema, function), function);
         replacement.clear(function);
         function.instruction(&Instruction::End);
@@ -111,6 +162,8 @@ impl FunctionBuilder<'_> {
                 (
                     GcOperand::reference(&stored_key, schema),
                     GcOperand::reference(descriptor, schema),
+                    GcOperand::i64_local(hash),
+                    GcOperand::i32_local(length),
                 ),
                 function,
             ),
@@ -123,6 +176,7 @@ impl FunctionBuilder<'_> {
             schema,
             function,
         );
+        self.emit_ordinary_property_index_publish(&buckets, &table, hash, length, function);
         schema.field(OrdinaryPropertyStorageSchema::LENGTH).write(
             &storage,
             GcOperand::i32_local(new_length),
@@ -131,12 +185,31 @@ impl FunctionBuilder<'_> {
         );
         entry.clear(function);
         stored_key.clear(function);
+        schema.release_i32_local(new_index_capacity, function);
+        schema.release_i64_local(hash, function);
         schema.release_i32_local(new_capacity, function);
         schema.release_i32_local(capacity, function);
         schema.release_i32_local(new_length, function);
         schema.release_i32_local(length, function);
+        buckets.clear(function);
         table.clear(function);
         storage.clear(function);
+        function.instruction(&Instruction::Else);
+        let present = schema.reserve_gc_local(function).initialize(
+            previous.load(schema, function).require_non_null(function),
+            function,
+        );
+        schema.field(PropertyEntrySchema::DESCRIPTOR).write(
+            &present,
+            GcOperand::reference(descriptor, schema),
+            schema,
+            function,
+        );
+        present.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        previous.clear(function);
+        Ok(())
     }
 
     /// Chooses max(4, required, 2 * capacity), without unsigned i32 wrap.

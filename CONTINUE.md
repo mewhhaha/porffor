@@ -199,8 +199,22 @@ absent; the owner believes it was local and never pushed. Do not ask again,
 substitute another snapshot or claim the historical replay completed.
 Its former path was `target/publication-freeze-20260930-*/test262/snapshots/`.
 
-Further work includes an index for large global objects and folded
-HasProperty/Get. Geometric ordinary/Arguments table growth is now implemented. Previously recorded compiler
+Indexed ordinary-property lookup now has collision/tombstone handling, shared
+UTF-16/Symbol hashing and one entry per key. Its frozen verification passes all
+969 backend controls and 193 native controls (including the complete 150-test
+GC-entry target), with zero failures/ignores. Fresh identity-checked product fake
+acceptance passes all 191 exact IDs, including all 187 raw Wasm-safe IDs, with
+zero failures/timeouts. The fixed probe measures 88.424 seconds of execution;
+this single sample is not a general benchmark. See the
+[indexed-lookup receipt](docs/rust-rewrite/property-index-20261010.md).
+Folded HasProperty/Get remains further work.
+Geometric ordinary/Arguments table growth is committed as `9c0862ddd`.
+A further measured-performance candidate is ordinary/exotic own-key construction:
+its candidate insertion linearly deduplicates, and its numeric ordering repeatedly
+scans the whole list. Preserve ascending numeric-index order even when a plain object stores those
+keys in a different insertion order, followed by other Strings and Symbols in
+insertion order; retain the separate observable Proxy duplicate/invariant checks. No timing or implementation
+claim for that follow-up is made here. Previously recorded compiler
 gaps include the vendored parser's parenthesized member assignment target, Bytes
 module kind, logical/compound `with` RHS representation and AST-based module
 syntax stripping. These are separate follow-up scopes, not results of this batch.

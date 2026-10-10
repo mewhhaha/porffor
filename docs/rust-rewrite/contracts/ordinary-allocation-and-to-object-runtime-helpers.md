@@ -23,16 +23,31 @@ with its selected mutation policy and zero identity hash. The allocator does
 not choose a Realm or invoke JavaScript.
 
 The header retains an immutable edge to its property storage. That record owns
-the ordered PropertyTable and logical insertion extent; only its table edge and
-extent mutate. Named-property append doubles capacity when full, starting at
-four slots, and uses typed Wasm GC `array.copy` to retain the old prefix. Spare
-slots are null and lie outside the logical extent. Lookup, deletion, own-key
-enumeration and rooted snapshots read the logical extent. Deletion clears an
-entry without rewinding it, so re-adding a String or Symbol key appends in the
-proper insertion order. Descriptor replacement keeps its original entry.
-Capacity arithmetic never wraps into a smaller allocation. Physical limits
-remain runtime resource failures. Linear key lookup is unchanged; the aggregate
-copying and table allocation cost of repeated appends is now amortized linear.
+an ordered PropertyTable, logical insertion extent and auxiliary hash index.
+Named-property append doubles capacity when full, starting at four slots, and
+uses typed Wasm GC `array.copy` to retain the old prefix. Spare slots are null
+and lie outside the logical extent. Own-key enumeration and rooted snapshots
+read this extent. Deletion clears an entry without rewinding it, so re-adding a
+String or Symbol appends in the proper insertion order. Descriptor replacement
+keeps its original entry. The shared append owner also checks for an existing
+key, so even direct intrinsic installation cannot publish duplicate entries.
+
+The registered OrdinaryPropertyFind helper returns a nullable PropertyEntry.
+Its open-addressed index has twice the ordered table's power-of-two capacity;
+zero buckets terminate a probe and nonzero buckets store insertion positions
+plus one. Deleted entries remain tombstones until reuse or rehash, so a deleted
+collision head cannot hide later keys. Each entry retains its full hash and
+immutable insertion position. Growth rebuilds the index from live entries;
+lookups compare full hashes and then complete String/Symbol semantic equality.
+The index never determines observable key order. Capacity arithmetic is checked
+before allocation or doubling. Physical limits remain runtime resource failures.
+
+Property and collection key hashing share the exact UTF-16 FNV loop, stable
+Symbol identity field and final tag mix in `operations/property_key_hash.rs`.
+No lossy UTF-8 conversion, Symbol description or GC reference address serves as
+identity. Number/BigInt/object collection hashing retains its original rules.
+Find, append and delete keep keys, entries and replacement arrays rooted; no
+JavaScript callback occurs between an index lookup and its physical mutation.
 
 The facade consumes `ReferenceHelperResult` through the shared
 `RuntimeSchema::helper_reference_on_stack` converter. This returns the existing

@@ -2,9 +2,10 @@ use super::*;
 use crate::functions::FunctionNamePrefix;
 use crate::gc_types::{
     CompletionLocals, GcLocal, GcOperand, GcStackReference, I32Local, I64Local, Nullable,
-    OrdinaryObject, OrdinaryObjectSchema, OrdinaryPropertyStorage, OrdinaryPropertyStorageSchema,
-    PrivateElementTable, PropertyDescriptor, PropertyDescriptorSchema, PropertyEntry,
-    PropertyEntrySchema, PropertyTable, ProxyObject, ScalarValue, StoredValue, ValueLocals,
+    OrdinaryObject, OrdinaryObjectSchema, OrdinaryPropertyIndex, OrdinaryPropertyStorage,
+    OrdinaryPropertyStorageSchema, PrivateElementTable, PropertyDescriptor,
+    PropertyDescriptorSchema, PropertyEntry, PropertyEntrySchema, PropertyTable, ProxyObject,
+    ScalarValue, StoredValue, ValueLocals,
 };
 use crate::operations::BigIntNumberPolicy;
 pub(crate) use crate::operations::PropertyKeyLocals;
@@ -358,8 +359,7 @@ impl<'a> FunctionBuilder<'a> {
             .read_into(source, destination, schema, function);
     }
 
-    /// Finds a named own descriptor without invoking getters. Table holes are
-    /// absent entries and String/Symbol keys use their actual semantic values.
+    /// Resolves a key through the auxiliary index without invoking getters.
     fn emit_ordinary_own_descriptor_reference(
         &self,
         object: &GcLocal<OrdinaryObject>,
@@ -367,98 +367,28 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<GcLocal<PropertyDescriptor, Nullable>, EmitError> {
         let schema = self.runtime_schema();
-        let storage = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<OrdinaryObject>()
-                .field(OrdinaryObjectSchema::PROPERTIES)
-                .read(object, schema, function)
-                .reference(),
-            function,
-        );
-        let table = schema.reserve_gc_local(function).initialize(
-            schema
-                .field(OrdinaryPropertyStorageSchema::ENTRIES)
-                .read(&storage, schema, function)
-                .reference(),
-            function,
-        );
+        let entry = self.emit_ordinary_property_entry(object, key, function)?;
         let result = schema
             .reserve_gc_local::<PropertyDescriptor, Nullable>(function)
             .initialize_null(schema, function);
-        let length = schema.reserve_i32_local(function);
-        let index = schema.reserve_i32_local(function);
-        let entries = schema.array_type::<PropertyTable>();
-        schema
-            .field(OrdinaryPropertyStorageSchema::LENGTH)
-            .read(&storage, schema, function)
-            .store(length, function);
-        // Own keys are unique, so scan order cannot change the match; newest
-        // first finds script-created properties before the builtin prefix.
-        length.load(function);
-        index.store(function);
-        function.instruction(&Instruction::Block(BlockType::Empty));
-        function.instruction(&Instruction::Loop(BlockType::Empty));
-        index.load(function);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        index.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Sub);
-        index.store(function);
-        let entry = schema.reserve_gc_local(function).initialize(
-            entries.read(&table, index, schema, function).reference(),
-            function,
-        );
-        entry.load(schema, function);
-        function.instruction(&Instruction::RefIsNull);
+        entry.load(schema, function).is_null(function);
         function.instruction(&Instruction::I32Eqz);
         function.instruction(&Instruction::If(BlockType::Empty));
-        let present_entry_slot = schema.reserve_gc_local(function);
-        let present_entry = present_entry_slot.initialize(
+        let present = schema.reserve_gc_local(function).initialize(
             entry.load(schema, function).require_non_null(function),
             function,
         );
-        let stored_key_slot = schema.reserve_gc_local(function);
-        let stored_key = stored_key_slot.initialize(
-            schema
-                .struct_type::<PropertyEntry>()
-                .field(PropertyEntrySchema::KEY)
-                .read(&present_entry, schema, function)
-                .reference(),
-            function,
-        );
-        let actual_key = schema.reserve_value_local(function);
-        schema
-            .struct_type::<StoredValue>()
-            .read_into(&stored_key, &actual_key, schema, function);
-        self.emit_tagged_payload_same_value_i32(&actual_key, key.value(), function)?;
-        function.instruction(&Instruction::If(BlockType::Empty));
         result.replace(
             schema
-                .struct_type::<PropertyEntry>()
                 .field(PropertyEntrySchema::DESCRIPTOR)
-                .read(&present_entry, schema, function)
+                .read(&present, schema, function)
                 .reference()
                 .nullable(),
             function,
         );
-        function.instruction(&Instruction::End);
-        actual_key.clear(function);
-        stored_key.clear(function);
-        present_entry.clear(function);
+        present.clear(function);
         function.instruction(&Instruction::End);
         entry.clear(function);
-        result.load(schema, function);
-        function.instruction(&Instruction::RefIsNull);
-        function.instruction(&Instruction::I32Eqz);
-        function.instruction(&Instruction::BrIf(1));
-        function.instruction(&Instruction::Br(0));
-        function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-        schema.release_i32_local(index, function);
-        schema.release_i32_local(length, function);
-        table.clear(function);
-        storage.clear(function);
         Ok(result)
     }
 
@@ -3060,9 +2990,16 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_object_header_projection(object, function),
             function,
         );
+        let candidate = self.emit_ordinary_property_entry(&header, key, function)?;
+        candidate.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let entry = schema.reserve_gc_local(function).initialize(
+            candidate.load(schema, function).require_non_null(function),
+            function,
+        );
         let storage = schema.reserve_gc_local(function).initialize(
             schema
-                .struct_type::<OrdinaryObject>()
                 .field(OrdinaryObjectSchema::PROPERTIES)
                 .read(&header, schema, function)
                 .reference(),
@@ -3075,77 +3012,26 @@ impl<'a> FunctionBuilder<'a> {
                 .reference(),
             function,
         );
-        let index = schema.reserve_i32_local(function);
-        let length = schema.reserve_i32_local(function);
+        let position = schema.reserve_i32_local(function);
         schema
-            .field(OrdinaryPropertyStorageSchema::LENGTH)
-            .read(&storage, schema, function)
-            .store(length, function);
-        function.instruction(&Instruction::I32Const(0));
-        index.store(function);
-        self.open_frame(ControlFrameKind::Block, function);
-        self.open_frame(ControlFrameKind::Loop, function);
-        index.load(function);
-        length.load(function);
-        function.instruction(&Instruction::I32GeU);
-        function.instruction(&Instruction::BrIf(1));
-        let candidate = schema.reserve_gc_local(function).initialize(
-            schema
-                .array_type::<PropertyTable>()
-                .read(&table, index, schema, function)
-                .reference(),
-            function,
-        );
-        candidate.load(schema, function);
-        function.instruction(&Instruction::RefIsNull);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        let entry = schema.reserve_gc_local(function).initialize(
-            candidate.load(schema, function).require_non_null(function),
-            function,
-        );
-        let stored = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<PropertyEntry>()
-                .field(PropertyEntrySchema::KEY)
-                .read(&entry, schema, function)
-                .reference(),
-            function,
-        );
-        let actual = schema.reserve_value_local(function);
-        schema
-            .struct_type::<StoredValue>()
-            .read_into(&stored, &actual, schema, function);
-        self.emit_tagged_payload_same_value_i32(&actual, key.value(), function)?;
-        self.open_frame(ControlFrameKind::If, function);
+            .field(PropertyEntrySchema::POSITION)
+            .read(&entry, schema, function)
+            .store(position, function);
+        // Retain the bucket as a tombstone: colliding keys still probe past it.
         schema.array_type::<PropertyTable>().write(
             &table,
-            index,
+            position,
             GcOperand::null(schema),
             schema,
             function,
         );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        actual.clear(function);
-        stored.clear(function);
+        schema.release_i32_local(position, function);
+        table.clear(function);
+        storage.clear(function);
         entry.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         candidate.clear(function);
-        index.load(function);
-        function.instruction(&Instruction::I32Const(1));
-        function.instruction(&Instruction::I32Add);
-        index.store(function);
-        function.instruction(&Instruction::Br(0));
-        self.pop_control(ControlFrameKind::Loop);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        schema.release_i32_local(length, function);
-        schema.release_i32_local(index, function);
-        table.clear(function);
-        storage.clear(function);
         header.clear(function);
         Ok(())
     }

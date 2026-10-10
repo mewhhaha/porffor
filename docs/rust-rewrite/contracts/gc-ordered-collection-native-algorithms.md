@@ -43,3 +43,8 @@ serial verification. No README count or full conformance claim changes here.
 Normative algorithms: [TC39 keyed collections](https://tc39.es/ecma262/multipage/keyed-collections.html),
 [FromEntries](https://tc39.es/ecma262/multipage/fundamental-objects.html#sec-object.fromentries),
 and [GroupBy](https://tc39.es/ecma262/multipage/abstract-operations.html#sec-groupby).
+
+String and Symbol key hashing is shared with the ordinary-property index through
+`operations/property_key_hash.rs`. The full UTF-16 content loop, stable nonzero
+Symbol identity field and tag mix are unchanged; SameValueZero and the remaining
+Number/BigInt/object hashing rules stay owned by the collection implementation.

@@ -112,11 +112,18 @@ impl FunctionBuilder<'_> {
                 .filled(GcOperand::null(schema), zero, function),
             function,
         );
+        let index = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<OrdinaryPropertyIndex>()
+                .filled(GcOperand::i32(0), zero, function),
+            function,
+        );
         let properties = schema.reserve_gc_local(function).initialize(
             schema.struct_type::<OrdinaryPropertyStorage>().construct(
                 (
                     GcOperand::reference(&entries, schema),
                     GcOperand::i32_local(zero),
+                    GcOperand::reference(&index, schema),
                 ),
                 function,
             ),
@@ -144,6 +151,7 @@ impl FunctionBuilder<'_> {
         );
         private_elements.clear(function);
         properties.clear(function);
+        index.clear(function);
         entries.clear(function);
         schema.release_i32_local(zero, function);
         prototype_record.clear(function);
