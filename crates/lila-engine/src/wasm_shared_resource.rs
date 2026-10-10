@@ -85,9 +85,56 @@ struct SharedWaiter {
     notification: WaitNotification,
 }
 
+/// A finite deadline retains its registering clock domain. Notifications from
+/// another Store must not compare it with that Store's independently based clock.
+pub(super) enum AsyncWaitDeadline {
+    Infinite,
+    Finite {
+        clock: Realm,
+        expires_at: MonotonicClockInstant,
+    },
+}
+
+impl AsyncWaitDeadline {
+    pub(super) fn from_wire(
+        deadline: i64,
+        realm: &Realm,
+        origin: MonotonicClockInstant,
+    ) -> wasmtime::Result<Self> {
+        match deadline {
+            i64::MAX => Ok(Self::Infinite),
+            0..=i64::MAX => Ok(Self::Finite {
+                clock: realm.clone(),
+                expires_at: MonotonicClockInstant::new(
+                    origin.get().saturating_add(deadline as u64),
+                ),
+            }),
+            _ => Err(wasmtime::Error::msg("async waiter deadline is negative")),
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        match self {
+            Self::Infinite => false,
+            Self::Finite { clock, expires_at } => {
+                clock.host_clock().monotonic_instant() >= *expires_at
+            }
+        }
+    }
+}
+
 enum WaitNotification {
-    Async,
+    Async(AsyncWaitDeadline),
     Sync(Arc<SyncWaitSignal>),
+}
+
+impl WaitNotification {
+    fn is_expired(&self) -> bool {
+        match self {
+            Self::Async(deadline) => deadline.is_expired(),
+            Self::Sync(_) => false,
+        }
+    }
 }
 #[derive(Clone, Copy)]
 enum SyncWaitState {
@@ -234,7 +281,7 @@ impl WasmSharedMemoryBacking {
             if notified >= count {
                 break;
             }
-            if waiter.address != address || waiter.notified {
+            if waiter.address != address || waiter.notified || waiter.notification.is_expired() {
                 continue;
             }
             waiter.notified = true;
@@ -418,6 +465,7 @@ impl WasmStoreAsyncWaiters {
         relative_offset: i64,
         width: i32,
         expected_word: i64,
+        deadline: AsyncWaitDeadline,
     ) -> wasmtime::Result<AsyncWaitRegistration> {
         let backing = self
             .backing
@@ -450,7 +498,7 @@ impl WasmStoreAsyncWaiters {
             address,
             _resource: resource,
             notified: false,
-            notification: WaitNotification::Async,
+            notification: WaitNotification::Async(deadline),
         });
         ids.push(id);
         Ok(AsyncWaitRegistration(
@@ -662,17 +710,96 @@ mod tests {
     }
 
     #[test]
+    fn expired_async_waiters_do_not_consume_notify_count_or_lose_store_ownership() {
+        struct Clock(Arc<AtomicU64>);
+        impl HostClock for Clock {
+            fn utc_epoch_milliseconds(&self) -> UtcEpochMilliseconds {
+                UtcEpochMilliseconds::new(0).unwrap()
+            }
+            fn monotonic_instant(&self) -> MonotonicClockInstant {
+                MonotonicClockInstant::new(self.0.load(Ordering::SeqCst))
+            }
+        }
+        let ticks = Arc::new(AtomicU64::new(120));
+        let realm = RealmBuilder::new()
+            .with_host_clock(Box::new(Clock(Arc::clone(&ticks))))
+            .build();
+        let live_ticks = Arc::new(AtomicU64::new(30));
+        let live_realm = RealmBuilder::new()
+            .with_host_clock(Box::new(Clock(Arc::clone(&live_ticks))))
+            .build();
+        let origin = MonotonicClockInstant::new(20);
+        let live_origin = MonotonicClockInstant::new(10);
+        assert!(AsyncWaitDeadline::from_wire(-1, &realm, origin).is_err());
+        let backing = new_backing();
+        let resource = backing.allocate(8, 8, false).unwrap().unwrap();
+        let owner = WasmStoreAsyncWaiters::new(Some(Arc::clone(&backing)));
+        let expired = owner
+            .register(
+                Arc::clone(&resource),
+                0,
+                4,
+                0,
+                AsyncWaitDeadline::from_wire(100, &realm, origin).unwrap(),
+            )
+            .unwrap()
+            .wire();
+        let live = owner
+            .register(
+                Arc::clone(&resource),
+                0,
+                4,
+                0,
+                AsyncWaitDeadline::from_wire(100, &live_realm, live_origin).unwrap(),
+            )
+            .unwrap()
+            .wire();
+        // Exactly at the first deadline, only the later FIFO entry is eligible.
+        assert_eq!(backing.notify_async_waiters(&resource, 0, 4, 1).unwrap(), 1);
+        ticks.store(300, Ordering::SeqCst);
+        live_ticks.store(300, Ordering::SeqCst);
+        assert_eq!(
+            owner.poll(live),
+            1,
+            "a timely notification wins despite delayed polling"
+        );
+        assert_eq!(
+            owner.poll(expired),
+            0,
+            "expiry retains ownership for the GC timeout checkpoint"
+        );
+        for _ in 0..2 {
+            owner
+                .register(Arc::clone(&resource), 0, 4, 0, AsyncWaitDeadline::Infinite)
+                .unwrap();
+        }
+        assert_eq!(backing.notify_async_waiters(&resource, 0, 4, 2).unwrap(), 2);
+        assert_eq!(
+            owner.cancel(expired),
+            0,
+            "late notify must not mark the expired entry"
+        );
+        assert_eq!(owner.poll(expired), -1);
+    }
+
+    #[test]
     fn pending_waits_retain_resources_and_only_the_registering_store_can_settle_them() {
         let backing = new_backing();
         let resource = backing.allocate(8, 8, false).unwrap().unwrap();
         let weak = Arc::downgrade(&resource);
         let owner = WasmStoreAsyncWaiters::new(Some(Arc::clone(&backing)));
         let foreign_store = WasmStoreAsyncWaiters::new(Some(Arc::clone(&backing)));
-        assert!(owner.register(Arc::clone(&resource), 4, 8, 0).is_err());
-        assert!(owner.register(Arc::clone(&resource), 8, 4, 0).is_err());
-        assert!(owner.register(Arc::clone(&resource), 0, 2, 0).is_err());
+        assert!(owner
+            .register(Arc::clone(&resource), 4, 8, 0, AsyncWaitDeadline::Infinite)
+            .is_err());
+        assert!(owner
+            .register(Arc::clone(&resource), 8, 4, 0, AsyncWaitDeadline::Infinite)
+            .is_err());
+        assert!(owner
+            .register(Arc::clone(&resource), 0, 2, 0, AsyncWaitDeadline::Infinite)
+            .is_err());
         let id = owner
-            .register(Arc::clone(&resource), 0, 4, 0)
+            .register(Arc::clone(&resource), 0, 4, 0, AsyncWaitDeadline::Infinite)
             .unwrap()
             .wire();
         assert_eq!(foreign_store.cancel(id), -1);
@@ -686,7 +813,9 @@ mod tests {
         assert_eq!(owner.poll(id), -1);
         let retained = backing.allocate(8, 8, false).unwrap().unwrap();
         let retained_weak = Arc::downgrade(&retained);
-        owner.register(Arc::clone(&retained), 0, 8, 0).unwrap();
+        owner
+            .register(Arc::clone(&retained), 0, 8, 0, AsyncWaitDeadline::Infinite)
+            .unwrap();
         drop(retained);
         drop(owner);
         assert!(

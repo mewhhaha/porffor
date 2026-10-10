@@ -2741,6 +2741,26 @@ pub struct FunctionParamIr {
 pub struct OwnedEnvBindingIr {
     pub name: String,
     pub slot: u32,
+    /// The real BindingCell's write policy, independently of eval visibility.
+    pub mutability: EnvironmentBindingMutabilityIr,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvironmentBindingMutabilityIr {
+    Mutable,
+    /// `strict` is CreateImmutableBinding's S flag, not source strictness.
+    Immutable {
+        strict: bool,
+    },
+}
+
+impl EnvironmentBindingMutabilityIr {
+    pub const fn lexical(mode: BindingMode) -> Self {
+        match mode {
+            BindingMode::Var | BindingMode::Let => Self::Mutable,
+            BindingMode::Const => Self::Immutable { strict: true },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4385,6 +4405,15 @@ impl GlobalBindingPlan {
         self.lexical_bindings.keys()
     }
 
+    /// Even an otherwise scalar Script must execute the restricted-property
+    /// admission check and construct its intrinsic SyntaxError through R.
+    pub fn has_restricted_lexical_declarations(&self) -> bool {
+        self.lexical_names().any(|name| {
+            self.get(name)
+                .is_some_and(|binding| !binding.initializer.configurable())
+        })
+    }
+
     pub fn lexical_bindings(&self) -> &BTreeMap<String, GlobalLexicalBindingModeIr> {
         &self.lexical_bindings
     }
@@ -5801,6 +5830,9 @@ impl IrSummaryCounts {
                     }
                     | crate::EnvironmentIdentifierOperationIr::Delete => {}
                     crate::EnvironmentIdentifierOperationIr::Assign { .. }
+                    | crate::EnvironmentIdentifierOperationIr::AssignWithGlobalFallback {
+                        ..
+                    }
                     | crate::EnvironmentIdentifierOperationIr::PutCapturedReference { .. } => {
                         self.assignments += 1
                     }

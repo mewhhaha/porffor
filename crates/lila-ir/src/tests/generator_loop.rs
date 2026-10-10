@@ -164,6 +164,7 @@ fn ordinary_generator_loop_admission_rejects_orphan_states_and_foreign_head_cont
         suspensions: Vec::new(),
     };
     let binding = || OwnedEnvBindingIr {
+        mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
         name: "generator.loop.value.checked".into(),
         slot: 0,
     };

@@ -932,3 +932,57 @@ fn complete_static_non_scalar_requests_stay_unresolved_before_display_attribute_
     assert!(graph.link_errors.is_empty());
     assert_eq!(graph.units.len(), 2);
 }
+
+#[test]
+fn computed_loaded_imports_reuse_source_discovered_keys_with_their_own_phases() {
+    let sources = ModuleGraphSources {
+        realm_requests: Default::default(),
+        modules: vec![
+            ModuleSourceIr::new(
+                ModuleKey::from_host("entry.js"),
+                "import defer * as registered from './value.js'; \
+                 function* evaluate() { return import(yield 'request'); } \
+                 function* defer() { return import.defer(yield 'request'); }"
+                    .into(),
+                "file:///entry.js".into(),
+            ),
+            ModuleSourceIr::new(
+                ModuleKey::from_host("value.js"),
+                "export const value = 59;".into(),
+                "file:///value.js".into(),
+            ),
+            ModuleSourceIr::new(
+                ModuleKey::from_host("unused.js"),
+                "export const value = 61;".into(),
+                "file:///unused.js".into(),
+            ),
+        ],
+        entry: 0,
+        resolutions: vec![
+            (0, ModuleRequestKeyIr::plain("./value.js"), 1),
+            // An extra host row is not a discovered edge of this loaded closure.
+            (0, ModuleRequestKeyIr::plain("./unused.js"), 2),
+        ],
+    };
+    let graph = link_loaded_graph(&sources, false)
+        .unwrap_or_else(|rejection| panic!("loaded module rejected: {:?}", rejection.diagnostics));
+    let target = graph.keys[&ModuleKey::from_host("value.js")];
+    assert_eq!(graph.dynamic_components().len(), 2);
+    for phase in [ImportPhaseIr::Evaluation, ImportPhaseIr::Defer] {
+        let request = ModuleRequestIr::from_key(ModuleRequestKeyIr::plain("./value.js"), phase);
+        let component = graph
+            .resolve_dynamic_component(Some(graph.entry), &request)
+            .expect("computed site can select its loaded deferred edge");
+        assert_eq!(component.target(), target);
+        assert_eq!(component.request().phase(), phase);
+        assert!(graph
+            .resolve_dynamic_component(
+                Some(graph.entry),
+                &ModuleRequestIr::from_key(ModuleRequestKeyIr::plain("./unused.js"), phase),
+            )
+            .is_none());
+        assert!(graph
+            .resolve_dynamic_component(Some(target), &request)
+            .is_none());
+    }
+}

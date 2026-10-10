@@ -64,12 +64,12 @@ try {
   privateWrongReceiver = error instanceof TypeError;
 }
 
-let nonExtensibleRejected = false;
-try {
-  new NonExtensibleDerived();
-} catch (error) {
-  nonExtensibleRejected = error instanceof TypeError;
-}
+let nonExtensible = new NonExtensibleDerived();
+let nonExtensibleDescriptor =
+  Object.getOwnPropertyDescriptor(NonExtensibleDerived.prototype, "value");
+let nonExtensibleInitialValue = nonExtensibleDescriptor.get.call(nonExtensible);
+nonExtensibleDescriptor.set.call(nonExtensible, 25);
+let nonExtensibleUpdatedValue = nonExtensibleDescriptor.get.call(nonExtensible);
 let keyed = new Keyed();
 
 function assert(value, label) {
@@ -91,7 +91,10 @@ assert(descriptor.get.length === 0, "getter length");
 assert(descriptor.set.length === 1, "setter length");
 assert(publicWrongReceiver, "public wrong receiver");
 assert(privateWrongReceiver, "private wrong receiver");
-assert(nonExtensibleRejected, "non-extensible receiver");
+assert(!Object.isExtensible(nonExtensible), "non-extensible receiver stays restricted");
+assert(Reflect.ownKeys(nonExtensible).length === 0, "hidden backing is not an ordinary property");
+assert(nonExtensibleInitialValue === 15, "hidden backing installed on non-extensible receiver");
+assert(nonExtensibleUpdatedValue === 25, "hidden backing writable on non-extensible receiver");
 assert(keyed.text === 16, "string key");
 assert(keyed[17] === 18, "numeric key");
 assert(keyed[symbolKey] === 19, "symbol key");

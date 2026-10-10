@@ -243,6 +243,12 @@ impl FunctionBuilder<'_> {
         ));
         function.instruction(&Instruction::I64Eq);
         function.instruction(&Instruction::I32Or);
+        opcode.load(function);
+        function.instruction(&Instruction::I64Const(
+            REGEXP_OPCODE_POSITIVE_ASCII_CLASS as i64,
+        ));
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::I32Eqz);
         self.lower_fail_if(compiler, CompileFailure::Corrupt, function);
     }

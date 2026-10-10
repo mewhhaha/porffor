@@ -64,6 +64,27 @@ fn pinned_restricted_global_is_an_ordinary_runtime_syntax_error_in_both_script_m
 }
 
 #[test]
+fn scalar_restricted_lexicals_preserve_intrinsic_exception_constructor_names() {
+    for source in ["const NaN = 0;", "let Infinity;", "class Infinity {}"] {
+        for script in script_modes(source) {
+            let failure = engine()
+                .run_script(&script, options(), execution())
+                .expect_err("restricted global admission rejects before the body");
+            assert_eq!(
+                failure.wasm_execution_failure_kind(),
+                Some(WasmExecutionFailureKind::JavaScriptException),
+                "{script}\n{failure}"
+            );
+            assert_eq!(
+                failure.wasm_javascript_exception_constructor_name(),
+                Some("SyntaxError"),
+                "{script}\n{failure}"
+            );
+        }
+    }
+}
+
+#[test]
 fn restricted_let_const_and_class_reject_before_any_body_or_initializer_effect() {
     for source in [
         "print('body'); let undefined = print('initializer');",

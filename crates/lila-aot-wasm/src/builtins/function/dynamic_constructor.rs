@@ -97,6 +97,7 @@ impl EmptyDerivedFunction {
             .into_iter()
             .zip(0_u32..)
             .map(|(name, slot)| OwnedEnvBindingIr {
+                mutability: lila_ir::EnvironmentBindingMutabilityIr::Mutable,
                 name: name.to_string(),
                 slot,
             })

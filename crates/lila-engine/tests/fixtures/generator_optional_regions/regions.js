@@ -10,6 +10,7 @@ var leaf = {};
 var original = function (argument) {
     trace += 'C';
     check(this === leaf, 'original method receiver');
+    check(arguments.length === 1, 'complete comma expression is one argument');
     return argument;
 };
 Object.defineProperty(leaf, 'make', {
@@ -22,7 +23,7 @@ Object.defineProperty(root, 'leaf', {
 });
 var key = { [Symbol.toPrimitive]: function () { trace += 'K'; return 'leaf'; } };
 function* selected() {
-    return (yield 'b1', yield 'b2')?.[yield 'k1', yield 'k2']?.make(yield 'a1', yield 'a2');
+    return (yield 'b1', yield 'b2')?.[yield 'k1', yield 'k2']?.make((yield 'a1', yield 'a2'));
 }
 var iterator = selected();
 step(iterator, undefined, 'b1', false, 'first base');
@@ -40,6 +41,28 @@ iterator = selected();
 step(iterator, undefined, 'b1', false, 'skipped first base still runs');
 step(iterator, 0, 'b2', false, 'skipped second base still runs');
 step(iterator, null, undefined, true, 'nullish skips keys arguments and their yields');
+
+var multiArgumentFirst = { label: 'first argument' }, multiArgumentCalls = 0;
+var multiArgumentObject = { receive: function (first, second) {
+    check(this === multiArgumentObject && arguments.length === 2, 'multiple arguments retain receiver and arity');
+    check(first === multiArgumentFirst && second === whole, 'multiple arguments retain separate whole values');
+    multiArgumentCalls++;
+    return second;
+} };
+function* multipleArguments() {
+    return (yield 'multiple-target')?.receive(yield 'multiple-first', yield 'multiple-second');
+}
+iterator = multipleArguments();
+step(iterator, undefined, 'multiple-target', false, 'multiple argument base');
+step(iterator, multiArgumentObject, 'multiple-first', false, 'first separate argument');
+step(iterator, multiArgumentFirst, 'multiple-second', false, 'second separate argument');
+gc();
+step(iterator, whole, whole, true, 'first argument survives the second suspension');
+check(multiArgumentCalls === 1, 'multiple argument call executes once');
+iterator = multipleArguments();
+step(iterator, undefined, 'multiple-target', false, 'skipped multiple argument base');
+step(iterator, null, undefined, true, 'nullish skips every separate argument');
+check(multiArgumentCalls === 1, 'shorted multiple argument call does not execute');
 
 var locked = {};
 Object.defineProperty(locked, 'locked', {

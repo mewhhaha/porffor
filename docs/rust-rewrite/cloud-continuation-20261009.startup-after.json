@@ -1,0 +1,98 @@
+{
+  "role": "Single startup samples after shared compiler identity; not broad acceptance or causal performance proof",
+  "binary_bytes": 600466312,
+  "binary_sha256": "4a64ff63ddf7ba0c11deb4dd26dcf1f20027d84242d8459b9ebbfbc64301efbe",
+  "cases": [
+    {
+      "command": [
+        "./target/debug/lila",
+        "compiler-identity"
+      ],
+      "elapsed_seconds": 0.458902,
+      "exit_status": 0,
+      "stdout_sha256": "bc689d8293f572a832ff5bba1afcac0e55a62c11655798e57a78d32751d61724",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "target/continuation-cloud-20261009/startup-after-cost-0.log",
+      "log_sha256": "33ce37eda27494dda2c4848d81f06c99726318baeff1f1c014a022511ef23563"
+    },
+    {
+      "command": [
+        "./target/debug/lila",
+        "inspect",
+        "target/continuation-cloud-20261009/startup-scalar.js"
+      ],
+      "elapsed_seconds": 0.03367,
+      "exit_status": 0,
+      "stdout_sha256": "9160fead827a443f304405a1ed528fd669b8084c38c9d5435fbe8dfc45b9948d",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "target/continuation-cloud-20261009/startup-after-cost-1.log",
+      "log_sha256": "4290cfaa022b6ddde09411d1266b633df64be1eee31818eeca2df0c1aa756d4e"
+    },
+    {
+      "command": [
+        "./target/debug/lila",
+        "run",
+        "--execution-backend",
+        "wasm",
+        "target/continuation-cloud-20261009/startup-scalar.js"
+      ],
+      "elapsed_seconds": 2.917143,
+      "exit_status": 0,
+      "stdout_sha256": "2e1ed9e79d577f08c2ddac48ad66df21f7797342e376165fa02ecc0f8c851c5a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "target/continuation-cloud-20261009/startup-after-cost-2.log",
+      "log_sha256": "ead480c0902da98b28bd94c697e8ff815507fcfc01850f1dcb8dfb1b26411d84"
+    },
+    {
+      "command": [
+        "./target/debug/lila",
+        "build",
+        "wasm",
+        "target/continuation-cloud-20261009/startup-scalar.js"
+      ],
+      "elapsed_seconds": 1.558806,
+      "exit_status": 0,
+      "stdout_sha256": "c7b847be3c6f596e189774b60992a041a78b7801736cf44a7c3d41ef4c2be1c8",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "target/continuation-cloud-20261009/startup-after-cost-3.log",
+      "log_sha256": "eb6720f59596ee7adc9079466bbec286bf2a1062bcb10e123e3263eb458e62fb"
+    },
+    {
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "test262",
+        "__case-worker",
+        "raw-script:language/wasm/pass/comma-basic.js",
+        "--suite-root",
+        "crates/lila-test262/tests/fixtures/fake_test262/vendor/test262",
+        "--snapshot-dir",
+        "target/continuation-cloud-20261009/startup-after-worker-snapshot",
+        "--snapshot-name",
+        "startup-after-worker",
+        "--threads",
+        "1",
+        "--timeout-ms",
+        "60000",
+        "--execution-backend",
+        "wasm-aot",
+        "--case-harness",
+        "wasm-aot"
+      ],
+      "elapsed_seconds": 4.650559,
+      "exit_status": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "log": "target/continuation-cloud-20261009/startup-after-cost-4.log",
+      "log_sha256": "a3680b6601c39b586ea892ad2bbaa58a7f72b62a64f73917b09aa8c5f188110e"
+    }
+  ],
+  "resource_launcher": [
+    "python3",
+    "-B",
+    "scripts/limited_verification.py",
+    "--cloud",
+    "--"
+  ]
+}

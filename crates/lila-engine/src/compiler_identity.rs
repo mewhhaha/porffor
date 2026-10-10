@@ -11,6 +11,10 @@ use std::sync::OnceLock;
 pub struct CompilerDigest([u8; 32]);
 
 impl CompilerDigest {
+    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         if value.len() != 64 || !value.bytes().all(is_lower_hex) {
             return Err(

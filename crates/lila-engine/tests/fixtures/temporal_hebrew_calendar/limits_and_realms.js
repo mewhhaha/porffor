@@ -20,10 +20,19 @@ for (const [date,year,month,code,day] of [[minimum,-268058,11,'M11',4],[maximum,
 }
 errorPrototype(()=>minimum.subtract({days:1}),RangeError.prototype,'minimum full carrier');
 errorPrototype(()=>maximum.add({days:1}),RangeError.prototype,'maximum full carrier');
-errorPrototype(()=>minimum.toPlainYearMonth(),RangeError.prototype,'minimum forbidden partial month');
+// YearMonth admits the whole ISO month, independently of the full-date day.
+const minimumMonth = minimum.toPlainYearMonth();
+same(minimumMonth.year,-268058,'minimum partial native year');
+same(minimumMonth.month,11,'minimum partial native ordinal');
+same(minimumMonth.monthCode,'M11','minimum partial native code');
+same(minimumMonth.toString(),'-271821-04-16[u-ca=hebrew]','minimum partial reference');
+same(Temporal.PlainYearMonth.from({calendar,year:-268058,monthCode:'M11'}).equals(minimumMonth),true,'minimum partial from fields');
+errorPrototype(()=>minimumMonth.toPlainDate({day:1}),RangeError.prototype,'minimum partial to forbidden full date');
+same(minimumMonth.toPlainDate({day:4}).equals(minimum),true,'minimum partial to allowed full date');
+errorPrototype(()=>Temporal.PlainYearMonth.from({calendar,year:-268058,monthCode:'M10'}),RangeError.prototype,'preceding partial ISO month');
 const first = Temporal.PlainYearMonth.from({calendar,year:-268058,monthCode:'M12'});
-same(first.month,12,'first native YearMonth');
-same(first.toString(),'-271821-05-16[u-ca=hebrew]','first allowed partial reference');
+same(first.month,12,'following native YearMonth');
+same(first.toString(),'-271821-05-16[u-ca=hebrew]','following partial reference');
 const last = Temporal.PlainYearMonth.from({calendar,year:279517,monthCode:'M09'});
 same(last.month,10,'final native YearMonth');
 same(last.toString(),'+275760-09-03[u-ca=hebrew]','last allowed partial reference');

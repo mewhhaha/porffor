@@ -187,7 +187,7 @@ impl<'a> ScriptLowerer<'a> {
     ) -> Result<(), TypedExpr> {
         match property {
             PropertyDefinition::Property(PropertyName::Literal(name), value) => {
-                let key = self.interner.resolve_expect(name.sym()).to_string();
+                let key = self.interned_runtime_string(name.sym());
                 self.observe_proxy_trap_value_hint(&key, value);
                 let lowered = self.lower_expression(value);
                 if key == "__proto__" {
@@ -235,9 +235,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
 
                 let static_key = match method.name() {
-                    PropertyName::Literal(name) => {
-                        Some(self.interner.resolve_expect(name.sym()).to_string())
-                    }
+                    PropertyName::Literal(name) => Some(self.interned_runtime_string(name.sym())),
                     PropertyName::Computed(expr) => self.try_static_ordinary_property_key(expr),
                 };
 
@@ -540,7 +538,7 @@ impl<'a> ScriptLowerer<'a> {
             let PropertyDefinition::Property(PropertyName::Literal(name), _) = property else {
                 continue;
             };
-            if self.interner.resolve_expect(name.sym()).to_string() == "__proto__" {
+            if self.interned_runtime_string(name.sym()) == "__proto__" {
                 proto_setters += 1;
                 if proto_setters > 1 {
                     return true;

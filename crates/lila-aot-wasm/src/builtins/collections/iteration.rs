@@ -60,8 +60,9 @@ impl FunctionBuilder<'_> {
         ));
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
-        self.emit_throw_current_function_realm_type_error(
-            RuntimeErrorMessage::MAP_ITERATOR_PROTOTYPE_NEXT_RECEIVER_DOES_NOT_HAVE_MAP,
+        self.emit_collection_receiver_type_error(
+            &receiver,
+            StrongCollectionReceiverKind::MapIterator,
             &result,
             f,
         )?;
@@ -278,8 +279,9 @@ impl FunctionBuilder<'_> {
         ));
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
-        self.emit_throw_current_function_realm_type_error(
-            RuntimeErrorMessage::SET_ITERATOR_PROTOTYPE_NEXT_RECEIVER_DOES_NOT_HAVE_SET,
+        self.emit_collection_receiver_type_error(
+            &receiver,
+            StrongCollectionReceiverKind::SetIterator,
             &result,
             f,
         )?;

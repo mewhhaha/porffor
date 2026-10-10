@@ -69,6 +69,25 @@ var result = iterator.next(17);
 check(result.done && result.value[0] === whole && result.value[1] === 17, 'exhausted-defaults-still-resume');
 check(events.join(',') === 'acquire,next-get,step0,done0' && source.closes === 0, 'done-prevents-extra-next-and-close');
 
+// Suspended var patterns expose initialized bindings before iteration starts,
+// then keep the same cells through default, nested and rest writes.
+function* hoistedVarArray(input) {
+  var read = () => [first, nested, rest];
+  yield read;
+  var [first = yield 'new-array-var', {nested}, ...rest] = input;
+  return read;
+}
+iterator = hoistedVarArray([undefined, {nested: whole}, whole]);
+var readArrayVars = iterator.next().value;
+var beforeArrayVars = readArrayVars();
+check(beforeArrayVars[0] === undefined && beforeArrayVars[1] === undefined && beforeArrayVars[2] === undefined, 'array-var-names-initialized-before-pattern');
+next(iterator, undefined, 'new-array-var', false);
+gc(); result = iterator.next(whole);
+var afterArrayVars = readArrayVars();
+check(result.done && result.value === readArrayVars && afterArrayVars[0] === whole && afterArrayVars[1] === whole && afterArrayVars[2][0] === whole, 'array-var-captures-retain-resumed-writes');
+function* skippedArrayVarDefault() { var [value = yield 'wrong-array-var-default'] = [whole]; return value; }
+next(skippedArrayVarDefault(), undefined, whole, true);
+
 // Protocol failures mark the actual record done. Neither the original Throw
 // nor a malformed iterator result is followed by IteratorClose.
 function failedProtocol(kind, token) {

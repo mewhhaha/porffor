@@ -152,10 +152,12 @@ fn switch_constructor_rejects_missing_duplicated_and_aliased_retained_allocation
         );
         for alias in [
             OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "foreign retained cell".into(),
                 slot: plan.value_binding().slot,
             },
             OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: plan.value_binding().name.clone(),
                 slot: u32::MAX,
             },
@@ -240,6 +242,7 @@ fn switch_constructor_requires_one_uninitialized_caseblock_environment() {
             initialization: LexicalEnvironmentInitializationIr::Uninitialized,
             eval_environment: None,
             bindings: vec![OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "caseblock local".into(),
                 slot: plan.value_binding().slot,
             }],

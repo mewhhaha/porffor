@@ -21,5 +21,5 @@ var original = values.join(',');
 values[0] = 'changed';
 require(Intl.supportedValuesOf('collation').join(',') === original, 'supportedValues fresh array');
 require('a-2'.localeCompare('a10', 'de-CH', { numeric: true, ignorePunctuation: true }) < 0, 'selected String locale consumer');
-console.log('intl-collator-projection:ok');
+print('intl-collator-projection:ok');
 262;

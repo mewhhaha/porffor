@@ -268,7 +268,14 @@ fn completed_optional_and_choice_owning_children_preserve_virtual_guard_fallback
     assert_literal_and_computed(&[
         (r"^(?:a{0,1}?){18446744073709551616}b$", "d", "aab", "m !== null && m[0] === 'aab'"),
         (r"^(?:(?<x>a){0,1}?){18446744073709551616}b$", "d", "ab", "m !== null && m.groups.x === 'a' && m.indices.groups.x[0] === 0 && m.indices.groups.x[1] === 1"),
-        (r"^(?:(?:()|a){1,2}){18446744073709551616}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === undefined"),
+        // The first required body consumes a through its optional child.
+        // Later required bodies match () empty and retain its final capture.
+        (r"^(?:(?:()|a){1,2}){18446744073709551616}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === '' && m.indices[1][0] === 1 && m.indices[1][1] === 1"),
+        // A single body must roll back the rejected optional empty capture;
+        // additional required bodies legitimately publish a new empty capture.
+        (r"^(?:(?:()|a){1,2}){1}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === undefined && m.indices[1] === undefined"),
+        (r"^(?:(?:()|a){1,2}){2}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === '' && m.indices[1][0] === 1 && m.indices[1][1] === 1"),
+        (r"^(?:(?:()|a){1,2}){4}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === '' && m.indices[1][0] === 1 && m.indices[1][1] === 1"),
         (r"^(?:(?:()|a){2}){18446744073709551616}b$", "d", "aab", "m !== null && m[0] === 'aab' && m[1] === undefined"),
         (r"^(?:(?:()|a)a{0}){18446744073709551616}b$", "d", "ab", "m !== null && m[0] === 'ab' && m[1] === undefined"),
         (r"(?<=^(?:a{0,1}?){18446744073709551616})b", "d", "aab", "m !== null && m[0] === 'b' && m.index === 2"),

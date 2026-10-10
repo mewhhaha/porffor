@@ -776,7 +776,7 @@ impl<'a> ScriptLowerer<'a> {
                             .and_then(|environment| environment.iteration_environment.as_ref())
                             .is_none()
                         {
-                            self.add_suspension_owned_binding(storage_name.clone());
+                            self.add_suspension_owned_binding(storage_name.clone(), mode);
                         }
                         // Allocate these slots in protocol order so their generated
                         // names remain consistent with the resume plan.

@@ -58,22 +58,23 @@ impl Engine {
         let cache = program_wasm_cache();
         let prepared = self.prepare_compilation(source, goal, &options)?;
         let base = program_cache_key(source, goal, &options, prepared.modules.graph());
-        let key = graph_artifact_key(base);
+        let key = base.map(graph_artifact_key);
         // Snapshot artifacts link against a snapshot runtime that the program
         // cache cannot name, so only standalone entries are cached or reused.
-        let cached = cache.as_ref().and_then(|cache| {
+        let cached = cache.as_ref().zip(key).and_then(|(cache, key)| {
             let entry = cache.read(&key)?;
-            wasm_runtime_link::decode_standalone_cache_entry(&entry).map(Arc::<[u8]>::from)
-        });
-        let artifact = if let Some(bytes) = cached {
-            ProgramWasmArtifact {
-                bytes,
+            let bytes = wasm_runtime_link::decode_standalone_cache_entry(&entry)?;
+            Some(ProgramWasmArtifact {
+                bytes: Arc::from(bytes),
                 runtime: None,
-                cached_entry: cache.as_ref().map(|cache| ProgramWasmCacheEntry {
+                cached_entry: Some(ProgramWasmCacheEntry {
                     cache: Arc::clone(cache),
                     key,
                 }),
-            }
+            })
+        });
+        let artifact = if let Some(artifact) = cached {
+            artifact
         } else {
             self.compile_graph_artifact(prepared, cache.clone(), key)?
         };
@@ -112,10 +113,12 @@ impl Engine {
         &self,
         prepared: PreparedCompilation,
         cache: Option<Arc<cache::FunctionCache>>,
-        key: [u8; 32],
+        key: Option<[u8; 32]>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
         let unit = self.compile_prepared_on_current_thread(prepared)?;
-        let runtime_cache = cache.as_deref().map(wasm_runtime_link::RuntimeWasmCache);
+        let runtime_cache = cache
+            .as_deref()
+            .and_then(wasm_runtime_link::RuntimeWasmCache::new);
         let artifact = lila_aot_wasm::emit_with_rooted_snapshot_and_runtime_inputs(
             &unit.ir,
             unit.promise_rejection_policy,
@@ -128,7 +131,7 @@ impl Engine {
         )
         .map_err(|error| EngineError::from_wasm_emit_error(&unit.ir, error))?;
         let runtime = artifact.runtime().cloned();
-        if let (Some(cache), None) = (cache, &runtime) {
+        if let (Some(cache), Some(key), None) = (cache, key, &runtime) {
             cache.write(
                 &key,
                 wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(&artifact.bytes)),

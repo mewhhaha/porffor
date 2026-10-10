@@ -21,7 +21,7 @@
 //!   is `E0382`.
 
 use super::*;
-use crate::WithObjectBindingName;
+use crate::{EnvironmentIdentifierIr, EnvironmentIdentifierOperationIr, WithObjectBindingName};
 use boa_ast::expression::operator::binary::{ArithmeticOp, BitwiseOp};
 use std::sync::Arc;
 
@@ -2233,8 +2233,8 @@ impl WithEnvironmentReferencePlan {
     /// Consume one ResolveBinding result for plain assignment. HasBinding runs
     /// once, in order, before the RHS; the selected binding object (undefined
     /// for the fallback) is retained while the RHS is evaluated exactly once.
-    /// PutValue then dispatches on that selection without restarting
-    /// resolution, and the fallback receives only the already bound RHS.
+    /// A global fallback retains its full Reference before that RHS too. An
+    /// already located declarative fallback receives only the bound RHS.
     #[must_use]
     pub(crate) fn put_value(
         self,
@@ -2254,13 +2254,30 @@ impl WithEnvironmentReferencePlan {
         };
         let bound_value =
             TypedExpr::from_info(value_info.clone(), ExprIr::Identifier(value_name.clone()));
+        let fallback = fallback(bound_value.clone());
+        if let ExprIr::GlobalPropertyWrite {
+            name, strictness, ..
+        } = &fallback.expr
+        {
+            return TypedExpr::from_info(
+                value_info,
+                ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr::global(
+                    name.clone(),
+                    *strictness,
+                    EnvironmentIdentifierOperationIr::AssignWithGlobalFallback {
+                        selection: Box::new(selection),
+                        value: Box::new(value),
+                    },
+                ))),
+            );
+        }
         let unselected = TypedExpr::spec_same_value(selected.read(), TypedExpr::undefined());
         let with_write = selected.put_value(&referenced_name, strictness, bound_value.clone());
         let dispatch = TypedExpr::from_info(
             value_info.clone(),
             ExprIr::Conditional {
                 condition: Box::new(unselected),
-                then_expr: Box::new(fallback(bound_value)),
+                then_expr: Box::new(fallback),
                 else_expr: Box::new(with_write),
             },
         );
@@ -2803,6 +2820,7 @@ pub fn carried_put_value_failure(expr: &ExprIr) -> Option<(Strictness, PutValueF
     match expr {
         ExprIr::EnvironmentIdentifier(identifier) => match &identifier.operation {
             crate::EnvironmentIdentifierOperationIr::Assign { .. }
+            | crate::EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { .. }
             | crate::EnvironmentIdentifierOperationIr::PutCapturedReference { .. }
             | crate::EnvironmentIdentifierOperationIr::Update { .. }
             | crate::EnvironmentIdentifierOperationIr::EagerCompound { .. }

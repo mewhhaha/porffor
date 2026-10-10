@@ -1,6 +1,24 @@
 # Atomics wait outcome domain
 
-Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+Current source status, 2026-10-10: the complete engine checkpoint passes,
+but the CLI finite-timeout witness exposes late notification of an expired
+waiter. The repair passes joined types and the registry, agent, native Wasm,
+emission and original finite-timeout CLI controls in focused7. Final broad
+acceptance remains pending. Published conformance totals are unchanged.
+
+The typed GC registration import now receives the same store-relative deadline
+used by the GC promise checkpoint. `AsyncWaitDeadline` rejects negative wire
+values and distinguishes infinity from a finite instant in the registering
+store's HostClock domain. Native notify skips expired async entries without
+spending its count, marking them notified or discarding their store ownership.
+The timeout checkpoint still cancels and fulfills them. Notifications made
+before expiry keep priority when their promise handling is delayed. Stable
+`AgentHostOperation` IDs are unchanged.
+
+New controls cover independent registering clocks, the exact expiry boundary,
+mixed expired/live FIFO waiters and delayed processing of a timely notification.
+Strict/sloppy native scripts additionally block the current agent before notify;
+the original finite-timeout CLI fixture keeps every expected output line.
 
 The closed Ok/NotEqual/TimedOut outcome maps to the three exact String spellings. Sync and async waits compare and register in one native backing FIFO under the notify lock. Sync waits consume a declared nonnull-resource import and a native condition-variable signal. Async waits retain a GC SAB/Promise, positive host ID and deadline; zero is a closed immediate mismatch. Notify retires one common list, and timeout cancellation arbitrates notification under the same lock. Agent retirement wakes blocked sync signals with host cancellation, clears retained resources and never fabricates an ECMAScript timeout. Atomics.pause now follows current §25.4.12: arguments are evaluated by the caller and ignored by the native body; the old finite-integral validation fixtures are maintained to the current rule.
 

@@ -1,5 +1,41 @@
 let privateGetterCalls = 0;
 
+// These names have no initializer or private callable metadata to collect
+// their descriptions. Class evaluation must still allocate both names.
+class UninitializedPrivateFieldOnly {
+  #uninitializedPoolOnly;
+  static #staticUninitializedPoolOnly;
+}
+const fieldOnly = new UninitializedPrivateFieldOnly();
+if (Reflect.ownKeys(fieldOnly).length !== 0) {
+  throw "uninitialized private field became an own property";
+}
+
+class ReadableUninitializedPrivateFields {
+  #\u0065scapedUninitialized;
+  static #staticUninitialized;
+
+  has(receiver) {
+    return #escapedUninitialized in receiver;
+  }
+
+  read() {
+    return this.#escapedUninitialized;
+  }
+
+  static read() {
+    return this.#staticUninitialized;
+  }
+}
+const readableFieldOnly = new ReadableUninitializedPrivateFields();
+if (!readableFieldOnly.has(readableFieldOnly) || readableFieldOnly.has({})) {
+  throw "uninitialized private field brand";
+}
+if (readableFieldOnly.read() !== undefined ||
+    ReadableUninitializedPrivateFields.read() !== undefined) {
+  throw "uninitialized private field value";
+}
+
 class PrivateCallableBase {
   methodReceiver() {
     return this;

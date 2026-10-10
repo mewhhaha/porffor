@@ -135,3 +135,21 @@ one actual iteration. The exact optional gap and last-iteration priority remain
 as described in `regexp-independent-counted-repetition.md`. Equal cursor or
 equal capture values alone do not provide it. Unproved owner/reset shapes retain
 the original path. No resource ceiling, timeout or failure result has changed.
+
+## Required empty tails retain their last capture
+
+For `^(?:(?:()|a){1,2}){N}b$` on `ab`, the first required outer
+body consumes `a` through its optional child and leaves capture1 undefined.
+When N is greater than one, subsequent required bodies may match the mandatory
+`()` branch empty and overwrite capture1 with the empty String at `[1,1]`.
+RepeatMatcher rejects an empty iteration only when its minimum is zero; it does
+not discard these mandatory captures. The pinned nullable-quantifier control
+states that rule. A finite one-body case separately checks that the failed
+optional empty attempt does not leak a capture.
+
+The cloud diagnostics returned undefined for N=1 and empty for N=2,3,4 and
+2^64, consistently for literal and computed patterns. The original large-bound
+fixture incorrectly expected undefined. Its corrected expectation now checks
+the empty capture and exact indices, with finite one/two/four-body controls;
+the astronomical bound and execution deadline are unchanged. See the
+[cloud continuation receipt](../cloud-continuation-20261009.md).

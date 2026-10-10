@@ -21,7 +21,11 @@ the getter receiver even though lookup uses its retained boxed object.
 
 Assignment identifiers retain the actual selected record or cell through the
 existing WriteOnly captured Reference transport. Var bindings use that same
-ResolveBinding owner. Lexical bindings initialize their original predeclared
+ResolveBinding owner. Suspended `var` declaration lowering publishes every
+BoundName as a Var declarator to the enclosing variable-instantiation owner,
+before its retained writes. Pattern-only cells start initialized to undefined;
+an init-less redeclaration preserves an earlier value. Lexical bindings
+initialize their original predeclared
 storage only after the value/default completes; their DeclarationEvaluation
 consumer participates in actual entry TDZ initialization. Scoped classic For
 heads retain the original BoundName map and per-iteration closure cells.

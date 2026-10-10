@@ -18,4 +18,4 @@ segmenterAssert(retained.containing(8).segment === 'world', 'containing retained
 segmenterAssert(retained.containing(12) === undefined, 'end of retained partition');
 var first = Array.from(retained), second = Array.from(retained);
 segmenterAssert(first.length === 2 && second.length === 2 && first[0] !== second[0], 'independent iterators');
-console.log('intl-segmenter-projection:ok');
+print('intl-segmenter-projection:ok');

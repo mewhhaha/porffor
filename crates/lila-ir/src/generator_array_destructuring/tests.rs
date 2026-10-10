@@ -198,6 +198,7 @@ fn complete_array_constructor_rejects_foreign_records_missing_outputs_and_global
         );
         let mut raw_alias = inventory.to_vec();
         raw_alias.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign source".into(),
             slot: plan.raw_binding.slot,
         });

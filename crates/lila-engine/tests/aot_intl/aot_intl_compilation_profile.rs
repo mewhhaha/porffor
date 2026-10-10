@@ -1,5 +1,5 @@
 use lila_engine::{
-    CompileOptions, CustomIntlProfile, CustomProfileId, Engine, ExecutionBackend,
+    Artifact, CompileOptions, CustomIntlProfile, CustomProfileId, Engine, ExecutionBackend,
     IntlCompilationProfile, ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder,
     RunOptions,
 };
@@ -30,9 +30,15 @@ fn sparse_service_frames_preserve_selected_operations_and_reject_dependency_only
             )
             .unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         let wire = Parser::new(0)
-            .parse_all(&artifact.bytes)
+            .parse_all(
+                artifact
+                    .runtime
+                    .as_ref()
+                    .expect("linked Intl runtime")
+                    .bytes(),
+            )
             .find_map(|payload| match payload.unwrap() {
                 Payload::CustomSection(section)
                     if section.name() == lila_intl::INTL_SERVICE_SELECTION_CUSTOM_SECTION =>
@@ -107,7 +113,7 @@ fn sparse_supported_values_separates_retained_keys_missing_data_and_invalid_key_
             },
         )
         .unwrap();
-    assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+    assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
     assert!(engine
         .run_compiled_unit(&unit, source, wasm_run())
         .unwrap()
@@ -193,7 +199,7 @@ fn named_zone_projection_emits_real_transition_name_closure_and_preserves_global
                     },
                 )
                 .unwrap();
-            assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+            assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -303,7 +309,7 @@ fn paired_numbering_projection_emits_sparse_service_rows_and_full_global_digit_a
                     },
                 )
                 .unwrap();
-            assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+            assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -376,7 +382,7 @@ fn localized_calendar_projection_preserves_global_kernels_and_emits_only_real_se
                     },
                 )
                 .unwrap();
-            assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+            assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -435,7 +441,7 @@ fn paired_currency_projection_emits_actual_pruned_data_and_original_code_fallbac
                 ..CompileOptions::default()
             };
             let unit = engine.compile_script(&source, options).unwrap();
-            assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+            assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -580,7 +586,7 @@ fn segmenter_only_and_eight_component_projections_emit_selected_models_and_remin
         for directive in ["", "\"use strict\";\n"] {
             let source = format!("{directive}{fixture}\n{checks}\n262;");
             let unit = engine.compile_script(&source, options.clone()).unwrap();
-            assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+            assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -716,7 +722,7 @@ fn collator_only_and_seven_component_projections_emit_real_rows_and_preserve_loc
             let source = format!("{directive}{fixture}\n{checks}\n262;");
             let unit = engine.compile_script(&source, options.clone()).unwrap();
             let artifact = engine.emit_wasm(&unit).unwrap();
-            assert_selected_sections(&artifact.bytes, &profile);
+            assert_selected_sections(&artifact, &profile);
             assert!(engine
                 .run_compiled_unit(&unit, &source, wasm_run())
                 .unwrap()
@@ -745,7 +751,7 @@ fn collator_only_and_seven_component_projections_emit_real_rows_and_preserve_loc
         );
         let code_only = "var names = Intl.supportedValuesOf('collation'); if (names.indexOf('phonebk') < 0 || names.indexOf('search') >= 0) throw 'selected catalogue'; 262;";
         let unit = engine.compile_script(code_only, options.clone()).unwrap();
-        assert_selected_sections(&engine.emit_wasm(&unit).unwrap().bytes, &profile);
+        assert_selected_sections(&engine.emit_wasm(&unit).unwrap(), &profile);
         assert_eq!(
             engine
                 .observe_script(code_only, options, wasm_run())
@@ -786,11 +792,21 @@ fn wasm_run() -> RunOptions {
     }
 }
 
-fn assert_selected_sections(bytes: &[u8], profile: &IntlCompilationProfile) {
+fn assert_selected_sections(artifact: &Artifact, profile: &IntlCompilationProfile) {
     let selection = IntlDataSelection::new(profile.clone());
     let selected = selection.selected().expect("complete pinned graph admits");
+    let runtime = artifact.runtime.as_ref().expect("linked Intl runtime");
+    for payload in Parser::new(0).parse_all(&artifact.bytes) {
+        if let Payload::CustomSection(section) = payload.unwrap() {
+            assert!(
+                !section.name().starts_with("lila.intl"),
+                "program must not duplicate runtime-owned Intl section: {}",
+                section.name()
+            );
+        }
+    }
     let sections = Parser::new(0)
-        .parse_all(bytes)
+        .parse_all(runtime.bytes())
         .filter_map(|payload| match payload.unwrap() {
             Payload::CustomSection(section) => {
                 Some((section.name().to_string(), section.data().to_vec()))
@@ -815,6 +831,27 @@ fn assert_selected_sections(bytes: &[u8], profile: &IntlCompilationProfile) {
         identity[0].1.as_slice(),
         selected.identity().artifact_identity().as_bytes()
     );
+    let service_sections = sections
+        .iter()
+        .filter(|(name, _)| name == lila_intl::INTL_SERVICE_SELECTION_CUSTOM_SECTION)
+        .collect::<Vec<_>>();
+    if let Some(services) = selected.service_selection() {
+        assert_eq!(service_sections.len(), 1, "one selected service frame");
+        assert_eq!(service_sections[0].1, services.wire().to_le_bytes());
+    } else {
+        assert!(
+            service_sections.is_empty(),
+            "full service selection has no frame"
+        );
+    }
+    assert_eq!(
+        sections
+            .iter()
+            .filter(|(name, _)| name.starts_with("lila.intl"))
+            .count(),
+        selected.component_sections().len() + 1 + service_sections.len(),
+        "runtime carries exactly the selected Intl graph"
+    );
 }
 
 #[test]
@@ -824,7 +861,7 @@ fn ordinary_custom_compilation_emits_the_selected_graph_and_runs_the_same_unit()
     let engine = Engine::new(RealmBuilder::new().build());
     let unit = engine.compile_script(SOURCE, options.clone()).unwrap();
     let artifact = engine.emit_wasm(&unit).unwrap();
-    assert_selected_sections(&artifact.bytes, &options.intl_profile);
+    assert_selected_sections(&artifact, &options.intl_profile);
     let outcome = engine.run_compiled_unit(&unit, SOURCE, wasm_run()).unwrap();
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(outcome.note.contains("number(262"), "{}", outcome.note);
@@ -907,7 +944,7 @@ fn custom_code_only_catalogue_and_locale_case_consumers_execute_normally() {
     ] {
         let unit = engine.compile_script(source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &options.intl_profile);
+        assert_selected_sections(&artifact, &options.intl_profile);
         let observed = engine.observe_script(source, options.clone(), wasm_run()).unwrap();
         assert_eq!(observed.completion, ObservedCompletion::Normal(ObservedJsValue::Boolean(true)), "{source}");
     }
@@ -938,7 +975,7 @@ fn actual_list_projection_emits_a_smaller_selected_graph_and_keeps_duration_depe
     };
     let unit = engine.compile_script(source, options.clone()).unwrap();
     let artifact = engine.emit_wasm(&unit).unwrap();
-    assert_selected_sections(&artifact.bytes, &profile);
+    assert_selected_sections(&artifact, &profile);
     assert!(engine
         .emit_c(&unit)
         .unwrap_err()
@@ -1146,7 +1183,7 @@ fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_sele
         };
         let unit = engine.compile_script(source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         assert!(engine
             .emit_c(&unit)
             .unwrap_err()
@@ -1313,7 +1350,7 @@ fn display_names_and_three_component_projections_emit_selected_tables_and_run_re
         };
         let unit = engine.compile_script(&source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         for directive in ["", "\"use strict\";\n"] {
             let source = format!("{directive}{source}");
             assert_eq!(
@@ -1459,7 +1496,7 @@ fn duration_only_and_four_component_projections_emit_and_execute_the_selected_gr
         };
         let unit = engine.compile_script(&source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         let outcome = engine
             .run_compiled_unit(&unit, &source, wasm_run())
             .unwrap();
@@ -1643,7 +1680,7 @@ fn coupled_number_only_and_five_component_projections_reach_real_library_artifac
         };
         let unit = engine.compile_script(&source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         let outcome = engine
             .run_compiled_unit(&unit, &source, wasm_run())
             .unwrap();
@@ -1857,7 +1894,7 @@ fn datetime_only_and_six_component_projections_bind_real_pools_plans_and_library
         };
         let unit = engine.compile_script(&source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
-        assert_selected_sections(&artifact.bytes, &profile);
+        assert_selected_sections(&artifact, &profile);
         let outcome = engine
             .run_compiled_unit(&unit, &source, wasm_run())
             .unwrap();

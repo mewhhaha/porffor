@@ -1,0 +1,627 @@
+{
+  "source_start": {
+    "head": "c902150964c45439bade0740602f488aed2a538e",
+    "patch_sha256": "a2b83a3cbd895f81b71bc4c75b0dd01ef94fdbf164713a1ab299943c6c94b812",
+    "untracked_sha256": {
+      "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+      "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+      "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+      "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871"
+    }
+  },
+  "source_end": {
+    "head": "c902150964c45439bade0740602f488aed2a538e",
+    "patch_sha256": "a2b83a3cbd895f81b71bc4c75b0dd01ef94fdbf164713a1ab299943c6c94b812",
+    "untracked_sha256": {
+      "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+      "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+      "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+      "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+      "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871"
+    }
+  },
+  "source_unchanged": true,
+  "policy": "Default features, locked/offline, inherited cloud cap, serial CPU/workers, original test deadlines",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "exit_status": 1,
+  "scopes": [
+    {
+      "target": "lib",
+      "label": "cloud-engine-full4-20261009-lib",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-lib",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 1545.088,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 854,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 1536.46
+        }
+      ],
+      "started_utc": "2026-10-09T21:15:46Z",
+      "finished_utc": "2026-10-09T21:41:31Z",
+      "failed_tests": [],
+      "log_sha256": "9c51e4858f5c8269f6014469ec197014945218440870a3ceee289d8cc8c8edd7"
+    },
+    {
+      "target": "aot_async",
+      "label": "cloud-engine-full4-20261009-aot_async",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_async",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_async",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 2190.101,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 245,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 2179.46
+        }
+      ],
+      "started_utc": "2026-10-09T21:41:31Z",
+      "finished_utc": "2026-10-09T22:18:01Z",
+      "failed_tests": [],
+      "log_sha256": "20f6850d1ed72d06755ddc32f35559fc7ab402617fd693f3cf5c8fa412757a50"
+    },
+    {
+      "target": "aot_generators",
+      "label": "cloud-engine-full4-20261009-aot_generators",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_generators",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_generators",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 1275.081,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 164,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 1259.5
+        }
+      ],
+      "started_utc": "2026-10-09T22:18:01Z",
+      "finished_utc": "2026-10-09T22:39:16Z",
+      "failed_tests": [
+        "aot_generator_reference_operands::generator_references_preserve_get_put_order_and_whole_abrupt_completion"
+      ],
+      "log_sha256": "ca4a89ff4d7bb7e21fdffef303120ec70976d62a0f4a8e235a3e849563f33acd"
+    },
+    {
+      "target": "aot_intl",
+      "label": "cloud-engine-full4-20261009-aot_intl",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_intl",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_intl",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 4560.151,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 287,
+          "failed": 3,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 4545.04
+        }
+      ],
+      "started_utc": "2026-10-09T22:39:16Z",
+      "finished_utc": "2026-10-09T23:55:16Z",
+      "failed_tests": [
+        "aot_intl_compilation_profile::collator_only_and_seven_component_projections_emit_real_rows_and_preserve_locale_preferences",
+        "aot_intl_compilation_profile::coupled_number_only_and_five_component_projections_reach_real_library_artifacts_and_hosts",
+        "aot_intl_compilation_profile::segmenter_only_and_eight_component_projections_emit_selected_models_and_remint_wire_owners"
+      ],
+      "log_sha256": "59959d0e40eebecbc97b54127c12d2422dd8199be8f11ba7ebb3c032de76ff6c"
+    },
+    {
+      "target": "aot_gc_entries",
+      "label": "cloud-engine-full4-20261009-aot_gc_entries",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_gc_entries",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_gc_entries",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 570.069,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 146,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 554.27
+        }
+      ],
+      "started_utc": "2026-10-09T23:55:16Z",
+      "finished_utc": "2026-10-10T00:04:46Z",
+      "failed_tests": [],
+      "log_sha256": "32698e54e6fbafe07c2bdcffd89b7d643afbe6d3a44564405092a6c6eefc42cb"
+    },
+    {
+      "target": "aot_builtins",
+      "label": "cloud-engine-full4-20261009-aot_builtins",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_builtins",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_builtins",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 1830.102,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 485,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 1817.99
+        }
+      ],
+      "started_utc": "2026-10-10T00:04:46Z",
+      "finished_utc": "2026-10-10T00:35:16Z",
+      "failed_tests": [],
+      "log_sha256": "83f554c8934562dd811077f0856295db51780b693f29e8deb30cca6c434b5671"
+    },
+    {
+      "target": "aot_language",
+      "label": "cloud-engine-full4-20261009-aot_language",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_language",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_language",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 615.061,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 253,
+          "failed": 2,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 607.04
+        }
+      ],
+      "started_utc": "2026-10-10T00:35:16Z",
+      "finished_utc": "2026-10-10T00:45:32Z",
+      "failed_tests": [
+        "aot_callable_capture_lifecycle::arguments_aliases_survive_descriptor_changes_and_retire_individually",
+        "aot_object_binding_single_get::default_and_getter_abrupts_keep_identity_cutoffs_and_tdz"
+      ],
+      "log_sha256": "8d39a48634a44c6be3103c810821bd8efa4e1030d82111284924539142f3277e"
+    },
+    {
+      "target": "aot_realm_modules",
+      "label": "cloud-engine-full4-20261009-aot_realm_modules",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_realm_modules",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_realm_modules",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 1635.094,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 358,
+          "failed": 6,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 1622.03
+        }
+      ],
+      "started_utc": "2026-10-10T00:45:32Z",
+      "finished_utc": "2026-10-10T01:12:47Z",
+      "failed_tests": [
+        "aot_embedded_module_graph::non_scalar_dynamic_strings_never_alias_declared_backslash_requests_or_attributes",
+        "aot_fresh_script_global_lexicals::pinned_restricted_global_is_an_ordinary_runtime_syntax_error_in_both_script_modes",
+        "aot_module_import_jobs::mixed_generator_import_completes_raw_operands_before_capability_and_module_job",
+        "aot_module_import_jobs::ordinary_generator_import_retains_raw_operands_then_yields_the_original_promise",
+        "aot_native_function_source_syntax::native_sources_retain_initial_names_without_observing_mutable_name_properties",
+        "aot_native_function_source_syntax::unchanged_pinned_intrinsic_traversal_uses_complete_native_matcher_in_both_modes"
+      ],
+      "log_sha256": "8d3e3de791348faa2871a807fa2f872958d27dd464915aad60a1bed0973d8206"
+    },
+    {
+      "target": "aot_regexp",
+      "label": "cloud-engine-full4-20261009-aot_regexp",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_regexp",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_regexp",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 1245.076,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 140,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 1241.02
+        }
+      ],
+      "started_utc": "2026-10-10T01:12:47Z",
+      "finished_utc": "2026-10-10T01:33:32Z",
+      "failed_tests": [
+        "aot_regexp_required_choice_runs::completed_optional_and_choice_owning_children_preserve_virtual_guard_fallbacks"
+      ],
+      "log_sha256": "fdb66b64e1bc998ac98618eef9108eacf4a53f1cece4c17fc7b1799f3a220620"
+    },
+    {
+      "target": "aot_temporal",
+      "label": "cloud-engine-full4-20261009-aot_temporal",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-aot_temporal",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "aot_temporal",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 900.07,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 198,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 885.26
+        }
+      ],
+      "started_utc": "2026-10-10T01:33:32Z",
+      "finished_utc": "2026-10-10T01:48:32Z",
+      "failed_tests": [
+        "aot_temporal_hebrew_calendar::hebrew_limits_and_errors_use_carrier_policy_and_called_realm"
+      ],
+      "log_sha256": "df3ad08994ab5800a62150a17d5e9d15df91a9a1af9b58c661a1df6742aa00a5"
+    },
+    {
+      "target": "runtime_cache",
+      "label": "cloud-engine-full4-20261009-runtime_cache",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-runtime_cache",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "runtime_cache",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 165.042,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 159.2
+        }
+      ],
+      "started_utc": "2026-10-10T01:48:32Z",
+      "finished_utc": "2026-10-10T01:51:17Z",
+      "failed_tests": [],
+      "log_sha256": "803c6ddc70dd817dc75afc4dce7509ca3f88ce480a86ad9c234720d3f13f43fe"
+    },
+    {
+      "target": "structure",
+      "label": "cloud-engine-full4-20261009-structure",
+      "state": "failed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-structure",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--test",
+        "structure",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 101,
+      "elapsed_seconds": 15.036,
+      "outcomes": [
+        {
+          "verdict": "FAILED",
+          "passed": 23,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 7.97
+        }
+      ],
+      "started_utc": "2026-10-10T01:51:17Z",
+      "finished_utc": "2026-10-10T01:51:32Z",
+      "failed_tests": [
+        "wasm_execution_mode_structure::both_consumers_exhaustively_project_output_ownership_and_result_shape"
+      ],
+      "log_sha256": "3831591a33ec17ef2649eb717a115a3cffce3d68a8a2c50369da4a366151360a"
+    },
+    {
+      "target": "doc",
+      "label": "cloud-engine-full4-20261009-doc",
+      "state": "passed",
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "cloud-engine-full4-20261009-doc",
+        "--stall",
+        "900",
+        "--",
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--doc",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_status": 0,
+      "elapsed_seconds": 15.034,
+      "outcomes": [
+        {
+          "verdict": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0,
+          "seconds": 0.0
+        }
+      ],
+      "started_utc": "2026-10-10T01:51:32Z",
+      "finished_utc": "2026-10-10T01:51:47Z",
+      "failed_tests": [],
+      "log_sha256": "779f1f87360ad8196bd98025f8c603d230658eb9025407978adc4ad6424bf486"
+    }
+  ],
+  "receipt_sha256": "c72cc668bc7bb3de3433f2d15eb7ec27b0877e61a79ab1a9c8fcf0d67391763c",
+  "rlib_sha256": "e282cbeaa615834279bd6e787cc8da6f1869d7c43306c1671ed5fa5ca651fcf9",
+  "diagnostics": {
+    "cloud-sdk-arguments-aliases-lib4-20261010.log": {
+      "sha256": "852f62b54e0e6e0188d49d140f62bd1508559a3ea5619e24ce033aed3d055b8f",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(RunOutcome { backend_used: WasmAot, note: \"wasm-aot completion: boolean(false)\" })"
+    },
+    "cloud-sdk-arguments-observed-lib4-20261010.log": {
+      "sha256": "c141a327dc7f7d42eb0118b587cda030f7e7d5eee142cdf575ad728ceb1b2a18",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Normal(Boolean(false)), output_events: [PrintLine(\"frozen(1)=false\"), PrintLine(\"accessor(1)=true\"), PrintLine(\"removed(1)=true\"), PrintLine(\"duplicate(1, 2)=true\"), PrintLine(\"missingDuplicate(1)=true\")], note: \"wasm-aot normal completion (boolean)\" })"
+    },
+    "cloud-sdk-descriptor-choice-details-lib4-20261010.log": {
+      "sha256": "2907bc18906914b71ba343bb3daca47aeec52d60b4964ce08699aa4f979ae515",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Normal(Boolean(true)), output_events: [PrintLine(\"before:{\\\"value\\\":2,\\\"writable\\\":true,\\\"enumerable\\\":true,\\\"configurable\\\":true}\"), PrintLine(\"frozen:{\\\"value\\\":2,\\\"writable\\\":false,\\\"enumerable\\\":true,\\\"configurable\\\":true}\"), PrintLine(\"after-a:3:2\"), PrintLine(\"reflect:true\"), PrintLine(\"after-reflect:3:4:{\\\"value\\\":4,\\\"writable\\\":false,\\\"enumerable\\\":true,\\\"configurable\\\":true}\"), PrintLine(\"choice:0:[\\\"aab\\\"]\"), PrintLine(\"choice:1:[\\\"ab\\\",\\\"a\\\"]\"), PrintLine(\"choice:2:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"choice:3:[\\\"aab\\\",null]\"), PrintLine(\"choice:4:[\\\"ab\\\",null]\"), PrintLine(\"choice:5:[\\\"b\\\"]\"), PrintLine(\"choice:6:null\"), PrintLine(\"choice:7:[\\\"aab\\\",\\\"a\\\"]\"), PrintLine(\"choice:8:[\\\"aab\\\"]\"), PrintLine(\"choice:9:[\\\"aab\\\"]\"), PrintLine(\"choice:10:[\\\"aab\\\"]\")], note: \"wasm-aot normal completion (boolean)\" })"
+    },
+    "cloud-sdk-diagnostics-lib4-20261010.log": {
+      "sha256": "decc5565941ef5dd1f7d79d51cbb7245c80a8b59c8e4f06686115e975b251b4c",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1"
+    },
+    "cloud-sdk-finite-capture-hebrew-reference-lib4-20261010.log": {
+      "sha256": "002ea101e4fc147f570ee5acc1569c16570d214dd9a9ec2204f950cbe2f3a8a5",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Normal(Boolean(true)), output_events: [PrintLine(\"count:1:[\\\"ab\\\",null]\"), PrintLine(\"count:2:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"count:3:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"count:4:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"hebrew-minimum-year-month:-271821-04-16[u-ca=hebrew]\"), PrintLine(\"hebrew-M11-from:-271821-04-16[u-ca=hebrew]\")], note: \"wasm-aot normal completion (boolean)\" })"
+    },
+    "cloud-sdk-hebrew-limits-lib4-20261010.log": {
+      "sha256": "45087d389d158bc2482986d0383bcc47fd94514a2d3780e6a2616514357f2a3f",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nErr(EngineError { message: \"uncaught throw: Error: wasm-aot completion: object: missing minimum forbidden partial month\", oracle_entry_syntax_rejection: false, oracle_javascript_exception: None, parse_diagnostic: None, ir_diagnostic: None, intl_artifact_identity_error: None, wasmtime_policy: None, execution_failure: Some(JavaScriptException { constructor_name: Some(\"Error\") }) })"
+    },
+    "cloud-sdk-hebrew-repaired-fixture-lib4-20261010.log": {
+      "sha256": "114692aef001893e8c415bf017b61b9c44ca2a5c4b348afb03c9bea743a1b23b",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Normal(Number(ObservedNumber(4643316768935247872))), output_events: [PrintLine(\"hebrew-limits-and-realms:ok\")], note: \"wasm-aot normal completion (number)\" })"
+    },
+    "cloud-sdk-literal-choice-details-lib4-20261010.log": {
+      "sha256": "b4c39a2f9750db061b33705eeb1c9f253cd380258b7bbf072bad046b48a5471e",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Normal(Boolean(true)), output_events: [PrintLine(\"required-choice-row:0\"), PrintLine(\"expression:0:[\\\"aab\\\"]\"), PrintLine(\"expression:1:[\\\"aab\\\"]\"), PrintLine(\"required-choice-row:1\"), PrintLine(\"expression:0:[\\\"ab\\\",\\\"a\\\"]\"), PrintLine(\"expression:1:[\\\"ab\\\",\\\"a\\\"]\"), PrintLine(\"required-choice-row:2\"), PrintLine(\"expression:0:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"expression:1:[\\\"ab\\\",\\\"\\\"]\"), PrintLine(\"required-choice-row:3\"), PrintLine(\"expression:0:[\\\"aab\\\",null]\"), PrintLine(\"expression:1:[\\\"aab\\\",null]\"), PrintLine(\"required-choice-row:4\"), PrintLine(\"expression:0:[\\\"ab\\\",null]\"), PrintLine(\"expression:1:[\\\"ab\\\",null]\"), PrintLine(\"required-choice-row:5\"), PrintLine(\"expression:0:[\\\"b\\\"]\"), PrintLine(\"expression:1:[\\\"b\\\"]\"), PrintLine(\"required-choice-row:6\"), PrintLine(\"expression:0:null\"), PrintLine(\"expression:1:null\"), PrintLine(\"required-choice-row:7\"), PrintLine(\"expression:0:[\\\"aab\\\",\\\"a\\\"]\"), PrintLine(\"expression:1:[\\\"aab\\\",\\\"a\\\"]\")], note: \"wasm-aot normal completion (boolean)\" })"
+    },
+    "cloud-sdk-mixed-import-lib4-20261010.log": {
+      "sha256": "e452ca544c5cba4fdaf643b76a5c21b531944c2d0afedc7e63d2778b6e66dbfd",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Throw(Object), output_events: [PrintLine(\"TypeError: Cannot find module ./value.js\")], note: \"uncaught ECMAScript throw (object)\" })"
+    },
+    "cloud-sdk-observed-build-lib4-20261010.log": {
+      "sha256": "decc5565941ef5dd1f7d79d51cbb7245c80a8b59c8e4f06686115e975b251b4c",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1"
+    },
+    "cloud-sdk-ordinary-import-lib4-20261010.log": {
+      "sha256": "e452ca544c5cba4fdaf643b76a5c21b531944c2d0afedc7e63d2778b6e66dbfd",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nOk(ObservedRunOutcome { backend_used: WasmAot, completion: Throw(Object), output_events: [PrintLine(\"TypeError: Cannot find module ./value.js\")], note: \"uncaught ECMAScript throw (object)\" })"
+    },
+    "cloud-sdk-required-choice-lib4-20261010.log": {
+      "sha256": "3491339bdfe58676ee667042ff83d04947566c6dff74f003075b545044eb13d9",
+      "output": "capped: CPUs 0 of 1 available (50%), CARGO_BUILD_JOBS=1\nErr(EngineError { message: \"uncaught throw: Error: wasm-aot completion: object: required choice run failed: 0\", oracle_entry_syntax_rejection: false, oracle_javascript_exception: None, parse_diagnostic: None, ir_diagnostic: None, intl_artifact_identity_error: None, wasmtime_policy: None, execution_failure: Some(JavaScriptException { constructor_name: Some(\"Error\") }) })"
+    }
+  }
+}

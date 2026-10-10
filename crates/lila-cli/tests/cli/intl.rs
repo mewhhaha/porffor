@@ -2,6 +2,21 @@
 
 use crate::*;
 
+fn assert_dumped_runtime_matches_sdk(dump: &Path, expected: &lila_engine::Artifact) {
+    let runtime = expected
+        .runtime
+        .as_ref()
+        .expect("Intl producer must emit a linked runtime");
+    let mut runtime_path = dump.as_os_str().to_os_string();
+    runtime_path.push(".runtime.wasm");
+    let emitted = fs::read(&runtime_path).expect("CLI runtime sidecar must be emitted");
+    assert!(
+        emitted.as_slice() == runtime.bytes(),
+        "CLI runtime sidecar {} differs from the SDK artifact",
+        Path::new(&runtime_path).display()
+    );
+}
+
 #[test]
 fn service_manifest_v6_cli_build_export_and_run_share_the_checked_sparse_sdk_owner() {
     lila_engine::configure_compilation_jobs(1).unwrap();
@@ -80,6 +95,7 @@ fn service_manifest_v6_cli_build_export_and_run_share_the_checked_sparse_sdk_own
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected_wasm.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected_wasm);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -213,6 +229,7 @@ fn named_zone_manifest_v5_build_export_and_unavailable_data_follow_actual_sdk_de
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected_wasm.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected_wasm);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -345,6 +362,7 @@ fn numbering_manifest_v4_build_export_and_run_consume_the_same_paired_sdk_select
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected_wasm.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected_wasm);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -451,6 +469,7 @@ fn calendar_manifest_v3_build_export_and_run_share_the_sdk_projected_service_gra
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected_wasm.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected_wasm);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -561,6 +580,7 @@ fn calendar_manifest_v3_cli_matches_sdk_and_preserves_global_available_values() 
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -667,6 +687,7 @@ fn currency_manifest_v2_build_and_export_use_the_actual_sdk_data_before_loading_
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected_wasm.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected_wasm);
     let exported = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("--intl-manifest")
         .arg(&manifest)
@@ -764,10 +785,7 @@ fn canonical_intl_export_matches_sdk_across_processes_and_inspect_rejects_damage
         String::from_utf8_lossy(&inspected.stderr)
     );
     assert_eq!(
-        String::from_utf8(inspected.stdout)
-            .unwrap()
-            .trim()
-            .as_bytes(),
+        inspected.stdout.as_slice(),
         selected.identity().artifact_identity().as_bytes()
     );
     let duplicate = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -876,6 +894,7 @@ fn custom_manifest_cli_matches_the_actual_sdk_graph_and_rejects_before_source_lo
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected);
     for entry in [&script, &module] {
         let run = Command::new(env!("CARGO_BIN_EXE_lila"))
             .args(["--jobs", "1", "--intl-manifest"])
@@ -981,6 +1000,7 @@ fn projected_list_cli_build_and_module_run_use_the_actual_sdk_projection() {
         String::from_utf8_lossy(&built.stderr)
     );
     assert_eq!(fs::read(&dump).unwrap(), expected.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected);
     for entry in [&script, &module] {
         let output = Command::new(env!("CARGO_BIN_EXE_lila"))
             .args([
@@ -1090,6 +1110,7 @@ fn combined_projection_cli_build_matches_sdk_and_runs_both_selected_services() {
             expected.bytes,
             "CLI ordering keeps the exact SDK graph"
         );
+        assert_dumped_runtime_matches_sdk(&dump, &expected);
     }
     for entry in [&script, &module] {
         let output = Command::new(env!("CARGO_BIN_EXE_lila"))
@@ -1222,6 +1243,7 @@ fn display_names_cli_projection_matches_sdk_and_composes_all_three_filters() {
                 expected.bytes,
                 "CLI selects the same physical graph as the SDK"
             );
+            assert_dumped_runtime_matches_sdk(&dump, &expected);
         }
         for entry in [&script, &module] {
             let mut run = Command::new(env!("CARGO_BIN_EXE_lila"));
@@ -1376,6 +1398,7 @@ fn duration_cli_projection_matches_sdk_and_runs_four_selected_components() {
                     expected.bytes,
                     "CLI and SDK retain exactly the same selected graph"
                 );
+                assert_dumped_runtime_matches_sdk(&dump, &expected);
             }
             for entry in [&script, &module] {
                 let mut run = Command::new(env!("CARGO_BIN_EXE_lila"));
@@ -1537,6 +1560,7 @@ fn number_cli_projection_matches_sdk_and_runs_the_coupled_public_services() {
                     expected.bytes,
                     "CLI and SDK retain the same real Number-dependent image graph"
                 );
+                assert_dumped_runtime_matches_sdk(&dump, &expected);
             }
             for entry in [&script, &module] {
                 let mut run = Command::new(env!("CARGO_BIN_EXE_lila"));
@@ -1697,6 +1721,7 @@ fn datetime_cli_projection_matches_sdk_and_runs_six_selected_components() {
                     expected.bytes,
                     "CLI and SDK retain the same real DateTime-dependent graph"
                 );
+                assert_dumped_runtime_matches_sdk(&dump, &expected);
             }
             for entry in [&script, &module] {
                 let mut run = Command::new(env!("CARGO_BIN_EXE_lila"));
@@ -1845,6 +1870,7 @@ fn segmenter_cli_projection_matches_sdk_and_runs_eight_selected_components() {
                     expected.bytes,
                     "same actual selected SDK/CLI graph"
                 );
+                assert_dumped_runtime_matches_sdk(&dump, &expected);
                 for entry in [&script, &module] {
                     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
                         .args(["--jobs", "1"])
@@ -1991,6 +2017,7 @@ fn collator_cli_projection_matches_sdk_and_runs_seven_selected_components() {
                     expected.bytes,
                     "CLI and SDK retain the same raw-row Collator graph"
                 );
+                assert_dumped_runtime_matches_sdk(&dump, &expected);
             }
             for entry in [&script, &module] {
                 let mut run = Command::new(env!("CARGO_BIN_EXE_lila"));
@@ -2093,9 +2120,10 @@ fn custom_intl_profile_reaches_ordinary_cli_build_script_and_module_run() {
         "{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    // The real CLI producer must emit the same selected frames and canonical
-    // identity as ordinary library compilation; no sections are rewritten.
+    // The real CLI producer must emit the same program and selected runtime
+    // data as ordinary library compilation; no sections are rewritten.
     assert_eq!(fs::read(&dump).unwrap(), expected.bytes);
+    assert_dumped_runtime_matches_sdk(&dump, &expected);
     for entry in [&script, &module] {
         let output = Command::new(env!("CARGO_BIN_EXE_lila"))
             .arg("--host-surface")

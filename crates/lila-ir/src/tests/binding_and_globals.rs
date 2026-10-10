@@ -1060,6 +1060,65 @@ fn declared_global_plain_assignments_keep_runtime_references_at_each_owner() {
 }
 
 #[test]
+fn with_global_plain_assignment_orders_selection_and_rhs_with_source_strictness() {
+    for (directive, strictness) in [
+        ("", Strictness::Sloppy),
+        ("'use strict';", Strictness::Strict),
+    ] {
+        let program = lower_script(&format!(
+            "var declared; var writer; with ({{}}) writer = function writer() {{ {directive} missing = 11; declared = 13; }};"
+        ));
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.as_ref().expect("script IR");
+        let writer = script
+            .functions
+            .iter()
+            .find(|function| function.name == "writer")
+            .expect("with-captured writer");
+        let writes: Vec<_> = writer
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Expression(TypedExpr {
+                    expr: ExprIr::EnvironmentIdentifier(identifier),
+                    ..
+                }) => Some(identifier),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(writes.len(), 2);
+        for (write, (name, number)) in writes
+            .into_iter()
+            .zip([("missing", 11.0_f64), ("declared", 13.0_f64)])
+        {
+            assert_eq!(write.name, name);
+            assert_eq!(write.strictness, strictness);
+            assert_eq!(
+                write.resolution_start(),
+                EnvironmentIdentifierResolutionStart::GlobalEnvironment
+            );
+            let EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { selection, value } =
+                &write.operation
+            else {
+                panic!("ordered with/global resolution must own the complete RHS");
+            };
+            assert!(
+                matches!(&selection.expr, ExprIr::Conditional { condition, .. }
+                if matches!(&condition.expr, ExprIr::SpecOperation { operation: SpecOperationIr::WithEnvironmentHasBinding, .. }))
+            );
+            assert!(matches!(&value.expr, ExprIr::Number(value) if *value == number.to_bits()));
+            let operands: Vec<_> = write.operation.operands().collect();
+            assert_eq!(operands, [selection.as_ref(), value.as_ref()]);
+            assert_eq!(
+                carried_put_value_failure(&ExprIr::EnvironmentIdentifier(write.clone())),
+                Some((strictness, PutValueFailure::TypeErrorOrReferenceError))
+            );
+        }
+    }
+}
+
+#[test]
 fn global_var_metadata_does_not_reclassify_same_spelled_owned_bindings() {
     let program = lower_script(
         "var parseInt; function parameter(parseInt) { parseInt = 1; } function local() { var parseInt = 0; parseInt = 2; } function lexical() { let parseInt = 0; parseInt = 3; } function make() { let parseInt = 0; function captured() { parseInt = 3; } return captured; }",

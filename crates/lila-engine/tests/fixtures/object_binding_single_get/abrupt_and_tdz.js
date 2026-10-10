@@ -1,5 +1,5 @@
 function check(condition, name) { if (!condition) throw name; }
-const foreign = $262.createRealm().global;
+const foreign = __lilaCreateRealm().global;
 const marker = new foreign.Error('object binding original marker');
 const markerPrototype = foreign.Error.prototype;
 const prototype = Object.getPrototypeOf;

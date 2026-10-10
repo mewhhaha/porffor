@@ -57,6 +57,7 @@ fn async_for_in_constructor_requires_unique_actual_invocation_inventory() {
             duplicate.push(binding.clone());
             let mut alias = inventory.to_vec();
             alias.push(OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "foreign.cell".into(),
                 slot: binding.slot,
             });

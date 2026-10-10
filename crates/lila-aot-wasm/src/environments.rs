@@ -120,12 +120,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let parent = self.resolve_env_handle_local(0, function);
-        let cells = self.emit_allocate_environment_cells(
-            &environment.bindings,
-            environment.eval_environment.as_ref(),
-            None,
-            function,
-        );
+        let cells = self.emit_allocate_environment_cells(&environment.bindings, function);
         let record = self.emit_initialize_named_environment_header(
             &parent,
             &cells,
@@ -224,12 +219,7 @@ impl<'a> FunctionBuilder<'a> {
                     .reference(),
                 function,
             );
-        let cells = self.emit_allocate_environment_cells(
-            &environment.bindings,
-            environment.eval_environment.as_ref(),
-            None,
-            function,
-        );
+        let cells = self.emit_allocate_environment_cells(&environment.bindings, function);
         let record = self.emit_initialize_named_environment_header(
             &parent,
             &cells,
@@ -453,8 +443,6 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn emit_allocate_environment_cells(
         &mut self,
         bindings: &[OwnedEnvBindingIr],
-        role: Option<&lila_ir::EvalEnvironmentRoleIr>,
-        global_plan: Option<&lila_ir::GlobalBindingPlan>,
         function: &mut Function,
     ) -> GcLocal<BindingCellTable> {
         let schema = self.runtime_schema();
@@ -466,26 +454,10 @@ impl<'a> FunctionBuilder<'a> {
                 .iter()
                 .find(|binding| binding.slot as usize == slot)
                 .expect("planned environment slots must be contiguous");
-            let (mut mutable, mut immutable_strict) = match role {
-                Some(lila_ir::EvalEnvironmentRoleIr::Declarative { bindings, .. }) => bindings
-                    .iter()
-                    .find(|binding| binding.slot as usize == slot)
-                    .map(|binding| {
-                        (
-                            binding.mode != BindingMode::Const,
-                            binding.declaration
-                                != lila_ir::EvalBindingDeclarationIr::NamedFunctionExpression,
-                        )
-                    })
-                    .unwrap_or((true, true)),
-                Some(lila_ir::EvalEnvironmentRoleIr::WithObject { .. }) | None => (true, true),
+            let (mutable, immutable_strict) = match binding.mutability {
+                lila_ir::EnvironmentBindingMutabilityIr::Mutable => (true, true),
+                lila_ir::EnvironmentBindingMutabilityIr::Immutable { strict } => (false, strict),
             };
-            if let Some(mode) =
-                global_plan.and_then(|plan| plan.lexical_bindings().get(&binding.name))
-            {
-                mutable = *mode == lila_ir::GlobalLexicalBindingModeIr::Mutable;
-                immutable_strict = true;
-            }
             cells.push(self.emit_allocate_environment_cell(
                 &undefined,
                 false,

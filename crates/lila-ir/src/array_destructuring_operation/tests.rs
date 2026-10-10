@@ -2,6 +2,7 @@ use super::*;
 
 fn binding(name: &str, slot: u32) -> OwnedEnvBindingIr {
     OwnedEnvBindingIr {
+        mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
         name: name.into(),
         slot,
     }

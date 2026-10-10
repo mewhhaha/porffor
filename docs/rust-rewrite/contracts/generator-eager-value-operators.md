@@ -6,6 +6,15 @@ their lowerer. Yield states belong to the actual operands; operators add no
 synthetic resume states. Logical and conditional expressions retain their
 separate selected-region owner.
 
+Discarded update statements with suspended operands use that same typed source
+plan and staged update owner as value-context updates. Prefix/postfix property
+updates and Annex B call targets retain their original operands and invocation
+Reference across the yield. The discarded statement consumes the resulting value
+without adding a second suspension plan or bypassing the existing Reference
+error/coercion rules. The original generator-reference native fixture and its
+30-second execution limits are unchanged; joined validation is recorded in
+[CONTINUE.md](../../../CONTINUE.md).
+
 The private `generator_eager_value` owner evaluates and roots each whole binary
 operand in its real activation cell before invoking the existing arithmetic,
 relational or bitwise semantic consumer. Both evaluations finish before either

@@ -392,12 +392,24 @@ pub(crate) enum TestTarget {
     Cli,
     /// `tests/cli_output_ending_structure.rs`.
     CliOutputEndingStructure,
+    /// `tests/conformance_closure.rs`.
+    ConformanceClosure,
+    /// `tests/differential_corpus.rs`.
+    DifferentialCorpus,
+    /// `tests/differential_robustness.rs`.
+    DifferentialRobustness,
+    /// `tests/differential_scenario_pair.rs`.
+    DifferentialScenarioPair,
+    /// `tests/differential_worker.rs`.
+    DifferentialWorker,
     /// `tests/fake_suite_publication.rs`.
     FakeSuitePublication,
     /// `tests/perf.rs`.
     Perf,
     /// `tests/product_artifact_execution.rs`.
     ProductArtifactExecution,
+    /// `tests/test262_case_deadline.rs`.
+    Test262CaseDeadline,
     /// `tests/test262_verdict_command_structure.rs`.
     Test262VerdictCommandStructure,
 }
@@ -409,9 +421,15 @@ impl TestTarget {
             TestTarget::Cache => "cache",
             TestTarget::Cli => "cli",
             TestTarget::CliOutputEndingStructure => "cli_output_ending_structure",
+            TestTarget::ConformanceClosure => "conformance_closure",
+            TestTarget::DifferentialCorpus => "differential_corpus",
+            TestTarget::DifferentialRobustness => "differential_robustness",
+            TestTarget::DifferentialScenarioPair => "differential_scenario_pair",
+            TestTarget::DifferentialWorker => "differential_worker",
             TestTarget::FakeSuitePublication => "fake_suite_publication",
             TestTarget::Perf => "perf",
             TestTarget::ProductArtifactExecution => "product_artifact_execution",
+            TestTarget::Test262CaseDeadline => "test262_case_deadline",
             TestTarget::Test262VerdictCommandStructure => "test262_verdict_command_structure",
         }
     }
@@ -427,9 +445,15 @@ impl TestTarget {
             "async_generator" => Some(TestTarget::AsyncGenerator),
             "cache" => Some(TestTarget::Cache),
             "cli_output_ending_structure" => Some(TestTarget::CliOutputEndingStructure),
+            "conformance_closure" => Some(TestTarget::ConformanceClosure),
+            "differential_corpus" => Some(TestTarget::DifferentialCorpus),
+            "differential_robustness" => Some(TestTarget::DifferentialRobustness),
+            "differential_scenario_pair" => Some(TestTarget::DifferentialScenarioPair),
+            "differential_worker" => Some(TestTarget::DifferentialWorker),
             "fake_suite_publication" => Some(TestTarget::FakeSuitePublication),
             "perf" => Some(TestTarget::Perf),
             "product_artifact_execution" => Some(TestTarget::ProductArtifactExecution),
+            "test262_case_deadline" => Some(TestTarget::Test262CaseDeadline),
             "test262_verdict_command_structure" => Some(TestTarget::Test262VerdictCommandStructure),
             _ => None,
         }
@@ -451,9 +475,15 @@ impl FromStr for TestTarget {
             "cache" => Ok(TestTarget::Cache),
             "cli" => Ok(TestTarget::Cli),
             "cli_output_ending_structure" => Ok(TestTarget::CliOutputEndingStructure),
+            "conformance_closure" => Ok(TestTarget::ConformanceClosure),
+            "differential_corpus" => Ok(TestTarget::DifferentialCorpus),
+            "differential_robustness" => Ok(TestTarget::DifferentialRobustness),
+            "differential_scenario_pair" => Ok(TestTarget::DifferentialScenarioPair),
+            "differential_worker" => Ok(TestTarget::DifferentialWorker),
             "fake_suite_publication" => Ok(TestTarget::FakeSuitePublication),
             "perf" => Ok(TestTarget::Perf),
             "product_artifact_execution" => Ok(TestTarget::ProductArtifactExecution),
+            "test262_case_deadline" => Ok(TestTarget::Test262CaseDeadline),
             "test262_verdict_command_structure" => Ok(TestTarget::Test262VerdictCommandStructure),
             other => Err(LedgerError::UnknownTarget(other.to_string())),
         }

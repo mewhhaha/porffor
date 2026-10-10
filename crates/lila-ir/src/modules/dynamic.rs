@@ -82,9 +82,10 @@ impl DynamicComponentIr {
 
 /// Discovers every statically knowable `import()` target in the loaded graph.
 ///
-/// Loaded closures retain their static discovery rule. Complete catalogs
-/// project each site's known specifier and attributes onto every exact declared
-/// host key; computed operands select only those compiled variants at runtime.
+/// Loaded closures discover literal requests and let computed sites select
+/// exact keys already discovered from their referrer's source. Complete
+/// catalogs additionally project sites onto every declared host key. Neither
+/// path loads a new computed name at runtime.
 /// An unmatched key rejects, with no fallback that reaches a parser.
 ///
 /// The returned set is intentionally wider than the artifact registry. Graph
@@ -105,7 +106,7 @@ pub(super) fn discover_components(
                 .resolutions
                 .keys()
                 .filter_map(|(owner, key)| (*owner == referrer).then_some(key));
-            for request in admission.occurrences(&site, keys) {
+            for request in admission.occurrences(&site, &graph.units[index].record, keys) {
                 let Some(module) = graph.resolve_request(referrer, &request) else {
                     continue;
                 };

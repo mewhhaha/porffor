@@ -129,8 +129,8 @@ fn with_object_expression_functions_keep_the_outer_definition_cursor() {
 #[test]
 fn nested_strict_with_assignment_reads_the_production_hidden_capture() {
     let program = lower_script(
-            "var x = 91; var scope = { x: 1 }; var write; with (scope) write = function write() { 'use strict'; x = 2; };",
-        );
+        "var x = 91; var scope = { x: 1 }; var write; with (scope) write = function write() { 'use strict'; x = 2; };",
+    );
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     let script = program.script.as_ref().expect("script IR should exist");
     let write = script
@@ -154,19 +154,27 @@ fn nested_strict_with_assignment_reads_the_production_hidden_capture() {
         .iter()
         .find_map(|statement| match statement {
             StatementIr::Expression(expression)
-                if matches!(&expression.expr, ExprIr::MaterializeBinding { .. }) =>
+                if matches!(&expression.expr, ExprIr::EnvironmentIdentifier(_)) =>
             {
                 Some(expression)
             }
             _ => None,
         })
         .expect("with assignment should retain its initial resolution");
-    let ExprIr::MaterializeBinding {
-        value: selection, ..
-    } = &assignment.expr
-    else {
+    let ExprIr::EnvironmentIdentifier(identifier) = &assignment.expr else {
         unreachable!()
     };
+    assert_eq!(identifier.strictness, Strictness::Strict);
+    assert_eq!(
+        identifier.resolution_start(),
+        EnvironmentIdentifierResolutionStart::GlobalEnvironment
+    );
+    let EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { selection, value } =
+        &identifier.operation
+    else {
+        panic!("the global fallback must resolve before its RHS");
+    };
+    assert!(matches!(&value.expr, ExprIr::Number(value) if *value == 2.0_f64.to_bits()));
     let ExprIr::Conditional { condition, .. } = &selection.expr else {
         panic!("the retained selection must branch on the captured Object Environment");
     };

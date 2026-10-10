@@ -510,24 +510,45 @@ fn generator_nullish_property_resume_retains_raw_reference_and_rhs() {
         let mut statements = Vec::new();
         staged_operand_statements(&function.body.statements, &mut statements);
         let (yield_position, value, resume_mode) = statements
-            .iter().enumerate()
+            .iter()
+            .enumerate()
             .find_map(|(position, statement)| match statement {
-                StatementIr::GeneratorYield { value, resume_mode, .. } => Some((position, value, resume_mode)),
+                StatementIr::GeneratorYield {
+                    value, resume_mode, ..
+                } => Some((position, value, resume_mode)),
                 _ => None,
             })
             .expect("nullish Reference must retain its suspended RHS");
         assert!(matches!(value.expr, ExprIr::Number(number) if number == expected_rhs.to_bits()));
         let (base_and_receiver, key, strictness) = match resume_mode {
             GeneratorResumeModeIr::AssignProperty(reference) => match reference.use_view() {
-                SuspendedPropertyReferenceUse::Ordinary { base_and_receiver, key, strictness } => (base_and_receiver, key, strictness),
+                SuspendedPropertyReferenceUse::Ordinary {
+                    base_and_receiver,
+                    key,
+                    strictness,
+                } => (base_and_receiver, key, strictness),
             },
             GeneratorResumeModeIr::AssignIdentifier(resumed) => {
-                let assignment = statements[yield_position + 1..].iter().find_map(|statement| match statement {
-                    StatementIr::Expression(TypedExpr { expr: ExprIr::OrdinaryPropertyAssignment(assignment), .. }) => Some(assignment),
-                    _ => None,
-                }).expect("mixed continuation performs the original raw Reference Put after resume");
-                assert!(matches!(&assignment.rhs().expr, ExprIr::Identifier(name) if name == resumed));
-                (assignment.base_and_receiver(), assignment.referenced_name(), assignment.strictness())
+                let assignment = statements[yield_position + 1..]
+                    .iter()
+                    .find_map(|statement| match statement {
+                        StatementIr::Expression(TypedExpr {
+                            expr: ExprIr::OrdinaryPropertyAssignment(assignment),
+                            ..
+                        }) => Some(assignment),
+                        _ => None,
+                    })
+                    .expect(
+                        "mixed continuation performs the original raw Reference Put after resume",
+                    );
+                assert!(
+                    matches!(&assignment.rhs().expr, ExprIr::Identifier(name) if name == resumed)
+                );
+                (
+                    assignment.base_and_receiver(),
+                    assignment.referenced_name(),
+                    assignment.strictness(),
+                )
             }
             _ => panic!("assignment must consume its resumed whole value"),
         };
@@ -624,6 +645,37 @@ fn records_discarded_generator_expression_suspensions() {
 }
 
 #[test]
+fn discarded_generator_updates_share_the_value_context_suspension_owner() {
+    let cases = [
+        ("discard_property_post", "object[yield 'key']++;"),
+        ("discard_property_pre", "++object[yield 'key'];"),
+        ("return_property_post", "return object[yield 'key']++;"),
+        ("return_property_pre", "return ++object[yield 'key'];"),
+        ("discard_call_post", "target(yield 'argument')++;"),
+        ("discard_call_pre", "++target(yield 'argument');"),
+        ("return_call_post", "return target(yield 'argument')++;"),
+        ("return_call_pre", "return ++target(yield 'argument');"),
+    ];
+    let mut source = String::from("function target(value) { return value; }\n");
+    for (name, body) in cases {
+        source.push_str(&format!("function* {name}(object) {{ {body} }}\n"));
+    }
+    let program = lower_script(&source);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script IR");
+    for (name, _) in cases {
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap_or_else(|| panic!("generator `{name}` should be registered"));
+        let plan = function.generator_plan.as_ref().expect("generator plan");
+        assert_eq!(plan.state_count, 2, "generator `{name}`");
+        assert_eq!(plan.suspension_points.len(), 1, "generator `{name}`");
+    }
+}
+
+#[test]
 fn records_generator_template_interpolation_suspensions() {
     let program = lower_script(
         "let output;
@@ -697,14 +749,35 @@ fn records_generator_suspensions_inside_with() {
         .as_ref()
         .expect("generator should have a suspension plan");
     assert_eq!(plan.state_count, 7);
-    assert_eq!(plan.suspension_points.iter().map(|point| (point.suspend_state, point.resume_state)).collect::<Vec<_>>(),
-        [(0, 1), (2, 3), (3, 4), (5, 6)]);
-    let with = function.body.statements.iter().find_map(|statement| match statement {
-        StatementIr::OrdinaryGeneratorWith(plan) => Some(plan),
-        _ => None,
-    }).expect("one original With environment lifetime");
-    assert_eq!((with.entry_state(), with.body().entry_state(), with.body().end_state(), with.exit_state()), (1, 2, 4, 5));
+    assert_eq!(
+        plan.suspension_points
+            .iter()
+            .map(|point| (point.suspend_state, point.resume_state))
+            .collect::<Vec<_>>(),
+        [(0, 1), (2, 3), (3, 4), (5, 6)]
+    );
+    let with = function
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::OrdinaryGeneratorWith(plan) => Some(plan),
+            _ => None,
+        })
+        .expect("one original With environment lifetime");
+    assert_eq!(
+        (
+            with.entry_state(),
+            with.body().entry_state(),
+            with.body().end_state(),
+            with.exit_state()
+        ),
+        (1, 2, 4, 5)
+    );
     assert!(function.owned_env_bindings.contains(with.head_binding()));
-    assert!(with.lexical_environment().bindings.contains(with.object_binding()));
+    assert!(with
+        .lexical_environment()
+        .bindings
+        .contains(with.object_binding()));
     assert_ne!(with.head_binding().name, with.object_binding().name);
 }

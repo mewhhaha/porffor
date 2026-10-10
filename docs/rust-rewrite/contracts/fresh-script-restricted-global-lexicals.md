@@ -37,3 +37,19 @@ and the existing `aot_prepared_global_declarations`,
 scope/completion regressions, then rerun both pinned fixture modes and the
 required broad checks. This proposal changes no published conformance counts
 and claims no runtime pass or T08 completion.
+
+An otherwise scalar Script still performs restricted-global declaration
+admission before its body. `GlobalBindingPlan::has_restricted_lexical_declarations`
+is shared by data planning and runtime validation. A restricted lexical name
+requires R so the ordinary validation path can construct its intrinsic
+SyntaxError. The artifact control covers `undefined`, `NaN`, and `Infinity`
+in both Script modes; an ordinary scalar computation stays runtime-free. The original
+pinned runtime-negative test and its deadlines remain unchanged. See the cloud
+continuation receipt for verification; staging alone is not a PASS.
+
+Main declaration admission precedes the main job checkpoint. Its early rejection
+captures the actual intrinsic exception constructor through the existing
+data-only diagnostic observer before returning the Throw completion. This
+preserves the runtime-negative SyntaxError classification without invoking
+getters or a mutable public constructor. Scalar const/let and class controls
+retain that classification in both Script modes.

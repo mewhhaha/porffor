@@ -46,7 +46,7 @@ for (let key in Atomics) {
 if (Atomics.isLockFree(4) !== true) throw "4-byte lock-free";
 if (Atomics.isLockFree(4.9) !== true) throw "ToInteger 4.9";
 if (Atomics.isLockFree("4") !== true) throw "string size";
-if (Atomics.isLockFree(true) !== false) throw "boolean size";
+if (Atomics.isLockFree(true) !== Atomics.isLockFree(1)) throw "boolean size";
 if (Atomics.isLockFree(0) !== false) throw "zero size";
 if (Atomics.isLockFree(3) !== false) throw "3-byte size";
 if (Atomics.isLockFree(5) !== false) throw "5-byte size";

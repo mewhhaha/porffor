@@ -36,10 +36,12 @@ var name = Object.getOwnPropertyDescriptor(object[symbol], 'name');
 check(name.writable === false && name.enumerable === false && name.configurable === true, 'function name attributes');
 var pair = Object.getOwnPropertyDescriptor(object, 'pair');
 check(pair.get.name === 'get pair' && pair.set.name === 'set pair' && pair.enumerable && pair.configurable, 'accessor identity and descriptors');
-object.pair = 28;
-check(object.pair === 28, 'merged accessor receiver');
 var keys = Reflect.ownKeys(object);
 check(keys.length === 7 && keys.slice(0, 6).join(',') === 'short,data,pair,method,copied,final' && keys[6] === symbol, 'property order');
+object.pair = 28;
+check(object.pair === 28 && object.slot === 28, 'merged accessor receiver');
+keys = Reflect.ownKeys(object);
+check(keys.length === 8 && keys[6] === 'slot' && keys[7] === symbol, 'setter appends its own data property');
 
 function* prototypeCases() {
   return { __proto__: yield 'proto', ['__proto__']: yield 'own' };

@@ -224,12 +224,13 @@ fn inspect_reports_phase_twenty_five_builtin_ir_shape() {
     // this assertion goes red without anything in the fixture changing.
     // Batch 8: 51 -> 52 for `AsyncDisposableStack`; the constructor-only
     // `%DisposableStack%` shell then moves 52 -> 53. `%Float16Array%`
-    // (ES2025, catalog `GlobalOrdinal(53)`, 7a7610705) moves 53 -> 54. Recount
+    // (ES2025, catalog `GlobalOrdinal(53)`, 7a7610705) moves 53 -> 54.
+    // `ShadowRealm` at `GlobalOrdinal(54)` moves 54 -> 55. Recount
     // with `lila inspect crates/lila-cli/tests/fixtures/wasm_builtin_globals.js`
     // rather than guessing the delta; do not weaken this to a prefix match,
     // because the exact number is the only thing that makes an accidental
     // global-environment change visible at rung 1b.
-    assert!(stdout.contains("builtin_globals=54"), "{stdout}");
+    assert!(stdout.contains(" builtin_globals=55 "), "{stdout}");
     assert!(stdout.contains("builtin_ctor_calls="));
     assert!(stdout.contains("builtin_static_calls="));
     assert!(stdout.contains("error_builtin_calls="));

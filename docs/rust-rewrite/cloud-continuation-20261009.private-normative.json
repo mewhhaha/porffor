@@ -1,0 +1,28 @@
+{
+  "source_url": "https://raw.githubusercontent.com/tc39/ecma262/main/spec.html",
+  "source_sha256": "5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d",
+  "retrieved_date_utc": "2026-10-10",
+  "clauses": [
+    "sec-privatefieldadd",
+    "sec-privatemethodoraccessoradd",
+    "sec-hostensurecanaddprivateelement"
+  ],
+  "role": "Normative reference only. Ordinary objects have no private-element extensibility restriction; duplicate private installation still throws TypeError.",
+  "additional_normative_observations": [
+    {
+      "subject": "PrivateIdentifier StringValue includes #",
+      "source_lines": [
+        18790,
+        18794
+      ]
+    },
+    {
+      "subject": "Private name description uses PrivateBoundIdentifiers StringValue",
+      "clause": "sec-runtime-semantics-classdefinitionevaluation"
+    },
+    {
+      "subject": "Private SetFunctionName uses description verbatim",
+      "clause": "sec-setfunctionname"
+    }
+  ]
+}

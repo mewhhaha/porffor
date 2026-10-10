@@ -8,7 +8,9 @@ below.
 
 `Test262VerdictCommand::{Run, Shard}` is the private compile-time authority for
 the command name included in a direct Test262 verdict error. It has exactly two
-producers: the `run` and `shard` command arms. Its sole observation is one
+public command-arm producers: `run` and `shard`. The hidden `__case-worker`
+also submits its one-case verdict as `Run`, so failure remains visible to the
+supervising process. Its sole observation is one
 exhaustive spelling projection: `Run` becomes `"run"` and `Shard` becomes
 `"shard"`.
 
@@ -28,9 +30,10 @@ summary has been printed.
 ## Durable evidence
 
 `crates/lila-cli/tests/test262_verdict_command_structure.rs` recursively pins
-the exact five source mentions, private two-row domain, absent capabilities,
-exhaustive spelling table, typed verdict consumer and messages, exact two
-producers, and summary-before-verdict order.
+the exact six source mentions, private two-row domain, absent capabilities,
+exhaustive spelling table, typed verdict consumer and messages, the two public
+command-arm producers and the internal worker producer, and
+summary-before-verdict order.
 
 The focused behavioral witnesses are:
 

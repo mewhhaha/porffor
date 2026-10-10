@@ -327,17 +327,7 @@ impl<'a> FunctionBuilder<'a> {
         let parent = schema
             .reserve_gc_local::<Environment, Nullable>(function)
             .initialize(self.current_environment().load(schema, function), function);
-        let global_plan = if self.has_global_script_bindings() {
-            self.script_global_bindings
-        } else {
-            None
-        };
-        let cells = self.emit_allocate_environment_cells(
-            self.owned_env_bindings,
-            self.eval_environment,
-            global_plan,
-            function,
-        );
+        let cells = self.emit_allocate_environment_cells(self.owned_env_bindings, function);
         let record = self.emit_initialize_named_environment_header(
             &parent,
             &cells,

@@ -1,118 +1,190 @@
-# CONTINUE — handoff state (2026-10-09)
+# CONTINUE — handoff state (2026-10-10)
 
-Work directly on `main` and push to `origin/main` (no feature branches).
-The task plan lives in `tasks/` (start with `tasks/README.md`); this file is
-the short operational handoff for the next session.
+Work directly on `main` and push to `origin/main`; no feature branches or
+force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
+receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
+Use Luna agents for read-only chores/exploration; root writes code.
 
-## What landed in this round
+## Cloud checkpoint
 
-- **Runtime/program module split.** Heap-using programs compile to a small
-  program module P linked against one process-wide runtime module R
-  (`crates/lila-aot-wasm/src/runtime_artifact.rs`, `runtime_artifact/cache.rs`,
-  `function_layout.rs`, `program_hooks.rs`; engine side
-  `crates/lila-engine/src/wasm_runtime_link.rs`). Every builtin is always
-  compiled, host imports are a fixed superset, R is byte-identical for every
-  program and is cached on disk. Per-program emit/compile dropped from
-  ~40–60 s to a few seconds.
-- **Builtins install exactly once per realm.** `RuntimeBootstrapPlan::full()`
-  installs every standard builtin; host builtins install according to the host
-  surface, never "because compiled". The Uint8Array base64/hex methods were
-  compiled but never installed; they now have an installer
-  (`StandardBuiltinInstaller::Uint8Array`). A catalog-wide audit found no other
-  uninstalled builtin.
-- **Semantic fixes.** Template substitutions use ToString (hint String);
-  direct-eval detection inside methods; awaited `var` patterns declare their
-  names (`export var x = await …`); module-syntax stripper handles string
-  export names and `with {}`; dependency-module syntax errors are
-  resolution-phase (`RejectedInDependency`); super/parenthesized destructuring
-  targets (`DestructuringTargetIr::AssignmentSuper`); static builtin
-  "requires …" restrictions removed; Annex B labelled block functions;
-  `with`-environment PutValue evaluates the RHS once (was copied into every
-  branch); Intl UTF-16 host-wire framing (byte lengths) fixed.
-- **Runtime performance.** Newest-first own-property lookup with a
-  reference-identity key fast path; `push` no longer snapshots/sorts indices
-  when the array grows; private fields install through one helper call
-  (6,000-field classes compile); private-name tables built without quadratic
-  GC live sets.
-- **Harness.** Typed Test262 failure origins (`wasm-backend` added, no message
-  substring guessing); Test262 host declares a complete embedded module catalog
-  so computed `import()` resolves (`crates/lila-test262/src/module_catalog.rs`).
-- **Test layout.** Integration tests are consolidated by area:
-  `lila-aot-wasm` 219 → 7 targets, `lila-engine` 365 → 11 targets
-  (`crates/<crate>/tests/<area>/main.rs`). Use `--test <area> <module>::` to
-  select. This is what keeps `target/debug` from filling the disk.
+The cloud machine has a finite 32 GiB inherited cgroup cap. Heavy work uses
+`python3 -B scripts/limited_verification.py --cloud -- <command>`, one CPU/worker,
+and a two-entry retained-module cache up to 256 MiB, reduced further to at most
+one eighth of the inherited cap. Stricter explicit limits survive. Earlier
+checkpoints used one entry/64 MiB. Local machines keep the existing
+4 GiB/no-swap/grouped-OOM systemd policy. Rust/Cargo, rustfmt, Clippy and bundled
+LLD live in `/workspace/.lila-tools`; source `activate.sh` in each Cargo shell.
+Locked/offline fetch/build and default CLI inspect/run/build smoke checks pass.
+No Node runtime or system service is a product dependency.
 
-## Verification status at handoff
+Cloud CPU use remains serial by default. The verified opt-in
+`--cloud-cpus auto` mode exposes up to the inherited affinity and visible
+cgroup CPU quota (four CPUs here), honoring stricter inherited native-worker
+limits. Cargo and libtest remain serial. Direct CLI `--jobs N` selects its
+compiler pool; Test262 `--threads` independently selects case concurrency.
+Explicit test counts and deadlines stay unchanged. Three real Wasm fixtures
+produce identical output with one and four compiler workers and reuse the
+embedded native core in both modes; all 28 production launcher controls pass.
 
-| Scope | Result |
-|---|---|
-| `cargo xc --all-features` (workspace, all targets) | passes at this commit |
-| `lila-ir`, `lila-intl`, `lila-front`, `lila-runtime` | 3,102 / 3,102 pass (lila-ir alone 2,163 after the `with` fix) |
-| `lila-test262` | all pass (default features) |
-| `lila-aot-wasm` (lib + 7 targets) | 327 lib + 641 integration, all pass |
-| `lila-engine` full suite | **interrupted** at 2,339 passed / 96 failed (not finished) |
-| `lila-cli` suite, fake suite, Test262 replay | **not run** this round |
+The final frozen engine Full10 checkpoint completes all thirteen default-feature
+scopes at **3,184 passes, zero failures and zero ignores**, with unchanged source
+and original deadlines. Complete CLI Full3 is green at **943 passes, zero failures
+and four existing ignores**. The fresh identity-checked product fake run passes **191/191 exact IDs over
+190 files**, including all 187 Wasm-safe members, with zero failures/timeouts.
+Four isolated cases with one compiler worker each finish in **190.096 watched
+seconds** under the inherited four-CPU quota, preserving 60,000-ms case limits.
+Final format, architecture, shortcut-accounting and ledger guards also pass.
+The exact [fake receipt](docs/rust-rewrite/cloud-continuation-20261009.fake-final.json)
+and [guard receipt](docs/rust-rewrite/cloud-continuation-20261009.final-guards.json)
+preserve identities, IDs, commands and hashes.
 
-### Known `lila-engine` failures (interrupted run, pre-Uint8Array fix)
+The frozen engine Full4 checkpoint records 3,157 passes, 15 failures and zero
+ignores. After the repairs, Full5 completes all thirteen scopes at 3,176 passes,
+zero failures and zero ignores, with unchanged source and original deadlines.
+Both exact receipts are preserved. Full5 precedes the additional CLI-discovered
+BinaryData repairs below; it does not certify those newer changes. Earlier
+partial and serial-invalid receipts remain diagnostic history.
 
-The 28 Uint8Array codec failures are **fixed** since that run. Remaining,
-grouped (test module = file under `crates/lila-engine/tests/<area>/`):
+The earlier source batch repairs retained binding write policies, suspended
+array-pattern scopes, generator `var` pattern hoisting, ordinary descriptor
+snapshots, non-simple parameter named-self policies, early `with` global
+fallback References and folded RegExp descriptor parity. The serial IR
+checkpoint passes all 1,496 tests; the loop/epoch, Float16, descriptor and
+ordinary assignment controls pass. Three missing Segmenter corpora are now
+tracked with exact committed-archive bytes; eight corpus checks and thirteen
+launcher checks pass.
 
-- Generators / async generators (two lanes were mid-investigation, no fix
-  landed): `aot_generator_for_of_continuations` (7), `aot_gc_generator_entries`
-  (4), `aot_generator_{object_literal,object_patterns,optional_regions,reference_operands}`,
-  `aot_async_{for_in,with}`, `aot_async_generator_{for_in_lifecycle,for_in_regions,switch_regions,pattern_regions,expression_regions}`
-  (`unbound identifier received`; a `#value` parse error — check whether the
-  fixture is valid JS), `aot_optional_property_await`, `aot_logical_assignment_await` (2).
-- Realm / intrinsic identity and "poisoned builtin must be re-read" tests:
-  `aot_indexed_collection_invocation`, `aot_invocation_shortcut_retirement` (2),
-  `aot_number_string_hook_invocation`, `aot_numeric_native_caller_effects`,
-  `aot_string_invocation_family`, `aot_json_stringify_preparation`,
-  `aot_json_canonical_reviver`, `aot_global_error_caller_effects`,
-  `aot_remaining_invocation_references`, `aot_ordinary_global_assignment_reference`,
-  `aot_fresh_script_global_lexicals`. Suspect compile-time facts that assumed a
-  script-derived bootstrap plan (now every builtin is installed).
-- Entry/GC tests: `aot_gc_{collection,iterator,string_regexp,typed_array_immutable_properties,typed_array_method,binary_data}_entries`,
-  `aot_tagged_template_source_owners`, `aot_callable_capture_lifecycle`,
-  `aot_object_binding_single_get`.
-- Likely stale after the R/P split (artifact inspection): `aot_intl_compilation_profile`
-  (16, Intl sections now live in R), `tests::wasm_backend_*` (2, expect the
-  old single-module export list), `runtime_regexp_compiler_tests` (1, exact
-  byte image), `aot_native_function_source_syntax` (2), `aot_module_import_jobs` (2),
-  `aot_embedded_module_graph` (1).
-- `aot_float16_array`: execution timeout (performance).
+All 15 complete-checkpoint failures now have authored repairs or valid fixture
+corrections, with original semantic intent and execution limits preserved.
+The batch adds discarded generator Updates, restricted scalar global errors,
+canonical shared RegExp alias accessors, lossless UTF-16 literal keys, loaded
+computed imports, declared host adapters, a correct structure boundary and CLI
+runtime-sidecar cleanup. Arguments configurable snapshots, required RegExp
+empty captures and Hebrew YearMonth carrier limits get distinct positive and
+negative controls. The first joined all-feature/all-target type check passes in
+297 Cargo / 300 watched seconds. The frozen focused run records 1,540 passes and
+two failures: a newly added R-free comparison and the original restricted-global
+exception constructor diagnostic. The final joined type check passes in
+230 Cargo / 240 watched seconds. Both corrections pass their affected controls:
+one artifact unit and all seven restricted-global native tests. All fifteen
+original failures also pass the complete Full5 checkpoint.
 
-## Next steps (in order)
+CLI Full1 finishes its driver on unchanged source, but its main target is
+incomplete: the wrapper incorrectly assigned 900 seconds to the Test262 subset
+whose documented outer stall budget is 3,600 seconds. That target stops with
+exit124 after 289 observed passes and seven observed failures. The other sixteen
+targets complete at 95 passes, two stale structure-guard failures and three
+pre-existing performance ignores, including the full fake publication test.
+These counts are separate from a complete CLI verdict.
 
-1. Finish the `lila-engine` suite and fix the groups above (one implementer
-   lane per group works well; give each its own `CARGO_TARGET_DIR` when a full
-   suite is running).
-2. Run the `lila-cli` suite (`cargo test -p lila-cli --test cli`) and the fake
-   Test262 suite; fix fallout from the R/P split.
-3. Replay the 5,365 historical Test262 failures with a fresh release build
-   (exact `mode:path.js` ids; the 2026-09-30 aggregate is under
-   `target/publication-freeze-20260930-*/test262/snapshots/`), group what
-   remains into families and fix. Earlier sampling: ~84 % of non-Intl and
-   ~96 % of Intl historical failures already pass; runtime-string
-   `eval`/`new Function` remain excluded by design.
-4. Remaining performance: amortized property-table growth (every add copies
-   the table today; `objects.rs` `emit_ordinary_append_property_entry_inner`),
-   doubling growth for indexed tables (`objects/define_property.rs`
-   `emit_grow_indexed_table`), a hash index for large objects such as the
-   global object, and folding HasProperty+Get for global reads.
-5. Small known gaps: vendored `boa_parser` rejects `[(a.b)] = x`
-   (parenthesized member target without default); `import … with { type: "bytes" }`
-   needs a Bytes module kind; logical/compound `with` assignments still copy the
-   RHS per branch; `lila-ir/src/modules/source.rs` strips module syntax by text
-   scanning (fragile — derive from the AST).
+The next coherent repair batch fixes immutable transfer length coercion,
+immutable slice RangeError and pre-allocation source revalidation, and native
+waitAsync expiry before notification. Fixture corrections compare isLockFree's
+boolean conversion with size1 and use an actual unsupported dynamic-source
+case. The verdict structure guard explicitly includes the existing internal
+case-worker producer. New native controls preserve error precedence, exact
+bounds, clock domains and mixed expired/live FIFO behavior. Joined types pass
+in 260 Cargo / 270 watched seconds. All 75 focused checks pass across nine
+scopes with unchanged source and zero failures/ignores. Complete final CLI,
+engine and identity-checked product fake acceptance were pending at that checkpoint.
 
-## Operational notes
+CLI Full2 completes all seventeen default-feature scopes on unchanged source:
+928 passes, 15 failures and four pre-existing ignores, with no incomplete native
+verdict scope. The main target records 832 passes, 14 failures and one ignore;
+publication reaches at least 180/191 cases before its original 900-second
+deadline. Cloud limits and explicit worker/cache counts were inherited correctly;
+available logs do not establish the throughput cause. The timeout remains red.
 
-- Run heavy work in memory-capped systemd scopes inside `lila-verify.slice`
-  (`systemd-run --user --scope --slice=lila-verify.slice -p MemoryMax=… -p MemorySwapMax=0`);
-  the user runs other heavy apps on this machine.
-- Check `df -h /home` before broad suites. `target/debug` grew to 436 GB once
-  and filled the disk; `cargo clean --profile dev --offline` is safe
-  (first rebuild ~10–15 min).
-- Use a private `LILA_CACHE_DIR` per compiler build for Test262 replays;
-  concurrent builds sharing `~/.cache/lila` evict each other.
+Root's next batch repairs `in` operand retention/order, runtime private-name `#`
+descriptions, strong collection receiver-error classification and exact Intl
+identity output. It corrects stale private-extensibility and RegExp-admission
+fixtures, bind/global inspection counters and the RegExp source owner guard,
+and registers all six missing integration targets in the closed hygiene domain.
+Private installation controls retain duplicates, mutation and ordinary
+non-extensible/sealed/frozen receivers; new strict/sloppy `in` controls retain
+abrupt, coercion, Proxy and suspended-operand order. Initial joined types pass
+in 325 Cargo / 330 watched seconds. The first focused attempt passes all 1,499
+IR checks, then is deliberately stopped during native compilation when review
+finds a missed prefixed private-name string-pool entry. The collector is now
+repaired and the existing private-callable fixture adds field-only, uninitialized
+static and escaped-name controls. Fresh types, complete focused checks and
+final CLI/engine/fake acceptance were pending at that checkpoint.
+No deadline or ignore-ledger changes were made.
+
+The private-name correction passes joined types in 258 Cargo / 270 watched
+seconds. A separate publication lifecycle review proves two case workers wrote
+passing snapshots after the publisher was killed; no cross-scope overlap or
+throughput cause is established. The Linux worker spawn now arms a parent-death
+signal and rejects a lost-parent race before exec. A subprocess regression kills
+a disposable supervisor and verifies its separately grouped worker terminates.
+This joined source passes all-feature/all-target types in 7.10 Cargo / 15
+watched seconds. The frozen focused9 run completes all 23 scopes: 1,525 passes,
+one failure and zero ignores. All 1,524 non-publication checks pass, including
+the original fourteen main CLI failures and Linux worker cleanup. Publication
+still times out at 900.43 seconds after 190/191 cases. Its deadline remains
+unchanged and this checkpoint remains red.
+
+Source tracing finds that each supervised case worker independently hashes its
+loaded executable for evidence and again for cache identity. A startup probe
+measures one image hash at 0.47 seconds for the 600 MB debug CLI; this does not
+prove the publication timeout's cause. The cache now derives a versioned key
+from the verified source and loaded-image digests already owned by
+`CompilerIdentity`. Unavailable identity disables program/runtime/graph cache
+access while preserving compilation. A test-helper lifetime error is corrected;
+fresh all-feature/all-target types pass in 161 Cargo / 165 watched seconds.
+All 24 focused cache, identity, graph and publication checks pass across eight
+unchanged-source scopes. Publication completes in 888.52 seconds under its
+original 900-second deadline. The exact receipts retain the earlier red runs.
+Complete CLI/engine and the explicit identity-checked product fake run were
+pending at that checkpoint. Startup probes are diagnostic only and establish no general speedup.
+
+CLI Full3 completes all seventeen default-feature scopes on unchanged source:
+943 passes, zero failures and four pre-existing ignores. Its main scope records
+846 passes/one ignore; the 187 exact raw Wasm-safe IDs all pass. Full fake
+publication completes in 898.43 seconds under its original 900-second deadline.
+The compact receipt names all four ignored stress/performance controls.
+
+The owner's iteration-time request prompts a controlled shared-core probe.
+The 41,195,754-byte R Wasm uses a 251,691,352-byte native bundle. Both 1/64-MiB
+and 2/64-MiB configurations invoke its native factory six times; 2/256 MiB
+invokes it once across the same six executions. Warm R loads measure about
+24 ms instead of 130 ms. All three existing native controls pass in each
+configuration; total wall timings include persistent-P warming and are not a
+general performance benchmark. The cloud launcher now retains R and P within
+the measured bounded ceiling; all fifteen launcher controls pass. Rust compiler
+and fixture source remains identical to green CLI Full3. Local limits remain
+one entry/64 MiB. Future watched commands use `--poll 1` to avoid the default
+15-second completion lag. Engine Full10 and explicit product fake acceptance are now green.
+
+## Accepted batch and integration
+
+All thirteen engine scopes, seventeen CLI scopes, joined types, final focused
+controls, 28 launcher controls and fresh 191-ID product fake acceptance pass.
+Native Rust/fixture hashes are unchanged across final engine and CLI evidence.
+CLI has four pre-existing stress/performance ignores; report them explicitly.
+Keep the documented 3,600-second outer stall budget for the full main CLI scope
+and preserve tests' individual deadlines and explicit worker/cache counts.
+Final guards pass; run the actual `check-readme-status-artifacts.sh origin/main`
+against the resulting commit before a normal push. The exact cloud install
+script and startup instructions are tested and saved through the environment
+configuration draft workflow; Review/Publish is its activation step. No task
+states or publisher conformance totals are changed by hand.
+
+## Blocked historical replay and remaining work
+
+The requested September 30 aggregate with 5,365 exact failing execution IDs is
+absent; the owner believes it was local and never pushed. Do not ask again,
+substitute another snapshot or claim the historical replay completed.
+Its former path was `target/publication-freeze-20260930-*/test262/snapshots/`.
+
+Further work includes amortized ordinary/indexed property-table growth, an index
+for large global objects and folded HasProperty/Get. Previously recorded compiler
+gaps include the vendored parser's parenthesized member assignment target, Bytes
+module kind, logical/compound `with` RHS representation and AST-based module
+syntax stripping. These are separate follow-up scopes, not results of this batch.
+All thirty task states remain four complete, 25 in progress and T26 blocked.
+
+Raw watched logs and private drivers are ignored under
+`target/continuation-cloud-20261009/`; the checked-in compact receipts preserve
+verdicts, commands, hashes and diagnostics for fresh checkouts. Check disk before
+broad scopes and clear only completed incremental state between serial targets.

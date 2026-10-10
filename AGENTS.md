@@ -82,6 +82,7 @@ and a plain function is better.
 - During implementation, prefer read-only inspection and cheap non-compiling checks. Run a focused compile or test early only when its result is needed to resolve an uncertainty, validate a risky foundation, or unblock later code.
 - After the batch is written, compile once, run the focused regressions, then run the broad suites sequentially so they reuse build artifacts. Fix all discovered failures, rerun affected focused tests, and finish with one broad verification checkpoint.
 - Verification remains mandatory before declaring the work complete. Report exactly what ran and what remains unverified.
+- On managed cloud machines, the machine's finite inherited cgroup memory limit is the verification budget. Use `python3 scripts/limited_verification.py --cloud -- <command>`; a separate local systemd scope or 4 GiB cap is not required there. Keep serial CPU/worker defaults and bounded retained-module caches. For native compilation, the verified opt-in `--cloud-cpus auto` mode uses no more than the inherited CPU affinity and visible cgroup CPU quotas; Cargo and libtest remain serial. Preserve explicit CLI worker counts and deadlines. Local machines retain the existing 4 GiB/no-swap/grouped-OOM scope policy.
 - `docs/rust-rewrite/batch-workflow.md` is the operational form of this section: the measured verification ladder, how to run a batch across several lanes, the baseline sweep invocation, and the current list of shared files that still force lanes to coordinate.
 
 ## README And Status

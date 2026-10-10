@@ -33,7 +33,9 @@ fn flatten<'a>(source: &'a [StatementIr], statements: &mut Vec<&'a StatementIr>)
 
 #[test]
 fn binding_initialization_consumes_each_received_value_after_its_normal_resume() {
-    let function = values("function* values(source) { let [first = fallback()] = yield source; const {selected = first, ...rest} = yield source; return [first, selected, rest]; }");
+    let function = values(
+        "function* values(source) { let [first = fallback()] = yield source; const {selected = first, ...rest} = yield source; return [first, selected, rest]; }",
+    );
     let plan = function
         .generator_plan
         .as_ref()
@@ -130,7 +132,14 @@ fn complete_initializer_regions_compose_without_admitting_suspensions_inside_pat
         "function* values(source) { const [] = yield source; return 1; }",
     ] {
         let function = values(source);
-        assert!(!function.generator_plan.as_ref().expect("plan").suspension_points.is_empty());
+        assert!(
+            !function
+                .generator_plan
+                .as_ref()
+                .expect("plan")
+                .suspension_points
+                .is_empty()
+        );
     }
     for (source, supported) in [
         (
@@ -156,5 +165,46 @@ fn complete_initializer_regions_compose_without_admitting_suspensions_inside_pat
             !program.is_wasm_supported(),
             "unowned pattern continuation admitted: {source}"
         );
+    }
+}
+
+#[test]
+fn suspended_var_patterns_publish_all_names_to_variable_instantiation() {
+    for (source, expected_names) in [
+        (
+            "function* values(source) { var {first = yield 1, nested: {second}, ...rest} = source; return [first, second, rest]; }",
+            vec!["first", "second", "rest"],
+        ),
+        (
+            "function* values(source) { var [first = yield 1, {second}, ...rest] = source; return [first, second, rest]; }",
+            vec!["first", "second", "rest"],
+        ),
+        (
+            "function* values(source) { var {first, nested: [second], ...rest} = yield source; return [first, second, rest]; }",
+            vec!["first", "second", "rest"],
+        ),
+        (
+            "function* values(source) { var [first, {second}, ...rest] = yield source; return [first, second, rest]; }",
+            vec!["first", "second", "rest"],
+        ),
+    ] {
+        let function = values(source);
+        let mut statements = Vec::new();
+        flatten(&function.body.statements, &mut statements);
+        let declared_names = statements
+            .iter()
+            .filter_map(|statement| match statement {
+                StatementIr::Var(declarations) => Some(declarations),
+                _ => None,
+            })
+            .flatten()
+            .map(|declaration| declaration.name.as_str())
+            .collect::<Vec<_>>();
+        for name in expected_names {
+            assert!(
+                declared_names.contains(&name),
+                "{name} must start initialized to undefined before any pattern suspension: {source}",
+            );
+        }
     }
 }

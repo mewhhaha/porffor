@@ -426,6 +426,7 @@ impl FunctionBuilder<'_> {
             .initialize(inputs.lexical_environment.load(schema, function), function);
         let named_cell = if meta.is_named_expression {
             let bindings = [lila_ir::OwnedEnvBindingIr {
+                mutability: lila_ir::EnvironmentBindingMutabilityIr::Immutable { strict: false },
                 name: meta.name.clone(),
                 slot: 0,
             }];
@@ -438,8 +439,7 @@ impl FunctionBuilder<'_> {
                     declaration: lila_ir::EvalBindingDeclarationIr::NamedFunctionExpression,
                 }],
             };
-            let cells =
-                self.emit_allocate_environment_cells(&bindings, Some(&role), None, function);
+            let cells = self.emit_allocate_environment_cells(&bindings, function);
             let named_environment = self.emit_initialize_named_environment_header(
                 &lexical_environment,
                 &cells,

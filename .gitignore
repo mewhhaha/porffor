@@ -3,6 +3,10 @@
 *.txt
 # The generated Test262 publication is a required tracked JSON/text pair.
 !test262/snapshots/published-status-wasm-aot.txt
+# Pinned Unicode vectors are compile-time inputs for Segmenter tests.
+!crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt
+!crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt
+!crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt
 *.exe
 
 .claude

@@ -2116,6 +2116,9 @@ impl CompilerOwnedPool {
                 script,
                 StandardBuiltinId::RegExpPrototypeCompile,
             );
+        // Global declaration admission precedes every body effect, including
+        // Scripts whose lexical declarations have no heap-using initializer.
+        pool.uses_heap |= script.global_bindings.has_restricted_lexical_declarations();
         for binding in script.global_bindings.iter() {
             pool.intern_string(&binding.name);
         }
@@ -3686,7 +3689,9 @@ impl StringPool {
                 }
                 self.uses_heap = true;
                 for description in class.private_name_ids.keys() {
-                    self.intern_string(description);
+                    // Source IR keys omit `#`; PrivateName descriptions retain
+                    // it even when the field has no initializer or callable.
+                    self.intern_string(&format!("#{description}"));
                 }
                 self.intern_string("prototype");
                 self.intern_string("constructor");

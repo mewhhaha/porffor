@@ -84,3 +84,43 @@ true;
         ));
     }
 }
+
+#[test]
+fn legacy_regexp_aliases_share_one_canonical_accessor_per_captured_slot() {
+    let controls = r#"
+var pairs = [['input','$_'],['lastMatch','$&'],['lastParen','$+'],['leftContext','$`'],['rightContext',"$'"]];
+var previous;
+for (var index = 0; index < pairs.length; index++) {
+  var canonical = pairs[index][0], alias = pairs[index][1];
+  var first = Object.getOwnPropertyDescriptor(RegExp, canonical);
+  var second = Object.getOwnPropertyDescriptor(RegExp, alias);
+  assert.sameValue(first.get, second.get);
+  assert.sameValue(first.set, second.set);
+  assert.sameValue(first.get.name, 'get ' + canonical);
+  assert.sameValue(Function.prototype.toString.call(first.get), 'function get ' + canonical + '() { [native code] }');
+  assertNativeFunction(first.get);
+  if (previous !== undefined) assert.notSameValue(first.get, previous);
+  previous = first.get;
+  if (canonical === 'input') {
+    assert.sameValue(first.set.name, 'set input');
+    assert.sameValue(Function.prototype.toString.call(first.set), 'function set input() { [native code] }');
+    assertNativeFunction(first.set);
+  } else assert.sameValue(first.set, undefined);
+}
+for (var capture = 1; capture <= 9; capture++) {
+  var name = '$' + capture;
+  var descriptor = Object.getOwnPropertyDescriptor(RegExp, name);
+  assert.sameValue(descriptor.get.name, 'get ' + name);
+  assert.sameValue(Function.prototype.toString.call(descriptor.get), 'function get ' + name + '() { [native code] }');
+  assertNativeFunction(descriptor.get);
+  assert.notSameValue(descriptor.get, previous);
+  previous = descriptor.get;
+}
+true;
+"#;
+    for directive in ["", "'use strict';\n"] {
+        assert_wasm_true(&format!(
+            "{directive}{STA}\n{ASSERT}\n{NATIVE_MATCHER}\n{controls}"
+        ));
+    }
+}

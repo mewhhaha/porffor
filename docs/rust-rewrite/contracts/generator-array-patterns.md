@@ -27,6 +27,10 @@ runs only when the stepped value is Undefined. Nested patterns consume that
 value after its default. Rest selects its target before draining and retains
 the actual resulting Array. Elision never reads the iterator result's value.
 All target/default consumers are shared with the Object pattern owner.
+Suspended `var` declarations publish every BoundName for enclosing variable
+instantiation, including nested/rest names and names first written after a
+default resume. Previously undeclared captured names read as initialized
+undefined before the pattern.
 
 The native close scope surrounds target acquisition, steps, defaults, nested
 patterns and PutValue, including injected Return/Throw. Normal Yield and
@@ -37,7 +41,9 @@ existing IteratorClose, preserving whole completions and Throw precedence.
 Nested scopes close from inner to outer before an enclosing yielding finalizer.
 IteratorClose first materializes its whole outcome, including close errors.
 Each completed or abandoned scope retires its private edge before dispatching
-that outcome to the enclosing handler or finalizer.
+that outcome to the enclosing handler or finalizer. This close region does not
+create a JavaScript lexical scope: declaration aliases remain in the enclosing
+source scope through nested patterns and subsequent statements.
 
 Eager nested Arrays still use the ordinary native destructuring consumer.
 Yielding nested Arrays use distinct checked structural owners. Lexical targets

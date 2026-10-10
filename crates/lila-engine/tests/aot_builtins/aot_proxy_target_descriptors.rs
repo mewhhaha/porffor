@@ -50,3 +50,11 @@ fn recursive_descriptor_errors_use_the_executing_operation_realm() {
         "proxy-target-descriptor-realms:ok",
     );
 }
+
+#[test]
+fn ordinary_descriptor_snapshots_survive_reentrant_redefinition_and_refresh_later_reads() {
+    assert_modes(
+        include_str!("../fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js"),
+        "ordinary-descriptor-snapshot-mutation:ok",
+    );
+}

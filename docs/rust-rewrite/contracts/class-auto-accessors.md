@@ -155,9 +155,19 @@ completes is the hidden private field added. Consequently, a read of the same
 auto-accessor from inside its initializer observes a missing backing and throws
 `TypeError`. If evaluation or private-field addition completes abruptly, the
 remaining instance/static elements do not run and the original thrown value is
-preserved. The pin's `nonextensible-applies-to-private` behavior also applies
-to hidden backing addition: making the receiver non-extensible before the add
-causes the same `TypeError` as an ordinary private field.
+preserved. Private backing installation is independent of ordinary own-property
+extensibility. A non-extensible, sealed or frozen ordinary receiver accepts its
+first private field/method/accessor installation; installing the same private
+name twice still throws `TypeError`. Public own-property addition retains its
+separate extensibility check.
+
+The 2026-10-10 continuation corrects the older fixture's rejection expectation.
+Current ECMA-262 `PrivateFieldAdd` and `PrivateMethodOrAccessorAdd` perform no
+`[[Extensible]]` check, and `HostEnsureCanAddPrivateElement` must accept ordinary
+non-host-defined objects. The old pin's optional `nonextensible-applies-to-private`
+tests remain unchanged and execute when selected. The normative source URL and
+exact bytes are identified in the cloud continuation receipt; this correction
+is not a pinned-suite result.
 
 ### Decorator boundary
 

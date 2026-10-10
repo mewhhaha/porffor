@@ -115,6 +115,30 @@ function* inferredClassOuter() { var C = 17; var {C = class { static seen = C; }
 iterator = inferredClassOuter(); next(iterator, undefined, 'outer-class', false);
 result = iterator.next(); check(result.done && result.value.seen === 17, 'anonymous-class-default-observes-original-outer-binding');
 
+// Every var-pattern name is initialized before the body runs. A redeclaration
+// preserves an earlier value while defaults and nested writes retain its cell.
+function* hoistedVarObject(input) {
+  var previous = 17;
+  var read = () => [previous, selected, nested, rest];
+  yield read;
+  var {previous = previous + 1, x: selected = yield 'new-object-var', box: {nested}, ...rest} = input;
+  return read;
+}
+iterator = hoistedVarObject({box: {nested: whole}, tail: whole});
+var readObjectVars = iterator.next().value;
+var beforeObjectVars = readObjectVars();
+check(beforeObjectVars[0] === 17 && beforeObjectVars[1] === undefined && beforeObjectVars[2] === undefined && beforeObjectVars[3] === undefined, 'object-var-names-initialized-before-pattern');
+next(iterator, undefined, 'new-object-var', false);
+gc(); result = iterator.next(whole);
+var afterObjectVars = readObjectVars();
+check(result.done && result.value === readObjectVars && afterObjectVars[0] === 18 && afterObjectVars[1] === whole && afterObjectVars[2] === whole && afterObjectVars[3].tail === whole, 'object-var-captures-retain-resumed-writes');
+function* skippedVarDefault() { var {x = yield 'wrong-var-default'} = {x: whole}; return x; }
+next(skippedVarDefault(), undefined, whole, true);
+function* yieldedVarObject() { var {x, ...rest} = yield 'var-source'; return [x, rest]; }
+iterator = yieldedVarObject(); next(iterator, undefined, 'var-source', false);
+result = iterator.next({x: whole, tail: whole});
+check(result.done && result.value[0] === whole && result.value[1].tail === whole, 'object-var-names-from-suspended-source');
+
 // Rest observes the original own-key order and excludes retained Symbol keys.
 events = [];
 var restSymbol = Symbol('rest');

@@ -8,8 +8,10 @@ mod hashing;
 mod iterable_algorithms;
 mod iteration;
 mod map_get_or_insert;
+mod receiver;
 mod set_operations;
 mod storage;
+use receiver::StrongCollectionReceiverKind;
 
 #[derive(Clone, Copy)]
 enum GroupByResult {
@@ -165,8 +167,9 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
         let failed = s.reserve_completion(f);
-        self.emit_throw_current_function_realm_type_error(
-            RuntimeErrorMessage::MAP_METHOD_RECEIVER_DOES_NOT_HAVE_MAPDATA,
+        self.emit_collection_receiver_type_error(
+            &receiver,
+            StrongCollectionReceiverKind::MapData,
             &failed,
             f,
         )?;
@@ -250,8 +253,9 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
         let failed = s.reserve_completion(f);
-        self.emit_throw_current_function_realm_type_error(
-            RuntimeErrorMessage::SET_METHOD_RECEIVER_DOES_NOT_HAVE_SETDATA,
+        self.emit_collection_receiver_type_error(
+            &receiver,
+            StrongCollectionReceiverKind::SetData,
             &failed,
             f,
         )?;

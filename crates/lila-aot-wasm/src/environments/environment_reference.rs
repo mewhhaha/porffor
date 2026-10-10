@@ -356,6 +356,44 @@ impl FunctionBuilder<'_> {
         reference
     }
 
+    /// The ordered IR selection is already complete. Undefined selects the
+    /// global record (or unresolvable result) now, before any RHS effects;
+    /// otherwise the selected object supplies the complete held Reference.
+    pub(crate) fn emit_resolve_selected_with_global_fallback_identifier(
+        &mut self,
+        name: &GcLocal<StringValue>,
+        selected: &ValueLocals,
+        strictness: Strictness,
+        function: &mut Function,
+    ) -> Result<EnvironmentIdentifierReference, EmitError> {
+        let schema = self.runtime_schema();
+        let reference = self
+            .emit_selected_with_object_identifier_reference(name, selected, strictness, function);
+        selected.tag().load(function);
+        function.instruction(&Instruction::I32Const(
+            WasmRuntimeValueTag::Undefined as i32,
+        ));
+        function.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, function);
+        let fallback = self.emit_resolve_global_identifier(name, strictness, function)?;
+        fallback.kind.load(function);
+        reference.kind.store(function);
+        reference
+            .record
+            .replace(fallback.record.load(schema, function), function);
+        reference
+            .entry
+            .replace(fallback.entry.load(schema, function), function);
+        reference
+            .cell
+            .replace(fallback.cell.load(schema, function), function);
+        reference.base.copy_from(&fallback.base, function);
+        self.release_environment_identifier_reference(fallback, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(reference)
+    }
+
     pub(crate) fn release_environment_identifier_reference(
         &mut self,
         reference: EnvironmentIdentifierReference,

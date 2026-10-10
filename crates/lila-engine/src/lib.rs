@@ -24,7 +24,6 @@ use wasmtime::{
 };
 
 use std::collections::{HashMap, VecDeque};
-use std::io::Read;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -464,32 +463,25 @@ impl ProgramWasmArtifact {
     }
 }
 
-fn compiler_artifact_fingerprint(mut artifact: impl Read) -> std::io::Result<[u8; 32]> {
+fn compiler_identity_cache_fingerprint(identity: &CompilerIdentity) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"lila-program-cache-compiler-v3");
-    hash.update(env!("LILA_COMPILER_FINGERPRINT").as_bytes());
-    let mut buffer = [0; 64 * 1024];
-    loop {
-        let read = artifact.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hash.update(&buffer[..read]);
-    }
-    Ok(hash.finalize().into())
+    hash.update(b"lila-program-cache-compiler-v4");
+    hash.update(identity.source_fingerprint().as_bytes());
+    hash.update(identity.executable_sha256().as_bytes());
+    hash.finalize().into()
 }
 
-fn compiler_fingerprint() -> &'static [u8; 32] {
-    static FINGERPRINT: OnceLock<[u8; 32]> = OnceLock::new();
-    FINGERPRINT.get_or_init(|| {
-        std::env::current_exe()
-            .and_then(std::fs::File::open)
-            .and_then(compiler_artifact_fingerprint)
-            .unwrap_or_else(|_| {
-                compiler_artifact_fingerprint(std::io::empty())
-                    .expect("hashing an empty compiler artifact cannot fail")
-            })
-    })
+fn compiler_fingerprint() -> Option<&'static [u8; 32]> {
+    static FINGERPRINT: OnceLock<Option<[u8; 32]>> = OnceLock::new();
+    FINGERPRINT
+        .get_or_init(|| {
+            // Share the loaded-image hash used by execution evidence. Failure
+            // disables compiler-bound caches rather than inventing an image.
+            CompilerIdentity::current()
+                .ok()
+                .map(compiler_identity_cache_fingerprint)
+        })
+        .as_ref()
 }
 
 const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v18";
@@ -725,14 +717,18 @@ fn module_graph_digest(sources: &lila_ir::ModuleGraphSources) -> [u8; 32] {
     hash.finalize().into()
 }
 
-fn program_wasm_cache_key(source: &str, goal: ParseGoal, options: &CompileOptions) -> [u8; 32] {
-    program_wasm_cache_key_with_compiler_fingerprint(
+fn program_wasm_cache_key(
+    source: &str,
+    goal: ParseGoal,
+    options: &CompileOptions,
+) -> Option<[u8; 32]> {
+    Some(program_wasm_cache_key_with_compiler_fingerprint(
         source,
         goal,
         options,
         None,
-        compiler_fingerprint(),
-    )
+        compiler_fingerprint()?,
+    ))
 }
 
 #[derive(Clone, Copy)]
@@ -855,15 +851,15 @@ fn program_cache_key(
     goal: ParseGoal,
     options: &CompileOptions,
     graph: Option<&lila_ir::ModuleGraphSources>,
-) -> [u8; 32] {
+) -> Option<[u8; 32]> {
     let digest = graph.map(module_graph_digest);
-    program_wasm_cache_key_with_compiler_fingerprint(
+    Some(program_wasm_cache_key_with_compiler_fingerprint(
         source,
         goal,
         options,
         digest.as_ref(),
-        compiler_fingerprint(),
-    )
+        compiler_fingerprint()?,
+    ))
 }
 
 fn program_cache_key_for_role(
@@ -872,9 +868,9 @@ fn program_cache_key_for_role(
     options: &CompileOptions,
     graph: Option<&lila_ir::ModuleGraphSources>,
     role: module_loader::EmbeddedSourceRole,
-) -> [u8; 32] {
-    let key = program_cache_key(source, goal, options, graph);
-    match (&options.module_loading_policy, role) {
+) -> Option<[u8; 32]> {
+    let key = program_cache_key(source, goal, options, graph)?;
+    Some(match (&options.module_loading_policy, role) {
         (ModuleLoadingPolicy::Embedded(_), module_loader::EmbeddedSourceRole::UnlocatedScript) => {
             let mut hash = Sha256::new();
             hash.update(b"lila-embedded-unlocated-program-v1");
@@ -887,7 +883,7 @@ fn program_cache_key_for_role(
             | module_loader::EmbeddedSourceRole::UnlocatedScript,
         )
         | (ModuleLoadingPolicy::Embedded(_), module_loader::EmbeddedSourceRole::Entry) => key,
-    }
+    })
 }
 
 /// One parse/graph-discovery result consumed by one lowering attempt.
@@ -927,7 +923,9 @@ struct PreparedCompilation {
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
     // This is only a scheduling hint. The execution path still reads and
     // validates the artifact, then rebuilds it if it disappeared or is corrupt.
-    let key = program_wasm_cache_key(source, goal, options);
+    let Some(key) = program_wasm_cache_key(source, goal, options) else {
+        return false;
+    };
     program_wasm_cache().is_some_and(|cache| cache.contains(&key))
 }
 
@@ -2682,7 +2680,7 @@ impl Engine {
         let prepared = self.prepare_compilation_for_role(source, goal, &options, role)?;
         let key =
             program_cache_key_for_role(source, goal, &options, prepared.modules.graph(), role);
-        if let Some(cache) = &cache {
+        if let (Some(cache), Some(key)) = (&cache, key) {
             let cache_started = std::time::Instant::now();
             // A cached program recorded against another runtime is a miss.
             if let Some((bytes, runtime)) = cache.read(&key).and_then(|entry| {
@@ -2731,7 +2729,7 @@ impl Engine {
         &self,
         prepared: PreparedCompilation,
         cache: Option<Arc<cache::FunctionCache>>,
-        key: [u8; 32],
+        key: Option<[u8; 32]>,
     ) -> Result<ProgramWasmArtifact, EngineError> {
         let unit = self.compile_prepared_on_current_thread(prepared)?;
         let emit_started = std::time::Instant::now();
@@ -2743,7 +2741,7 @@ impl Engine {
                 artifact.bytes.len()
             );
         }
-        if let Some(cache) = cache {
+        if let (Some(cache), Some(key)) = (cache, key) {
             let cache_started = std::time::Instant::now();
             let runtime = artifact.runtime.as_ref().map(|runtime| &runtime.0);
             if !cache.write(
@@ -2783,7 +2781,7 @@ impl Engine {
         unit: &CompilationUnit,
         cache: Option<&cache::FunctionCache>,
     ) -> Result<Artifact, EngineError> {
-        let runtime_cache = cache.map(wasm_runtime_link::RuntimeWasmCache);
+        let runtime_cache = cache.and_then(wasm_runtime_link::RuntimeWasmCache::new);
         match lila_aot_wasm::emit_with_intl_profile_and_runtime_inputs(
             &unit.ir,
             unit.promise_rejection_policy,
@@ -3227,7 +3225,9 @@ impl Engine {
 
         let emit_started = std::time::Instant::now();
         let cache = program_wasm_cache();
-        let runtime_cache = cache.as_deref().map(wasm_runtime_link::RuntimeWasmCache);
+        let runtime_cache = cache
+            .as_deref()
+            .and_then(wasm_runtime_link::RuntimeWasmCache::new);
         let artifact = lila_aot_wasm::emit_with_intl_profile_and_runtime_inputs(
             &unit.ir,
             unit.promise_rejection_policy,
@@ -5692,32 +5692,32 @@ report;
     #[test]
     fn program_cache_key_changes_when_compiler_artifact_changes() {
         let options = CompileOptions::default();
-        let before = compiler_artifact_fingerprint(std::io::Cursor::new(
-            b"compiler artifact containing emitter source version one",
-        ))
-        .unwrap();
-        let after = compiler_artifact_fingerprint(std::io::Cursor::new(
-            b"compiler artifact containing emitter source version two",
-        ))
-        .unwrap();
-
-        assert_ne!(before, after);
-        assert_ne!(
-            program_wasm_cache_key_with_compiler_fingerprint(
-                "1 + 2",
-                ParseGoal::Script,
-                &options,
-                None,
-                &before,
-            ),
-            program_wasm_cache_key_with_compiler_fingerprint(
-                "1 + 2",
-                ParseGoal::Script,
-                &options,
-                None,
-                &after,
+        let identity = |source: &str, executable: &str| {
+            CompilerIdentity::from_parts(
+                CompilerDigest::parse(&source.repeat(32)).unwrap(),
+                CompilerSourceRevision::UnversionedArchive,
+                CompilerDigest::parse(&executable.repeat(32)).unwrap(),
             )
+        };
+        let before = compiler_identity_cache_fingerprint(&identity("11", "22"));
+        assert_eq!(
+            before,
+            compiler_identity_cache_fingerprint(&identity("11", "22"))
         );
+        let key = |compiler: &[u8; 32]| {
+            program_wasm_cache_key_with_compiler_fingerprint(
+                "1 + 2",
+                ParseGoal::Script,
+                &options,
+                None,
+                compiler,
+            )
+        };
+        for changed in [identity("11", "33"), identity("44", "22")] {
+            let after = compiler_identity_cache_fingerprint(&changed);
+            assert_ne!(before, after);
+            assert_ne!(key(&before), key(&after));
+        }
     }
 
     #[test]
@@ -5737,7 +5737,8 @@ report;
             filename: Some("cache-reuse.js".to_string()),
             ..CompileOptions::default()
         };
-        let key = program_wasm_cache_key(source, ParseGoal::Script, &options);
+        let key = program_wasm_cache_key(source, ParseGoal::Script, &options)
+            .expect("loaded test compiler identity");
         let engine = engine();
 
         let first = run_on_sized_stack(|| {
@@ -5784,7 +5785,8 @@ report;
         // source here and make only the cached artifact invalid.
         let source = "true;";
         let options = CompileOptions::default();
-        let key = program_wasm_cache_key(source, ParseGoal::Script, &options);
+        let key = program_wasm_cache_key(source, ParseGoal::Script, &options)
+            .expect("loaded test compiler identity");
         assert!(cache.write(
             &key,
             wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(&[0, 1, 2, 3], None)),
@@ -7241,13 +7243,17 @@ locales.length === 1 && locales[0] === "he-IL";
                 ],
                 "{label} host imports: {host_imports:?}"
             );
-            let runtime_exports: std::collections::BTreeSet<_> = artifact
+            let runtime = artifact
                 .runtime
                 .as_ref()
-                .map(|runtime| wasm_import_export_names(runtime.bytes()).1)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
+                .unwrap_or_else(|| panic!("{label} requires a linked runtime"));
+            let (runtime_imports, runtime_exports) = wasm_import_export_names(runtime.bytes());
+            assert_eq!(
+                runtime_imports, host_imports,
+                "{label} R and P must share the exact fixed host boundary"
+            );
+            let runtime_exports: std::collections::BTreeSet<_> =
+                runtime_exports.into_iter().collect();
             for import in imports
                 .iter()
                 .filter(|name| !name.starts_with("lila_host::"))
@@ -7260,8 +7266,12 @@ locales.length === 1 && locales[0] === "he-IL";
                     "{label} import {name} must be exported by its exact linked R"
                 );
             }
+            assert_eq!(exports, ["main", "memory"], "{label} program exports");
+            assert!(
+                !runtime_exports.contains("main"),
+                "{label} runtime must not own the program entry"
+            );
             for export in [
-                "main",
                 "memory",
                 WASM_THROW_ERROR_NAME_EXPORT,
                 // Diagnostic strings are rooted GC exports; a missing export
@@ -7270,8 +7280,8 @@ locales.length === 1 && locales[0] === "he-IL";
                 WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
             ] {
                 assert!(
-                    exports.contains(&export.to_string()),
-                    "{label} exports: {exports:?}"
+                    runtime_exports.contains(export),
+                    "{label} runtime exports: {runtime_exports:?}"
                 );
             }
 
@@ -7297,7 +7307,7 @@ locales.length === 1 && locales[0] === "he-IL";
         }
 
         // Scalar arithmetic on literals is admitted by the runtime-free proof:
-        // no Realm bootstrap, so only the two unconditional imports remain.
+        // no Realm bootstrap, so only the unconditional control/GC imports remain.
         let scalar = "40 + 2;";
         let scalar_engine = engine();
         let unit = scalar_engine
@@ -7306,14 +7316,28 @@ locales.length === 1 && locales[0] === "he-IL";
         let artifact = scalar_engine
             .emit_wasm(&unit)
             .expect("scalar arithmetic should emit wasm");
-        let (imports, _) = wasm_import_export_names(&artifact.bytes);
+        assert!(artifact.runtime.is_none());
+        let (imports, exports) = wasm_import_export_names(&artifact.bytes);
         assert_eq!(
             imports,
             [
                 "lila_host::agent_can_suspend",
+                "lila_host::byte_array_allocate",
+                "lila_host::collect_gc",
                 "lila_host::reject_runtime_semantics",
             ],
             "runtime-free imports: {imports:?}"
+        );
+        assert_eq!(
+            exports,
+            [
+                "main",
+                "memory",
+                WASM_THROW_ERROR_CONSTRUCTOR_NAME_EXPORT,
+                WASM_THROW_ERROR_MESSAGE_EXPORT,
+                WASM_THROW_ERROR_NAME_EXPORT,
+            ],
+            "runtime-free exports: {exports:?}"
         );
         let outcome = scalar_engine
             .run_compiled_unit(
@@ -7375,7 +7399,9 @@ locales.length === 1 && locales[0] === "he-IL";
         assert!(
             runtime_err
                 .message()
-                .contains("Cannot read properties of null or undefined"),
+                // The selected GetV operation owns Realm-bound ToObject's
+                // complete throw, including its native diagnostic message.
+                .contains("Cannot convert undefined or null to object"),
             "a runtime-thrown error must report its own message: {runtime_err}"
         );
     }
@@ -7425,6 +7451,42 @@ locales.length === 1 && locales[0] === "he-IL";
             "{}",
             can_suspend.note
         );
+    }
+
+    #[test]
+    fn wasm_atomics_wait_async_expiry_skips_blocked_agent_waiters_before_notify() {
+        for directive in ["", "'use strict';\n"] {
+            let lines = Arc::new(Mutex::new(Vec::new()));
+            let source = format!(
+                r#"{directive}
+                const view = new Int32Array(new SharedArrayBuffer(4));
+                const expired = Atomics.waitAsync(view, 0, 0, 1);
+                const live = Atomics.waitAsync(view, 0, 0);
+                const delay = new Int32Array(new SharedArrayBuffer(4));
+                Atomics.wait(delay, 0, 0, 5);
+                print('notify:' + Atomics.notify(view, 0, 1));
+                expired.value.then(function (status) {{ print('expired:' + status); }});
+                live.value.then(function (status) {{ print('live:' + status); }});
+            "#
+            );
+            engine_with_captured_prints(Arc::clone(&lines))
+                .run_script(
+                    &source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect(
+                    "native notify must skip expired entries while preserving live FIFO waiters",
+                );
+            assert_eq!(
+                lines.lock().expect("capture mutex poisoned").as_slice(),
+                &["notify:1", "expired:timed-out", "live:ok"]
+            );
+        }
     }
 
     #[test]

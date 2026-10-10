@@ -415,3 +415,28 @@ fn lowers_runtime_number_array_keys_through_to_property_key() {
         );
     }
 }
+
+#[test]
+fn literal_property_key_facts_distinguish_lone_units_backslashes_and_encoding_markers() {
+    let program = lower_script(r#"({'\uD800': 1, '\\uD800': 2, '\u{F0000}D800': 3});"#);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("script IR");
+    let StatementIr::Expression(expression) = &script.body.statements[0] else {
+        panic!("object literal expression");
+    };
+    let ExprIr::ObjectLiteral(properties) = &expression.expr else {
+        panic!("object literal");
+    };
+    let keys: Vec<_> = properties.iter().map(|property| match property {
+        ObjectPropertyIr::Data { key, .. } => key.as_str(),
+        _ => panic!("literal data property"),
+    }).collect();
+    let lone = encode_js_string_utf16(&[0xD800]);
+    let marker = encode_js_string_utf16(&"\u{F0000}D800".encode_utf16().collect::<Vec<_>>());
+    assert_eq!(keys, [lone.as_str(), "\\uD800", marker.as_str()]);
+    let Some(HeapShape::Object(shape)) = expression.heap_shape.as_deref() else {
+        panic!("literal property shape facts");
+    };
+    assert_eq!(shape.properties.len(), 3);
+    for key in keys { assert!(shape.properties.contains_key(key)); }
+}

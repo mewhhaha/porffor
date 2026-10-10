@@ -1,5 +1,56 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Cloud continuation checkpoint — 2026-10-10
+
+The complete serial engine checkpoint finishes at 3,157 passes, 15 failures and
+zero ignored tests, with unchanged source and original limits. All failures
+have authored source repairs or valid fixture corrections. The first joined type
+check passes. The focused run's final two failures now pass eight affected
+controls, and all fifteen original failures have passing focused verification.
+All original failures then pass the complete Full5 engine checkpoint at
+3,176 passes, zero failures and zero ignores. The subsequent CLI checkpoint
+has an incomplete main scope from an incorrectly assigned outer stall budget,
+plus further BinaryData failures and stale fixture/structure expectations.
+The additional coherent repair batch passes joined types and all 75 focused
+checks across nine unchanged-source scopes. Complete engine/CLI/fake acceptance
+was pending at that checkpoint.
+The complete CLI Full2 checkpoint records 928 passes, 15 failures and four
+existing ignores across all seventeen scopes on unchanged source. Publication
+reaches at least 180/191 cases before its unchanged 900-second deadline. The
+next coherent batch repairs operand retention/order, private callable names,
+collection receiver classification and canonical identity output, with stale
+fixture/source expectations corrected. Focused9 completes all 23 scopes at
+1,525 passes, one publication timeout and zero ignores; all non-publication
+checks pass. Publication reaches 190/191 before its original 900-second limit.
+The next cache change shares the verified compiler image digest with evidence
+and skips compiler-bound cache access when identity is unavailable. Its fresh
+cache/publication acceptance passes all 24 checks across eight unchanged-source
+scopes, including publication at 888.52 seconds under the original 900-second
+limit. Joined types pass. CLI Full3 subsequently completes all seventeen scopes at 943 passes,
+zero failures and four existing ignores, with the exact 187-member Wasm subset
+green and full fake publication at 898.43 seconds under its 900-second deadline.
+Final engine Full10 completes all thirteen scopes at 3,184 passes, zero
+failures and zero ignores. Fresh identity-checked product fake acceptance
+passes all 191 exact IDs over 190 files with zero failures/timeouts in 190
+seconds using four isolated cases and one compiler worker each. Final
+architecture, shortcut-accounting and publication-ledger guards pass.
+The detailed [cloud receipt](../docs/rust-rewrite/cloud-continuation-20261009.md)
+preserves the red baseline, diagnostic proof, earlier partial/invalid receipts,
+source identities and required commands. See [CONTINUE.md](../CONTINUE.md).
+
+Managed cloud verification uses the finite inherited machine cap, serial workers
+and two retained modules up to 256 MiB, bounded further to one eighth of the
+inherited cap. A controlled same-source probe confirms native R reuse across six
+executions; warm R loads measure about 24 ms rather than 130 ms. The optional
+`--cloud-cpus auto` mode bounds affinity by inherited CPUs and visible CPU quotas,
+while Cargo and libtest remain serial. All 28 launcher and eight pinned
+Segmenter corpus controls pass. Local 4 GiB/no-swap/grouped-OOM
+policy and one-entry/64-MiB retention remain unchanged. Use `--poll 1` for future
+watched commands to avoid the default 15-second completion lag.
+The September 30 aggregate with 5,365 historical failures is absent; its owner
+believes it was never pushed. No replacement replay or task closure is claimed.
+All task states and publisher-generated conformance totals remain unchanged.
+
 ## Workspace audit and remaining acceptance — 2026-10-08
 
 All thirty task states remain unchanged: four complete (T00/T27/T28/T29),

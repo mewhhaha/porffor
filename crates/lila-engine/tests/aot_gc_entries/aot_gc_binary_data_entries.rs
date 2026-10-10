@@ -36,6 +36,92 @@ fn assert_binary_modes(source: &str, line: &str) {
 }
 
 #[test]
+fn gc_buffer_transfers_coerce_length_before_detached_and_immutable_errors() {
+    assert_binary_modes(
+        r#"
+function check(ok, label) { if (!ok) throw new Error(label); }
+function throwsType(type, callback, label) {
+  try { callback(); throw new Error('missing throw: ' + label); }
+  catch (error) { check(error instanceof type, label); }
+}
+var methods = ['transfer', 'transferToFixedLength', 'transferToImmutable'];
+for (var method of methods) {
+  var immutable = new ArrayBuffer(4).transferToImmutable();
+  var calls = 0;
+  throwsType(TypeError, function () {
+    immutable[method]({ valueOf: function () { calls++; return 2; } });
+  }, method + ': immutable');
+  check(calls === 1 && immutable.byteLength === 4 && !immutable.detached, method + ': length before immutable');
+  var marker = {};
+  try { immutable[method]({ valueOf: function () { throw marker; } }); throw new Error('missing length throw'); }
+  catch (error) { check(error === marker, method + ': length throw retained'); }
+  throwsType(RangeError, function () { immutable[method](-1); }, method + ': range before immutable');
+  var detached = new ArrayBuffer(4);
+  detached.transfer();
+  calls = 0;
+  throwsType(TypeError, function () {
+    detached[method]({ valueOf: function () { calls++; return 2; } });
+  }, method + ': detached');
+  check(calls === 1, method + ': length before detached');
+  throwsType(RangeError, function () { detached[method](-1); }, method + ': range before detached');
+  calls = 0;
+  throwsType(TypeError, function () {
+    ArrayBuffer.prototype[method].call({}, { valueOf: function () { calls++; return 2; } });
+  }, method + ': receiver');
+  check(calls === 0, method + ': brand before length');
+}
+print('gc-buffer-transfer-order:ok');
+262;
+"#,
+        "gc-buffer-transfer-order:ok",
+    );
+}
+
+#[test]
+fn gc_immutable_slice_reobserves_exact_final_bound_after_both_coercions() {
+    assert_binary_modes(
+        r#"
+function check(ok, label) { if (!ok) throw new Error(label); }
+var detached = new ArrayBuffer(8);
+var trace = [];
+try {
+  detached.sliceToImmutable({ valueOf: function () { trace.push('start'); detached.transfer(); return 1; } },
+    { valueOf: function () { trace.push('end'); return 5; } });
+  throw new Error('missing detached throw');
+} catch (error) { check(error instanceof TypeError && trace.join(',') === 'start,end', 'both coercions before detached'); }
+var shrinking = new ArrayBuffer(8, { maxByteLength: 16 });
+trace = [];
+try {
+  shrinking.sliceToImmutable({ valueOf: function () { trace.push('start'); return 1; } },
+    { valueOf: function () { trace.push('end'); shrinking.resize(3); return 6; } });
+  throw new Error('missing shrink throw');
+} catch (error) { check(error instanceof RangeError && trace.join(',') === 'start,end', 'shrink requires RangeError'); }
+var empty = new ArrayBuffer(8, { maxByteLength: 16 });
+try {
+  empty.sliceToImmutable({ valueOf: function () { empty.resize(3); return 6; } }, 5);
+  throw new Error('missing empty-range throw');
+} catch (error) { check(error instanceof RangeError, 'resolved final bound required even for zero copy'); }
+var marker = {};
+var abrupt = new ArrayBuffer(8, { maxByteLength: 16 });
+try {
+  abrupt.sliceToImmutable({ valueOf: function () { abrupt.resize(1); return 0; } },
+    { valueOf: function () { throw marker; } });
+  throw new Error('missing end throw');
+} catch (error) { check(error === marker, 'end coercion throw precedes source reobservation'); }
+var source = new ArrayBuffer(4);
+new Uint8Array(source)[1] = 42;
+var copied = source.sliceToImmutable(1, 3);
+check(!copied.resizable && copied.byteLength === 2 && new Uint8Array(copied)[0] === 42, 'valid immutable copy');
+try { new DataView(copied).setUint8(0, 7); throw new Error('immutable copy accepted write'); }
+catch (error) { check(error instanceof TypeError && new Uint8Array(copied)[0] === 42, 'copy retains immutable write policy'); }
+print('gc-immutable-slice-bound:ok');
+262;
+"#,
+        "gc-immutable-slice-bound:ok",
+    );
+}
+
+#[test]
 fn gc_buffers_preserve_constructor_phases_resize_and_species_copy() {
     assert_binary_modes(
         r#"

@@ -271,7 +271,11 @@ events install complete public or private accessor entries, while ordered
 instance/static events initialize only the backing private field. The Wasm
 fixture covers all four placements, literal/computed/string/numeric/Symbol
 keys, detached and wrong receivers, descriptor flags and lengths, overwrite
-order, inheritance and non-extensible receiver rejection. At `2026-08-22`, the
+order, inheritance and the then-authored non-extensible receiver rejection
+expectation. The 2026-10-10 continuation corrects that expectation: current
+PrivateFieldAdd/PrivateMethodOrAccessorAdd accept first installation on ordinary
+non-extensible/sealed/frozen receivers and reject duplicate names. Public field
+addition retains its independent extensibility rule. At `2026-08-22`, the
 focused IR/backend/CLI gates are `1/1`, `1/1`, and `1/1`; the five raw pinned
 grammar/control files pass `10/10`; and the public staging semantic file passes
 `2/2`. The private staging file's ordinary semantics execute, but its two

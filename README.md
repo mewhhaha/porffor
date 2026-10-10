@@ -1,5 +1,69 @@
 # Lila
 
+## Cloud continuation — 2026-10-10
+
+Retained binding cells carry source write policies independently of eval
+visibility, suspended patterns preserve JavaScript scope, and `with` assignment
+retains its Reference before evaluating the RHS once. Ordinary descriptor reads
+produce fresh snapshots while sharing immutable values. Folded RegExp positions
+use the same canonical descriptors as static compilation. Exact pinned Unicode16
+Segmenter corpora are tracked so fresh checkouts include their test inputs.
+
+The complete serial engine diagnostic checkpoint records 3,157 passes,
+15 failures and no ignored tests. The repair batch now covers discarded generator
+Updates, restricted scalar global errors, canonical RegExp alias accessors,
+lossless UTF-16 property keys, computed imports into the loaded module graph,
+direct fixture host adapters and runtime-sidecar replacement. Three invalid
+fixture expectations get separate positive/negative controls. The first joined
+type check passes. The focused run's two failures are repaired and pass their
+eight affected controls; all fifteen original failures have passing focused
+verification and pass the complete Full5 engine checkpoint: 3,176 passes,
+zero failures and zero ignores. The subsequent CLI checkpoint is incomplete
+after an incorrectly assigned outer stall budget and exposes further
+ArrayBuffer/waitAsync repairs and stale fixture/structure expectations.
+That additional batch passes joined types and all 75 focused checks across nine
+unchanged-source scopes. Complete engine/CLI/fake acceptance was pending at that checkpoint.
+The next complete CLI checkpoint records 928 passes, 15 failures and four
+existing ignores across seventeen scopes, including a 900-second publication
+timeout after at least 180/191 cases. The next batch repairs `in` operand order,
+private callable names, collection receiver diagnostics and Intl identity
+output, and corrects stale fixture/source guards. Fresh acceptance for those
+changes completes at 1,525 passes, one publication failure and zero ignores:
+all semantic repairs pass, but publication reaches 190/191 before its unchanged
+900-second deadline. A further cache change shares the verified executable
+digest with execution evidence and disables compiler-bound caches if identity
+is unavailable. Joined types and all 24 focused checks pass, including full fake
+publication in 888.52 seconds under its original 900-second limit. Complete
+CLI Full3 then completes all seventeen scopes at 943 passes, zero failures and
+four pre-existing ignores, with the 187-member Wasm subset green and publication
+at 898.43 seconds under its original 900-second limit. Final engine Full10
+completes all thirteen scopes at 3,184 passes, zero failures and zero ignores.
+Fresh identity-checked product fake acceptance passes all 191 exact IDs over
+190 files, including all 187 Wasm-safe members, with zero failures/timeouts.
+Four isolated cases with one compiler worker each finish in 190 seconds within
+the inherited four-CPU cloud quota. All 28 resource-launcher controls and final
+architecture/accounting guards pass. Optional quota-bound native compilation
+and bounded shared-core retention reduce iteration overhead.
+The red checkpoints and original deadlines are preserved.
+See the [cloud receipt](docs/rust-rewrite/cloud-continuation-20261009.md)
+and [operational handoff](CONTINUE.md).
+
+Managed cloud verification uses `python3 scripts/limited_verification.py --cloud
+-- <command>` with the machine's finite inherited memory limit and serial
+workers by default. Optional `--cloud-cpus auto` bounds affinity by inherited
+CPUs and cgroup quotas, while Cargo and libtest stay serial. Explicit CLI
+compiler jobs and Test262 case workers are separate counts. A controlled
+shared-core probe proves that two retained modules within
+256 MiB reuse native R where the earlier 64 MiB ceiling could not. Warm R loads
+measure about 24 ms instead of 130 ms; all three native controls pass in each
+configuration; all 28 current launcher controls pass. This is diagnostic evidence,
+not a general performance benchmark. Cloud retention is additionally bounded to
+one eighth of the inherited cap. Watched commands use `--poll 1` to reduce
+completion lag. Local verification retains its 4 GiB/no-swap/grouped-OOM policy.
+The historical September 30 input containing 5,365 failing execution IDs remains
+unavailable; its owner believes it was never pushed. Publisher-generated pinned conformance
+totals and task states remain unchanged.
+
 ## Workspace audit and prepared repairs — 2026-10-08
 
 The complete repository tooling sweep at `f493e2988` passes all 38 commands:
@@ -2923,11 +2987,13 @@ and shares its normal `target/` directory. `./scripts/dev.sh check`, `exact-test
 `test262`, and `timings` retain those flags and artifacts. The CPU-affinity wrapper
 also defaults Cargo to one job and preserves any tighter requested job cap.
 
-During the current full-task dry-coding pass, compilation and tests are deferred.
-Later verification runs through `python3 scripts/limited_verification.py -- ...`,
+Local verification runs through `python3 scripts/limited_verification.py -- ...`,
 which requires a confirmed 4 GiB kernel cap for the command and all descendants,
-zero swap, grouped out-of-memory termination and serial worker defaults. It
-refuses to start without those controls; it never falls back to an uncapped run.
+zero swap, grouped out-of-memory termination and serial worker defaults.
+Managed cloud machines use `python3 scripts/limited_verification.py --cloud --
+<command>` instead: the launcher verifies the finite inherited machine cap,
+including tighter visible ancestors, and keeps one CPU, serial workers and
+bounded retained modules. It refuses an unbounded or unreadable cloud cap.
 See the [memory contract](docs/rust-rewrite/contracts/verification-memory-budget.md).
 
 Run the built binary directly:
@@ -3013,6 +3079,10 @@ is skipped without turning an otherwise valid cache write into a failure.
 Set `LILA_CACHE_DIR` to relocate only Lila's cache. The legacy global
 Wasmtime directory is reported by `lila cache status` and is never deleted
 implicitly.
+
+`LILA_WASM_DUMP=/path/program.wasm` writes the emitted program module.
+Linked artifacts also write `/path/program.wasm.runtime.wasm`; replacing the
+same dump with a runtime-free artifact removes that earlier sidecar.
 
 `LILA_WASM_TRACE=1` reports parse, lower, emit, program/function/module
 cache decisions, native compilation, instantiation, and execution timings.

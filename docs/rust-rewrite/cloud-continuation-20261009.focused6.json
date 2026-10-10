@@ -1,0 +1,264 @@
+{
+  "role": "Final restricted-global corrections, before complete serial engine and CLI acceptance",
+  "type_check": {
+    "command": [
+      "cargo",
+      "check",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--all-features",
+      "--all-targets"
+    ],
+    "exit_status": 0,
+    "cargo_seconds": 230,
+    "watched_seconds": 240,
+    "log": "target/watched/cloud-repair6-joined-types-20261010.log",
+    "log_sha256": "2dbcfcdbd075664e2c0cef69d3919c83ef177da38847d07c94a4080edf0620a3"
+  },
+  "focused_runs": [
+    {
+      "source_start": {
+        "head": "c902150964c45439bade0740602f488aed2a538e",
+        "patch_sha256": "eced806ac29cd8a9458029f5b97d8bc7a4e84258c7820105b82210186916931a",
+        "untracked_sha256": {
+          "crates/lila-engine/tests/aot_language/aot_utf16_property_keys.rs": "75d9aa72e3a224522175c19f54908202bbccea176034a530c4329199ed54c04f",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+          "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+          "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871",
+          "docs/rust-rewrite/cloud-continuation-20261009.engine-full4.json": "340b173494a2d3dc696996429e33f7a8a0898e04ef39499e0b4cda32ad464583",
+          "docs/rust-rewrite/cloud-continuation-20261009.focused5.json": "ac2592108b4c7046bba42e74222ce079c0879b432a9e5449454a35819848b0df",
+          "docs/rust-rewrite/cloud-continuation-20261009.md": "7dc434dfe378dc5c1dc28fed49f4fb2c7887f42cb66ef0e50a9c16e1865b1ef7",
+          "docs/rust-rewrite/contracts/utf16-property-key-values.md": "2e370cdc9594373f7fa0e4ae4683966641d874408a66068d4180e300afd78665",
+          "scripts/__pycache__/replay-test262-executions.cpython-312.pyc": "ac7382d85af94dfc7d97eff4450bc6b7eb1426572b632dbe9a32da7d66be6f80"
+        }
+      },
+      "policy": "inherited cloud cap; serial CPU/workers; default features; locked/offline; original native deadlines",
+      "cases": [
+        {
+          "label": "cloud-repair6-restricted-scalar-artifact-20261010",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "lila-aot-wasm",
+            "--lib",
+            "scalar_restricted_global_declarations_link_the_intrinsic_error_runtime",
+            "--",
+            "--test-threads=1",
+            "--exact"
+          ],
+          "state": "failed",
+          "free_bytes_before": 7456980992,
+          "started_utc": "2026-10-10T02:56:55Z",
+          "selected_tests_measured": false,
+          "exit_status": 0,
+          "elapsed_seconds": 45.037,
+          "outcomes": [
+            {
+              "verdict": "ok",
+              "passed": 0,
+              "failed": 0,
+              "ignored": 0,
+              "measured": 0,
+              "filtered": 328,
+              "seconds": 0.0
+            }
+          ],
+          "log": "target/watched/cloud-repair6-restricted-scalar-artifact-20261010.log",
+          "finished_utc": "2026-10-10T02:57:40Z",
+          "tests": [],
+          "log_sha256": "494182d28a979affc3569977e87077a489372326e4fd8031d1109857202a96aa"
+        },
+        {
+          "label": "cloud-repair6-restricted-global-native-20261010",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "lila-engine",
+            "--test",
+            "aot_realm_modules",
+            "aot_fresh_script_global_lexicals::",
+            "--",
+            "--test-threads=1"
+          ],
+          "state": "passed",
+          "free_bytes_before": 7456833536,
+          "started_utc": "2026-10-10T02:57:40Z",
+          "selected_tests_measured": true,
+          "exit_status": 0,
+          "elapsed_seconds": 240.044,
+          "outcomes": [
+            {
+              "verdict": "ok",
+              "passed": 7,
+              "failed": 0,
+              "ignored": 0,
+              "measured": 0,
+              "filtered": 359,
+              "seconds": 17.89
+            }
+          ],
+          "log": "target/watched/cloud-repair6-restricted-global-native-20261010.log",
+          "finished_utc": "2026-10-10T03:01:40Z",
+          "tests": [
+            {
+              "name": "aot_fresh_script_global_lexicals::direct_and_indirect_eval_restricted_names_remain_invocation_local",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::fresh_names_configurable_builtin_shadows_and_local_restricted_names_are_accepted",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::module_lexicals_may_use_restricted_global_property_names",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::pinned_restricted_global_is_an_ordinary_runtime_syntax_error_in_both_script_modes",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::prepared_realm_scripts_keep_descriptor_admission_and_intrinsic_error_identity",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::restricted_let_const_and_class_reject_before_any_body_or_initializer_effect",
+              "verdict": "ok"
+            },
+            {
+              "name": "aot_fresh_script_global_lexicals::scalar_restricted_lexicals_preserve_intrinsic_exception_constructor_names",
+              "verdict": "ok"
+            }
+          ],
+          "log_sha256": "44f9f43c4e5788ba3fb4601b33597d5666ed08f4e7c3c00cb442518e8e577436"
+        }
+      ],
+      "source_end": {
+        "head": "c902150964c45439bade0740602f488aed2a538e",
+        "patch_sha256": "eced806ac29cd8a9458029f5b97d8bc7a4e84258c7820105b82210186916931a",
+        "untracked_sha256": {
+          "crates/lila-engine/tests/aot_language/aot_utf16_property_keys.rs": "75d9aa72e3a224522175c19f54908202bbccea176034a530c4329199ed54c04f",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+          "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+          "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871",
+          "docs/rust-rewrite/cloud-continuation-20261009.engine-full4.json": "340b173494a2d3dc696996429e33f7a8a0898e04ef39499e0b4cda32ad464583",
+          "docs/rust-rewrite/cloud-continuation-20261009.focused5.json": "ac2592108b4c7046bba42e74222ce079c0879b432a9e5449454a35819848b0df",
+          "docs/rust-rewrite/cloud-continuation-20261009.md": "7dc434dfe378dc5c1dc28fed49f4fb2c7887f42cb66ef0e50a9c16e1865b1ef7",
+          "docs/rust-rewrite/contracts/utf16-property-key-values.md": "2e370cdc9594373f7fa0e4ae4683966641d874408a66068d4180e300afd78665",
+          "scripts/__pycache__/replay-test262-executions.cpython-312.pyc": "ac7382d85af94dfc7d97eff4450bc6b7eb1426572b632dbe9a32da7d66be6f80"
+        }
+      },
+      "source_unchanged": true,
+      "exit_status": 1,
+      "raw_journal_sha256": "36f686b28732dd115077c360aed5eafebb43508b14b6f5e6e79b965e82796736"
+    },
+    {
+      "source_start": {
+        "head": "c902150964c45439bade0740602f488aed2a538e",
+        "patch_sha256": "eced806ac29cd8a9458029f5b97d8bc7a4e84258c7820105b82210186916931a",
+        "untracked_sha256": {
+          "crates/lila-engine/tests/aot_language/aot_utf16_property_keys.rs": "75d9aa72e3a224522175c19f54908202bbccea176034a530c4329199ed54c04f",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+          "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+          "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871",
+          "docs/rust-rewrite/cloud-continuation-20261009.engine-full4.json": "340b173494a2d3dc696996429e33f7a8a0898e04ef39499e0b4cda32ad464583",
+          "docs/rust-rewrite/cloud-continuation-20261009.focused5.json": "ac2592108b4c7046bba42e74222ce079c0879b432a9e5449454a35819848b0df",
+          "docs/rust-rewrite/cloud-continuation-20261009.md": "7dc434dfe378dc5c1dc28fed49f4fb2c7887f42cb66ef0e50a9c16e1865b1ef7",
+          "docs/rust-rewrite/contracts/utf16-property-key-values.md": "2e370cdc9594373f7fa0e4ae4683966641d874408a66068d4180e300afd78665",
+          "scripts/__pycache__/replay-test262-executions.cpython-312.pyc": "ac7382d85af94dfc7d97eff4450bc6b7eb1426572b632dbe9a32da7d66be6f80"
+        }
+      },
+      "policy": "inherited cloud cap; serial CPU/workers; default features; locked/offline; original native deadlines",
+      "cases": [
+        {
+          "label": "cloud-repair6-restricted-scalar-artifact2-20261010",
+          "command": [
+            "cargo",
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "lila-aot-wasm",
+            "--lib",
+            "tests::scalar_restricted_global_declarations_link_the_intrinsic_error_runtime",
+            "--",
+            "--test-threads=1",
+            "--exact"
+          ],
+          "state": "passed",
+          "free_bytes_before": 7416614912,
+          "started_utc": "2026-10-10T03:01:47Z",
+          "selected_tests_measured": true,
+          "exit_status": 0,
+          "elapsed_seconds": 15.037,
+          "outcomes": [
+            {
+              "verdict": "ok",
+              "passed": 1,
+              "failed": 0,
+              "ignored": 0,
+              "measured": 0,
+              "filtered": 327,
+              "seconds": 4.58
+            }
+          ],
+          "log": "target/watched/cloud-repair6-restricted-scalar-artifact2-20261010.log",
+          "finished_utc": "2026-10-10T03:02:02Z",
+          "tests": [
+            {
+              "name": "tests::scalar_restricted_global_declarations_link_the_intrinsic_error_runtime",
+              "verdict": "ok"
+            }
+          ],
+          "log_sha256": "439e490667901b2c6a541daee6693fd90c15e069b0bed2f7fa1bd2d23eef6670"
+        }
+      ],
+      "source_end": {
+        "head": "c902150964c45439bade0740602f488aed2a538e",
+        "patch_sha256": "eced806ac29cd8a9458029f5b97d8bc7a4e84258c7820105b82210186916931a",
+        "untracked_sha256": {
+          "crates/lila-engine/tests/aot_language/aot_utf16_property_keys.rs": "75d9aa72e3a224522175c19f54908202bbccea176034a530c4329199ed54c04f",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/parameter_named_self_policies.js": "ec680b3c87be8c430018b5fbc991a8d7f5b2a94700c632d05101a172930a41c3",
+          "crates/lila-engine/tests/fixtures/logical_assignment_await/retained_binding_policies.js": "a274610f52b3553937b3d44715ee504cf02343e48b0244fcaf4c5194a9d26c95",
+          "crates/lila-engine/tests/fixtures/proxy_target_descriptors/ordinary_snapshot_mutation.js": "074f4efab4b542499413adeb63ed28369be6990242f169f15953d3fd820b292e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+          "crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+          "crates/lila-ir/src/analysis/environment_binding.rs": "66797b9f0e7c0accea91930bfdb26f03acc48cc33e49ddd4ce1c315847135871",
+          "docs/rust-rewrite/cloud-continuation-20261009.engine-full4.json": "340b173494a2d3dc696996429e33f7a8a0898e04ef39499e0b4cda32ad464583",
+          "docs/rust-rewrite/cloud-continuation-20261009.focused5.json": "ac2592108b4c7046bba42e74222ce079c0879b432a9e5449454a35819848b0df",
+          "docs/rust-rewrite/cloud-continuation-20261009.md": "7dc434dfe378dc5c1dc28fed49f4fb2c7887f42cb66ef0e50a9c16e1865b1ef7",
+          "docs/rust-rewrite/contracts/utf16-property-key-values.md": "2e370cdc9594373f7fa0e4ae4683966641d874408a66068d4180e300afd78665",
+          "scripts/__pycache__/replay-test262-executions.cpython-312.pyc": "ac7382d85af94dfc7d97eff4450bc6b7eb1426572b632dbe9a32da7d66be6f80"
+        }
+      },
+      "source_unchanged": true,
+      "exit_status": 0,
+      "raw_journal_sha256": "3dfbb55980fb89f29593d17cf570e77bbf57bafa440f20ac2d9448b0a3293d28"
+    }
+  ],
+  "effective_affected_verdict": {
+    "passed": 8,
+    "failed": 0,
+    "ignored": 0
+  },
+  "selector_diagnostic": "The initial artifact retry selected zero tests and was rejected. Only the distinct, measured qualified-selector retry counts as acceptance."
+}

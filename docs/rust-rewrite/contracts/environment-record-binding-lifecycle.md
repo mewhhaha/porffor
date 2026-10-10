@@ -1,5 +1,30 @@
 # Contract: Environment Record binding lifecycle
 
+## Retained source write policies — 2026-10-09
+
+Every `OwnedEnvBindingIr` carries a mandatory `EnvironmentBindingMutabilityIr`.
+Analysis exports the policy from the actual source Environment Record, including
+lexical names promoted to activation storage. Cell allocation consumes this
+policy independently of optional direct-eval visibility. Source `const` uses
+`Immutable { strict: true }`; named function-expression self bindings use
+`Immutable { strict: false }`; generated suspension storage is mutable.
+Reference strictness remains distinct from CreateImmutableBinding's S flag.
+
+When parameter expressions require separate parameter and body records, body
+declarations keep their source modes in the body record. The invocation's
+named-self cell takes its mode from the physical NamedFunctionExpression
+record; real parameter names then override it with their mutable policy.
+Default-created closures therefore retain the original self binding even when
+a body `var`, `let` or `const` shadows the same spelling. Simple parameter lists
+keep their existing single-record path.
+
+Creation, TDZ initialization and assignment remain separate operations. A
+retained Reference therefore preserves the original const write rule after
+await/yield without changing declaration initialization or per-iteration cell
+ownership. Strict/sloppy native controls cover selected/skipped logical writes,
+direct/compound writes, coercion order, captures, blocks, loop heads and named
+self shadows. Their joined Rust validation is recorded in [CONTINUE.md](../../../CONTINUE.md).
+
 ## Current object-binding successor — 2026-10-04 dry source
 
 The current shared object initializer consumes ObjectDestructure for ordinary

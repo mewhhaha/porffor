@@ -52,10 +52,17 @@ impl GraphAdmission {
     pub(super) fn occurrences<'a>(
         self,
         site: &DynamicImportSiteIr,
+        record: &ModuleRecordIr,
         keys: impl Iterator<Item = &'a ModuleRequestKeyIr>,
     ) -> Vec<ModuleRequestIr> {
         match self {
-            Self::LoadedClosure => site.discovery_request().into_iter().collect(),
+            Self::LoadedClosure if site.static_specifier.is_some() => {
+                site.discovery_request().into_iter().collect()
+            }
+            Self::LoadedClosure => keys
+                .filter(|key| record.module_resolution_requests.contains(key))
+                .filter_map(|key| site.catalog_occurrence(key))
+                .collect(),
             Self::CompleteCatalog => keys
                 .filter_map(|key| site.catalog_occurrence(key))
                 .collect(),
@@ -307,7 +314,7 @@ fn link_admitted_graph(
                 .resolutions
                 .iter()
                 .filter_map(|(owner, key, _)| (*owner == referrer).then_some(key));
-            for request in admission.occurrences(site, keys) {
+            for request in admission.occurrences(site, record, keys) {
                 let Some(target) = closure.target(referrer, request.key()) else {
                     continue;
                 };

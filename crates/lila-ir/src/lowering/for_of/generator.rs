@@ -183,7 +183,7 @@ impl<'a> ScriptLowerer<'a> {
         };
         match plan.value_storage() {
             GeneratorForOfIteratorValueStorageIr::Activation(binding) => {
-                self.add_suspension_owned_binding(binding.name.clone())
+                self.add_suspension_owned_binding(binding.name.clone(), binding.mode)
             }
             GeneratorForOfIteratorValueStorageIr::IterationEnvironment(_)
             | GeneratorForOfIteratorValueStorageIr::EntryLocal { .. } => {}

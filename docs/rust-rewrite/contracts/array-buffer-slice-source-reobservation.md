@@ -1,6 +1,14 @@
 # ArrayBuffer slice source re-observation
 
-Current source status, 2026-10-05: the atomic Wasm-GC rewrite is authored only. Compilation, emitted Wasm, focused controls, real agents and full pinned conformance remain unverified. No status counts changed.
+Current source status, 2026-10-10: the complete engine checkpoint passes,
+but the CLI source-reobservation witness exposes a TypeError where immutable
+slice shrinkage requires RangeError. The repair now rechecks detachment and
+the exact final bound after both coercions and before intrinsic allocation.
+Ordinary slice still preserves the surviving prefix and any prefilled suffix.
+New strict/sloppy controls retain abrupt coercion identity, the empty-copy
+final-bound check and valid immutable copying. Joined types, the six BinaryData
+native cohorts and all 45 BinaryData CLI controls pass in focused7. Final broad
+acceptance remains pending; published conformance totals are unchanged.
 
 Slice captures entry length before start/end coercion and species lookup. Real Construct consumes the saved species reference and completed argv. The concrete result must have the right brand, distinct storage, sufficient logical length and writable backing. After species effects, the original source is reacquired. Ordinary ArrayBuffer slice clips the surviving prefix and leaves the remainder zero; SharedArrayBuffer slice rejects aliased data blocks; sliceToImmutable uses its defining-Realm intrinsic allocation and complete source bound. Logical byte lengths never expose rounded backing padding.
 

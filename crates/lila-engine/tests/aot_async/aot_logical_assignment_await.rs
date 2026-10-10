@@ -74,3 +74,19 @@ fn suspended_reference_operands_preserve_plain_compound_update_and_delete_order(
         "async-reference-operations:ok",
     );
 }
+
+#[test]
+fn retained_declarative_writes_preserve_const_and_named_self_policies() {
+    assert_modes(
+        include_str!("../fixtures/logical_assignment_await/retained_binding_policies.js"),
+        "retained-binding-policies:ok",
+    );
+}
+
+#[test]
+fn parameter_default_closures_keep_named_self_policy_across_body_shadowing() {
+    assert_modes(
+        include_str!("../fixtures/logical_assignment_await/parameter_named_self_policies.js"),
+        "parameter-named-self-policies:ok",
+    );
+}

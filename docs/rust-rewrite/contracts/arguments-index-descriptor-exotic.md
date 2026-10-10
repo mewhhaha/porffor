@@ -217,3 +217,16 @@ cargo test --release --locked -p lila-engine --test aot_language -- aot_argument
 Native execution, unchanged pinned-test replays, workspace compilation and
 broad suites belong to the coordinated shared verification checkpoint. Staged
 source review and formatting alone are not execution evidence.
+
+## Configurable snapshot and actual freeze controls
+
+Setting only `writable: false` snapshots the current mapped value and retires
+its ParameterMap entry. The property remains configurable, so a later
+`Reflect.defineProperty` can replace its stored value without reattaching the
+mapping. A rejected replacement requires a nonconfigurable, nonwritable
+property. The callable lifecycle fixture now supplies both attributes for its
+freeze/rejection case and separately verifies the configurable snapshot and
+successful replacement. The cloud diagnostic observed the correct retirement,
+configurable descriptor and successful replacement before this fixture repair;
+no engine mapping change was needed. See the
+[cloud continuation receipt](../cloud-continuation-20261009.md).

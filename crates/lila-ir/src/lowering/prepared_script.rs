@@ -243,6 +243,7 @@ impl ScriptLowerer<'_> {
                 AnnexBGlobalDeclarationIr {
                     name,
                     admission: OwnedEnvBindingIr {
+                        mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                         name: storage_name,
                         slot,
                     },
@@ -306,6 +307,12 @@ impl Analysis<'_> {
             }
             let slot = owner.owned_env_slots.len() as u32;
             owner.owned_env_slots.insert(name.clone(), slot);
+            // Annex B admission cells are compiler storage, rather than a
+            // source lexical declaration. Publish their policy explicitly.
+            environment
+                .binding_modes
+                .entry(name.clone())
+                .or_insert(BindingMode::Let);
             environment.owned_env_slots.insert(name, slot);
         }
     }
@@ -323,6 +330,10 @@ impl ScriptLowerer<'_> {
         }
         let name = annex_b_admission_binding_name(name);
         let slot = self.analysis.owner_plans[SCRIPT_OWNER_ID].owned_env_slots[&name];
-        Some(OwnedEnvBindingIr { name, slot })
+        Some(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
+            name,
+            slot,
+        })
     }
 }

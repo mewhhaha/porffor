@@ -69,3 +69,21 @@ repeated imports, eager/deferred namespace identity, cached abrupt identity,
 missing/malformed/missing-export dependencies, intrinsic independence, coercion
 order and compile-only static syntax rejection. These focused targets do not
 establish full-suite conformance.
+
+## Computed imports in a loaded closure
+
+A computed import may select an exact request key already discovered from the
+same referrer's source, including a static deferred edge. Its actual call site
+still owns the Evaluation/Defer phase and runtime attribute validation. Source
+requests and host resolution keys remain separate typed domains. Additional
+host rows without a discovered source request remain unavailable in a loaded
+closure; complete catalog admission keeps its separately declared scope.
+
+The cloud checkpoint exposed this gap in the original ordinary and mixed
+async generator import controls: raw operands resumed correctly, but the
+request dispatcher omitted their already loaded `./value.js` target. Admission
+and component discovery now consume the same source-discovered key projection.
+The graph regression checks phase, referrer and catalog boundaries, while the
+original native controls retain operand order, promise and namespace identity,
+one module evaluation and abrupt-value checks. See the
+[cloud continuation receipt](../cloud-continuation-20261009.md).

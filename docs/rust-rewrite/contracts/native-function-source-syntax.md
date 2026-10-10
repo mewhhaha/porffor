@@ -2,11 +2,12 @@
 
 The builtin catalog supplies a function's initial public name and its frozen
 native source representation. Debug labels describe compiler owners separately.
-The shared legacy RegExp accessor bodies retain their existing function identity
-and installation under all existing aliases; their native names are `get input`
-and `set input`. The former debug phrases `get RegExp legacy static` and
-`set RegExp legacy static` cannot appear as native property names because they
-contain additional identifiers separated by spaces.
+Each captured legacy RegExp slot allocates one canonical getter, and input
+also allocates its setter. All aliases publish the same completed GC function
+record. Their initial names use the slot's canonical property (`get input`,
+`get lastMatch`, and so on), so punctuation aliases such as `$&` cannot replace
+the stored source or introduce invalid NativeFunction syntax. Debug labels
+remain separate from these names.
 
 [`Function.prototype.toString`](https://tc39.es/ecma262/multipage/fundamental-objects.html#sec-function.prototype.tostring)
 requires NativeFunction syntax and preserves a builtin's captured
@@ -32,3 +33,11 @@ identity, Symbol syntax, and source stability across public-name mutation,
 throwing getters and deletion. This source proposal is uncompiled and has no
 runtime or conformance PASS. The historical task checkpoint and published
 failure remain evidence of their own runs; Root must verify the coherent batch.
+
+The cloud checkpoint exposed distinct accessor allocations under aliases and
+invalid punctuation-alias source strings. The repair moves allocation before
+the alias-publication loop. The original two controls remain unchanged; an
+additional paired control checks every legacy alias, distinct captured slots,
+canonical getter/setter names, and complete NativeFunction grammar. Execution
+keeps the original 60,000-ms deadline. See [the cloud receipt](../cloud-continuation-20261009.md) for
+verification; source staging alone is not a PASS.

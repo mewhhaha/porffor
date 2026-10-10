@@ -881,6 +881,33 @@ impl FunctionBuilder<'_> {
         count.store(f);
         match kind {
             BufferSliceKind::Immutable => {
+                // Both index conversions precede source reobservation, and the
+                // exact final bound must still exist before target allocation.
+                let source = self.emit_binary_buffer_access(&source_owner, f);
+                source.valid.load(f);
+                f.instruction(&Instruction::I32Eqz);
+                self.open_frame(ControlFrameKind::If, f);
+                self.emit_binary_type_error(
+                    RuntimeErrorMessage::ARRAYBUFFER_SLICE_RECEIVER_IS_DETACHED,
+                    &output,
+                    exit,
+                    f,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                source.length.load(f);
+                final_index.load(f);
+                f.instruction(&Instruction::I64LtU);
+                self.open_frame(ControlFrameKind::If, f);
+                self.emit_binary_range_error(
+                    RuntimeErrorMessage::ARRAYBUFFER_SLICE_SOURCE_IS_SHORTER_THAN_THE_RESOLVED_FINAL_BOUND,
+                    &output,
+                    exit,
+                    f,
+                )?;
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                source.clear(s, f);
                 let realm = s
                     .reserve_gc_local(f)
                     .initialize(self.emit_current_function_realm(f), f);
@@ -1013,13 +1040,6 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         match kind {
             BufferSliceKind::Immutable => {
-                source.length.load(f);
-                final_index.load(f);
-                f.instruction(&Instruction::I64LtU);
-                self.open_frame(ControlFrameKind::If, f);
-                self.emit_binary_type_error(RuntimeErrorMessage::ARRAYBUFFER_SLICE_SOURCE_IS_SHORTER_THAN_THE_RESOLVED_FINAL_BOUND,&output,exit,f)?;
-                self.pop_control(ControlFrameKind::If);
-                f.instruction(&Instruction::End);
                 count.load(f);
                 copied.store(f);
             }
@@ -1108,19 +1128,6 @@ impl FunctionBuilder<'_> {
             exit,
             f,
         )?;
-        s.field(ArrayBufferSchema::IMMUTABLE)
-            .read(&buffer, s, f)
-            .store(immutable, f);
-        immutable.load(f);
-        self.open_frame(ControlFrameKind::If, f);
-        self.emit_binary_type_error(
-            RuntimeErrorMessage::ARRAYBUFFER_RECEIVER_IS_IMMUTABLE,
-            &output,
-            exit,
-            f,
-        )?;
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
         let owner = self.emit_binary_buffer_owner(&receiver, &output, exit, f)?;
         let entry = self.emit_binary_buffer_access(&owner, f);
         argument.tag().load(f);
@@ -1148,6 +1155,19 @@ impl FunctionBuilder<'_> {
         self.open_frame(ControlFrameKind::If, f);
         self.emit_binary_type_error(
             RuntimeErrorMessage::ARRAYBUFFER_TRANSFER_RECEIVER_IS_DETACHED,
+            &output,
+            exit,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        s.field(ArrayBufferSchema::IMMUTABLE)
+            .read(&buffer, s, f)
+            .store(immutable, f);
+        immutable.load(f);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_type_error(
+            RuntimeErrorMessage::ARRAYBUFFER_RECEIVER_IS_IMMUTABLE,
             &output,
             exit,
             f,

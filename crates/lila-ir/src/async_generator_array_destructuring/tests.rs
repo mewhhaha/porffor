@@ -159,6 +159,7 @@ fn mixed_array_constructor_checks_all_result_cells_and_the_kind_of_each_suspensi
         );
         let mut ambiguous = inventory.to_vec();
         ambiguous.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign".into(),
             slot: plan.raw_binding.slot,
         });

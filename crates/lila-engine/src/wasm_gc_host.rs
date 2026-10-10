@@ -1,6 +1,6 @@
 //! Real collector and native byte-resource imports from the emitted GC ABI.
 
-use super::wasm_shared_resource::{AsyncWaitRegistration, NativeSyncWaitResult};
+use super::wasm_shared_resource::{AsyncWaitDeadline, AsyncWaitRegistration, NativeSyncWaitResult};
 use super::*;
 use lila_aot_wasm::GcHostImport;
 use wasmtime::{ExternRef, Rooted};
@@ -188,12 +188,24 @@ pub(super) fn link(
              reference: Rooted<ExternRef>,
              offset: i64,
              width: i32,
-             expected_word: i64|
+             expected_word: i64,
+             deadline: i64|
              -> wasmtime::Result<i64> {
+                let deadline = AsyncWaitDeadline::from_wire(
+                    deadline,
+                    &caller.data().realm,
+                    caller.data().monotonic_clock_origin,
+                )?;
                 caller
                     .data()
                     .async_waiters
-                    .register(resource(&caller, reference)?, offset, width, expected_word)
+                    .register(
+                        resource(&caller, reference)?,
+                        offset,
+                        width,
+                        expected_word,
+                        deadline,
+                    )
                     .map(AsyncWaitRegistration::wire)
             },
         )

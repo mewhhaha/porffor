@@ -1,6 +1,5 @@
-// This valid computed source has no complete finite cache entry. The current
-// runtime grammar gap must terminate outside JavaScript try/catch. A returned
-// object would conceal the missing compiler semantics even without executing it.
+// Construct this valid computed source through the runtime UnicodeSet compiler.
+// Chained subtraction must preserve the source without throwing.
 var parts = ["[a--b", "--c]"];
 var source = parts[0] + parts[1];
 var constructed = null;

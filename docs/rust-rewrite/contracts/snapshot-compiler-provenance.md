@@ -1,9 +1,14 @@
 # Mandatory compiler provenance for execution evidence
 
-Status: source is authored. No compilation, test, native
-CLI execution, source guard or kernel-limiter bootstrap has run for this batch.
-All remaining task source must precede serial verification under a confirmed
-4096 MiB process-tree kernel cap with zero swap. T01, T03 and T26 remain open.
+Status: the cloud continuation passes joined workspace types and all 24 focused
+cache/identity/graph/publication controls under the finite inherited cloud cap.
+Complete CLI Full3 passes all seventeen scopes at 943 passes, zero failures and
+four existing ignores. Complete engine Full10 passes all thirteen scopes at
+3,184 passes, zero failures and zero ignores. Fresh explicit product fake
+acceptance passes all 191 exact IDs over 190 files with zero failures/timeouts;
+schema8 and executing-image identity are verified in the cloud receipt. Local
+verification retains its separate 4096 MiB/no-swap policy. T01, T03 and T26 remain
+open; these checks do not refresh pinned conformance.
 
 ## Build and executing-image identity
 
@@ -26,6 +31,15 @@ the embedded build identity to the loaded executable with standard SHA-256. On
 Linux it opens `/proc/self/exe` so replacement of the public binary path cannot
 substitute a different image. Hashing uses a fixed streaming buffer; unreadable
 or changing image bytes reject evidence. There is no empty-image fallback.
+
+Program, graph and raw runtime caches share this verified loaded-image digest
+instead of independently reading the executable's public pathname. Their
+domain-separated `lila-program-cache-compiler-v4` fingerprint binds the embedded
+source digest and standard executable SHA-256; the source fingerprint scheme
+above stays unchanged. The new cache domain invalidates older entries. If
+current compiler identity is unavailable, those caches skip reads and writes
+while source compilation remains available. This preserves the execution
+evidence admission boundary and does not manufacture fallback cache identity.
 
 ## Snapshot admission and ownership
 
@@ -84,7 +98,11 @@ Both existing driver inventories retain their complete controls; additional
 controls reject native identity mismatches before progress or publication and
 preserve the previous manifest bytes.
 
-These controls are source only. After all task source is finished, establish the
-kernel limit, compile once, run the affected controls, then broaden sequentially.
+The latest cloud checkpoint verifies executable digest rejection, source/image
+cache-key separation, program reuse/corruption, linked runtime admission and
+rooted graph execution. It also passes fake publication under its original
+900-second limit. Broader producer/snapshot/publication controls still need the
+complete CLI checkpoint; the earlier authored inventory above is not a claim
+that every listed control ran in the 24-check focused scope.
 Retain the historical baseline without rebinding it, and produce a fresh full
 pinned aggregate/backlog/status pair before claiming current conformance counts.

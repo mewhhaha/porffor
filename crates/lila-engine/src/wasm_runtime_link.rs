@@ -20,23 +20,35 @@ mod tests;
 
 /// Raw R and P share one storage owner, budget, pruning and atomic publication
 /// policy. Distinct key domains prevent one artifact kind from aliasing another.
-pub(super) struct RuntimeWasmCache<'a>(pub(super) &'a cache::FunctionCache);
+pub(super) struct RuntimeWasmCache<'a> {
+    cache: &'a cache::FunctionCache,
+    compiler: &'static [u8; 32],
+}
+
+impl<'a> RuntimeWasmCache<'a> {
+    pub(super) fn new(cache: &'a cache::FunctionCache) -> Option<Self> {
+        Some(Self {
+            cache,
+            compiler: compiler_fingerprint()?,
+        })
+    }
+}
 
 impl RuntimeArtifactCache for RuntimeWasmCache<'_> {
     fn compiler_identity(&self) -> &[u8; 32] {
-        compiler_fingerprint()
+        self.compiler
     }
 
     fn load(&self, key: RuntimeArtifactCacheKey) -> Option<Vec<u8>> {
-        self.0.read(key.as_bytes())
+        self.cache.read(key.as_bytes())
     }
 
     fn store(&self, key: RuntimeArtifactCacheKey, entry: Vec<u8>) -> bool {
-        self.0.write(key.as_bytes(), entry)
+        self.cache.write(key.as_bytes(), entry)
     }
 
     fn remove(&self, key: RuntimeArtifactCacheKey) {
-        self.0.remove(key.as_bytes());
+        self.cache.remove(key.as_bytes());
     }
 }
 
@@ -138,7 +150,7 @@ pub(super) fn decode_cache_entry(
         (&ENTRY_LINKED, rest) => {
             let (recorded, program) = rest.split_at_checked(KEY_BYTES)?;
             let selection = IntlDataSelection::new(intl_profile.clone());
-            let runtime_cache = RuntimeWasmCache(cache);
+            let runtime_cache = RuntimeWasmCache::new(cache)?;
             let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
                 &selection,
                 embedded_runtime::inputs(Some(&runtime_cache)),

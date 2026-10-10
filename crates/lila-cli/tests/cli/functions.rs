@@ -209,9 +209,14 @@ fn inspect_reports_phase_twenty_eight_bind_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("function_proto_binds=6"));
-    assert!(stdout.contains("bound_functions=6"));
-    assert!(stdout.contains("bound_function_constructs=6"));
+    // Acquiring add.bind can observe an unknown own/inherited accessor.
+    // That Get widens global function facts before subsequent property reads.
+    // Its open call-target set recognizes one possible builtin, while none of
+    // the calls retain the exact target needed for static bound-result facts.
+    // The runtime fixture below still verifies all six native bound functions.
+    assert!(stdout.contains(" function_proto_binds=1 "), "{stdout}");
+    assert!(stdout.contains(" bound_functions=0 "), "{stdout}");
+    assert!(stdout.contains(" bound_function_constructs=0 "), "{stdout}");
     // Neither `err.toString()` nor `TypeError("y").toString()` resolves to
     // `%Error.prototype.toString%` statically any more: since 5eca93e67 the
     // user-code calls earlier in this `&&` chain (`inc(2)`, `new G()`, ...)
@@ -577,7 +582,7 @@ fn run_wasm_backend_preserves_nested_private_name_shadowing() {
 }
 
 #[test]
-fn run_wasm_backend_rejects_private_elements_on_nonextensible_receivers() {
+fn run_wasm_backend_installs_private_elements_on_nonextensible_receivers() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")

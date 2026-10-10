@@ -15,7 +15,7 @@ impl ScriptLowerer<'_> {
         }
         Self::visit_for_head_lexical_bindings(head, &mut |mode, name| {
             if matches!(mode, BindingMode::Let | BindingMode::Const) {
-                self.add_suspension_owned_binding(name.to_string());
+                self.add_suspension_owned_binding(name.to_string(), mode);
             }
         });
         Ok(())

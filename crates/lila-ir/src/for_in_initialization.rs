@@ -46,6 +46,7 @@ pub(crate) fn validate_original_head_environment(
                         if matches!(
                             identifier.operation,
                             crate::EnvironmentIdentifierOperationIr::Assign { .. }
+                                | crate::EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { .. }
                         ) {
                             initialized.insert(identifier.name.clone());
                         }

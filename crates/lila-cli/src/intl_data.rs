@@ -35,7 +35,7 @@ pub(super) fn command(args: Vec<String>, profile: Option<IntlCompilationProfile>
         let admitted = SelectedIntlDataBundle::from_export_bytes(&bytes).map_err(|error| format!("cannot admit Intl bundle {}: {error}", path.display()))?;
         let identity = admitted.identity().artifact_identity();
         let identity = std::str::from_utf8(identity.as_bytes()).map_err(|error| format!("invalid admitted Intl identity UTF-8: {error}"))?;
-        println!("{identity}");
+        print!("{identity}");
     }
     Ok(())
 }

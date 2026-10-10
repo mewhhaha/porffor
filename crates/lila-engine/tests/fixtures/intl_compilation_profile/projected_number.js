@@ -35,7 +35,7 @@ checkNumberProjection(new Intl.RelativeTimeFormat('fr').format(2.5, 'day') === '
 checkNumberProjection(new Intl.DurationFormat('sr', { style: 'digital', fractionalDigits: 3 }).format({ hours: 1, minutes: 2, seconds: 3, milliseconds: 500 }) === '1.02.03,500', 'Duration retains its private Serbian Number domain');
 checkNumberProjection(new Temporal.Duration(0, 0, 0, 0, 1, 2, 3, 500).toLocaleString('sr', { style: 'digital', fractionalDigits: 3 }) === '1.02.03,500', 'Temporal intrinsic consumes selected private Duration dependencies');
 checkNumberProjection(Intl.NumberFormat.supportedLocalesOf(['fr', 'sr']).length === 0 && Intl.PluralRules.supportedLocalesOf(['fr', 'sr']).length === 0, 'dependent formatters do not broaden public domains');
-checkNumberProjection(new Intl.Locale('ar').numberingSystems[0] === 'latn' && new Intl.Locale('ar-EG').numberingSystems[0] === 'arab', 'complete default-numbering authority outside public formatting');
+checkNumberProjection(new Intl.Locale('ar').getNumberingSystems()[0] === 'latn' && new Intl.Locale('ar-EG').getNumberingSystems()[0] === 'arab', 'complete default-numbering authority outside public formatting');
 checkNumberProjection(Intl.supportedValuesOf('numberingSystem').length === 78 && Intl.supportedValuesOf('numberingSystem').includes('tols'), 'complete digit catalogue survives native projection');
 checkNumberProjection(new Intl.NumberFormat('en-US-u-nu-tols', { useGrouping: false }).format(1234567890) === '𑷡𑷢𑷣𑷤𑷥𑷦𑷧𑷨𑷩𑷠', 'selected supplementary numbering digits');
 checkNumberProjection(Intl.getCanonicalLocales('iw-IL')[0] === 'he-IL', 'complete Locale canonicalization foundation');

@@ -1,5 +1,5 @@
-//! Normal recursive [[GetOwnProperty]] acquisition through its real builtin
-//! algorithm, followed by nonobserving reads of the private fresh descriptor.
+//! Completed [[GetOwnProperty]] snapshots. Actual ordinary objects copy their
+//! stored descriptor; exotic objects retain the real recursive builtin owner.
 
 use super::*;
 use crate::gc_types::{I32Local, RuntimeSchema};
@@ -140,8 +140,105 @@ impl CompletedProxyTargetDescriptor {
 }
 
 impl FunctionBuilder<'_> {
-    /// The real GPD builtin owns trap/exotic acquisition and descriptor
-    /// validation. Its private fresh complete result has only own data fields.
+    /// Ordinary [[GetOwnProperty]] invokes no user code. Copy its mutable
+    /// descriptor record before later consumer effects; only StoredValue edges
+    /// are shared, because all fields of a StoredValue are immutable.
+    fn emit_completed_ordinary_own_descriptor(
+        &mut self,
+        object: &GcLocal<OrdinaryObject>,
+        key: &PropertyKeyLocals,
+        descriptor: &GcLocal<PropertyDescriptor, Nullable>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let source = CompletedProxyTargetDescriptor {
+            descriptor: self.emit_ordinary_own_descriptor_reference(object, key, function)?,
+        };
+        source.emit_found_i32(schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        let writable = schema.reserve_i32_local(function);
+        let enumerable = schema.reserve_i32_local(function);
+        let configurable = schema.reserve_i32_local(function);
+        source.emit_writable_i32(schema, function);
+        writable.store(function);
+        source.emit_enumerable_i32(schema, function);
+        enumerable.store(function);
+        source.emit_configurable_i32(schema, function);
+        configurable.store(function);
+        let stored_value = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .field(PropertyDescriptorSchema::VALUE)
+                .read(&source.descriptor, schema, function)
+                .reference(),
+            function,
+        );
+        let stored_getter = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .field(PropertyDescriptorSchema::GETTER)
+                .read(&source.descriptor, schema, function)
+                .reference(),
+            function,
+        );
+        let stored_setter = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .field(PropertyDescriptorSchema::SETTER)
+                .read(&source.descriptor, schema, function)
+                .reference(),
+            function,
+        );
+        source.emit_accessor_i32(schema, function);
+        self.open_frame(ControlFrameKind::If, function);
+        descriptor.replace(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .construct(
+                    (
+                        GcOperand::accessor_descriptor_flags(enumerable, configurable),
+                        GcOperand::reference(&stored_value, schema),
+                        GcOperand::reference(&stored_getter, schema),
+                        GcOperand::reference(&stored_setter, schema),
+                    ),
+                    function,
+                )
+                .nullable(),
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        descriptor.replace(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .construct(
+                    (
+                        GcOperand::data_descriptor_flags(writable, enumerable, configurable),
+                        GcOperand::reference(&stored_value, schema),
+                        GcOperand::reference(&stored_getter, schema),
+                        GcOperand::reference(&stored_setter, schema),
+                    ),
+                    function,
+                )
+                .nullable(),
+            function,
+        );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        stored_setter.clear(function);
+        stored_getter.clear(function);
+        stored_value.clear(function);
+        schema.release_i32_local(configurable, function);
+        schema.release_i32_local(enumerable, function);
+        schema.release_i32_local(writable, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        source.clear(function);
+        Ok(())
+    }
+
+    /// Actual OrdinaryObject references can snapshot their stored descriptor
+    /// directly. The real GPD builtin retains all trap/exotic acquisition and
+    /// validation; its private fresh complete result has only own data fields.
     pub(crate) fn emit_proxy_target_own_descriptor(
         &mut self,
         target: &ValueLocals,
@@ -152,6 +249,20 @@ impl FunctionBuilder<'_> {
         let descriptor = schema
             .reserve_gc_local::<PropertyDescriptor, Nullable>(function)
             .initialize_null(schema, function);
+        target.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<OrdinaryObject>(crate::gc_types::GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let object = schema.reserve_gc_local(function).initialize(
+            target.cast_reference::<OrdinaryObject>(schema, function),
+            function,
+        );
+        self.emit_completed_ordinary_own_descriptor(&object, key, &descriptor, function)?;
+        object.clear(function);
+        function.instruction(&Instruction::Else);
         let result = schema.reserve_completion(function);
         self.emit_native_object_algorithm_call(
             crate::functions::NativeObjectAlgorithm::GetOwnPropertyDescriptor,
@@ -298,6 +409,8 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         result.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         Ok(CompletedProxyTargetDescriptor { descriptor })
     }
 

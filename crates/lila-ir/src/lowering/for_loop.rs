@@ -129,12 +129,12 @@ impl<'a> ScriptLowerer<'a> {
                 return (StatementIr::Empty, ValueKind::Undefined);
             }
             match &init {
-                Some(ForInitIr::Lexical { name, .. }) => {
-                    self.add_suspension_owned_binding(name.clone());
+                Some(ForInitIr::Lexical { mode, name, .. }) => {
+                    self.add_suspension_owned_binding(name.clone(), *mode);
                 }
                 Some(ForInitIr::LexicalBlock(bindings)) => {
                     for binding in bindings {
-                        self.add_suspension_owned_binding(binding.name.clone());
+                        self.add_suspension_owned_binding(binding.name.clone(), binding.mode);
                     }
                 }
                 Some(ForInitIr::Statements(_)) => {
@@ -199,12 +199,15 @@ impl<'a> ScriptLowerer<'a> {
                 ) {
                     if self.current_resumable_plan.is_some() {
                         match &init {
-                            Some(ForInitIr::Lexical { name, .. }) => {
-                                self.add_suspension_owned_binding(name.clone());
+                            Some(ForInitIr::Lexical { mode, name, .. }) => {
+                                self.add_suspension_owned_binding(name.clone(), *mode);
                             }
                             Some(ForInitIr::LexicalBlock(bindings)) => {
                                 for binding in bindings {
-                                    self.add_suspension_owned_binding(binding.name.clone());
+                                    self.add_suspension_owned_binding(
+                                        binding.name.clone(),
+                                        binding.mode,
+                                    );
                                 }
                             }
                             Some(ForInitIr::Statements(_)) => {
@@ -225,8 +228,8 @@ impl<'a> ScriptLowerer<'a> {
                             Some(ForInitIr::Var(_)) | Some(ForInitIr::Expression(_)) | None => {}
                         }
                         for statement in before_suspension.iter().chain(after_suspension.iter()) {
-                            if let StatementIr::Lexical { name, .. } = statement {
-                                self.add_suspension_owned_binding(name.clone());
+                            if let StatementIr::Lexical { mode, name, .. } = statement {
+                                self.add_suspension_owned_binding(name.clone(), *mode);
                             }
                         }
                     }

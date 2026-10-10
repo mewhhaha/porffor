@@ -126,7 +126,9 @@ impl FunctionBuilder<'_> {
         let storage = self.array_iterator_storage(plan.storage())?;
         self.emit_resumable_state_in_range(plan.entry_state(), plan.exit_state(), false, function)?;
         self.open_frame(ControlFrameKind::If, function);
-        self.push_scope();
+        // A pattern owns an IteratorClose region, not a lexical environment.
+        // Its declaration aliases belong to the enclosing source scope, so a
+        // nested pattern and the statements following it resolve the same cells.
         self.emit_generator_statement_list_entry(plan.entry_state(), function)?;
         self.emit_resumable_state_equals(plan.entry_state(), function)?;
         self.open_frame(ControlFrameKind::If, function);
@@ -185,7 +187,6 @@ impl FunctionBuilder<'_> {
         // enclosing close scope. Pending Yield and Await exited before this
         // point, retaining the record for the next actual invocation.
         self.emit_dispatch_current_completion(function)?;
-        self.pop_scope();
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         Ok(())

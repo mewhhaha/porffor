@@ -3095,6 +3095,20 @@ setterReceiver === receiver;
     }
 
     #[test]
+    fn scalar_restricted_global_declarations_link_the_intrinsic_error_runtime() {
+        for source in ["let undefined;", "const NaN = 0;", "let Infinity;"] {
+            for directive in ["", "'use strict';\n"] {
+                let artifact = emit_script(&format!("{directive}{source}")).expect("emit Script");
+                expect_valid_module(&artifact, 0);
+                assert!(artifact.runtime().is_some(), "{directive}{source}");
+            }
+        }
+        let scalar = emit_script("40 + 2;").expect("emit ordinary scalar computation");
+        expect_valid_module(&scalar, 0);
+        assert!(scalar.runtime().is_none());
+    }
+
+    #[test]
     fn preseeded_wire_data_stays_in_private_memory() {
         let mut expected_prefix = vec![b' '; 11];
         expected_prefix.extend_from_slice(b"\n: ,undefinednulltruefalse");

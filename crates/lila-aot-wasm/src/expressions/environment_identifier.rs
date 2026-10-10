@@ -80,6 +80,29 @@ impl FunctionBuilder<'_> {
         let value = schema.reserve_value_local(function);
         use EnvironmentIdentifierOperationIr as Operation;
         match &identifier.operation {
+            Operation::AssignWithGlobalFallback {
+                selection,
+                value: rhs,
+            } => {
+                let selected = schema.reserve_value_local(function);
+                self.compile_expr_to_value(selection, &selected, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                let reference = self.emit_resolve_selected_with_global_fallback_identifier(
+                    &key,
+                    &selected,
+                    identifier.strictness,
+                    function,
+                )?;
+                selected.clear(function);
+                self.compile_expr_to_value(rhs, &value, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                self.emit_environment_identifier_put(&reference, &value, function)?;
+                output.copy_from(&value, function);
+                self.release_environment_identifier_reference(reference, function);
+                value.clear(function);
+                key.clear(function);
+                return Ok(());
+            }
             Operation::CaptureAssignmentReference { capture } => {
                 self.emit_capture_identifier_reference(
                     capture,
@@ -268,6 +291,7 @@ impl FunctionBuilder<'_> {
                         receiver.clear(function);
                     }
                     Operation::Assign { .. }
+                    | Operation::AssignWithGlobalFallback { .. }
                     | Operation::Delete
                     | Operation::CaptureAssignmentReference { .. }
                     | Operation::PutCapturedReference { .. }

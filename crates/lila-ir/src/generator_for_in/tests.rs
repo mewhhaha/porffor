@@ -68,6 +68,7 @@ fn for_in_constructor_rejects_unallocated_and_aliased_cursor_key_or_value_cells(
             duplicate.push(binding.clone());
             let mut foreign = inventory.to_vec();
             foreign.push(OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "foreign.enumeration".into(),
                 slot: binding.slot,
             });

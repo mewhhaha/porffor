@@ -41,3 +41,18 @@ The shared arithmetic lane uses exact Hebrew month serials for balance, Add and 
 The finite Engine cohorts exercise projection, fields, arithmetic, partial dates, relative durations, limits and borrowed Realms through the existing WasmAOT route in strict and sloppy modes. They include ordinary/leap ordinal shifts, sole M05L acceptance, original-code overflow, all receiver merges, reference-year re-resolution, variable month-day references, real rounding anchors, source ordering and original abrupt identity. These are authored semantic controls, not execution evidence.
 
 Native errors keep the called builtin's defining Realm through existing current-function helpers. Public constructor or error-global mutation does not select a replacement Realm. The batch does not claim Intl Hebrew formatting data, all Temporal calendars, whole T22, Apia policy changes, semantic GC migration or refreshed Test262 counts. The passing combined type checkpoint supplies no semantic claim; focused regressions and broad verification still own those claims.
+
+## Minimum YearMonth carrier control
+
+The minimum Hebrew PlainDate is ISO `-271821-04-19`, native M11 day4.
+Its YearMonth reference is M11 day1, ISO `-271821-04-16`. This reference is
+valid because ISOYearMonthWithinLimits admits the entire ISO April month;
+converting its day1 to a PlainDate still rejects at the separate full-date
+limit. The cloud fixture previously applied the full-date limit to this
+YearMonth conversion. It now checks the exact successful reference, field
+round trip, failing full-date day1, successful day4, preceding ISO month and
+existing M12 neighbor. The ISO minimum conversion controls in pinned Test262
+`PlainDate/prototype/toPlainYearMonth/limits.js` and the separate Persian
+carrier control corroborate this distinction. Other calendar reference-month
+rejections retain their own expectations. See the
+[cloud continuation receipt](../cloud-continuation-20261009.md).

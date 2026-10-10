@@ -155,6 +155,7 @@ fn with_constructor_rejects_missing_duplicated_and_aliased_head_allocations() {
         duplicate.push(plan.head_binding().clone());
         let mut alias = inventory.to_vec();
         alias.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign.head".into(),
             slot: plan.head_binding().slot,
         });

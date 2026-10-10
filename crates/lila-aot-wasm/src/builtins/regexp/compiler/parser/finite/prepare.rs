@@ -332,11 +332,73 @@ impl FunctionBuilder<'_> {
         let canonical = self.runtime_schema().reserve_i64_local(function);
         let inserted = self.runtime_schema().reserve_i64_local(function);
         let packed = self.runtime_schema().reserve_i64_local(function);
+        let changed = self.runtime_schema().reserve_i64_local(function);
+        let all_ascii = self.runtime_schema().reserve_i64_local(function);
+        let ascii_low = self.runtime_schema().reserve_i64_local(function);
+        let ascii_high = self.runtime_schema().reserve_i64_local(function);
+        let run_start = self.runtime_schema().reserve_i64_local(function);
+        let run_end = self.runtime_schema().reserve_i64_local(function);
+        store_const(function, instruction, 0, REGEXP_OPCODE_LITERAL_CODE_POINT);
+        store(function, instruction, 8, point);
+        store_const(function, instruction, 16, 0);
         eq(function, modifiers.ignore_case, 1);
         function.instruction(&Instruction::If(BlockType::Empty));
+        // Match static apply_modifiers: an unchanged character stays literal,
+        // and a changed, wholly ASCII equivalence class uses its two-word bitmap.
+        // Decide before spending range entries, including at the shared cap.
+        set(function, index, 0);
+        set(function, changed, 0);
+        set(function, all_ascii, 1);
+        set(function, ascii_low, 0);
+        set(function, ascii_high, 0);
+        self.emit_regexp_finite_ascii_member(point, ascii_low, ascii_high, all_ascii, function);
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        index.load(function);
+        mode.fold_count().load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::BrIf(1));
+        mode.fold_table().load(function);
+        index.load(function);
+        function.instruction(&Instruction::I64Const(8));
+        function.instruction(&Instruction::I64Mul);
+        function.instruction(&Instruction::I64Add);
+        row.store(function);
+        row.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load32U(Self::memarg32(0)));
+        source.store(function);
+        row.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I64Load32U(Self::memarg32(4)));
+        canonical.store(function);
+        canonical.load(function);
+        point.load(function);
+        function.instruction(&Instruction::I64Eq);
+        source.load(function);
+        point.load(function);
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::I32And);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        set(function, changed, 1);
+        self.emit_regexp_finite_ascii_member(source, ascii_low, ascii_high, all_ascii, function);
+        function.instruction(&Instruction::End);
+        self.emit_regexp_scratch_increment(index, 1, function);
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        eq(function, changed, 1);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        eq(function, all_ascii, 1);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        store_const(function, instruction, 0, REGEXP_OPCODE_POSITIVE_ASCII_CLASS);
+        store(function, instruction, 8, ascii_low);
+        store(function, instruction, 16, ascii_high);
+        function.instruction(&Instruction::Else);
         copy(function, first, compiler.range_count);
         set(function, index, 0);
         set(function, inserted, 0);
+        set(function, run_start, u64::MAX);
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         index.load(function);
@@ -367,14 +429,14 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64LeU);
         function.instruction(&Instruction::I32And);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_parser_append_range(compiler, point, point, function);
+        self.emit_regexp_finite_fold_member(compiler, point, run_start, run_end, function);
         set(function, inserted, 1);
         function.instruction(&Instruction::End);
         source.load(function);
         point.load(function);
         function.instruction(&Instruction::I64Ne);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_parser_append_range(compiler, source, source, function);
+        self.emit_regexp_finite_fold_member(compiler, source, run_start, run_end, function);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         self.emit_regexp_scratch_increment(index, 1, function);
@@ -383,8 +445,9 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         eq(function, inserted, 0);
         function.instruction(&Instruction::If(BlockType::Empty));
-        self.emit_regexp_parser_append_range(compiler, point, point, function);
+        self.emit_regexp_finite_fold_member(compiler, point, run_start, run_end, function);
         function.instruction(&Instruction::End);
+        self.emit_regexp_parser_append_range(compiler, run_start, run_end, function);
         store_const(function, instruction, 0, REGEXP_OPCODE_UNICODE_PROPERTY);
         store(function, instruction, 8, first);
         compiler.range_count.load(function);
@@ -394,13 +457,76 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Shl);
         packed.store(function);
         store(function, instruction, 16, packed);
-        function.instruction(&Instruction::Else);
-        store_const(function, instruction, 0, REGEXP_OPCODE_LITERAL_CODE_POINT);
-        store(function, instruction, 8, point);
-        store_const(function, instruction, 16, 0);
         function.instruction(&Instruction::End);
-        for local in [packed, inserted, canonical, source, row, index, first] {
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        for local in [
+            run_end, run_start, ascii_high, ascii_low, all_ascii, changed, packed, inserted,
+            canonical, source, row, index, first,
+        ] {
             self.runtime_schema().release_i64_local(local, function);
         }
+    }
+
+    fn emit_regexp_finite_ascii_member(
+        &self,
+        member: I64Local,
+        low: I64Local,
+        high: I64Local,
+        all_ascii: I64Local,
+        function: &mut Function,
+    ) {
+        member.load(function);
+        function.instruction(&Instruction::I64Const(128));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        member.load(function);
+        function.instruction(&Instruction::I64Const(64));
+        function.instruction(&Instruction::I64LtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        low.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        member.load(function);
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        low.store(function);
+        function.instruction(&Instruction::Else);
+        high.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        member.load(function);
+        function.instruction(&Instruction::I64Shl);
+        function.instruction(&Instruction::I64Or);
+        high.store(function);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::Else);
+        set(function, all_ascii, 0);
+        function.instruction(&Instruction::End);
+    }
+
+    /// The fold table is source-sorted. Coalesce adjacent preimages before
+    /// reserving the same disjoint range slice as the static modifier owner.
+    fn emit_regexp_finite_fold_member(
+        &mut self,
+        compiler: &CompilerLocals,
+        member: I64Local,
+        run_start: I64Local,
+        run_end: I64Local,
+        function: &mut Function,
+    ) {
+        eq(function, run_start, u64::MAX);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        copy(function, run_start, member);
+        function.instruction(&Instruction::Else);
+        member.load(function);
+        run_end.load(function);
+        function.instruction(&Instruction::I64Const(1));
+        function.instruction(&Instruction::I64Add);
+        function.instruction(&Instruction::I64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_regexp_parser_append_range(compiler, run_start, run_end, function);
+        copy(function, run_start, member);
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        copy(function, run_end, member);
     }
 }

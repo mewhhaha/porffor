@@ -53,6 +53,12 @@ impl<'a> AnalysisBuilder<'a> {
         self.collect_owner_root_bindings_from_items(interner, items, &mut body_bindings);
         body_bindings.extend(owner.function_bindings.keys().cloned());
         let activation_modes = self.environment_plans[&activation_id].binding_modes.clone();
+        let definition_environment =
+            &self.environment_plans[&owner.definition_environment_cursor.environment_id];
+        let named_self_modes = (definition_environment.owner_id == owner_id
+            && definition_environment.kind == EnvironmentKind::NamedFunctionExpression)
+            .then(|| definition_environment.binding_modes.clone())
+            .unwrap_or_default();
         let body_id = self.alloc_environment_id();
         self.register_environment_plan(
             body_id,
@@ -75,6 +81,10 @@ impl<'a> AnalysisBuilder<'a> {
         activation
             .binding_modes
             .retain(|name, _| parameter_bindings.contains(name));
+        // A body declaration may shadow the function expression's name only
+        // in the separate body record. Parameter defaults still resolve its
+        // immutable self binding unless a real parameter shadows that name.
+        activation.binding_modes.extend(named_self_modes);
         for name in &owner.parameter_names {
             activation
                 .binding_modes

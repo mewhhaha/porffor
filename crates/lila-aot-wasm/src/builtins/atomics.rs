@@ -471,27 +471,6 @@ impl FunctionBuilder<'_> {
             self.emit_branch_to_target(immediate, f);
             self.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
-            let register = self
-                .functions
-                .gc_host_imports()
-                .get(GcHostImport::RegisterAsyncWaiter)
-                .expect("waitAsync register import");
-            let _ = s
-                .field(HostResourceSchema::RESOURCE)
-                .read(&access.backing.resource, s, f);
-            access.offset.load(f);
-            width.load(f);
-            word.load(f);
-            register.emit_call_instruction(f);
-            host_id.store(f);
-            host_id.load(f);
-            f.instruction(&Instruction::I64Eqz);
-            self.open_frame(ControlFrameKind::If, f);
-            self.emit_atomics_wait_outcome(AtomicsWaitOutcome::NotEqual, &outcome, f)?;
-            self.emit_atomics_wait_async_object(false, &outcome, &out, f)?;
-            self.emit_branch_to_target(immediate, f);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
             nanos.load(f);
             f.instruction(&Instruction::I64Const(0));
             f.instruction(&Instruction::I64LtS);
@@ -520,6 +499,30 @@ impl FunctionBuilder<'_> {
             deadline.store(f);
             self.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+            // Native notify and the GC timeout checkpoint arbitrate against
+            // the same deadline, including while this agent is blocked.
+            let register = self
+                .functions
+                .gc_host_imports()
+                .get(GcHostImport::RegisterAsyncWaiter)
+                .expect("waitAsync register import");
+            let _ = s
+                .field(HostResourceSchema::RESOURCE)
+                .read(&access.backing.resource, s, f);
+            access.offset.load(f);
+            width.load(f);
+            word.load(f);
+            deadline.load(f);
+            register.emit_call_instruction(f);
+            host_id.store(f);
+            host_id.load(f);
+            f.instruction(&Instruction::I64Eqz);
+            self.open_frame(ControlFrameKind::If, f);
+            self.emit_atomics_wait_outcome(AtomicsWaitOutcome::NotEqual, &outcome, f)?;
+            self.emit_atomics_wait_async_object(false, &outcome, &out, f)?;
+            self.emit_branch_to_target(immediate, f);
             self.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
             let buffer = s.reserve_gc_local(f).initialize(

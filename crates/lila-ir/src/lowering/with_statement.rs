@@ -88,7 +88,7 @@ impl<'a> ScriptLowerer<'a> {
         );
         let object_name = binding_name.as_str().to_string();
         if crosses_suspension {
-            self.add_suspension_owned_binding(object_name.clone());
+            self.add_suspension_owned_binding(object_name.clone(), BindingMode::Let);
         }
         let with_object = ObjectEnvironmentBindingObject::materialized(&binding_name, object_info);
         self.with_environment_chain.enter_current(
@@ -118,9 +118,13 @@ impl<'a> ScriptLowerer<'a> {
                     .clone(),
                 bindings: owned_env_slots
                     .iter()
-                    .map(|(name, slot)| OwnedEnvBindingIr {
-                        name: name.clone(),
-                        slot: *slot,
+                    .map(|(name, slot)| {
+                        self.analysis.owned_environment_binding(
+                            environment_id,
+                            name,
+                            *slot,
+                            self.interner,
+                        )
                     })
                     .collect(),
             }),

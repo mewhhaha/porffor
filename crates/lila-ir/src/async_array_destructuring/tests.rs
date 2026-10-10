@@ -193,6 +193,7 @@ fn async_array_constructor_requires_exact_original_storage_and_complete_cell_inv
         );
         let mut ambiguous = inventory.to_vec();
         ambiguous.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign source".into(),
             slot: plan.raw_binding.slot,
         });

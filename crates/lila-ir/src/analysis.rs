@@ -1,5 +1,6 @@
 use super::*;
 mod direct_eval_capture;
+mod environment_binding;
 mod eval_environment;
 mod function_environment;
 use boa_ast::pattern::{ArrayPattern, ObjectPattern};
@@ -3455,7 +3456,7 @@ impl<'a> AnalysisBuilder<'a> {
                     );
                     let name = match method.name() {
                         ClassElementName::PropertyName(PropertyName::Literal(name)) => {
-                            interner.resolve_expect(name.sym()).to_string()
+                            encode_js_string_utf16(interner.resolve_expect(name.sym()).utf16())
                         }
                         ClassElementName::PrivateName(name) => private_name_key(interner, *name),
                         _ => "<class-method>".to_string(),
@@ -5753,7 +5754,9 @@ impl<'a> AnalysisBuilder<'a> {
                                     .name()
                                     .prop_name()
                                     .map(|identifier| {
-                                        interner.resolve_expect(identifier.sym()).to_string()
+                                        encode_js_string_utf16(
+                                            interner.resolve_expect(identifier.sym()).utf16(),
+                                        )
                                     })
                                     .unwrap_or_else(|| "<method>".to_string());
                                 let pending = PendingFunction {

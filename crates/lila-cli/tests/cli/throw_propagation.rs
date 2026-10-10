@@ -85,12 +85,14 @@ fn run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners() {
     );
 }
 
-/// Convert `lastIndex` exactly once before the sole compiled matcher reads
-/// its current program and flags. ToLength can recompile this RegExp or throw;
-/// its throw must reach the active handler rather than return a raw completion.
+/// Convert `lastIndex` exactly once before the shared GC-native matcher reads
+/// its current program and flags. The conversion's abrupt completion must
+/// leave the matcher before any matching or lastIndex write.
 #[test]
 fn regexp_exec_exceptional_to_length_routes_cover_the_compiled_matcher() {
-    let source = include_str!("../../../lila-aot-wasm/src/builtins/string.rs");
+    let source = include_str!("../../../lila-aot-wasm/src/builtins/string/regexp_exec.rs");
+    let owner = include_str!("../../../lila-aot-wasm/src/builtins/string.rs");
+    assert!(owner.contains("mod regexp_exec;"));
     let bounded = |start: &str, end: &str, name: &str| -> &str {
         source
             .split_once(start)
@@ -100,76 +102,64 @@ fn regexp_exec_exceptional_to_length_routes_cover_the_compiled_matcher() {
             .unwrap_or_else(|| panic!("{name} RegExp emitter should have a bounded body"))
             .0
     };
+    let generic = bounded(
+        "    pub(crate) fn emit_regexp_exec_from_values(",
+        "    pub(crate) fn emit_regexp_prototype_exec_builtin(",
+        "generic exec",
+    );
     let wrapper = bounded(
-        "    fn emit_regexp_prototype_exec_from_locals(",
-        "    fn emit_regexp_matcher_failure_and_return(",
-        "shared exec wrapper",
+        "    pub(crate) fn emit_regexp_prototype_exec_builtin(",
+        "    pub(crate) fn emit_regexp_prototype_test_builtin(",
+        "prototype exec",
     );
-    let program = bounded(
-        "    fn emit_regexp_exec_program_from_locals(",
-        "    pub(crate) fn emit_concat_string_payloads_local(",
-        "compiled-program",
+    let matcher = bounded(
+        "    fn emit_native_regexp_builtin_exec(",
+        "    fn emit_native_regexp_metadata(",
+        "compiled matcher",
     );
-
-    let routed_to_length = "self.emit_to_length_i64_from_value_locals_with_abrupt_route(";
+    let call = "self.emit_native_regexp_builtin_exec(";
+    for (name, entry) in [("generic exec", generic), ("prototype exec", wrapper)] {
+        assert_eq!(
+            entry.matches(call).count(),
+            1,
+            "{name} must use the shared matcher"
+        );
+        assert_eq!(
+            entry
+                .matches("emit_to_length_i64_from_value_locals")
+                .count(),
+            0,
+            "{name} must leave lastIndex conversion to the shared matcher"
+        );
+    }
+    let conversion = "self.emit_to_length_i64_from_value_locals(&last, start, &pending, f)?;";
     assert_eq!(
-        wrapper.matches(routed_to_length).count(),
+        matcher.matches(conversion).count(),
         1,
-        "the shared RegExp exec wrapper must use the exceptional ToLength route exactly once"
+        "lastIndex must be converted exactly once"
     );
-    assert_eq!(
-        wrapper
-            .matches("ToLengthAbruptRoute::ActiveHandler")
-            .count(),
-        1,
-        "the shared RegExp exec wrapper must route abrupt ToLength through its active handler"
-    );
-    assert_eq!(
-        wrapper
-            .matches("emit_to_length_i64_from_value_locals(")
-            .count(),
-        0,
-        "the shared RegExp exec wrapper must not use the ordinary ToLength completion policy"
-    );
-    let to_length_at = wrapper
-        .find(routed_to_length)
-        .expect("routed ToLength call is counted above");
-    let call = "self.emit_regexp_exec_program_from_locals(";
-    assert_eq!(wrapper.matches(call).count(), 1);
-    let call_at = wrapper.find(call).expect("call is counted above");
+    let conversion_at = matcher
+        .find(conversion)
+        .expect("conversion is counted above");
+    let after_conversion = &matcher[conversion_at + conversion.len()..];
     assert!(
-        to_length_at < call_at,
-        "lastIndex ToLength must complete before the matcher reads the RegExp"
+        after_conversion
+            .trim_start()
+            .starts_with("self.emit_native_string_abrupt_exit(&pending, result, exit, f);"),
+        "an abrupt ToLength must leave the matcher immediately"
     );
-    let arguments = wrapper[call_at..]
-        .split_once(")?;")
-        .expect("emitter call should be a complete fallible statement")
-        .0;
-    assert!(
-        arguments.contains("last_index_local,"),
-        "the matcher must receive the lastIndex converted by the wrapper"
-    );
-    assert!(
-        program
-            .split_once(") -> Result<(), EmitError> {")
-            .expect("emitter should have a fallible signature")
-            .0
-            .contains("last_index_local: u32,"),
-        "the compiled matcher must take the already-converted lastIndex"
-    );
-    assert_eq!(
-        program
-            .matches("emit_to_length_i64_from_value_locals")
-            .count(),
-        0,
-        "the compiled matcher must not convert lastIndex a second time"
-    );
-    assert_eq!(
-        program.matches("ToLengthAbruptRoute").count(),
-        0,
-        "the compiled matcher leaves the abrupt ToLength route to the wrapper"
-    );
+    for read in [
+        "RegExpObjectSchema::ORIGINAL_FLAGS",
+        "RegExpObjectSchema::PROGRAM",
+        "self.emit_native_regexp_set_last_index(",
+    ] {
+        assert!(
+            conversion_at < matcher.find(read).expect("matcher operation should exist"),
+            "lastIndex conversion must precede {read}"
+        );
+    }
     assert!(!source.contains("emit_regexp_exec_simple_from_locals"));
+    assert!(!owner.contains("emit_regexp_exec_simple_from_locals"));
 }
 
 /// The loop case: the throw must reach the `catch`, not the loop's back edge.

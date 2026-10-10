@@ -286,6 +286,119 @@ caught instanceof ReferenceError && globalThis.referenceWithMissing === 31 &&
 }
 
 #[test]
+fn with_plain_put_retains_global_and_object_references_across_rhs_changes() {
+    for (directive, strict) in [("", false), ("'use strict';", true)] {
+        let source = r#"
+let write, caught, effects = 0;
+const scope = {}, marker = {};
+with (scope) write = function () { /* source strictness */ return withBaselineMissing = (effects++, 11); };
+let baselineResult;
+try { baselineResult = write(); } catch (error) { caught = error; }
+if (strictMode ? !(caught instanceof ReferenceError) || Object.hasOwn(globalThis, 'withBaselineMissing')
+               : caught !== undefined || baselineResult !== 11 || globalThis.withBaselineMissing !== 11) throw 'baseline strictness';
+
+caught = undefined;
+with (scope) write = function () { /* source strictness */ return withCreatedMissing = (effects++, globalThis.withCreatedMissing = 13, 17); };
+let createdResult;
+try { createdResult = write(); } catch (error) { caught = error; }
+if (strictMode ? !(caught instanceof ReferenceError) || globalThis.withCreatedMissing !== 13
+               : caught !== undefined || createdResult !== 17 || globalThis.withCreatedMissing !== 17) throw 'missing global Reference';
+
+caught = undefined;
+globalThis.withDeletedGlobal = 19;
+with (scope) write = function () { /* source strictness */ return withDeletedGlobal = (effects++, delete globalThis.withDeletedGlobal, 23); };
+let deletedResult;
+try { deletedResult = write(); } catch (error) { caught = error; }
+if (strictMode ? !(caught instanceof ReferenceError) || Object.hasOwn(globalThis, 'withDeletedGlobal')
+               : caught !== undefined || deletedResult !== 23 || globalThis.withDeletedGlobal !== 23) throw 'deleted global Reference';
+
+globalThis.withAddedObject = 29;
+with (scope) write = function () { /* source strictness */ return withAddedObject = (effects++, scope.withAddedObject = 31, 37); };
+if (write() !== 37 || globalThis.withAddedObject !== 37 || scope.withAddedObject !== 31) throw 'global fallback reselection';
+
+caught = undefined;
+scope.withDeletedObject = 41;
+with (scope) write = function () { /* source strictness */ return withDeletedObject = (effects++, delete scope.withDeletedObject, globalThis.withDeletedObject = 43, 47); };
+let objectResult;
+try { objectResult = write(); } catch (error) { caught = error; }
+if (strictMode ? !(caught instanceof ReferenceError) || Object.hasOwn(scope, 'withDeletedObject')
+               : caught !== undefined || objectResult !== 47 || scope.withDeletedObject !== 47) throw 'selected object Reference';
+if (globalThis.withDeletedObject !== 43) throw 'selected object switched to global';
+
+scope.withUnscopableChanged = 53;
+scope[Symbol.unscopables] = { withUnscopableChanged: false };
+globalThis.withUnscopableChanged = 59;
+with (scope) write = function () { /* source strictness */ return withUnscopableChanged = (effects++, scope[Symbol.unscopables].withUnscopableChanged = true, 61); };
+if (write() !== 61 || scope.withUnscopableChanged !== 61 || globalThis.withUnscopableChanged !== 59) throw 'unscopables reselection';
+
+caught = undefined;
+with (scope) write = function () { /* source strictness */ withAbruptMissing = (() => { effects++; throw marker; })(); };
+try { write(); } catch (error) { caught = error; }
+if (caught !== marker || effects !== 7 || Object.hasOwn(globalThis, 'withAbruptMissing')) throw 'RHS completion';
+true;
+"#;
+        succeeds(&format!(
+            "const strictMode = {strict};\n{}",
+            source.replace("/* source strictness */", directive)
+        ));
+    }
+}
+
+#[test]
+fn with_global_fallback_runs_prototype_has_before_rhs_and_preserves_its_throw() {
+    for (directive, strict) in [("", false), ("'use strict';", true)] {
+        let source = r#"
+const original = Object.getPrototypeOf(globalThis), marker = {};
+const trace = [];
+let effects = 0, gets = 0, write, abruptWrite;
+const scope = new Proxy({}, {
+  has(object, key) {
+    if (key === 'withHasTarget') trace.push('with');
+    if (key === 'withHasAbrupt') trace.push('with-abrupt');
+    return Reflect.has(object, key);
+  }
+});
+with (scope) {
+  write = function () { /* source strictness */ return withHasTarget = (effects++, trace.push('rhs:' + effects), 71); };
+  abruptWrite = function () { /* source strictness */ withHasAbrupt = (effects++, 73); };
+}
+const prototype = new Proxy({}, {
+  has(object, key) {
+    if (key === 'withHasTarget') { trace.push('global:' + effects); return true; }
+    if (key === 'withHasAbrupt') { trace.push('global-abrupt:' + effects); throw marker; }
+    return Reflect.has(object, key);
+  },
+  get(object, key, receiver) {
+    if (key === 'withHasTarget') gets++;
+    return Reflect.get(object, key, receiver);
+  },
+  set(object, key, value, receiver) {
+    if (key === 'withHasTarget') trace.push('set:' + value);
+    return Reflect.set(object, key, value, receiver);
+  }
+});
+Object.setPrototypeOf(globalThis, prototype);
+try {
+  if (write() !== 71 || effects !== 1 || gets !== 0 || globalThis.withHasTarget !== 71 ||
+      trace.join(',') !== 'with,global:0,rhs:1,global:1,set:71') throw 'pre-RHS global HasBinding';
+  trace.length = 0;
+  let caught;
+  try { abruptWrite(); } catch (error) { caught = error; }
+  if (caught !== marker || effects !== 1 || Object.hasOwn(globalThis, 'withHasAbrupt') ||
+      trace.join(',') !== 'with-abrupt,global-abrupt:1') throw 'abrupt global HasBinding';
+} finally {
+  Object.setPrototypeOf(globalThis, original);
+}
+true;
+"#;
+        succeeds(&format!(
+            "const strictMode = {strict};\n{}",
+            source.replace("/* source strictness */", directive)
+        ));
+    }
+}
+
+#[test]
 fn global_put_selects_the_current_lexical_delegate_of_its_held_record() {
     for prelude in ["", "'use strict';\n"] {
         succeeds(&format!(

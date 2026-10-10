@@ -120,19 +120,43 @@ impl FunctionBuilder<'_> {
                         .nullable(),
                     f,
                 );
-            for name in slot.names() {
+            // One accessor belongs to the captured slot. Aliases publish the
+            // same completed function, with its canonical initial name.
+            let name = slot.names()[0];
+            let mut meta = self
+                .functions
+                .get(&StandardBuiltinId::RegExpLegacyStaticGetter.function_id())
+                .cloned()
+                .ok_or_else(|| EmitError::unsupported("missing planned RegExp legacy getter"))?;
+            meta.name = format!("get {name}");
+            meta.to_string_value =
+                lila_ir::CallableToStringRepresentation::NativeNamed(meta.name.clone())
+                    .materialize();
+            let getter = s.reserve_gc_local(f).initialize(
+                self.emit_function_value_payload_in_realm_with_capture(
+                    &meta,
+                    context.realm,
+                    &capture,
+                    f,
+                )?,
+                f,
+            );
+            let get_value = s.reserve_value_local(f);
+            get_value.set_reference(&getter, s, f);
+            let set_value = s.reserve_value_local(f);
+            if slot == RegExpLegacySlot::Input {
                 let mut meta = self
                     .functions
-                    .get(&StandardBuiltinId::RegExpLegacyStaticGetter.function_id())
+                    .get(&StandardBuiltinId::RegExpLegacyStaticSetter.function_id())
                     .cloned()
                     .ok_or_else(|| {
-                        EmitError::unsupported("missing planned RegExp legacy getter")
+                        EmitError::unsupported("missing planned RegExp legacy setter")
                     })?;
-                meta.name = format!("get {name}");
+                meta.name = format!("set {name}");
                 meta.to_string_value =
                     lila_ir::CallableToStringRepresentation::NativeNamed(meta.name.clone())
                         .materialize();
-                let getter = s.reserve_gc_local(f).initialize(
+                let setter = s.reserve_gc_local(f).initialize(
                     self.emit_function_value_payload_in_realm_with_capture(
                         &meta,
                         context.realm,
@@ -141,35 +165,12 @@ impl FunctionBuilder<'_> {
                     )?,
                     f,
                 );
-                let get_value = s.reserve_value_local(f);
-                get_value.set_reference(&getter, s, f);
-                let set_value = s.reserve_value_local(f);
-                if slot == RegExpLegacySlot::Input {
-                    let mut meta = self
-                        .functions
-                        .get(&StandardBuiltinId::RegExpLegacyStaticSetter.function_id())
-                        .cloned()
-                        .ok_or_else(|| {
-                            EmitError::unsupported("missing planned RegExp legacy setter")
-                        })?;
-                    meta.name = format!("set {name}");
-                    meta.to_string_value =
-                        lila_ir::CallableToStringRepresentation::NativeNamed(meta.name.clone())
-                            .materialize();
-                    let setter = s.reserve_gc_local(f).initialize(
-                        self.emit_function_value_payload_in_realm_with_capture(
-                            &meta,
-                            context.realm,
-                            &capture,
-                            f,
-                        )?,
-                        f,
-                    );
-                    set_value.set_reference(&setter, s, f);
-                    setter.clear(f);
-                } else {
-                    set_value.set_undefined(f);
-                }
+                set_value.set_reference(&setter, s, f);
+                setter.clear(f);
+            } else {
+                set_value.set_undefined(f);
+            }
+            for name in slot.names() {
                 self.emit_install_intrinsic_accessor_values(
                     context.constructor,
                     IntrinsicKey::Name(name),
@@ -180,10 +181,10 @@ impl FunctionBuilder<'_> {
                     true,
                     f,
                 )?;
-                set_value.clear(f);
-                get_value.clear(f);
-                getter.clear(f);
             }
+            set_value.clear(f);
+            get_value.clear(f);
+            getter.clear(f);
             capture.clear(f);
             owner.clear(f);
         }

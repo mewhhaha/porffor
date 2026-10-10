@@ -258,6 +258,7 @@ fn resource_scope_requires_actual_disjoint_capability_and_initializer_cells_and_
         );
         let mut ambiguous = inventory.to_vec();
         ambiguous.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign".into(),
             slot: initializer.slot,
         });

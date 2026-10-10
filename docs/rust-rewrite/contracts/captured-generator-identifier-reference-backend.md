@@ -41,6 +41,17 @@ stays unresolvable. Ordinary global identifier reads and writes use the same
 resolver and operation owners. The global object's Realm, complete key and
 selected record remain GC references; no new environment-chain search occurs.
 
+Ordinary plain assignments captured from a `with` scope also finish the global
+fallback's ResolveBinding before evaluating the RHS. The closed
+`AssignWithGlobalFallback` operation owns ordered object selection and the single
+RHS; its emitter retains either the selected object Reference or the complete
+global/unresolvable Reference. It performs no target GetValue. Strict missing
+References therefore stay missing even if the RHS creates a global property,
+and global HasBinding throws prevent RHS effects. PutValue retains the existing
+live-record checks. New strict/sloppy controls cover property creation/deletion,
+unscopables changes, RHS throws and observable Proxy Has/Set ordering. Joined
+validation is recorded in [CONTINUE.md](../../../CONTINUE.md).
+
 The ordinary and resumed global assignment controls cover fresh Script `let`,
 `const` and uninitialized lexical shadows, strict unresolved References, and a
 Proxy HasBinding trap that installs a lexical binding before GetValue. Additional

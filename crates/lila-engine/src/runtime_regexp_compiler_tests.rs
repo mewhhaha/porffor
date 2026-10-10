@@ -312,6 +312,41 @@ fn emitted_pattern_compiler_roundtrips_owned_descriptors_without_candidate_looku
 }
 
 #[test]
+fn emitted_folded_string_positions_preserve_literal_bitmap_and_normalized_range_forms() {
+    run_on_sized_stack(|| {
+        let mut runtime = RuntimeCompiler::new();
+        for (source, flags, range_count) in [
+            (r"[\q{Ab}]", "iv", 0),
+            (r"[\q{Ab|aB}]", "iv", 0),
+            (r"[\q{11}]", "iv", 0),
+            (r"[\q{\uD8001}]", "iv", 0),
+            (r"[\q{\u212A\u017F}]", "iv", 6),
+            (r"[\q{\u03A31}]", "iv", 2),
+            (r"[\q{\u{10400}1}]", "iv", 2),
+            (r"(?i:[\q{Ab}])(?-i:[\q{Cd}])", "v", 0),
+            (r"(?<=[\q{Ab}])", "iv", 0),
+        ] {
+            let (handle, status, _, detail, before) = runtime.call(source, flags);
+            assert_eq!(status, 0, "{source:?}/{flags}; detail={detail}");
+            assert!(handle.is_some(), "success publishes a rooted program");
+            assert_eq!(runtime.heap_pointer(), before, "{source:?}/{flags}");
+            let program = ValidatedRegExpProgram::from_bytes(runtime.descriptor(handle)).unwrap();
+            let expected = ValidatedRegExpProgram::from_program(
+                &RegExpProgram::compile(source, flags).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(program.bytes(), expected.bytes(), "{source:?}/{flags}");
+            assert_eq!(
+                program.word(RegExpProgramWord::RangeCount),
+                range_count,
+                "only changed non-ASCII fold classes spend range entries: {source:?}/{flags}"
+            );
+            assert_eq!(runtime.heap_pointer(), before, "{source:?}/{flags}");
+        }
+    });
+}
+
+#[test]
 fn emitted_pattern_compiler_distinguishes_syntax_resources_and_rolls_back_each_failure() {
     run_on_sized_stack(|| {
         let mut runtime = RuntimeCompiler::new();

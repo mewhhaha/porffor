@@ -24,7 +24,7 @@ expectEntryTypeError(
       throw new Error("nullish for-of entered its body");
     }
   },
-  "for-of target is not iterable",
+  "Cannot convert undefined or null to object",
   "nullish source"
 );
 

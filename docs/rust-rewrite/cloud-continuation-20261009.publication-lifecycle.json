@@ -1,0 +1,48 @@
+{
+  "role": "Post-timeout worker lifetime diagnostics; not throughput cause or acceptance",
+  "scope": "fake_suite_publication",
+  "original_publication_timeout_seconds": 900,
+  "native_outcomes": [
+    {
+      "verdict": "FAILED",
+      "passed": 1,
+      "failed": 1,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 0,
+      "seconds": 900.44
+    }
+  ],
+  "watched_elapsed_seconds": 915.082,
+  "native_log": "target/watched/cloud-cli-full2-20261010-fake_suite_publication.log",
+  "native_log_sha256": "86b8165fd927cf3cac43c450010886d8e84b4dafec4aa421abcd475e2f7cd493",
+  "native_log_mtime_utc": "2026-10-10T11:40:10.225340+00:00",
+  "next_target_started_utc": "2026-10-10T11:40:22Z",
+  "supervisor_pid_encoded_in_snapshot_directory": 643456,
+  "worker_snapshots_written_after_publisher_termination": [
+    {
+      "retained_path": "/tmp/lila-test262-child-643456-1791632401706309254-183/-case-6893644614213553690-15385485609477017052.json",
+      "snapshot_sha256": "12859ee6fdbcdcb49b4502bf8f019c84135ac431347967b55e1b7eb4497245dd",
+      "mtime_utc": "2026-10-10T11:40:12.689400+00:00",
+      "completed_test_ids": [
+        "raw-script:language/wasm/pass/arguments-length.js"
+      ],
+      "passed": 1,
+      "total": 1
+    },
+    {
+      "retained_path": "/tmp/lila-test262-child-643456-1791632407158942140-184/-case-4300648850459324233-9798034349870648365.json",
+      "snapshot_sha256": "414b5cbfe79910cacb1bc4c5b5234e231ba184c1561f56961ae0c197cfc4e9fa",
+      "mtime_utc": "2026-10-10T11:40:14.937455+00:00",
+      "completed_test_ids": [
+        "raw-script:language/wasm/pass/apply-primitive-string-this.js"
+      ],
+      "passed": 1,
+      "total": 1
+    }
+  ],
+  "worker_exit_times_recorded": false,
+  "cross_scope_overlap_established": false,
+  "throughput_cause_established": false,
+  "source_finding": "Case workers own distinct Unix process groups; publisher kill and Cargo group retirement do not reach them. Linux pre-exec parent-death arming and captured-parent check now bind direct compiler workers to their supervisor, while normal case group retirement remains unchanged."
+}

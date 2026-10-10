@@ -763,9 +763,13 @@ impl<'a> ScriptLowerer<'a> {
                     owner
                         .owned_env_slots
                         .iter()
-                        .map(|(name, slot)| OwnedEnvBindingIr {
-                            name: name.clone(),
-                            slot: *slot,
+                        .map(|(name, slot)| {
+                            self.analysis.owner_environment_binding(
+                                &function.id,
+                                name,
+                                *slot,
+                                self.interner,
+                            )
                         })
                         .collect::<Vec<_>>()
                 })

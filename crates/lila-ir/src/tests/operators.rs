@@ -475,15 +475,21 @@ fn operations_lowers_in_operator_to_has_property_spec_operation() {
     let StatementIr::Expression(expr) = &script.body.statements[1] else {
         panic!("expected expression statement");
     };
+    let ExprIr::MaterializeBinding { name, value, body } = &expr.expr else {
+        panic!("expected in operator to retain the key before evaluating the object");
+    };
+    assert!(matches!(&value.expr, ExprIr::String(value) if value == "missing"));
     let ExprIr::SpecOperation {
         operation,
         operands,
-    } = &expr.expr
+    } = &body.expr
     else {
         panic!("expected in operator to lower to HasProperty");
     };
     assert_eq!(*operation, SpecOperationIr::HasProperty);
     assert_eq!(operands.len(), 2);
+    assert!(matches!(&operands[0].expr, ExprIr::Identifier(name) if name == "object"));
+    assert!(matches!(&operands[1].expr, ExprIr::Identifier(key) if key == name));
 }
 
 #[test]

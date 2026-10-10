@@ -2914,6 +2914,12 @@ impl<'a> ScriptLowerer<'a> {
         encode_js_string_utf16(units)
     }
 
+    /// Semantic values preserve UTF-16 units; Interner Display is diagnostic
+    /// text and escapes an unpaired surrogate as a different property key.
+    pub(super) fn interned_runtime_string(&self, symbol: boa_interner::Sym) -> String {
+        Self::utf16_units_to_runtime_string(self.interner.resolve_expect(symbol).utf16())
+    }
+
     pub(super) fn error_message_value_info() -> ValueInfo {
         ValueInfo {
             kind: ValueKind::Dynamic,

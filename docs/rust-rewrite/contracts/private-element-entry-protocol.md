@@ -141,7 +141,15 @@ projections. A Rust-lexical structure guard fixes the capability and mention
 census, all three projection tables, the five producer mappings, the owned
 consumer order, shape assertions, sole publication tail, and reverse releases.
 Existing CLI fixtures exercise shared callable rows, duplicate installation,
-and non-extensible receivers. This retyping adds no duplicate JavaScript
+and non-extensible receivers. The 2026-10-10 continuation requires successful
+first installation on ordinary non-extensible/sealed/frozen receivers while
+retaining duplicate-installation `TypeError` controls. Runtime private-name
+descriptions also retain the `#` required by PrivateIdentifier StringValue and
+SetFunctionName. The collector interns those same prefixed descriptions even
+for uninitialized field-only classes; the existing callable fixture includes
+uninitialized instance/static and escaped-name controls. Synthetic backing
+identities remain separate. Fresh continuation acceptance is recorded in the
+cloud receipt. This retyping adds no duplicate JavaScript
 fixture. The embedded row unit passes `1/1`, the focused structure target
 passes `5/5`, and those three exact CLI witnesses pass `3/3`. Broader workspace
 and Test262 verification remain centralized.

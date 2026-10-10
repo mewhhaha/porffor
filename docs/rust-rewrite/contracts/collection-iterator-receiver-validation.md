@@ -49,7 +49,19 @@ category messages, defining-realm provenance, safe Array/Function/Arguments
 classification and Proxy trap non-observation because the pinned files do not
 create another realm or distinguish the backend layouts.
 
-## Rust invariant
+## Current GC receiver boundary — 2026-10-10
+
+Each `next` emitter checks its real MapIteratorObject/SetIteratorObject GC type
+before extracting the cursor. Failed checks project through the closed
+`StrongCollectionReceiverKind::MapIterator | SetIterator` and
+`CollectionReceiverError::NonObject | MissingInternalSlots` domains in
+`builtins/collections/receiver.rs`. This preserves separate primitive and
+missing-slot diagnostics, defining-Realm TypeErrors and Proxy trap
+non-observation without consulting ordinary object headers. The existing
+foreign-Realm fixture retains all of those assertions and valid iterator
+controls; fresh validation is pending in the continuation checkpoint.
+
+## Historical pre-GC Rust invariant
 
 `StrongCollectionCursor` is the closed Map/Set receiver domain. Exhaustive
 methods on it select the required iterator brand and preserve the builtin's

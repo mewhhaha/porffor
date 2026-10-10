@@ -162,7 +162,7 @@ fn both_consumers_exhaustively_project_output_ownership_and_result_shape() {
     let execution = bounded(
         ENGINE_SOURCE,
         "fn execute_with_wasm_bytes_inner_with_agents(",
-        "enum WasmtimeExportedMemory {",
+        "fn read_module_entry_status(",
     );
     assert!(execution.contains("output_events: WasmOutputEvents::for_mode(mode),"));
     let graph_projection = bounded(

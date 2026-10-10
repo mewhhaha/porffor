@@ -1317,7 +1317,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn alloc_suspension_owned_binding(&mut self, hint: &str, value_info: ValueInfo) -> String {
         let name = self.alloc_temp_binding_name(hint);
-        self.add_suspension_owned_binding(name.clone());
+        self.add_suspension_owned_binding(name.clone(), BindingMode::Let);
         self.declare_binding(
             name.clone(),
             BindingInfo {
@@ -1396,7 +1396,7 @@ impl<'a> ScriptLowerer<'a> {
         ))
     }
 
-    fn add_suspension_owned_binding(&mut self, name: String) {
+    fn add_suspension_owned_binding(&mut self, name: String, mode: BindingMode) {
         if self
             .generated_owned_env_bindings
             .iter()
@@ -1415,8 +1415,11 @@ impl<'a> ScriptLowerer<'a> {
             .get(&self.current_owner_id)
             .map_or(0, |owner| owner.owned_env_slots.len() as u32)
             + self.generated_owned_env_bindings.len() as u32;
-        self.generated_owned_env_bindings
-            .push(OwnedEnvBindingIr { name, slot });
+        self.generated_owned_env_bindings.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::lexical(mode),
+            name,
+            slot,
+        });
     }
 
     fn lexical_storage_name(&mut self, source_name: &str) -> String {
@@ -2356,9 +2359,13 @@ impl<'a> ScriptLowerer<'a> {
                 owner
                     .owned_env_slots
                     .iter()
-                    .map(|(name, slot)| OwnedEnvBindingIr {
-                        name: name.clone(),
-                        slot: *slot,
+                    .map(|(name, slot)| {
+                        self.analysis.owner_environment_binding(
+                            SCRIPT_OWNER_ID,
+                            name,
+                            *slot,
+                            self.interner,
+                        )
                     })
                     .collect::<Vec<_>>()
             })
@@ -2374,6 +2381,14 @@ impl<'a> ScriptLowerer<'a> {
                 continue;
             }
             owned_env_bindings.push(OwnedEnvBindingIr {
+                mutability: match global_bindings.lexical_bindings()[name] {
+                    crate::GlobalLexicalBindingModeIr::Mutable => {
+                        crate::EnvironmentBindingMutabilityIr::Mutable
+                    }
+                    crate::GlobalLexicalBindingModeIr::Immutable => {
+                        crate::EnvironmentBindingMutabilityIr::Immutable { strict: true }
+                    }
+                },
                 name: name.clone(),
                 slot: owned_env_bindings.len() as u32,
             });
@@ -3139,9 +3154,13 @@ impl<'a> ScriptLowerer<'a> {
                 bindings: environment
                     .owned_env_slots
                     .iter()
-                    .map(|(name, slot)| OwnedEnvBindingIr {
-                        name: name.clone(),
-                        slot: *slot,
+                    .map(|(name, slot)| {
+                        self.analysis.owned_environment_binding(
+                            environment.id,
+                            name,
+                            *slot,
+                            self.interner,
+                        )
                     })
                     .collect(),
             })
@@ -3160,9 +3179,13 @@ impl<'a> ScriptLowerer<'a> {
                 bindings: environment
                     .owned_env_slots
                     .iter()
-                    .map(|(name, slot)| OwnedEnvBindingIr {
-                        name: name.clone(),
-                        slot: *slot,
+                    .map(|(name, slot)| {
+                        self.analysis.owned_environment_binding(
+                            environment.id,
+                            name,
+                            *slot,
+                            self.interner,
+                        )
                     })
                     .collect(),
             })
@@ -3269,7 +3292,7 @@ impl<'a> ScriptLowerer<'a> {
         let LiteralKind::String(sym) = literal.kind() else {
             return None;
         };
-        Some(self.interner.resolve_expect(*sym).to_string())
+        Some(self.interned_runtime_string(*sym))
     }
 
     fn static_string_receiver_value(&self, receiver: &Expression) -> Option<String> {
@@ -4719,6 +4742,7 @@ impl<'a> ScriptLowerer<'a> {
             | Expression::PropertyAccess(PropertyAccess::Simple(_))
             | Expression::ClassExpression(_)
             | Expression::ObjectLiteral(_)
+            | Expression::Update(_)
             | Expression::Assign(_)
                 if contains(expression, ContainsSymbol::YieldExpression) =>
             {
@@ -4754,11 +4778,7 @@ impl<'a> ScriptLowerer<'a> {
         for element in template.elements() {
             let part = match element {
                 TemplateElement::String(sym) => {
-                    let value = self.interner.resolve_expect(*sym).join(
-                        |string| string.to_string(),
-                        Self::utf16_units_to_runtime_string,
-                        true,
-                    );
+                    let value = self.interned_runtime_string(*sym);
                     TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(value))
                 }
                 TemplateElement::Expr(expression)
@@ -6255,11 +6275,7 @@ impl<'a> ScriptLowerer<'a> {
             }
             Expression::Literal(literal) => match literal.kind() {
                 LiteralKind::String(sym) => {
-                    let value = self.interner.resolve_expect(*sym).join(
-                        |string| string.to_string(),
-                        Self::utf16_units_to_runtime_string,
-                        true,
-                    );
+                    let value = self.interned_runtime_string(*sym);
                     TypedExpr::from_info(Self::string_value_info(&value), ExprIr::String(value))
                 }
                 LiteralKind::Num(value) => TypedExpr::from_info(
@@ -6498,11 +6514,7 @@ impl<'a> ScriptLowerer<'a> {
             });
             let part = match element {
                 TemplateElement::String(sym) => {
-                    let value = self.interner.resolve_expect(*sym).join(
-                        |string| string.to_string(),
-                        Self::utf16_units_to_runtime_string,
-                        true,
-                    );
+                    let value = self.interned_runtime_string(*sym);
                     TypedExpr::from_info(ValueInfo::new(ValueKind::String), ExprIr::String(value))
                 }
                 // 13.2.8.6: each substitution is ToString'd (hint String)
@@ -6537,26 +6549,12 @@ impl<'a> ScriptLowerer<'a> {
         let raw = template
             .raws()
             .iter()
-            .map(|value| {
-                self.interner.resolve_expect(*value).join(
-                    |string| string.to_string(),
-                    Self::utf16_units_to_runtime_string,
-                    true,
-                )
-            })
+            .map(|value| self.interned_runtime_string(*value))
             .collect::<Vec<_>>();
         let cooked = template
             .cookeds()
             .iter()
-            .map(|value| {
-                value.map(|value| {
-                    self.interner.resolve_expect(value).join(
-                        |string| string.to_string(),
-                        Self::utf16_units_to_runtime_string,
-                        true,
-                    )
-                })
-            })
+            .map(|value| value.map(|value| self.interned_runtime_string(value)))
             .collect::<Vec<_>>();
         let template_info = ValueInfo {
             kind: ValueKind::Array,
@@ -11557,9 +11555,9 @@ impl<'a> ScriptLowerer<'a> {
         name: &PropertyName,
     ) -> DestructuringPropertyKeyIr {
         match name {
-            PropertyName::Literal(name) => DestructuringPropertyKeyIr::Static(
-                self.interner.resolve_expect(name.sym()).to_string(),
-            ),
+            PropertyName::Literal(name) => {
+                DestructuringPropertyKeyIr::Static(self.interned_runtime_string(name.sym()))
+            }
             PropertyName::Computed(expression) => {
                 DestructuringPropertyKeyIr::Computed(self.lower_expression(expression))
             }
@@ -11747,9 +11745,7 @@ impl<'a> ScriptLowerer<'a> {
 
     fn property_name_to_static_key(&self, name: &PropertyName) -> Option<String> {
         match name {
-            PropertyName::Literal(name) => {
-                Some(self.interner.resolve_expect(name.sym()).to_string())
-            }
+            PropertyName::Literal(name) => Some(self.interned_runtime_string(name.sym())),
             PropertyName::Computed(expr) => self.try_static_ordinary_property_key(expr),
         }
     }
@@ -13540,7 +13536,7 @@ impl<'a> ScriptLowerer<'a> {
                 let LiteralKind::String(sym) = literal.kind() else {
                     return None;
                 };
-                Some(self.interner.resolve_expect(*sym).to_string())
+                Some(self.interned_runtime_string(*sym))
             }
             // A well-known symbol is not a string key, but this compiler encodes
             // its value as its [[Description]]; `lower_static_property_key` is
@@ -13558,7 +13554,7 @@ impl<'a> ScriptLowerer<'a> {
                 let LiteralKind::String(sym) = literal.kind() else {
                     return self.static_number_property_key(expr);
                 };
-                Some(self.interner.resolve_expect(*sym).to_string())
+                Some(self.interned_runtime_string(*sym))
             }
             _ => self.static_number_property_key(expr),
         }
@@ -15422,9 +15418,9 @@ impl<'a> ScriptLowerer<'a> {
         owner
             .owned_env_slots
             .iter()
-            .map(|(name, slot)| OwnedEnvBindingIr {
-                name: name.clone(),
-                slot: *slot,
+            .map(|(name, slot)| {
+                self.analysis
+                    .owner_environment_binding(owner_id, name, *slot, self.interner)
             })
             .collect()
     }

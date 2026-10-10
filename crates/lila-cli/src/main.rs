@@ -437,17 +437,22 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
                     .emit_wasm(&unit)
                     .map(|artifact| {
                         // `LILA_WASM_DUMP` receives the program module; a linked
-                        // program's runtime module goes beside it.
+                        // program's runtime module goes beside it. Runtime-free
+                        // replacements remove any prior runtime sidecar.
                         if let Some(path) = std::env::var_os("LILA_WASM_DUMP") {
                             fs::write(&path, &artifact.bytes).unwrap_or_else(|err| {
                                 panic!("failed to write LILA_WASM_DUMP artifact: {err}");
                             });
+                            let mut runtime_path = path.clone();
+                            runtime_path.push(".runtime.wasm");
                             if let Some(runtime) = &artifact.runtime {
-                                let mut runtime_path = path.clone();
-                                runtime_path.push(".runtime.wasm");
                                 fs::write(&runtime_path, runtime.bytes()).unwrap_or_else(|err| {
                                     panic!("failed to write LILA_WASM_DUMP runtime artifact: {err}");
                                 });
+                            } else if let Err(err) = fs::remove_file(&runtime_path) {
+                                if err.kind() != std::io::ErrorKind::NotFound {
+                                    panic!("failed to remove stale LILA_WASM_DUMP runtime artifact: {err}");
+                                }
                             }
                         }
                         if std::env::var_os("LILA_WASM_TRACE").is_some() {

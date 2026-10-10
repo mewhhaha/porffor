@@ -427,6 +427,85 @@ fn inspect_reports_phase_twenty_three_exception_ir_shape() {
 }
 
 #[test]
+fn build_wasm_dump_replaces_linked_runtime_with_runtime_free_artifact() {
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    struct DumpTree(std::path::PathBuf);
+    impl Drop for DumpTree {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let tree = DumpTree(unique_project_dir("wasm-dump-lifecycle"));
+    let dump = tree.0.join("artifact.wasm");
+    let mut runtime_path = dump.as_os_str().to_os_string();
+    runtime_path.push(".runtime.wasm");
+    let runtime_path = std::path::PathBuf::from(runtime_path);
+    let engine = lila_engine::Engine::new(lila_engine::RealmBuilder::new().build());
+    for (filename, source, requires_runtime, builds) in [
+        (
+            "linked.js",
+            "let o = { x: 1 }; o.y = 2; o.x + o.y;",
+            true,
+            1,
+        ),
+        ("scalar.js", "40 + 2;", false, 2),
+    ] {
+        let script = tree.0.join(filename);
+        fs::write(&script, source).unwrap();
+        let unit = engine
+            .compile_script(
+                source,
+                lila_engine::CompileOptions {
+                    filename: Some(script.to_string_lossy().into_owned()),
+                    host_surface_policy: lila_engine::HostSurfacePolicy::Product,
+                    ..lila_engine::CompileOptions::default()
+                },
+            )
+            .unwrap();
+        let expected = engine.emit_wasm(&unit).unwrap();
+        assert_eq!(
+            expected.runtime.is_some(),
+            requires_runtime,
+            "{filename}: the fixture must exercise its declared runtime requirement"
+        );
+        // The repeated scalar build also verifies that a missing sidecar is
+        // accepted when replacing an already runtime-free dump.
+        for _ in 0..builds {
+            let built = Command::new(env!("CARGO_BIN_EXE_lila"))
+                .args(["--jobs", "1", "--host-surface", "product", "build", "wasm"])
+                .arg(&script)
+                .env("LILA_WASM_DUMP", &dump)
+                .output()
+                .unwrap();
+            assert!(
+                built.status.success(),
+                "{filename}: {}",
+                String::from_utf8_lossy(&built.stderr)
+            );
+            assert_eq!(
+                fs::read(&dump).unwrap(),
+                expected.bytes,
+                "{filename}: the dumped program must match the exact SDK artifact"
+            );
+            if let Some(runtime) = &expected.runtime {
+                let emitted =
+                    fs::read(&runtime_path).expect("linked dump must publish its runtime");
+                assert!(
+                    emitted.as_slice() == runtime.bytes(),
+                    "{filename}: the dumped runtime must match the exact SDK artifact"
+                );
+            } else {
+                assert_eq!(
+                    fs::symlink_metadata(&runtime_path).unwrap_err().kind(),
+                    io::ErrorKind::NotFound,
+                    "{filename}: a runtime-free dump must leave no previous sidecar"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn build_wasm_succeeds_for_supported_fixture() {
     let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
         .arg("build")
@@ -871,9 +950,45 @@ fn unsupported_test262_suite_root(name: &str) -> std::path::PathBuf {
     write_project_file(
         &suite_root,
         "test/language/unsupported/feature.js",
-        "/*---\nfeatures: [immutable-arraybuffer]\nflags: [raw]\n---*/\ntrue;\n",
+        "/*---\nflags: [raw]\n---*/\n__lilaRealmEvalScript?.(String(unknownSource));\n",
     );
     suite_root
+}
+
+#[test]
+fn test262_feature_metadata_does_not_reject_a_supported_raw_execution() {
+    let suite_root = unique_project_dir("test262-supported-feature-metadata");
+    write_project_file(
+        &suite_root,
+        "test/language/supported/feature.js",
+        "/*---\nfeatures: [immutable-arraybuffer]\nflags: [raw]\n---*/\ntrue;\n",
+    );
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
+        .arg("test262")
+        .arg("run")
+        .arg("--suite-root")
+        .arg(&suite_root)
+        .arg("--execution-backend")
+        .arg("wasm-aot")
+        .arg("--threads")
+        .arg("1")
+        .arg("--snapshot-dir")
+        .arg(suite_root.join("snapshots"))
+        .arg("--snapshot-name")
+        .arg("supported-feature-metadata")
+        .output()
+        .expect("metadata-only selection should complete");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("total: 1") && stdout.contains("passed: 1"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Unsupported: 0"), "{stdout}");
 }
 
 #[test]

@@ -1,5 +1,41 @@
 # Full dry-source pass and bounded later verification
 
+## Managed cloud exception — 2026-10-09
+
+The environment owner permits verification in a managed cloud machine under
+that machine's inherited finite cgroup memory cap. Invoke
+`python3 scripts/limited_verification.py --cloud -- <command>`. This mode checks
+the current cgroup and all visible ancestors, uses the tightest finite
+`memory.max`, and refuses an unbounded or unreadable hierarchy before starting
+the payload. It does not require a systemd user session or create another
+4 GiB scope. Serial CPU/worker defaults remain in force. The opt-in
+`--cloud-cpus auto` mode bounds process affinity by the inherited CPU set and
+all visible CPU quotas, preserving stricter native-worker defaults. Cargo and
+libtest remain serial; explicit CLI `--jobs` and Test262 `--threads` remain
+separate compiler/case counts. Three real Wasm controls pass identically with
+one and four compiler workers; all 28 launcher controls and watched live
+readback pass. See the [CPU receipt](../cloud-continuation-20261009.cloud-cpu.json).
+Following the owner's
+iteration-time request, cloud retention allows two modules with compilation
+images bounded to `min(256 MiB, max(1 byte, inherited cap / 8))`. Stricter
+explicit limits survive. Local retention remains one entry/64 MiB.
+
+The same three native controls pass with 1/64 MiB, 2/64 MiB and 2/256 MiB.
+The 41 MB Wasm core has a 252 MB native bundle: the first two configurations
+invoke its native factory six times, while 2/256 MiB invokes it once and warm
+loads measure about 24 ms rather than 130 ms. These limited diagnostics do not
+establish a general speedup. All fifteen launcher controls pass, including
+unchanged local controls, tighter cloud ancestors and stricter supplied caches.
+See the [exact receipt](../cloud-continuation-20261009.core-retention.json).
+Future watched commands use `--poll 1`; test and stall deadlines stay unchanged.
+
+This is a distinct cloud policy: it does not establish the local zero-swap or
+grouped-OOM settings. Local verification still uses the scope policy described
+below. Record the actual inherited cap with each cloud result; a cloud pass
+does not imply a pass under the local 4 GiB limit.
+
+## Local verification history
+
 Source update — 2026-10-07: the shared launcher now also caps retained Wasmtime
 modules at one entry and 64 MiB of compilation-image bytes. Stricter positive
 caller image limits survive; larger values are clamped. Invalid values refuse

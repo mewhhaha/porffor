@@ -79,8 +79,8 @@ fn test262_verdict_command_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "Test262VerdictCommand"),
-        5,
-        "the declaration, impl, typed consumer and two producers must own every mention"
+        6,
+        "the declaration, impl, typed consumer, two command arms and internal worker must own every mention"
     );
 }
 
@@ -104,7 +104,7 @@ fn test262_verdict_command_has_one_exact_exhaustive_spelling_projection() {
 }
 
 #[test]
-fn test262_run_and_shard_are_the_only_ordered_verdict_command_producers() {
+fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_producers() {
     let consumer = bounded(
         CLI_SOURCE,
         "fn require_passing_test262_verdict(",
@@ -142,12 +142,12 @@ fn test262_run_and_shard_are_the_only_ordered_verdict_command_producers() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "require_passing_test262_verdict("),
-        3,
-        "the definition and exact run/shard calls must own every invocation"
+        4,
+        "the definition, exact run/shard arms and internal worker must own every invocation"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "Test262VerdictCommand::Run"),
-        1
+        2
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "Test262VerdictCommand::Shard"),
@@ -159,6 +159,19 @@ fn test262_run_and_shard_are_the_only_ordered_verdict_command_producers() {
         "fn handle_test262_command(",
         "fn parse_test262_args(",
     );
+    let worker = bounded(
+        command_dispatch,
+        "    if args[0] == \"__case-worker\" {",
+        "\n    let subcommand =",
+    );
+    assert_before(worker, "let summary =", "summary.verdict()?");
+    assert_eq!(
+        worker.matches("require_passing_test262_verdict(").count(),
+        1
+    );
+    assert!(normalized(worker).ends_with(
+        "returnrequire_passing_test262_verdict(Test262VerdictCommand::Run,summary.verdict()?);}",
+    ));
     for (start, end, variant) in [
         ("        \"run\" => {", "        \"report\" => {", "Run"),
         ("        \"shard\" => {", "        _ => Err(", "Shard"),

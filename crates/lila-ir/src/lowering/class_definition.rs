@@ -200,7 +200,7 @@ impl<'a> ScriptLowerer<'a> {
                             let (key, key_prefix) = match name {
                                 PropertyName::Literal(name) => (
                                     PropertyKeyIr::StaticString(
-                                        self.interner.resolve_expect(name.sym()).to_string(),
+                                        self.interned_runtime_string(name.sym()),
                                     ),
                                     None,
                                 ),
@@ -274,9 +274,7 @@ impl<'a> ScriptLowerer<'a> {
                 | ClassElement::StaticFieldDefinition(field) => {
                     let (key, computed_key, key_prefix) = match field.name() {
                         PropertyName::Literal(name) => (
-                            ClassFieldKeyIr::Public(
-                                self.interner.resolve_expect(name.sym()).to_string(),
-                            ),
+                            ClassFieldKeyIr::Public(self.interned_runtime_string(name.sym())),
                             None,
                             None,
                         ),
@@ -407,9 +405,7 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     let (key, computed_key, key_prefix) = match field.name() {
                         PropertyName::Literal(name) => (
-                            ClassFieldKeyIr::Public(
-                                self.interner.resolve_expect(name.sym()).to_string(),
-                            ),
+                            ClassFieldKeyIr::Public(self.interned_runtime_string(name.sym())),
                             None,
                             None,
                         ),

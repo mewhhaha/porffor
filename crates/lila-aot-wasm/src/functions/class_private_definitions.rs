@@ -179,7 +179,9 @@ impl FunctionBuilder<'_> {
                 .initialize_null(schema, function);
             if let Some(text) = descriptions.get(&ordinal) {
                 description.replace(
-                    self.emit_interned_string_reference(text, function)?
+                    // IR keys omit the sigil; PrivateIdentifier StringValue
+                    // and the runtime private name's description include it.
+                    self.emit_interned_string_reference(&format!("#{text}"), function)?
                         .nullable(),
                     function,
                 );

@@ -1,0 +1,42 @@
+{
+  "role": "Final pre-commit architecture/accounting and scanner guards; actual committed README comparison runs separately after commit",
+  "command": [
+    "python3",
+    "-B",
+    "scripts/limited_verification.py",
+    "--cloud",
+    "--cloud-cpus",
+    "auto",
+    "--",
+    "./scripts/run-watched.sh",
+    "--label",
+    "cloud-final-guards-20261010",
+    "--stall",
+    "900",
+    "--poll",
+    "1",
+    "--",
+    "bash",
+    "target/continuation-cloud-20261009/final-guards.sh"
+  ],
+  "exit_status": 0,
+  "script": "#!/bin/bash\nset -euo pipefail\ncargo fmt --all -- --check\ngit diff --check\n./scripts/check-task-plan.sh\n./scripts/check-module-boundaries.sh\n./scripts/check-lila-identity.sh\n./scripts/check-no-legacy-js.sh\n./scripts/check-test262-host-abi.sh\n./scripts/check-no-interpreter-in-product-graph.sh\npython3 -B scripts/generate-shortcut-status.py --check\n./scripts/audit-test262-shortcuts.sh --check\nrustc --edition=2021 -D warnings --test scripts/audit-test262-shortcuts.rs -o target/continuation-cloud-20261009/final-shortcut-scanner-unit\ntarget/continuation-cloud-20261009/final-shortcut-scanner-unit --test-threads=1\n./scripts/tests/audit-test262-shortcut-scanner.sh\n\n./scripts/tests/check-readme-status-artifacts.sh\n",
+  "script_sha256": "8a7619a705d42471b663e751ca3b707f2a0b07d5699ae962f5a9addc029e06b1",
+  "log": "target/watched/cloud-final-guards-20261010.log",
+  "log_sha256": "85af1235689d3fdeb482104c2191150516e6f878627908de42dff224b68878b1",
+  "native_summaries": [
+    {
+      "verdict": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "verdict": "ok",
+      "passed": 15,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "readme_ledger_regression_cases": 23
+}

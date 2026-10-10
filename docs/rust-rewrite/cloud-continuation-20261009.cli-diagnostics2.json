@@ -1,0 +1,286 @@
+{
+  "role": "Inspection diagnostics, not native semantic test passes",
+  "binary_sha256": "29ae38430c2cce0f94762e6befd9cc1e20f3f4119f4558c45420d0bde4d02899",
+  "cases": [
+    {
+      "name": "full-bind",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./crates/lila-cli/tests/fixtures/wasm_bind_builtins.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 704\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=15 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=18 indirect_calls=18 method_calls=0 constructs=1 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=9 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=17 global_property_reads=9 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=3 builtin_static_calls=0 error_builtin_calls=2 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=9 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=14 kind_unions=68 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "287ebcd6c9d10584e18373f21b5ec82685f58e941b387b5a286b9692e30d95dc",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-full-bind.log",
+      "log_sha256": "9705228b4b934cf30635a7fd1b647ce625cc654abbc5e957aeb22e50b04de459"
+    },
+    {
+      "name": "builtin-globals",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./crates/lila-cli/tests/fixtures/wasm_builtin_globals.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 0,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 1166\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=10 result=dynamic strict=false functions=2 nested_functions=1 function_exprs=1 arrow_functions=0 named_function_exprs=0 closures=0 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=17 indirect_calls=17 method_calls=0 constructs=9 classes=1 class_exprs=1 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=0 lets=9 consts=0 vars=0 global_bindings=68 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=9 global_property_reads=32 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=12 builtin_static_calls=1 error_builtin_calls=11 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=0 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=3 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=1 property_reads=14 property_writes=0 array_lengths=0 heap_shapes=11 function_values=5 this_reads=0 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=1 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=23 kind_unions=78 heap_to_primitives=0 heap_loose_equalities=0 heap_coercions=0 instanceofs=10 in_ops=0 prototype_reads=1 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "272d387bdd54bd25cd683ff350d27adcdb0aab0b87ba4ce7264e25774b0d5254",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-builtin-globals.log",
+      "log_sha256": "b0ad9a6bfb75cf3fb191dc7543cc0e2b2b1df729388e6ab2806a63aff049681f"
+    },
+    {
+      "name": "bind-prefix-6",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-6.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 196\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=7 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=1 indirect_calls=1 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=1 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=1 global_property_reads=1 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=0 builtin_static_calls=0 error_builtin_calls=0 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=1 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=0 kind_unions=11 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "3bf192450b48e6d8fa81b2724cee52e083f1594cbcd5a4397307a859d37aed0e",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-6.log",
+      "log_sha256": "7203c14296b2b7ad6af798f5e9f6a48092d03bcf976a7f84ecbb35b22dc7a476"
+    },
+    {
+      "name": "bind-prefix-7",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-7.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 221\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=8 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=2 indirect_calls=2 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=2 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=2 global_property_reads=2 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=0 builtin_static_calls=0 error_builtin_calls=0 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=2 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=1 kind_unions=16 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "c8365eeb4ce3b81521f65921248540ba517c256a31aa3e4a92c444408afe1974",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-7.log",
+      "log_sha256": "bb42a7e9cc53dfafded6620b3c50ef077e0efa5d52c2e2610c49bf34f8f9b2ae"
+    },
+    {
+      "name": "bind-prefix-8",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-8.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 243\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=9 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=3 indirect_calls=3 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=3 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=3 global_property_reads=3 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=1 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=2 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=1 kind_unions=18 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "30d136bd6a6b042120b025b13304c2904f7f70d7fcbf17c54f6eac8fd5b1e66f",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-8.log",
+      "log_sha256": "a6c88ee68ce4c1f729e3ddb8ce88283abaa62f92dddae67a1103df9c45333e51"
+    },
+    {
+      "name": "bind-prefix-9",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-9.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 277\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=10 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=4 indirect_calls=4 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=4 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=4 global_property_reads=4 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=2 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=1 kind_unions=20 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "4fa5f8f01cdc44ab950ccf8eb2c5ee39e4e8f031d275a03742ca8b1c403f6f45",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-9.log",
+      "log_sha256": "127114ebae707136aad0f2fad561cd60638f0395f79d0daf8c8a7c5546edf0a7"
+    },
+    {
+      "name": "bind-prefix-10",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-10.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 297\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=11 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=4 indirect_calls=4 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=5 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=4 global_property_reads=4 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=2 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=1 kind_unions=20 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "9e04d1a2310d45b648987ce3930e240fac434e08477bc3c709616c8cf1ded36e",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-10.log",
+      "log_sha256": "94fd176b6e78eea7fd6dedc4a8b58fb8a21a8fb4db60fe81ee2acbb8d49c0aec"
+    },
+    {
+      "name": "bind-prefix-11",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-11.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 336\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=12 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=5 indirect_calls=5 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=6 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=5 global_property_reads=5 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=3 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=2 kind_unions=25 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "75902bfaa07af12261f3c99e19f62c477e468133a3a8697a3f494b7be6f4349e",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-11.log",
+      "log_sha256": "a9faccd482301876aa80fad2555e4bdf3bd42a34f3cd298b137f80b78390bb3b"
+    },
+    {
+      "name": "bind-prefix-12",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-12.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 379\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=13 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=6 indirect_calls=6 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=7 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=6 global_property_reads=6 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=4 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=3 kind_unions=31 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "29c2e2ebbb2301833fe16d11cfeebe66d508224ff69e25789794230e5c0a2ebd",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-12.log",
+      "log_sha256": "3c756ac03167f56c667433fd73a124a3cb260a817d29829755fb206be705ac32"
+    },
+    {
+      "name": "bind-prefix-13",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-13.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 424\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=14 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=7 indirect_calls=7 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=8 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=7 global_property_reads=7 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=5 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=4 kind_unions=36 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "581772993629eb42330669da2c2d4c99468cb0f41a61ecc4464cf7ae78334f3e",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-13.log",
+      "log_sha256": "728f0d49c5122ebc865c7d69aed4fe36d87ffafe29e4b3b03a1a12f310e4d63d"
+    },
+    {
+      "name": "bind-prefix-14",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-14.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 463\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=15 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=8 indirect_calls=8 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=9 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=8 global_property_reads=8 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=6 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=5 kind_unions=41 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "1dd42f61e8e96e53b77120760b20deeae6070e4917594189cb76d5c3ebe40f07",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-14.log",
+      "log_sha256": "4ae4e024e952a4e2f60cb2b9664cb56111ea4e3e52792250c0004ba8534660de"
+    },
+    {
+      "name": "bind-prefix-15",
+      "command": [
+        "./target/debug/lila",
+        "--jobs",
+        "1",
+        "inspect",
+        "./target/continuation-cloud-20261009/bind-prefix-15.js"
+      ],
+      "exit_status": 0,
+      "metrics": {
+        "builtin_globals": 55,
+        "function_proto_binds": 1,
+        "bound_functions": 0,
+        "bound_function_constructs": 0,
+        "error_proto_to_strings": 0
+      },
+      "stdout": "goal: Script\nsource_len: 464\nstages: parsed-source, script-ir-built, wasm-ready\ninvariants: direct-js-to-wasm-only, no-shipped-interpreter-in-wasm, spec-ir-is-semantic-source-of-truth\nir: script statements=15 result=boolean strict=false functions=4 nested_functions=0 function_exprs=0 arrow_functions=0 named_function_exprs=0 closures=2 captures=0 lexical_this_captures=0 lexical_arguments_captures=0 default_params=0 rest_params=0 arguments_uses=0 calls=8 indirect_calls=8 method_calls=0 constructs=0 classes=0 class_exprs=0 class_extends=0 null_heritage_classes=0 class_fields=0 private_elements=0 static_blocks=0 super_uses=0 null_heritage_super_uses=0 private_in_checks=0 throws=0 try_catches=0 try_finallys=0 returns=3 lets=9 consts=0 vars=0 global_bindings=71 builtin_globals=55 boxed_builtin_globals=3 global_this_uses=0 top_level_this_uses=0 global_default_this_calls=8 global_property_reads=8 global_property_writes=0 implicit_globals=0 host_globals=0 host_builtin_calls=0 builtin_ctor_calls=2 builtin_static_calls=0 error_builtin_calls=1 aggregate_errors=0 function_proto_calls=0 function_proto_applies=0 function_proto_binds=1 function_proto_to_strings=0 bound_functions=0 bound_function_constructs=0 boxed_builtin_calls=0 boxed_builtin_constructs=0 boxed_receiver_adaptations=0 error_proto_to_strings=0 blocks=0 ifs=0 whiles=0 do_whiles=0 fors=0 switches=0 labels=0 debuggers=0 breaks=0 continues=0 objects=0 object_shorthands=0 object_methods=0 object_getters=0 object_setters=0 arrays=0 property_reads=6 property_writes=1 array_lengths=0 heap_shapes=1 function_values=2 this_reads=3 new_target_uses=0 assigns=0 prefix_updates=0 postfix_updates=0 compound_assigns=0 string_concats=0 loose_equalities=0 coercive_numeric_ops=0 coercive_relational_ops=0 typeof_uses=0 void_uses=0 deletes=0 identifier_deletes=0 global_deletes=0 comma_ops=0 nullish_ops=0 spec_operations=5 kind_unions=41 heap_to_primitives=1 heap_loose_equalities=0 heap_coercions=1 instanceofs=0 in_ops=0 prototype_reads=0 prototype_writes=0\n",
+      "stderr": "",
+      "input_sha256": "b07c3d4fad22016021597178b24ba1873e5937f1d85517dcdad63d0e6eace945",
+      "log": "target/continuation-cloud-20261009/cli-full2-diagnostic-bind-prefix-15.log",
+      "log_sha256": "b61d21b6319b3ca1107fa03cfc20b39d2f4b6859cb7219ebc5856a9e0138099a"
+    }
+  ],
+  "metric_extraction": "Whole metric names reparsed from retained original stdout; log bytes and executions unchanged",
+  "raw_journal": "target/continuation-cloud-20261009/cli-full2-diagnostics.json",
+  "raw_journal_sha256": "e16ae2f80b812bd13a0559984ad1997d0bd6c6f6dc7ba06d21d423720bbc90f0",
+  "command_path_normalization": "Checkout prefix replaced by ./; original log and journal hashes retained"
+}

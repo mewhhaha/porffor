@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
+    let root = std::env::temp_dir().join(format!(
+        "lila-engine-linked-cache-decoder-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let cache = cache::FunctionCache::new(root.clone(), 64 * 1024 * 1024).unwrap();
+    let profile = IntlCompilationProfile::default();
+    let selection = IntlDataSelection::new(profile.clone());
+    let runtime_cache = RuntimeWasmCache::new(&cache).expect("loaded test compiler identity");
+    let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
+        &selection,
+        embedded_runtime::inputs(Some(&runtime_cache)),
+    )
+    .unwrap();
+    let program = b"\0asm\x01\0\0\0";
+    let entry = encode_cache_entry(WasmProgramRef::new(program, Some(&runtime)));
+    let (decoded, linked) = decode_cache_entry(&entry, &profile, &cache).unwrap();
+    assert_eq!(decoded.as_ref(), program);
+    assert_eq!(linked.unwrap().key(), runtime.key());
+    assert!(decode_standalone_cache_entry(&entry).is_none());
+
+    let mut different_runtime = entry.clone();
+    different_runtime[1] ^= 1;
+    assert!(decode_cache_entry(&different_runtime, &profile, &cache).is_none());
+    assert!(decode_cache_entry(&entry[..KEY_BYTES], &profile, &cache).is_none());
+    assert!(decode_cache_entry(&[], &profile, &cache).is_none());
+    assert!(decode_cache_entry(&[0xff], &profile, &cache).is_none());
+
+    let standalone = encode_cache_entry(WasmProgramRef::standalone(program));
+    let (decoded, linked) = decode_cache_entry(&standalone, &profile, &cache).unwrap();
+    assert_eq!(decoded.as_ref(), program);
+    assert!(linked.is_none());
+    assert_eq!(
+        decode_standalone_cache_entry(&standalone),
+        Some(program.as_slice())
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn linked_runtime_native_modules_honor_both_bypass_retention_paths() {
     run_on_sized_stack(|| {
         let engine = Engine::new(RealmBuilder::new().build());

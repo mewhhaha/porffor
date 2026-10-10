@@ -47,16 +47,22 @@ All later ordinary syntax and capture/name validation precede instruction
 expansion and descriptor publication. Checked lowering tries longest strings,
 singleton characters and empty members with existing matcher instructions.
 Reverse code-point order and nullable progress use the same matcher.
+Each prepared finite-string position preserves an unchanged code-point literal,
+uses the existing ASCII bitmap instruction when its changed fold class is wholly
+ASCII, or publishes sorted, coalesced ranges for non-ASCII preimages. This follows
+the static modifier owner without charging literal or bitmap positions against
+the range budget. Kelvin sign and long s therefore retain their non-ASCII
+preimages; adjacent sigma preimages become one range.
 The old pending capability node, its compiler-local failure variant and sole
 helper Unsupported status/decoder arm are retired. Static candidate misses still
 invoke the runtime compiler; the separate static-literal rejection remains live.
 This is not whole-RegExp or full-suite conformance.
 
-The private helper ABI takes seven i64 parameters: already-coerced source and
-flags payloads, then five zeros. Its four results are descriptor handle, closed
-status, UTF-16 source offset and typed detail. Status words are Compiled0,
+The private helper ABI takes two non-null GC Strings: already-coerced source and
+flags. Its four results are a nullable GC RegExpProgram, i32 closed status,
+i64 UTF-16 source offset and i64 typed detail. Status words are Compiled0,
 SyntaxError1, ResourceExhausted3 and CorruptProgram4; word 2 is retired. Only Compiled
-carries a nonzero handle. The wrapper routes syntax errors to SyntaxError,
+carries a non-null program. The wrapper routes syntax errors to SyntaxError,
 resource failures to RangeError, and internal invalid programs to Error, using
 the current function's Realm. A missing statically compiled literal program
 still uses the separate mandatory T19 semantic rejection (code 7), distinct from
@@ -107,14 +113,15 @@ the generic trapping HeapAlloc helper is not used. Every failure clears the
 owned region before restoring the entry checkpoint and allowing the wrapper to
 allocate an Error. A failure before workspace allocation clears an empty range.
 Successful instructions and ranges are serialized into the existing RGPB relative
-descriptor, checked, then compacted to the entry checkpoint with memory.copy.
-The compiler clears only the tail after the aligned descriptor before releasing
-that storage. The descriptor and all pre-checkpoint allocations remain intact.
+descriptor, copied into an owned immutable GC byte array, then checked through
+the GC RegExpProgram. The compiler clears and releases all private workspace
+above the entry checkpoint. The published GC descriptor and all pre-checkpoint
+allocations remain intact.
 This zero-memory contract matters because ordinary allocation leaves some record
 slots at their initial zero value; rewinding dirty parser storage could make a
 fresh capture array appear non-extensible. No published descriptor points into
 parser, task, source, folding or scratch storage. Later matcher scratch checkpoints occur
-after publication; clones can share the handle with independent lastIndex.
+after publication; clones can share the GC program with independent lastIndex.
 
 A failed compile preserves the receiver's old program/source/flags/lastIndex.
 Successful installation precedes the final strict lastIndex Set, which may throw
@@ -125,8 +132,9 @@ supported static Unicode/named programs without requiring runtime recompilation.
 
 ## Verification boundary
 
-`runtime_regexp_compiler_tests` adds test-only exports to copied artifacts and
-calls the actual emitted compiler. Host imports trap if called. Returned bytes
+`runtime_regexp_compiler_tests` discovers helper indices from the physical runtime
+R's name section and calls its existing exports directly. Host imports trap if
+called. Returned owned GC bytes
 must roundtrip through ValidatedRegExpProgram and match static descriptors for
 selected common grammar. Separate controls cover resource rollback including
 physical memory-growth refusal, zeroed released memory and allocator reuse,
@@ -138,7 +146,13 @@ parser. Scoped-modifier controls separately cover lexical restoration, captures,
 lookahead, nullable repetitions, class closure, reference-site folding, rejected
 prefixes and changed-global-flag clones. Descriptor comparison includes nested
 m/s overrides and restored sensitive/reference operands. The original immutable
-descriptor lifetime fixture remains unchanged.
+descriptor lifetime fixture remains unchanged. Additional exact comparisons
+cover finite-string literals, ASCII bitmaps, non-ASCII fold preimages, normalized
+sigma ranges, lone surrogates, scoped i restoration and reverse string lowering.
+All five emitted-compiler functions pass in the 2026-10-09 cloud checkpoint,
+including these nine additional comparisons and the unchanged original parity,
+resource, empty-composition and allocator-reuse controls. Broad verification is
+recorded separately in `CONTINUE.md`.
 
 Computed capture-array controls also allocate and mutate fresh arrays and objects
 after successful, syntax-failing and resource-failing compilation; retained

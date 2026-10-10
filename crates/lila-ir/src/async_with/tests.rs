@@ -120,6 +120,7 @@ fn async_with_constructor_requires_unique_actual_head_inventory() {
         duplicate.push(plan.head_binding().clone());
         let mut alias = inventory.to_vec();
         alias.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign.head".into(),
             slot: plan.head_binding().slot,
         });

@@ -62,7 +62,21 @@ WeakMap and WeakSet runtime evidence in both borrowing directions; the shared
 error emitter and private publication lifecycle are recorded in
 [`weak-collection-created-realm-publication.md`](weak-collection-created-realm-publication.md).
 
-## Rust invariant
+## Current GC receiver boundary — 2026-10-10
+
+Strong data receivers are validated with real `MapObject`/`SetObject` GC type
+tests before their records are cast or read. A failed test projects through
+`StrongCollectionReceiverKind::MapData | SetData` and the closed
+`CollectionReceiverError::NonObject | MissingInternalSlots` domain in
+`builtins/collections/receiver.rs`. Exhaustive matches bind each family's two
+messages together. Primitive tags take the non-object error; every object-like
+tag without the GC brand takes the missing-slot error. The common emitter
+creates the TypeError in the defining function Realm and observes no Proxy trap.
+Weak capability preflight retains its separately typed `WeakFamily` projection.
+The existing created-Realm fixture remains the native witness; fresh validation
+of this correction is pending in the continuation checkpoint.
+
+## Historical pre-GC Rust invariant
 
 `CollectionDataReceiverKind` is the closed ordinary collection slot domain:
 `Map | WeakMap | Set | WeakSet`. Exhaustive matches select the required brand

@@ -216,7 +216,22 @@ impl ScriptLowerer<'_> {
             }
             RelationalOp::In => {
                 self.invalidate_unknown_user_code_effects();
-                TypedExpr::spec_has_property(rhs, lhs)
+                // HasProperty's semantic operands are (object, key), but `in`
+                // evaluates the key expression before the object expression.
+                // Retain its value before evaluating the object; ToPropertyKey
+                // still belongs to HasProperty, after the object type check.
+                let key_name = self.alloc_temp_binding_name("in.key.");
+                let key =
+                    TypedExpr::from_info(lhs.value_info(), ExprIr::Identifier(key_name.clone()));
+                let body = TypedExpr::spec_has_property(rhs, key);
+                TypedExpr::from_info(
+                    body.value_info(),
+                    ExprIr::MaterializeBinding {
+                        name: key_name,
+                        value: Box::new(lhs),
+                        body: Box::new(body),
+                    },
+                )
             }
             RelationalOp::InstanceOf => {
                 if let Some(function_id) = self.resolve_single_function_target(&rhs) {

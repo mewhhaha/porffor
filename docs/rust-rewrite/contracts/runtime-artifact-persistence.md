@@ -8,7 +8,11 @@ native deserializer or deadline allowance is introduced.
 
 `RuntimeArtifactCache` supplies storage and the compiler artifact identity. The
 Engine provider uses the existing fingerprint over compiler inputs and the
-running executable. The domain-separated runtime key also binds the R/P ABI
+verified loaded executable. It derives its v4 cache fingerprint from the existing
+`CompilerIdentity` source and executable digests, sharing the single verified
+image read with execution evidence. Unavailable identity omits the runtime
+cache owner, while uncached emission remains available. The new compiler domain
+invalidates older entries. The domain-separated runtime key also binds the R/P ABI
 version, architecture and every admitted Intl custom section, including service
 selection and physical component images. Intl admission runs before either the
 memory or disk lookup; cached bytes cannot select a different provider.

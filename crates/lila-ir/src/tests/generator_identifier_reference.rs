@@ -14,6 +14,147 @@ fn identifier_reference_function(source: &str) -> FunctionIr {
         .unwrap()
 }
 
+#[test]
+fn retained_declarative_cells_export_source_policy_without_eval_visibility() {
+    for (source, expected) in [
+        ("function* g() { const value = 0; return value = yield 1; }", EnvironmentBindingMutabilityIr::Immutable { strict: true }),
+        ("async function g() { const value = 0; return value = await 1; }", EnvironmentBindingMutabilityIr::Immutable { strict: true }),
+        ("async function* g() { const value = 0; return value = await (yield 1); }", EnvironmentBindingMutabilityIr::Immutable { strict: true }),
+        ("async function g() { const value = 0; const read = () => value; return value = await read(); }", EnvironmentBindingMutabilityIr::Immutable { strict: true }),
+        ("async function g() { let value = 0; return value = await 1; }", EnvironmentBindingMutabilityIr::Mutable),
+        ("const named = async function g() { return g = await 1; };", EnvironmentBindingMutabilityIr::Immutable { strict: false }),
+        ("const named = async function g(parameter) { return g = await 1; };", EnvironmentBindingMutabilityIr::Immutable { strict: false }),
+        ("const named = async function g(g) { return g = await 1; };", EnvironmentBindingMutabilityIr::Mutable),
+        ("const named = async function g() { const g = 0; return g = await 1; };", EnvironmentBindingMutabilityIr::Immutable { strict: true }),
+    ] {
+        let function = identifier_reference_function(source);
+        assert!(function.eval_environment.is_none(), "{source}");
+        let capture = captured_assignment(&function.body.statements);
+        let IdentifierReferenceCaptureDisposition::Located(
+            IdentifierReferenceFallbackDisposition::Declarative { binding },
+        ) = capture.disposition() else {
+            panic!("original declarative Reference: {source}");
+        };
+        let ExprIr::Identifier(name) = &binding.expr else {
+            panic!("declarative storage identifier: {source}");
+        };
+        let mut cells: Vec<_> = function.owned_env_bindings.iter().collect();
+        if let Some(environment) = &function.body.lexical_environment {
+            cells.extend(environment.bindings.iter());
+        }
+        let mut rows = Vec::new();
+        identifier_reference_rows(&function.body.statements, &mut rows);
+        for statement in rows {
+            if let StatementIr::Block(block) = statement {
+                if let Some(environment) = &block.lexical_environment {
+                    cells.extend(environment.bindings.iter());
+                }
+            }
+        }
+        let cell = cells.into_iter().find(|cell| &cell.name == name)
+            .unwrap_or_else(|| panic!("owned cell for `{name}`: {source}"));
+        assert_eq!(cell.mutability, expected, "{source}");
+    }
+}
+
+#[test]
+fn non_simple_parameter_closures_retain_their_physical_named_self_policy() {
+    for (parameter, declaration, parameter_mode, body_mode, parameter_policy, body_policy) in [
+        (
+            "",
+            "var g = 0;",
+            BindingMode::Const,
+            BindingMode::Var,
+            EnvironmentBindingMutabilityIr::Immutable { strict: false },
+            EnvironmentBindingMutabilityIr::Mutable,
+        ),
+        (
+            "",
+            "let g = 0;",
+            BindingMode::Const,
+            BindingMode::Let,
+            EnvironmentBindingMutabilityIr::Immutable { strict: false },
+            EnvironmentBindingMutabilityIr::Mutable,
+        ),
+        (
+            "",
+            "const g = 0;",
+            BindingMode::Const,
+            BindingMode::Const,
+            EnvironmentBindingMutabilityIr::Immutable { strict: false },
+            EnvironmentBindingMutabilityIr::Immutable { strict: true },
+        ),
+        (
+            "g = 0,",
+            "var g = 1;",
+            BindingMode::Let,
+            BindingMode::Var,
+            EnvironmentBindingMutabilityIr::Mutable,
+            EnvironmentBindingMutabilityIr::Mutable,
+        ),
+    ] {
+        let source = format!(
+            "const named = async function g({parameter} read = async function parameterRead() {{
+                return g = await 17;
+            }}) {{
+                {declaration}
+                function bodyRead() {{ return g; }}
+                return [read, bodyRead];
+            }};"
+        );
+        with_script_analysis(&source, |analysis| {
+            let owner = function_owner_plan_by_name(analysis, "g");
+            let parameters = &analysis.environment_plans[&owner.activation_environment_id];
+            let body = &analysis.environment_plans[&owner.body_environment_id.unwrap()];
+            assert_eq!(parameters.kind, EnvironmentKind::FunctionParameters);
+            assert_eq!(body.kind, EnvironmentKind::FunctionBody);
+            assert_eq!(parameters.binding_modes["g"], parameter_mode, "{source}");
+            assert_eq!(body.binding_modes["g"], body_mode, "{source}");
+            for (name, environment, mode) in [
+                ("parameterRead", parameters.id, parameter_mode),
+                ("bodyRead", body.id, body_mode),
+            ] {
+                let function = analysis
+                    .function_plans
+                    .values()
+                    .find(|function| function.name == name)
+                    .unwrap();
+                let capture = function
+                    .captures
+                    .values()
+                    .find(|capture| capture.source_name == "g")
+                    .unwrap();
+                assert_eq!(capture.environment_id, environment, "{source}: {name}");
+                assert_eq!(capture.mode, mode, "{source}: {name}");
+            }
+        });
+
+        let function = identifier_reference_function(&source);
+        assert!(function.eval_environment.is_none(), "{source}");
+        let parameter_cell = function
+            .owned_env_bindings
+            .iter()
+            .find(|binding| binding.name == "g")
+            .unwrap();
+        let body_cell = function
+            .body
+            .statements
+            .iter()
+            .filter_map(|statement| {
+                if let StatementIr::Block(block) = statement {
+                    block.lexical_environment.as_ref()
+                } else {
+                    None
+                }
+            })
+            .flat_map(|environment| &environment.bindings)
+            .find(|binding| binding.name == "g")
+            .unwrap();
+        assert_eq!(parameter_cell.mutability, parameter_policy, "{source}");
+        assert_eq!(body_cell.mutability, body_policy, "{source}");
+    }
+}
+
 fn identifier_reference_rows<'a>(statements: &'a [StatementIr], output: &mut Vec<&'a StatementIr>) {
     for statement in statements {
         output.push(statement);

@@ -81,6 +81,7 @@ fn lexical_head_requires_the_correct_complete_iteration_environment() {
             initialization: LexicalEnvironmentInitializationIr::Uninitialized,
             eval_environment: None,
             bindings: vec![OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "different".into(),
                 slot: 0,
             }],
@@ -576,6 +577,7 @@ fn prepared_identifier_head_rejects_capture_and_owned_environment_registration()
         .unwrap();
     let prefix = identifier_prefix();
     function.owned_env_bindings.push(OwnedEnvBindingIr {
+        mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
         name: ASSIGNMENT_SINK.into(),
         slot: 0,
     });
@@ -635,6 +637,7 @@ fn sink_query_includes_retained_environments_and_destructuring_write_targets() {
                 initialization: LexicalEnvironmentInitializationIr::Uninitialized,
                 eval_environment: None,
                 bindings: vec![OwnedEnvBindingIr {
+                    mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                     name: ASSIGNMENT_SINK.into(),
                     slot: 0,
                 }],
@@ -937,6 +940,7 @@ fn lexical_pattern_environment() -> ForInOfEnvironmentIr {
             initialization: LexicalEnvironmentInitializationIr::Uninitialized,
             eval_environment: None,
             bindings: vec![OwnedEnvBindingIr {
+                mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
                 name: "iteration.value".into(),
                 slot: 0,
             }],

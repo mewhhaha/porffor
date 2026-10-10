@@ -250,6 +250,12 @@ pub enum EnvironmentIdentifierOperationIr {
     Assign {
         value: Box<TypedExpr>,
     },
+    /// Ordered Object Environment selection and its global fallback are one
+    /// ResolveBinding, completed before the single write-only RHS.
+    AssignWithGlobalFallback {
+        selection: Box<TypedExpr>,
+        value: Box<TypedExpr>,
+    },
     Delete,
     Update {
         operation: NumericUpdateOp,
@@ -279,6 +285,7 @@ impl EnvironmentIdentifierOperationIr {
             | Self::ReleaseCapturedReference { .. }
             | Self::CaptureCallReference { .. }
             | Self::Assign { .. }
+            | Self::AssignWithGlobalFallback { .. }
             | Self::Delete
             | Self::Update { .. }
             | Self::EagerCompound { .. }
@@ -296,17 +303,28 @@ impl EnvironmentIdentifierOperationIr {
             Self::CaptureCallReference { receiver } => {
                 (std::slice::from_ref(receiver.binding()), None)
             }
-            Self::Assign { value } => (std::slice::from_ref(value), None),
+            Self::Assign { value } | Self::AssignWithGlobalFallback { value, .. } => {
+                (std::slice::from_ref(value), None)
+            }
             Self::EagerCompound { rhs, .. } | Self::LogicalCompound { rhs, .. } => {
                 (std::slice::from_ref(rhs), None)
             }
             Self::Call { args, .. } => (args, None),
         };
-        reference.into_iter().chain(operands.iter()).chain(
-            captured
-                .into_iter()
-                .flat_map(IdentifierReferenceCaptureIr::operands),
-        )
+        let selection = if let Self::AssignWithGlobalFallback { selection, .. } = self {
+            Some(selection.as_ref())
+        } else {
+            None
+        };
+        reference
+            .into_iter()
+            .chain(selection)
+            .chain(operands.iter())
+            .chain(
+                captured
+                    .into_iter()
+                    .flat_map(IdentifierReferenceCaptureIr::operands),
+            )
     }
 }
 

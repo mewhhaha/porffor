@@ -23,7 +23,8 @@ The checks, in protocol order, are:
 4. the iterator's `next` property is not callable; and
 5. calling `next` returns a primitive.
 
-The first two checks both select `SyncIteratorProtocolError::NotIterable`.
+At the historical checkpoint, the first two checks both selected
+`SyncIteratorProtocolError::NotIterable`.
 The remaining checks select `MethodResultNotObject`, `NextNotCallable`, and
 `NextResultNotObject`, respectively. Five semantic checks therefore pass
 through four closed error variants.
@@ -97,9 +98,17 @@ and call-to-propagation-to-result-check order.
 ## Runtime witness boundary
 
 `crates/lila-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` covers all
-five error conditions, their four exact diagnostics, and a valid control. It
+five error conditions, their exact diagnostics, and a valid control. It
 lists the failures in protocol order. It is registered as
 `iterator::run_wasm_backend_reports_direct_for_of_protocol_type_errors`.
+
+The 2026-10-10 GC continuation distinguishes the earlier nullish ToObject
+failure from iterator lookup. A nullish source throws the entry Realm TypeError
+with `Cannot convert undefined or null to object` before reading `@@iterator`;
+a non-callable iterator method retains `for-of target is not iterable`.
+The fixture keeps both prototype and exact-message assertions, and all method,
+next/result and valid-loop controls. These messages are product diagnostics;
+ECMA-262 requires the error type and ordering, not particular message text.
 
 That fixture executes a loop-owning user function in the entry Realm. It can
 detect wrong branch selection and messages, but it cannot distinguish a

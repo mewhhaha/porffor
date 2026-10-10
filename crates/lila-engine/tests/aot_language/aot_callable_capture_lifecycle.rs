@@ -24,10 +24,21 @@ function frozen(a) {
   var args = arguments;
   a = 2;
   var live = Object.getOwnPropertyDescriptor(args, "0").value === 2;
-  Object.defineProperty(args, "0", { writable: false });
+  Object.defineProperty(args, "0", { writable: false, configurable: false });
   a = 3;
   var rejected = !Reflect.defineProperty(args, "0", { value: 4 });
   return live && rejected && args[0] === 2 && a === 3;
+}
+function configurableSnapshot(a) {
+  var args = arguments;
+  a = 2;
+  Object.defineProperty(args, "0", { writable: false });
+  a = 3;
+  var retired = args[0] === 2 && a === 3;
+  var changed = Reflect.defineProperty(args, "0", { value: 4 });
+  var descriptor = Object.getOwnPropertyDescriptor(args, "0");
+  return retired && changed && args[0] === 4 && a === 3 &&
+    descriptor.configurable && !descriptor.writable;
 }
 function accessor(a) {
   var args = arguments;
@@ -51,7 +62,7 @@ function missingDuplicate(a, a) {
   a = 7;
   return arguments[0] === 1 && !Object.hasOwn(arguments, "1");
 }
-frozen(1) && accessor(1) && removed(1) && duplicate(1, 2) && missingDuplicate(1);
+frozen(1) && configurableSnapshot(1) && accessor(1) && removed(1) && duplicate(1, 2) && missingDuplicate(1);
 "#,
     );
 }

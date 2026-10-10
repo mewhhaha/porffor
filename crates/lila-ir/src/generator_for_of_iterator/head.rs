@@ -123,14 +123,10 @@ fn validate_entry_local_sink<'a>(
     }
     if persistent_names.into_iter().any(|name| name == value_name)
         || functions.iter().any(|function| {
-            function
-                .owned_env_bindings
-                .iter()
-                .any(|binding| binding.name == value_name)
-                || function
-                    .captured_bindings
-                    .iter()
-                    .any(|binding| binding.name == value_name)
+            let owned = &function.owned_env_bindings;
+            let captured = &function.captured_bindings;
+            owned.iter().any(|binding| binding.name == value_name)
+                || captured.iter().any(|binding| binding.name == value_name)
         })
     {
         return Err(GeneratorForOfAssignmentError::PersistentSink);
@@ -247,7 +243,10 @@ fn identifier_write(expr: &TypedExpr, source: &str, value: &str, ignored: bool) 
         } => name == source && sink(operand, value),
         ExprIr::EnvironmentIdentifier(identifier) => {
             identifier.name == source
-                && matches!(&identifier.operation, EnvironmentIdentifierOperationIr::Assign { value: operand } if sink(operand, value))
+                && matches!(&identifier.operation,
+                    EnvironmentIdentifierOperationIr::Assign { value: operand }
+                        | EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { value: operand, .. }
+                    if sink(operand, value))
         }
         ExprIr::Comma { lhs, rhs } => {
             sink(lhs, value)

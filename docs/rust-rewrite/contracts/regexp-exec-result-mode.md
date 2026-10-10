@@ -2,7 +2,29 @@
 
 Status: normative for Lila's internal RegExp execution emitters.
 
-## Boundary
+## Current GC boundary — 2026-10-10
+
+`builtins/string/regexp_exec.rs` owns the current emitters. The prototype exec
+builtin validates its RegExp receiver and converts the input to String. Both it
+and the generic RegExpExec fallback invoke `emit_native_regexp_builtin_exec`.
+That shared matcher reads lastIndex, converts it to ToLength exactly once and
+immediately routes an abrupt completion out of its native block. It reads the
+current flags/program and writes lastIndex only after that conversion completes,
+so coercion can recompile the receiver or throw without stale reads or matching.
+
+The matcher produces a real match Array or null. Prototype test observes exec
+through the generic protocol and converts its admitted Object/null result to
+Boolean. Callable Proxy exec methods, invalid result types and the noncallable
+intrinsic fallback retain their existing validation and Realm authority.
+
+The CLI source guard now bounds these actual GC emitter bodies, fixes one shared
+matcher call per entry, forbids duplicate ToLength conversions in the entries,
+and requires immediate abrupt routing before flag/program reads or lastIndex
+writes. The runtime fixture retains static/computed-pattern catch routing and
+Array.fromAsync promise rejection. The new guard's verification remains pending
+in the recorded continuation checkpoint.
+
+## Historical pre-GC emitter boundary
 
 `FunctionBuilder::emit_regexp_prototype_exec_from_locals` checks the RegExp
 brand, converts the input to String, reads `lastIndex` and completes its
@@ -50,7 +72,7 @@ The callable custom-`exec` branch of `RegExp.prototype.test` remains outside
 this boundary. That branch observes the user-supplied call result and converts
 object/null to Boolean as required by the public RegExp protocol.
 
-## Durable witnesses
+## Historical pre-GC durable witnesses
 
 `regexp_exec_result_mode_structure.rs` pins the exact private, attribute-free
 two-variant domain, its absent capabilities, one owning and one borrowed typed

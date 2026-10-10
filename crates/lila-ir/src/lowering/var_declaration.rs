@@ -368,11 +368,31 @@ impl ScriptLowerer<'_> {
                             self.unsupported("generator binding pattern suspension requires its own continuation");
                             return (StatementIr::Empty, ValueKind::Undefined);
                         };
+                        let Some(names) = supported_bound_names(
+                            self.interner,
+                            &Binding::Pattern(pattern.clone()),
+                        ) else {
+                            self.unsupported("generator var pattern bound names");
+                            return (StatementIr::Empty, ValueKind::Undefined);
+                        };
                         let Some(bindings) = self.lower_generator_var_pattern_initializer(source)
                         else {
                             self.unsupported("generator pattern initializer suspension expression");
                             return (StatementIr::Empty, ValueKind::Undefined);
                         };
+                        // Retained References perform SetMutableBinding, not
+                        // InitializeBinding. Keep every source var visible to
+                        // the enclosing variable-instantiation owner, including
+                        // names whose first write follows a resumed default.
+                        statements.push(StatementIr::Var(
+                            names
+                                .into_iter()
+                                .map(|bound| VarDeclaratorIr {
+                                    name: bound.source_name,
+                                    init: None,
+                                })
+                                .collect(),
+                        ));
                         statements.push(StatementIr::LexicalBlock(bindings));
                         continue;
                     }

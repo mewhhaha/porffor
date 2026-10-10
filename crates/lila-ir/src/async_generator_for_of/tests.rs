@@ -132,6 +132,7 @@ fn mixed_iterator_carrier_requires_three_distinct_actual_invocation_cells_and_he
         );
         let mut ambiguous = inventory.to_vec();
         ambiguous.push(OwnedEnvBindingIr {
+            mutability: crate::EnvironmentBindingMutabilityIr::Mutable,
             name: "foreign".into(),
             slot: plan.incoming_binding.slot,
         });

@@ -36,11 +36,7 @@ impl FunctionBuilder<'_> {
             .expect("main global binding plan");
         // The closed initial-global descriptor plan excludes source var/function
         // overlap, so these are pre-existing non-configurable object bindings.
-        if bindings.lexical_names().any(|name| {
-            bindings
-                .get(name)
-                .is_some_and(|binding| !binding.initializer.configurable())
-        }) {
+        if bindings.has_restricted_lexical_declarations() {
             self.emit_global_declaration_failure(
                 GlobalDeclarationFailure::RestrictedProperty,
                 function,
@@ -398,6 +394,13 @@ impl FunctionBuilder<'_> {
         };
         let error = self.runtime_schema().reserve_value_local(function);
         self.emit_environment_native_error(name, message, &error, function)?;
+        // Main declaration admission precedes its job checkpoint, so this
+        // early return must publish the same intrinsic constructor diagnostic
+        // as the final main completion path. Prepared Script callers retain
+        // their Throw record for the calling body to observe.
+        if self.is_main() {
+            self.emit_capture_final_throw_constructor_name(function)?;
+        }
         self.emit_return_current_completion(function);
         error.clear(function);
         Ok(())

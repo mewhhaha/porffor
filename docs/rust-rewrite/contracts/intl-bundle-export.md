@@ -30,7 +30,10 @@ file is published with an atomic hard link that refuses an existing destination,
 then the temporary name is removed and the parent directory is synced on Unix.
 Unsupported filesystem publication rejects clearly. `lila intl inspect --input
 PATH` bounds its read and fully re-admits the bundle before printing its actual
-canonical provider identity. It accepts no independent selection flags.
+canonical provider identity byte-for-byte, including its canonical trailing
+newline. The 2026-10-10 continuation removes an extra formatting newline and
+compares CLI stdout directly with the SDK identity bytes. It accepts no
+independent selection flags.
 
 SDK controls exercise selected roundtrips, identical re-export bytes, whole
 Conformance data, damage/inventory/identity refusals, and a same-Custom-ID List

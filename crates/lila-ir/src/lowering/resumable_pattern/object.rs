@@ -158,7 +158,7 @@ impl ScriptLowerer<'_> {
         let raw = match source {
             PropertyName::Literal(name) => TypedExpr::from_info(
                 ValueInfo::new(ValueKind::String),
-                ExprIr::String(self.interner.resolve_expect(name.sym()).to_string()),
+                ExprIr::String(self.interned_runtime_string(name.sym())),
             ),
             PropertyName::Computed(source) => {
                 let (prefix, value) = self.lower_pattern_expression(execution, source)?;

@@ -113,7 +113,8 @@ static_signature_domain! {
     HostAgentReceiveResource => ([], [ExternRef(Nullable), I64]),
     // Under one host lock, compare the expected word before publishing a waiter.
     // Zero means NotEqual; positive values are owned native waiter identities.
-    HostRegisterAsyncWaiter => ([ExternRef(NonNullable), I64, I32, I64], [I64]),
+    // The final argument is the same store-relative deadline retained by GC.
+    HostRegisterAsyncWaiter => ([ExternRef(NonNullable), I64, I32, I64, I64], [I64]),
     HostNotifyAsyncWaiters => ([ExternRef(NonNullable), I64, I32, I64], [I64]),
     // One native FIFO owns blocking and asynchronous waiters on each byte resource.
     HostSharedBufferWait => ([ExternRef(NonNullable), I64, I32, I64, I64], [I32]),

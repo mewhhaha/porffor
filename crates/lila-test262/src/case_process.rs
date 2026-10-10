@@ -54,6 +54,33 @@ impl CaseProcess {
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
+            #[cfg(target_os = "linux")]
+            {
+                let supervisor = unsafe { libc::getpid() };
+                // A worker owns its process group for case-deadline cleanup.
+                // Also bind it to the spawning supervisor thread: killing the
+                // publisher must not leave its isolated compiler running.
+                unsafe {
+                    command.pre_exec(move || {
+                        if libc::prctl(
+                            libc::PR_SET_PDEATHSIG,
+                            libc::SIGKILL as libc::c_ulong,
+                            0 as libc::c_ulong,
+                            0 as libc::c_ulong,
+                            0 as libc::c_ulong,
+                        ) != 0
+                        {
+                            return Err(std::io::Error::last_os_error());
+                        }
+                        // The supervisor can die between fork and arming the
+                        // signal. Reject that race before executing the worker.
+                        if libc::getppid() != supervisor {
+                            return Err(std::io::Error::from_raw_os_error(libc::ECHILD));
+                        }
+                        Ok(())
+                    });
+                }
+            }
             if deadline.expired() {
                 return Err("case deadline expired before spawning its worker".into());
             }
@@ -223,5 +250,81 @@ mod tests {
             }
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn isolated_worker_terminates_when_its_supervisor_is_killed() {
+        const HELPER_ROOT: &str = "LILA_CASE_PARENT_DEATH_TEST_ROOT";
+        if let Some(root) = std::env::var_os(HELPER_ROOT) {
+            // This branch runs in the disposable supervisor process. Its
+            // worker has a separate group, so killing only the supervisor's
+            // group cannot account for the worker's subsequent termination.
+            let mut command = Command::new("sleep");
+            command.arg("60");
+            let deadline = CaseDeadline::new(60_000, ExecutionBackend::SpecExec).unwrap();
+            let mut worker = CaseProcess::spawn(&mut command, deadline).unwrap();
+            let root = std::path::Path::new(&root);
+            std::fs::write(root.join("worker-pid.tmp"), worker.child.id().to_string()).unwrap();
+            std::fs::rename(root.join("worker-pid.tmp"), root.join("worker-pid")).unwrap();
+            let _ = worker.wait_until_deadline().unwrap();
+            panic!("the disposable supervisor should have been killed");
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "lila-case-parent-death-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "case_process::tests::isolated_worker_terminates_when_its_supervisor_is_killed",
+                "--nocapture",
+            ])
+            .env(HELPER_ROOT, &root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let deadline = CaseDeadline::new(5_000, ExecutionBackend::SpecExec).unwrap();
+        let mut supervisor = CaseProcess::spawn(&mut command, deadline).unwrap();
+        let pid_path = root.join("worker-pid");
+        while !pid_path.exists() {
+            assert!(!deadline.expired(), "supervisor did not start its worker");
+            assert!(supervisor.child.try_wait().unwrap().is_none());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let pid: i32 = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+        assert_eq!(unsafe { libc::getpgid(pid) }, pid);
+        assert_ne!(pid, supervisor.group);
+        supervisor.retire().unwrap();
+
+        let retired_by = Instant::now() + Duration::from_secs(2);
+        let terminated = loop {
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break true,
+                Ok(stat)
+                    if stat.rsplit_once(')').unwrap().1.split_whitespace().next() == Some("Z") =>
+                {
+                    break true;
+                }
+                _ if Instant::now() >= retired_by => break false,
+                _ => std::thread::sleep(Duration::from_millis(2)),
+            }
+        };
+        // Keep a failing regression from leaving its own long-lived worker.
+        if !terminated {
+            unsafe { libc::kill(-pid, libc::SIGKILL) };
+        }
+        std::fs::remove_dir_all(root).unwrap();
+        assert!(
+            terminated,
+            "isolated worker survived supervisor termination"
+        );
     }
 }

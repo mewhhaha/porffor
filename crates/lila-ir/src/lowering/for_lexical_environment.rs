@@ -53,9 +53,13 @@ impl ScriptLowerer<'_> {
             bindings: environment
                 .owned_env_slots
                 .iter()
-                .map(|(name, slot)| OwnedEnvBindingIr {
-                    name: name.clone(),
-                    slot: *slot,
+                .map(|(name, slot)| {
+                    self.analysis.owned_environment_binding(
+                        environment.id,
+                        name,
+                        *slot,
+                        self.interner,
+                    )
                 })
                 .collect(),
             per_iteration_slots: environment

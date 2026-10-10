@@ -1506,6 +1506,7 @@ pub(crate) fn append_discarded_generator_expression_suspensions(
         | Expression::New(_)
         | Expression::TaggedTemplate(_)
         | Expression::PropertyAccess(_)
+        | Expression::Update(_)
         | Expression::Assign(_) => GeneratorExpressionSourcePlan::new(expression, admission)?
             .append(current_state, suspension_points),
         expression if contains(expression, ContainsSymbol::YieldExpression) => None,

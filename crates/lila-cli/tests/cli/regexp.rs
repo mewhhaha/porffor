@@ -2,27 +2,27 @@
 
 use crate::*;
 
-fn assert_runtime_regexp_compilation_gap(fixture_name: &str) {
+fn assert_runtime_regexp_admission(fixture_name: &str) {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
         .arg(fixture_path(fixture_name))
         .output()
-        .expect("runtime RegExp gap command should run");
+        .expect("runtime RegExp admission command should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !output.status.success(),
-        "{fixture_name}: unsupported runtime grammar returned success: {stdout}"
+        output.status.success(),
+        "{fixture_name}: supported runtime grammar failed: {stderr}"
     );
     assert!(
-        stderr.contains("T19:") && stderr.contains("Wasm compiler"),
-        "{fixture_name}: expected the compiler semantic gap, got {stderr}"
+        stdout.contains("backend_used: WasmAot"),
+        "{fixture_name}: the fixture must execute through Wasm-AOT: {stdout}"
     );
     assert!(
-        !stdout.contains("boolean(true)"),
-        "{fixture_name}: a JavaScript catch converted the gap into success: {stdout}"
+        stdout.contains("boolean(true)"),
+        "{fixture_name}: valid computed Unicode-set construction must complete: {stdout}"
     );
 }
 
@@ -948,7 +948,7 @@ fn run_wasm_backend_succeeds_for_regexp_dynamic_unicode_validation_fixture() {
         "wasm_regexp_runtime_gap_subtraction_chain.js",
         "wasm_regexp_runtime_gap_intersection_chain.js",
     ] {
-        assert_runtime_regexp_compilation_gap(fixture);
+        assert_runtime_regexp_admission(fixture);
     }
 }
 
