@@ -88,6 +88,12 @@ Cargo compilation uses auto affinity: the engine library's first default pool
 follows CPU affinity, while later controls explicitly require one worker.
 Local verification retains its 4 GiB/no-swap/grouped-OOM policy. See the
 [verification repair checkpoint](docs/rust-rewrite/verification-repairs-20261011.md).
+Native Test262 broadcasts now wait for each live agent to retrieve its shared
+resource. Agent receives, readiness and worker execution use the parent's
+remaining deadline, and cleanup wakes native sleeps. All 18 focused controls
+pass; arbitrary BigInt message IDs and complete current agent-tree acceptance
+remain open. See the
+[agent retrieval checkpoint](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
 Cargo's native-core producer also uses the existing bounded Cranelift function
 cache. Function, target and compiler-flag identities permit reuse across source
 edits; every build still emits and validates its current raw runtime, precompiles

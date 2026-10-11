@@ -118,7 +118,12 @@ pub(super) fn agent_call(
         }
         AgentHostOperation::Sleep => {
             let milliseconds = f64::from_bits(first as u64);
-            if milliseconds.is_finite() && milliseconds > 0.0 {
+            if let Some(group) = &group {
+                group
+                    .execution_control
+                    .sleep(milliseconds)
+                    .map_err(wasmtime::Error::new)?;
+            } else if milliseconds.is_finite() && milliseconds > 0.0 {
                 std::thread::sleep(std::time::Duration::from_secs_f64(milliseconds / 1000.0));
             }
             Ok(0)

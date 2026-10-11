@@ -1775,6 +1775,25 @@ Implement all concrete typed-array constructors and `%TypedArray%` semantics:
 - detachment/out-of-bounds validation at exact spec points;
 - generic Array method borrowing where allowed and non-generic TypedArray methods where required.
 
+## Native retrieval/deadline repair — 2026-10-11
+
+The native broadcast now waits for all recipients to retrieve and admit their
+shared resources. All commands are queued before receipt waits; the worker
+registry is released first. Disconnected receipts retain worker join handles,
+so neither a queued nor an already disconnected worker can lose its failure.
+The shared parent deadline governs readiness, broadcast/command receive waits
+and worker epochs. Cleanup wakes native agent sleeps and existing Atomics
+waiters. Synchronous host compilation rechecks expiry before spawning; the
+outer process supervisor still bounds that compiler work.
+
+All 18 focused Engine agent tests pass, including native two-worker retrieval,
+the ten-second parent bound on a ten-minute worker sleep, original cross-store
+shared-buffer/waitAsync behavior and concurrent failure ownership. This closes
+the retrieval race and native wait debt; arbitrary BigInt message IDs and
+fresh complete pinned agent-tree acceptance remain open. Joined all-feature
+types and all eleven repository guards pass. See the
+[exact receipt](../docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
+
 ## Atomics and agents
 
 - Implement all Atomics operations with correct element-kind validation and sequentially consistent behavior required by ECMAScript.

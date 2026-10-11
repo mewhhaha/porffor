@@ -83,7 +83,9 @@ mod wasmtime_policy;
 use wasm_shared_resource::{
     WasmSharedBufferResource, WasmSharedMemoryBacking, WasmStoreAsyncWaiters,
 };
+mod wasm_agent_control;
 mod wasm_agent_host;
+use wasm_agent_control::{AgentReceiveError, WasmAgentExecutionControl};
 mod wasm_gc_byte_array_host;
 #[cfg(test)]
 use wasmtime_config::WASM_MAX_STACK_SIZE;
@@ -2050,7 +2052,10 @@ struct WasmAgentBroadcast {
 }
 
 enum WasmAgentCommand {
-    Broadcast(WasmAgentBroadcast),
+    Broadcast {
+        broadcast: WasmAgentBroadcast,
+        retrieved: std::sync::mpsc::Sender<()>,
+    },
     Shutdown,
 }
 
@@ -2103,6 +2108,7 @@ struct WasmAgentGroup {
     prelude: Arc<str>,
     compile_policy: WasmAgentCompilePolicy,
     timeout_ms: Option<u64>,
+    execution_control: WasmAgentExecutionControl,
     started_at: MonotonicClockInstant,
     reports: Mutex<VecDeque<Vec<u8>>>,
     worker_artifacts: Mutex<HashMap<String, ProgramWasmArtifact>>,
@@ -2123,6 +2129,7 @@ struct WasmAgentExecution {
 
 impl WasmAgentGroup {
     fn start(self: &Arc<Self>, source: String) -> Result<(), EngineError> {
+        self.execution_control.remaining()?;
         let worker_source = format!("{}\n{}", self.prelude, source);
         let worker_options = self.compile_policy.worker_options();
         let mut worker_artifact = self
@@ -2150,6 +2157,9 @@ impl WasmAgentGroup {
         let mut may_retry_corrupt_cache = true;
 
         loop {
+            // Host compilation cannot be interrupted by a Wasm epoch. Do not
+            // spawn a worker if it consumed the remaining parent budget.
+            self.execution_control.remaining()?;
             let (commands_tx, commands_rx) = std::sync::mpsc::channel();
             let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(0);
             let execution = WasmAgentExecution {
@@ -2177,15 +2187,32 @@ impl WasmAgentGroup {
                         .map(|_| ())
                 })
                 .map_err(|err| EngineError::new(format!("failed to spawn Test262 agent: {err}")))?;
-            if ready_rx.recv().is_ok() {
-                self.workers
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .push(WasmAgentWorker {
-                        commands: commands_tx,
-                        join,
-                    });
-                return Ok(());
+            match self.execution_control.receive(&ready_rx) {
+                Ok(()) => {
+                    self.workers
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(WasmAgentWorker {
+                            commands: commands_tx,
+                            join,
+                        });
+                    self.execution_control.remaining()?;
+                    return Ok(());
+                }
+                Err(AgentReceiveError::Execution(error)) => {
+                    // Release a rendezvous sender even if readiness races
+                    // expiry; finish still owns and joins this worker.
+                    drop(ready_rx);
+                    self.workers
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(WasmAgentWorker {
+                            commands: commands_tx,
+                            join,
+                        });
+                    return Err(error);
+                }
+                Err(AgentReceiveError::Disconnected) => {}
             }
 
             let error = match join.join() {
@@ -2230,25 +2257,44 @@ impl WasmAgentGroup {
         }
     }
 
-    fn broadcast(&self, broadcast: WasmAgentBroadcast) -> usize {
-        let workers = self
-            .workers
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        // Disconnection stops delivery; the join handle must remain owned
-        // until finish observes the worker's completion or failure.
-        workers
-            .iter()
-            .filter(|worker| {
-                worker
-                    .commands
-                    .send(WasmAgentCommand::Broadcast(broadcast.clone()))
-                    .is_ok()
-            })
-            .count()
+    fn broadcast(&self, broadcast: WasmAgentBroadcast) -> Result<usize, EngineError> {
+        let retrieved = {
+            let workers = self
+                .workers
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            // Queue every delivery before waiting, and release the worker
+            // registry while recipients retrieve their native resources.
+            // Disconnection must retain the join handle for finish's verdict.
+            workers
+                .iter()
+                .filter_map(|worker| {
+                    let (acknowledge, retrieved) = std::sync::mpsc::channel();
+                    worker
+                        .commands
+                        .send(WasmAgentCommand::Broadcast {
+                            broadcast: broadcast.clone(),
+                            retrieved: acknowledge,
+                        })
+                        .ok()
+                        .map(|()| retrieved)
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut count = 0;
+        for receipt in retrieved {
+            match self.execution_control.receive(&receipt) {
+                Ok(()) => count += 1,
+                // The worker's join handle remains owned by finish.
+                Err(AgentReceiveError::Disconnected) => {}
+                Err(AgentReceiveError::Execution(error)) => return Err(error),
+            }
+        }
+        Ok(count)
     }
 
     fn finish(&self) -> Result<(), EngineError> {
+        self.execution_control.finish();
         self.shared_memory_backing.cancel_all_waiters();
         let workers = {
             let mut workers = self
@@ -3531,6 +3577,7 @@ impl Engine {
                 prelude: agent_harness.prelude,
                 compile_policy: agent_harness.compile_policy,
                 timeout_ms,
+                execution_control: WasmAgentExecutionControl::new(),
                 started_at: self.realm.host_clock().monotonic_instant(),
                 reports: Mutex::new(VecDeque::new()),
                 worker_artifacts: Mutex::new(HashMap::new()),
@@ -3798,11 +3845,24 @@ impl Engine {
         } else {
             Default::default()
         };
-        let epoch_deadline_ticks = match timeout_ms {
+        let execution_started = std::time::Instant::now();
+        if let Some(group) = &root_agent_group {
+            group.execution_control.arm(execution_started, timeout_ms);
+        }
+        let execution_budget = match &agent_execution {
+            Some(execution) => execution.group.execution_control.remaining()?,
+            None => timeout_ms.map(std::time::Duration::from_millis),
+        };
+        let epoch_deadline_ticks = match execution_budget {
             // The ticker's phase is independent of this Store. One guard
             // tick ensures the deadline cannot expire before the requested
             // wall time when arming happens just before a process-wide tick.
-            Some(timeout_ms) => timeout_ms.div_ceil(WASM_EPOCH_TICK_MS).max(1) + 1,
+            Some(remaining) => {
+                (remaining.as_millis() as u64)
+                    .div_ceil(WASM_EPOCH_TICK_MS)
+                    .max(1)
+                    + 1
+            }
             None => u64::MAX / 2,
         };
         store.set_epoch_deadline(epoch_deadline_ticks);
@@ -3812,7 +3872,6 @@ impl Engine {
             })?;
         }
         let gc_heap_before = profile.as_ref().map(|_| store.gc_heap_capacity());
-        let execution_started = std::time::Instant::now();
         let mut roots = wasmtime::RootScope::new(&mut store);
         let execution_result = main.call(&mut roots, ()).map_err(|err| {
             if let Some(rejection) = err.downcast_ref::<RuntimeSemanticRejection>() {

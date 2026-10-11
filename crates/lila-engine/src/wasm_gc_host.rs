@@ -151,7 +151,9 @@ pub(super) fn link(
                 let group = caller.data().agent_group.as_ref().ok_or_else(|| {
                     wasmtime::Error::msg("agent.broadcast requires an active agent group")
                 })?;
-                let sent = group.broadcast(WasmAgentBroadcast { resource, id });
+                let sent = group
+                    .broadcast(WasmAgentBroadcast { resource, id })
+                    .map_err(wasmtime::Error::new)?;
                 i64::try_from(sent).map_err(|_| wasmtime::Error::msg("agent count exceeds ABI"))
             },
         )
@@ -164,17 +166,26 @@ pub(super) fn link(
             let commands = caller.data().agent_commands.clone().ok_or_else(|| {
                 wasmtime::Error::msg("agent.receiveBroadcast may only run inside an agent")
             })?;
-            let command = commands.lock().unwrap_or_else(|error| error.into_inner()).recv()
-                .map_err(|error| wasmtime::Error::msg(format!("agent broadcast channel closed: {error}")))?;
+            let group = caller.data().agent_group.as_ref().ok_or_else(|| {
+                wasmtime::Error::msg("agent.receiveBroadcast requires an active agent group")
+            })?;
+            let receiver = commands.lock().unwrap_or_else(|error| error.into_inner());
+            let command = group.execution_control.receive(&receiver).map_err(|error| match error {
+                AgentReceiveError::Disconnected => wasmtime::Error::msg("agent broadcast channel closed"),
+                AgentReceiveError::Execution(error) => wasmtime::Error::new(error),
+            })?;
+            drop(receiver);
             match command {
                 WasmAgentCommand::Shutdown => Ok((None, 0)),
-                WasmAgentCommand::Broadcast(broadcast) => {
+                WasmAgentCommand::Broadcast { broadcast, retrieved } => {
                     let backing = caller.data().shared_memory_backing.as_ref().ok_or_else(|| {
                         wasmtime::Error::msg("agent resource requires imported shared memory")
                     })?;
                     backing.check_resource(&broadcast.resource)?;
                     // Native bytes cross Stores; JavaScript wrappers remain local.
-                    Ok((Some(ExternRef::new(&mut caller, broadcast.resource)?), broadcast.id))
+                    let resource = ExternRef::new(&mut caller, broadcast.resource)?;
+                    let _ = retrieved.send(());
+                    Ok((Some(resource), broadcast.id))
                 }
             }
         }).map_err(bind_error)?;

@@ -5,6 +5,25 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Native agent retrieval and parent deadline — 2026-10-11
+
+Broadcast queues every recipient before waiting for retrieval acknowledgements.
+Worker retrieval validates the shared backing and roots its local ExternRef
+before acknowledging; the worker registry is unlocked during the wait.
+Disconnected deliveries retain their join handles and failure owners.
+The parent arms one absolute execution budget. Broadcast receipts, worker
+readiness and command receives use its remaining time; worker epochs inherit
+that budget. Cleanup wakes native sleeps and existing Atomics waiters before
+joining workers. Host compilation is checked against the budget before spawning;
+its synchronous compiler work is still subject to the outer case supervisor.
+
+All 18 focused agent checks pass, including real shared-memory delivery,
+waitAsync notification/expiry, failure preservation, two-worker retrieval and
+a ten-minute sleep under a ten-second parent budget. Joined all-feature/all-target
+types and all eleven repository guards pass. BigInt message IDs and fresh complete agent-tree/pinned
+acceptance remain open. See the
+[retrieval receipt](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
+
 ## Verification repair batch — 2026-10-11
 
 Complete active Intl payload reproduction passes, including all 1,082
@@ -331,7 +350,8 @@ workspace/all-ignored, differential and current pinned-suite acceptance remain
 pending.
 
 The latest task audit still finds substantial open acceptance requirements:
-real weak reachability/ephemerons, shared-memory agents, suspended compositions,
+real weak reachability/ephemerons, BigInt agent message IDs and current agent-tree
+acceptance, suspended compositions,
 current pinned full-suite publication, sustained stress/differential runs and
 cross-host evidence. Wasmtime 47 has no weak-root or ephemeron API. Do not remove
 this handoff or tasks until the requested actual task completion is established.

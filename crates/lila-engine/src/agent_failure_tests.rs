@@ -1,11 +1,17 @@
 use super::*;
 
 fn group_with_worker(worker: WasmAgentWorker) -> WasmAgentGroup {
+    group_with_workers(vec![worker])
+}
+
+fn group_with_workers(workers: Vec<WasmAgentWorker>) -> WasmAgentGroup {
     let engine = shared_wasm_engine().expect("required runtime for the lifecycle fixture");
     let realm = RealmBuilder::new().build();
     let started_at = realm.host_clock().monotonic_instant();
     let memory = WasmtimeSharedMemory::new(&engine, wasmtime::MemoryType::shared(1, 1))
         .expect("one shared page for the lifecycle fixture");
+    let execution_control = WasmAgentExecutionControl::new();
+    execution_control.arm(std::time::Instant::now(), None);
     WasmAgentGroup {
         engine,
         native_compilation_mode: WasmNativeCompilationMode::Fast,
@@ -14,10 +20,11 @@ fn group_with_worker(worker: WasmAgentWorker) -> WasmAgentGroup {
         prelude: Arc::from(""),
         compile_policy: WasmAgentCompilePolicy::from_root(&CompileOptions::default()),
         timeout_ms: Some(1_000),
+        execution_control,
         started_at,
         reports: Mutex::new(VecDeque::new()),
         worker_artifacts: Mutex::new(HashMap::new()),
-        workers: Mutex::new(vec![worker]),
+        workers: Mutex::new(workers),
     }
 }
 
@@ -35,14 +42,16 @@ fn broadcast_retains_a_disconnected_worker_until_its_failure_is_joined() {
     observed.recv().expect("worker channel is already closed");
     let group = group_with_worker(WasmAgentWorker { commands, join });
     assert_eq!(
-        group.broadcast(WasmAgentBroadcast {
-            resource: group
-                .shared_memory_backing
-                .allocate(0, 0, false)
-                .expect("valid fixed resource")
-                .expect("bounded resource allocation"),
-            id: 0,
-        }),
+        group
+            .broadcast(WasmAgentBroadcast {
+                resource: group
+                    .shared_memory_backing
+                    .allocate(0, 0, false)
+                    .expect("valid fixed resource")
+                    .expect("bounded resource allocation"),
+                id: 0,
+            })
+            .expect("disconnection leaves its worker failure to finish"),
         0
     );
     assert_eq!(group.workers.lock().expect("worker lock").len(), 1);
@@ -50,6 +59,178 @@ fn broadcast_retains_a_disconnected_worker_until_its_failure_is_joined() {
     assert_eq!(
         failure.runtime_dynamic_source_operations(),
         vec![DynamicSourceRuntimeOperation::Eval]
+    );
+}
+
+#[test]
+fn broadcast_waits_for_every_retrieval_without_holding_the_worker_registry() {
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+    let (queued, deliveries) = mpsc::channel();
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let (commands, receiver) = mpsc::channel();
+        let queued = queued.clone();
+        let join = std::thread::spawn(move || {
+            match receiver.recv().expect("one broadcast command") {
+                WasmAgentCommand::Broadcast {
+                    broadcast,
+                    retrieved,
+                } => {
+                    assert_eq!(broadcast.id, -17);
+                    queued
+                        .send(retrieved)
+                        .expect("fixture observes each retrieval gate");
+                }
+                WasmAgentCommand::Shutdown => panic!("broadcast precedes shutdown"),
+            }
+            assert!(matches!(receiver.recv(), Ok(WasmAgentCommand::Shutdown)));
+            Ok(())
+        });
+        workers.push(WasmAgentWorker { commands, join });
+    }
+    drop(queued);
+    let group = Arc::new(group_with_workers(workers));
+    let broadcast = WasmAgentBroadcast {
+        resource: group
+            .shared_memory_backing
+            .allocate(0, 0, false)
+            .expect("fixed native resource")
+            .expect("bounded native allocation"),
+        id: -17,
+    };
+    let (returned, result) = mpsc::channel();
+    let owner = Arc::clone(&group);
+    let broadcast_thread = std::thread::spawn(move || {
+        returned
+            .send(owner.broadcast(broadcast))
+            .expect("owner observes completion");
+    });
+    // Both commands must be queued before waiting for the first recipient.
+    let first = deliveries
+        .recv_timeout(Duration::from_secs(5))
+        .expect("first recipient queued");
+    let second = deliveries
+        .recv_timeout(Duration::from_secs(5))
+        .expect("second recipient queued");
+    assert!(
+        group.workers.try_lock().is_ok(),
+        "recipients never need the registry lock"
+    );
+    assert!(matches!(
+        result.recv_timeout(Duration::from_millis(30)),
+        Err(RecvTimeoutError::Timeout)
+    ));
+    first
+        .send(())
+        .expect("first recipient retrieves the resource");
+    assert!(matches!(
+        result.recv_timeout(Duration::from_millis(30)),
+        Err(RecvTimeoutError::Timeout)
+    ));
+    second
+        .send(())
+        .expect("second recipient retrieves the resource");
+    assert_eq!(
+        result
+            .recv_timeout(Duration::from_secs(5))
+            .expect("all receipts complete")
+            .unwrap(),
+        2
+    );
+    broadcast_thread.join().expect("broadcast owner joins");
+    group
+        .finish()
+        .expect("both workers retain normal completion");
+}
+
+#[test]
+fn a_worker_that_drops_a_queued_receipt_keeps_its_failure_owner() {
+    let (commands, receiver) = std::sync::mpsc::channel();
+    let join = std::thread::spawn(move || {
+        let command = receiver
+            .recv()
+            .expect("delivery was queued before the failure");
+        assert!(matches!(command, WasmAgentCommand::Broadcast { .. }));
+        drop(command);
+        Err(EngineError::from_runtime_dynamic_source_operation(
+            DynamicSourceRuntimeOperation::Eval,
+        ))
+    });
+    let group = group_with_worker(WasmAgentWorker { commands, join });
+    let count = group
+        .broadcast(WasmAgentBroadcast {
+            resource: group
+                .shared_memory_backing
+                .allocate(0, 0, false)
+                .expect("fixed native resource")
+                .expect("bounded native allocation"),
+            id: 0,
+        })
+        .expect("disconnected receipt remains owned by finish");
+    assert_eq!(count, 0);
+    assert_eq!(group.workers.lock().expect("worker registry").len(), 1);
+    assert_eq!(
+        group
+            .finish()
+            .expect_err("the queued worker failure survives")
+            .runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Eval]
+    );
+}
+
+#[test]
+fn native_broadcast_waits_for_both_workers_to_retrieve_their_resource() {
+    configure_compilation_jobs(1).expect("one compiler worker");
+    let worker =
+        "__lilaAgentSleep(100); __lilaAgentReport('retrieving'); __lilaAgentReceiveBroadcast();";
+    let source = format!(
+        "__lilaAgentStart({worker:?}); __lilaAgentStart({worker:?}); \
+         __lilaAgentBroadcast(new SharedArrayBuffer(4), -17); \
+         if (__lilaAgentGetReport() !== 'retrieving') throw new Error('first retrieval'); \
+         if (__lilaAgentGetReport() !== 'retrieving') throw new Error('second retrieval'); 42;"
+    );
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_wasm_aot_script_with_agents(
+            &source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            Some(120_000),
+            true,
+            String::new(),
+        )
+        .expect("both workers retrieve before the parent observes their queued reports");
+    assert!(outcome.note.contains("42"), "{}", outcome.note);
+}
+
+#[test]
+fn a_native_broadcast_wait_and_worker_sleep_share_the_parent_timeout() {
+    configure_compilation_jobs(1).expect("one compiler worker");
+    let worker = "__lilaAgentSleep(600000); __lilaAgentReceiveBroadcast();";
+    let source =
+        format!("__lilaAgentStart({worker:?}); __lilaAgentBroadcast(new SharedArrayBuffer(4), 0);");
+    let started = std::time::Instant::now();
+    let error = Engine::new(RealmBuilder::new().build())
+        .run_wasm_aot_script_with_agents(
+            &source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            Some(10_000),
+            true,
+            String::new(),
+        )
+        .expect_err("retrieval and worker cleanup cannot wait for the ten-minute sleep");
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::Timeout)
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(60),
+        "{error}"
     );
 }
 
