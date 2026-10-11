@@ -5,9 +5,9 @@ edited to produce this document. Every count in it was obtained by reading the
 tree at `claude/test-driven-rust-opus-pp6giw`, not estimated; the command that
 produced each count is given so the dry-runner can re-derive it.
 
-> **Current census: §27 (2026-09-14).** The catalog has 47 rows: 30 expression,
+> **Current census: §28 (2026-10-11).** The catalog has 49 rows: 32 expression,
 > 2 backend, 5 statement, and 10 tracked gaps. Earlier dated counts remain
-> historical; §27 supersedes their present-tense census claims.
+> historical; §28 supersedes their present-tense census claims.
 
 > **Read §13 first.** A dry-run discrepancy pass amended this document after the
 > encoding landed. §13 supersedes every claim it names — including parts of §2,
@@ -2149,3 +2149,17 @@ The operation's ordering, realm, completion, and emitted-size contract is in
 [With HasBinding](./with-has-binding.md). Compilation and native validation of
 the implementation are separate from this source census; no Test262 result is
 inferred from the new row.
+
+## 28. Selected With GetBindingValue checkpoint (2026-10-11)
+
+The closed Sloppy/Strict With GetBindingValue operations contribute two
+Environment expression rows, each with `WithBindingObjectAndName` operands,
+`LanguageValue` normal result, and `MayThrow` capability. Static selection
+retains the materialized binding object. The source fallback remains in its
+lazy branch; the shared GetValue body owns the second HasProperty and Get.
+
+The current census is **32 expression + 2 backend + 5 statement + 10 tracked
+gaps = 49 rows**. J4 and both backend-evidence census tests state that count.
+No tracked gap or iterator row is removed or reclassified. Earlier checkpoints
+remain historical. Native validation and compile-time measurements are
+separate from this source census.

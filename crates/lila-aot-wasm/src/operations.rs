@@ -527,6 +527,27 @@ impl<'a> FunctionBuilder<'a> {
                     .store(&pending, function);
                 name.clear(function);
             }
+            SpecOperationIr::WithEnvironmentGetBindingValueSloppy
+            | SpecOperationIr::WithEnvironmentGetBindingValueStrict => {
+                if operands[1].kind != ValueKind::String {
+                    return Err(EmitError::unsupported(
+                        "With GetBindingValue requires a String binding name",
+                    ));
+                }
+                let name = schema.reserve_gc_local(function).initialize(
+                    inputs[1].cast_reference::<StringValue>(schema, function),
+                    function,
+                );
+                let strictness = match operation {
+                    SpecOperationIr::WithEnvironmentGetBindingValueSloppy => Strictness::Sloppy,
+                    SpecOperationIr::WithEnvironmentGetBindingValueStrict => Strictness::Strict,
+                    _ => unreachable!("closed With GetBindingValue group"),
+                };
+                self.emit_selected_with_get_binding_value(
+                    &name, &inputs[0], strictness, &pending, function,
+                )?;
+                name.clear(function);
+            }
             SpecOperationIr::Get
             | SpecOperationIr::GetV
             | SpecOperationIr::GetMethod

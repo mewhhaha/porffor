@@ -26,6 +26,27 @@ fn assert_with_binding(source: &str) {
 }
 
 #[test]
+fn selected_with_read_keeps_fallback_lazy_and_propagates_its_second_has_throw() {
+    assert_with_binding(
+        r#"
+function lazy(scope) { with (scope) { return selected; } let selected; }
+var accepted = lazy({ selected: 7 }) === 7;
+var missing = false;
+try { lazy({}); } catch (error) { missing = error instanceof ReferenceError; }
+var marker = {}, calls = 0, finalized = 0, caught;
+var scope = new Proxy({ selected: 8 }, {
+  has(target, key) {
+    if (key === 'selected' && ++calls === 2) throw marker;
+    return Reflect.has(target, key);
+  }
+});
+try { try { lazy(scope); } finally { finalized++; } } catch (error) { caught = error; }
+accepted && missing && calls === 2 && caught === marker && finalized === 1;
+"#,
+    );
+}
+
+#[test]
 fn shared_resolution_keeps_typeof_strictness_and_abrupt_search_completion() {
     assert_with_binding(
         r#"
@@ -55,7 +76,8 @@ for (var strict of [false, true]) {
     });
     var callback = read(scope, strict, typeOf), caught, result;
     try { result = callback(); } catch (error) { caught = error; }
-    valid = valid && calls === 2 && (strict ? caught instanceof ReferenceError :
+    valid = valid && calls === 2 && (strict ? caught instanceof ReferenceError
+      && caught.message === 'object environment binding no longer exists' :
       caught === undefined && result === (typeOf ? 'undefined' : undefined));
     if (typeOf) valid = valid && read({}, strict, true)() === 'undefined';
     var marker = {}, finalized = 0;

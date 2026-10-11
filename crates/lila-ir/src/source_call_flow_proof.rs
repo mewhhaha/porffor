@@ -700,6 +700,8 @@ fn spec_operation_preserves_caller_flow(
         | SpecOperationIr::Set
         | SpecOperationIr::HasProperty
         | SpecOperationIr::WithEnvironmentHasBinding
+        | SpecOperationIr::WithEnvironmentGetBindingValueSloppy
+        | SpecOperationIr::WithEnvironmentGetBindingValueStrict
         | SpecOperationIr::HasOwnProperty
         | SpecOperationIr::DeletePropertyOrThrow
         | SpecOperationIr::CreateDataPropertyOrThrow

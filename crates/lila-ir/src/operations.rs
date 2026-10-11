@@ -1111,6 +1111,22 @@ spec_operations! {
         result: Boolean,
         abrupt: MayThrow,
     };
+    WithEnvironmentGetBindingValueSloppy => {
+        canonical: SpecOperationIr::WithEnvironmentGetBindingValueSloppy,
+        name: "WithEnvironmentGetBindingValueSloppy",
+        family: Environment,
+        domain: WithBindingObjectAndName,
+        result: LanguageValue,
+        abrupt: MayThrow,
+    };
+    WithEnvironmentGetBindingValueStrict => {
+        canonical: SpecOperationIr::WithEnvironmentGetBindingValueStrict,
+        name: "WithEnvironmentGetBindingValueStrict",
+        family: Environment,
+        domain: WithBindingObjectAndName,
+        result: LanguageValue,
+        abrupt: MayThrow,
+    };
     HasOwnProperty => {
         canonical: SpecOperationIr::HasOwnProperty,
         name: "HasOwnProperty",
@@ -1923,16 +1939,16 @@ const _: () = {
 //      AGENTS.md's own test.
 
 // (J4) The census the contract states, tied to the tables that produce it:
-//      30 shared-expression rows + 2 shared-backend rows + 5 statement-emission
+//      32 shared-expression rows + 2 shared-backend rows + 5 statement-emission
 //      rows + 10 tracked gaps. Changing any table without restating the census
 //      is a compile error, which is the point — the row counts are the claim
 //      this area exists to keep honest.
 const _: () = {
-    assert!(SpecOperationIr::ALL.len() == 30);
+    assert!(SpecOperationIr::ALL.len() == 32);
     assert!(BackendSpecOperation::ALL.len() == 2);
     assert!(STATEMENT_EMISSION_ROWS.len() == 5);
     assert!(TRACKED_GAP_ROWS.len() == 10);
-    assert!(SPEC_OPERATION_ROW_COUNT == 47);
+    assert!(SPEC_OPERATION_ROW_COUNT == 49);
 };
 
 // (J5) Row order: `build_catalog` lays each derived domain down first, in its

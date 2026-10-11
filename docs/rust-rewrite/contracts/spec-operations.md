@@ -18,12 +18,20 @@ disagree.** For this half, read 13.2 (the catalog entry was forgeable), 13.3
 membership over T00–T29) and 13.11 (what `EmitterEvidence` actually proves, and
 how L2 must be scoped).
 
-## Current catalog checkpoint (2026-09-14)
+## Current catalog checkpoint (2026-10-11)
 
-The authoritative macro/table census is **30 expression rows + 2 backend rows +
-5 statement rows + 10 tracked gaps = 47 rows**. Const assertion J4 and both
-backend-evidence census tests pin these counts. §27 of the combined contract
+The authoritative macro/table census is **32 expression rows + 2 backend rows +
+5 statement rows + 10 tracked gaps = 49 rows**. Const assertion J4 and both
+backend-evidence census tests pin these counts. §28 of the combined contract
 supersedes the historical census statements below.
+
+`WithEnvironmentGetBindingValueSloppy` and
+`WithEnvironmentGetBindingValueStrict` add two Environment expression rows.
+Each accepts the already-selected With binding object and String name and
+returns a language value or Throw. Their actual private IR producer and
+exhaustive Wasm dispatch reuse the shared GetValue helper, including its second
+observable HasProperty check. They preserve the separate HasBinding selection
+and lazy outer-environment fallback. Source census is not native acceptance.
 
 `WithEnvironmentHasBinding` adds one expression row in the Environment family:
 a With binding object and String name produce a Boolean or Throw. Its actual

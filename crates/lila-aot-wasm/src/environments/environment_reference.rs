@@ -512,11 +512,26 @@ impl FunctionBuilder<'_> {
         self.open_frame(ControlFrameKind::If, function);
         match reference.strictness {
             Strictness::Strict => {
+                reference.kind.load(function);
+                function.instruction(&Instruction::I32Const(
+                    EnvironmentReferenceKind::WithObject.code(),
+                ));
+                function.instruction(&Instruction::I32Eq);
+                self.open_frame(ControlFrameKind::If, function);
+                self.emit_environment_native_error(
+                    NativeErrorKind::ReferenceError,
+                    RuntimeErrorMessage::OBJECT_ENVIRONMENT_BINDING_MISSING,
+                    value,
+                    function,
+                )?;
+                function.instruction(&Instruction::Else);
                 self.emit_throw_global_binding_error(
                     GlobalBindingFailure::Unresolvable,
                     value,
                     function,
                 )?;
+                self.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
                 self.emit_propagate_current_throw_if_needed(function);
             }
             Strictness::Sloppy => value.set_undefined(function),

@@ -187,23 +187,21 @@ impl EqRefLocal {
 #[derive(Debug)]
 pub(crate) struct GcLocal<T: GcHeapType, N: GcFieldNullability = NonNullable> {
     index: u32,
+    heap_type: HeapType,
     shape: PhantomData<fn() -> (T, N)>,
 }
 impl<T: GcHeapType, N: GcFieldNullability> GcLocal<T, N> {
     pub(crate) fn load(
         &self,
-        schema: &RuntimeSchema,
+        _schema: &RuntimeSchema,
         function: &mut Function,
     ) -> GcStackReference<T, N> {
         function.instruction(&Instruction::LocalGet(self.index));
-        let heap_type = schema
-            .reference_type::<T>(GcNullability::Nullable)
-            .heap_type;
-        function.instruction(&if N::NULLABLE {
-            Instruction::RefCastNullable(heap_type)
-        } else {
-            Instruction::RefCastNonNull(heap_type)
-        });
+        // The local declaration already proves its concrete heap type.
+        // Logical non-null ownership only needs a null refinement here.
+        if !N::NULLABLE {
+            function.instruction(&Instruction::RefAsNonNull);
+        }
         GcStackReference::new()
     }
     pub(crate) fn replace(&self, value: GcStackReference<T, N>, function: &mut Function) {
@@ -211,7 +209,8 @@ impl<T: GcHeapType, N: GcFieldNullability> GcLocal<T, N> {
         function.instruction(&Instruction::LocalSet(self.index));
     }
     pub(crate) fn clear(self, function: &mut Function) {
-        EqRefLocal { index: self.index }.clear(function);
+        function.instruction(&Instruction::RefNull(self.heap_type));
+        function.instruction(&Instruction::LocalSet(self.index));
         function.release_typed_local(self.index);
     }
 }
@@ -231,6 +230,7 @@ impl<T: GcHeapType> GcLocal<T, Nullable> {
 #[derive(Debug)]
 pub(crate) struct GcLocalSlot<T: GcHeapType, N: GcFieldNullability = NonNullable> {
     index: u32,
+    heap_type: HeapType,
     shape: PhantomData<fn() -> (T, N)>,
 }
 impl<T: GcHeapType, N: GcFieldNullability> GcLocalSlot<T, N> {
@@ -243,6 +243,7 @@ impl<T: GcHeapType, N: GcFieldNullability> GcLocalSlot<T, N> {
         function.instruction(&Instruction::LocalSet(self.index));
         GcLocal {
             index: self.index,
+            heap_type: self.heap_type,
             shape: PhantomData,
         }
     }
@@ -1846,8 +1847,10 @@ impl RuntimeSchema {
         &self,
         function: &mut Function,
     ) -> GcLocalSlot<T, N> {
+        let reference_type = self.reference_type::<T>(GcNullability::Nullable);
         GcLocalSlot {
-            index: function.reserve_typed_local(ValType::Ref(RefType::EQREF)),
+            index: function.reserve_typed_local(ValType::Ref(reference_type)),
+            heap_type: reference_type.heap_type,
             shape: PhantomData,
         }
     }
@@ -1958,7 +1961,6 @@ enum OperandSource {
     Local(u32),
     NonNullLocal(u32),
     BooleanLocal(u32),
-    CastLocal(u32, HeapType, bool),
     Null(HeapType),
     DataDescriptor {
         writable: u32,
@@ -2068,15 +2070,6 @@ impl<V: sealed::Sealed, N: GcFieldNullability> GcOperand<'_, V, N> {
                 ] {
                     emit_descriptor_boolean(index, word, function);
                 }
-                return;
-            }
-            OperandSource::CastLocal(index, heap_type, nullable) => {
-                function.instruction(&Instruction::LocalGet(index));
-                function.instruction(&if nullable {
-                    Instruction::RefCastNullable(heap_type)
-                } else {
-                    Instruction::RefCastNonNull(heap_type)
-                });
                 return;
             }
         };
@@ -2354,29 +2347,21 @@ impl<V: GcF64Field> GcOperand<'_, V, NonNullable> {
     }
 }
 impl<'a, T: GcHeapType, N: GcFieldNullability> GcOperand<'a, GcRef<T>, N> {
-    pub(crate) fn reference(value: &'a GcLocal<T, N>, schema: &RuntimeSchema) -> Self {
+    pub(crate) fn reference(value: &'a GcLocal<T, N>, _schema: &RuntimeSchema) -> Self {
         Self {
-            source: OperandSource::CastLocal(
-                value.index,
-                schema
-                    .reference_type::<T>(GcNullability::Nullable)
-                    .heap_type,
-                N::NULLABLE,
-            ),
+            source: if N::NULLABLE {
+                OperandSource::Local(value.index)
+            } else {
+                OperandSource::NonNullLocal(value.index)
+            },
             shape: PhantomData,
         }
     }
 }
 impl<'a, T: GcHeapType> GcOperand<'a, GcRef<T>, Nullable> {
-    pub(crate) fn nullable_reference(value: &'a GcLocal<T>, schema: &RuntimeSchema) -> Self {
+    pub(crate) fn nullable_reference(value: &'a GcLocal<T>, _schema: &RuntimeSchema) -> Self {
         Self {
-            source: OperandSource::CastLocal(
-                value.index,
-                schema
-                    .reference_type::<T>(GcNullability::Nullable)
-                    .heap_type,
-                false,
-            ),
+            source: OperandSource::NonNullLocal(value.index),
             shape: PhantomData,
         }
     }

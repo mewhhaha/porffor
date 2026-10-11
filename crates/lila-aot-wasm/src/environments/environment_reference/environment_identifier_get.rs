@@ -58,6 +58,51 @@ macro_rules! environment_identifier_get_helper {
 }
 
 impl FunctionBuilder<'_> {
+    /// Static With planning already selected this object. Keep its independently
+    /// observable HasProperty recheck and Get inside the shared GetValue body;
+    /// the source caller retains its lazy outer-environment fallback.
+    pub(crate) fn emit_selected_with_get_binding_value(
+        &mut self,
+        name: &GcLocal<StringValue>,
+        object: &ValueLocals,
+        strictness: Strictness,
+        pending: &crate::gc_types::CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let reference =
+            self.emit_selected_with_object_identifier_reference(name, object, strictness, function);
+        let realm = self.emit_execution_realm(function);
+        let base = self.runtime_helper_base()?;
+        macro_rules! call {
+            ($arguments:ident) => {
+                schema
+                    .call_helper(
+                        $arguments::new(
+                            &reference.key,
+                            reference.kind,
+                            &reference.record,
+                            &reference.entry,
+                            &reference.cell,
+                            &reference.base,
+                            &realm,
+                            self.current_environment(),
+                        ),
+                        base,
+                        function,
+                    )
+                    .store(pending, function)
+            };
+        }
+        match strictness {
+            Strictness::Sloppy => call!(EnvironmentIdentifierGetSloppyArguments),
+            Strictness::Strict => call!(EnvironmentIdentifierGetStrictArguments),
+        }
+        realm.clear(function);
+        self.release_environment_identifier_reference(reference, function);
+        Ok(())
+    }
+
     pub(crate) fn emit_environment_identifier_get(
         &mut self,
         reference: &EnvironmentIdentifierReference,

@@ -1,4 +1,16 @@
 # CONTINUE — handoff state (2026-10-11)
+## 2026-10-11 typed-root and static With repair
+
+The `17492b7a3` retry completes 362 source-fenced native controls: 355 pass and
+seven fail, with no ignores. All 16 worker controls pass; six campaign scopes
+still hit the original five-second AOT budget. The static With-read size guard
+still fails at 22,401 added bytes. Its actual static lowering path now uses
+shared selected GetValue dispatch; known GC roots also carry concrete Wasm
+local types to remove redundant heap checks. Final workspace types, 469 tooling
+controls and 27 prechecks pass; native timings and full-suite acceptance remain
+pending. A separate Test262 library transcript has
+447 passes but no collected watcher status. See the [repair record](docs/rust-rewrite/typed-gc-read-repairs-20261011.md).
+
 
 ## 2026-10-11 complete-read follow-up
 

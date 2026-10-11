@@ -1218,6 +1218,7 @@ runtime_error_message_catalog! {
     SUPER_CALLED_TWICE_IN_DERIVED_CONSTRUCTOR => "super() called twice in derived constructor",
     TARGET_IS_NOT_A_CONSTRUCTOR => "target is not a constructor",
     UNBOUND_IDENTIFIER => "unbound identifier",
+    OBJECT_ENVIRONMENT_BINDING_MISSING => "object environment binding no longer exists",
     USING_DECLARATION_SYMBOL_DISPOSE_METHOD_IS_NOT_CALLABLE => "using declaration [Symbol.dispose] method is not callable",
     USING_DECLARATION_RESOURCE_HAS_NO_SYMBOL_DISPOSE_METHOD => "using declaration resource has no [Symbol.dispose] method",
     USING_DECLARATION_RESOURCE_IS_NOT_AN_OBJECT => "using declaration resource is not an object",

@@ -90,7 +90,7 @@ fn operation_catalog_census_includes_both_backend_operations() {
             tracked_gaps,
             SPEC_OPERATION_CATALOG.len(),
         ),
-        (30, 2, 5, 10, 47)
+        (32, 2, 5, 10, 49)
     );
 }
 

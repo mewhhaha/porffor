@@ -1263,30 +1263,21 @@ impl ObjectEnvironmentBindingObject {
     /// unscopables getter can delete the binding, and a Proxy can complete
     /// abruptly here even after the initial query succeeded.
     fn get_value(self, referenced_name: &str, strictness: Strictness) -> TypedExpr {
-        let recheck = self.has_property(referenced_name);
-        let read = TypedExpr::from_info(
-            dynamic_value_info(),
-            ExprIr::PropertyRead {
-                target: Box::new(self.read()),
-                key: PropertyKeyIr::StaticString(referenced_name.to_string()),
-            },
-        );
-        let missing = match strictness {
-            Strictness::Sloppy => TypedExpr::undefined(),
-            Strictness::Strict => TypedExpr::from_info(
-                dynamic_value_info(),
-                ExprIr::RuntimeThrow {
-                    name: NativeErrorKind::ReferenceError,
-                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
-                },
-            ),
+        let operation = match strictness {
+            Strictness::Sloppy => SpecOperationIr::WithEnvironmentGetBindingValueSloppy,
+            Strictness::Strict => SpecOperationIr::WithEnvironmentGetBindingValueStrict,
         };
         TypedExpr::from_info(
             dynamic_value_info(),
-            ExprIr::Conditional {
-                condition: Box::new(recheck),
-                then_expr: Box::new(read),
-                else_expr: Box::new(missing),
+            ExprIr::SpecOperation {
+                operation,
+                operands: vec![
+                    self.read(),
+                    TypedExpr::from_info(
+                        ValueInfo::new(ValueKind::String),
+                        ExprIr::String(referenced_name.to_string()),
+                    ),
+                ],
             },
         )
     }
@@ -3585,33 +3576,23 @@ mod tests {
     }
 
     fn assert_selected_get_value(expr: &TypedExpr, object_name: &str, strictness: Strictness) {
-        let ExprIr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
+        let ExprIr::SpecOperation {
+            operation,
+            operands,
         } = &expr.expr
         else {
-            panic!("GetBindingValue must branch on its second HasProperty");
+            panic!("selected GetBindingValue keeps its observable recheck in the shared operation");
         };
-        assert_eq!(has_property_target(condition), object_name);
-        let ExprIr::PropertyRead { target, key } = &then_expr.expr else {
-            panic!("a present binding must reach Get");
+        let expected = match strictness {
+            Strictness::Sloppy => SpecOperationIr::WithEnvironmentGetBindingValueSloppy,
+            Strictness::Strict => SpecOperationIr::WithEnvironmentGetBindingValueStrict,
         };
-        assert_eq!(identifier_name(target), object_name);
-        assert!(matches!(
-            key,
-            PropertyKeyIr::StaticString(name) if name == "x"
-        ));
-        match strictness {
-            Strictness::Sloppy => assert!(matches!(&else_expr.expr, ExprIr::Undefined)),
-            Strictness::Strict => assert!(matches!(
-                &else_expr.expr,
-                ExprIr::RuntimeThrow {
-                    name: NativeErrorKind::ReferenceError,
-                    message: OBJECT_ENVIRONMENT_REFERENCE_ERROR,
-                }
-            )),
-        }
+        assert_eq!(*operation, expected);
+        let [object, name] = operands.as_slice() else {
+            panic!("GetBindingValue owns exactly the selected object and binding name");
+        };
+        assert_eq!(identifier_name(object), object_name);
+        assert!(matches!(&name.expr, ExprIr::String(name) if name == "x"));
     }
 
     fn put_bindings() -> PutValueBindings {

@@ -3437,7 +3437,11 @@ object[key];
         for (artifact, count) in [(&single, 1), (&repeated, 10)] {
             let runtime = artifact.runtime().expect("With reads link R");
             let runtime_names = function_names_in_bytes(runtime.bytes());
-            let indices = ["helper::environment_identifier_read_sloppy"].map(|name| {
+            let indices = [
+                "helper::with_environment_has_binding",
+                "helper::environment_identifier_get_sloppy",
+            ]
+            .map(|name| {
                 *runtime_names
                     .iter()
                     .find(|(_, actual)| actual.as_str() == name)

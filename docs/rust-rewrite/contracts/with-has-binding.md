@@ -36,13 +36,20 @@ runs. GetBindingValue and SetMutableBinding retain their independently
 observable HasProperty rechecks. Mutating unscopables or deleting a property
 does not restart resolution or change an already selected object.
 
-The old per-reference lowering expanded generic HasProperty, property access,
-temporary bindings, typeof, equality, and Boolean expressions. Frozen-main
-measurements added 92,151 bytes for nine extra reads with fully local object and
-fallback bindings. The emitted-body regression checks the same one-versus-ten
-probe against a 45,000-byte growth ceiling. Exact admission of the five large
-baseline With fixtures remains a native validation result, not an inference
-from this bound.
+Statically planned reads use the closed Sloppy/Strict With GetBindingValue
+operations after HasBinding succeeds. Their shared GetValue helper retains the
+selected object, performs the second HasProperty, and then Gets with that object
+as receiver. Its complete Completion reaches the spec-operation owner before
+throw propagation. The outer environment or lexical fallback is evaluated only
+when HasBinding is false, including an otherwise uninitialized lexical binding.
+Named runtime-environment reads instead use the combined ResolveBinding/GetValue
+helper; these are distinct actual lowering paths.
+
+The emitted-body regression retains its **9,000-byte** ceiling for nine added
+reads and checks one actual HasBinding and shared GetValue call per read. On
+`17492b7a3`, the static path still added 22,401 bytes (5,825 to 28,226), which
+failed that ceiling. Validation of the new selected-operation route is pending;
+its source census alone establishes no size or native result.
 
 Nested writes also previously expanded array index and length dispatch at
 every generic property write, even though the shared object-write helper

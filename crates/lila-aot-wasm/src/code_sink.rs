@@ -445,3 +445,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../tests/unit/code_sink_exceptions.rs"]
 mod exception_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/gc_local_types.rs"]
+mod gc_local_type_tests;
