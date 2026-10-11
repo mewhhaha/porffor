@@ -12,7 +12,9 @@ a small leaf crate, preserving the checked producer, shared source fingerprint
 and Engine's native admission. Joined all-feature/all-target types, twelve guards
 and all eleven focused native controls pass, including the default graph.
 Engine metadata is 1.3–1.8 MB versus about 288 MB; image metadata is 3.8 KB.
-Git-only reuse, complete workspace/pinned acceptance and task closure remain open.
+Git-only reuse passes: Engine revision refreshes while all three producer outputs
+keep their timestamps and digests. Complete workspace/pinned acceptance and task
+closure remain open.
 See the
 [metadata checkpoint](docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
 

@@ -783,10 +783,179 @@
     }
   ],
   "pending": [
-    "Git-only producer reuse",
     "complete workspace all-feature/default sweeps",
     "complete pinned Test262 acceptance",
     "macOS/Windows native execution",
     "task completion"
-  ]
+  ],
+  "git_only_reuse": {
+    "state": "passed",
+    "previous_head": "39e719781f5d3418c696f971dd82c109bef1d78f",
+    "head": "4df615d79c9f2775e506f25d3749ee8c1ced711f",
+    "command": [
+      "cargo",
+      "check",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--all-features",
+      "--all-targets",
+      "--message-format=json"
+    ],
+    "exit_code": 0,
+    "seconds": 35.602,
+    "checks": {
+      "command_passed": true,
+      "image_artifacts_fresh": true,
+      "producer_files_unchanged": true,
+      "engine_revision_refreshed": true,
+      "source_unchanged": true
+    },
+    "producer_files": [
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/output",
+        "mtime_ns": 1791703328031576475,
+        "sha256": "c771030a52720b1699fd6288cf9a1981aa574bbd45c8d048385ee6e8775de1ab"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/invoked.timestamp",
+        "mtime_ns": 1791703328031576475,
+        "sha256": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/out/lila-runtime-package.bin",
+        "mtime_ns": 1791703371900621879,
+        "sha256": "b3ebfc4abb5e4ab669cecc52bc5e20632725919b53ba25cc48347486f5d68b53"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/out/lila-runtime-native.bin",
+        "mtime_ns": 1791703371908622067,
+        "sha256": "3c1e0b029a68aee195b0bb22a1e241e1c66c19ddb337bb0a667fab99e3fc39ae"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/out/lila-runtime-manifest.bin",
+        "mtime_ns": 1791703371940622821,
+        "sha256": "96e8529dc0b022fbd8002ca126f5daedcad88d7881fe700adfc734626f374cc4"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/out/liblila_runtime_images.a",
+        "mtime_ns": 1791703373824667175,
+        "sha256": "575c54607316f8c6663532516eac317e77a816f66e18c551e32ac5bfda40a695"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-5133aab03b82675f/out/image_bindings.rs",
+        "mtime_ns": 1791703373896668871,
+        "sha256": "1c5033da78cbdf502213a279cc9e9982b8adbc9a2fbc1c367c5b9933c73fcd49"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/output",
+        "mtime_ns": 1791703712808860480,
+        "sha256": "151a8a752c1b8012acece0ac6c1898d6d958a0e949f5f33aa207d2e7ced737f1"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/invoked.timestamp",
+        "mtime_ns": 1791703712808860480,
+        "sha256": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/out/lila-runtime-package.bin",
+        "mtime_ns": 1791703755389892505,
+        "sha256": "b3ebfc4abb5e4ab669cecc52bc5e20632725919b53ba25cc48347486f5d68b53"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/out/lila-runtime-native.bin",
+        "mtime_ns": 1791703755393892603,
+        "sha256": "3c1e0b029a68aee195b0bb22a1e241e1c66c19ddb337bb0a667fab99e3fc39ae"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/out/lila-runtime-manifest.bin",
+        "mtime_ns": 1791703755421893286,
+        "sha256": "96e8529dc0b022fbd8002ca126f5daedcad88d7881fe700adfc734626f374cc4"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/out/liblila_runtime_images.a",
+        "mtime_ns": 1791703757577945887,
+        "sha256": "575c54607316f8c6663532516eac317e77a816f66e18c551e32ac5bfda40a695"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-87eef0fae947fa71/out/image_bindings.rs",
+        "mtime_ns": 1791703757637947351,
+        "sha256": "1c5033da78cbdf502213a279cc9e9982b8adbc9a2fbc1c367c5b9933c73fcd49"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/output",
+        "mtime_ns": 1791703135195028776,
+        "sha256": "ce0051373b0b9022b944e305b8b4e371e63058f5ffbcaf16431b0dc3c7aaaa20"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/invoked.timestamp",
+        "mtime_ns": 1791703135195028776,
+        "sha256": "5a109e6643e8d3e88642e3f35e85d2a83e639d07523aa6e99166c48178e965c3"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/out/lila-runtime-package.bin",
+        "mtime_ns": 1791703179736066991,
+        "sha256": "b3ebfc4abb5e4ab669cecc52bc5e20632725919b53ba25cc48347486f5d68b53"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/out/lila-runtime-native.bin",
+        "mtime_ns": 1791703179740067085,
+        "sha256": "3c1e0b029a68aee195b0bb22a1e241e1c66c19ddb337bb0a667fab99e3fc39ae"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/out/lila-runtime-manifest.bin",
+        "mtime_ns": 1791703179780068021,
+        "sha256": "96e8529dc0b022fbd8002ca126f5daedcad88d7881fe700adfc734626f374cc4"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/out/liblila_runtime_images.a",
+        "mtime_ns": 1791703181760114318,
+        "sha256": "575c54607316f8c6663532516eac317e77a816f66e18c551e32ac5bfda40a695"
+      },
+      {
+        "path": "target/debug/build/lila-runtime-image-ff8a578cea655c15/out/image_bindings.rs",
+        "mtime_ns": 1791703181840116189,
+        "sha256": "1c5033da78cbdf502213a279cc9e9982b8adbc9a2fbc1c367c5b9933c73fcd49"
+      }
+    ],
+    "image_artifacts": [
+      {
+        "target": "build-script-build",
+        "features": [],
+        "fresh": true
+      },
+      {
+        "target": "lila_runtime_image",
+        "features": [],
+        "fresh": true
+      },
+      {
+        "target": "lila_runtime_image",
+        "features": [],
+        "fresh": true
+      }
+    ],
+    "engine_env": [
+      [
+        [
+          "LILA_COMPILER_FINGERPRINT",
+          "eead5cff8c487d0236b6c005218af82fd720c6df551e9a326579c02c3576949d"
+        ],
+        [
+          "LILA_RUNTIME_BUILD_TARGET",
+          "x86_64-unknown-linux-gnu"
+        ],
+        [
+          "LILA_COMPILER_FINGERPRINT_SCHEME",
+          "lila-program-cache-compiler-v3"
+        ],
+        [
+          "LILA_COMPILER_SOURCE_REVISION",
+          "git:4df615d79c9f2775e506f25d3749ee8c1ced711f"
+        ]
+      ]
+    ],
+    "jsonl_sha256": "e12736ca2bb6f2feb661717b83cc40fd86338c7c04e4c1a29f0561d556029563",
+    "stderr_sha256": "248530d2e986fa4b54dd1038db014a9050083a90a68578e27c36fcbec68b49fa"
+  }
 }

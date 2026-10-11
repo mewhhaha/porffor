@@ -34,8 +34,11 @@ retained by the image crate and no external bytes or paths enter native admissio
 
 Both build scripts use the same compiler fingerprint, including the new image
 crate. Image production watches source and cache settings; only Engine's light
-identity producer watches Git revision metadata. A commit that changes no
-compiler inputs therefore need not regenerate the runtime image.
+identity producer watches Git revision metadata. After commit `4df615d79`, a
+fresh joined all-feature/all-target check verifies that Engine's source revision
+refreshes while all image artifacts stay fresh. All three image producers retain
+identical output timestamps and digests, including their archived data and
+bindings. Retiring the intermediate data object does not invalidate production.
 
 The final data-object batch passes joined all-feature/all-target workspace types,
 all twelve repository guards and eleven focused native controls, with no failures
@@ -69,6 +72,6 @@ link failures are also preserved. No failed build is counted as executed tests.
 
 The [machine-readable receipt](runtime-image-metadata-boundary-20261011.json)
 records source bindings, executable/log digests, actual counts and measurements.
-Git-only image reuse, complete workspace/default sweeps, pinned Test262 and task
-completion remain pending. macOS/Windows linking and runtime execution still
+Complete workspace/default sweeps, pinned Test262 and task completion remain
+pending. macOS/Windows linking and runtime execution still
 require their own native evidence.
