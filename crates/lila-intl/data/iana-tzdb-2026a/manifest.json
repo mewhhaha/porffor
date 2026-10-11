@@ -23,7 +23,7 @@
       "ianaCountry": "IS"
     }
   ],
-  "providerDataSha256": "8674bbf45f675efeb77e932c9ad83158b25125becf07ce15f8cd0b8255612e4f",
+  "providerDataSha256": "a0341d2ce59384ec4af0901b8b1af5852089e63fe28baec5d193ec496a975a99",
   "recipe": {
     "domain": "lila-intl-named-time-zones-v1",
     "iana": "2026a",
@@ -108,8 +108,8 @@
       },
       {
         "path": "Cargo.lock",
-        "bytes": 75107,
-        "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
+        "bytes": 75973,
+        "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
       },
       {
         "path": "crates/lila-intl/Cargo.toml",
@@ -213,13 +213,13 @@
       },
       {
         "path": "crates/lila-aot-wasm/src/emit.rs",
-        "bytes": 80030,
-        "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+        "bytes": 81131,
+        "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
       },
       {
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "bytes": 79551,
-        "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+        "bytes": 79795,
+        "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
       },
       {
         "path": "crates/lila-intl/src/named_time_zone_image.rs",
@@ -546,7 +546,7 @@
     {
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
       "bytes": 565,
-      "sha256": "e54787af61cdd1f9fdaff4933853c14e9e748af3038efb36deb40dd152143bda"
+      "sha256": "72a6a6a0094c19283abf8db6f9dce87de6f26558b95af1532c4505b7be7e3722"
     }
   ]
 }

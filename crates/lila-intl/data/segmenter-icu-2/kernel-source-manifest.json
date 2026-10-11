@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "635523ecb5b3b9228ab2d117c377b3e3917c40640f200eff5ab034a5a55948ea",
+  "kernel_sha256": "9759f765c3f84a83e2e8fae24d77c2b566e26731e71ab105fbe3c67c537bb2f3",
   "operations_reserved": [
     33,
     34,
@@ -378,9 +378,9 @@
   "source_manifest_sha256": "8612f2eb0857fab45863f717f63e95220274747717549f92b2f1af394f067cbe",
   "source_rows": [
     {
-      "bytes": 75107,
+      "bytes": 75973,
       "path": "Cargo.lock",
-      "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
+      "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
     },
     {
       "bytes": 3285,
@@ -388,14 +388,14 @@
       "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
-      "bytes": 79551,
+      "bytes": 79795,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+      "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
     },
     {
-      "bytes": 80030,
+      "bytes": 81131,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+      "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
       "bytes": 33803,

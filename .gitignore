@@ -7,6 +7,11 @@
 !crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt
 !crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt
 !crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt
+# Pinned Intl generator inputs must survive fresh checkouts.
+!crates/lila-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt
+!crates/lila-intl/data/locale-text-cldr-47/source/scriptMetadata.txt
+__pycache__/
+*.py[cod]
 *.exe
 
 .claude

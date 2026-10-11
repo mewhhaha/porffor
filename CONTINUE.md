@@ -5,6 +5,16 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Intl source recovery — 2026-10-11
+
+The complete tooling suite now passes 428 tests with zero failures/errors.
+Restore-and-pin repairs track the exact Unicode17 `UnicodeData.txt` and CLDR47
+`scriptMetadata.txt` previously omitted by `*.txt`; byte counts and SHA-256 pins
+are unchanged. Intl identity generators bind current production and Cargo.lock,
+without changing profile payloads. The original 366-test red checkpoint remains
+recorded. See the [receipt](docs/rust-rewrite/intl-tooling-repair-20261011.md).
+Complete Rust workspace/runtime, differential and pinned acceptance remain open.
+
 ## Cargo runtime reuse — 2026-10-11
 
 The Cargo producer shares the bounded Cranelift function cache while regenerating

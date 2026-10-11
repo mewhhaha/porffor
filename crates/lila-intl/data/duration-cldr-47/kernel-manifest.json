@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 75107,
+      "bytes": 75973,
       "path": "Cargo.lock",
-      "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
+      "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
     },
     {
       "bytes": 3285,
@@ -11,14 +11,14 @@
       "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
-      "bytes": 80030,
+      "bytes": 81131,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+      "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 79551,
+      "bytes": 79795,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+      "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
     },
     {
       "bytes": 33803,
@@ -193,7 +193,7 @@
     {
       "bytes": 12549,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "d888038f213b57775dddb7b15d8d931c7e3ef2a731b82701ef5f3488f1a3e94c"
+      "sha256": "7511ebf425360a020b778abe732be1d90a8a69aef0048e441214345d52f4f9ab"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "7dc5f142a07af4cf3bb599928636bd1a18747673e6de520f877949af4c543822"
+      "sha256": "dd897d95df93c366517c4694d57c291a4978b4e3dadc84a66b96b132dde37e28"
     },
     {
       "bytes": 5033,
@@ -1033,7 +1033,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "10bc3e2c65e00a45d79cd6f21102de7e77763a1eb871e0746d67f33ad9607b9a",
+  "provider_data_sha256": "aaa5f7465c66b9f3a592b881350017bdb4ede003acafcc2ca1014a9406d9e0f2",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

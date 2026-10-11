@@ -106,6 +106,14 @@ rules. The 2026-10-11 checkpoint passes 217 frontend checks, 1,511 IR checks,
 191-ID product fixture run. Complete workspace and pinned-suite closure remain
 pending; see the [implementation receipt](docs/rust-rewrite/parser-module-ranges-20261010.md).
 
+The complete 2026-10-11 tooling suite passes all 428 tests after restoring the
+exact pinned Unicode17 numbering source and CLDR47 script metadata omitted by
+the broad text-file ignore rule. Explicit exceptions preserve both inputs in
+fresh checkouts. Intl source identities are regenerated from current production
+and locked dependencies; profile payloads remain unchanged. Rust runtime and
+full pinned-suite acceptance remain separate pending checks. See the
+[Intl tooling repair receipt](docs/rust-rewrite/intl-tooling-repair-20261011.md).
+
 ## Workspace audit and prepared repairs — 2026-10-08
 
 The complete repository tooling sweep at `f493e2988` passes all 38 commands:

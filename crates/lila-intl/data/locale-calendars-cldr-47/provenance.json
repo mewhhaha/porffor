@@ -80,9 +80,9 @@
     "profile_sha256": "fcb074bd730a2c73a58a3c11a040a46efb959b35dc8e4a0457d955a7d9d722fe",
     "sources": [
       {
-        "bytes": 75107,
+        "bytes": 75973,
         "path": "Cargo.lock",
-        "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
+        "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
       },
       {
         "bytes": 3285,
@@ -90,14 +90,14 @@
         "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
       },
       {
-        "bytes": 80030,
+        "bytes": 81131,
         "path": "crates/lila-aot-wasm/src/emit.rs",
-        "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+        "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
       },
       {
-        "bytes": 79551,
+        "bytes": 79795,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+        "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
       },
       {
         "bytes": 33803,
@@ -277,7 +277,7 @@
       {
         "bytes": 30852,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "90d2760b3c18ea326ee766516f35c9c3aa2a9852ded1aadafdb9ffa639f2fecc"
+        "sha256": "9729ef71124e0bc1e66eb3abec620ff343d556d754c51459626d7dc360ada33b"
       },
       {
         "bytes": 4610,
@@ -297,7 +297,7 @@
       {
         "bytes": 20776,
         "path": "crates/lila-intl/data/iana-tzdb-2026a/manifest.json",
-        "sha256": "f69fe5ff12b4010384002147d892335118b22bccf3fd01eec351a7c0b69fea0d"
+        "sha256": "f6869ab4b696e623addfcc76834ba135ad1797bb707ec4d032e2396fe215b039"
       },
       {
         "bytes": 51680,
@@ -507,7 +507,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "b82fa6dc6c29dc2b6f36b21cd5c7afe3dd6745f18792e542f582f61117a9898a"
+        "sha256": "e0a5d668af69821797e8e6b643289cd84c864354d9989759dd5841d2ccb4512d"
       },
       {
         "bytes": 8596,
@@ -702,7 +702,7 @@
       {
         "bytes": 565,
         "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
-        "sha256": "e54787af61cdd1f9fdaff4933853c14e9e748af3038efb36deb40dd152143bda"
+        "sha256": "72a6a6a0094c19283abf8db6f9dce87de6f26558b95af1532c4505b7be7e3722"
       },
       {
         "bytes": 5089,
@@ -1001,7 +1001,7 @@
       }
     ]
   },
-  "kernel_sha256": "8413d53d419db011c5d2b815db7700eb25d56b4822c77639ef9d4bf2f27a0c95",
+  "kernel_sha256": "70765c853d590397ebb70b368a0d7b59501c41d512098c32d4220a3b46b33d77",
   "language_region_selector_count": 0,
   "normative_source": "https://tc39.es/ecma402/#sec-calendarsoflocale",
   "ordering": "calendar preference order; canonical BCP47 aliases; stable uniqueness; runtime filter against actual checked DateTime AvailableCalendars",

@@ -6,14 +6,14 @@
       "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
     },
     {
-      "bytes": 80030,
+      "bytes": 81131,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+      "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 79551,
+      "bytes": 79795,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+      "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
     },
     {
       "bytes": 33803,
@@ -608,7 +608,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "015995e099ed664fc6b137c1f0b95b71b9a46a9467afe40a567280cf4c1929fe",
+  "provider_data_sha256": "bc67cf102136e197a1694008add63b7554f013e9c608adddc96a6d6d649d0829",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

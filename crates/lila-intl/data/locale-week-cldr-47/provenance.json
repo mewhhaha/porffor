@@ -49,9 +49,9 @@
     "profile_sha256": "32464118c9ed0333083a695069825245f29572038a6e80c6c56675f7065c18c8",
     "sources": [
       {
-        "bytes": 75107,
+        "bytes": 75973,
         "path": "Cargo.lock",
-        "sha256": "a7f531a8e770a00f341be8b70c033848f6d63324330459fecf78c13ec5a81aa8"
+        "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
       },
       {
         "bytes": 3285,
@@ -59,14 +59,14 @@
         "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
       },
       {
-        "bytes": 79551,
+        "bytes": 79795,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+        "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
       },
       {
-        "bytes": 80030,
+        "bytes": 81131,
         "path": "crates/lila-aot-wasm/src/emit.rs",
-        "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+        "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
       },
       {
         "bytes": 33803,
@@ -91,7 +91,7 @@
       {
         "bytes": 30852,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "90d2760b3c18ea326ee766516f35c9c3aa2a9852ded1aadafdb9ffa639f2fecc"
+        "sha256": "9729ef71124e0bc1e66eb3abec620ff343d556d754c51459626d7dc360ada33b"
       },
       {
         "bytes": 34690,
@@ -161,7 +161,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "b82fa6dc6c29dc2b6f36b21cd5c7afe3dd6745f18792e542f582f61117a9898a"
+        "sha256": "e0a5d668af69821797e8e6b643289cd84c864354d9989759dd5841d2ccb4512d"
       },
       {
         "bytes": 4101,
@@ -270,7 +270,7 @@
       }
     ]
   },
-  "kernel_sha256": "dedef92c6fa9159d8b60ba81c7170a6b967ea735fd6d133a1625a5dece968f3a",
+  "kernel_sha256": "8b32c01945543711533a65fb847690e8c271174d8ee49b74df7cb74003084c9b",
   "kernel_source_closure": "explicit production module inventory; missing/added production modules reject",
   "minimalDays_exposed": false,
   "primary_manifest_path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",
