@@ -186,6 +186,9 @@ impl FunctionBuilder<'_> {
         let output = schema.reserve_completion(f);
         let pending = schema.reserve_completion(f);
         let id = schema.reserve_i64_local(f);
+        let bigint = schema
+            .reserve_gc_local::<ByteArray, Nullable>(f)
+            .initialize_null(schema, f);
         let status = schema.reserve_i64_local(f);
         self.emit_builtin_arg_to_value(0, &value, f);
         self.emit_builtin_arg_to_value(1, &id_value, f);
@@ -218,25 +221,39 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        self.emit_value_to_number_payload(&id_value, &pending, f)?;
-        pending.kind().load(f);
-        f.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
+        id.set_constant(0, f);
+        id_value.tag().load(f);
+        f.instruction(&Instruction::I32Const(WasmRuntimeValueTag::BigInt as i32));
         f.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, f);
-        output.copy_from(&pending, f);
+        // Primitive BigInt string conversion invokes no user code. The native
+        // message owns canonical bytes, rather than a root from this Store.
+        self.emit_value_to_string_payload(&id_value, &pending, f)?;
+        self.emit_host_abrupt_exit(&pending, &output, exit, f);
+        let decimal = schema
+            .reserve_gc_local(f)
+            .initialize(pending.value().cast_reference::<StringValue>(schema, f), f);
+        let builder = IntlByteArrayBuilder::new(schema, f);
+        builder.append_remaining_utf8(&decimal, schema, f);
+        let bytes = builder.finish(schema, f);
+        bigint.replace(bytes.load(schema, f).nullable(), f);
+        bytes.clear(f);
+        decimal.clear(f);
         f.instruction(&Instruction::Else);
+        self.emit_value_to_number_payload(&id_value, &pending, f)?;
+        self.emit_host_abrupt_exit(&pending, &output, exit, f);
         self.emit_to_uint32_i64_from_number_payload(pending.value().scalar(), id, f);
         id.load(f);
         f.instruction(&Instruction::I32WrapI64);
         f.instruction(&Instruction::I64ExtendI32S);
         id.store(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         self.functions
             .gc_host_imports()
             .get(GcHostImport::AgentBroadcastResource)
             .ok_or_else(|| EmitError::unsupported("missing agent resource broadcast import"))?
-            .broadcast_shared_buffer(&resource, id, status, schema, f);
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
+            .broadcast_shared_buffer(&resource, id, &bigint, status, schema, f);
         resource.clear(f);
         buffer.clear(f);
         self.pop_control(ControlFrameKind::Block);
@@ -244,6 +261,7 @@ impl FunctionBuilder<'_> {
         self.completion().copy_from(&output, f);
         schema.release_i64_local(status, f);
         schema.release_i64_local(id, f);
+        bigint.clear(f);
         pending.clear(f);
         output.clear(f);
         id_value.clear(f);
@@ -258,13 +276,16 @@ impl FunctionBuilder<'_> {
         let schema = self.runtime_schema();
         let output = schema.reserve_completion(f);
         let id = schema.reserve_i64_local(f);
+        let bigint = schema
+            .reserve_gc_local::<ByteArray, Nullable>(f)
+            .initialize_null(schema, f);
         output.initialize(f);
         let native = self
             .functions
             .gc_host_imports()
             .get(GcHostImport::AgentReceiveResource)
             .ok_or_else(|| EmitError::unsupported("missing agent resource receive import"))?
-            .receive_shared_buffer(id, f)?;
+            .receive_shared_buffer(id, &bigint, f)?;
         native.is_null(f);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_throw_current_function_realm_type_error(
@@ -303,13 +324,33 @@ impl FunctionBuilder<'_> {
         let buffer_value = schema.reserve_value_local(f);
         let id_value = schema.reserve_value_local(f);
         buffer_value.set_reference(&buffer, schema, f);
+        bigint.load(schema, f).is_null(f);
+        self.open_frame(ControlFrameKind::If, f);
         id.load(f);
-        f.instruction(&Instruction::I32WrapI64);
-        f.instruction(&Instruction::I64ExtendI32S);
         f.instruction(&Instruction::F64ConvertI64S);
         f.instruction(&Instruction::I64ReinterpretF64);
         id.store(f);
         id_value.set_number(id, f);
+        f.instruction(&Instruction::Else);
+        let bytes = schema
+            .reserve_gc_local(f)
+            .initialize(bigint.load(schema, f).require_non_null(f), f);
+        let reader = IntlByteArrayReader::new(&bytes, schema, f);
+        let decimal = reader.consume_remaining_utf8(schema, f);
+        let valid = schema.reserve_i32_local(f);
+        self.emit_string_to_bigint_locals(&decimal, &id_value, valid, f)?;
+        valid.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        f.instruction(&Instruction::Unreachable);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        schema.release_i32_local(valid, f);
+        decimal.clear(f);
+        reader.finish(schema, f);
+        bytes.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         let message = self.emit_pre_evaluated_arg_vector(&[&buffer_value, &id_value], f);
         let pair = self.emit_array_from_argument_list(&message, f)?;
         output.value().set_reference(&pair, schema, f);
@@ -326,6 +367,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.completion().copy_from(&output, f);
         schema.release_i64_local(id, f);
+        bigint.clear(f);
         output.clear(f);
         Ok(())
     }

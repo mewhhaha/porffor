@@ -109,8 +109,6 @@ static_signature_domain! {
     HostSharedBufferMaximum => ([ExternRef(NonNullable)], [I64]),
     HostSharedBufferGrowable => ([ExternRef(NonNullable)], [I32]),
     HostSharedBufferGrow => ([ExternRef(NonNullable), I64], [I32]),
-    HostAgentBroadcastResource => ([ExternRef(NonNullable), I64], [I64]),
-    HostAgentReceiveResource => ([], [ExternRef(Nullable), I64]),
     // Under one host lock, compare the expected word before publishing a waiter.
     // Zero means NotEqual; positive values are owned native waiter identities.
     // The final argument is the same store-relative deadline retained by GC.
@@ -137,6 +135,9 @@ static_signature_domain! {
     HostByteArrayAllocate => ([I32], [Gc(GcLayout::ByteArray, Nullable)]),
     HostIntlProviderCall => ([Gc(GcLayout::ByteArray, NonNullable)], [Gc(GcLayout::ByteArray, Nullable)]),
     HostSystemTimeZoneSnapshot => ([], [Gc(GcLayout::ByteArray, NonNullable)]),
+    // Null bytes select ToInt32; canonical decimal bytes select an exact BigInt.
+    HostAgentBroadcastResource => ([ExternRef(NonNullable), I64, Gc(GcLayout::ByteArray, Nullable)], [I64]),
+    HostAgentReceiveResource => ([], [ExternRef(Nullable), I64, Gc(GcLayout::ByteArray, Nullable)]),
 }
 
 // Registration emits the independent prefix before the mutually recursive tail.

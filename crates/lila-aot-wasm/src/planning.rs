@@ -7730,7 +7730,7 @@ pub(crate) fn host_builtin_length(builtin: HostBuiltinId) -> u64 {
         HostBuiltinId::ParseFloat => 1,
         HostBuiltinId::DetachArrayBuffer => 1,
         HostBuiltinId::AgentStart => 1,
-        HostBuiltinId::AgentBroadcast => 1,
+        HostBuiltinId::AgentBroadcast => 2,
         HostBuiltinId::AgentReceiveBroadcast => 0,
         HostBuiltinId::AgentReport => 1,
         HostBuiltinId::AgentGetReport => 0,

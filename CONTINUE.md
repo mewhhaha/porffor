@@ -5,6 +5,23 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Native agent message IDs — 2026-10-11
+
+The coherent ID batch preserves arbitrary primitive BigInt IDs independently of
+Int32 coercion. Each command owns its primitive data; no GC root crosses Stores.
+Nullable canonical decimal byte arrays select the BigInt branch in the GC host
+ABI. The sender checks its SharedArrayBuffer before coercion. The receiver roots
+both the shared native resource and its own canonical byte array before retrieval
+acknowledgement, then constructs a real local BigInt through the existing parser.
+Internal broadcast function arity now reflects both arguments. Native and ABI
+controls cover exact positive/negative/zero IDs beyond 64 bits, two workers,
+separate wrappers, shared backing, observable coercion and malformed admission.
+
+All 22 focused agent controls pass with zero failures or ignores. Joined
+all-feature/all-target types and all eleven repository guards pass. The complete
+current pinned Atomics selection and broad verification remain pending.
+See the [ID checkpoint](docs/rust-rewrite/agent-broadcast-ids-20261011.md).
+
 ## Native agent retrieval and parent deadline — 2026-10-11
 
 Broadcast queues every recipient before waiting for retrieval acknowledgements.

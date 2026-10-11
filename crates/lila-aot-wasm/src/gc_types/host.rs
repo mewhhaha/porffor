@@ -337,6 +337,7 @@ impl DeclaredGcHostImport {
         self,
         resource: &GcLocal<HostResource>,
         id: I64Local,
+        bigint: &GcLocal<ByteArray, Nullable>,
         result: I64Local,
         schema: &RuntimeSchema,
         function: &mut Function,
@@ -346,6 +347,7 @@ impl DeclaredGcHostImport {
             .field(HostResourceSchema::RESOURCE)
             .read(resource, schema, function);
         id.load(function);
+        bigint.load(schema, function);
         self.emit_call_instruction(function);
         result.store(function);
     }

@@ -90,10 +90,15 @@ Local verification retains its 4 GiB/no-swap/grouped-OOM policy. See the
 [verification repair checkpoint](docs/rust-rewrite/verification-repairs-20261011.md).
 Native Test262 broadcasts now wait for each live agent to retrieve its shared
 resource. Agent receives, readiness and worker execution use the parent's
-remaining deadline, and cleanup wakes native sleeps. All 18 focused controls
-pass; arbitrary BigInt message IDs and complete current agent-tree acceptance
-remain open. See the
-[agent retrieval checkpoint](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
+remaining deadline, and cleanup wakes native sleeps. The retrieval checkpoint
+passes all 18 focused controls. Broadcast IDs now preserve arbitrary primitive
+BigInt values as canonical per-message data; other IDs retain Int32 coercion.
+Both shared-buffer wrappers and reconstructed BigInts belong to the recipient's
+Store. All 22 focused agent controls, joined all-feature/all-target types and
+the eleven repository guards pass. Complete current agent-tree acceptance
+remains pending. See the
+[agent ID checkpoint](docs/rust-rewrite/agent-broadcast-ids-20261011.md) and
+[retrieval checkpoint](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
 Cargo's native-core producer also uses the existing bounded Cranelift function
 cache. Function, target and compiler-flag identities permit reuse across source
 edits; every build still emits and validates its current raw runtime, precompiles

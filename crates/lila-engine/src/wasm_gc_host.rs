@@ -5,7 +5,7 @@ use super::*;
 use lila_aot_wasm::GcHostImport;
 use wasmtime::{ExternRef, Rooted};
 
-fn resource(
+pub(super) fn resource(
     caller: &WasmtimeCaller<'_, WasmHostState>,
     reference: Rooted<ExternRef>,
 ) -> wasmtime::Result<Arc<WasmSharedBufferResource>> {
@@ -138,57 +138,7 @@ pub(super) fn link(
         )
         .map_err(bind_error)?;
 
-    let import = GcHostImport::AgentBroadcastResource;
-    linker
-        .func_wrap(
-            import.module(),
-            import.name(),
-            |caller: WasmtimeCaller<'_, WasmHostState>,
-             reference: Rooted<ExternRef>,
-             id: i64|
-             -> wasmtime::Result<i64> {
-                let resource = resource(&caller, reference)?;
-                let group = caller.data().agent_group.as_ref().ok_or_else(|| {
-                    wasmtime::Error::msg("agent.broadcast requires an active agent group")
-                })?;
-                let sent = group
-                    .broadcast(WasmAgentBroadcast { resource, id })
-                    .map_err(wasmtime::Error::new)?;
-                i64::try_from(sent).map_err(|_| wasmtime::Error::msg("agent count exceeds ABI"))
-            },
-        )
-        .map_err(bind_error)?;
-
-    let import = GcHostImport::AgentReceiveResource;
-    linker.func_wrap(import.module(), import.name(),
-        |mut caller: WasmtimeCaller<'_, WasmHostState>|
-            -> wasmtime::Result<(Option<Rooted<ExternRef>>, i64)> {
-            let commands = caller.data().agent_commands.clone().ok_or_else(|| {
-                wasmtime::Error::msg("agent.receiveBroadcast may only run inside an agent")
-            })?;
-            let group = caller.data().agent_group.as_ref().ok_or_else(|| {
-                wasmtime::Error::msg("agent.receiveBroadcast requires an active agent group")
-            })?;
-            let receiver = commands.lock().unwrap_or_else(|error| error.into_inner());
-            let command = group.execution_control.receive(&receiver).map_err(|error| match error {
-                AgentReceiveError::Disconnected => wasmtime::Error::msg("agent broadcast channel closed"),
-                AgentReceiveError::Execution(error) => wasmtime::Error::new(error),
-            })?;
-            drop(receiver);
-            match command {
-                WasmAgentCommand::Shutdown => Ok((None, 0)),
-                WasmAgentCommand::Broadcast { broadcast, retrieved } => {
-                    let backing = caller.data().shared_memory_backing.as_ref().ok_or_else(|| {
-                        wasmtime::Error::msg("agent resource requires imported shared memory")
-                    })?;
-                    backing.check_resource(&broadcast.resource)?;
-                    // Native bytes cross Stores; JavaScript wrappers remain local.
-                    let resource = ExternRef::new(&mut caller, broadcast.resource)?;
-                    let _ = retrieved.send(());
-                    Ok((Some(resource), broadcast.id))
-                }
-            }
-        }).map_err(bind_error)?;
+    wasm_agent_resource_host::link(linker, module)?;
 
     let import = GcHostImport::RegisterAsyncWaiter;
     linker

@@ -1794,6 +1794,29 @@ fresh complete pinned agent-tree acceptance remain open. Joined all-feature
 types and all eleven repository guards pass. See the
 [exact receipt](../docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
 
+## Exact native broadcast IDs — 2026-10-11
+
+The native message ID is a closed Int32-or-BigInt value owned by each delivery.
+Primitive BigInt IDs bypass Number coercion and cross the boundary as validated
+canonical decimal bytes. Other inputs retain ToNumber/ToInt32, including abrupt
+completion and exactly-once coercion. The SharedArrayBuffer check precedes ID
+conversion. Nullable GC ByteArray operands select the BigInt branch; their host
+signatures use the canonical runtime recursion group. The recipient roots its
+local resource and byte array before acknowledgement and constructs its own
+real BigInt value without consulting the mutable global BigInt constructor.
+
+The new native cohorts use two actual workers and multiple exact IDs, including
+zero and positive/negative magnitudes beyond 64 bits. They retain separate
+per-delivery SharedArrayBuffer wrappers over the same backing, ordinary Number
+coercion, invalid-buffer ordering, boxed-BigInt/Symbol errors and overwritten
+conversion hooks. ABI controls reject wrong arity, widths, nullability, heap
+kinds, array storage and noncanonical decimal bytes. All 22 focused agent
+controls pass with zero failures or ignores; joined all-feature/all-target types
+and all eleven repository guards pass. Fresh complete pinned agent-tree
+acceptance remains pending. T17 status and canonical conformance totals are
+unchanged. See the
+[ID checkpoint](../docs/rust-rewrite/agent-broadcast-ids-20261011.md).
+
 ## Atomics and agents
 
 - Implement all Atomics operations with correct element-kind validation and sequentially consistent behavior required by ECMAScript.

@@ -85,6 +85,7 @@ use wasm_shared_resource::{
 };
 mod wasm_agent_control;
 mod wasm_agent_host;
+mod wasm_agent_resource_host;
 use wasm_agent_control::{AgentReceiveError, WasmAgentExecutionControl};
 mod wasm_gc_byte_array_host;
 #[cfg(test)]
@@ -2045,10 +2046,17 @@ fn wasm_random_f64(caller: WasmtimeCaller<'_, WasmHostState>) -> wasmtime::Resul
         })
 }
 
+/// Primitive message data may cross Stores; collector roots never do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WasmAgentMessageId {
+    Int32(i32),
+    BigInt(ObservedBigInt),
+}
+
 #[derive(Clone)]
 struct WasmAgentBroadcast {
     resource: Arc<WasmSharedBufferResource>,
-    id: i64,
+    id: WasmAgentMessageId,
 }
 
 enum WasmAgentCommand {

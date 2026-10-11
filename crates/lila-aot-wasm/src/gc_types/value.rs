@@ -122,6 +122,7 @@ impl DeclaredGcHostImport {
     pub(crate) fn receive_shared_buffer(
         self,
         id: I64Local,
+        bigint: &GcLocal<ByteArray, Nullable>,
         function: &mut Function,
     ) -> Result<NativeSharedBufferResult, crate::EmitError> {
         if self.import() != GcHostImport::AgentReceiveResource {
@@ -130,6 +131,7 @@ impl DeclaredGcHostImport {
             ));
         }
         self.emit_call_instruction(function);
+        bigint.replace(GcStackReference::new(), function);
         id.store(function);
         Ok(NativeSharedBufferResult::bind(function))
     }
