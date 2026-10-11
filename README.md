@@ -106,7 +106,8 @@ rules. The 2026-10-11 checkpoint passes 217 frontend checks, 1,511 IR checks,
 191-ID product fixture run. Complete workspace and pinned-suite closure remain
 pending; see the [implementation receipt](docs/rust-rewrite/parser-module-ranges-20261010.md).
 
-The complete 2026-10-11 tooling suite passes all 432 tests after restoring the
+The 2026-10-11 source-recovery and memoization checkpoint passes all 432 tooling
+tests after restoring the
 exact pinned Unicode17 numbering source and CLDR47 script metadata omitted by
 the broad text-file ignore rule. Explicit exceptions preserve both inputs in
 fresh checkouts. Intl source identities are regenerated from current production
@@ -118,6 +119,22 @@ eight varied locales, with an isolated extraction measuring 15.145 seconds
 versus 20.705 initially. Four new ownership and lineage controls pass within
 the complete tooling suite. Full pinned reproduction remains pending; see the
 [generator receipt](docs/rust-rewrite/intl-generator-memoization-20261011.md).
+
+Managed-cloud differential and closure drivers accept an explicit `--cloud`
+option and validate the machine's inherited finite cgroup cap. Campaign sizes,
+worker counts and deadlines are unchanged; local invocations retain the
+4096 MiB systemd scope. The latest complete tooling suite passes all 437 tests.
+Ten focused driver controls pass, including refusal
+before execution when the budget cannot be confirmed. Full native campaign
+and closure acceptance remain pending. See the
+[driver contract](docs/rust-rewrite/cloud-verification-drivers-20261011.md).
+
+Supervised Test262 workers now execute the exact source carried by their
+discovered manifest, eliminating a second source read and parse. Both focused
+worker controls and four case-set structural controls pass; exact selection,
+execution dispatch and terminal snapshot checks remain enforced. Complete
+workspace and pinned acceptance remain pending. See the
+[worker receipt](docs/rust-rewrite/test262-worker-source-reuse-20261011.md).
 
 ## Workspace audit and prepared repairs — 2026-10-08
 

@@ -1,4 +1,4 @@
-# CONTINUE — handoff state (2026-10-10)
+# CONTINUE — handoff state (2026-10-11)
 
 Work directly on `main` and push to `origin/main`; no feature branches or
 force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
@@ -7,7 +7,7 @@ Use Luna agents for read-only chores/exploration; root writes code.
 
 ## Intl source recovery — 2026-10-11
 
-The latest complete tooling suite passes 432 tests with zero failures/errors,
+The memoization checkpoint passes 432 tooling tests with zero failures/errors,
 including four new NumberFormat memoization controls. Bounded producer caches
 preserve exact data, provenance and coverage bytes for eight varied locales;
 the isolated extraction measures 15.145 seconds versus 20.705 initially.
@@ -20,6 +20,21 @@ are unchanged. Intl identity generators bind current production and Cargo.lock,
 without changing profile payloads. The original 366-test red checkpoint remains
 recorded. See the [receipt](docs/rust-rewrite/intl-tooling-repair-20261011.md).
 Complete Rust workspace/runtime, differential and pinned acceptance remain open.
+
+## Worker source reuse and cloud drivers — 2026-10-11
+
+The latest complete tooling suite passes all 437 tests, including five new
+cloud-driver controls. Differential/robustness/closure wrappers accept explicit
+`--cloud` and validate the inherited finite machine cap; local 4096 MiB policy,
+counts, deadlines and actual native acceptance remain unchanged. See the
+[driver contract](docs/rust-rewrite/cloud-verification-drivers-20261011.md).
+The supervised worker now executes its discovered one-case manifest without
+rediscovery. Both focused worker controls and all four exact case-set structural
+controls pass; the persisted source and exact execution IDs are independently
+checked. The regenerated shortcut inventory changes three line numbers only.
+See the [worker receipt](docs/rust-rewrite/test262-worker-source-reuse-20261011.md).
+Complete workspace/ignored/default, differential and pinned acceptance remain
+pending. The independent Intl reproduction is still running.
 
 ## Cargo runtime reuse — 2026-10-11
 

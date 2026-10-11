@@ -399,7 +399,7 @@ fn all_six_deliveries_and_both_constructor_rows_are_exact() {
             "#,
         ),
         (
-            "\npub fn run_full(",
+            "\nfn run_full_with_manifest(",
             "\npub fn run_top_level_matrix(",
             r#"
             validate_case_snapshot_contract(

@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from limited_verification import DEFAULT_MEMORY_MIB, MIB, require_kernel_budget
+from limited_verification import DEFAULT_MEMORY_MIB, MIB, require_cloud_budget, require_kernel_budget
 
 
 REPORT_LIMIT = 1024 * 1024
@@ -214,9 +214,14 @@ def main(argv=None):
     parser.add_argument("cli", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("tier", choices=TIERS)
+    parser.add_argument("--cloud", action="store_true",
+                        help="use the managed machine's inherited finite memory cap")
     args = parser.parse_args(argv)
     try:
-        require_kernel_budget(DEFAULT_MEMORY_MIB * MIB)
+        if args.cloud:
+            require_cloud_budget()
+        else:
+            require_kernel_budget(DEFAULT_MEMORY_MIB * MIB)
         executable = args.cli.resolve(strict=True)
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise ValueError("the selected feature-enabled CLI executable is required")

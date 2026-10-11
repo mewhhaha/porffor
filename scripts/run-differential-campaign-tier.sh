@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Existing selected workers own execution; every grammar retains its red evidence.
 set -euo pipefail
+verification_flags=(--memory-mib 4096)
+if [[ ${1:-} == --cloud ]]; then
+  verification_flags=(--cloud)
+  shift
+fi
 if [[ $# != 3 ]]; then
-  echo 'usage: run-differential-campaign-tier.sh CLI OUTPUT_DIRECTORY pr-fast|nightly' >&2
+  echo 'usage: run-differential-campaign-tier.sh [--cloud] CLI OUTPUT_DIRECTORY pr-fast|nightly' >&2
   exit 2
 fi
 campaign_cli=$1
@@ -22,7 +27,7 @@ run_grammar() {
   local campaign_grammar=$1
   local campaign_seed=$2
   shift 2
-  if ! python3 scripts/limited_verification.py --memory-mib 4096 -- \
+  if ! python3 scripts/limited_verification.py "${verification_flags[@]}" -- \
     "$campaign_cli" --jobs 1 differential campaign \
     --output-dir "$campaign_root/$campaign_grammar" --seed "$campaign_seed" --cases "$campaign_cases" \
     --max-replays "$campaign_replays" --oracle spec-exec --grammar "$campaign_grammar" "$@"; then

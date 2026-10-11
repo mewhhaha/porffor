@@ -1,0 +1,239 @@
+{
+  "baseline_head": "a5a93d3ed",
+  "full_tooling": {
+    "command": [
+      "python3",
+      "-B",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "scripts/tests",
+      "-v"
+    ],
+    "passed": 437,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "test_seconds": 140.569,
+    "watched_seconds": 143,
+    "exit_code": 0,
+    "log": "target/watched/tooling-full-cloud-drivers1.log",
+    "log_sha256": "89b75aea763325e758c94a417ed4c843015d650997e3f24b4992b9aa535f9324"
+  },
+  "driver_sources": {
+    "scripts/run-differential-campaign-tier.sh": "87972e629e905f356f0399b1a254d1ab5e49c051d9aa162d5ee773baa364b71c",
+    "scripts/run-robustness-campaign-tier.py": "2ccb2aa36a4129daf29d8a2dc53f123d38237a3de353f3c5a9b172a14772905c",
+    "scripts/check-test262-closure.sh": "52a07b2dbb136da77eabddabab0055a9b58bdb3de4b62c72b86faa53bee2cf90"
+  },
+  "earlier_guards": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.098,
+      "log": "target/cloud-drivers-20261011/guard-0.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "./scripts/check-module-boundaries.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 8.898,
+      "log": "target/cloud-drivers-20261011/guard-1.log",
+      "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+    },
+    {
+      "command": [
+        "./scripts/check-task-plan.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.449,
+      "log": "target/cloud-drivers-20261011/guard-2.log",
+      "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+    },
+    {
+      "command": [
+        "./scripts/audit-test262-shortcuts.sh",
+        "--check"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 0.509,
+      "log": "target/cloud-drivers-20261011/guard-3.log",
+      "log_sha256": "50efe805d276a5859bd03574b1b36e01f9b03e8773a6c941d6ac01a5190a35af"
+    },
+    {
+      "command": [
+        "./scripts/check-test262-host-abi.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.073,
+      "log": "target/cloud-drivers-20261011/guard-4.log",
+      "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+    },
+    {
+      "command": [
+        "./scripts/check-no-interpreter-in-product-graph.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.532,
+      "log": "target/cloud-drivers-20261011/guard-5.log",
+      "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+    },
+    {
+      "command": [
+        "./scripts/check-no-legacy-js.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.093,
+      "log": "target/cloud-drivers-20261011/guard-6.log",
+      "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+    },
+    {
+      "command": [
+        "./scripts/check-lila-identity.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 28.428,
+      "log": "target/cloud-drivers-20261011/guard-7.log",
+      "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/tests/check-readme-status-artifacts.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.916,
+      "log": "target/cloud-drivers-20261011/guard-8.log",
+      "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/tests/audit-test262-shortcut-scanner.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.42,
+      "log": "target/cloud-drivers-20261011/guard-9.log",
+      "log_sha256": "0148ea8973350993278875502d1d7de67fbda08b8b37d04c4e2e15adbe145d41"
+    }
+  ],
+  "acceptance_remaining": [
+    "native grammar and robustness campaigns",
+    "actual native two-family full pinned closure"
+  ],
+  "final_guards": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.092,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-0.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "./scripts/check-module-boundaries.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 9.283,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-1.log",
+      "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+    },
+    {
+      "command": [
+        "./scripts/check-task-plan.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.481,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-2.log",
+      "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+    },
+    {
+      "command": [
+        "./scripts/audit-test262-shortcuts.sh",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.575,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-3.log",
+      "log_sha256": "8cf5515c7330113a203b7c360cadf7f12d033eac5f9d0e16f7f2a88e921fc870"
+    },
+    {
+      "command": [
+        "./scripts/check-test262-host-abi.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.08,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-4.log",
+      "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+    },
+    {
+      "command": [
+        "./scripts/check-no-interpreter-in-product-graph.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.619,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-5.log",
+      "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+    },
+    {
+      "command": [
+        "./scripts/check-no-legacy-js.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.149,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-6.log",
+      "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+    },
+    {
+      "command": [
+        "./scripts/check-lila-identity.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 28.005,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-7.log",
+      "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/tests/check-readme-status-artifacts.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.893,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-8.log",
+      "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/tests/audit-test262-shortcut-scanner.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.234,
+      "log": "target/cloud-drivers-20261011/guards-final/guard-9.log",
+      "log_sha256": "86c2c9b5d2361ddd8975b1f67d5105fb4beea791b4dbcabf031fde6629e341c7"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "target/cloud-drivers-20261011/format-final.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

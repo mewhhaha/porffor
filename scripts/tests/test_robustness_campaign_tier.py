@@ -1,6 +1,8 @@
 """Driver controls use fake CLI responses and never establish product acceptance."""
 
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -126,6 +128,39 @@ class RobustnessTierTests(unittest.TestCase):
         for seed in large:
             self.assertLessEqual(seed.first_seed + tier.TIERS["nightly"], 19 * 128)
             self.assertLessEqual(len(seed.data), tier.SEED_LIMIT)
+
+    def test_cli_budget_selection_preserves_local_default_and_explicit_cloud_mode(self):
+        self.cli.chmod(0o700)
+        for cloud in (False, True):
+            with self.subTest(cloud=cloud), \
+                    patch.object(tier, "require_kernel_budget") as local, \
+                    patch.object(tier, "require_cloud_budget") as machine, \
+                    patch.object(tier, "inventory", return_value=self.seeds), \
+                    patch.object(tier, "run_tier", return_value=13) as run:
+                arguments = [str(self.cli), str(self.output), "pr-fast"]
+                if cloud:
+                    arguments.append("--cloud")
+                self.assertEqual(tier.main(arguments), 13)
+                run.assert_called_once_with(self.cli.resolve(), self.output.absolute(), "pr-fast", self.seeds)
+                if cloud:
+                    machine.assert_called_once_with()
+                    local.assert_not_called()
+                else:
+                    local.assert_called_once_with(tier.DEFAULT_MEMORY_MIB * tier.MIB)
+                    machine.assert_not_called()
+
+    def test_unconfirmed_budget_refuses_the_tier_before_output_or_execution(self):
+        for cloud in (False, True):
+            checker = "require_cloud_budget" if cloud else "require_kernel_budget"
+            with self.subTest(cloud=cloud), \
+                    patch.object(tier, checker, side_effect=ValueError("unconfirmed cap")), \
+                    patch.object(tier, "run_tier") as run, \
+                    contextlib.redirect_stderr(io.StringIO()) as error:
+                arguments = [str(self.cli), str(self.output), "pr-fast"] + (["--cloud"] if cloud else [])
+                self.assertEqual(tier.main(arguments), 2)
+                self.assertIn("unconfirmed cap", error.getvalue())
+                run.assert_not_called()
+                self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":

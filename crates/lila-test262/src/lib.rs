@@ -2911,11 +2911,19 @@ pub fn run_case_worker(
     }
     config.execution_role = CaseExecutionRole::SingleCaseWorker(requested);
     config.case_runner_bin = None;
-    run_full(&config, run_config)
+    run_full_with_manifest(&config, run_config, manifest)
 }
 
 pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
     let manifest = discover_suite(config, run_config.filter.as_deref())?;
+    run_full_with_manifest(config, run_config, manifest)
+}
+
+fn run_full_with_manifest(
+    config: &SuiteConfig,
+    run_config: RunConfig,
+    manifest: SuiteManifest,
+) -> Result<RunSummary, String> {
     let preludes = load_preludes(config)?;
     let checkpoint_run_identity = CheckpointRunIdentity::full();
     let results = execute_cases(
@@ -25066,6 +25074,75 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .unwrap_err();
         assert!(error.contains("execution"), "{error}");
+    }
+
+    #[test]
+    fn single_case_worker_executes_the_discovered_source_and_exact_snapshot() {
+        let root = unique_temp_path("worker-discovered-source");
+        fs::create_dir_all(root.join("test")).expect("test directory should create");
+        let source_path = root.join("test/parse-negative.js");
+        let admitted_source =
+            "/*---\nflags: [raw]\nnegative:\n  phase: parse\n  type: SyntaxError\n---*/\nlet x = ;";
+        fs::write(&source_path, admitted_source).expect("case should write");
+        let id = TestExecutionId::new("parse-negative.js", TestExecutionMode::RawScript);
+        let config = SuiteConfig {
+            suite_root: root.clone(),
+            local_harness: LocalHarnessSource::None,
+            snapshot_dir: root.join("snapshots"),
+            timeout_ms: 30_000,
+            worker_count: 1,
+            case_runner_bin: None,
+            execution_role: CaseExecutionRole::SingleCaseWorker(id.clone()),
+        };
+        let manifest = discover_suite(&config, Some(&id.wire_key()))
+            .expect("exact worker selection should discover");
+        assert_eq!(manifest.cases.len(), 1);
+        assert_eq!(manifest.cases[0].original_source.as_ref(), admitted_source);
+
+        // Rediscovery would see a valid program that fails this parse-negative
+        // expectation. Execute the source carried by the selected manifest.
+        fs::write(
+            &source_path,
+            admitted_source.replace("let x = ;", "let x = 1;"),
+        )
+        .expect("changed case should write");
+        let fresh = discover_suite(&config, Some(&id.wire_key()))
+            .expect("changed exact selection should still discover");
+        assert_ne!(
+            fresh.cases[0].original_source,
+            manifest.cases[0].original_source
+        );
+        let summary = run_full_with_manifest(
+            &config,
+            RunConfig {
+                filter: Some(id.wire_key()),
+                snapshot_name: "worker-discovered-source".into(),
+                execution_backend: ExecutionBackend::WasmAot,
+                ..RunConfig::default()
+            },
+            manifest,
+        )
+        .expect("selected in-memory source should execute");
+        assert_eq!(summary.total, 1);
+        assert_eq!(summary.passed, 1);
+        assert!(summary.failures.is_empty());
+        assert_eq!(summary.completed_test_ids, vec![id.clone()]);
+        let snapshot_path = fs::read_dir(&config.snapshot_dir)
+            .expect("snapshot directory should read")
+            .map(|entry| entry.expect("snapshot entry should read").path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "json")
+            })
+            .expect("terminal snapshot should exist");
+        let snapshot =
+            snapshot_from_file(read_snapshot_file(&snapshot_path).expect("snapshot should parse"))
+                .expect("snapshot should admit its current typed identity");
+        assert_eq!(snapshot.total, 1);
+        assert_eq!(snapshot.passed, 1);
+        assert_eq!(snapshot.completed_test_ids, vec![id]);
+        assert!(snapshot.failures.is_empty());
+        fs::remove_dir_all(root).expect("temporary suite should clean up");
     }
 
     #[test]

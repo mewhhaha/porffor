@@ -65,3 +65,13 @@ layouts. Two CLI controls exercise actual command rejection of
 subset/oracle/resume/worker/time-budget overrides and invalid evidence-parent
 arguments. These are finite mechanics controls, not a fake full-pinned result.
 Source authorship alone confers no compile, runtime, full-suite or release pass.
+
+## Managed-cloud driver — 2026-10-11
+
+`scripts/check-test262-closure.sh --cloud` uses the machine's actual finite
+inherited cgroup cap through the existing verification launcher. The default
+invocation retains its local 4096 MiB policy. Both routes synchronize first
+and invoke the unchanged native two-family closure owner; unknown options
+and failed synchronization prevent that owner from starting. See the
+[driver contract](../cloud-verification-drivers-20261011.md) for verification
+scope and the pending native acceptance.
