@@ -1,5 +1,16 @@
 # T05 — Value representation, heap, GC and weak reachability
 
+## Collector facility checkpoint — 2026-10-11
+
+A local patch to the pinned Wasmtime 47.0.0 copying collector adds untraced
+Store-scoped weak slots, generational retirement, atomic upgrades and
+owner/key-gated ephemeron marking to a fixed point. Ten actual host-GC controls
+and thirteen collection-cancellation boundaries pass. Including eleven image
+controls, the focused checkpoint has 22 passes, zero failures and zero ignores. JavaScript builtin and job integration remains open, and the product
+capability is still unavailable. This supersedes the upstream facility absence
+as a source blocker; the task's full acceptance requirements remain open. See the
+[collector contract](../docs/rust-rewrite/contracts/collector-weak-edges.md).
+
 ## Current capability audit — 2026-10-07
 
 The current product uses the canonical Wasm GC heap and Wasmtime's copying

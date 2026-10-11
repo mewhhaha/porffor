@@ -2681,8 +2681,6 @@ dependencies = [
 [[package]]
 name = "wasmtime"
 version = "47.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a512f2016059ae42c2653982c400b87431ad9c8960d5e3f4ccaf5f5aac4d7a0f"
 dependencies = [
  "addr2line",
  "async-trait",

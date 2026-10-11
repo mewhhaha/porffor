@@ -1,5 +1,15 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Weak collector foundation — 2026-10-11 verified checkpoint
+
+The pinned copying collector now has real weak targets and owner/key-gated
+ephemerons. Ten forced-GC controls, the thirteen-boundary cancellation control
+and eleven image controls pass: 22 native passes, zero failures or ignores.
+Joined workspace types pass. The image leaf archive is 10,718 bytes; three
+producers have matching digests. Product weak builtins and real job integration
+are still pending; the JavaScript capability remains unavailable. See the
+[foundation checkpoint](docs/rust-rewrite/weak-collector-foundation-20261011.md).
+
 ## Iterator chunking proposal — 2026-10-11
 
 The chunks/windows batch passes 24 focused native controls with zero failures

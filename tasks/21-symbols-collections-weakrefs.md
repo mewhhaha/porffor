@@ -1,5 +1,16 @@
 # T21 — Symbols, collections, weak collections and weak references
 
+## Collector facility checkpoint — 2026-10-11
+
+The copying collector's real weak slots and owner/key-gated ephemerons are now
+verified in a local pinned runtime patch. Ten forced-GC controls, one
+thirteen-boundary cancellation control and eleven image controls pass: 22 passes,
+zero failures and zero ignores. Joined workspace types pass. The four JavaScript weak families, host resources,
+keep-during-job roots and finalization jobs still require integration before
+enabling successful product operations. Complete native and pinned-tree
+acceptance remains open. See the
+[collector contract](../docs/rust-rewrite/contracts/collector-weak-edges.md).
+
 ## Current source position — 2026-10-07
 
 The reviewed Symbol and strong-collection source is authored, and semantic Wasm

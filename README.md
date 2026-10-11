@@ -1,5 +1,13 @@
 # Lila
 
+The pinned copying collector has real weak targets and owner/key-gated
+ephemerons. All 22 focused native collector and image controls pass with zero
+failures or ignores, including thirteen cancellation boundaries. The image
+leaf archive is now 11 KB while executables still link the immutable data.
+JavaScript weak APIs still require builtin, host and job integration before
+their capability can be enabled. See the
+[foundation checkpoint](docs/rust-rewrite/weak-collector-foundation-20261011.md).
+
 Iterator chunks/windows pass all 156 official proposal cases on each backend,
 plus 24 focused native controls with no failures or ignores. On-demand GC Lists
 preserve whole values and exact window step ordering; the optional oracle also

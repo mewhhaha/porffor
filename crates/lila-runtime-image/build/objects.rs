@@ -68,6 +68,9 @@ pub(super) fn embed(out: &Path, target: &str) {
     );
     cc::Build::new()
         .object(&object)
+        // Cargo propagates the native archive to the final link. Keep another
+        // copy out of this leaf's Rust archive and every downstream rebuild.
+        .link_lib_modifier("-bundle")
         .compile("lila_runtime_images");
     // cc does not register custom objects as watched source inputs. Only the
     // complete archive is consumed downstream; retain no duplicate data object.
