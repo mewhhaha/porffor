@@ -43,7 +43,7 @@ var invalid = dispose.call({});
 var stack = new AsyncDisposableStack();
 stack.defer(function () {
   return { then: function (resolve) {
-    print(Object.getPrototypeOf(resolve) === other.Function.prototype);
+    print(Object.getPrototypeOf(resolve) === Function.prototype);
     resolve();
   } };
 });
@@ -246,12 +246,12 @@ fn assert_gc_stack_fixture(source: &str, marker: &str) {
                 ObservedCompletion::Normal(lila_engine::ObservedJsValue::Number(
                     lila_engine::ObservedNumber::from_f64(262.0)
                 )),
-                "{source}"
+                "{backend:?}: {source}"
             );
             assert_eq!(
                 observed.output_events,
                 vec![HostOutputEvent::PrintLine(marker.into())],
-                "{source}"
+                "{backend:?}: {source}"
             );
         }
     }
@@ -276,5 +276,13 @@ fn async_stack_gc_saved_realms_and_complete_values_survive_suspension() {
     assert_gc_stack_fixture(
         include_str!("../fixtures/async_disposable_stack_gc/realms_and_values.js"),
         "async-stack-realms:ok",
+    );
+}
+
+#[test]
+fn thenable_resolving_functions_follow_callback_job_realms_in_both_backends() {
+    assert_gc_stack_fixture(
+        include_str!("../fixtures/async_disposable_stack_gc/thenable_job_realms.js"),
+        "thenable-job-realms:ok",
     );
 }

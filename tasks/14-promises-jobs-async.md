@@ -1,5 +1,24 @@
 # T14 — Promise jobs, async functions and async iteration
 
+## Async disposal and thenable-job Realm repair — 2026-10-11
+
+Resolving-function materialization now requires an explicit typed Realm
+context. Constructor entry uses the called constructor's Realm; a thenable job
+uses its running Realm selected by `GetFunctionRealm(then)`. Self-resolution
+errors follow the resolving function. Earlier references below to the stored
+Promise Realm describe the constructor-entry predecessor, not a universal rule
+for thenable jobs. The captured historical contract remains preserved, with a
+current amendment at its beginning.
+
+The disposal oracle captures shared resource Lists across reentrant `use` and
+`move`, follows `needsAwait`/`hasAwaited`, preserves method-Realm intrinsics and
+checks disposed state before callback callability. Fixtures cover both backend
+and script-mode combinations, with local, foreign, Proxy, bound and revoked
+thenable controls. All ten affected native controls, joined all-feature/all-target
+types and eleven guards pass in the
+[repair checkpoint](../docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md).
+This does not close T14 or refresh published Test262 counts.
+
 ## ShadowRealm intrinsic import reactions — 2026-10-07 dry source
 
 The native importValue path consumes a fresh defining-Realm intrinsic Promise

@@ -342,6 +342,7 @@ impl<'a> FunctionBuilder<'a> {
     fn emit_create_promise_resolving_functions(
         &mut self,
         promise: &GcLocal<PromiseObject>,
+        context: &PromiseInternalFunctionMaterializationContext,
         resolve: &ValueLocals,
         reject: &ValueLocals,
         function: &mut Function,
@@ -357,17 +358,14 @@ impl<'a> FunctionBuilder<'a> {
             ),
             function,
         );
-        let context =
-            self.emit_promise_record_internal_function_materialization_context(promise, function);
         for (entry, out) in [
             (PromiseInternalFunction::Resolve(&shared), resolve),
             (PromiseInternalFunction::Reject(&shared), reject),
         ] {
-            let callable = self.emit_promise_internal_function_value(entry, &context, function)?;
+            let callable = self.emit_promise_internal_function_value(entry, context, function)?;
             out.set_reference(&callable, schema, function);
             callable.clear(function);
         }
-        self.release_promise_internal_function_materialization_context(context, function);
         shared.clear(function);
         Ok(())
     }
@@ -534,14 +532,9 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let then = schema.reserve_completion(function);
-        then.initialize(function);
-        self.emit_is_heap_object_like_tag_i32(value.tag(), function);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        value.reference().load(function);
-        promise.load(schema, function);
-        function.instruction(&Instruction::RefEq);
-        function.instruction(&Instruction::If(BlockType::Empty));
+        // Direct intrinsic resolutions stand in for resolving functions created
+        // with this Promise. Escaping resolving functions supply their own Realm
+        // below: a thenable job can create them in a different Realm.
         let realm = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<PromiseObject>()
@@ -550,9 +543,30 @@ impl<'a> FunctionBuilder<'a> {
                 .reference(),
             function,
         );
+        self.emit_resolve_promise_record_in_realm(promise, value, &realm, function)?;
+        realm.clear(function);
+        Ok(())
+    }
+
+    fn emit_resolve_promise_record_in_realm(
+        &mut self,
+        promise: &GcLocal<PromiseObject>,
+        value: &ValueLocals,
+        resolving_realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let then = schema.reserve_completion(function);
+        then.initialize(function);
+        self.emit_is_heap_object_like_tag_i32(value.tag(), function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        value.reference().load(function);
+        promise.load(schema, function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::If(BlockType::Empty));
         let prototype = schema.reserve_value_local(function);
         self.emit_load_non_array_realm_intrinsic(
-            &realm,
+            resolving_realm,
             NonArrayRealmIntrinsicSlot::TypeErrorPrototype,
             &prototype,
             function,
@@ -571,7 +585,6 @@ impl<'a> FunctionBuilder<'a> {
             function,
         )?;
         prototype.clear(function);
-        realm.clear(function);
         function.instruction(&Instruction::Else);
         let key_string = schema.reserve_gc_local(function).initialize(
             self.emit_interned_string_reference("then", function)?,
@@ -1110,7 +1123,16 @@ impl<'a> FunctionBuilder<'a> {
         let promise = self.emit_alloc_promise_with_prototype(context, function)?;
         let resolve = schema.reserve_value_local(function);
         let reject = schema.reserve_value_local(function);
-        self.emit_create_promise_resolving_functions(&promise, &resolve, &reject, function)?;
+        let resolving_context =
+            self.emit_current_function_promise_internal_function_materialization_context(function);
+        self.emit_create_promise_resolving_functions(
+            &promise,
+            &resolving_context,
+            &resolve,
+            &reject,
+            function,
+        )?;
+        self.release_promise_internal_function_materialization_context(resolving_context, function);
         let undefined = schema.reserve_value_local(function);
         undefined.set_undefined(function);
         let arguments = self.emit_pre_evaluated_arg_vector(&[&resolve, &reject], function);
@@ -3206,7 +3228,22 @@ impl<'a> FunctionBuilder<'a> {
             .read_into(&stored_method, &method, schema, function);
         let resolve = schema.reserve_value_local(function);
         let reject = schema.reserve_value_local(function);
-        self.emit_create_promise_resolving_functions(&promise, &resolve, &reject, function)?;
+        // NewPromiseResolveThenableJob creates these functions in the running
+        // job's Realm, selected from GetFunctionRealm(then), not the Promise.
+        let job_realm = self.load_current_realm(function);
+        let resolving_context = self
+            .emit_promise_internal_function_materialization_context_from_realm(
+                &job_realm, function,
+            );
+        job_realm.clear(function);
+        self.emit_create_promise_resolving_functions(
+            &promise,
+            &resolving_context,
+            &resolve,
+            &reject,
+            function,
+        )?;
+        self.release_promise_internal_function_materialization_context(resolving_context, function);
         let arguments = self.emit_pre_evaluated_arg_vector(&[&resolve, &reject], function);
         let called = schema.reserve_completion(function);
         self.emit_function_or_proxy_call_with_argv(
@@ -4601,7 +4638,17 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_builtin_arg_to_value(0, &value, function);
         match settlement {
             PromiseSettlement::Fulfill => {
-                self.emit_resolve_promise_record(&promise, &value, function)?
+                let resolving = self
+                    .emit_current_function_promise_internal_function_materialization_context(
+                        function,
+                    );
+                self.emit_resolve_promise_record_in_realm(
+                    &promise,
+                    &value,
+                    resolving.realm(),
+                    function,
+                )?;
+                self.release_promise_internal_function_materialization_context(resolving, function);
             }
             PromiseSettlement::Reject => self.emit_settle_promise_record(
                 &promise,

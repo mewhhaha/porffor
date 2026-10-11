@@ -88,5 +88,23 @@ try {
   throw "getter accepted";
 } catch (error) { check(error === marker && fallback === 0, "original Get abrupt and cutoff"); }
 check(!failed.disposed, "failed registration leaves pending stack");
+// Synchronous List identity obeys the same reentrant GetDisposeMethod rule.
+var syncOriginal = new DisposableStack();
+var syncMoved;
+var syncCalls = 0;
+syncOriginal.defer(function () { syncCalls++; });
+syncOriginal.use({ get [Symbol.dispose]() {
+  syncMoved = syncOriginal.move();
+  return function () { syncCalls += 10; };
+} });
+check(syncOriginal.disposed && syncCalls === 0, "synchronous move before registration Call");
+syncMoved.dispose();
+check(syncCalls === 11, "synchronous captured List moves during getter");
+for (var disposedStack of [syncOriginal, original]) {
+  for (var entry of ["adopt", "defer"]) {
+    try { disposedStack[entry](1, 2); throw "disposed callback registration accepted"; }
+    catch (error) { check(error instanceof ReferenceError, "disposed state precedes callback callability"); }
+  }
+}
 Promise.all(pending).then(function () { print("async-stack-registrations:ok"); });
 262;

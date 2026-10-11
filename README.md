@@ -99,6 +99,16 @@ the eleven repository guards pass. Complete current agent-tree acceptance
 remains pending. See the
 [agent ID checkpoint](docs/rust-rewrite/agent-broadcast-ids-20261011.md) and
 [retrieval checkpoint](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
+The interrupted all-feature workspace baseline completes 171 of 245 targets at
+4,959 passes, three async-disposal failures and two schematic doctest ignores.
+The repair captures disposal List identity before getters, corrects oracle Await
+and intrinsic suppression behavior, and gives thenable resolving functions the
+callback job's Realm. A previous fixture incorrectly expected the disposal
+method's Realm; the corrected assertion exposes a Wasm defect. Proxy helpers
+now preserve the active job Realm for errors and trap argument Arrays. All ten
+affected native controls, joined all-feature/all-target types and eleven guards
+pass; complete workspace and pinned-suite acceptance remain pending. See the
+[async disposal checkpoint](docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md).
 Cargo's native-core producer also uses the existing bounded Cranelift function
 cache. Function, target and compiler-flag identities permit reuse across source
 edits; every build still emits and validates its current raw runtime, precompiles

@@ -1,0 +1,475 @@
+{
+  "date": "2026-10-11",
+  "scope": "async disposal, thenable resolving functions and Proxy execution realms; no whole-suite verdict",
+  "focused": {
+    "state": "passed",
+    "source": {
+      "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+      "patch_sha256": "b8a87398c0aecbde1e92ae3a6707e575f989e968c9a42e5279bd18145ffd680a",
+      "untracked": {
+        "crates/lila-engine/tests/fixtures/async_disposable_stack_gc/thenable_job_realms.js": "404d6522008096f9989a2a4bb722fcf4985e15fed736992e2c06dfa370113afd",
+        "docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md": "127193e9f5d6b38ab510d474be5aefa015bfe063f205302182b76678027ad278"
+      }
+    },
+    "driver_sha256": "be326bbd8075b484df9d7611a1152ff9f9c2ba5ab2099716e251b825df9b2506",
+    "native_test_cpu": 0,
+    "original_observation_timeout_ms": 30000,
+    "build_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "lila-engine",
+      "--all-features",
+      "--test",
+      "aot_async",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "source_unchanged": true,
+    "build_exit": 0,
+    "build_seconds": 2.02,
+    "build_log_sha256": "b30bb015cf9606ae78e9e5a875ef62de57575997afd28b8b4745e1741dd7cb6c",
+    "build_stderr_sha256": "dfac6a78a09f15ebafd853565cc5ccfac99e96768229445014779a183e1e52b2",
+    "executable": "target/debug/deps/aot_async-ea09e1aef35445f9",
+    "executable_sha256": "054a3b07d79d1d1f7600fe8b5a27b12dd5f3794d9dbd2b66719cef36595477c3",
+    "selected_tests": [
+      "aot_async_disposable_stack_realm::async_stack_gc_await_lifecycle_and_suppression_are_observable",
+      "aot_async_disposable_stack_realm::async_stack_gc_registration_retains_reference_operands_and_list_identity",
+      "aot_async_disposable_stack_realm::async_stack_gc_saved_realms_and_complete_values_survive_suspension",
+      "aot_async_disposable_stack_realm::disposal_capabilities_follow_the_method_realm_for_empty_invalid_and_awaited_receivers",
+      "aot_async_disposable_stack_realm::moved_stacks_and_synchronous_errors_follow_the_borrowed_method_realm",
+      "aot_async_disposable_stack_realm::null_and_undefined_resources_preserve_the_explicit_await",
+      "aot_async_disposable_stack_realm::suppression_keeps_the_disposal_method_realm_across_rejected_awaits",
+      "aot_async_disposable_stack_realm::synchronous_fallback_discards_returns_and_keeps_its_acquisition_realm",
+      "aot_async_disposable_stack_realm::synchronous_fallback_throws_suspend_before_the_next_disposer",
+      "aot_async_disposable_stack_realm::thenable_resolving_functions_follow_callback_job_realms_in_both_backends"
+    ],
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "./scripts/run-watched.sh",
+      "--label",
+      "async-stack-repair-focused-b447e2006-retry3-native",
+      "--stall",
+      "900",
+      "--poll",
+      "1",
+      "--",
+      "python3",
+      "-B",
+      "scripts/limited_verification.py",
+      "--cloud",
+      "--",
+      "target/debug/deps/aot_async-ea09e1aef35445f9",
+      "aot_async_disposable_stack_realm::",
+      "--test-threads=1",
+      "--include-ignored"
+    ],
+    "exit_code": 0,
+    "counts": {
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    "run_seconds": 46.595,
+    "transcript": "target/watched/async-stack-repair-focused-b447e2006-retry3-native.log",
+    "transcript_sha256": "a5a9ae698943d0d9bdcb61f20313469ab61ca66e513a74c348ec06eb74eba02c"
+  },
+  "guards": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 6.189,
+      "log": "target/async-stack-repair-20261011/guards-proxy/0.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.226,
+      "log": "target/async-stack-repair-20261011/guards-proxy/1.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "./scripts/check-task-plan.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.454,
+      "log": "target/async-stack-repair-20261011/guards-proxy/2.log",
+      "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+    },
+    {
+      "command": [
+        "./scripts/tests/check-readme-status-artifacts.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.759,
+      "log": "target/async-stack-repair-20261011/guards-proxy/3.log",
+      "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+    },
+    {
+      "command": [
+        "./scripts/tests/audit-test262-shortcut-scanner.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 2.53,
+      "log": "target/async-stack-repair-20261011/guards-proxy/4.log",
+      "log_sha256": "2c90419cc695bad58c587effe9693d920791f6fa23ab767eb2f8a25a55423222"
+    },
+    {
+      "command": [
+        "./scripts/check-module-boundaries.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 9.254,
+      "log": "target/async-stack-repair-20261011/guards-proxy/5.log",
+      "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+    },
+    {
+      "command": [
+        "./scripts/audit-test262-shortcuts.sh",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.597,
+      "log": "target/async-stack-repair-20261011/guards-proxy/6.log",
+      "log_sha256": "8cf5515c7330113a203b7c360cadf7f12d033eac5f9d0e16f7f2a88e921fc870"
+    },
+    {
+      "command": [
+        "./scripts/check-test262-host-abi.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.076,
+      "log": "target/async-stack-repair-20261011/guards-proxy/7.log",
+      "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+    },
+    {
+      "command": [
+        "./scripts/check-no-legacy-js.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.161,
+      "log": "target/async-stack-repair-20261011/guards-proxy/8.log",
+      "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+    },
+    {
+      "command": [
+        "./scripts/check-lila-identity.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 32.916,
+      "log": "target/async-stack-repair-20261011/guards-proxy/9.log",
+      "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+    },
+    {
+      "command": [
+        "./scripts/check-no-interpreter-in-product-graph.sh"
+      ],
+      "exit_code": 0,
+      "seconds": 0.485,
+      "log": "target/async-stack-repair-20261011/guards-proxy/10.log",
+      "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+    }
+  ],
+  "joined_types": {
+    "command": [
+      "cargo",
+      "check",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--all-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "watched_seconds": 130,
+    "log": "target/watched/async-stack-repair-proxy-types-b447e2006.log",
+    "log_sha256": "3d8496d33074a2a6102190ab76a01d75fb02c083ce34589c3acf72541e95d72e"
+  },
+  "predecessor_focused": {
+    "state": "failed",
+    "source": {
+      "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+      "patch_sha256": "441f44ef7c3a640c989f1e4dcc41a9abbad16b255d1e92761bcc3a8d592c3249",
+      "untracked": {
+        "crates/lila-engine/tests/fixtures/async_disposable_stack_gc/thenable_job_realms.js": "d0dc5d45b8f003530ce2e7bfe21af771c533bb92d4d817bb314317bb0241b19c",
+        "docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md": "637000cb5ded5ae2ca72130c7d088ea48d89b83396f8a1d9313bbe0c744b1926"
+      }
+    },
+    "driver_sha256": "8fe8e2a5114649b3929ad1b2b0c3f4e371031ab46da967b0738402d657f8d4b6",
+    "native_test_cpu": 0,
+    "original_observation_timeout_ms": 30000,
+    "build_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "lila-engine",
+      "--all-features",
+      "--test",
+      "aot_async",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "source_unchanged": true,
+    "build_exit": 0,
+    "build_seconds": 2.169,
+    "build_log_sha256": "e4a4de2b00d8e4639c476358425e44b6e9bbe26852ebace7c93665ce2cb333ca",
+    "build_stderr_sha256": "1261b12ee85386033242d6991dddd9a6f96c47602a90759cdb0eb35e78f6f06b",
+    "executable": "target/debug/deps/aot_async-ea09e1aef35445f9",
+    "executable_sha256": "d1fa1c0dc4a1958dd341e06d3171f1ae7a766138e4a74451b4bd58e0ef313a34",
+    "selected_tests": [
+      "aot_async_disposable_stack_realm::async_stack_gc_await_lifecycle_and_suppression_are_observable",
+      "aot_async_disposable_stack_realm::async_stack_gc_registration_retains_reference_operands_and_list_identity",
+      "aot_async_disposable_stack_realm::async_stack_gc_saved_realms_and_complete_values_survive_suspension",
+      "aot_async_disposable_stack_realm::disposal_capabilities_follow_the_method_realm_for_empty_invalid_and_awaited_receivers",
+      "aot_async_disposable_stack_realm::moved_stacks_and_synchronous_errors_follow_the_borrowed_method_realm",
+      "aot_async_disposable_stack_realm::null_and_undefined_resources_preserve_the_explicit_await",
+      "aot_async_disposable_stack_realm::suppression_keeps_the_disposal_method_realm_across_rejected_awaits",
+      "aot_async_disposable_stack_realm::synchronous_fallback_discards_returns_and_keeps_its_acquisition_realm",
+      "aot_async_disposable_stack_realm::synchronous_fallback_throws_suspend_before_the_next_disposer",
+      "aot_async_disposable_stack_realm::thenable_resolving_functions_follow_callback_job_realms_in_both_backends"
+    ],
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "./scripts/run-watched.sh",
+      "--label",
+      "async-stack-repair-focused-b447e2006-retry1-native",
+      "--stall",
+      "900",
+      "--poll",
+      "1",
+      "--",
+      "python3",
+      "-B",
+      "scripts/limited_verification.py",
+      "--cloud",
+      "--",
+      "target/debug/deps/aot_async-ea09e1aef35445f9",
+      "aot_async_disposable_stack_realm::",
+      "--test-threads=1",
+      "--include-ignored"
+    ],
+    "exit_code": 101,
+    "counts": {
+      "passed": 9,
+      "failed": 1,
+      "ignored": 0
+    },
+    "run_seconds": 41.83,
+    "transcript": "target/watched/async-stack-repair-focused-b447e2006-retry1-native.log",
+    "transcript_sha256": "17a8cab0854e6f9ad3380b4686b948f2dcabad145074e121940eff3a2aab3390"
+  },
+  "predecessor_diagnostic": {
+    "state": "failed",
+    "source": {
+      "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+      "patch_sha256": "e950490c7aabe44287fb36666a3b8d0b92cf017357ba8a1dc69b850c5913ef18",
+      "untracked": {
+        "crates/lila-engine/tests/fixtures/async_disposable_stack_gc/thenable_job_realms.js": "d0dc5d45b8f003530ce2e7bfe21af771c533bb92d4d817bb314317bb0241b19c",
+        "docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md": "637000cb5ded5ae2ca72130c7d088ea48d89b83396f8a1d9313bbe0c744b1926"
+      }
+    },
+    "driver_sha256": "95ffc4d1cfbfaf920de3d9b92e5329b0b649ecd5ca230d854a488a32dd18b731",
+    "native_test_cpu": 0,
+    "original_observation_timeout_ms": 30000,
+    "build_command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "-p",
+      "lila-engine",
+      "--all-features",
+      "--test",
+      "aot_async",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "source_unchanged": true,
+    "build_exit": 0,
+    "build_seconds": 2.346,
+    "build_log_sha256": "f916713c8606285721d29f3d94d1958bad3821ea91e6a501c7a27fb59f353f09",
+    "build_stderr_sha256": "ee464d8c240aa765d6a1c4de7465bf2a264109212e3913f99ea35759eb32f452",
+    "executable": "target/debug/deps/aot_async-ea09e1aef35445f9",
+    "executable_sha256": "7219ce6c262a368ac7a05761bd591a0df3994ae4f0d15cb0599cda5d96681ac2",
+    "selected_tests": [
+      "aot_async_disposable_stack_realm::thenable_resolving_functions_follow_callback_job_realms_in_both_backends"
+    ],
+    "command": [
+      "taskset",
+      "-c",
+      "0",
+      "./scripts/run-watched.sh",
+      "--label",
+      "async-stack-repair-thenable-diagnostic-b447e2006-native",
+      "--stall",
+      "900",
+      "--poll",
+      "1",
+      "--",
+      "python3",
+      "-B",
+      "scripts/limited_verification.py",
+      "--cloud",
+      "--",
+      "target/debug/deps/aot_async-ea09e1aef35445f9",
+      "aot_async_disposable_stack_realm::thenable_resolving_functions_follow_callback_job_realms_in_both_backends",
+      "--test-threads=1",
+      "--include-ignored"
+    ],
+    "exit_code": 101,
+    "counts": {
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0
+    },
+    "run_seconds": 4.497,
+    "transcript": "target/watched/async-stack-repair-thenable-diagnostic-b447e2006-native.log",
+    "transcript_sha256": "60b672945de0898d6ad5dc8c21293aa0189b8d33031b8536ed342b8d23cc71bb"
+  },
+  "interrupted_baseline": {
+    "state": "interrupted-after-complete-target-for-coherent-repairs",
+    "parent_exit_code": 143,
+    "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+    "source_unchanged": true,
+    "completed_targets": 171,
+    "inventoried_targets": 245,
+    "counts": {
+      "passed": 4959,
+      "failed": 3,
+      "ignored": 2
+    },
+    "whole_workspace_verdict": false,
+    "completed_failures": [
+      {
+        "package": "lila-engine",
+        "target": "aot_async",
+        "kind": "test",
+        "selector": [
+          "--test",
+          "aot_async"
+        ],
+        "state": "failed",
+        "started_utc": "2026-10-11T04:25:17Z",
+        "build_exit": 0,
+        "executable_sha256": "fc7cda281c217575a8f76938cea6e93306a4f99488e7e18dd624bbe9f5365213",
+        "inventoried_tests": 245,
+        "inventoried_benchmarks": 0,
+        "command": [
+          "target/debug/deps/aot_async-ea09e1aef35445f9",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "test_policy": "single inherited CPU via nested cloud launcher; Cargo compilation retains parent auto affinity",
+        "exit_code": 101,
+        "inventory_matches": true,
+        "seconds": 2576.282,
+        "outcomes": [
+          {
+            "passed": 242,
+            "failed": 3,
+            "ignored": 0
+          }
+        ],
+        "transcript_log": "target/watched/workspace-workspace-all-b447e2006-20261011-0169-lila-engine-aot_async.log",
+        "transcript_sha256": "9297a59f2ff1cb6c88b180985f7651b963b9669d7095a0ab6125427eedb21718",
+        "executable_released": true,
+        "released_incremental": [
+          "aot_async-0jxtovipmj00m"
+        ]
+      }
+    ],
+    "receipt_sha256": "c56a8d7765a16ebdcdcd0ad1ff48dbf4b69b99e927c8bd5b21592eda244e0ef9"
+  },
+  "link_failures": [
+    {
+      "state": "build-failed",
+      "source": {
+        "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+        "patch_sha256": "441f44ef7c3a640c989f1e4dcc41a9abbad16b255d1e92761bcc3a8d592c3249",
+        "untracked": {
+          "crates/lila-engine/tests/fixtures/async_disposable_stack_gc/thenable_job_realms.js": "d0dc5d45b8f003530ce2e7bfe21af771c533bb92d4d817bb314317bb0241b19c",
+          "docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md": "637000cb5ded5ae2ca72130c7d088ea48d89b83396f8a1d9313bbe0c744b1926"
+        }
+      },
+      "driver_sha256": "ccc5a0c6ed5ee07854c92cbb709f64040400ddb6a68317ddf9a96f6eb4739c1a",
+      "native_test_cpu": 0,
+      "original_observation_timeout_ms": 30000,
+      "build_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--all-features",
+        "--test",
+        "aot_async",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "source_unchanged": true,
+      "build_exit": 101,
+      "build_seconds": 270.156,
+      "build_log_sha256": "ad3895918f3ce1fb904e5c725c5a995aa29949cbda82cf80c6a40b2c3969bee8",
+      "build_stderr_sha256": "5233ab2fde8a54a2e916a2d14ac9a04c1b25451b281f5a07d8e7eca0bc3e046f"
+    },
+    {
+      "state": "build-failed",
+      "source": {
+        "head": "b447e2006d73fb8a2d8a94aa85275dd073e139c6",
+        "patch_sha256": "b8a87398c0aecbde1e92ae3a6707e575f989e968c9a42e5279bd18145ffd680a",
+        "untracked": {
+          "crates/lila-engine/tests/fixtures/async_disposable_stack_gc/thenable_job_realms.js": "404d6522008096f9989a2a4bb722fcf4985e15fed736992e2c06dfa370113afd",
+          "docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md": "127193e9f5d6b38ab510d474be5aefa015bfe063f205302182b76678027ad278"
+        }
+      },
+      "driver_sha256": "4ecf354ba3b65682edcd3a8d4b2cda0b2a19da49910b75e2112d160288797e79",
+      "native_test_cpu": 0,
+      "original_observation_timeout_ms": 30000,
+      "build_command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "lila-engine",
+        "--all-features",
+        "--test",
+        "aot_async",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "source_unchanged": true,
+      "build_exit": 101,
+      "build_seconds": 85.546,
+      "build_log_sha256": "92c973053f93f116ed7131ada2914f02a5b4acd4cbf85d6a93ec13b931a44b51",
+      "build_stderr_sha256": "c579ad95628c5c613ab9db85c24dbd7677cf5f84af26eb5956910f882f765e6c"
+    }
+  ],
+  "pending": [
+    "fresh complete workspace acceptance",
+    "complete pinned Test262 acceptance and publication",
+    "task closure"
+  ],
+  "path_format": "Repository paths and executable arguments are recorded relative to the verification working directory; private transcripts retain absolute invocation paths."
+}

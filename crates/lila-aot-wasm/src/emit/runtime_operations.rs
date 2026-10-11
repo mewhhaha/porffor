@@ -77,6 +77,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         result.emit(&mut function);
         result.clear(&mut function);
+        self.clear_helper_execution_realm(&mut function);
         parameters.release(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
@@ -97,6 +98,7 @@ impl<'a> FunctionBuilder<'a> {
         )?;
         result.emit(&mut function);
         result.clear(&mut function);
+        self.clear_helper_execution_realm(&mut function);
         parameters.release(&mut function);
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))

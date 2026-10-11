@@ -738,6 +738,7 @@ impl FunctionBuilder<'_> {
                     callee,
                     this_value,
                     arguments,
+                    &caller_realm,
                     self.current_environment(),
                 ),
                 base,

@@ -1,9 +1,12 @@
 use crate::{
     Context, JsError, JsNativeError, JsResult, JsString, JsSymbol, JsValue,
-    builtins::{Promise, promise::PromiseState},
-    object::{JsObject, PrivateName},
+    builtins::{
+        Promise,
+        promise::{PromiseCapability, PromiseState},
+    },
+    native_function::NativeFunction,
     object::builtins::JsPromise,
-    js_string,
+    object::{FunctionObjectBuilder, JsObject, PrivateName},
 };
 use boa_ast::scope::{BindingLocator, BindingLocatorError, BindingLocatorScope, Scope};
 use boa_gc::{Finalize, Gc, Trace};
@@ -431,25 +434,69 @@ impl Context {
             return Err(JsNativeError::typ().with_message(nullish_message).into());
         };
 
-        let method = if r#async {
+        let (method, sync_fallback) = if r#async {
             let async_method = object.get(self.explicit_resource_symbol(true), self)?;
             if async_method.is_null() || async_method.is_undefined() {
-                object.get(self.explicit_resource_symbol(false), self)?
+                (
+                    object.get(self.explicit_resource_symbol(false), self)?,
+                    true,
+                )
             } else {
-                async_method
+                (async_method, false)
             }
         } else {
-            object.get(self.explicit_resource_symbol(false), self)?
+            (
+                object.get(self.explicit_resource_symbol(false), self)?,
+                false,
+            )
         };
 
         if method.is_null() || method.is_undefined() {
             return Err(JsNativeError::typ().with_message(missing_message).into());
         }
 
-        method
+        let method = method
             .as_callable()
-            .ok_or_else(|| JsNativeError::typ().with_message(missing_message).into())
-            .map(Some)
+            .ok_or_else(|| JsNativeError::typ().with_message(missing_message))?;
+        if !sync_fallback {
+            return Ok(Some(method));
+        }
+
+        // GetDisposeMethod's sync fallback ignores the method's return value
+        // and converts its synchronous Throw into a rejected intrinsic Promise.
+        let wrapper = FunctionObjectBuilder::new(
+            self.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                |this, _args, method, context| {
+                    let capability = PromiseCapability::new(
+                        &context.intrinsics().constructors().promise().constructor(),
+                        context,
+                    )
+                    .expect("intrinsic Promise creates a capability");
+                    match method.call(this, &[], context) {
+                        Ok(_) => {
+                            capability
+                                .resolve()
+                                .call(&JsValue::undefined(), &[JsValue::undefined()], context)
+                                .expect("resolving an intrinsic capability cannot fail");
+                        }
+                        Err(error) => {
+                            let reason = error.to_opaque(context);
+                            capability
+                                .reject()
+                                .call(&JsValue::undefined(), &[reason], context)
+                                .expect("rejecting an intrinsic capability cannot fail");
+                        }
+                    }
+                    Ok(capability.promise().clone().into())
+                },
+                method,
+            ),
+        )
+        .name("")
+        .length(0)
+        .build();
+        Ok(Some(wrapper.into()))
     }
 
     pub(crate) fn append_disposal_error_value(
@@ -470,32 +517,21 @@ impl Context {
     ) -> JsResult<JsValue> {
         match resource.method() {
             Some(method) => match resource.argument() {
-                Some(argument) => method.call(
-                    resource.this_value(),
-                    std::slice::from_ref(argument),
-                    self,
-                ),
+                Some(argument) => {
+                    method.call(resource.this_value(), std::slice::from_ref(argument), self)
+                }
                 None => method.call(resource.this_value(), &[], self),
             },
             None => Ok(JsValue::undefined()),
         }
     }
 
-    fn construct_suppressed_error_value(
-        &mut self,
-        error: JsValue,
-        suppressed: JsValue,
-    ) -> JsValue {
-        let ctor = match self.global_object().get(js_string!("SuppressedError"), self) {
-            Ok(value) => value,
-            Err(err) => return err.to_opaque(self),
-        };
-        let Some(ctor) = ctor.as_constructor() else {
-            return JsNativeError::typ()
-                .with_message("SuppressedError is not a constructor")
-                .to_opaque(self)
-                .into();
-        };
+    fn construct_suppressed_error_value(&mut self, error: JsValue, suppressed: JsValue) -> JsValue {
+        let ctor = self
+            .intrinsics()
+            .constructors()
+            .suppressed_error()
+            .constructor();
         match ctor.construct(&[error, suppressed, JsValue::undefined()], None, self) {
             Ok(object) => object.into(),
             Err(err) => err.to_opaque(self),
@@ -564,13 +600,15 @@ impl Context {
         let mut current = current;
         let resources = env.take_disposable_resources();
         for resource in resources.into_iter().rev() {
-            let outcome = self.invoke_disposable_resource(&resource).and_then(|value| {
-                if resource.r#async() {
-                    self.await_disposal_result_blocking(value)
-                } else {
-                    Ok(())
-                }
-            });
+            let outcome = self
+                .invoke_disposable_resource(&resource)
+                .and_then(|value| {
+                    if resource.r#async() {
+                        self.await_disposal_result_blocking(value)
+                    } else {
+                        Ok(())
+                    }
+                });
             if let Err(err) = outcome {
                 current = Some(self.append_disposal_error(current, err));
             }
@@ -579,7 +617,11 @@ impl Context {
     }
 
     pub(crate) fn pop_environment_with_dispose(&mut self) -> JsResult<()> {
-        let mut current = self.vm.pending_exception.take().map(|error| error.to_opaque(self));
+        let mut current = self
+            .vm
+            .pending_exception
+            .take()
+            .map(|error| error.to_opaque(self));
         if let Some(env) = self
             .vm
             .environments
@@ -597,7 +639,11 @@ impl Context {
     }
 
     pub(crate) fn unwind_environments_to(&mut self, len: usize) {
-        let mut current = self.vm.pending_exception.take().map(|error| error.to_opaque(self));
+        let mut current = self
+            .vm
+            .pending_exception
+            .take()
+            .map(|error| error.to_opaque(self));
 
         while self.vm.environments.len() > len {
             if let Some(env) = self

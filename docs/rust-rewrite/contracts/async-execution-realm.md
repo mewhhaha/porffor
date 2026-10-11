@@ -1,5 +1,11 @@
 # Async execution Realm authority
 
+The resolving-function witness below covers its particular constructor and
+continuation paths. A thenable-resolution job has a separate Realm owner:
+`GetFunctionRealm(then)` selects the job Realm, and resolving functions created
+inside that job use it. An awaited Promise's Realm does not override this rule.
+See the [2026-10-11 repair checkpoint](../async-disposal-and-thenable-realms-20261011.md).
+
 An async function's returned Promise and every compiler-owned async
 continuation reaction belong to the invoked function's defining Realm. The
 dynamic Realm installed while a Promise job happens to run is not allocation

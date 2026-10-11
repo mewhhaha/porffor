@@ -1,5 +1,18 @@
 # Proxy call and construct execution Realm
 
+## Explicit helper Realm amendment — 2026-10-11
+
+The GC `ProxyCall` and `ProxyConstruct` helper ABIs now require a non-null
+`caller_execution_realm` alongside the caller Environment. Ordinary calls,
+construction and prepared tail calls supply the selected execution Realm before
+dispatch. Helpers retain it as their error/allocation authority and release it
+before their parameters. A Promise job can install a Realm that differs from
+the runner's lexical Environment; an Environment projection cannot substitute
+for that job's Realm. The older parameter-6 projection recipe below describes
+its historical source checkpoint. See the
+[repair checkpoint](../async-disposal-and-thenable-realms-20261011.md) for current
+validation scope.
+
 Status: focused-verified on 2026-08-29; dynamic-source materializers retired on
 2026-09-01.
 

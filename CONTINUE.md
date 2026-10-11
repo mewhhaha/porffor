@@ -5,6 +5,20 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Async disposal and thenable-job Realm repair — 2026-10-11
+
+The complete affected module passes all ten native controls with zero failures
+or ignores, including both backend/script-mode combinations. Resolving functions
+use their constructor or running thenable-job Realm; Proxy helpers carry that
+execution Realm explicitly for errors and argument Arrays. The disposal oracle
+preserves shared List identity, required Await timing and intrinsic suppression.
+Joined all-feature/all-target types and all eleven repository guards pass.
+The preceding nine-pass/one-failure diagnosis and low-disk link failures remain
+in the [repair receipt](docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md).
+Fresh complete workspace and pinned-suite acceptance, task completion and
+handoff deletion remain pending. Next apply the complete official Test262 and
+exact ECMA-262 source pin update prepared under target/spec-pin-upgrade-20261011.
+
 ## Native agent message IDs — 2026-10-11
 
 The coherent ID batch preserves arbitrary primitive BigInt IDs independently of

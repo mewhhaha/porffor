@@ -1,3 +1,15 @@
+> **Thenable-job Realm amendment — 2026-10-11.** The current owner has two
+> factories: an explicit Realm factory and an active-function Realm factory.
+> Constructor-entry resolving functions use the invoked constructor's Realm.
+> Thenable-job resolving functions use the running job's Realm, selected by
+> `GetFunctionRealm(then)`, including its specified revoked-Proxy fallback.
+> Their self-resolution TypeError belongs to that resolving function's Realm.
+> The earlier Promise-record factory and universal Promise-record error rule
+> described in the captured predecessor below are retired. The context remains
+> opaque, non-`Copy`, must-use, borrowed during materialization and consumed by
+> release. See the [repair checkpoint](../async-disposal-and-thenable-realms-20261011.md)
+> for validation scope; whole-workspace and task closure remain pending.
+
 > **Current atomic GC draft — 2026-10-05.** The suspended/Promise source-only
 > candidate retires obsolete raw ABI literal test recipes. Current consumers use
 > whole values and completions, typed GC records, and closed producer domains.

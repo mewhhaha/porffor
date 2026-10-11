@@ -3,7 +3,7 @@ use crate::functions::CallContinuation;
 
 impl FunctionBuilder<'_> {
     /// All observable operand work is complete before this activation retires.
-    /// Preserve its Environment for dispatch errors even after lexical unwind.
+    /// Preserve its Realm and Environment even after lexical unwind.
     pub(crate) fn emit_prepared_tail_call(
         &mut self,
         callee: &ValueLocals,
@@ -12,6 +12,7 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
+        let caller_realm = self.load_current_realm(function);
         let caller_environment = schema
             .reserve_gc_local(function)
             .initialize(self.current_environment().load(schema, function), function);
@@ -22,12 +23,14 @@ impl FunctionBuilder<'_> {
                 callee,
                 receiver,
                 arguments,
+                &caller_realm,
                 &caller_environment,
             ),
             self.runtime_helper_base()?,
             function,
         );
         caller_environment.clear(function);
+        caller_realm.clear(function);
         Ok(())
     }
 

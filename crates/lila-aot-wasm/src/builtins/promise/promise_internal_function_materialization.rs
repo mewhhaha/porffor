@@ -119,25 +119,6 @@ impl FunctionBuilder<'_> {
         realm.clear(function);
         context
     }
-    pub(super) fn emit_promise_record_internal_function_materialization_context(
-        &mut self,
-        promise: &GcLocal<PromiseObject>,
-        function: &mut Function,
-    ) -> PromiseInternalFunctionMaterializationContext {
-        let schema = self.runtime_schema();
-        let realm = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<PromiseObject>()
-                .field(PromiseObjectSchema::REALM)
-                .read(promise, schema, function)
-                .reference(),
-            function,
-        );
-        let context = self
-            .emit_promise_internal_function_materialization_context_from_realm(&realm, function);
-        realm.clear(function);
-        context
-    }
     pub(super) fn emit_promise_internal_function_value(
         &mut self,
         entry: PromiseInternalFunction<'_>,

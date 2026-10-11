@@ -391,18 +391,22 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
+        let caller_realm = self.load_current_realm(function);
         schema
             .call_helper(
                 crate::runtime_helpers::ProxyConstructArguments::new(
                     callee,
                     new_target,
                     arguments,
+                    &caller_realm,
                     self.current_environment(),
                 ),
                 self.runtime_helper_base()?,
                 function,
             )
             .store(result, function);
+        self.replace_current_realm(&caller_realm, function);
+        caller_realm.clear(function);
         Ok(())
     }
 

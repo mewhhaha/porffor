@@ -26,7 +26,7 @@ foreignMethods.adopt.call(forward, retainedSymbol, function (value) {
 foreignMethods.adopt.call(forward, retainedFunction, function (value) {
   check(value === retainedFunction, "foreign method retains Function across Await");
   return { then: function (resolve) {
-    check(Object.getPrototypeOf(resolve) === other.Function.prototype, "Await resolving function defining Realm");
+    check(Object.getPrototypeOf(resolve) === Function.prototype, "Await resolving function follows local then callback Realm");
     resolve();
   } };
 });

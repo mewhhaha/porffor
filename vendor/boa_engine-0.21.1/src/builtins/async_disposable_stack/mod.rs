@@ -31,18 +31,20 @@ enum DisposableState {
     Disposed,
 }
 
+type DisposableResourceList = Gc<GcRefCell<Vec<DisposableResource>>>;
+
 #[derive(Debug, Trace, Finalize, JsData)]
 struct AsyncDisposableStackData {
     #[unsafe_ignore_trace]
     state: AsyncDisposableState,
-    resources: Vec<DisposableResource>,
+    resources: DisposableResourceList,
 }
 
 impl AsyncDisposableStackData {
     fn new() -> Self {
         Self {
             state: AsyncDisposableState::Pending,
-            resources: Vec::new(),
+            resources: Gc::new(GcRefCell::new(Vec::new())),
         }
     }
 }
@@ -51,14 +53,14 @@ impl AsyncDisposableStackData {
 struct DisposableStackData {
     #[unsafe_ignore_trace]
     state: DisposableState,
-    resources: Vec<DisposableResource>,
+    resources: DisposableResourceList,
 }
 
 impl DisposableStackData {
     fn new() -> Self {
         Self {
             state: DisposableState::Pending,
-            resources: Vec::new(),
+            resources: Gc::new(GcRefCell::new(Vec::new())),
         }
     }
 }
@@ -66,6 +68,9 @@ impl DisposableStackData {
 #[derive(Debug, Trace, Finalize)]
 struct DisposeAsyncState {
     resources: Vec<DisposableResource>,
+    realm: Realm,
+    needs_await: bool,
+    has_awaited: bool,
     completion: Option<JsValue>,
     promise_capability: PromiseCapability,
 }
@@ -82,12 +87,10 @@ impl IntrinsicObject for DisposableStack {
     }
 
     fn init(realm: &Realm) {
-        let disposed_getter = FunctionObjectBuilder::new(
-            realm,
-            NativeFunction::from_fn_ptr(Self::disposed),
-        )
-        .name(js_string!("get disposed"))
-        .build();
+        let disposed_getter =
+            FunctionObjectBuilder::new(realm, NativeFunction::from_fn_ptr(Self::disposed))
+                .name(js_string!("get disposed"))
+                .build();
         let dispose = FunctionObjectBuilder::new(realm, NativeFunction::from_fn_ptr(Self::dispose))
             .name(js_string!("dispose"))
             .length(0)
@@ -146,8 +149,11 @@ impl BuiltInConstructor for DisposableStack {
                 .into());
         }
 
-        let prototype =
-            get_prototype_from_constructor(new_target, StandardConstructors::disposable_stack, context)?;
+        let prototype = get_prototype_from_constructor(
+            new_target,
+            StandardConstructors::disposable_stack,
+            context,
+        )?;
         Ok(JsObject::from_proto_and_data_with_shared_shape(
             context.root_shape(),
             prototype,
@@ -171,7 +177,7 @@ impl DisposableStack {
     }
 
     fn create_intrinsic_stack_with_resources(
-        resources: Vec<DisposableResource>,
+        resources: DisposableResourceList,
         context: &mut Context,
     ) -> JsObject {
         JsObject::from_proto_and_data_with_shared_shape(
@@ -203,12 +209,15 @@ impl DisposableStack {
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("DisposableStack.prototype.use"))?;
-        let mut stack = object
-            .downcast_mut::<DisposableStackData>()
-            .ok_or_else(|| Self::type_error("DisposableStack.prototype.use"))?;
-        if matches!(stack.state, DisposableState::Disposed) {
-            return Err(Self::reference_error("DisposableStack.prototype.use"));
-        }
+        let resources = {
+            let stack = object
+                .downcast_ref::<DisposableStackData>()
+                .ok_or_else(|| Self::type_error("DisposableStack.prototype.use"))?;
+            if matches!(stack.state, DisposableState::Disposed) {
+                return Err(Self::reference_error("DisposableStack.prototype.use"));
+            }
+            stack.resources.clone()
+        };
 
         let method = context.get_dispose_method(
             &value,
@@ -221,21 +230,14 @@ impl DisposableStack {
             return Ok(value);
         }
 
-        stack
-            .resources
+        resources
+            .borrow_mut()
             .push(DisposableResource::from_value(value.clone(), method, false));
         Ok(value)
     }
 
     fn adopt(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         let value = args.get_or_undefined(0).clone();
-        let on_dispose = args
-            .get_or_undefined(1)
-            .as_callable()
-            .ok_or_else(|| {
-                JsNativeError::typ()
-                    .with_message("DisposableStack.prototype.adopt requires a callable disposer")
-            })?;
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("DisposableStack.prototype.adopt"))?;
@@ -246,22 +248,23 @@ impl DisposableStack {
             return Err(Self::reference_error("DisposableStack.prototype.adopt"));
         }
 
-        stack.resources.push(DisposableResource::from_callback(
-            Some(value.clone()),
-            on_dispose,
-            false,
-        ));
+        let on_dispose = args.get_or_undefined(1).as_callable().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("DisposableStack.prototype.adopt requires a callable disposer")
+        })?;
+
+        stack
+            .resources
+            .borrow_mut()
+            .push(DisposableResource::from_callback(
+                Some(value.clone()),
+                on_dispose,
+                false,
+            ));
         Ok(value)
     }
 
     fn defer(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-        let on_dispose = args
-            .get_or_undefined(0)
-            .as_callable()
-            .ok_or_else(|| {
-                JsNativeError::typ()
-                    .with_message("DisposableStack.prototype.defer requires a callable disposer")
-            })?;
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("DisposableStack.prototype.defer"))?;
@@ -272,9 +275,15 @@ impl DisposableStack {
             return Err(Self::reference_error("DisposableStack.prototype.defer"));
         }
 
-        stack.resources.push(DisposableResource::from_callback(
-            None, on_dispose, false,
-        ));
+        let on_dispose = args.get_or_undefined(0).as_callable().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("DisposableStack.prototype.defer requires a callable disposer")
+        })?;
+
+        stack
+            .resources
+            .borrow_mut()
+            .push(DisposableResource::from_callback(None, on_dispose, false));
         Ok(JsValue::undefined())
     }
 
@@ -289,7 +298,8 @@ impl DisposableStack {
             return Err(Self::reference_error("DisposableStack.prototype.move"));
         }
 
-        let resources = std::mem::take(&mut stack.resources);
+        let resources =
+            std::mem::replace(&mut stack.resources, Gc::new(GcRefCell::new(Vec::new())));
         stack.state = DisposableState::Disposed;
         drop(stack);
 
@@ -308,11 +318,13 @@ impl DisposableStack {
             return Ok(JsValue::undefined());
         }
 
-        let resources = std::mem::take(&mut stack.resources);
+        let resources =
+            std::mem::replace(&mut stack.resources, Gc::new(GcRefCell::new(Vec::new())));
         stack.state = DisposableState::Disposed;
         drop(stack);
 
         let mut current = None;
+        let resources = std::mem::take(&mut *resources.borrow_mut());
         for resource in resources.into_iter().rev() {
             if let Err(err) = context.invoke_disposable_resource(&resource) {
                 current = Some(context.append_disposal_error(current, err));
@@ -333,19 +345,15 @@ impl IntrinsicObject for AsyncDisposableStack {
     }
 
     fn init(realm: &Realm) {
-        let disposed_getter = FunctionObjectBuilder::new(
-            realm,
-            NativeFunction::from_fn_ptr(Self::disposed),
-        )
-        .name(js_string!("get disposed"))
-        .build();
-        let dispose_async = FunctionObjectBuilder::new(
-            realm,
-            NativeFunction::from_fn_ptr(Self::dispose_async),
-        )
-        .name(js_string!("disposeAsync"))
-        .length(0)
-        .build();
+        let disposed_getter =
+            FunctionObjectBuilder::new(realm, NativeFunction::from_fn_ptr(Self::disposed))
+                .name(js_string!("get disposed"))
+                .build();
+        let dispose_async =
+            FunctionObjectBuilder::new(realm, NativeFunction::from_fn_ptr(Self::dispose_async))
+                .name(js_string!("disposeAsync"))
+                .length(0)
+                .build();
 
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .accessor(
@@ -427,22 +435,14 @@ impl AsyncDisposableStack {
             .into()
     }
 
-    fn reject_promise(
-        capability: &PromiseCapability,
-        reason: JsValue,
-        context: &mut Context,
-    ) {
+    fn reject_promise(capability: &PromiseCapability, reason: JsValue, context: &mut Context) {
         capability
             .reject()
             .call(&JsValue::undefined(), &[reason], context)
             .expect("rejecting a promise capability cannot fail");
     }
 
-    fn resolve_promise(
-        capability: &PromiseCapability,
-        value: JsValue,
-        context: &mut Context,
-    ) {
+    fn resolve_promise(capability: &PromiseCapability, value: JsValue, context: &mut Context) {
         capability
             .resolve()
             .call(&JsValue::undefined(), &[value], context)
@@ -450,7 +450,7 @@ impl AsyncDisposableStack {
     }
 
     fn create_intrinsic_stack_with_resources(
-        resources: Vec<DisposableResource>,
+        resources: DisposableResourceList,
         context: &mut Context,
     ) -> JsObject {
         JsObject::from_proto_and_data_with_shared_shape(
@@ -468,9 +468,27 @@ impl AsyncDisposableStack {
     }
 
     fn continue_dispose(state: Gc<GcRefCell<DisposeAsyncState>>, context: &mut Context) {
+        let realm = state.borrow().realm.clone();
+        let caller_realm = context.enter_realm(realm);
+        Self::continue_dispose_in_realm(state, context);
+        context.enter_realm(caller_realm);
+    }
+
+    fn continue_dispose_in_realm(state: Gc<GcRefCell<DisposeAsyncState>>, context: &mut Context) {
         loop {
             let resource = state.borrow_mut().resources.pop();
             let Some(resource) = resource else {
+                let must_await = {
+                    let state = state.borrow();
+                    state.needs_await && !state.has_awaited
+                };
+                if must_await {
+                    state.borrow_mut().has_awaited = true;
+                    if Self::await_disposal(state.clone(), JsValue::undefined(), context) {
+                        return;
+                    }
+                    continue;
+                }
                 let (completion, capability) = {
                     let mut state = state.borrow_mut();
                     (state.completion.take(), state.promise_capability.clone())
@@ -483,6 +501,12 @@ impl AsyncDisposableStack {
                 return;
             };
 
+            // Nullish async resources record one necessary Await; they do not
+            // suspend before earlier resources have been invoked.
+            if resource.method().is_none() {
+                state.borrow_mut().needs_await = true;
+                continue;
+            }
             let result = match context.invoke_disposable_resource(&resource) {
                 Ok(result) => result,
                 Err(err) => {
@@ -492,67 +516,70 @@ impl AsyncDisposableStack {
                     continue;
                 }
             };
-
-            if !resource.r#async() {
-                continue;
+            state.borrow_mut().has_awaited = true;
+            if Self::await_disposal(state.clone(), result, context) {
+                return;
             }
-
-            let wrapper = match crate::builtins::Promise::promise_resolve(
-                &context.intrinsics().constructors().promise().constructor(),
-                result,
-                context,
-            ) {
-                Ok(wrapper) => wrapper,
-                Err(err) => {
-                    let current = state.borrow_mut().completion.take();
-                    let error = context.append_disposal_error(current, err);
-                    state.borrow_mut().completion = Some(error);
-                    continue;
-                }
-            };
-
-            let on_fulfilled = FunctionObjectBuilder::new(
-                context.realm(),
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, _args, state, context| {
-                        AsyncDisposableStack::continue_dispose(state.clone(), context);
-                        Ok(JsValue::undefined())
-                    },
-                    state.clone(),
-                ),
-            )
-            .name("")
-            .length(1)
-            .build();
-            let on_rejected = FunctionObjectBuilder::new(
-                context.realm(),
-                NativeFunction::from_copy_closure_with_captures(
-                    |_this, args, state, context| {
-                        let current = state.borrow_mut().completion.take();
-                        let error = context.append_disposal_error_value(
-                            current,
-                            args.get_or_undefined(0).clone(),
-                        );
-                        state.borrow_mut().completion = Some(error);
-                        AsyncDisposableStack::continue_dispose(state.clone(), context);
-                        Ok(JsValue::undefined())
-                    },
-                    state,
-                ),
-            )
-            .name("")
-            .length(1)
-            .build();
-
-            crate::builtins::Promise::perform_promise_then(
-                &wrapper,
-                Some(on_fulfilled),
-                Some(on_rejected),
-                None,
-                context,
-            );
-            return;
         }
+    }
+
+    fn await_disposal(
+        state: Gc<GcRefCell<DisposeAsyncState>>,
+        result: JsValue,
+        context: &mut Context,
+    ) -> bool {
+        let wrapper = match crate::builtins::Promise::promise_resolve(
+            &context.intrinsics().constructors().promise().constructor(),
+            result,
+            context,
+        ) {
+            Ok(wrapper) => wrapper,
+            Err(err) => {
+                let current = state.borrow_mut().completion.take();
+                let error = context.append_disposal_error(current, err);
+                state.borrow_mut().completion = Some(error);
+                return false;
+            }
+        };
+        let realm = state.borrow().realm.clone();
+        let on_fulfilled = FunctionObjectBuilder::new(
+            &realm,
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, _args, state, context| {
+                    AsyncDisposableStack::continue_dispose(state.clone(), context);
+                    Ok(JsValue::undefined())
+                },
+                state.clone(),
+            ),
+        )
+        .name("")
+        .length(1)
+        .build();
+        let on_rejected = FunctionObjectBuilder::new(
+            &realm,
+            NativeFunction::from_copy_closure_with_captures(
+                |_this, args, state, context| {
+                    let current = state.borrow_mut().completion.take();
+                    let error = context
+                        .append_disposal_error_value(current, args.get_or_undefined(0).clone());
+                    state.borrow_mut().completion = Some(error);
+                    AsyncDisposableStack::continue_dispose(state.clone(), context);
+                    Ok(JsValue::undefined())
+                },
+                state,
+            ),
+        )
+        .name("")
+        .length(1)
+        .build();
+        crate::builtins::Promise::perform_promise_then(
+            &wrapper,
+            Some(on_fulfilled),
+            Some(on_rejected),
+            None,
+            context,
+        );
+        true
     }
 
     fn disposed(this: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
@@ -570,12 +597,15 @@ impl AsyncDisposableStack {
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.use"))?;
-        let mut stack = object
-            .downcast_mut::<AsyncDisposableStackData>()
-            .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.use"))?;
-        if matches!(stack.state, AsyncDisposableState::Disposed) {
-            return Err(Self::reference_error("AsyncDisposableStack.prototype.use"));
-        }
+        let resources = {
+            let stack = object
+                .downcast_ref::<AsyncDisposableStackData>()
+                .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.use"))?;
+            if matches!(stack.state, AsyncDisposableState::Disposed) {
+                return Err(Self::reference_error("AsyncDisposableStack.prototype.use"));
+            }
+            stack.resources.clone()
+        };
 
         let method = context.get_dispose_method(
             &value,
@@ -583,22 +613,14 @@ impl AsyncDisposableStack {
             "AsyncDisposableStack.prototype.use requires an object, null, or undefined",
             "AsyncDisposableStack.prototype.use requires a callable dispose method",
         )?;
-        stack
-            .resources
+        resources
+            .borrow_mut()
             .push(DisposableResource::from_value(value.clone(), method, true));
         Ok(value)
     }
 
     fn adopt(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         let value = args.get_or_undefined(0).clone();
-        let on_dispose = args
-            .get_or_undefined(1)
-            .as_callable()
-            .ok_or_else(|| {
-                JsNativeError::typ().with_message(
-                    "AsyncDisposableStack.prototype.adopt requires a callable disposer",
-                )
-            })?;
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.adopt"))?;
@@ -606,26 +628,28 @@ impl AsyncDisposableStack {
             .downcast_mut::<AsyncDisposableStackData>()
             .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.adopt"))?;
         if matches!(stack.state, AsyncDisposableState::Disposed) {
-            return Err(Self::reference_error("AsyncDisposableStack.prototype.adopt"));
+            return Err(Self::reference_error(
+                "AsyncDisposableStack.prototype.adopt",
+            ));
         }
 
-        stack.resources.push(DisposableResource::from_callback(
-            Some(value.clone()),
-            on_dispose,
-            true,
-        ));
+        let on_dispose = args.get_or_undefined(1).as_callable().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("AsyncDisposableStack.prototype.adopt requires a callable disposer")
+        })?;
+
+        stack
+            .resources
+            .borrow_mut()
+            .push(DisposableResource::from_callback(
+                Some(value.clone()),
+                on_dispose,
+                true,
+            ));
         Ok(value)
     }
 
     fn defer(this: &JsValue, args: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-        let on_dispose = args
-            .get_or_undefined(0)
-            .as_callable()
-            .ok_or_else(|| {
-                JsNativeError::typ().with_message(
-                    "AsyncDisposableStack.prototype.defer requires a callable disposer",
-                )
-            })?;
         let object = this
             .as_object()
             .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.defer"))?;
@@ -633,14 +657,20 @@ impl AsyncDisposableStack {
             .downcast_mut::<AsyncDisposableStackData>()
             .ok_or_else(|| Self::type_error("AsyncDisposableStack.prototype.defer"))?;
         if matches!(stack.state, AsyncDisposableState::Disposed) {
-            return Err(Self::reference_error("AsyncDisposableStack.prototype.defer"));
+            return Err(Self::reference_error(
+                "AsyncDisposableStack.prototype.defer",
+            ));
         }
 
-        stack.resources.push(DisposableResource::from_callback(
-            None,
-            on_dispose,
-            true,
-        ));
+        let on_dispose = args.get_or_undefined(0).as_callable().ok_or_else(|| {
+            JsNativeError::typ()
+                .with_message("AsyncDisposableStack.prototype.defer requires a callable disposer")
+        })?;
+
+        stack
+            .resources
+            .borrow_mut()
+            .push(DisposableResource::from_callback(None, on_dispose, true));
         Ok(JsValue::undefined())
     }
 
@@ -655,7 +685,8 @@ impl AsyncDisposableStack {
             return Err(Self::reference_error("AsyncDisposableStack.prototype.move"));
         }
 
-        let resources = std::mem::take(&mut stack.resources);
+        let resources =
+            std::mem::replace(&mut stack.resources, Gc::new(GcRefCell::new(Vec::new())));
         stack.state = AsyncDisposableState::Disposed;
         drop(stack);
 
@@ -693,12 +724,17 @@ impl AsyncDisposableStack {
             return Ok(promise.into());
         }
 
-        let resources = std::mem::take(&mut stack.resources);
+        let resources =
+            std::mem::replace(&mut stack.resources, Gc::new(GcRefCell::new(Vec::new())));
         stack.state = AsyncDisposableState::Disposed;
         drop(stack);
 
+        let resources = std::mem::take(&mut *resources.borrow_mut());
         let state = Gc::new(GcRefCell::new(DisposeAsyncState {
             resources,
+            realm: context.realm().clone(),
+            needs_await: false,
+            has_awaited: false,
             completion: None,
             promise_capability,
         }));

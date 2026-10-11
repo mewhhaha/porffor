@@ -7,8 +7,8 @@ impl FunctionBuilder<'_> {
         result: &crate::gc_types::CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // The common error producer consumes actual callable captures or the
-        // helper's validated caller environment, then the real dynamic Realm.
+        // Dispatch helpers receive the selected caller execution Realm explicitly.
+        // A Promise job's Realm can differ from the runner's lexical Environment.
         self.emit_throw_runtime_error(
             lila_ir::NativeErrorKind::TypeError,
             message,
