@@ -14,6 +14,7 @@ use super::*;
 use lila_aot_wasm::{
     RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactKey,
 };
+use std::collections::VecDeque;
 
 #[cfg(test)]
 mod tests;
@@ -163,17 +164,27 @@ pub(super) fn decode_cache_entry(
     }
 }
 
-/// The native mode the runtime alone requires, scanned once per runtime.
+// Keep two hot profiles, as does the raw-runtime residency cache. Active
+// execution owns its kernel independently of these retained cache references.
+const RETAINED_RUNTIME_PROFILES: usize = 2;
+
+/// The native mode the runtime alone requires, scanned once while resident.
 fn runtime_native_compilation_mode(runtime: &RuntimeArtifact) -> WasmNativeCompilationMode {
-    static MODES: OnceLock<Mutex<HashMap<RuntimeArtifactKey, WasmNativeCompilationMode>>> =
+    static MODES: OnceLock<Mutex<VecDeque<(RuntimeArtifactKey, WasmNativeCompilationMode)>>> =
         OnceLock::new();
     let mut modes = MODES
         .get_or_init(Default::default)
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *modes
-        .entry(runtime.key())
-        .or_insert_with(|| plan_wasm_native_compilation(runtime.bytes()).mode)
+    let mode = match modes.iter().position(|(key, _)| *key == runtime.key()) {
+        Some(position) => modes.remove(position).unwrap().1,
+        None => plan_wasm_native_compilation(runtime.bytes()).mode,
+    };
+    if modes.len() == RETAINED_RUNTIME_PROFILES {
+        modes.pop_front();
+    }
+    modes.push_back((runtime.key(), mode));
+    mode
 }
 
 /// Chooses the execution Engine and ordinary fallback mode for both modules:
@@ -198,24 +209,34 @@ pub(super) fn intl_kernel_for(
         return intl_data_images::kernel_for_artifact(program.bytes);
     };
     static KERNELS: OnceLock<
-        Mutex<HashMap<RuntimeArtifactKey, Arc<IntlKernel<EmbeddedIntlProvider>>>>,
+        Mutex<VecDeque<(RuntimeArtifactKey, Arc<IntlKernel<EmbeddedIntlProvider>>)>>,
     > = OnceLock::new();
     let kernels = KERNELS.get_or_init(Default::default);
-    if let Some(kernel) = kernels
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(&runtime.key())
     {
-        return Ok(Arc::clone(kernel));
+        let mut kernels = kernels
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(position) = kernels.iter().position(|(key, _)| *key == runtime.key()) {
+            let entry = kernels.remove(position).unwrap();
+            let kernel = Arc::clone(&entry.1);
+            kernels.push_back(entry);
+            return Ok(kernel);
+        }
     }
     let kernel = intl_data_images::kernel_for_artifact(runtime.bytes())?;
-    Ok(Arc::clone(
-        kernels
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry(runtime.key())
-            .or_insert(kernel),
-    ))
+    let mut kernels = kernels
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Another caller can finish admission while this caller is decoding.
+    let kernel = match kernels.iter().position(|(key, _)| *key == runtime.key()) {
+        Some(position) => kernels.remove(position).unwrap().1,
+        None => kernel,
+    };
+    if kernels.len() == RETAINED_RUNTIME_PROFILES {
+        kernels.pop_front();
+    }
+    kernels.push_back((runtime.key(), Arc::clone(&kernel)));
+    Ok(kernel)
 }
 
 /// The program module, plus the runtime module when linked, both for `mode`.

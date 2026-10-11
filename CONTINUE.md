@@ -1,5 +1,22 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Cold compiler verification repair — 2026-10-11
+
+The unchanged `05f1a740a` focused attempts finish with 494 native passes,
+twelve failures and zero ignores across 506 tests. The complete corpus and
+CLI policy/deadline checks pass. Two TypedArray metadata assertions now use
+literal upstream feature vectors; a signed-zero worker and eight campaigns
+proved original five-second AOT timeouts. The ninth campaign failure lacks
+enough report detail to classify. Dev/test Intl and Wasm emission now use Rust
+optimization level 1; the optional Boa oracle drops its unused `cdylib`.
+Raw runtime residency is bounded to two profiles/256 MiB; mode and parsed
+Intl-kernel retention is bounded to two profiles. Active owners remain valid.
+Final workspace types, all 458 tooling tests, 47 publication-driver controls,
+eight Intl reproduction checks and repository guards pass. Fresh complete
+native verification is pending. Original evidence is preserved; no
+deadline, case or runtime admission is changed. See the
+[repair record](docs/rust-rewrite/cold-compiler-repairs-20261011.md).
+
 ## Verification iteration repair — 2026-10-11
 
 The coherent batch is applied: shared relational/TDZ helper emission, bounded

@@ -16013,132 +16013,153 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const PROPERTY_TEST_TYPED_ARRAY: &[&str] = &["propertyHelper.js", "testTypedArray.js"];
         const IS_CONSTRUCTOR_TEST_TYPED_ARRAY: &[&str] = &["isConstructor.js", "testTypedArray.js"];
         const DETACH_TEST_TYPED_ARRAY: &[&str] = &["detachArrayBuffer.js", "testTypedArray.js"];
-        const CASES: [(&str, u64, u64, &[&str]); 21] = [
+        const CASES: [(&str, u64, u64, &[&str], &[&str]); 21] = [
             (
                 "built-ins/TypedArray/prototype/toReversed/ignores-species.js",
                 0xb78f_a092_e9bd_d7b9,
                 0xb40f_d22c_0048_c1b6,
                 TEST_TYPED_ARRAY,
+                &["Symbol.species", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/immutable.js",
                 0x75f8_97c8_3ef9_ca2c,
                 0x479b_a55e_210c_3d46,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/length-property-ignored.js",
                 0x3421_68bd_55fa_097f,
                 0x3113_22d6_e7b7_6f2e,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/length.js",
                 0x2e04_84f6_445b_beb7,
                 0x536b_b2a7_b3e4_456c,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/name.js",
                 0x1dea_de8e_3144_96e4,
                 0x832f_5a05_9418_8944,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/not-a-constructor.js",
                 0x38f6_b0b5_2f01_a14a,
                 0xa287_2801_4303_5240,
                 IS_CONSTRUCTOR_TEST_TYPED_ARRAY,
+                &["Reflect.construct", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/property-descriptor.js",
                 0xbe4d_0189_ce54_fc3b,
                 0x65ad_d0bb_0789_8905,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/reverses.js",
                 0xc425_2c5e_5ac0_b401,
                 0x5755_b726_0da2_5776,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
                 0xdb16_b6bd_49cc_1988,
                 0xa3c2_9c71_8a97_88ec,
                 DETACH_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/comparefn-controls-sort.js",
                 0x1b2c_a266_8884_56f0,
                 0x8103_4e83_ac96_4662,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/comparefn-default.js",
                 0x84a2_2d33_e40b_dff2,
                 0x71cf_b50d_b33d_f768,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/comparefn-not-a-function.js",
                 0x37cb_c394_ab9c_24b4,
                 0xfe26_be90_fbda_34b4,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/comparefn-stop-after-error.js",
                 0xd5ac_8f48_1878_cd85,
                 0x2bad_bc8e_73c1_e1eb,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/ignores-species.js",
                 0xcfe2_6abf_e2a7_29a9,
                 0x3ca9_4568_8838_6adb,
                 TEST_TYPED_ARRAY,
+                &["Symbol.species", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/immutable.js",
                 0x4bcf_0f6d_67f4_3d9c,
                 0xb243_b7c3_d3d7_571f,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/length-property-ignored.js",
                 0x1eb3_d7fa_1c02_cceb,
                 0x1a77_c3ae_23db_1baf,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/length.js",
                 0xa169_61e0_92f1_c7ff,
                 0xb5a3_7841_796b_4ba9,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/name.js",
                 0x9a66_e1aa_63ab_79cf,
                 0xb0aa_df55_ece9_e5d6,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/not-a-constructor.js",
                 0x7c06_f329_7b96_c64e,
                 0xa31e_c06c_cbfe_b01f,
                 IS_CONSTRUCTOR_TEST_TYPED_ARRAY,
+                &["Reflect.construct", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/property-descriptor.js",
                 0x3f40_3b95_685c_db54,
                 0x15ba_14a4_e1e7_58d5,
                 PROPERTY_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js",
                 0x1e9b_a9e8_ccea_c004,
                 0x3fac_daa6_674f_f7e3,
                 DETACH_TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
         ];
         const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
@@ -16225,8 +16246,13 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             );
         }
 
-        for (path, expected_source_fingerprint, expected_contract_fingerprint, expected_includes) in
-            CASES
+        for (
+            path,
+            expected_source_fingerprint,
+            expected_contract_fingerprint,
+            expected_includes,
+            expected_features,
+        ) in CASES
         {
             let source_path = test_root.join(path);
             let original_source = fs::read_to_string(&source_path)
@@ -16255,11 +16281,6 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             );
 
             for case in cases {
-                let expected_features: &[&str] = if path.ends_with("/not-a-constructor.js") {
-                    &["Reflect.construct", "TypedArray", "change-array-by-copy"]
-                } else {
-                    &["TypedArray", "change-array-by-copy"]
-                };
                 assert_eq!(
                     case.original_source.as_bytes(),
                     original_source.as_bytes(),
@@ -16387,162 +16408,188 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const TEST_TYPED_ARRAY_COMPARE_ARRAY: &[&str] = &["testTypedArray.js", "compareArray.js"];
         const TEST_TYPED_ARRAY_PROPERTY: &[&str] = &["testTypedArray.js", "propertyHelper.js"];
         const IS_CONSTRUCTOR_TEST_TYPED_ARRAY: &[&str] = &["isConstructor.js", "testTypedArray.js"];
-        const CASES: [(&str, u64, u64, &[&str]); 26] = [
+        const CASES: [(&str, u64, u64, &[&str], &[&str]); 26] = [
             (
                 "built-ins/TypedArray/prototype/with/BigInt/early-type-coercion-bigint.js",
                 0xe1b1_6197_5b55_5b0e,
                 0x03b6_7a7a_6f9e_0658,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["BigInt", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/BigInt/index-coercion-shrinks.js",
                 0x69fc_8867_de30_aeb2,
                 0x78a1_0b91_fc90_c644,
                 TEST_TYPED_ARRAY,
+                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/BigInt/negative-index-resize-to-out-of-bounds.js",
                 0x3c84_4bff_c088_7fce,
                 0x88cb_0ea7_39d6_716c,
                 TEST_TYPED_ARRAY,
+                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/BigInt/value-coercion-shrinks.js",
                 0xf52c_d50d_87ab_267a,
                 0xcbce_158c_af93_c219,
                 TEST_TYPED_ARRAY,
+                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/early-type-coercion.js",
                 0x4bfb_7f68_0f43_733d,
                 0x8dfa_5613_52a4_de25,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/ignores-species.js",
                 0x00b3_5726_f539_c78c,
                 0xb066_de01_b1a2_782a,
                 TEST_TYPED_ARRAY,
+                &["Symbol.species", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/immutable.js",
                 0x962e_8dd3_ffc8_d3ce,
                 0x25bb_2c66_fea0_6159,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-bigger-or-eq-than-length.js",
                 0xbbe3_0f92_1ff0_4299,
                 0xb7c6_8e20_1023_c74c,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-casted-to-number.js",
                 0x30d6_f230_0a60_ce4c,
                 0xf1be_8488_8b71_26d2,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-coercion-shrinks.js",
                 0x9de2_faba_abe6_3bff,
                 0x6d74_f6be_046f_a6ee,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-negative.js",
                 0xc25e_729c_faab_7999,
                 0x2ee3_38f1_c806_1a1a,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-smaller-than-minus-length.js",
                 0xa9bc_d2ee_4a3a_e514,
                 0xf1c5_d3d1_21fd_e093,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-throw-completion.js",
                 0x82b7_a05a_53af_2573,
                 0x1088_5725_00db_026d,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/length-property-ignored.js",
                 0xfffe_4e34_5663_8125,
                 0xcf62_bc64_de95_9805,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/length.js",
                 0xb00a_8809_4c69_08a2,
                 0x1024_7628_f70e_0f6c,
                 TEST_TYPED_ARRAY_PROPERTY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/name.js",
                 0x0c1e_e128_3112_95a1,
                 0xc3bc_34fd_228f_278a,
                 TEST_TYPED_ARRAY_PROPERTY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-fractional-index-truncated-to-zero.js",
                 0x3a94_1f31_d035_7c05,
                 0x7372_638d_3933_4c53,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-index-resize-to-in-bounds.js",
                 0xe746_6bd1_8ec3_56bb,
                 0x639c_97a3_e3f0_52ac,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
                 0xde1a_dd8a_3ea2_b038,
                 0xbd51_2cb6_7faa_f184,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/not-a-constructor.js",
                 0x6bf6_6859_de94_342a,
                 0xa9c3_e0cf_78d1_f1db,
                 IS_CONSTRUCTOR_TEST_TYPED_ARRAY,
+                &["Reflect.construct", "TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/order-of-evaluation.js",
                 0x56d5_37c1_ac98_95d8,
                 0xfa5e_1e90_5136_1d5e,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/property-descriptor.js",
                 0x7baf_5400_c178_ad64,
                 0xc57b_56b5_872e_f3bd,
                 TEST_TYPED_ARRAY_PROPERTY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/this-value-invalid.js",
                 0x17ea_5510_9f96_2dfb,
                 0x3601_b571_76ad_3a79,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/valid-typedarray-index-checked-after-coercions.js",
                 0x53da_8b0f_8d01_d208,
                 0x60ae_178a_039b_6f06,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/value-coercion-shrinks.js",
                 0x0bc0_577c_c02e_7803,
                 0x7568_d695_03f6_3f33,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
             ),
             (
                 "built-ins/TypedArray/prototype/with/value-throw-completion.js",
                 0xacff_000e_e620_20a7,
                 0x4699_270f_f47a_d024,
                 TEST_TYPED_ARRAY,
+                &["TypedArray", "change-array-by-copy"],
             ),
         ];
         const NO_HELPER_NEIGHBOR: (&str, u64, u64) = (
@@ -16582,7 +16629,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             .collect::<BTreeSet<_>>();
         let expected_helper_paths = CASES
             .iter()
-            .map(|(path, _, _, _)| *path)
+            .map(|(path, _, _, _, _)| *path)
             .collect::<BTreeSet<_>>();
         assert_eq!(helper_paths, expected_helper_paths);
         let no_helper_paths = physical_paths
@@ -16685,8 +16732,13 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             );
         }
 
-        for (path, expected_source_fingerprint, expected_contract_fingerprint, expected_includes) in
-            CASES
+        for (
+            path,
+            expected_source_fingerprint,
+            expected_contract_fingerprint,
+            expected_includes,
+            expected_features,
+        ) in CASES
         {
             let source_path = test_root.join(path);
             let original_source = fs::read_to_string(&source_path)
@@ -16715,21 +16767,6 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             );
 
             for case in cases {
-                let expected_features: &[&str] = if path.contains("/BigInt/") {
-                    &["BigInt", "TypedArray", "change-array-by-copy"]
-                } else if path.contains("resize")
-                    || path.ends_with("/valid-typedarray-index-checked-after-coercions.js")
-                {
-                    &[
-                        "TypedArray",
-                        "change-array-by-copy",
-                        "resizable-arraybuffer",
-                    ]
-                } else if path.ends_with("/not-a-constructor.js") {
-                    &["Reflect.construct", "TypedArray", "change-array-by-copy"]
-                } else {
-                    &["TypedArray", "change-array-by-copy"]
-                };
                 assert_eq!(
                     case.original_source.as_bytes(),
                     original_source.as_bytes(),

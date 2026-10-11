@@ -1,5 +1,17 @@
 # Lila
 
+The cold compiler repair replaces two stale TypedArray feature inventories and
+optimizes native Intl admission/Wasm emission builds. The optional oracle emits
+only its Rust library to avoid Cargo output collisions. Runtime caches retain
+two hot Intl profiles; raw runtime retention also has a 256 MiB byte budget.
+The preceding focused
+attempts record 494 native passes, twelve failures and zero ignores; most
+remaining failures are original five-second AOT deadlines. Final workspace
+types, all 458 tooling tests, 47 publication-driver controls, eight Intl
+reproduction checks and repository guards pass. Complete native verification
+is pending. See the
+[repair record](docs/rust-rewrite/cold-compiler-repairs-20261011.md).
+
 The next verification repair batch outlines repeated relational comparison and
 TDZ error emission, shares admitted Intl selections through a bounded cache,
 and allows serial CLI captures to reuse the process when the checked ledger has

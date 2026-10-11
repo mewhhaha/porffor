@@ -1,5 +1,16 @@
 # Compiler stage and artifact profiles
 
+Native Rust dev/test builds optimize `lila-intl` and `lila-aot-wasm` at level 1
+to reduce cold data-admission and emission work within existing case budgets.
+Frontend/IR builds retain level 0. This changes Rust compilation settings;
+product Wasmtime profiles, validation, case budgets and measurements retain
+their existing contracts. The optional Boa oracle emits only its Rust library.
+Raw runtime residency retains at most two completed profiles and 256 MiB of raw
+bytes. Concurrent emissions of one profile share weak initialization slots;
+failed and oversized slots are not retained. Active artifacts survive eviction.
+Native-mode and parsed Intl-kernel caches retain two hot profiles. These bounds
+describe cache ownership, independently of process RSS and active callers.
+
 `lila performance compile --output-dir PATH --samples 3..100 --machine-label LABEL
 --idle-machine` measures the existing twenty-source performance corpus serially.
 Each source gets one full warmup, followed by the requested measured compiles.

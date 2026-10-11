@@ -446,7 +446,8 @@ fn generator_requests_reach_the_active_finalizer_before_any_generated_early_retu
         let report = replay_case(&case, SpecExecOracle::explicitly_enabled(), &runner()).unwrap();
         assert_eq!(
             report.verdict(),
-            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+            DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch,
+            "{report:?}"
         );
         for observation in [report.wasm_aot(), report.spec_exec()] {
             let OutputEventsObservation::Captured { events } = &observation.output_events else {

@@ -9,7 +9,6 @@
 //! together equal the one monolithic index space and P's bodies address
 //! runtime functions and globals by the same numbers R uses.
 
-use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -21,6 +20,7 @@ use crate::EmitError;
 
 mod build_package;
 mod cache;
+mod residency;
 pub use build_package::{build_runtime_artifact, RuntimeArtifactInputs, RuntimeBuildArtifact};
 pub use cache::{RuntimeArtifactCache, RuntimeArtifactCacheKey};
 
@@ -220,10 +220,8 @@ impl PartialEq for RuntimeArtifact {
 
 impl Eq for RuntimeArtifact {}
 
-type RuntimeSlot = Arc<OnceLock<Result<Arc<RuntimeArtifact>, EmitError>>>;
-
-/// The runtime module for `selection`, emitted once per process and Intl data
-/// selection.
+/// The runtime module for `selection`, shared while resident in the bounded
+/// process cache or while an emission for that selection is in flight.
 pub fn runtime_artifact(
     selection: &lila_intl::IntlDataSelection,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
@@ -245,7 +243,7 @@ pub fn runtime_artifact_with_inputs(
     selection: &lila_intl::IntlDataSelection,
     inputs: RuntimeArtifactInputs<'_>,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
-    static RUNTIMES: OnceLock<Mutex<HashMap<[u8; 32], RuntimeSlot>>> = OnceLock::new();
+    static RUNTIMES: OnceLock<Mutex<residency::RuntimeResidency>> = OnceLock::new();
     let admission_started = std::time::Instant::now();
     let identity = cache::RuntimeIdentity::admit(selection)?;
     if std::env::var_os("LILA_WASM_TRACE").is_some() {
@@ -254,16 +252,22 @@ pub fn runtime_artifact_with_inputs(
             admission_started.elapsed()
         );
     }
-    let slot = Arc::clone(
-        RUNTIMES
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .entry(identity.digest())
-            .or_default(),
-    );
-    slot.get_or_init(|| inputs.load_or_emit(&identity, || emit_runtime_artifact(selection)))
-        .clone()
+    let runtimes = RUNTIMES.get_or_init(Default::default);
+    let digest = identity.digest();
+    let slot = runtimes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .slot(digest);
+    // Initialization can compile a large module. Other profiles must not wait
+    // for it under the cache lock; concurrent callers of this profile share it.
+    let result = slot
+        .get_or_init(|| inputs.load_or_emit(&identity, || emit_runtime_artifact(selection)))
+        .clone();
+    runtimes
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .retain(digest, &slot);
+    result
 }
 
 fn emit_runtime_artifact(
