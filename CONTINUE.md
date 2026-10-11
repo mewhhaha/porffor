@@ -7,7 +7,13 @@ Use Luna agents for read-only chores/exploration; root writes code.
 
 ## Intl source recovery — 2026-10-11
 
-The complete tooling suite now passes 428 tests with zero failures/errors.
+The latest complete tooling suite passes 432 tests with zero failures/errors,
+including four new NumberFormat memoization controls. Bounded producer caches
+preserve exact data, provenance and coverage bytes for eight varied locales;
+the isolated extraction measures 15.145 seconds versus 20.705 initially.
+Complete pinned reproduction is still pending. See the
+[generator receipt](docs/rust-rewrite/intl-generator-memoization-20261011.md).
+The preceding source-recovery checkpoint passes 428 tests.
 Restore-and-pin repairs track the exact Unicode17 `UnicodeData.txt` and CLDR47
 `scriptMetadata.txt` previously omitted by `*.txt`; byte counts and SHA-256 pins
 are unchanged. Intl identity generators bind current production and Cargo.lock,

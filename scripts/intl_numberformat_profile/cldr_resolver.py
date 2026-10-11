@@ -33,6 +33,7 @@ def segment(tag, attributes=()):
     return Segment(tag, attributes)
 
 
+@lru_cache(maxsize=32768)
 def path_text(path):
     return "/".join(map(str, path))
 
@@ -174,6 +175,7 @@ class CldrResolver:
         self.cache = {}
         self.child_cache = {}
         self.normalized_paths = {}
+        self.lineages = {}
 
     def read(self, path):
         record = self.sources[path]
@@ -190,6 +192,11 @@ class CldrResolver:
         return LocaleTree(locale, self.xml(f"common/main/{locale}.xml"), self.schema)
 
     def lineage(self, locale):
+        original = locale
+        if original in self.lineages:
+            yield from self.lineages[original]
+            return
+        ancestors = []
         seen = set()
         while True:
             if locale in seen:
@@ -198,8 +205,12 @@ class CldrResolver:
             if locale not in self.locales and locale not in self.default_content:
                 raise ValueError(f"missing required parent source: {locale}")
             if locale in self.locales:
+                ancestors.append(locale)
                 yield locale
             if locale == "root":
+                # Cache only a fully consumed, successful chain. Pinned parent
+                # metadata is fixed for this resolver; failures remain uncached.
+                self.lineages[original] = tuple(ancestors)
                 return
             locale = self.parents.get(locale, locale.rsplit("_", 1)[0] if "_" in locale else "root")
 

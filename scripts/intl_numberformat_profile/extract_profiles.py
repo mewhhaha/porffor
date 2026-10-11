@@ -160,12 +160,14 @@ class Extractor:
     def add(self, table, value):
         return self.pools[table].add(value)
 
+    @lru_cache(maxsize=4096)
     def string(self, value):
         return self.add("strings", value)
 
     def pattern(self, tokens):
         return self.add("patterns", [(kind, self.string(text)) for kind, text in tokens])
 
+    @lru_cache(maxsize=4096)
     def signed(self, source, *, compact=False):
         parsed = number_pattern(source, compact=compact)
         return self.add("signed_patterns", {
@@ -332,6 +334,27 @@ class Extractor:
             values.append(None if text is None else self.pattern(message_pattern(text, arguments=(0, 1))))
         return self.add("choices", {"kind": "pattern", "values": values})
 
+    @lru_cache(maxsize=128)
+    def unicode_set(self, source):
+        # Tables are pinned once per Extractor; intern at the first occurrence.
+        return self.add("unicode_sets", parse_unicode_set(source, self.unicode_properties))
+
+    @lru_cache(maxsize=128)
+    def currency_overrides(self, locale):
+        # Independent of numbering system. The first call remains at its original
+        # position so pool insertion order and consumed source leaves stay exact.
+        r = self.resolver
+        overrides = []
+        for code in sorted(self.currency_override_codes):
+            cp = f"numbers/currencies/currency[@type='{code}']"
+            override = {"code": code}
+            for name in ("decimal", "group", "pattern"):
+                source = r.text(locale, cp + "/" + name, required=False)
+                override[name] = None if source is None else self.signed(source) if name == "pattern" else self.string(source)
+            if any(override[name] is not None for name in ("decimal", "group", "pattern")):
+                overrides.append(override)
+        return overrides
+
     def numbering_profile(self, locale, system):
         r = self.resolver
         prefix = f"numbers/symbols[@numberSystem='{system}']"
@@ -358,22 +381,14 @@ class Extractor:
                              for name in ["currencyMatch", "surroundingMatch", "insertBetween"]}
         for side in spacing.values():
             for name in ("currencyMatch", "surroundingMatch"):
-                side[name] = self.add("unicode_sets", parse_unicode_set(side[name], self.unicode_properties))
+                side[name] = self.unicode_set(side[name])
             side["insertBetween"] = self.string(side["insertBetween"])
         range_pattern = r.text(locale, f"numbers/miscPatterns[@numberSystem='{system}']/pattern[@type='range']")
         unit_pattern = self.currency_unit_choices(locale)
         minimum = int(r.text(locale, "numbers/minimumGroupingDigits"))
         if not 1 <= minimum <= 3:
             raise ValueError(f"unresolved grouping minimum: {locale} {minimum}")
-        overrides = []
-        for code in sorted(self.currency_override_codes):
-            cp = f"numbers/currencies/currency[@type='{code}']"
-            override = {"code": code}
-            for name in ("decimal", "group", "pattern"):
-                source = r.text(locale, cp + "/" + name, required=False)
-                override[name] = None if source is None else self.signed(source) if name == "pattern" else self.string(source)
-            if any(override[name] is not None for name in ("decimal", "group", "pattern")):
-                overrides.append(override)
+        overrides = self.currency_overrides(locale)
         return self.add("numbering_profiles", {
             "symbols": symbols, "patterns": patterns, "minimum_grouping": minimum,
             "compact_short": self.compact(locale, system, "short"),
