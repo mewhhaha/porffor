@@ -26,6 +26,8 @@ jobs:
           ./scripts/check-module-boundaries.sh
           ./scripts/audit-test262-shortcuts.sh --check
           ./scripts/check-test262-host-abi.sh
+          python3 -B scripts/check_conformance_source_pins.py
+          python3 -B -m unittest scripts.tests.test_conformance_source_pins
           ./scripts/check-no-legacy-js.sh
           ./scripts/check-lila-identity.sh
 

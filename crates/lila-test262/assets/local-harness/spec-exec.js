@@ -2,13 +2,25 @@
 // Test262 is BSD-3-Clause licensed; see the upstream LICENSE file
 
 /// sta.js
+// Copyright (c) 2012 Ecma International.  All rights reserved.
+// This code is governed by the BSD license found in the LICENSE file.
+/*---
+description: |
+    Provides both:
+
+    - An error class to avoid false positives when testing for thrown exceptions
+    - A function to explicitly throw an exception using the Test262Error class
+defines: [Test262Error, $DONOTEVALUATE]
+---*/
+
+
 function Test262Error(message) {
-  this.message = message || '';
-  this.name = 'Test262Error';
+  if (!(this instanceof Test262Error)) return new Test262Error(message);
+  this.message = message || "";
 }
 
 Test262Error.prototype.toString = function () {
-  return 'Test262Error: ' + this.message;
+  return "Test262Error: " + this.message;
 };
 
 Test262Error.thrower = function (message) {
@@ -16,9 +28,10 @@ Test262Error.thrower = function (message) {
 };
 
 function $DONOTEVALUATE() {
-  throw 'Test262: This statement should not be evaluated.';
+  throw "Test262: This statement should not be evaluated.";
 }
 
+// Lila SpecExec host adapter; separate from the upstream sta.js resource helper.
 function __lilaUnsupportedHost(name) {
   return __lilaUnsupportedHostCapability(name);
 }

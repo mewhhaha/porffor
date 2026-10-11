@@ -26,6 +26,7 @@ mod case_process;
 mod compiler_provenance;
 mod module_catalog;
 mod performance_evidence;
+mod source_pins;
 pub use performance_evidence::ConformancePerformanceEvidence;
 #[cfg(test)]
 mod snapshot_comparison_identity_tests;
@@ -2358,7 +2359,7 @@ impl ConformanceRunner {
 
 pub fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
     PinnedRevisions {
-        ecma262: "ecma262-current-draft".to_string(),
+        ecma262: source_pins::ecma262_revision().to_string(),
         test262: suite_test262_pin(&config.suite_root),
     }
 }
@@ -10270,6 +10271,46 @@ function $DONE(error) {
     }
 
     #[test]
+    fn embedded_assertion_and_resource_helpers_match_the_complete_upstream_sources() {
+        let root = repo_root().join("test262/vendor/test262/harness");
+        let embedded = real_wasm_aot_preludes();
+        for (name, upstream_name) in [
+            ("assert.js", "assert.js"),
+            ("sta.js", "sta.js"),
+            ("sta-preamble.js", "sta.js"),
+            ("propertyHelper.js", "propertyHelper.js"),
+        ] {
+            let source = fs::read_to_string(root.join(upstream_name)).unwrap();
+            let retained = embedded.get(name).unwrap();
+            assert_eq!(retained.origin, PreludeOrigin::LocalMerged);
+            assert_eq!(retained.contents, format!("{source}\n"), "{name}");
+        }
+        for name in ["nativeErrors.js", "testIntlNumberFormat.js"] {
+            assert_eq!(
+                embedded.get(name).unwrap().origin,
+                PreludeOrigin::VendoredHarness
+            );
+        }
+        let spec = load_preludes(&SuiteConfig {
+            suite_root: repo_root().join("test262/vendor/test262"),
+            local_harness: LocalHarnessSource::EmbeddedSpecExec,
+            ..fixture_config()
+        })
+        .unwrap();
+        let spec_sta = &spec.get("sta.js").unwrap().contents;
+        let (resource, host) = spec_sta
+            .split_once("// Lila SpecExec host adapter; separate from the upstream sta.js resource helper.\n")
+            .expect("oracle host adapter has a separate source boundary");
+        assert_eq!(
+            resource,
+            format!("{}\n", fs::read_to_string(root.join("sta.js")).unwrap())
+        );
+        assert!(host.starts_with("function __lilaUnsupportedHost(name) {"));
+        assert!(host.contains("var $262 = {"));
+        assert!(host.contains("return __lilaUnsupportedHostCapability(name);"));
+    }
+
+    #[test]
     fn load_preludes_none_uses_only_vendored_harness() {
         let store = load_preludes(&SuiteConfig {
             local_harness: LocalHarnessSource::None,
@@ -11124,12 +11165,25 @@ export const value = helperRead();
             physical_counts[index] += 1;
         }
 
-        assert_eq!(cases.len(), 102_043);
-        assert_eq!(physical_requirements.len(), 53_131);
-        assert_eq!(physical_counts, [52_334, 484, 313]);
-        assert_eq!(execution_counts, [100_496, 956, 591]);
-        assert_eq!(host_mode_counts, [788, 751, 8]);
-        assert_eq!((agent_physical_count, agent_execution_count), (109, 218));
+        assert_eq!(
+            (
+                cases.len(),
+                physical_requirements.len(),
+                physical_counts,
+                execution_counts,
+                host_mode_counts,
+                (agent_physical_count, agent_execution_count),
+            ),
+            (
+                102_994,
+                53_616,
+                [52_805, 495, 316],
+                [101_422, 975, 597],
+                [799, 762, 11],
+                (109, 218)
+            ),
+            "complete actual upstream host census",
+        );
     }
 
     #[test]

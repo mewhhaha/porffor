@@ -121,6 +121,15 @@ measures 37.8 seconds warm versus 120.7 seconds initially, with byte-identical
 bundles. All four focused native/admission controls pass. The earlier 256 MiB
 budget continually evicted core stencils; its unchanged-time result is retained.
 See the [Cargo runtime reuse receipt](docs/rust-rewrite/build-runtime-reuse-20261011.md).
+The complete official Test262 tree is updated to upstream `2e0a56762801`, with
+content tree `6a4268a9354a`, and execution metadata now pins exact ECMA-262
+source `5345883164f4`. Embedded assertion/resource/property harness sections
+follow the complete new upstream helpers. Source identity is checked against
+actual vendored bytes and modes. The current census contains 102,994 execution
+IDs over 53,616 test files. All fourteen focused source/host/harness checks, 488 distinct
+tooling tests, joined types and twelve guards pass. Full upstream execution
+remains pending; published conformance totals retain their historical pins. See the
+[source update](docs/rust-rewrite/conformance-source-pins-20261011.md).
 The historical September 30 input containing 5,365 failing execution IDs remains
 unavailable; its owner believes it was never pushed. Publisher-generated pinned conformance
 totals and task states remain unchanged.

@@ -20,3 +20,6 @@ pnpm-lock.yaml
 target/
 # Local source-recovery snapshots and verification logs are not product inputs.
 /.lila-task-work/
+
+# Preserve the complete official Test262 tree, including text and binary fixtures.
+!/test262/vendor/test262/**

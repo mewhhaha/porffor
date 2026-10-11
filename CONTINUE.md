@@ -5,6 +5,18 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Complete upstream source pin update — 2026-10-11
+
+The whole official Test262 tree and embedded assertion/resource/property
+helpers are updated together. Exact ECMA-262 and upstream/content-tree identities
+are embedded. All fourteen focused source/host/harness checks, 488 distinct tooling
+tests, joined all-feature/all-target types and twelve guards pass. The complete
+current census contains 102,994 execution IDs across 53,616 test files. See the [source update](docs/rust-rewrite/conformance-source-pins-20261011.md).
+Source-only old-image discovery is not execution acceptance. New Iterator
+chunks/windows and Error.prototype.stack tests expose missing product features;
+implement their actual algorithms. Keep historical publication counts and the
+unfinished task ledger until fresh complete acceptance.
+
 ## Async disposal and thenable-job Realm repair — 2026-10-11
 
 The complete affected module passes all ten native controls with zero failures

@@ -5,14 +5,27 @@ use lila_ir::HostSurfacePolicy;
 use lila_test262::{load_preludes, LocalHarnessSource, SuiteConfig};
 
 fn assert_harness(source: &str, includes: &[&str]) {
+    assert_harness_profile(source, includes, LocalHarnessSource::EmbeddedWasmAot, false);
+}
+
+fn assert_harness_profile(
+    source: &str,
+    includes: &[&str],
+    profile: LocalHarnessSource,
+    strict: bool,
+) {
     lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
     let mut config = SuiteConfig::default();
     config.suite_root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262");
-    config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
+    config.local_harness = profile;
     let preludes = load_preludes(&config).expect("embedded pinned harness");
-    let mut program = String::new();
-    for name in ["assert.js", "sta-preamble.js"]
+    let mut program = if strict {
+        "\"use strict\";\n".to_string()
+    } else {
+        String::new()
+    };
+    for name in ["assert.js", "sta.js"]
         .into_iter()
         .chain(includes.iter().copied())
     {
@@ -145,4 +158,47 @@ if (!caught || caught.constructor !== Test262Error
 "#,
         &["propertyHelper.js"],
     );
+}
+
+#[test]
+fn upstream_formatting_error_classes_and_accessor_helpers_work_in_both_profiles() {
+    let source = r#"
+assert.sameValue(isNegativeZero(-0), true);
+assert.sameValue(isNegativeZero(0), false);
+assert.sameValue(isNegativeZero(NaN), false);
+assert.sameValue(formatIdentityFreeValue(-0), '-0');
+assert.sameValue(formatIdentityFreeValue(1n), '1n');
+assert.sameValue(formatSimpleValue('value'), '"value"');
+assert.sameValue(formatSimpleValue({ toString: function () { throw new TypeError(); } }), '[object Object]');
+var original = new RangeError('opaque identity');
+var caught;
+try { formatSimpleValue({ toString: function () { throw original; } }); }
+catch (error) { caught = error; }
+assert.sameValue(caught, original);
+var callableError = Test262Error('callable without new');
+assert.sameValue(callableError instanceof Test262Error, true);
+assert.sameValue(callableError.message, 'callable without new');
+var holder = { get value() { return 7; }, set value(value) {} };
+verifyAccessorProperty(holder, 'value', {
+  get: {}, set: {}, enumerable: true, configurable: true
+}, { restore: true });
+assert.sameValue(holder.value, 7);
+verifyPrimordialAccessorProperty(holder, 'value', {
+  get: {}, set: {}, enumerable: true, configurable: true
+}, { restore: true });
+assert.sameValue(holder.value, 7);
+var diagnostic;
+try { verifyAccessorProperty(holder, 'value', { get: { name: 'wrong' } }); }
+catch (error) { diagnostic = error; }
+assert.sameValue(diagnostic instanceof Test262Error, true);
+assert.sameValue(diagnostic.message.indexOf('name') !== -1, true);
+"#;
+    for strict in [false, true] {
+        for profile in [
+            LocalHarnessSource::EmbeddedWasmAot,
+            LocalHarnessSource::EmbeddedWasmAotHostOnly,
+        ] {
+            assert_harness_profile(source, &["propertyHelper.js"], profile, strict);
+        }
+    }
 }

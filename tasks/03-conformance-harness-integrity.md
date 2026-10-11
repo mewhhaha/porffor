@@ -1,5 +1,19 @@
 # T03 — Test262 harness integrity and host contract
 
+## Complete upstream pin and harness update — 2026-10-11
+
+The complete official Test262 source is pinned to upstream `2e0a56762801`,
+content tree `6a4268a9354a`; exact ECMA-262 source `5345883164f4` is embedded in
+execution metadata. Current source census is 102,994 execution IDs over 53,616
+test files. The complete assertion/resource/property helpers match upstream;
+the SpecExec native-host adapter retains its separate source boundary.
+All nine source/host/census controls and all five pinned-harness native tests
+pass, including actual missing-host rejection and global accessors. The tooling
+checkpoint passes 488 distinct tests. Final joined all-feature/all-target types
+and all twelve repository/source guards pass.
+See the [source receipt](../docs/rust-rewrite/conformance-source-pins-20261011.md).
+Full upstream execution and formal T03 acceptance remain open.
+
 ## Harness acceptance audit — 2026-10-08
 
 The complete frozen tooling sweep passes all 38 commands and 405 Python methods
