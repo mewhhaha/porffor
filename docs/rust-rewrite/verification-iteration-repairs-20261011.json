@@ -687,5 +687,117 @@
     "actual Linux/macOS native comparison",
     "task migration and ledger deletion"
   ],
-  "public_path_policy": "Checkout-local native executable paths are rendered relative to the workspace; original absolute argv is retained in the private native receipt."
+  "public_path_policy": "Checkout-local native executable paths are rendered relative to the workspace; original absolute argv is retained in the private native receipt.",
+  "repository_guards": {
+    "all_exit_zero": true,
+    "commands": [
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 6.213,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-0.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.102,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-1.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "./scripts/check-task-plan.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.451,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-2.log",
+        "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+      },
+      {
+        "command": [
+          "./scripts/tests/check-readme-status-artifacts.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.789,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-3.log",
+        "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+      },
+      {
+        "command": [
+          "./scripts/tests/audit-test262-shortcut-scanner.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 2.029,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-4.log",
+        "log_sha256": "83cc11f9679429322550c3c50d90c81ac6dd716a378cc0ff6a20488c7d4c064d"
+      },
+      {
+        "command": [
+          "./scripts/check-module-boundaries.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 8.818,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-5.log",
+        "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+      },
+      {
+        "command": [
+          "./scripts/audit-test262-shortcuts.sh",
+          "--check"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.54,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-6.log",
+        "log_sha256": "8cf5515c7330113a203b7c360cadf7f12d033eac5f9d0e16f7f2a88e921fc870"
+      },
+      {
+        "command": [
+          "./scripts/check-test262-host-abi.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.073,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-7.log",
+        "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+      },
+      {
+        "command": [
+          "./scripts/check-no-legacy-js.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.104,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-8.log",
+        "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+      },
+      {
+        "command": [
+          "./scripts/check-lila-identity.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 28.121,
+        "log": "target/verification-iteration-repairs-20261011/identity-final.log",
+        "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+      },
+      {
+        "command": [
+          "./scripts/check-no-interpreter-in-product-graph.sh"
+        ],
+        "exit_code": 0,
+        "elapsed_seconds": 0.529,
+        "log": "target/verification-iteration-repairs-20261011/guards-final/guard-10.log",
+        "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+      }
+    ],
+    "original_identity_receipt_failure": "Checkout absolute paths contained the retired repository name; public receipt paths are rendered relative to the workspace and original raw argv remains retained."
+  }
 }
