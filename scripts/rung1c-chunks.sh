@@ -30,9 +30,10 @@
 #
 # 1. The current resource policy requires `--test-threads=1` and the confirmed
 #    4096 MiB kernel budget around Cargo and all descendants. Every test runs
-#    on `main`, so `known_failures::execution_path` selects its guarded cold
-#    CLI child path. That path preserves arguments and inherits the scope.
-#    Historical warm in-process timings do not describe this invocation.
+#    on `main`; with no declared CLI hang, `known_failures::execution_path`
+#    uses its bounded in-process path with a fresh Engine and Realm per call.
+#    A declared CLI hang guards every call from `main`. Explicit process
+#    controls, environment overrides and Test262 commands keep real children.
 #    Missing budget controls refuse the payload; do not raise it automatically.
 #
 # 2. libtest filters are SUBSTRINGS, not exact names. `array::` therefore also

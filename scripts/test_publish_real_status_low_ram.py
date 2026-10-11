@@ -103,7 +103,7 @@ class PublicationDriverTests(unittest.TestCase):
             "SUITE_ROOT": str(self.root / "suite root"),
             "SNAPSHOT_DIR": str(self.root / "snapshots"),
             "THREADS": "1", "JOBS": "1", "MAX_MATRIX_NODES": "1",
-            "ISOLATE_CASES": "1", "README_PATH": "",
+            "ISOLATE_CASES": "1", "REUSE_CASE_WORKERS": "0", "README_PATH": "",
         })
 
     def run_driver(self, progress, *, backend="wasm-aot", env=None, **config):
@@ -211,6 +211,39 @@ class PublicationDriverTests(unittest.TestCase):
         result = self.run_driver([], env={"ISOLATE_CASES": "0"})
         self.assert_failure(result, "case supervision is mandatory")
         self.assertEqual(self.calls(), [])
+
+    def test_explicit_reuse_is_forwarded_only_to_reports_and_bound_to_the_session(self):
+        result = self.run_driver(
+            [{"completed": 0, "total": 1}, {"completed": 1, "total": 1}],
+            env={"REUSE_CASE_WORKERS": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for call in self.calls():
+            self.assertEqual(
+                "--reuse-case-workers" in call["args"], call["args"][1] == "report-all"
+            )
+        self.assertIs(json.loads(self.manifest_path().read_text())["identity"]["reuse_case_workers"], True)
+        before = self.manifest_path().read_bytes()
+        result = self.run_driver([], env={"REUSE_CASE_WORKERS": "0"})
+        self.assert_failure(result, "provenance mismatch for reuse_case_workers")
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.manifest_path().read_bytes(), before)
+
+    def test_reuse_defaults_off_and_invalid_values_are_rejected_before_invocation(self):
+        self.env.pop("REUSE_CASE_WORKERS")
+        result = self.run_driver(
+            [{"completed": 0, "total": 1}, {"completed": 1, "total": 1}]
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(all("--reuse-case-workers" not in call["args"] for call in self.calls()))
+        self.assertIs(json.loads(self.manifest_path().read_text())["identity"]["reuse_case_workers"], False)
+        before = self.manifest_path().read_bytes()
+        for invalid in ("", "2", "true", "01"):
+            with self.subTest(invalid=invalid):
+                result = self.run_driver([], env={"REUSE_CASE_WORKERS": invalid})
+                self.assert_failure(result, "REUSE_CASE_WORKERS must be 0 or 1")
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(self.manifest_path().read_bytes(), before)
 
     def test_stalled_progress_stops_after_one_report(self):
         result = self.run_driver([{"completed": 0, "total": 2}])
@@ -329,7 +362,7 @@ class PublicationDriverTests(unittest.TestCase):
     def test_manifest_records_inputs_not_a_build_attestation(self):
         self.establish_manifest()
         manifest = json.loads(self.manifest_path().read_text())
-        self.assertEqual(manifest["schema_version"], 3)
+        self.assertEqual(manifest["schema_version"], 4)
         self.assertEqual(manifest["progress"], {"completed": 1, "total": 1})
         identity = manifest["identity"]
         self.assertEqual(identity["checkout_commit"], self.source)

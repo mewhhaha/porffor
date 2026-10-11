@@ -2659,13 +2659,13 @@ pub fn materialize_test(
 }
 
 #[cfg(test)]
-const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x09d1_0132_16fd_f211;
+const TEST_TYPED_ARRAY_PRELUDE_FNV1A: u64 = 0x34b9_2946_b531_1336;
 
 #[cfg(test)]
-const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x59f3_3074_36d5_4a9a;
+const PROPERTY_HELPER_PRELUDE_FNV1A: u64 = 0x97bb_d214_0c48_a37e;
 
 #[cfg(test)]
-const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+const LOCAL_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
 
 #[cfg(test)]
 const LOCAL_PROPERTY_HELPER_PRELUDE_FNV1A: u64 = PROPERTY_HELPER_PRELUDE_FNV1A;
@@ -9942,7 +9942,7 @@ function $DONE(error) {
             )
             .unwrap_or_else(|error| panic!("vendored {method} cases should scan: {error}"));
         }
-        assert_eq!(cases.len(), 622);
+        assert_eq!(cases.len(), 624);
         cases.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
 
         let mut physical_cases: Vec<TestCase> = Vec::new();
@@ -10791,8 +10791,8 @@ export const value = helperRead();
         assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_171);
         assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0xe031_f32c_ab10_55cc);
         assert_eq!(sta, sta_preamble);
-        assert_eq!(sta.len(), 720);
-        assert_eq!(fnv1a(&sta), 0xbda4_7f3d_1dd0_dad8);
+        assert_eq!(sta.len(), 793);
+        assert_eq!(fnv1a(&sta), 0xd1de_6d61_b24b_c195);
         assert!(!WASM_AOT_HOST_PRELUDE.contains("///"));
         assert!(!WASM_AOT_HARNESS.contains("var $262 ="));
         assert!(!WASM_AOT_HARNESS.contains("__lilaAgentStart"));
@@ -13598,8 +13598,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 method: "includes",
                 physical_count: 45,
                 full_count: 40,
-                source_cohort_fingerprint: 0xedb9_f76d_b168_d68a,
-                contract_cohort_fingerprint: 0xb6d4_2f32_7482_175b,
+                source_cohort_fingerprint: 0xb7f2_c627_0395_7676,
+                contract_cohort_fingerprint: 0x1bca_e8b0_8bed_482d,
                 metadata_cohort_fingerprint: 0x2a0a_805d_b470_f3ef,
                 full_cohort_fingerprint: 0x5398_022e_0264_abaf,
                 without_test_typed_array_cohort_fingerprint: 0xc22d_2668_e4d9_8e99,
@@ -13611,8 +13611,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 method: "indexOf",
                 physical_count: 43,
                 full_count: 39,
-                source_cohort_fingerprint: 0x7169_aa14_e35b_6ed4,
-                contract_cohort_fingerprint: 0xd763_1f50_03ad_3979,
+                source_cohort_fingerprint: 0x30e2_a17f_4343_633a,
+                contract_cohort_fingerprint: 0x173c_026f_7397_719a,
                 metadata_cohort_fingerprint: 0x9bf0_08a6_a2b8_59d1,
                 full_cohort_fingerprint: 0xa4c6_e58b_a795_5310,
                 without_test_typed_array_cohort_fingerprint: 0x38ef_6bac_d2d6_9137,
@@ -13624,8 +13624,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 method: "lastIndexOf",
                 physical_count: 42,
                 full_count: 38,
-                source_cohort_fingerprint: 0xc0bd_77f0_92ed_1d3f,
-                contract_cohort_fingerprint: 0x1eb0_9ac0_b218_2b85,
+                source_cohort_fingerprint: 0x0560_8ed3_f3af_9695,
+                contract_cohort_fingerprint: 0x6aae_072b_af86_67c4,
                 metadata_cohort_fingerprint: 0x08b0_939a_7f0c_abbd,
                 full_cohort_fingerprint: 0x3108_59f3_0fb9_d159,
                 without_test_typed_array_cohort_fingerprint: 0x4aaa_4276_6e46_cd1b,
@@ -13634,13 +13634,13 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 without_test_typed_array_suffixes: &LAST_INDEX_OF_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
             },
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const LOCAL_ASSERT_BYTES: usize = 4_595;
-        const LOCAL_STA_BYTES: usize = 720;
-        const VENDORED_ASSERT_BYTES: usize = 4_595;
-        const VENDORED_STA_BYTES: usize = 720;
-        const LOCAL_PROPERTY_HELPER_BYTES: usize = 12_073;
-        const VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
+        const LOCAL_ASSERT_BYTES: usize = 4_882;
+        const LOCAL_STA_BYTES: usize = 793;
+        const VENDORED_ASSERT_BYTES: usize = 4_882;
+        const VENDORED_STA_BYTES: usize = 793;
+        const LOCAL_PROPERTY_HELPER_BYTES: usize = 18_957;
+        const VENDORED_PROPERTY_HELPER_BYTES: usize = 18_957;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
         const DORMANT_HOST_BYTES: usize = 2_171;
         const DORMANT_HOST_FNV1A: u64 = 0xe031_f32c_ab10_55cc;
@@ -13706,8 +13706,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
 
         for (name, expected_bytes, expected_fingerprint) in [
             ("assert.js", LOCAL_ASSERT_BYTES, LOCAL_ASSERT_PRELUDE_FNV1A),
-            ("sta.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
-            ("sta-preamble.js", LOCAL_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
+            ("sta.js", LOCAL_STA_BYTES, 0xd1de_6d61_b24b_c195),
+            ("sta-preamble.js", LOCAL_STA_BYTES, 0xd1de_6d61_b24b_c195),
             (
                 "propertyHelper.js",
                 LOCAL_PROPERTY_HELPER_BYTES,
@@ -13723,8 +13723,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             assert_eq!(fnv1a(&prelude.contents), expected_fingerprint, "{name}");
         }
         for (name, expected_bytes, expected_fingerprint) in [
-            ("assert.js", VENDORED_ASSERT_BYTES, 0xf5ff_013f_6c0c_e879),
-            ("sta.js", VENDORED_STA_BYTES, 0xbda4_7f3d_1dd0_dad8),
+            ("assert.js", VENDORED_ASSERT_BYTES, 0x9559_0b7f_7e59_fee1),
+            ("sta.js", VENDORED_STA_BYTES, 0xd1de_6d61_b24b_c195),
             (
                 "propertyHelper.js",
                 VENDORED_PROPERTY_HELPER_BYTES,
@@ -14216,8 +14216,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 combined_changed_cohort_fingerprint,
             ),
             (
-                0xe1a7_2b9a_9367_957f,
-                0x3dd1_f189_1b50_1447,
+                0x7b1b_b199_b876_5e77,
+                0x2246_f086_0bd6_7b6f,
                 0xa187_9af3_8f49_af47,
                 0x29de_6e37_f194_8fc6,
                 0x64ca_820d_97af_3025,
@@ -14397,26 +14397,26 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const DIRECTORIES: [DirectoryContract; 2] = [
             DirectoryContract {
                 method: "filter",
-                full_count: 81,
-                source_cohort_fingerprint: 0xf42f_ee20_de8c_e7dc,
-                contract_cohort_fingerprint: 0xe216_2b5c_6a5b_93d5,
-                metadata_cohort_fingerprint: 0x18c2_1d5b_cfda_057d,
-                full_cohort_fingerprint: 0x6c8e_98e8_40ae_1978,
+                full_count: 84,
+                source_cohort_fingerprint: 0x10c1_6efb_8487_9046,
+                contract_cohort_fingerprint: 0x7496_ef6c_a5b0_8fb8,
+                metadata_cohort_fingerprint: 0x241d_a4c3_baba_f138,
+                full_cohort_fingerprint: 0xd3af_9172_36fb_0c3c,
                 without_test_typed_array_cohort_fingerprint: 0x45a0_c93e_4a48_f68b,
                 without_test_typed_array_suffixes: &FILTER_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
             },
             DirectoryContract {
                 method: "map",
-                full_count: 79,
-                source_cohort_fingerprint: 0x47e6_8dd2_b4d0_9ee6,
-                contract_cohort_fingerprint: 0x8966_405b_f934_19af,
-                metadata_cohort_fingerprint: 0x24bd_7929_d7ee_4292,
-                full_cohort_fingerprint: 0x5118_8829_97aa_38e5,
+                full_count: 80,
+                source_cohort_fingerprint: 0xe5d0_3938_30f1_c5ec,
+                contract_cohort_fingerprint: 0x8cc1_3236_8734_477d,
+                metadata_cohort_fingerprint: 0x6d32_8126_bd70_4f9b,
+                full_cohort_fingerprint: 0xc6e3_699b_0f0e_63a3,
                 without_test_typed_array_cohort_fingerprint: 0x2dab_d088_d025_9ad3,
                 without_test_typed_array_suffixes: &MAP_WITHOUT_TEST_TYPED_ARRAY_SUFFIXES,
             },
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -14502,7 +14502,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 panic!("vendored {} cases should scan: {error}", contract.method)
             });
             executions.sort_by(|left, right| left.execution_id.cmp(&right.execution_id));
-            assert_eq!(executions.len(), 168, "{}", contract.method);
+            assert_eq!(
+                executions.len(),
+                2 * (contract.full_count + contract.without_test_typed_array_suffixes.len()),
+                "{}",
+                contract.method
+            );
 
             let mut executions_by_path = BTreeMap::<String, Vec<TestCase>>::new();
             for case in executions {
@@ -14511,7 +14516,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                     .or_default()
                     .push(case);
             }
-            assert_eq!(executions_by_path.len(), 84, "{}", contract.method);
+            assert_eq!(
+                executions_by_path.len(),
+                contract.full_count + contract.without_test_typed_array_suffixes.len(),
+                "{}",
+                contract.method
+            );
 
             let mut source_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
             let mut contract_cohort_fingerprint = 0xcbf2_9ce4_8422_2325;
@@ -14869,7 +14879,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             "resizable-arraybuffer",
         ];
 
-        const FULL_VENDORED: [SliceCaseContract; 87] = [
+        const FULL_VENDORED: [SliceCaseContract; 88] = [
             SliceCaseContract::new(
                 "BigInt/arraylength-internal.js",
                 0x5372_1ba4_32d1_d3e1,
@@ -14879,50 +14889,50 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-custom-ctor-other-targettype.js",
-                0x5021_8084_ad71_7186,
-                0x1ab2_f2a2_5c4e_d408,
+                0xa178_60da_2ff0_b0aa,
+                0xf8bd_6dff_3ec5_6710,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-custom-ctor-same-targettype.js",
-                0xbce3_e936_c096_05ae,
-                0xe92b_6ffe_49cd_ed88,
+                0xc5e3_bf23_b60e_aa7d,
+                0x81b8_5446_769a_e61f,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-get-ctor.js",
-                0xf663_91da_125d_b1da,
-                0x87cb_c457_115a_debe,
+                0x6150_9e9b_1c8c_7a04,
+                0x5ecb_0dfe_97b7_d668,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
-                0x013f_ec41_9974_b4b3,
-                0x2971_60eb_d772_cabd,
+                0x2f8d_3aef_a05f_5179,
+                0x7146_da1a_6f05_5b0f,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-zero-count-custom-ctor-other-targettype.js",
-                0x98a5_c8c4_afb0_675f,
-                0xa9df_df2a_9f7e_eb82,
+                0x5119_c030_e21d_706a,
+                0x9931_609e_8387_e68d,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer-zero-count-custom-ctor-same-targettype.js",
-                0x9d51_cf79_5d7d_003e,
-                0x27f7_8981_1284_e74d,
+                0x3ca2_bc1f_5101_f694,
+                0xb89b_368e_4dff_b9bb,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_BIGINT_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/detached-buffer.js",
-                0x0c70_f02c_d27f_a639,
-                0x7e34_1dea_a18e_0a47,
+                0x0db6_5da0_cede_ef35,
+                0x1ad5_ad5a_987f_a607,
                 TEST_TYPED_ARRAY_DETACH,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -14970,29 +14980,29 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-end-symbol.js",
-                0x4192_b7bd_308b_ba34,
-                0xabe7_f91e_b4e2_4d07,
+                0x2401_6771_3072_3db0,
+                0xad21_326d_d162_a19f,
                 TEST_TYPED_ARRAY,
                 BIGINT_SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-end.js",
-                0xa9ce_dac4_0292_465a,
-                0x14b1_04ec_5762_ba94,
+                0x41aa_419a_406c_ec64,
+                0xe2b3_a029_0fc1_8372,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-start-symbol.js",
-                0x80d9_bdc6_3e98_51f4,
-                0x940e_04b5_0238_0484,
+                0x818d_1d0e_3177_7a22,
+                0x3ced_70d6_331b_3ef2,
                 TEST_TYPED_ARRAY,
                 BIGINT_SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/return-abrupt-from-start.js",
-                0x0322_47c5_6e2d_4353,
-                0x303b_672c_bb90_c20a,
+                0xf0c0_813f_4d02_4ae5,
+                0x7b14_7b39_7a9c_0218,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -15005,8 +15015,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/set-values-from-different-ctor-type.js",
-                0x1f81_9cb4_24db_39a2,
-                0x68b0_3b1e_3fad_e2ab,
+                0xa730_fd32_52a1_f4b6,
+                0xd135_579e_49d6_7bdd,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -15019,8 +15029,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-ctor-abrupt.js",
-                0xe845_e90c_c6eb_f531,
-                0x9afd_ad88_6947_2fa6,
+                0x0259_a6ed_a7b9_d498,
+                0xbcc8_3f3c_aa54_ba69,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
@@ -15040,15 +15050,15 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-ctor.js",
-                0x5e48_72db_449a_4842,
-                0x9c94_c011_7647_e390,
+                0x323d_fcb3_ddcc_7b45,
+                0x9f42_1805_f200_6a03,
                 TEST_TYPED_ARRAY,
                 BIGINT_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-species-abrupt.js",
-                0x6613_0ae3_da9d_9940,
-                0xbbe2_71dc_e9e1_8137,
+                0xc70d_925f_bb90_a333,
+                0x9fcc_55a9_b451_d6a6,
                 TEST_TYPED_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -15117,8 +15127,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "BigInt/speciesctor-get-species.js",
-                0xc29c_9d4b_f335_ce65,
-                0xe0fb_0b4d_9a96_1cb5,
+                0x080c_0854_f44f_765c,
+                0xbc43_7351_44a3_596c,
                 TEST_TYPED_ARRAY,
                 BIGINT_SPECIES_TYPED_ARRAY,
             ),
@@ -15152,50 +15162,50 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "detached-buffer-custom-ctor-other-targettype.js",
-                0x761c_c8f8_4074_3be1,
-                0x34b8_be6a_0e13_538d,
+                0xfacd_e4f9_5070_aaa5,
+                0x1256_1189_a64e_ee41,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-custom-ctor-same-targettype.js",
-                0x5538_0ab9_536b_0842,
-                0xb184_4df4_75a6_3542,
+                0xc0e8_3bc8_96b1_1bf1,
+                0xc6bd_d07b_ab0d_8af1,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-get-ctor.js",
-                0x1039_8845_01c6_780a,
-                0x39bd_61ae_ece5_1174,
+                0x564c_5926_7575_f894,
+                0x1682_5746_e2fb_c29a,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-speciesctor-get-species-custom-ctor-throws.js",
-                0x09f0_9cf1_09e6_c24d,
-                0xbe86_7c49_554b_7989,
+                0x508a_63d0_5e58_8a7f,
+                0x41e4_d314_b3bf_01bb,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-zero-count-custom-ctor-other-targettype.js",
-                0x8112_8be6_2e8b_3f4a,
-                0x08ac_ac7a_1e73_d133,
+                0x1051_e45b_4543_fceb,
+                0xf639_bfe7_8e33_2608,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer-zero-count-custom-ctor-same-targettype.js",
-                0xa511_8d90_1f63_c508,
-                0x2617_8106_171e_2815,
+                0x9f99_0635_f6fe_c7e4,
+                0x3e18_2eb6_0d66_caf1,
                 TEST_TYPED_ARRAY_DETACH,
                 ALIGN_SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "detached-buffer.js",
-                0x28a7_7873_3c9e_ae5b,
-                0xe891_b452_e65c_3f67,
+                0x69e3_4567_3d6e_d28b,
+                0x91c6_68d5_97b9_a9a7,
                 TEST_TYPED_ARRAY_DETACH,
                 TYPED_ARRAY,
             ),
@@ -15292,29 +15302,29 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-end-symbol.js",
-                0xa2b9_802e_03bd_5852,
-                0x17f6_b674_44d6_ffd3,
+                0xa1ca_df02_7a13_75d2,
+                0x3778_80b5_9583_677b,
                 TEST_TYPED_ARRAY,
                 SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-end.js",
-                0x370a_dc2a_b87f_0e1e,
-                0x97a1_0e82_66ae_fb12,
+                0x8de0_2b63_5622_b628,
+                0x0847_fb14_fa62_b3cc,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-start-symbol.js",
-                0x5802_5145_56b9_db3e,
-                0x5f8d_1808_5b29_2008,
+                0xf348_b507_2fa1_6620,
+                0x5e55_dfd3_cf08_2a26,
                 TEST_TYPED_ARRAY,
                 SYMBOL_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "return-abrupt-from-start.js",
-                0xd433_0ba8_a2e6_2dbf,
-                0x65e3_13d9_1468_255c,
+                0x60cf_bbf9_deae_ed81,
+                0x6322_220c_3eba_d8b6,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
@@ -15327,10 +15337,17 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "set-values-from-different-ctor-type.js",
-                0xedf4_7d50_d28c_2454,
-                0xd555_7faf_1e77_6ff9,
+                0x502b_94f5_3dfa_9ec4,
+                0x8863_e0c9_9156_a867,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
                 SPECIES_TYPED_ARRAY,
+            ),
+            SliceCaseContract::new(
+                "speciesctor-destination-backed-by-immutable-buffer.js",
+                0x83f9_9738_6bc9_0813,
+                0x0886_ed54_0974_4c2c,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+                &["Symbol.species", "TypedArray", "immutable-arraybuffer"],
             ),
             SliceCaseContract::new(
                 "speciesctor-destination-resizable.js",
@@ -15341,8 +15358,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-ctor-abrupt.js",
-                0xf712_328d_bbaa_f7d3,
-                0x4231_5b52_9b3c_0572,
+                0x8f56_209d_db2b_ade2,
+                0xd0f7_e672_1deb_4d35,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
@@ -15362,15 +15379,15 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-ctor.js",
-                0x6fcb_a161_3448_fe08,
-                0x98bc_3c8d_297a_33a0,
+                0xe7f9_74c8_fd92_64ab,
+                0x388e_6437_07b4_1c13,
                 TEST_TYPED_ARRAY,
                 TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "speciesctor-get-species-abrupt.js",
-                0xe5d6_d48a_b42a_344e,
-                0xdcb8_6207_5fa3_a303,
+                0xfe23_10bc_5fa8_1c21,
+                0x5127_ae35_366c_7ad2,
                 TEST_TYPED_ARRAY,
                 SPECIES_TYPED_ARRAY,
             ),
@@ -15439,17 +15456,17 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             SliceCaseContract::new(
                 "speciesctor-get-species.js",
-                0x402b_5d30_52b5_0537,
-                0x9cb1_1f88_46c7_225d,
+                0x9337_ca94_5776_a2a6,
+                0x7b54_d333_13f0_b9e4,
                 TEST_TYPED_ARRAY,
                 SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "speciesctor-return-same-buffer-with-offset.js",
-                0xdedd_c407_8a5d_04b9,
-                0x7b28_3881_3e94_288c,
+                0xbdda_5329_dc70_b6f9,
+                0xab58_3b3f_a2f1_6db0,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
-                TYPED_ARRAY,
+                SPECIES_TYPED_ARRAY,
             ),
             SliceCaseContract::new(
                 "this-is-not-object.js",
@@ -15480,7 +15497,6 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 TYPED_ARRAY,
             ),
         ];
-
         const NO_TEST_TYPED_ARRAY: [SliceCaseContract; 4] = [
             SliceCaseContract::new(
                 "coerced-start-end-grow.js",
@@ -15512,8 +15528,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
         ];
 
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
-        const FULL_VENDORED_PROPERTY_HELPER_BYTES: usize = 12_073;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
+        const FULL_VENDORED_PROPERTY_HELPER_BYTES: usize = 18_957;
         const PROPERTY_HELPER_SUFFIXES: [&str; 3] = ["length.js", "name.js", "prop-desc.js"];
         const TEST262_ERROR_SUFFIXES: [&str; 12] = [
             "BigInt/detached-buffer.js",
@@ -15548,7 +15564,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 .iter()
                 .map(|(_, contracts)| contracts.len())
                 .collect::<Vec<_>>(),
-            [87, 4]
+            [88, 4]
         );
         assert!(FULL_VENDORED
             .windows(2)
@@ -15570,7 +15586,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         let mut directory_cases = Vec::new();
         scan_tests(&slice_root, &test_root, None, true, &mut directory_cases)
             .expect("vendored TypedArray slice cases should scan");
-        assert_eq!(directory_cases.len(), 182);
+        assert_eq!(directory_cases.len(), 184);
 
         let expected_physical_paths = cohort_contracts
             .iter()
@@ -15584,7 +15600,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             .iter()
             .map(|case| case.path().to_string())
             .collect::<BTreeSet<_>>();
-        assert_eq!(expected_physical_paths.len(), 91);
+        assert_eq!(expected_physical_paths.len(), 92);
         assert_eq!(physical_paths, expected_physical_paths);
 
         let local_store = real_wasm_aot_preludes();
@@ -15958,12 +15974,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 full_execution_count,
                 without_test_typed_array_execution_count,
             ),
-            (174, 8)
+            (176, 8)
         );
         assert_eq!(property_helper_execution_count, 6);
         assert_eq!(test262_error_execution_count, 24);
         assert_eq!(host_execution_count, 28);
-        assert_eq!(local_sta_preamble_execution_count, 154);
+        assert_eq!(local_sta_preamble_execution_count, 156);
         assert_eq!(resizable_execution_count, 8);
     }
 
@@ -16000,8 +16016,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const CASES: [(&str, u64, u64, &[&str]); 21] = [
             (
                 "built-ins/TypedArray/prototype/toReversed/ignores-species.js",
-                0x9bc2_5ab3_d969_0514,
-                0x16ac_02f4_bee4_0fab,
+                0xb78f_a092_e9bd_d7b9,
+                0xb40f_d22c_0048_c1b6,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -16012,8 +16028,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/length-property-ignored.js",
-                0x5458_01c3_fb50_46b1,
-                0x1111_fc23_8fc5_ec88,
+                0x3421_68bd_55fa_097f,
+                0x3113_22d6_e7b7_6f2e,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -16048,8 +16064,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
-                0xa492_7dcc_3cca_2514,
-                0x502b_7920_6fac_6e68,
+                0xdb16_b6bd_49cc_1988,
+                0xa3c2_9c71_8a97_88ec,
                 DETACH_TEST_TYPED_ARRAY,
             ),
             (
@@ -16078,8 +16094,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/ignores-species.js",
-                0x628f_80d2_6daf_4a2a,
-                0xa4ef_7ddb_4524_6bcc,
+                0xcfe2_6abf_e2a7_29a9,
+                0x3ca9_4568_8838_6adb,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -16090,8 +16106,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/length-property-ignored.js",
-                0xea92_3ab6_ea1d_2d11,
-                0x4bdb_de96_60f1_f7c5,
+                0x1eb3_d7fa_1c02_cceb,
+                0x1a77_c3ae_23db_1baf,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -16120,12 +16136,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js",
-                0x958e_71c3_2a8f_8c32,
-                0x38c0_0efd_4b01_679d,
+                0x1e9b_a9e8_ccea_c004,
+                0x3fac_daa6_674f_f7e3,
                 DETACH_TEST_TYPED_ARRAY,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -16371,23 +16387,41 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const TEST_TYPED_ARRAY_COMPARE_ARRAY: &[&str] = &["testTypedArray.js", "compareArray.js"];
         const TEST_TYPED_ARRAY_PROPERTY: &[&str] = &["testTypedArray.js", "propertyHelper.js"];
         const IS_CONSTRUCTOR_TEST_TYPED_ARRAY: &[&str] = &["isConstructor.js", "testTypedArray.js"];
-        const CASES: [(&str, u64, u64, &[&str]); 21] = [
+        const CASES: [(&str, u64, u64, &[&str]); 26] = [
             (
                 "built-ins/TypedArray/prototype/with/BigInt/early-type-coercion-bigint.js",
-                0xb9e8_05b3_c61b_9604,
-                0x3392_3fa3_c8c8_0242,
+                0xe1b1_6197_5b55_5b0e,
+                0x03b6_7a7a_6f9e_0658,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
+                "built-ins/TypedArray/prototype/with/BigInt/index-coercion-shrinks.js",
+                0x69fc_8867_de30_aeb2,
+                0x78a1_0b91_fc90_c644,
+                TEST_TYPED_ARRAY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/BigInt/negative-index-resize-to-out-of-bounds.js",
+                0x3c84_4bff_c088_7fce,
+                0x88cb_0ea7_39d6_716c,
+                TEST_TYPED_ARRAY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/BigInt/value-coercion-shrinks.js",
+                0xf52c_d50d_87ab_267a,
+                0xcbce_158c_af93_c219,
+                TEST_TYPED_ARRAY,
+            ),
+            (
                 "built-ins/TypedArray/prototype/with/early-type-coercion.js",
-                0xca82_75b0_9dca_f50d,
-                0x236f_ecf8_c8c6_5395,
+                0x4bfb_7f68_0f43_733d,
+                0x8dfa_5613_52a4_de25,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/with/ignores-species.js",
-                0x6087_6401_73cf_0959,
-                0x7b13_cee1_e2e0_5623,
+                0x00b3_5726_f539_c78c,
+                0xb066_de01_b1a2_782a,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -16406,6 +16440,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 "built-ins/TypedArray/prototype/with/index-casted-to-number.js",
                 0x30d6_f230_0a60_ce4c,
                 0xf1be_8488_8b71_26d2,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+            ),
+            (
+                "built-ins/TypedArray/prototype/with/index-coercion-shrinks.js",
+                0x9de2_faba_abe6_3bff,
+                0x6d74_f6be_046f_a6ee,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -16428,8 +16468,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/with/length-property-ignored.js",
-                0xfdb7_a617_8da9_35fb,
-                0xe37f_7917_bd57_11db,
+                0xfffe_4e34_5663_8125,
+                0xcf62_bc64_de95_9805,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
@@ -16493,6 +16533,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 TEST_TYPED_ARRAY,
             ),
             (
+                "built-ins/TypedArray/prototype/with/value-coercion-shrinks.js",
+                0x0bc0_577c_c02e_7803,
+                0x7568_d695_03f6_3f33,
+                TEST_TYPED_ARRAY_COMPARE_ARRAY,
+            ),
+            (
                 "built-ins/TypedArray/prototype/with/value-throw-completion.js",
                 0xacff_000e_e620_20a7,
                 0x4699_270f_f47a_d024,
@@ -16504,7 +16550,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             0x1ade_8506_a4c0_25f6,
             0x44aa_af26_fb55_bfd0,
         );
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -16519,12 +16565,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         let mut directory_cases = Vec::new();
         scan_tests(&with_root, &test_root, None, true, &mut directory_cases)
             .expect("vendored TypedArray with cases should scan");
-        assert_eq!(directory_cases.len(), 44);
+        assert_eq!(directory_cases.len(), 54);
         let physical_paths = directory_cases
             .iter()
             .map(|case| case.path.as_str())
             .collect::<BTreeSet<_>>();
-        assert_eq!(physical_paths.len(), 22);
+        assert_eq!(physical_paths.len(), 27);
         let helper_paths = directory_cases
             .iter()
             .filter(|case| {
@@ -16808,16 +16854,16 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const CASES: [(&str, u64, u64); 2] = [
             (
                 "built-ins/TypedArray/prototype/toReversed/this-value-invalid.js",
-                0xa492_7dcc_3cca_2514,
-                0x502b_7920_6fac_6e68,
+                0xdb16_b6bd_49cc_1988,
+                0xa3c2_9c71_8a97_88ec,
             ),
             (
                 "built-ins/TypedArray/prototype/toSorted/this-value-invalid.js",
-                0x958e_71c3_2a8f_8c32,
-                0x38c0_0efd_4b01_679d,
+                0x1e9b_a9e8_ccea_c004,
+                0x3fac_daa6_674f_f7e3,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -18604,8 +18650,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/calls-tostring-from-each-value.js",
-                0x7306_d267_9875_3d39,
-                0xf59a_0367_9fa6_9930,
+                0x44d0_aace_03b3_15d1,
+                0xb3f2_cfe9_cad3_95ae,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -18616,14 +18662,14 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/detached-buffer.js",
-                0xd5f2_cd67_5ed0_1a39,
-                0xd85d_fdb4_5706_c14f,
+                0x0743_260a_e06d_980b,
+                0xbc0d_d1e3_b813_323d,
                 TEST_TYPED_ARRAY_DETACH,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/BigInt/empty-instance-returns-empty-string.js",
-                0x152c_34b0_a17a_9b5f,
-                0xac3c_64c1_7f4c_ab14,
+                0xd3f4_685c_3139_3921,
+                0x2634_fe12_aa64_f796,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -18682,32 +18728,32 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-tolocalestring-from-each-value.js",
-                0xa71a_5c9f_6c82_f411,
-                0x862b_8001_9eac_7fa9,
+                0xcfe9_f046_c73e_5f5f,
+                0x0dec_48ae_4f94_8bb7,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-tostring-from-each-value.js",
-                0x206f_2679_efae_8915,
-                0x5358_a624_6b76_7232,
+                0xeb04_152b_1884_a205,
+                0xae2d_bc4e_00c7_a318,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/calls-valueof-from-each-value.js",
-                0x19be_9b4a_e6a3_a048,
-                0x5761_9d54_c805_abbb,
+                0xecf6_5362_fb8e_5c3c,
+                0x8ad2_716e_0ff7_57dd,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/detached-buffer.js",
-                0x845e_0e56_6849_401f,
-                0x7d4c_867c_5fe5_142f,
+                0x77a9_e497_2839_532d,
+                0x33b9_5787_1b6a_449d,
                 TEST_TYPED_ARRAY_DETACH,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/empty-instance-returns-empty-string.js",
-                0xe980_027f_5db8_c9f9,
-                0xabee_3f1b_665d_07a4,
+                0x3c34_bc82_bfa9_dd2f,
+                0xb66e_7677_04e8_d426,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -18754,38 +18800,38 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tolocalestring.js",
-                0xfd9b_3597_350e_fee1,
-                0x2b65_456d_684d_5ae7,
+                0xd86d_7da5_1ec5_d459,
+                0x767e_edd5_4cde_9b6f,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-tostring.js",
-                0x2d61_dd60_eb7c_d8ca,
-                0x7387_afbc_40ce_4d46,
+                0x4b39_c9cf_4941_e852,
+                0x06e1_a8cf_f5c4_c576,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-firstelement-valueof.js",
-                0x5e0e_7ca2_fa03_abfe,
-                0xb0a5_fad5_4783_aa84,
+                0xead3_3ced_400d_c12e,
+                0x2602_b652_318f_eeb4,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tolocalestring.js",
-                0x5e60_854c_8c35_5ef2,
-                0x0ee9_f07f_6d93_a91b,
+                0x03b4_1a39_3b80_132e,
+                0x6f03_584c_7ce4_6185,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-tostring.js",
-                0x83e1_0378_da29_c578,
-                0xbc49_5282_fcdc_a36b,
+                0xbd60_30cb_6620_1f46,
+                0xe0fc_aacb_5cf4_19e3,
                 TEST_TYPED_ARRAY,
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-abrupt-from-nextelement-valueof.js",
-                0xce35_225e_48a1_fbac,
-                0xe88c_bd6b_8a04_7907,
+                0x03c7_e377_21dd_8752,
+                0x7a41_a8dc_936d_0477,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -18796,8 +18842,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             ),
             (
                 "built-ins/TypedArray/prototype/toLocaleString/return-result.js",
-                0x3ace_7735_43ff_3836,
-                0xee6e_d71d_0039_7026,
+                0x4b66_8a9f_d239_7dde,
+                0x94d3_e4d3_c6c7_880e,
                 TEST_TYPED_ARRAY,
             ),
             (
@@ -18830,7 +18876,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 0x8f7f_237c_72b4_1cde,
             ),
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
         const SPLIT_ONLY_FRAGMENTS: [&str; 2] = [
             "function selectCtorArgFactories(includeFeatures, excludeFeatures)",
             "function invokeForConstructor(f, constructor, argFactory)",
@@ -19901,7 +19947,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
 const MyUint8Array = subClass('Uint8Array');
 const MyFloat32Array = subClass('Float32Array');
 const MyBigInt64Array = subClass('BigInt64Array');"#;
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
 
         assert!(CASES.windows(2).all(|cases| cases[0].path < cases[1].path));
 
@@ -20202,7 +20248,7 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             "built-ins/TypedArray/prototype/values/resizable-buffer.js",
             "built-ins/TypedArray/prototype/values/return-abrupt-from-this-out-of-bounds.js",
         ];
-        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 14_921;
+        const FULL_TEST_TYPED_ARRAY_BYTES: usize = 16_527;
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
   try {
     return new Function('return class My' + type + ' extends ' + type + ' {}')();
@@ -21640,9 +21686,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xee6a_4c00_72e7_748b,
             0xfd94_0c3e_42b0_0d77,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -22233,8 +22279,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xf03e_d6ef_3707_0d42,
             0xf1f1_6b24_52c0_7f78,
         ];
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -22533,9 +22579,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xf572_aff0_e3c7_72ec,
             0xfdc9_8bc6_edcd_5f52,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -22926,9 +22972,9 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             0xe316_5e75_7875_0a86,
             0xf34c_6487_a9cd_b66c,
         ];
-        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xbda4_7f3d_1dd0_dad8;
-        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0xf5ff_013f_6c0c_e879;
+        const LOCAL_STA_PREAMBLE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_STA_PRELUDE_FNV1A: u64 = 0xd1de_6d61_b24b_c195;
+        const VENDORED_ASSERT_PRELUDE_FNV1A: u64 = 0x9559_0b7f_7e59_fee1;
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");

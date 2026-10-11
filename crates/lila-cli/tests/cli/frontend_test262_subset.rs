@@ -54,11 +54,11 @@
 //! chunk-key set must equal the module-stem set in both directions), and
 //! libtest applies `--exact` to `--skip` as well as to the filter, so
 //! `--exact frontend:: --skip <one test>` cannot express "frontend minus one
-//! test" either. Lowering `--test-threads` is banned outright: libtest names
-//! each worker thread after the test it runs and
-//! `known_failures::execution_path` routes on that name, so under
-//! `--test-threads=1` every test runs on the thread named `main` and the whole
-//! suite falls back to spawning a cold `lila` child per test.
+//! test" either. Serial libtest runs on `main`, where individual test names are
+//! unavailable. `known_failures::execution_path` uses the bounded in-process
+//! path there only while the ledger has no declared CLI hang; any CLI hang
+//! makes every invocation from `main` guarded. This Test262 command remains an
+//! actual subprocess independently of that routing choice.
 //!
 //! **Naming constraint for anyone adding a sibling module.** The overlap rule
 //! (`known_failures.rs:1554-1559`) is

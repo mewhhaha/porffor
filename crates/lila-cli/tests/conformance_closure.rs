@@ -19,17 +19,22 @@ fn release_closure_cannot_select_subsets_existing_names_or_an_oracle() {
         vec!["--threads", "2"],
         vec!["--worker-bin", "another-image"],
     ] {
-        let mut command = vec!["test262", "close-release"];
-        command.extend(arguments);
-        let capture = run_cli_capture(command);
-        assert_ne!(capture.exit_code, 0);
-        assert!(String::from_utf8(capture.stderr)
-            .unwrap()
-            .contains("unsupported closure option"));
-        assert!(
-            capture.stdout.is_empty(),
-            "invalid admission cannot produce a closure verdict"
-        );
+        for reuse in [false, true] {
+            let mut command = vec!["test262", "close-release"];
+            if reuse {
+                command.push("--reuse-case-workers");
+            }
+            command.extend(arguments.clone());
+            let capture = run_cli_capture(command);
+            assert_ne!(capture.exit_code, 0);
+            assert!(String::from_utf8(capture.stderr)
+                .unwrap()
+                .contains("unsupported closure option"));
+            assert!(
+                capture.stdout.is_empty(),
+                "invalid admission cannot produce a closure verdict"
+            );
+        }
     }
 }
 

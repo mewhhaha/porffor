@@ -152,7 +152,7 @@ independent mandatory obligations.
 
 The CLI exposes `compiler-identity` without creating a Realm. Publication JSON,
 text and future generated README retain the verified producer. The publication
-session's schema-3 manifest keeps observed checkout/source/suite/configuration
+session's schema-4 manifest keeps observed checkout/source/suite/configuration
 separate from the native embedded build fingerprint, binds the reported image
 to observed executable bytes, and requires native checkpoint identity before
 rewriting its progress high-water mark. Old observed sidecars do not authorize

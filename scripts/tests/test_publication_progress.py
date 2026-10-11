@@ -105,7 +105,7 @@ class ManifestProgressTests(unittest.TestCase):
         self.identity = dict.fromkeys(session.IDENTITY_KEYS, "fixture")
         self.identity.update(snapshot_directory=str(self.snapshots), snapshot_name="run α with spaces",
                              executable_sha256="b" * 64, compiler_identity=compiler_fixture(),
-                             isolate_cases=True)
+                             isolate_cases=True, reuse_case_workers=False)
         self.manifest, _ = session.manifest_paths(self.identity)
         self.manifest.parent.mkdir()
         session.claim_manifest(self.manifest, self.identity)
@@ -131,6 +131,27 @@ class ManifestProgressTests(unittest.TestCase):
         self.manifest.write_text(json.dumps(document))
         with self.assertRaisesRegex(session.ProvenanceError, "unsupported"):
             session.read_manifest(self.manifest)
+
+    def test_schema_three_cannot_supply_an_unrecorded_worker_reuse_policy(self):
+        document = self.document()
+        document["schema_version"] = 3
+        del document["identity"]["reuse_case_workers"]
+        self.manifest.write_text(json.dumps(document))
+        before = self.manifest.read_bytes()
+        with self.assertRaisesRegex(session.ProvenanceError, "unsupported"):
+            session.require_identity(self.manifest, self.identity)
+        self.assertEqual(self.manifest.read_bytes(), before)
+
+    def test_non_boolean_reuse_policy_cannot_compare_equal_to_the_current_policy(self):
+        for invalid in (0, 1, "0", "1", None):
+            with self.subTest(invalid=invalid):
+                document = self.document()
+                document["identity"]["reuse_case_workers"] = invalid
+                self.manifest.write_text(json.dumps(document))
+                before = self.manifest.read_bytes()
+                with self.assertRaisesRegex(session.ProvenanceError, "must be boolean"):
+                    session.require_identity(self.manifest, self.identity)
+                self.assertEqual(self.manifest.read_bytes(), before)
 
     def document(self):
         return json.loads(self.manifest.read_text())
@@ -356,7 +377,7 @@ class DriverTests(unittest.TestCase):
         self.name = "resume α with spaces"
         self.environment = dict(os.environ, REPO_ROOT=str(self.root), LILA_BIN=str(self.binary),
                                 SUITE_ROOT=str(self.suite), SNAPSHOT_DIR=str(self.snapshots),
-                                SNAPSHOT_NAME=self.name, THREADS="1", JOBS="1", ISOLATE_CASES="1",
+                                SNAPSHOT_NAME=self.name, THREADS="1", JOBS="1", ISOLATE_CASES="1", REUSE_CASE_WORKERS="0",
                                 MAX_MATRIX_NODES="1", README_PATH=str(self.root / "README fixture.md"))
         self.environment.pop("LILA_TEST262_FORCE_CASE_RUNNER", None)
         self.environment.pop("LILA_TEST262_DISABLE_CASE_RUNNER", None)
@@ -403,6 +424,18 @@ class DriverTests(unittest.TestCase):
         result = self.run_driver()
         self.assert_stops_before_report_or_publish(result, 0, "case supervision is mandatory")
         self.assertEqual(self.commands(), [])
+
+    def test_resume_rejects_changed_worker_reuse_policy_before_any_checkpoint_runs(self):
+        self.pause_after_one_observation()
+        path = self.manifest()
+        before = path.read_bytes()
+        since = len(self.commands())
+        self.environment["REUSE_CASE_WORKERS"] = "1"
+        self.assert_stops_before_report_or_publish(
+            self.run_driver(), since, "provenance mismatch for reuse_case_workers"
+        )
+        self.assertEqual(len(self.commands()), since)
+        self.assertEqual(path.read_bytes(), before)
 
     def test_manifest_cannot_claim_an_in_process_case_policy(self):
         self.pause_after_one_observation()

@@ -39,7 +39,11 @@ manifest checks remain the single snapshot authority. Journal and resume
 retirement behavior is unchanged.
 
 Publication wrappers reject `ISOLATE_CASES=0` and publication-session decoding
-requires a literal `isolate_cases: true`. Existing resource/environment/locale,
+requires a literal `isolate_cases: true`. Schema-4 publication identity separately
+records a literal boolean `reuse_case_workers`, defaulting to false. Explicit reuse
+keeps mandatory supervision and original deadlines; a policy change cannot resume
+the same family. Schema-2 closure evidence records the same selection for both
+fresh full families. Existing resource/environment/locale,
 source, compiler, suite and checkpoint bindings remain enforced. No timeout is a
 skip or a pass, and a measured suite closes only with zero non-successes.
 

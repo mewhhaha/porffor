@@ -214,13 +214,21 @@ fn wasm_aot_execution_stack_is_the_exact_private_no_capability_domain() {
     preludes: &PreludeStore,
     timeout_ms: u64,
     execution_backend: ExecutionBackend,
+    retain_modules: bool,
 ) -> TestResult {
     run_one_case_with_wasm_aot_execution(
         case,
         preludes,
         timeout_ms,
         execution_backend,
-        WasmAotExecutionStack::PersistentTest262Worker,
+        if retain_modules {
+            // The ordinary Engine entry retains only immutable compiled
+            // modules in the existing bounded cache. It owns a sized thread;
+            // all JS Realm/Store state still belongs to this exact invocation.
+            WasmAotExecutionStack::DedicatedWorker
+        } else {
+            WasmAotExecutionStack::PersistentTest262Worker
+        },
     )
 }
 
@@ -231,7 +239,6 @@ fn wasm_aot_execution_stack_is_the_exact_private_no_capability_domain() {
         declaration,
         concat!(
             "enum WasmAotExecutionStack {\n",
-            "    #[cfg(test)]\n",
             "    DedicatedWorker,\n",
             "    PersistentTest262Worker,\n",
             "}\n\n",
@@ -242,12 +249,12 @@ fn wasm_aot_execution_stack_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "WasmAotExecutionStack"),
-        8,
-        "one declaration, one parameter, two producers and four exhaustive arms own the authority"
+        9,
+        "one declaration, one parameter, three produced choices and four exhaustive arms own the authority"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "WasmAotExecutionStack::DedicatedWorker"),
-        3
+        4
     );
     assert_eq!(
         count_in_rust_sources(
@@ -322,6 +329,7 @@ fn both_execution_entry_points_produce_their_exact_stack_authority() {
             "            preludes,\n",
             "            config.timeout_ms,\n",
             "            run_config.execution_backend,\n",
+            "            config.reuse_case_workers,\n",
             "        )\n",
         ),
         "the product catch boundary must forward the admitted case through the persistent worker"
@@ -367,13 +375,21 @@ fn both_execution_entry_points_produce_their_exact_stack_authority() {
     preludes: &PreludeStore,
     timeout_ms: u64,
     execution_backend: ExecutionBackend,
+    retain_modules: bool,
 ) -> TestResult {
     run_one_case_with_wasm_aot_execution(
         case,
         preludes,
         timeout_ms,
         execution_backend,
-        WasmAotExecutionStack::PersistentTest262Worker,
+        if retain_modules {
+            // The ordinary Engine entry retains only immutable compiled
+            // modules in the existing bounded cache. It owns a sized thread;
+            // all JS Realm/Store state still belongs to this exact invocation.
+            WasmAotExecutionStack::DedicatedWorker
+        } else {
+            WasmAotExecutionStack::PersistentTest262Worker
+        },
     )
 }
 
@@ -400,8 +416,8 @@ fn both_execution_entry_points_produce_their_exact_stack_authority() {
     );
 
     let replay = include_str!("../src/differential/test262_seeds/worker.rs");
-    assert!(replay.contains(
-        "crate::run_one_case_on_persistent_worker(&case, &preludes, config.timeout_ms, backend)"
+    assert!(lexically_normalized_code(replay).contains(
+        "crate::run_one_case_on_persistent_worker(&case,&preludes,config.timeout_ms,backend,false,)"
     ));
     assert!(replay.contains(".stack_size(crate::TEST262_WORKER_STACK_SIZE)"));
     assert!(replay.contains("if original.test_id != *seed.execution_id()"));
@@ -440,7 +456,6 @@ fn execution_stack_is_borrowed_exhaustively_before_exact_ordered_engine_routes()
             && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()
             && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             }) {
@@ -466,7 +481,6 @@ fn execution_stack_is_borrowed_exhaustively_before_exact_ordered_engine_routes()
             )
         } else if execution_backend == ExecutionBackend::WasmAot
             && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             })

@@ -1141,11 +1141,13 @@ four properties that must not be "simplified", and
 `known_failures::rung_1c_chunks_cover_every_cli_area_module` fails if its chunk
 set stops partitioning the suite.
 
-The current 4 GiB budget requires `--test-threads=1`. Libtest runs each test
-on `main`, so `known_failures::execution_path` cannot observe its per-test name
-and selects the guarded cold CLI child path. That path preserves the original
-arguments, terminates and inherits the same resource scope. The historical
-warm-process timing estimates above do not describe this serial invocation.
+Verification retains `--test-threads=1`. Libtest runs each test on `main`, so
+`known_failures::execution_path` cannot observe its per-test name. A valid ledger
+with no CLI hang permits the existing bounded in-process capture path; any CLI
+hang sends every unnamed serial invocation through the guarded child path.
+Missing names and invalid ledgers also use guarded children. Every in-process
+capture still constructs a fresh Engine and JavaScript Realm. Commands that
+explicitly exercise subprocess behavior retain their actual subprocesses.
 Use `-- --exact <name>` to select one test; keep the thread setting at one.
 
 Keep `--stall` at 900 regardless: on a 4-CPU box with a sweep holding two of

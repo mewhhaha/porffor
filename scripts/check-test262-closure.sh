@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 verification_flags=(--memory-mib 4096)
-if [[ ${1:-} == --cloud ]]; then
-  verification_flags=(--cloud)
-  shift
-fi
-if [[ $# != 0 ]]; then
-  echo 'usage: check-test262-closure.sh [--cloud]' >&2
-  exit 2
-fi
+closure_flags=()
+cloud_selected=0
+reuse_selected=0
+for option in "$@"; do
+  case "$option" in
+    --cloud)
+      [[ "$cloud_selected" == 0 ]] || { echo 'duplicate --cloud' >&2; exit 2; }
+      cloud_selected=1
+      verification_flags=(--cloud)
+      ;;
+    --reuse-case-workers)
+      [[ "$reuse_selected" == 0 ]] || { echo 'duplicate --reuse-case-workers' >&2; exit 2; }
+      reuse_selected=1
+      closure_flags+=(--reuse-case-workers)
+      ;;
+    *)
+      echo 'usage: check-test262-closure.sh [--cloud] [--reuse-case-workers]' >&2
+      exit 2
+      ;;
+  esac
+done
 
 # Separate from informational status publication. The native owner performs and
 # validates both full fresh families; this driver only enforces the resource cap.
@@ -23,4 +36,4 @@ fi
 python3 "$repo_root/scripts/limited_verification.py" "${verification_flags[@]}" -- \
   "$closure_binary" --jobs 1 test262 sync --execution-backend wasm-aot
 exec python3 "$repo_root/scripts/limited_verification.py" "${verification_flags[@]}" -- \
-  "$closure_binary" --jobs 1 test262 close-release --snapshot-dir "$closure_evidence"
+  "$closure_binary" --jobs 1 test262 close-release --snapshot-dir "$closure_evidence" "${closure_flags[@]}"

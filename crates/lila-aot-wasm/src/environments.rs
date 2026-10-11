@@ -15,6 +15,7 @@ mod eval_declaration_instantiation;
 mod function_body_environment;
 mod global_declaration_instantiation;
 pub(crate) mod global_environment;
+mod lexical_binding_uninitialized;
 mod named_binding_mutation;
 pub(crate) mod named_environment;
 mod resumable_block;
@@ -1170,12 +1171,7 @@ impl<'a> FunctionBuilder<'a> {
                 self.local_binding(id).initialized().load(function);
                 function.instruction(&Instruction::I32Eqz);
                 self.open_frame(ControlFrameKind::If, function);
-                self.emit_environment_native_error(
-                    NativeErrorKind::ReferenceError,
-                    RuntimeErrorMessage::LEXICAL_BINDING_ACCESSED_BEFORE_INITIALIZATION,
-                    value,
-                    function,
-                )?;
+                self.emit_lexical_binding_uninitialized(value, function)?;
                 self.emit_propagate_current_throw_if_needed(function);
                 self.pop_control(ControlFrameKind::If);
                 function.instruction(&Instruction::End);
@@ -1188,12 +1184,7 @@ impl<'a> FunctionBuilder<'a> {
                 schema.release_i32_local(initialized, function);
                 function.instruction(&Instruction::I32Eqz);
                 self.open_frame(ControlFrameKind::If, function);
-                self.emit_environment_native_error(
-                    NativeErrorKind::ReferenceError,
-                    RuntimeErrorMessage::LEXICAL_BINDING_ACCESSED_BEFORE_INITIALIZATION,
-                    value,
-                    function,
-                )?;
+                self.emit_lexical_binding_uninitialized(value, function)?;
                 if let Some(target) = self.active_throw_target() {
                     self.emit_branch_to_target(target, function);
                 } else {

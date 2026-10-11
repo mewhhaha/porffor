@@ -248,7 +248,7 @@ Commands:
   types [entrypoint] [output] [options] generate Worker-style TypeScript types
   typegen [entrypoint] [output] [options]
                                         alias for types
-  test262 close-release [--snapshot-dir PATH]
+  test262 close-release [--snapshot-dir PATH] [--reuse-case-workers]
                                         gate two fresh full pinned Wasm-AOT runs
   test262 sync [--suite-root PATH]
   test262 list [filter] [--suite-root PATH]

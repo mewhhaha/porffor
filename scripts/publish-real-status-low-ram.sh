@@ -9,6 +9,7 @@ SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
 JOBS="${JOBS:-1}"
 ISOLATE_CASES="${ISOLATE_CASES:-1}"
+REUSE_CASE_WORKERS="${REUSE_CASE_WORKERS-0}"
 MAX_MATRIX_NODES="${MAX_MATRIX_NODES:-1}"
 README_PATH="${README_PATH:-}"
 MATRIX_TOTAL=""
@@ -36,6 +37,7 @@ for setting in THREADS JOBS MAX_MATRIX_NODES; do
   positive_integer "${!setting}" || fail "$setting must be a positive decimal integer (at most 18 digits)"
 done
 [[ "$ISOLATE_CASES" == 1 ]] || fail "ISOLATE_CASES must be 1: case supervision is mandatory"
+[[ "$REUSE_CASE_WORKERS" == 0 || "$REUSE_CASE_WORKERS" == 1 ]] || fail "REUSE_CASE_WORKERS must be 0 or 1"
 
 # These historical toggles no longer select compiler execution policy.
 unset LILA_TEST262_FORCE_CASE_RUNNER LILA_TEST262_DISABLE_CASE_RUNNER
@@ -47,5 +49,5 @@ if [[ ! -x "$LILA_BIN" ]]; then
 fi
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-export REPO_ROOT LILA_BIN SUITE_ROOT SNAPSHOT_DIR SNAPSHOT_NAME THREADS JOBS ISOLATE_CASES MAX_MATRIX_NODES README_PATH
+export REPO_ROOT LILA_BIN SUITE_ROOT SNAPSHOT_DIR SNAPSHOT_NAME THREADS JOBS ISOLATE_CASES REUSE_CASE_WORKERS MAX_MATRIX_NODES README_PATH
 exec python3 "$REPO_ROOT/scripts/publication-session.py" run

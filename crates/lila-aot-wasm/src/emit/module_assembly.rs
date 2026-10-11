@@ -1265,6 +1265,11 @@ pub(super) fn emit_script_module(
         register_runtime_helper!(ValueToObject, compile_value_to_object_helper);
         register_runtime_helper!(CoerciveAdd, compile_coercive_add_helper);
         register_runtime_helper!(
+            LexicalBindingUninitialized,
+            compile_lexical_binding_uninitialized_helper
+        );
+        register_runtime_helper!(RelationalComparison, compile_relational_comparison_helper);
+        register_runtime_helper!(
             EnvironmentIdentifierPutSloppy,
             compile_environment_identifier_put_sloppy_helper
         );

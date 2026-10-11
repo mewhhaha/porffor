@@ -210,44 +210,90 @@ fn reused_worker_requests_have_fresh_realms_and_exact_independent_snapshots() {
 }
 
 #[test]
-fn reused_supervisor_preserves_semantic_failures_and_every_remaining_id() {
-    let root = fixture("reuse-failure");
-    for (name, source) in [("a", "throw 17;"), ("b", "40 + 2;"), ("c", "6 * 7;")] {
+fn supervised_reuse_matches_one_shot_results_after_failure_and_realm_mutation() {
+    use std::collections::BTreeMap;
+
+    let root = fixture("reuse-equivalence");
+    for (name, source) in [
+        ("a", "throw 17;"),
+        ("b", "globalThis.__caseMarker = 17; Object.prototype.__caseMarker = 23; Array.prototype.push = function () { throw 91; }; Promise.resolve().then(function () { globalThis.__jobMarker = 29; }); new WeakRef({value: 1});"),
+        ("c", "if ('__caseMarker' in globalThis || '__caseMarker' in Object.prototype || '__jobMarker' in globalThis) throw 92; var values = []; if (values.push(7) !== 1 || values[0] !== 7) throw 93; var key = {}; var map = new WeakMap([[key, 42]]); if (map.get(key) !== 42) throw 94;"),
+    ] {
         fs::write(
             root.join(format!("suite/test/language/deadline/{name}.js")),
             format!("/*---\nflags: [raw]\n---*/\n{source}\n"),
         )
         .unwrap();
     }
-    let output = Command::new(env!("CARGO_BIN_EXE_lila"))
-        .args(["--jobs", "1", "test262", "run", "language/deadline"])
-        .arg("--suite-root")
-        .arg(root.join("suite"))
-        .arg("--snapshot-dir")
-        .arg(root.join("snapshots"))
-        .args([
-            "--snapshot-name",
-            "reuse-failure",
-            "--threads",
-            "1",
-            "--reuse-case-workers",
-        ])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    let snapshot = fs::read_dir(root.join("snapshots"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .find(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
-        .unwrap();
-    let value: serde_json::Value = serde_json::from_slice(&fs::read(snapshot).unwrap()).unwrap();
-    assert_eq!(value["total"], 4);
-    assert_eq!(value["passed"], 3);
-    assert_eq!(value["completed_test_ids"].as_array().unwrap().len(), 4);
-    assert_eq!(value["failures"].as_array().unwrap().len(), 1);
+    let mut observations = Vec::new();
+    for reuse in [false, true] {
+        let snapshots = root.join(if reuse { "reused" } else { "one-shot" });
+        let mut command = Command::new(env!("CARGO_BIN_EXE_lila"));
+        command
+            .args(["--jobs", "1", "test262", "run", "language/deadline"])
+            .arg("--suite-root")
+            .arg(root.join("suite"))
+            .arg("--snapshot-dir")
+            .arg(&snapshots)
+            .args([
+                "--snapshot-name",
+                "equivalence",
+                "--threads",
+                "1",
+                "--timeout-ms",
+                "60000",
+            ]);
+        if reuse {
+            command.arg("--reuse-case-workers");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            !output.status.success(),
+            "the semantic failure must remain red"
+        );
+        let snapshot = fs::read_dir(&snapshots)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().and_then(|value| value.to_str()) == Some("json"))
+            .unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(snapshot).unwrap()).unwrap();
+        assert_eq!(value["total"], 4);
+        assert_eq!(
+            value["passed"],
+            3,
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let completed = value["completed_test_ids"].as_array().unwrap();
+        assert_eq!(completed.len(), 4);
+        let mut results = BTreeMap::new();
+        for id in completed {
+            assert!(results
+                .insert(id.as_str().unwrap().to_owned(), serde_json::json!("passed"))
+                .is_none());
+        }
+        let failures = value["failures"].as_array().unwrap();
+        assert_eq!(failures.len(), 1);
+        for failure in failures {
+            let id = failure["test_id"].as_str().unwrap();
+            assert_eq!(id, "raw-script:language/deadline/a.js");
+            assert!(results.contains_key(id));
+            results.insert(
+                id.to_owned(),
+                serde_json::json!({
+                    "kind": failure["kind"],
+                    "outcome": failure["outcome"],
+                    "origin": failure["origin"],
+                    "detail_hash": failure["detail_hash"],
+                }),
+            );
+        }
+        observations.push((results, value["compiler_identity"].clone()));
+    }
     assert_eq!(
-        value["failures"][0]["test_id"],
-        "raw-script:language/deadline/a.js"
+        observations[0], observations[1],
+        "exact execution/result maps and compiler identity must agree"
     );
     fs::remove_dir_all(root).unwrap();
 }

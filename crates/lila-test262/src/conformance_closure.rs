@@ -44,6 +44,7 @@ struct FamilyReport {
 pub struct ClosureReport {
     schema_version: u32,
     execution_backend: String,
+    reuse_case_workers: bool,
     compiler_identity: CompilerProvenance,
     pinned_revisions: PinnedRevisions,
     manifest_hash: u64,
@@ -394,7 +395,8 @@ pub fn run_closure(config: SuiteConfig) -> Result<ClosureReport, String> {
             return Err("closure full-suite manifests differ between the fresh runs".into());
         }
         let report = ClosureReport {
-            schema_version: 1,
+            schema_version: 2,
+            reuse_case_workers: config.reuse_case_workers,
             execution_backend: ExecutionBackend::WasmAot.as_str().into(),
             compiler_identity: compiler,
             pinned_revisions: pinned,

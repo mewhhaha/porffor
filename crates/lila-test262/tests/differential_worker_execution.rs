@@ -60,7 +60,11 @@ const GENERATED_CASE_TIMEOUT_MS: u64 = 5_000;
 fn committed_v1_foundation_case_replays_through_both_backends() {
     let report = replay(&case_v1());
 
-    assert_eq!(report.verdict(), DifferentialVerdict::BothCompleted);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::BothCompleted,
+        "{report:?}"
+    );
     assert!(report.is_green());
 }
 
@@ -71,7 +75,8 @@ fn committed_v2_primitive_case_replays_through_both_backends() {
 
     assert_eq!(
         report.verdict(),
-        DifferentialVerdict::PrimitiveCompletionsMatch
+        DifferentialVerdict::PrimitiveCompletionsMatch,
+        "{report:?}"
     );
     assert!(report.is_green());
     for observation in [report.wasm_aot(), report.spec_exec()] {
@@ -94,7 +99,8 @@ fn committed_v3_primitive_and_print_case_replays_through_both_backends() {
 
     assert_eq!(
         report.verdict(),
-        DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch
+        DifferentialVerdict::PrimitiveCompletionAndPrintTranscriptMatch,
+        "{report:?}"
     );
     assert!(report.is_green());
     for observation in [report.wasm_aot(), report.spec_exec()] {
@@ -126,7 +132,8 @@ fn selected_object_probe_uses_actual_backends_and_observable_realm_anchors() {
     let report = replay(&input);
     assert_eq!(
         report.verdict(),
-        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch
+        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch,
+        "{report:?}"
     );
     assert!(report.is_green());
     for observation in [report.wasm_aot(), report.spec_exec()] {
@@ -140,6 +147,11 @@ fn selected_object_probe_uses_actual_backends_and_observable_realm_anchors() {
             panic!("worker did not publish the validated object graph")
         };
         let graph = serde_json::to_value(graph).unwrap();
+        assert_eq!(
+            graph["nodes"].as_array().unwrap().len(),
+            3,
+            "the complete selected graph contains the root, actual Realm anchor and isolated getter"
+        );
         assert_eq!(
             graph["roots"][0]["value"], graph["roots"][1]["value"],
             "both roots retain the same observed identity"
@@ -179,7 +191,8 @@ return {roots: [{name: "proxy", value: proxy}], anchors: []};
     let report = replay(&input);
     assert_eq!(
         report.verdict(),
-        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch
+        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch,
+        "{report:?}"
     );
     for observation in [report.wasm_aot(), report.spec_exec()] {
         assert_eq!(
@@ -223,7 +236,8 @@ return {roots: [{name: "root", value: root}], anchors: []};
     let report = replay(&input);
     assert_eq!(
         report.verdict(),
-        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch
+        DifferentialVerdict::SelectedObjectProbeAndPrintTranscriptMatch,
+        "{report:?}"
     );
     for observation in [report.wasm_aot(), report.spec_exec()] {
         assert_eq!(
@@ -329,7 +343,11 @@ fn committed_generated_arithmetic_case_replays_through_both_backends() {
         .expect("committed generated case should decode");
     let report = replay(&case);
 
-    assert_eq!(report.verdict(), DifferentialVerdict::BothCompleted);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::BothCompleted,
+        "{report:?}"
+    );
 }
 
 #[cfg(unix)]
@@ -344,7 +362,11 @@ fn bitwise_conversion_probe_replays_through_both_backends() {
     )
     .expect("the hand-authored bitwise probe is a source-closed Script");
     let report = replay(&case);
-    assert_eq!(report.verdict(), DifferentialVerdict::BothCompleted);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::BothCompleted,
+        "{report:?}"
+    );
 }
 
 #[cfg(unix)]
@@ -359,7 +381,11 @@ fn finite_product_signed_zero_probe_replays_through_both_backends() {
     )
     .expect("the hand-authored product probe is a source-closed Script");
     let report = replay(&case);
-    assert_eq!(report.verdict(), DifferentialVerdict::BothCompleted);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::BothCompleted,
+        "{report:?}"
+    );
 }
 
 // This Engine policy witness is deliberately not a worker loading mode.
@@ -527,7 +553,7 @@ mod loader_policy {
                     protocol,
                     "differential/loader-context.js",
                     5_000,
-                    source.clone(),
+                    format!("{source}\nvoid 0;"),
                 )
                 .unwrap_or_else(|error| panic!("{kind} native input: {error}"));
                 let report =
@@ -680,7 +706,11 @@ fn a_nonterminating_spec_exec_worker_has_a_deadline_and_retains_only_committed_o
         start.elapsed() < std::time::Duration::from_secs(30),
         "both supervised attempts must terminate"
     );
-    assert_eq!(report.verdict(), DifferentialVerdict::WorkerFailure);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::WorkerFailure,
+        "{report:?}"
+    );
     assert!(!report.is_green());
     assert!(report.mismatch_signature().is_none());
     assert!(matches!(
@@ -711,11 +741,24 @@ fn source_admission_occurs_in_the_worker_and_rejects_malformed_source() {
     )
     .expect("native wire admission does not parse source");
     let _serial = serial_execution();
-    let error = replay_case(&input, SpecExecOracle::explicitly_enabled(), runner()).unwrap_err();
-    assert!(
-        matches!(error, DifferentialError::InvalidCorpus(_)),
-        "{error}"
+    let report = replay_case(&input, SpecExecOracle::explicitly_enabled(), runner()).unwrap();
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::BothFailed,
+        "{report:?}"
     );
+    assert!(!report.is_green());
+    assert!(report.mismatch_signature().is_none());
+    for (observation, expected_phase) in [
+        (report.wasm_aot(), FailurePhase::Parse),
+        (report.spec_exec(), FailurePhase::SpecExecEntrySyntax),
+    ] {
+        assert!(observation.worker_identity.is_some(), "{observation:?}");
+        assert!(
+            matches!(&observation.execution, ExecutionObservation::Error { phase, .. } if *phase == expected_phase),
+            "{observation:?}"
+        );
+    }
 }
 
 #[cfg(unix)]
@@ -724,7 +767,11 @@ fn a_selected_nonworker_image_cannot_supply_a_semantic_completion() {
     let _serial = serial_execution();
     let wrong = DifferentialWorkerRunner::new(std::env::current_exe().unwrap()).unwrap();
     let report = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled(), &wrong).unwrap();
-    assert_eq!(report.verdict(), DifferentialVerdict::WorkerFailure);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::WorkerFailure,
+        "{report:?}"
+    );
     assert!(!report.is_green());
     assert!(report.mismatch_signature().is_none());
     for observed in [report.wasm_aot(), report.spec_exec()] {
@@ -770,7 +817,11 @@ fn failed_worker_campaigns_are_rejected_and_do_not_persist_a_mismatch() {
         panic!("a failed worker cannot verify or reduce a mismatch");
     };
     assert_eq!(report.case_id(), case.id());
-    assert_eq!(report.verdict(), DifferentialVerdict::WorkerFailure);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::WorkerFailure,
+        "{report:?}"
+    );
     assert!(!report.is_green());
     assert!(report.mismatch_signature().is_none());
     for observed in [report.wasm_aot(), report.spec_exec()] {
@@ -801,7 +852,11 @@ fn failed_worker_campaigns_are_rejected_and_do_not_persist_a_mismatch() {
 #[test]
 fn unsupported_worker_platform_is_explicit_and_never_green() {
     let report = replay(&case_v1());
-    assert_eq!(report.verdict(), DifferentialVerdict::WorkerFailure);
+    assert_eq!(
+        report.verdict(),
+        DifferentialVerdict::WorkerFailure,
+        "{report:?}"
+    );
     assert!(!report.is_green());
     assert!(report.mismatch_signature().is_none());
     for observed in [report.wasm_aot(), report.spec_exec()] {

@@ -1,6 +1,6 @@
 # Pinned conformance closure
 
-`lila test262 close-release [--snapshot-dir PATH]` is the release verdict owner.
+`lila test262 close-release [--snapshot-dir PATH] [--reuse-case-workers]` is the release verdict owner.
 `scripts/check-test262-closure.sh` invokes it through the existing 4096 MiB
 aggregate kernel-budget launcher with zero swap, grouped OOM, one CPU and one
 worker. The dedicated `conformance-closure.yaml` workflow consumes its exit code
@@ -28,6 +28,10 @@ custom harness, timeout override or resume option enters closure.
 Each invocation exclusively creates a new workspace and two separate empty
 family directories. It directly runs every current matrix node twice with
 `resume=false`, through the ordinary JS-to-Wasm compiler and supervised worker.
+Worker reuse defaults off. An explicit `--reuse-case-workers` retains the
+standard serial execution policy and 60,000 ms timeout, and applies identically to
+both fresh families. Each request creates a fresh Engine, Realm, Store and GC
+state; only bounded immutable compiled modules remain in the worker process.
 The first complete red family still permits the second fresh run. Names and
 already loaded snapshots cannot construct a closure report. Incomplete runs,
 crashes, invalid artifacts or changed pins return an error and retain evidence;
@@ -44,8 +48,9 @@ sets must agree exactly, and every case must pass. Unsupported dynamic-source
 or runtime-capability cases, timeouts and unknown-origin failures remain red.
 All taxonomy counts and exact node evidence remain available in the snapshots.
 
-`closure.json` is schema 1 and records both aggregate paths, full denominator,
+`closure.json` is schema 2 and records both aggregate paths, full denominator,
 nonpass and taxonomy counts, durations, current compiler identity, pins, manifest,
+selected worker-reuse policy,
 exact-result agreement and the consumed typed verdict. Its constructor is private
 and it has no release-admission decoder. JSON is retained evidence; the command's
 successful return comes only from the actual two-run construction and validation.
@@ -71,7 +76,9 @@ Source authorship alone confers no compile, runtime, full-suite or release pass.
 `scripts/check-test262-closure.sh --cloud` uses the machine's actual finite
 inherited cgroup cap through the existing verification launcher. The default
 invocation retains its local 4096 MiB policy. Both routes synchronize first
-and invoke the unchanged native two-family closure owner; unknown options
+and invoke the native two-family closure owner. The optional
+`--reuse-case-workers` flag can accompany either route and is delivered only to
+`close-release`, after synchronization succeeds. Repeated flags and unknown options
 and failed synchronization prevent that owner from starting. See the
 [driver contract](../cloud-verification-drivers-20261011.md) for verification
 scope and the pending native acceptance.

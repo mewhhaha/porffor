@@ -13,8 +13,11 @@ complete node evidence, outcome accounting and the canonical status artifacts.
 
 The driver accepts only the Wasm product backend (`wasm` is normalized to
 `wasm-aot`). Jobs, threads and nodes per invocation must be positive decimal
-integers. Isolation accepts only `0` or `1`; setting it to `1` retains the existing
-forced case-runner behavior.
+integers. Case supervision requires `ISOLATE_CASES=1`. Optional `REUSE_CASE_WORKERS=1`
+forwards `--reuse-case-workers` to each report command; the default is `0`. Other
+values, including an explicitly empty value, reject before invoking the CLI.
+Reuse retains a fresh Realm and Store per case, the original deadlines and
+mandatory process supervision, with at most 64 cases per process.
 
 A fresh matrix may have no readable progress yet. The driver permits one initial
 `report-all` attempt and keeps the diagnostic visible. Once that command succeeds,
@@ -47,14 +50,17 @@ Concurrent writers to the same snapshot namespace are not supported by this
 wrapper; use one owner for the complete run.
 
 The dry schema-8 snapshot migration now makes native compiler provenance
-mandatory. The schema-3 publication session queries `lila compiler-identity`,
+mandatory. The schema-4 publication session queries `lila compiler-identity`,
 checks its executing-image digest against before/after observed binary bytes,
 and retains the embedded build fingerprint/revision separately from observed
 checkout inputs. Every accepted progress response must carry the same native
 identity, and the progress writer requires it before replacing the manifest.
 The Rust harness independently rejects different-compiler resume and mixed-node
-aggregate evidence. Older snapshots and schema-1/2 sidecars remain unbound history
+aggregate evidence. Older snapshots and schema-1/2/3 sidecars remain unbound history
 and require a fresh family name; they cannot be relabelled as a current baseline.
+The manifest binds `reuse_case_workers` as a literal boolean. Switching that
+policy during resume rejects before any checkpoint command and leaves the
+manifest intact; retain previous results and use a fresh family name.
 See [the source contract](contracts/snapshot-compiler-provenance.md).
 
 A driver contract test uses a fake CLI to exercise process ordering and failure

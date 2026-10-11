@@ -97,7 +97,8 @@ fn annotated_formerly_rejected_source_reaches_actual_runtime_completion() {
 fn actual_unavailable_capability_cannot_satisfy_an_annotated_runtime_negative() {
     let mut input = case(
         "built-ins/Object/freeze/freeze-sharedarraybuffer.js",
-        "new WeakMap();",
+        "var holder = { invoke: eval }; \
+         holder.invoke('throw new TypeError()' + '/*' + Math.random() + '*/');",
     );
     input.negative = Some(Arc::new(NegativeExpectation {
         phase: NegativePhase::Runtime,
@@ -118,7 +119,23 @@ fn actual_unavailable_capability_cannot_satisfy_an_annotated_runtime_negative() 
     assert!(
         failure
             .detail
-            .contains(&lila_ir::RuntimeUnavailableCapability::WeakReachability.to_string()),
+            .contains(&lila_ir::DynamicSourceRuntimeOperation::Eval.to_string()),
         "classification must come from the actual runtime capability: {failure:?}",
     );
+}
+
+#[test]
+fn supported_weak_reachability_cannot_be_rejected_from_old_path_metadata() {
+    let input = case(
+        "built-ins/Object/freeze/freeze-sharedarraybuffer.js",
+        "var key = {}; var map = new WeakMap(); map.set(key, 42); \
+         if (map.get(key) !== 42) throw new TypeError('weak map value');",
+    );
+    let observed = run_one_case(
+        &input,
+        &PreludeStore::default(),
+        60_000,
+        ExecutionBackend::WasmAot,
+    );
+    assert_eq!(observed.status, TestStatus::Passed, "{observed:?}");
 }

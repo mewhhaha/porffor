@@ -1,0 +1,64 @@
+name: Native Intl reproducibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Native Intl (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check evidence admission and failure controls
+        run: python3 -B -m unittest discover -s scripts/tests -p test_intl_cross_host.py -v
+      - name: Execute native formatting scopes and export both admitted profiles
+        run: python3 -B scripts/check-intl-cross-host.py capture --output target/intl-host-evidence
+      - name: Retain actual logs and bundles on every verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intl-${{ matrix.os }}
+          path: target/intl-host-evidence/
+          if-no-files-found: error
+  compare:
+    needs: capture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: intl-*
+          path: target/intl-hosts
+      - name: Compare actual bytes, complete identities, pins and native counts
+        run: >-
+          python3 -B scripts/check-intl-cross-host.py compare
+          target/intl-hosts/intl-ubuntu-latest target/intl-hosts/intl-macos-latest
+          --output target/intl-cross-host.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intl-cross-host-comparison
+          path: target/intl-cross-host.json
+          if-no-files-found: error

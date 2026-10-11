@@ -24,7 +24,7 @@ import sys
 import tempfile
 from collections.abc import Iterator, Mapping
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 COMPILER_FINGERPRINT_SCHEME = "lila-program-cache-compiler-v3"
 MAX_MATRIX_COUNT = 10**18 - 1
 SOURCE_FILES = ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml")
@@ -40,7 +40,7 @@ IDENTITY_KEYS = frozenset({
     "repository", "checkout_commit", "checkout_tree", "source_inputs_sha256",
     "source_input_files", "executable", "executable_sha256", "compiler_identity", "suite_root",
     "suite_sha256", "suite_files", "snapshot_directory", "snapshot_name",
-    "execution_backend", "threads", "jobs", "isolate_cases", "environment",
+    "execution_backend", "threads", "jobs", "isolate_cases", "reuse_case_workers", "environment",
 })
 
 
@@ -205,6 +205,9 @@ def _tree_digest(root: Path, paths: list[Path]) -> tuple[str, int]:
 def capture_identity(environment: Mapping[str, str]) -> dict:
     if environment.get("ISOLATE_CASES") != "1":
         raise ProvenanceError("ISOLATE_CASES must be 1: case supervision is mandatory")
+    reuse = environment.get("REUSE_CASE_WORKERS", "0")
+    if reuse not in ("0", "1"):
+        raise ProvenanceError("REUSE_CASE_WORKERS must be 0 or 1")
     root = Path(environment["REPO_ROOT"]).resolve(strict=True)
     binary = Path(environment["LILA_BIN"]).resolve(strict=True)
     suite = Path(environment["SUITE_ROOT"]).resolve(strict=True)
@@ -246,6 +249,7 @@ def capture_identity(environment: Mapping[str, str]) -> dict:
         "threads": int(environment["THREADS"]),
         "jobs": int(environment["JOBS"]),
         "isolate_cases": True,
+        "reuse_case_workers": reuse == "1",
         "environment": {name: environment.get(name) for name in RUNTIME_ENVIRONMENT},
     }
 
@@ -288,6 +292,8 @@ def _read_manifest_document(path: Path) -> dict:
         raise ProvenanceError(f"invalid publication manifest identity: {path}")
     if identity["isolate_cases"] is not True:
         raise ProvenanceError("publication manifest must bind mandatory case supervision")
+    if type(identity["reuse_case_workers"]) is not bool:
+        raise ProvenanceError("publication worker reuse policy must be boolean")
     compiler = checked_compiler_identity(identity["compiler_identity"])
     if compiler["executable_sha256"] != identity["executable_sha256"]:
         raise ProvenanceError("publication manifest compiler/image hashes differ")

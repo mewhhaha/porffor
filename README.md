@@ -1,5 +1,16 @@
 # Lila
 
+The next verification repair batch outlines repeated relational comparison and
+TDZ error emission, shares admitted Intl selections through a bounded cache,
+and allows serial CLI captures to reuse the process when the checked ledger has
+no CLI hangs. Publication sessions can record opt-in bounded case-worker reuse.
+Pinned harness inventories and differential fixture diagnostics are refreshed.
+All 458 tooling tests, 47 publication-driver controls, eight Intl reproduction
+checks and the final workspace type check pass. Thirteen initial native
+controls pass; a later Test262 link exhausted disk and has no native verdict.
+Fresh complete workspace and pinned acceptance remain open. See the
+[batch record](docs/rust-rewrite/verification-iteration-repairs-20261011.md).
+
 The workspace inventory repair passes all 301 focused native checks, joined
 workspace types and twelve guards. Optional debug stripping reduces the Engine
 native test executable from 368 MB to 186 MB while preserving all executable

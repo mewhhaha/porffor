@@ -22,6 +22,13 @@ impl Directory {
 }
 impl Drop for Directory {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "retained failing differential corpus evidence: {}",
+                self.0.display()
+            );
+            return;
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -111,7 +118,9 @@ fn compiled_corpus_replays_every_entry_through_the_named_actual_worker() {
             report.matched(),
             report.failed()
         ),
-        (12, 12, 12, 0)
+        (12, 12, 12, 0),
+        "actual corpus report: {report:?}; retained evidence: {}",
+        output.display()
     );
     assert!(report.is_green());
     let aggregate: serde_json::Value =

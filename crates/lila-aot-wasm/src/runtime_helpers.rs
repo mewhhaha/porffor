@@ -905,6 +905,8 @@ runtime_helper_domain! {
     GlobalIdentifierReadStrict / GlobalIdentifierReadStrictArguments / GlobalIdentifierReadStrictParameters / "global_identifier_read_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierTypeofSloppy / GlobalIdentifierTypeofSloppyArguments / GlobalIdentifierTypeofSloppyParameters / "global_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierTypeofStrict / GlobalIdentifierTypeofStrictArguments / GlobalIdentifierTypeofStrictParameters / "global_identifier_typeof_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    LexicalBindingUninitialized / LexicalBindingUninitializedArguments / LexicalBindingUninitializedParameters / "lexical_binding_uninitialized" { caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    RelationalComparison / RelationalComparisonArguments / RelationalComparisonParameters / "relational_comparison" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     PrivateElementAdd / PrivateElementAddArguments / PrivateElementAddParameters / "private_element_add" { receiver:Value,element:(Ref PrivateElement NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
     PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
     JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable) } => Completion;
@@ -950,6 +952,8 @@ impl RuntimeHelperId {
             Self::ValueToNumber => HelperOwner::Runtime,
             Self::ValueToNumeric => HelperOwner::Runtime,
             Self::CoerciveAdd => HelperOwner::Runtime,
+            Self::LexicalBindingUninitialized => HelperOwner::Runtime,
+            Self::RelationalComparison => HelperOwner::Runtime,
             Self::ObjectGetPrototypeOf => HelperOwner::Runtime,
             Self::ObjectIsExtensible => HelperOwner::Runtime,
             Self::ObjectPreventExtensions => HelperOwner::Runtime,
@@ -1045,6 +1049,8 @@ impl RuntimeHelperId {
             Self::ValueToNumber => true,
             Self::ValueToNumeric => true,
             Self::CoerciveAdd => true,
+            Self::LexicalBindingUninitialized => true,
+            Self::RelationalComparison => true,
             Self::ObjectGetPrototypeOf => true,
             Self::ObjectIsExtensible => true,
             Self::ObjectPreventExtensions => true,

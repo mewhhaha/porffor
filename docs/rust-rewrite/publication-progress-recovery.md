@@ -22,13 +22,15 @@ invalid test artifacts; its independent validation remains necessary.
 ## Manifest contract
 
 The 2026-09-08 schema-2 checkpoint below established the observed source,
-executable, suite/configuration identity and durable progress record. The dry
-schema-3 successor adds mandatory checked native compiler identity. A current
+executable, suite/configuration identity and durable progress record. The
+schema-3 successor added mandatory checked native compiler identity; schema 4
+also binds the explicitly selected worker-reuse policy as a literal boolean. A current
 progress response must carry exactly one identity matching the session before
 its `{completed, total}` high-water mark can be written. The embedded build-source
 fingerprint/revision remains distinct from observed checkout bytes. See the
 [compiler provenance contract](contracts/snapshot-compiler-provenance.md).
-Neither the successor controls nor its native schema-8 integration has run yet.
+Worker reuse defaults off. A resume with a changed reuse policy rejects before
+any checkpoint command and preserves the recorded identity and progress.
 
 Every successful `progress-status` response is parsed and checked before the
 driver decides to resume or publish. Counts must be canonical nonnegative decimal
@@ -65,8 +67,9 @@ error; resolve the checkpoint failure before retrying. Do not erase the manifest
 to hide a regression. Pre-existing results without a manifest remain ineligible
 for adoption.
 
-Schema-1/2 manifests are deliberately not upgraded in place: schema 1 lacks
-durable observation history and schema 2 lacks native compiler binding. Retain
+Schema-1/2/3 manifests are deliberately not upgraded in place: schema 1 lacks
+durable observation history, schema 2 lacks native compiler binding, and schema 3
+lacks the worker-reuse policy. Retain
 those results for triage and start a fresh snapshot name. Neither old observed
 source bytes nor the currently running compiler can attest an unbound historical
 checkpoint. No existing family is overwritten by migration.

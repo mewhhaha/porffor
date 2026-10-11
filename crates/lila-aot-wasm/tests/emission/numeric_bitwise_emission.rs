@@ -271,3 +271,172 @@ fn coercive_add_sites_reuse_linked_conversion_bodies_with_bounded_growth() {
         .join()
         .expect("addition emission does not panic");
 }
+
+#[test]
+fn relational_sites_share_one_complete_runtime_comparison_with_bounded_growth() {
+    const SITES: usize = 33;
+    std::thread::Builder::new()
+        .name("relational-comparison-emission".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let source = format!(
+                "function single(left, right) {{ left < right; }}\n\
+                 function repeated(left, right) {{ {} }}\n[single, repeated];",
+                [
+                    "left < right;",
+                    "left <= right;",
+                    "left > right;",
+                    "left >= right;"
+                ]
+                .into_iter()
+                .cycle()
+                .take(SITES)
+                .collect::<Vec<_>>()
+                .join("\n")
+            );
+            let parsed = parse(&source, ParseOptions::script()).expect("relational source parses");
+            let artifact = emit(&lower(&parsed)).expect("relational source emits linked Wasm");
+            let program = numeric_module(&artifact.bytes, true);
+            let runtime =
+                numeric_module(artifact.runtime().expect("comparison owns R").bytes(), true);
+            let single = source_body(&program, "js::single#");
+            let repeated = source_body(&program, "js::repeated#");
+            let (index, body) = runtime_helper(&runtime, "helper::relational_comparison");
+            let exports = runtime
+                .exports
+                .iter()
+                .filter_map(|(name, &actual)| (actual == index).then_some(name))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                exports.len(),
+                1,
+                "R exports the complete physical comparison once"
+            );
+            let imports = program
+                .imports
+                .iter()
+                .filter_map(|(&index, (namespace, name))| {
+                    (namespace == lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE && name == exports[0])
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                imports.len(),
+                1,
+                "P imports the comparison's actual R export once"
+            );
+            for (caller, sites) in [(single, 1), (repeated, SITES)] {
+                assert_eq!(
+                    caller
+                        .calls
+                        .iter()
+                        .filter(|&&target| target == imports[0])
+                        .count(),
+                    sites,
+                    "each source comparison calls the complete R algorithm once"
+                );
+            }
+            assert!(
+                !body.calls.contains(&index),
+                "R must not call its own source facade"
+            );
+            let (primitive, _) = runtime_helper(&runtime, "helper::value_to_primitive_number");
+            assert_eq!(
+                body.calls
+                    .iter()
+                    .filter(|&&target| target == primitive)
+                    .count(),
+                2,
+                "both Number-hint primitive conversions remain in the complete R operation"
+            );
+            let growth = repeated
+                .bytes
+                .checked_sub(single.bytes)
+                .expect("sites remain encoded");
+            eprintln!(
+                "relational body: {} -> {} bytes",
+                single.bytes, repeated.bytes
+            );
+            assert!(
+                growth > 0 && growth < (SITES - 1) * 1024,
+                "{growth} bytes for {} added sites must exclude inline generic comparison",
+                SITES - 1
+            );
+        })
+        .expect("emission worker starts")
+        .join()
+        .expect("relational emission does not panic");
+}
+
+#[test]
+fn lexical_read_tdz_branches_share_one_runtime_error_without_erasing_reads() {
+    const READS: usize = 33;
+    std::thread::Builder::new()
+        .name("lexical-read-error-emission".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let source = format!(
+                "function single(value) {{ value; }}\n\
+                 function repeated(value) {{ {} }}\n[single, repeated];",
+                "value;\n".repeat(READS)
+            );
+            let parsed =
+                parse(&source, ParseOptions::script()).expect("lexical read source parses");
+            let artifact = emit(&lower(&parsed)).expect("lexical reads emit linked Wasm");
+            let program = numeric_module(&artifact.bytes, true);
+            let runtime =
+                numeric_module(artifact.runtime().expect("TDZ branch owns R").bytes(), true);
+            let single = source_body(&program, "js::single#");
+            let repeated = source_body(&program, "js::repeated#");
+            let (index, body) = runtime_helper(&runtime, "helper::lexical_binding_uninitialized");
+            let exports = runtime
+                .exports
+                .iter()
+                .filter_map(|(name, &actual)| (actual == index).then_some(name))
+                .collect::<Vec<_>>();
+            assert_eq!(exports.len(), 1);
+            let imports = program
+                .imports
+                .iter()
+                .filter_map(|(&index, (namespace, name))| {
+                    (namespace == lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE && name == exports[0])
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(imports.len(), 1);
+            for (caller, reads) in [(single, 1), (repeated, READS)] {
+                assert_eq!(
+                    caller
+                        .calls
+                        .iter()
+                        .filter(|&&target| target == imports[0])
+                        .count(),
+                    reads,
+                    "each encoded read retains its TDZ error branch"
+                );
+            }
+            assert!(!body.calls.contains(&index));
+            let (error, _) = runtime_helper(&runtime, "helper::runtime_error_object");
+            assert_eq!(
+                body.calls.iter().filter(|&&target| target == error).count(),
+                1,
+                "the shared error body constructs the actual fresh native error"
+            );
+            let growth = repeated
+                .bytes
+                .checked_sub(single.bytes)
+                .expect("reads remain encoded");
+            eprintln!(
+                "lexical read body: {} -> {} bytes",
+                single.bytes, repeated.bytes
+            );
+            assert!(
+                growth > 0 && growth < (READS - 1) * 320,
+                "{growth} bytes for {} reads must exclude duplicated error construction",
+                READS - 1
+            );
+        })
+        .expect("emission worker starts")
+        .join()
+        .expect("lexical read emission does not panic");
+}

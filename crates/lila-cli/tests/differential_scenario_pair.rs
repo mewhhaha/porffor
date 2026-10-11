@@ -42,7 +42,9 @@ fn one_cli_command_reports_both_actual_backend_pairs_and_the_metamorphic_relatio
         .unwrap();
     assert!(
         output.status.success(),
-        "{}",
+        "scenario-pair CLI failed with {}\nstdout JSON:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();

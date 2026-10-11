@@ -75,13 +75,14 @@ Publication JSON and text retain the verified real-suite producer. Future
 generated README output includes its build fingerprint and executing-image hash;
 the current protected status block remains unchanged until authentic publication.
 
-Publication-session schema 3 stores the native identity beside its observed
+Publication-session schema 4 stores the native identity beside its observed
 checkout/source/suite/configuration inventory. The compiler query's image hash
 must agree with before/after observed executable hashes. Observed checkout source
 bytes never stand in for embedded build inputs. A checkpoint response must carry
 exactly one complete native identity matching the session; the progress writer
 requires that identity and refuses a mismatch before rewriting its high-water
-mark. Old schema-1/2 sidecars are retained and require a fresh family name.
+mark. The session also binds the literal boolean `reuse_case_workers`; changing
+that selection requires a fresh family. Old schema-1/2/3 sidecars are retained and require a fresh family name.
 
 The supervisor's filesystem observations and locks remain recovery/integrity
 checks. They do not authenticate deliberate edits or make inputs immutable during

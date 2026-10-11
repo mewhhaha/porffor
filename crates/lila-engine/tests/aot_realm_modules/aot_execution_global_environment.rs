@@ -278,3 +278,61 @@ new MissingWithObject() === explicit && instance.read() === 12 && instance.done 
 "#,
     );
 }
+
+#[test]
+fn shared_lexical_read_errors_keep_fresh_identity_foreign_realms_and_resumed_handlers() {
+    run_boolean(
+        r#"
+function check(value, message) { if (!value) throw message; }
+let replacement = {};
+let seen;
+try { try { let value = value; } finally { throw replacement; } }
+catch (error) { seen = error; }
+check(seen === replacement, 'finally replacement keeps its identity');
+var other = __lilaCreateRealm().global;
+var reader = other.Function("return function reader() { var local, captured; try { let value = value; } catch (error) { local = error; } try { function read() { return later; } read(); let later = 7; } catch (error) { captured = error; } return [local, captured]; };")();
+var first = reader(), second = reader();
+for (const pair of [first, second]) {
+  check(pair[0] instanceof other.ReferenceError && pair[1] instanceof other.ReferenceError, 'foreign local and captured TDZ prototypes');
+  check(!(pair[0] instanceof ReferenceError) && !(pair[1] instanceof ReferenceError), 'caller Realm does not replace foreign Realm');
+  check(pair[0] !== pair[1], 'each TDZ creates a fresh error');
+}
+check(first[0] !== second[0] && first[1] !== second[1], 'separate invocations keep fresh errors');
+var generator = other.Function("return function* resumed() { yield 1; try { function read() { return later; } read(); let later = 3; } catch (error) { yield error; } finally { yield 'finally'; } return 42; };")();
+var iterator = generator();
+check(iterator.next().value === 1, 'initial suspension');
+var yielded = iterator.next();
+check(!yielded.done && yielded.value instanceof other.ReferenceError && !(yielded.value instanceof ReferenceError), 'resumed captured TDZ keeps defining Realm');
+check(iterator.next().value === 'finally', 'resumed catch keeps finally');
+var done = iterator.next();
+check(done.done && done.value === 42, 'generator completes after handled TDZ');
+true;
+"#,
+    );
+}
+
+#[test]
+fn shared_relational_comparison_keeps_foreign_errors_and_finally_replacement() {
+    run_boolean(
+        r#"
+function check(value, message) { if (!value) throw message; }
+var other = __lilaCreateRealm().global;
+var compare = other.Function('a', 'b', 'return [a < b, a <= b, a > b, a >= b];');
+var symbol = Symbol(), caught;
+try { compare(symbol, 0); } catch (error) { caught = error; }
+check(caught instanceof other.TypeError && !(caught instanceof TypeError), 'comparison TypeError uses defining Realm');
+var marker = {}, replacement = {}, trace = '';
+var left = { [Symbol.toPrimitive](hint) { trace += 'left:' + hint + ';'; return 1n; } };
+var right = { [Symbol.toPrimitive](hint) { trace += 'right:' + hint + ';'; throw marker; } };
+try { try { compare(left, right); } finally { trace += 'finally;'; } }
+catch (error) { check(error === marker, 'coercion exception identity'); }
+check(trace === 'left:number;right:number;finally;', 'left-to-right Number hints and finalizer');
+try { try { compare(left, right); } finally { throw replacement; } }
+catch (error) { check(error === replacement, 'finalizer replacement identity'); }
+var unordered = compare(1n, 'invalid'), ordered = compare('10', '2');
+check(unordered[0] === false && unordered[1] === false && unordered[2] === false && unordered[3] === false, 'unordered stays false for all operators');
+check(ordered[0] && ordered[1] && !ordered[2] && !ordered[3], 'string lexicographic order');
+true;
+"#,
+    );
+}

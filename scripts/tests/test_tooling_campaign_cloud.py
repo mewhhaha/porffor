@@ -91,6 +91,29 @@ raise SystemExit(7 if os.environ.get('CAMPAIGN_FAIL_ARG') in sys.argv[1:] else 0
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(calls, [])
 
+    def test_closure_reuse_option_keeps_sync_separate_and_rejects_policy_overrides(self):
+        for arguments in (["--reuse-case-workers"],
+                          ["--cloud", "--reuse-case-workers"],
+                          ["--reuse-case-workers", "--cloud"]):
+            with self.subTest(arguments=arguments):
+                result, calls = self.invoke("check-test262-closure.sh", arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2)
+                self.assertNotIn("--reuse-case-workers", calls[0])
+                self.assertEqual(calls[1][-1], "--reuse-case-workers")
+                self.assertEqual(calls[1][-3:-1], ["--snapshot-dir", str(self.root / "closure")])
+                for call in calls:
+                    self.assertNotIn("--timeout-ms", call)
+                    self.assertNotIn("--threads", call)
+                    self.assertNotIn("--resume", call)
+        for arguments in (["--reuse-case-workers", "--reuse-case-workers"],
+                          ["--cloud", "--cloud"],
+                          ["--reuse-case-workers", "--timeout-ms", "1"]):
+            with self.subTest(arguments=arguments):
+                result, calls = self.invoke("check-test262-closure.sh", arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()

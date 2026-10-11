@@ -70,6 +70,8 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::ValueToPrimitiveString
             | RuntimeHelperId::ValueToPropertyKey
             | RuntimeHelperId::CoerciveAdd
+            | RuntimeHelperId::LexicalBindingUninitialized
+            | RuntimeHelperId::RelationalComparison
             | RuntimeHelperId::RegExpMatcher
             | RuntimeHelperId::RegExpCompiler
             | RuntimeHelperId::ModuleInitialize

@@ -315,7 +315,7 @@ fn queue_admission_and_execution_each_consume_the_previous_authority() {
         true,
     );
     assert!(runner.starts_with(
-        "dispatch:&CaseExecutionDispatch,config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
+        "dispatch:&CaseExecutionDispatch,session:&mutOption<case_worker_server::Session>,config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
     ));
     assert!(!runner.contains("admitted:&AdmittedCase"));
     let fixture = rust_code(
@@ -329,8 +329,9 @@ fn queue_admission_and_execution_each_consume_the_previous_authority() {
     assert!(fixture.contains("admitted:AdmittedCase,"));
     assert!(fixture
         .contains("CaseExecutionDispatch::admit(config,std::slice::from_ref(admitted.case()))"));
-    assert!(fixture
-        .contains("run_case_entry_with_dispatch(&dispatch,config,preludes,admitted,run_config)"));
+    assert!(fixture.contains(
+        "run_case_entry_with_dispatch(&dispatch,&mutNone,config,preludes,admitted,run_config)"
+    ));
     assert!(!fixture.contains("admitted.clone()"));
 }
 
@@ -353,7 +354,7 @@ fn worker_moves_the_admitted_proof_once_then_retires_its_journal_slot() {
         &worker,
         &[
             "letadmitted_path=admitted.case().path.clone();",
-            "run_case_entry_with_dispatch(&dispatch,&worker_config,&preludes,admitted,&worker_run_config,)",
+            "run_case_entry_with_dispatch(&dispatch,&mutsession,&worker_config,&preludes,admitted,&worker_run_config,)",
             "journal.retire(worker_slot)",
             "admitted_path",
         ],

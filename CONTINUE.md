@@ -1,5 +1,26 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Verification iteration repair — 2026-10-11
+
+The coherent batch is applied: shared relational/TDZ helper emission, bounded
+immutable Intl selection reuse, guarded serial in-process CLI captures,
+publication-session worker-reuse identity, exact current pinned harness/cohort
+inventories and differential fixture/diagnostic repairs. Cross-host Intl CI
+captures and compares actual Linux/macOS evidence; no cross-host result exists
+yet. All 458 tooling tests, 47 publication-driver controls, eight regenerated
+Intl checks and final all-feature/all-target types pass. Thirteen initial
+native controls pass before the source-bound Intl refresh; the Test262 link
+then exhausted disk, so its native result is incomplete. Fresh complete
+acceptance is pending. The obsolete
+serial CLI attempt was deliberately interrupted before its complete result;
+none of its partial tests count as completed acceptance. The four engine tail
+targets passed 370 tests, including 141 RegExp and 199 Temporal controls. The
+corrected private fixture replay passed all 191 fake IDs. Preserve the raw V5
+intrinsic bootstrap diagnostic and all original five-second campaign failures.
+The repaired acceptance fixture explicitly isolates the complete selected
+three-node graph while retaining the actual caught TypeError Realm anchor.
+See the [batch record](docs/rust-rewrite/verification-iteration-repairs-20261011.md).
+
 ## Workspace inventory repair and smaller tests — 2026-10-11
 
 Four stale weak/Error stack inventories are repaired. All 301 focused native

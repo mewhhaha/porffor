@@ -23,11 +23,13 @@ use crate::{
     INTL_TIME_ZONE_NAMES_DATA_CUSTOM_SECTION,
 };
 use crate::{CheckedIntlServiceSelection, IntlDataComponent, IntlService, IntlServiceSet};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 mod manifest;
 pub use manifest::InvalidCustomIntlManifest;
 mod export;
 pub use export::IntlBundleExportError;
+#[cfg(test)]
+mod selected_profile_cache_tests;
 #[cfg(test)]
 mod service_tests;
 
@@ -926,7 +928,7 @@ impl IntlCompilationProfile {
 #[derive(Debug)]
 pub struct IntlDataSelection {
     profile: IntlCompilationProfile,
-    custom: OnceLock<Result<SelectedIntlDataBundle, EmbeddedIntlProviderSetupError>>,
+    custom: OnceLock<Result<Arc<SelectedIntlDataBundle>, EmbeddedIntlProviderSetupError>>,
 }
 
 impl IntlDataSelection {
@@ -951,9 +953,60 @@ impl IntlDataSelection {
             | IntlCompilationProfile::Custom(_)
             | IntlCompilationProfile::CustomProjection(_) => self
                 .custom
-                .get_or_init(|| SelectedIntlDataBundle::build(&self.profile))
-                .as_ref(),
+                .get_or_init(|| {
+                    static SELECTED: SelectedProfileCache = SelectedProfileCache::new();
+                    SELECTED.select(&self.profile, SELECTED_PROFILE_CACHE_BYTES)
+                })
+                .as_ref()
+                .map(Arc::as_ref),
         }
+    }
+}
+
+// Retain at most one complete immutable selection and at most 64 MiB of its
+// actual frame bytes. This is a serialized-data budget, not a claim about total
+// provider heap usage. Active callers independently own their admitted bundle.
+// Full typed profile equality includes all filters, services and Custom identity.
+const SELECTED_PROFILE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+struct SelectedProfileCache {
+    entry: Mutex<Option<(IntlCompilationProfile, Arc<SelectedIntlDataBundle>)>>,
+}
+
+impl SelectedProfileCache {
+    const fn new() -> Self {
+        Self {
+            entry: Mutex::new(None),
+        }
+    }
+
+    fn select(
+        &self,
+        profile: &IntlCompilationProfile,
+        byte_limit: usize,
+    ) -> Result<Arc<SelectedIntlDataBundle>, EmbeddedIntlProviderSetupError> {
+        // The producer does not recurse through IntlDataSelection. Serialize
+        // construction so concurrent identical requests share one admitted owner.
+        let mut entry = self
+            .entry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((cached_profile, bundle)) = entry.as_ref() {
+            if cached_profile == profile {
+                return Ok(Arc::clone(bundle));
+            }
+        }
+        // Every miss still uses the original checked producers and provider.
+        // Failed selections never replace the previous admitted cache entry.
+        let bundle = Arc::new(SelectedIntlDataBundle::build(profile)?);
+        let bytes = bundle
+            .component_sections()
+            .iter()
+            .try_fold(0usize, |total, (_, frame)| total.checked_add(frame.len()));
+        *entry = bytes
+            .filter(|bytes| *bytes <= byte_limit)
+            .map(|_| (profile.clone(), Arc::clone(&bundle)));
+        Ok(bundle)
     }
 }
 

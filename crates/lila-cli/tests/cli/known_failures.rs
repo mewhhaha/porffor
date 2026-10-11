@@ -804,15 +804,15 @@ const MAIN_THREAD_NAME: &str = "main";
 /// name *is* the libtest name, and it is the only routing key reachable from
 /// inside a test body without threading state through ~590 call sites.
 ///
-/// The bias is deliberate and one-directional: when the name is unknown the
-/// guarded path is taken, never skipped. Backwards, the suite pays a process
-/// spawn it did not need. Three consequences worth knowing:
+/// Unknown names and a malformed ledger take the guarded path. Serial libtest
+/// uses `main`, where the individual test name is unavailable. That route may
+/// use the bounded in-process path only when the ledger declares no CLI hang.
+/// Three consequences worth knowing:
 ///
-/// - Under `--test-threads=1` every CLI test spawns a real `lila` process,
-///   because libtest runs every test on `main` and the test's own name is
-///   unavailable there. That is correct and terminating but far slower than the
-///   in-process path the suite's runtime estimate is built on. Use
-///   `--test-threads=2` or higher, and `-- --exact <name>` for a single test.
+/// - Under `--test-threads=1`, one declared CLI hang guards every invocation
+///   from `main`. With no declared CLI hangs, serial tests use the same bounded
+///   in-process path as named non-hang tests. Each call still creates a fresh
+///   Engine and ECMAScript Realm. Explicit process controls remain subprocesses.
 /// - If the ledger fails to parse, every test takes the guarded path. That is
 ///   loud rather than silent: [`ledger_is_well_formed`] reports the parse error
 ///   in the same run — but read that one diagnostic early, because the visible
@@ -821,15 +821,33 @@ const MAIN_THREAD_NAME: &str = "main";
 ///   guarded path. It is bounded on the other path instead; see
 ///   [`ExecutionPath::InProcess`].
 pub(crate) fn execution_path(thread_name: Option<&str>) -> ExecutionPath {
+    execution_path_with_ledger(thread_name, parse_ledger())
+}
+
+fn execution_path_with_ledger(
+    thread_name: Option<&str>,
+    ledger: Result<Ledger, LedgerError>,
+) -> ExecutionPath {
     let Some(name) = thread_name else {
         return ExecutionPath::GuardedSubprocess;
     };
-    if name.is_empty() || name == MAIN_THREAD_NAME {
+    if name.is_empty() {
         return ExecutionPath::GuardedSubprocess;
     }
-    let Ok(ledger) = parse_ledger() else {
+    let Ok(ledger) = ledger else {
         return ExecutionPath::GuardedSubprocess;
     };
+    if name == MAIN_THREAD_NAME {
+        return if ledger
+            .rows
+            .iter()
+            .any(|row| row.target == TestTarget::Cli && row.state == State::Hang)
+        {
+            ExecutionPath::GuardedSubprocess
+        } else {
+            ExecutionPath::InProcess
+        };
+    }
     match ledger.row_for(TestTarget::Cli, name) {
         None => ExecutionPath::InProcess,
         Some(row) => match row.state {
@@ -1568,13 +1586,6 @@ fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
     // hang, so it is asserted rather than left to a comment.
     assert_eq!(execution_path(None), ExecutionPath::GuardedSubprocess);
     assert_eq!(execution_path(Some("")), ExecutionPath::GuardedSubprocess);
-    assert_eq!(
-        execution_path(Some(MAIN_THREAD_NAME)),
-        ExecutionPath::GuardedSubprocess,
-        "under --test-threads=1 libtest runs tests on the main thread, so the test name is \
-         unavailable and the guarded path is the only safe choice"
-    );
-
     let ledger = parsed_ledger_or_panic();
     let hangs: Vec<&Row> = ledger
         .rows
@@ -1586,9 +1597,18 @@ fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
     // delete this assertion along with the row" — and in batch 6 it was: the T17
     // `Atomics.wait` row was retired when the test started passing, leaving zero
     // cli hang rows. The loop below is then vacuous *by design*, which is the
-    // correct end state; the three unconditional assertions above are what keep
+    // correct end state; the unknown-name assertions above are what keep
     // this test from asserting nothing. Re-add the non-empty check only if a new
     // hang row is ever declared and you want its routing pinned.
+    assert_eq!(
+        execution_path(Some(MAIN_THREAD_NAME)),
+        if hangs.is_empty() {
+            ExecutionPath::InProcess
+        } else {
+            ExecutionPath::GuardedSubprocess
+        },
+        "serial libtest must guard every invocation when any CLI hang is declared"
+    );
     for row in hangs {
         assert_eq!(
             execution_path(Some(row.test)),
@@ -1605,6 +1625,57 @@ fn routing_takes_the_guarded_path_whenever_the_test_name_is_unknown() {
         execution_path(Some("array::a_name_that_is_not_in_the_ledger")),
         ExecutionPath::InProcess
     );
+}
+
+#[test]
+fn serial_routing_guards_declared_hangs_and_invalid_ledgers() {
+    let mut ledger = parsed_ledger_or_panic();
+    ledger.rows.clear();
+    let route = |ledger: &Ledger, name| execution_path_with_ledger(name, Ok(ledger.clone()));
+    assert_eq!(
+        route(&ledger, Some(MAIN_THREAD_NAME)),
+        ExecutionPath::InProcess
+    );
+    ledger.rows.push(Row {
+        target: TestTarget::Perf,
+        test: "test_only_hang",
+        state: State::Hang,
+        owner_task: TaskId(2),
+        reason: "routing control",
+        evidence: "synthetic ledger; no fixture is executed",
+        line: 1,
+    });
+    assert_eq!(
+        route(&ledger, Some(MAIN_THREAD_NAME)),
+        ExecutionPath::InProcess
+    );
+    ledger.rows[0].target = TestTarget::Cli;
+    ledger.rows[0].state = State::Fail;
+    assert_eq!(
+        route(&ledger, Some(MAIN_THREAD_NAME)),
+        ExecutionPath::InProcess
+    );
+    ledger.rows[0].state = State::Hang;
+    assert_eq!(
+        route(&ledger, Some(MAIN_THREAD_NAME)),
+        ExecutionPath::GuardedSubprocess
+    );
+    assert_eq!(
+        route(&ledger, Some("test_only_hang")),
+        ExecutionPath::GuardedSubprocess
+    );
+    assert_eq!(
+        route(&ledger, Some("test_only_nonhang")),
+        ExecutionPath::InProcess
+    );
+    assert_eq!(route(&ledger, None), ExecutionPath::GuardedSubprocess);
+    assert_eq!(route(&ledger, Some("")), ExecutionPath::GuardedSubprocess);
+    for name in [Some(MAIN_THREAD_NAME), Some("test_only_nonhang"), None] {
+        assert_eq!(
+            execution_path_with_ledger(name, Err(LedgerError::UnknownState("invalid".into()))),
+            ExecutionPath::GuardedSubprocess
+        );
+    }
 }
 
 #[test]
