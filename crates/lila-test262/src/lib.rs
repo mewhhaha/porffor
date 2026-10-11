@@ -23,6 +23,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 mod attempt_journal;
 mod case_process;
+mod case_worker_server;
 mod compiler_provenance;
 mod module_catalog;
 mod performance_evidence;
@@ -493,6 +494,10 @@ pub struct SuiteConfig {
     /// Executable implementing the hidden `test262 __case-worker` route.
     /// Discovery does not require a worker; executing admitted cases does.
     pub case_runner_bin: Option<PathBuf>,
+    /// Reuse at most 64 sequential requests per owned worker process. Every
+    /// request still has a fresh Engine/Realm/Store and its own outer deadline.
+    /// One-shot remains available for replay and arbitrary external workers.
+    pub reuse_case_workers: bool,
     execution_role: CaseExecutionRole,
 }
 
@@ -508,6 +513,7 @@ enum CaseExecutionRole {
 #[derive(Clone)]
 enum CaseExecutionDispatch {
     Supervised(PathBuf),
+    Reused(PathBuf),
     Worker,
 }
 
@@ -537,7 +543,11 @@ impl CaseExecutionDispatch {
             if binary.as_os_str().is_empty() {
                 return Err("Test262 supervisor requires a nonempty case worker executable".into());
             }
-            return Ok(Self::Supervised(binary.clone()));
+            return Ok(if config.reuse_case_workers {
+                Self::Reused(binary.clone())
+            } else {
+                Self::Supervised(binary.clone())
+            });
         }
         Err("Test262 execution requires a selected case worker executable; in-process compilation is reserved for the exact single-case worker entry".into())
     }
@@ -565,6 +575,7 @@ impl Default for SuiteConfig {
                 .map(|count| count.get().min(4))
                 .unwrap_or(4),
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::Supervisor,
         }
     }
@@ -2915,6 +2926,13 @@ pub fn run_case_worker(
     run_full_with_manifest(&config, run_config, manifest)
 }
 
+/// Implements the versioned private sequential case worker protocol. Normal
+/// callers continue to use the supervised run/shard/matrix entry points.
+#[doc(hidden)]
+pub fn run_case_worker_server(config: SuiteConfig, run_config: RunConfig) -> Result<(), String> {
+    case_worker_server::serve(config, run_config)
+}
+
 pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
     let manifest = discover_suite(config, run_config.filter.as_deref())?;
     run_full_with_manifest(config, run_config, manifest)
@@ -4061,7 +4079,9 @@ fn execute_cases(
                 let journal = &journal;
                 thread::Builder::new()
                     .stack_size(TEST262_WORKER_STACK_SIZE)
-                    .spawn_scoped(scope, move || loop {
+                    .spawn_scoped(scope, move || {
+                      let mut session = None;
+                      loop {
                         let maybe_case = {
                             let mut guard = queue.lock().expect("queue mutex poisoned");
                             guard.pop()
@@ -4091,6 +4111,7 @@ fn execute_cases(
                                 let admitted_path = admitted.case().path.clone();
                                 let result = run_case_entry_with_dispatch(
                                     &dispatch,
+                                    &mut session,
                                     &worker_config,
                                     &preludes,
                                     admitted,
@@ -4185,6 +4206,15 @@ fn execute_cases(
                                 }
                             }
                         }
+                      }
+                      if let Err(err) = retire_case_session(&mut session) {
+                          let mut error_guard = checkpoint_error
+                              .lock()
+                              .expect("checkpoint error mutex poisoned");
+                          if error_guard.is_none() {
+                              *error_guard = Some(err);
+                          }
+                      }
                     })
                     .expect("worker thread should spawn");
             }
@@ -4604,6 +4634,128 @@ fn create_child_snapshot_directory(case: &TestCase) -> Result<PathBuf, String> {
     }
 }
 
+fn append_case_harness(command: &mut Command, harness: &LocalHarnessSource) {
+    match harness {
+        LocalHarnessSource::None => {
+            command.arg("--case-harness").arg("none");
+        }
+        LocalHarnessSource::EmbeddedSpecExec => {
+            command.arg("--case-harness").arg("spec-exec");
+        }
+        LocalHarnessSource::EmbeddedWasmAot => {
+            command.arg("--case-harness").arg("wasm-aot");
+        }
+        LocalHarnessSource::EmbeddedWasmAotHostOnly => {
+            command.arg("--case-harness").arg("wasm-aot-host-only");
+        }
+        LocalHarnessSource::File(path) => {
+            command.arg("--case-harness-file").arg(path);
+        }
+    }
+}
+
+fn retire_case_session(session: &mut Option<case_worker_server::Session>) -> Result<(), String> {
+    if let Some(mut owned) = session.take() {
+        owned.retire()?;
+    }
+    Ok(())
+}
+
+fn run_one_case_in_reused_process(
+    binary: &Path,
+    session: &mut Option<case_worker_server::Session>,
+    config: &SuiteConfig,
+    case: &TestCase,
+    run: &RunConfig,
+) -> Result<TestResult, String> {
+    let manifest = single_case_manifest(config, case);
+    let directory = create_child_snapshot_directory(case)?;
+    let name = format!(
+        "{}-case-{}",
+        run.snapshot_name,
+        hash_case_path(&case.execution_id.wire_key())
+    );
+    let child_config = SuiteConfig {
+        snapshot_dir: directory.clone(),
+        ..config.clone()
+    };
+    let result = (|| {
+        let deadline = case_process::CaseDeadline::new(config.timeout_ms, run.execution_backend)?;
+        if session.is_none() {
+            *session = Some(case_worker_server::Session::spawn(
+                binary, config, run, deadline,
+            )?);
+        }
+        let outcome =
+            session
+                .as_mut()
+                .unwrap()
+                .request(&case.execution_id, &directory, &name, deadline)?;
+        let Some(outcome) = outcome else {
+            retire_case_session(session)?;
+            let duration_ms = deadline.elapsed_ms();
+            return Ok(TestResult {
+                test_id: case.execution_id.clone(),
+                status: TestStatus::Failed(classify_failure(
+                    case.execution_id.clone(),
+                    FailureKind::Runtime,
+                    format!("timeout exceeded after {duration_ms}ms"),
+                )),
+                duration_ms,
+            });
+        };
+        // Retire timed-out, faulty and exhausted workers before reading files.
+        // A completed semantic failure still owns a fresh, already dropped Store.
+        // Successful requests have joined all work before their terminal ACK.
+        if outcome == case_worker_server::Outcome::WorkerFailure
+            || session.as_ref().unwrap().exhausted()
+        {
+            retire_case_session(session)?;
+        }
+        let snapshot = load_previous_snapshot(
+            &child_config,
+            &name,
+            ResumeCheckpointIdentity::for_single_case_child(&manifest, run),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )?
+        .ok_or("case worker responded without its exact completed snapshot")?;
+        let result = result_from_single_case_snapshot(case, snapshot, deadline.elapsed_ms())?;
+        if matches!(result.status, TestStatus::Passed)
+            != (outcome == case_worker_server::Outcome::Passed)
+        {
+            return Err("case worker terminal verdict contradicts its validated snapshot".into());
+        }
+        Ok(result)
+    })();
+    let cleanup = fs::remove_dir_all(&directory).map_err(|error| {
+        format!(
+            "cannot remove case snapshot directory {}: {error}",
+            directory.display()
+        )
+    });
+    let retirement = if result.is_err() || cleanup.is_err() {
+        retire_case_session(session)
+    } else {
+        Ok(())
+    };
+    match (result, retirement, cleanup) {
+        (Ok(result), Ok(()), Ok(())) => Ok(result),
+        (result, retirement, cleanup) => {
+            let mut errors = Vec::new();
+            if let Err(error) = result {
+                errors.push(error);
+            }
+            if let Err(error) = retirement {
+                errors.push(error);
+            }
+            if let Err(error) = cleanup {
+                errors.push(error);
+            }
+            Err(errors.join("; "))
+        }
+    }
+}
+
 fn run_one_case_in_child_process(
     case_runner_bin: &Path,
     config: &SuiteConfig,
@@ -4650,23 +4802,7 @@ fn run_one_case_in_child_process(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
 
-        match &config.local_harness {
-            LocalHarnessSource::None => {
-                child.arg("--case-harness").arg("none");
-            }
-            LocalHarnessSource::EmbeddedSpecExec => {
-                child.arg("--case-harness").arg("spec-exec");
-            }
-            LocalHarnessSource::EmbeddedWasmAot => {
-                child.arg("--case-harness").arg("wasm-aot");
-            }
-            LocalHarnessSource::EmbeddedWasmAotHostOnly => {
-                child.arg("--case-harness").arg("wasm-aot-host-only");
-            }
-            LocalHarnessSource::File(path) => {
-                child.arg("--case-harness-file").arg(path);
-            }
-        }
+        append_case_harness(&mut child, &config.local_harness);
         let budget =
             case_process::CaseDeadline::new(config.timeout_ms, run_config.execution_backend)?;
         if budget.expired() {
@@ -4808,11 +4944,12 @@ fn run_case_entry(
 ) -> TestResult {
     let dispatch = CaseExecutionDispatch::admit(config, std::slice::from_ref(admitted.case()))
         .expect("test fixture must explicitly choose its execution role");
-    run_case_entry_with_dispatch(&dispatch, config, preludes, admitted, run_config)
+    run_case_entry_with_dispatch(&dispatch, &mut None, config, preludes, admitted, run_config)
 }
 
 fn run_case_entry_with_dispatch(
     dispatch: &CaseExecutionDispatch,
+    session: &mut Option<case_worker_server::Session>,
     config: &SuiteConfig,
     preludes: &PreludeStore,
     admitted: AdmittedCase,
@@ -4833,6 +4970,18 @@ fn run_case_entry_with_dispatch(
                 },
             );
         }
+        CaseExecutionDispatch::Reused(binary) => {
+            return run_one_case_in_reused_process(binary, session, config, case, run_config)
+                .unwrap_or_else(|detail| TestResult {
+                    test_id: case.execution_id.clone(),
+                    status: TestStatus::Failed(classify_failure(
+                        case.execution_id.clone(),
+                        FailureKind::HostHarness,
+                        detail,
+                    )),
+                    duration_ms: config.timeout_ms.into(),
+                });
+        }
         CaseExecutionDispatch::Worker => {}
     }
 
@@ -4842,6 +4991,7 @@ fn run_case_entry_with_dispatch(
             preludes,
             config.timeout_ms,
             run_config.execution_backend,
+            config.reuse_case_workers,
         )
     }))
     .unwrap_or_else(|panic_payload| TestResult {
@@ -4883,18 +5033,25 @@ fn run_one_case_on_persistent_worker(
     preludes: &PreludeStore,
     timeout_ms: u64,
     execution_backend: ExecutionBackend,
+    retain_modules: bool,
 ) -> TestResult {
     run_one_case_with_wasm_aot_execution(
         case,
         preludes,
         timeout_ms,
         execution_backend,
-        WasmAotExecutionStack::PersistentTest262Worker,
+        if retain_modules {
+            // The ordinary Engine entry retains only immutable compiled
+            // modules in the existing bounded cache. It owns a sized thread;
+            // all JS Realm/Store state still belongs to this exact invocation.
+            WasmAotExecutionStack::DedicatedWorker
+        } else {
+            WasmAotExecutionStack::PersistentTest262Worker
+        },
     )
 }
 
 enum WasmAotExecutionStack {
-    #[cfg(test)]
     DedicatedWorker,
     PersistentTest262Worker,
 }
@@ -5032,7 +5189,6 @@ fn run_one_case_with_wasm_aot_execution(
             && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()
             && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             }) {
@@ -5058,7 +5214,6 @@ fn run_one_case_with_wasm_aot_execution(
             )
         } else if execution_backend == ExecutionBackend::WasmAot
             && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             })
@@ -9606,6 +9761,7 @@ function $DONE(error) {
             timeout_ms: 30_000,
             worker_count: 2,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
@@ -10137,6 +10293,7 @@ function $DONE(error) {
             timeout_ms: 1_000,
             worker_count: 1,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let exact = discover_suite(
@@ -23883,6 +24040,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 1_000,
             worker_count: 2,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let first = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
@@ -25146,6 +25304,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 30_000,
             worker_count: 1,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::SingleCaseWorker(id.clone()),
         };
         let manifest = discover_suite(&config, Some(&id.wire_key()))
@@ -25229,6 +25388,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 50,
             worker_count: 1,
             case_runner_bin: Some(runner_path),
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::Supervisor,
         };
         let case = synthetic_case("staging/sm/JSON/parse-mega-huge-array.js");
@@ -26003,6 +26163,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 1_000,
             worker_count: 1,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let run_config = RunConfig {
@@ -26069,6 +26230,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .expect("child runner permissions should update");
         let config = SuiteConfig {
             case_runner_bin: Some(runner_path),
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::Supervisor,
             ..config
         };
@@ -26656,6 +26818,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 5_000,
             worker_count: 1,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
@@ -27996,6 +28159,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             timeout_ms: 5_000,
             worker_count: 1,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let rules =

@@ -268,6 +268,7 @@ test262 options:
   --suite-root PATH
   --snapshot-dir PATH
   --threads N
+  --reuse-case-workers                 bounded process reuse; fresh Realm/Store per case
   --timeout-ms N
   --execution-backend wasm|spec         default: wasm (wasm-aot). `spec` selects
                                          spec-exec, an INTERNAL/DEBUG-ONLY interpreter
@@ -3043,6 +3044,11 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         return conformance_closure::run(&args[1..]);
     }
 
+    if args[0] == "__case-worker-server-v1" {
+        let parsed = parse_test262_case_worker_args(&args[1..])?;
+        return lila_test262::run_case_worker_server(parsed.config, parsed.run_config);
+    }
+
     if args[0] == "__case-worker" {
         let parsed = parse_test262_case_worker_args(&args[1..])?;
         let summary = lila_test262::run_case_worker(parsed.config, parsed.run_config)?;
@@ -3636,6 +3642,9 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
             }
             "--resume" => {
                 run_config.resume = true;
+            }
+            "--reuse-case-workers" => {
+                config.reuse_case_workers = true;
             }
             "--snapshot-name" => {
                 index += 1;
@@ -5352,6 +5361,16 @@ mod tests {
             parsed.run_config.execution_backend,
             ExecutionBackend::WasmAot
         );
+    }
+
+    #[test]
+    fn process_reuse_is_explicit_and_keeps_the_worker_count_and_timeout() {
+        let default = parse_test262_args(&[]).unwrap();
+        assert!(!default.config.reuse_case_workers);
+        let parsed = parse_test262_args(&["--reuse-case-workers", "--threads", "1", "--timeout-ms", "5000"].map(str::to_string)).unwrap();
+        assert!(parsed.config.reuse_case_workers);
+        assert_eq!(parsed.config.worker_count, 1);
+        assert_eq!(parsed.config.timeout_ms, 5000);
     }
 
     #[test]

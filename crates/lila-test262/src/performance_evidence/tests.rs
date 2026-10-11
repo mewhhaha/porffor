@@ -31,6 +31,7 @@ impl Fixture {
             timeout_ms: 1_000,
             worker_count: 3,
             case_runner_bin: None,
+            reuse_case_workers: false,
             execution_role: CaseExecutionRole::Supervisor,
         };
         for (category, count) in [("Array", 12), ("Object", 2)] {
@@ -86,6 +87,7 @@ impl Fixture {
             resume_requested: true,
             configured_workers: self.config.worker_count,
             timeout_ms: self.config.timeout_ms,
+            reuse_case_workers: self.config.reuse_case_workers,
             os: "fixture-os".into(),
             architecture: "fixture-arch".into(),
         }

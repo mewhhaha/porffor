@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""Intercept only Rust libtest links, leaving product/build-script links alone."""
+import fcntl
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from shared_image import shared_image
+
+args = sys.argv[1:]
+parent = Path('/proc') / str(os.getppid())
+try:
+    parent_args = (parent / 'cmdline').read_bytes().split(b'\0')
+    test = b'--test' in parent_args and (parent / 'comm').read_text().strip() == 'rustc'
+except OSError as error:
+    sys.exit('shared test image linker requires readable Linux /proc: ' + str(error))
+if test and '-llila_runtime_images' in args:
+    output = Path(args[args.index('-o') + 1]).resolve()
+    root = Path(__file__).resolve().parents[2]
+    if output.parent != root / 'target/debug/deps':
+        os.execv('/usr/bin/cc', ['/usr/bin/cc', *args])
+    search = []
+    for i, arg in enumerate(args):
+        if arg == '-L':
+            search.append(Path(args[i + 1]))
+        elif arg.startswith('-L'):
+            search.append(Path(arg[2:]))
+    archives = {p.resolve() for directory in search if (p := directory / 'liblila_runtime_images.a').is_file()}
+    assert len(archives) == 1, archives
+    image, receipt = shared_image(archives.pop(), root / 'target/shared-test-runtime-images')
+    changed = []
+    for arg in args:
+        if arg == '-llila_runtime_images':
+            changed += ['-Wl,-Bdynamic', str(image), '-Wl,-Bstatic', '-Wl,-rpath,' + str(image.parent)]
+        else:
+            changed.append(arg)
+    args = changed
+    status = subprocess.run(['/usr/bin/cc', *args]).returncode
+    if status:
+        sys.exit(status if status > 0 else 128 - status)
+    with output.open('rb') as stream:
+        executable_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
+    log = root / 'target/shared-test-runtime-images/test-links.jsonl'
+    with log.open('a') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        stream.write(json.dumps({'output': str(output), 'executable_sha256': executable_sha256, 'shared_image': str(image), 'identity': receipt['identity'], 'parent_rustc_test': True}) + '\n')
+    sys.exit(0)
+os.execv('/usr/bin/cc', ['/usr/bin/cc', *args])

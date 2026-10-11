@@ -1,5 +1,34 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Opt-in iteration tooling — 2026-10-11
+
+The Linux x86_64 test linker can share the exact immutable runtime image data
+between native test executables. Prefix PATH with
+`$PWD/scripts/test-shared-runtime-images` when building tests in
+`target/debug/deps`. Product links and doctests use the static archive. Cargo
+can reuse an old static test binary because PATH does not change its unit
+fingerprint; remove only that completed test executable and rebuild if it defines
+the runtime-image symbols and `readelf -d` shows no `liblila_runtime_images_*`
+dependency. A test that uses no runtime image needs no shared dependency. The cache key binds the
+archive, linker, builder and target; symbol bytes are verified before admission.
+Each successful test link records its executable digest and shared-image identity
+in `target/shared-test-runtime-images/test-links.jsonl`. Keep the cache while
+any such test executable is in use.
+
+`lila test262 run --reuse-case-workers` opts into at most 64 sequential requests
+per supervised process, sharing compiler/runtime caches. Every case still
+creates a fresh Engine, Realm, Store, GC state and native agent ownership.
+The parent retains its original absolute attempt budget and exact snapshot,
+compiler, source and execution-ID validation. Timeout, crash, protocol error
+or infrastructure failure retires the whole process group before the next
+request; completed semantic failures remain failures and may reuse the process.
+Case worker count, compiler jobs and JavaScript deadlines are unchanged.
+The one-shot path remains the default. Full workspace and pinned acceptance
+are required independently of these iteration options.
+
+The [verified checkpoint](case-worker-reuse-20261011.md) records 21 native
+controls, exact artifact identities and a sixteen-case timing comparison.
+
 ## Closure audit and verification — 2026-10-08
 
 The integrated ownership and Unicode batch passes the workspace type check,

@@ -35,19 +35,19 @@
     "profile_sha256": "b85256e1db8dc6a087cd02af4e3ca27348f41f545d8ba072beda7e0f1e5a7fd3",
     "sources": [
       {
-        "bytes": 75973,
+        "bytes": 76004,
         "path": "Cargo.lock",
-        "sha256": "37c778fc6950dc1e7c32735791b08ea7c7dcbfc49e78337a77c5d4533f7c4bf0"
+        "sha256": "eda64286c216d68d3da46101c2b3c7c8eff08ba99fe955e6cb4bd89f060433b9"
       },
       {
-        "bytes": 3285,
+        "bytes": 3474,
         "path": "Cargo.toml",
-        "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
+        "sha256": "09ab82143ddc78e3b042bf5ad423ac7542d045a43b4bdc5a3add0ef87395b1b5"
       },
       {
-        "bytes": 79795,
+        "bytes": 79814,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
+        "sha256": "117b6e2d11c20d206d58e681ffae59a6262c13eb3b2b3b69962dd58dc08305e3"
       },
       {
         "bytes": 81131,
@@ -77,7 +77,7 @@
       {
         "bytes": 30852,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "9729ef71124e0bc1e66eb3abec620ff343d556d754c51459626d7dc360ada33b"
+        "sha256": "565b45ce9821afafa00889ce64c02b27bd646f780ad395d3c62b2d2cd90ec1a3"
       },
       {
         "bytes": 34690,
@@ -147,7 +147,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "e0a5d668af69821797e8e6b643289cd84c864354d9989759dd5841d2ccb4512d"
+        "sha256": "fab02b5701fe9aabe11f936d246c0a7ec390a578a89217ac54e95ca6813ee5b7"
       },
       {
         "bytes": 4101,
@@ -251,7 +251,7 @@
       }
     ]
   },
-  "kernel_sha256": "1a37ac8aa05d2afb5593467e31299a96dc2eaaf96b44beb2cd31108f03a64b0b",
+  "kernel_sha256": "08e762870d8c80c0e65dfd92300fee3b36d287359bd246813fd16fe4f7caf748",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

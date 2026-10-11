@@ -22,6 +22,7 @@ impl NodeInvocationTimer {
                 resume_requested: run.resume,
                 configured_workers: config.worker_count,
                 timeout_ms: config.timeout_ms,
+                reuse_case_workers: config.reuse_case_workers,
                 os: std::env::consts::OS.into(),
                 architecture: std::env::consts::ARCH.into(),
             },
@@ -44,6 +45,8 @@ struct TimingSettings {
     resume_requested: bool,
     configured_workers: usize,
     timeout_ms: u64,
+    #[serde(default)]
+    reuse_case_workers: bool,
     os: String,
     architecture: String,
 }

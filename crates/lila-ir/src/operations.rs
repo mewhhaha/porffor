@@ -1355,12 +1355,11 @@ pub enum RowSource {
 /// be written out by hand: with `pub` fields this compiled, and forged an
 /// implementation claim for an operation nobody implemented —
 ///
-/// ```ignore
-/// pub const FORGED: SpecOperationCatalogEntry = SpecOperationCatalogEntry {
+/// ```compile_fail
+/// use lila_ir::{SpecOperationCatalogEntry, SpecOperationIr};
+/// let _ = SpecOperationCatalogEntry {
 ///     name: "SpeciesConstructor",
-///     lowering_status: OperationLoweringStatus::SharedWasmEmitter(
-///         SpecOperationIr::ToString.emitter_evidence()),
-///     ..
+///     ..SpecOperationIr::ToString.catalog_entry()
 /// };
 /// ```
 ///

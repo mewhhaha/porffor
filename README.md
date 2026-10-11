@@ -1,5 +1,13 @@
 # Lila
 
+Opt-in bounded Test262 worker reuse passes 21 native controls with fresh
+JavaScript state, exact snapshots and unchanged deadlines. On a sixteen-case
+synthetic selection it reduces elapsed time from 65.367 to 5.119 seconds.
+Immutable runtime images can also be shared between Linux native tests;
+ordinary CLI links remain static. Six executable documentation checks, all
+443 tooling tests and twelve guards pass. Full acceptance remains open. See
+the [iteration checkpoint](docs/rust-rewrite/case-worker-reuse-20261011.md).
+
 All four JavaScript weak families now use collector-backed storage and real
 job boundaries. Nineteen focused native controls and joined workspace types
 pass, including forced-GC reachability, finalization error reporting, CLI and

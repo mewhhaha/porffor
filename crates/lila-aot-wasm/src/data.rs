@@ -220,7 +220,7 @@ pub(crate) use runtime_regexp_entry_kind::RuntimeRegExpEntryKind;
 /// an illegal pattern used to be the same observable state. `queue_runtime_regexp_programs`
 /// wrote rows with
 ///
-/// ```ignore
+/// ```text
 /// let Ok(program) = RegExpProgram::compile(compilation_source, flags) else {
 ///     continue;
 /// };

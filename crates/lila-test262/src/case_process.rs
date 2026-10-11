@@ -118,6 +118,120 @@ impl CaseProcess {
         }
     }
 
+    /// Both pipe directions are nonblocking: a wedged worker cannot consume
+    /// more time than this request's fresh, absolute case deadline. The server
+    /// answers only after all case work and its exact snapshot have completed.
+    pub(super) fn exchange(
+        &mut self,
+        request: &[u8],
+        deadline: CaseDeadline,
+        frame_limit: usize,
+    ) -> Result<Option<Vec<u8>>, String> {
+        #[cfg(not(unix))]
+        {
+            let _ = (request, deadline, frame_limit);
+            Err("bounded case worker pipe supervision requires Unix".into())
+        }
+        #[cfg(unix)]
+        {
+            use std::io::{Read, Write};
+            use std::os::fd::AsRawFd;
+            let input = self
+                .child
+                .stdin
+                .as_ref()
+                .ok_or("case worker has no input pipe")?;
+            let output = self
+                .child
+                .stdout
+                .as_ref()
+                .ok_or("case worker has no output pipe")?;
+            for fd in [input.as_raw_fd(), output.as_raw_fd()] {
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+                if flags < 0
+                    || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+                {
+                    return Err(format!(
+                        "cannot bound case worker pipe: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+            }
+            let mut written = 0;
+            let mut response = Vec::new();
+            let mut bytes = [0; 1024];
+            let mut exited = None;
+            loop {
+                if deadline.expired() {
+                    return Ok(None);
+                }
+                if written < request.len() {
+                    match self
+                        .child
+                        .stdin
+                        .as_mut()
+                        .unwrap()
+                        .write(&request[written..])
+                    {
+                        Ok(0) => return Err("case worker input pipe closed".into()),
+                        Ok(count) => written += count,
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                            ) => {}
+                        Err(error) => {
+                            return Err(format!("failed to send case worker request: {error}"))
+                        }
+                    }
+                }
+                match self.child.stdout.as_mut().unwrap().read(&mut bytes) {
+                    Ok(0) => {
+                        return Err("child case runner crashed before its terminal response".into())
+                    }
+                    Ok(count) => {
+                        response.extend_from_slice(&bytes[..count]);
+                        if response.len() > frame_limit {
+                            return Err("case worker response exceeds its byte limit".into());
+                        }
+                        if let Some(end) = response.iter().position(|byte| *byte == b'\n') {
+                            if end + 1 != response.len() || written != request.len() {
+                                return Err(
+                                    "case worker sent an unsolicited or multiple response".into()
+                                );
+                            }
+                            return Ok((!deadline.expired()).then_some(response));
+                        }
+                        // Drain available bytes before sleeping or checking an
+                        // exit: a terminal failure may reply and exit together.
+                        continue;
+                    }
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                        ) => {}
+                    Err(error) => {
+                        return Err(format!("failed to read case worker response: {error}"))
+                    }
+                }
+                if let Some(status) = exited {
+                    return Err(format!(
+                        "child case runner crashed before its terminal response: {status}"
+                    ));
+                }
+                if let Some(status) = self.child.try_wait().map_err(|error| error.to_string())? {
+                    // The terminal write can land between read(WouldBlock)
+                    // and try_wait. Drain the pipe once more before classifying
+                    // the exited process as missing its response.
+                    exited = Some(status);
+                    continue;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+
     pub(super) fn retire(&mut self) -> Result<(), String> {
         if self.retired {
             return Ok(());
@@ -193,6 +307,66 @@ mod tests {
         assert!(deadline.expired());
         #[cfg(unix)]
         assert!(CaseProcess::spawn(&mut Command::new("sh"), deadline).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn sequential_pipe_requests_have_independent_absolute_deadlines() {
+        use std::process::Stdio;
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("while IFS= read -r line; do printf '%s\\n' \"$line\"; done")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let first = CaseDeadline::new(500, ExecutionBackend::SpecExec).unwrap();
+        let mut process = CaseProcess::spawn(&mut command, first).unwrap();
+        assert_eq!(
+            process.exchange(b"first\n", first, 32).unwrap().unwrap(),
+            b"first\n"
+        );
+        std::thread::sleep(Duration::from_millis(510));
+        assert!(first.expired());
+        let second = CaseDeadline::new(500, ExecutionBackend::SpecExec).unwrap();
+        assert_eq!(
+            process.exchange(b"second\n", second, 32).unwrap().unwrap(),
+            b"second\n"
+        );
+        process.retire().unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn blocked_pipe_and_oversized_response_cannot_escape_supervision() {
+        use std::process::Stdio;
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("sleep 60")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let deadline = CaseDeadline::new(50, ExecutionBackend::SpecExec).unwrap();
+        let mut process = CaseProcess::spawn(&mut command, deadline).unwrap();
+        assert!(process
+            .exchange(&vec![b'x'; 1024 * 1024], deadline, 32)
+            .unwrap()
+            .is_none());
+        process.retire().unwrap();
+        assert!(process.child.try_wait().unwrap().is_some());
+
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg("read line; printf 'oversized\\n'")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let deadline = CaseDeadline::new(500, ExecutionBackend::SpecExec).unwrap();
+        let mut process = CaseProcess::spawn(&mut command, deadline).unwrap();
+        assert!(process
+            .exchange(b"request\n", deadline, 4)
+            .unwrap_err()
+            .contains("byte limit"));
+        process.retire().unwrap();
     }
 
     #[test]

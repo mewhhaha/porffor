@@ -1,5 +1,19 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Bounded worker reuse and native iteration — 2026-10-11
+
+The opt-in `--reuse-case-workers` route passes all 21 focused native controls,
+including same-process recovery after a semantic failure and fresh Realm/Store
+state. Every process is retired after 64 cases or an infrastructure failure;
+final retirement errors reject success. A sixteen-case synthetic comparison
+passes the same IDs in 65.367 seconds one-shot and 5.119 seconds reused, with
+unchanged budgets. The verified Linux test linker shares immutable runtime-image
+data; product CLI links remain static. Six IR doctests, all 443 tooling tests,
+eight regenerated Intl reproduction checks and twelve guards pass. The obsolete
+AOT API snippet is plain text, so that documentation target has zero executable
+examples. Full workspace and current full pinned acceptance are next. See the
+[checkpoint](docs/rust-rewrite/case-worker-reuse-20261011.md).
+
 ## JavaScript weak integration — 2026-10-11 focused checkpoint
 
 The sixteen routes, actual GC brands, kept-root job boundaries and finalization
