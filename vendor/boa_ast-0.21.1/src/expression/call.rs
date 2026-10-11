@@ -1,5 +1,5 @@
 use crate::visitor::{VisitWith, Visitor, VisitorMut};
-use crate::{Span, Spanned, join_nodes};
+use crate::{LinearPosition, LinearSpan, LinearSpanIgnoreEq, Span, Spanned, join_nodes};
 use boa_interner::{Interner, ToInternedString};
 use core::ops::ControlFlow;
 
@@ -201,6 +201,7 @@ pub struct ImportCall {
     options: Option<Box<Expression>>,
     phase: ImportPhase,
     span: Span,
+    head_span: LinearSpanIgnoreEq,
 }
 
 impl ImportCall {
@@ -222,6 +223,7 @@ impl ImportCall {
             options: None,
             phase,
             span,
+            head_span: LinearSpan::new(LinearPosition::new(0), LinearPosition::new(0)).into(),
         }
     }
 
@@ -241,7 +243,23 @@ impl ImportCall {
             options: options.map(Into::into).map(Box::new),
             phase,
             span,
+            head_span: LinearSpan::new(LinearPosition::new(0), LinearPosition::new(0)).into(),
         }
+    }
+
+    /// Records the original parser range from `import` through its optional phase.
+    #[must_use]
+    pub fn with_head_span(mut self, span: LinearSpan) -> Self {
+        self.head_span = span.into();
+        self
+    }
+
+    /// Original UTF-16 range of the keyword and optional phase, excluding `(`.
+    /// Synthetic nodes have no original source range.
+    #[must_use]
+    pub fn head_span(&self) -> Option<LinearSpan> {
+        let span = self.head_span.0;
+        (span.start() != span.end()).then_some(span)
     }
 
     /// Retrieves the single argument of the import call.
@@ -279,14 +297,14 @@ impl ToInternedString for ImportCall {
             ImportPhase::Source => "import.source",
         }
         .to_owned()
-        + "("
-        + &self.arg.to_interned_string(interner)
-        + &self
-            .options
-            .as_ref()
-            .map(|expr| format!(", {}", expr.to_interned_string(interner)))
-            .unwrap_or_default()
-        + ")"
+            + "("
+            + &self.arg.to_interned_string(interner)
+            + &self
+                .options
+                .as_ref()
+                .map(|expr| format!(", {}", expr.to_interned_string(interner)))
+                .unwrap_or_default()
+            + ")"
     }
 }
 

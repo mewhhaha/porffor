@@ -87,6 +87,20 @@ impl ArrayLiteral {
                                 access: access.clone(),
                             });
                         }
+                        target @ Expression::Parenthesized(_) => {
+                            match AssignTarget::from_expression_simple(target, strict)? {
+                                AssignTarget::Identifier(ident) => {
+                                    bindings.push(ArrayPatternElement::SingleNameRest { ident });
+                                }
+                                AssignTarget::Access(access) => {
+                                    bindings
+                                        .push(ArrayPatternElement::PropertyAccessRest { access });
+                                }
+                                AssignTarget::Pattern(_) | AssignTarget::WebCompatCall(_) => {
+                                    return None;
+                                }
+                            }
+                        }
                         Expression::ArrayLiteral(array) => {
                             let pattern = array.to_pattern(strict)?.into();
                             bindings.push(ArrayPatternElement::PatternRest { pattern });
@@ -156,6 +170,23 @@ impl ArrayLiteral {
                         access: access.clone(),
                         default_init: None,
                     });
+                }
+                Expression::Parenthesized(_) => {
+                    match AssignTarget::from_expression_simple(expr, strict)? {
+                        AssignTarget::Identifier(ident) => {
+                            bindings.push(ArrayPatternElement::SingleName {
+                                ident,
+                                default_init: None,
+                            });
+                        }
+                        AssignTarget::Access(access) => {
+                            bindings.push(ArrayPatternElement::PropertyAccess {
+                                access,
+                                default_init: None,
+                            });
+                        }
+                        AssignTarget::Pattern(_) | AssignTarget::WebCompatCall(_) => return None,
+                    }
                 }
                 _ => return None,
             }

@@ -51,7 +51,7 @@ pub use self::{
     declaration::Declaration,
     expression::Expression,
     keyword::Keyword,
-    module_item_list::{ModuleItem, ModuleItemList},
+    module_item_list::{ModuleItem, ModuleItemList, ModuleItemSourceSyntax},
     position::{
         LinearPosition, LinearSpan, LinearSpanIgnoreEq, Position, PositionGroup, Span, Spanned,
     },

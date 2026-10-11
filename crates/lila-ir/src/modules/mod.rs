@@ -14,7 +14,7 @@
 //! owns the evaluation-to-runtime query boundary.
 //! `graph` retains the linked record and linking orchestration. `link` merges
 //! the per-module bodies into the single `ScriptIr` the backend emits, and
-//! `source` is the lexical scanner it uses to delete module-goal-only syntax
+//! `source` uses parser-retained ranges to delete module-goal-only syntax
 //! from a unit's text. `default_export_definition` carries exact definition identity
 //! through canonical activation assembly for NamedEvaluation and instantiation without
 //! exposing a minted storage name or changing a callable's exact source.

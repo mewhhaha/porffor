@@ -6,7 +6,7 @@
 //! [spec]: https://tc39.es/ecma262/#sec-modules
 
 use crate::{
-    StatementListItem,
+    LinearPosition, LinearSpan, StatementListItem,
     declaration::{
         ExportDeclaration, ExportEntry, ExportSpecifier, ImportDeclaration, ImportEntry,
         ImportKind, ImportName, IndirectExportEntry, LocalExportEntry, ModuleRequest,
@@ -29,12 +29,60 @@ use std::{convert::Infallible, hash::BuildHasherDefault, ops::ControlFlow};
 ///
 /// [spec]: https://tc39.es/ecma262/#prod-ModuleItemList
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct ModuleItemList {
     items: Box<[ModuleItem]>,
+    source_syntax: Box<[ModuleItemSourceSyntax]>,
+}
+
+// Source locations are provenance, not semantic AST identity, just like
+// LinearSpanIgnoreEq on function nodes. Synthetic ASTs need no source text.
+impl PartialEq for ModuleItemList {
+    fn eq(&self, other: &Self) -> bool {
+        self.items == other.items
+    }
+}
+
+/// Parser-owned ranges of module-only syntax, in UTF-16 source coordinates.
+///
+/// Consumers can erase the module grammar without lexing JavaScript again.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModuleItemSourceSyntax {
+    /// An ordinary statement contributes no module-only tokens.
+    Statement,
+    /// The whole import, local export list, or re-export declaration.
+    Declaration(LinearSpan),
+    /// Only the export keyword before a retained declaration.
+    ExportKeyword(LinearSpan),
+    /// The keyword pair, plus the end of a default function/class declaration.
+    /// Assignment expressions already have their grammar's semicolon.
+    DefaultExport {
+        /// The range from `export` through `default`, including intervening trivia.
+        keywords: LinearSpan,
+        /// End of a function/class declaration; absent for an assignment expression.
+        declaration_end: Option<LinearPosition>,
+    },
 }
 
 impl ModuleItemList {
+    /// Constructs a parsed list, keeping each item's source provenance paired
+    /// with its syntax rather than accepting independent, mismatched lists.
+    #[must_use]
+    pub fn with_source_syntax(items: Vec<(ModuleItem, ModuleItemSourceSyntax)>) -> Self {
+        let (items, source_syntax): (Vec<_>, Vec<_>) = items.into_iter().unzip();
+        Self {
+            items: items.into_boxed_slice(),
+            source_syntax: source_syntax.into_boxed_slice(),
+        }
+    }
+
+    /// Gets parser-produced module syntax ranges. Synthetic ASTs return none.
+    #[must_use]
+    pub fn source_syntax(&self) -> &[ModuleItemSourceSyntax] {
+        &self.source_syntax
+    }
+
     /// Gets the list of module items.
     #[inline]
     #[must_use]
@@ -429,6 +477,7 @@ where
     fn from(items: T) -> Self {
         Self {
             items: items.into(),
+            source_syntax: Box::default(),
         }
     }
 }

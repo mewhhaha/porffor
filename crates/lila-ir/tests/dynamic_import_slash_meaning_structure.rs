@@ -297,7 +297,8 @@ fn dynamic_import_slash_meaning_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_normalized_rust_sources(&source_root, "SlashMeaning"),
-        43
+        20,
+        "module syntax removal consumes parser ranges and owns no slash scanner"
     );
 }
 

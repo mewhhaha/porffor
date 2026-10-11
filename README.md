@@ -87,6 +87,13 @@ The historical September 30 input containing 5,365 failing execution IDs remains
 unavailable; its owner believes it was never pushed. Publisher-generated pinned conformance
 totals and task states remain unchanged.
 
+Module rewriting now uses the original parser's static-syntax and dynamic-import
+ranges, and grouped simple destructuring targets use the canonical assignment
+rules. The 2026-10-11 checkpoint passes 217 frontend checks, 1,511 IR checks,
+38 focused native checks, all-feature/all-target types and a fresh identity-checked
+191-ID product fixture run. Complete workspace and pinned-suite closure remain
+pending; see the [implementation receipt](docs/rust-rewrite/parser-module-ranges-20261010.md).
+
 ## Workspace audit and prepared repairs — 2026-10-08
 
 The complete repository tooling sweep at `f493e2988` passes all 38 commands:

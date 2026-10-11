@@ -5,48 +5,20 @@ use crate::*;
 
 pub(super) fn rewrite_source(
     source: super::callable_source::OriginalUnitSource,
+    syntax: Option<&super::source::ModuleSyntax>,
     rewrite: super::source::DefaultExportRewrite<'_>,
 ) -> Result<super::callable_source::OriginalUnitSource, String> {
-    let text = source.text();
-    let declaration = if matches!(rewrite, super::source::DefaultExportRewrite::Bind { .. }) {
-        let parsed = lila_front::parse(text, lila_front::ParseOptions::module())
-            .map_err(|error| format!("default export module did not parse: {error}"))?;
-        let ParsedSource::Module(parsed) = parsed else {
-            unreachable!("Module parse options produce Module syntax")
-        };
-        parsed.with_compiler_session(|module, _| {
-            module.items().items().iter().find_map(|item| {
-                let ModuleItem::ExportDeclaration(export) = item else {
-                    return None;
-                };
-                let span = match export.as_ref() {
-                    ExportDeclaration::DefaultFunctionDeclaration(function) => {
-                        function.linear_span()
-                    }
-                    ExportDeclaration::DefaultGeneratorDeclaration(function) => {
-                        function.linear_span()
-                    }
-                    ExportDeclaration::DefaultAsyncFunctionDeclaration(function) => {
-                        function.linear_span()
-                    }
-                    ExportDeclaration::DefaultAsyncGeneratorDeclaration(function) => {
-                        function.linear_span()
-                    }
-                    ExportDeclaration::DefaultClassDeclaration(class) => class.linear_span(),
-                    _ => return None,
-                };
-                Some(span)
-            })
-        })
-    } else {
-        None
+    let Some(syntax) = syntax else {
+        return Ok(source);
     };
-    let declaration_end = declaration.map(|span| source_byte_range_from_utf16_span(text, span).end);
-    let body = super::source::strip_module_syntax(text, rewrite).map_err(|error| error.reason)?;
+    let text = source.text();
+    let declaration_end = syntax.default_declaration_end(rewrite);
+    let body =
+        super::source::strip_module_syntax(text, syntax, rewrite).map_err(|error| error.reason)?;
     let mut source = source.stable_rewrite(body);
     if let Some(byte) = declaration_end {
         // A declaration needs no trailing semicolon, but its rewritten
-        // variable initializer does. The scanner keeps byte offsets stable;
+        // variable initializer does. Module edits keep byte offsets stable;
         // insert only after it finishes, at the parsed definition boundary.
         // The later dynamic-import pass rescans this resulting text.
         source.replace(byte, byte, ";");

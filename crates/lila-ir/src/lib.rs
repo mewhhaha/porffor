@@ -236,14 +236,15 @@ pub(crate) use lowering_helpers::*;
 pub use modules::{
     classify_outer_script_module_dependency, evaluation_components, parse_module_record,
     scan_module_requests, scan_script_module_requests, scan_script_realm_module_requests,
-    source_writes_dynamic_import, DuplicateImportAttributeKeyIr, DynamicComponentIr,
-    DynamicImportAttributesIr, DynamicImportSiteIr, ImportAttributeIr, ImportEntryIr, ImportNameIr,
-    ImportPhaseIr, IndirectExportEntryIr, LinkedProgram, LocalExportEntryIr, ModuleBindingKindIr,
-    ModuleBindingNameIr, ModuleEnvBindingIr, ModuleEvaluationModeIr, ModuleGraphIr,
-    ModuleGraphSources, ModuleKey, ModuleKindIr, ModuleLinkErrorIr, ModuleNamespaceExportIr,
-    ModuleNamespaceIr, ModuleRecordIr, ModuleRequestAttributesIr, ModuleRequestIr,
-    ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId, ModuleUnitIr, OuterScriptModuleDependency,
-    RealmModuleResolutionIr, ResolvedBindingIr, StarExportEntryIr, ANONYMOUS_MODULE_KEY,
+    script_has_dynamic_import, source_writes_dynamic_import, DuplicateImportAttributeKeyIr,
+    DynamicComponentIr, DynamicImportAttributesIr, DynamicImportSiteIr, ImportAttributeIr,
+    ImportEntryIr, ImportNameIr, ImportPhaseIr, IndirectExportEntryIr, LinkedProgram,
+    LocalExportEntryIr, ModuleBindingKindIr, ModuleBindingNameIr, ModuleEnvBindingIr,
+    ModuleEvaluationModeIr, ModuleGraphIr, ModuleGraphSources, ModuleKey, ModuleKindIr,
+    ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr, ModuleRecordIr,
+    ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
+    ModuleUnitIr, OuterScriptModuleDependency, RealmModuleResolutionIr, ResolvedBindingIr,
+    StarExportEntryIr, ANONYMOUS_MODULE_KEY,
 };
 pub use modules::{
     DeferredModuleEvaluationIr, JsonModuleValueIr, JsonValue, ModuleActivationIr,
@@ -315,8 +316,8 @@ pub(crate) use names::{
 /// `docs/rust-rewrite/contracts/module-binding-names.md`.
 pub use binding_names::*;
 pub(crate) use binding_names::{
-    DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
-    EXPORT_KEYWORD, IMPORT_META_HEAD, IMPORT_META_TAIL,
+    DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, IMPORT_META_HEAD,
+    IMPORT_META_TAIL,
 };
 
 /// The two closed spec name domains. See

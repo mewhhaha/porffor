@@ -500,7 +500,7 @@ impl DynamicImportSiteIr {
 /// [spec]: https://tc39.es/ecma262/#sec-source-text-module-records
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ModuleRecordDataIr {
-    SourceText,
+    SourceText(super::source::ModuleSyntax),
     Script,
     Json(lila_front::ParsedJson),
 }
@@ -555,6 +555,8 @@ pub struct ModuleRecordIr {
     pub import_meta_sites: Vec<SourceSpan>,
     /// Every `import(...)` call site in the module body.
     pub dynamic_import_sites: Vec<DynamicImportSiteIr>,
+    /// Parser-owned heads, in source order, addressed against the original unit.
+    pub(super) dynamic_import_heads: Vec<DynamicImportHead>,
     // Only the AST factory can mint these denied keys. Display collisions do
     // not become host identities, including when diagnostic attrs are empty.
     catalog_unrepresentable_requests: BTreeSet<ModuleRequestKeyIr>,
@@ -582,7 +584,7 @@ pub enum DefaultExportFormIr {
 impl ModuleRecordIr {
     pub const fn kind(&self) -> ModuleKindIr {
         match &self.data {
-            ModuleRecordDataIr::SourceText => ModuleKindIr::SourceText,
+            ModuleRecordDataIr::SourceText(_) => ModuleKindIr::SourceText,
             ModuleRecordDataIr::Script => ModuleKindIr::Script,
             ModuleRecordDataIr::Json(_) => ModuleKindIr::Json,
         }
@@ -592,6 +594,13 @@ impl ModuleRecordIr {
         match &self.data {
             ModuleRecordDataIr::Json(source) => Some(source),
             _ => None,
+        }
+    }
+
+    pub(super) fn source_syntax(&self) -> Option<&super::source::ModuleSyntax> {
+        match &self.data {
+            ModuleRecordDataIr::SourceText(syntax) => Some(syntax),
+            ModuleRecordDataIr::Script | ModuleRecordDataIr::Json(_) => None,
         }
     }
 
@@ -623,6 +632,7 @@ impl ModuleRecordIr {
             }],
             import_meta_sites: Vec::new(),
             dynamic_import_sites: Vec::new(),
+            dynamic_import_heads: Vec::new(),
             catalog_unrepresentable_requests: BTreeSet::new(),
         }
     }
@@ -825,14 +835,10 @@ impl ImportMetaRewriteError {
 /// rewrite it, and rewriting it into a binding read is also what makes the
 /// object identity-stable for free.
 ///
-/// `source` must be the unit's *original* text: `import_meta_sites` was built
-/// against it. Run this first and
-/// `modules::source::strip_module_syntax` second — the output below is
-/// byte-for-byte the same length, it contains no `import` keyword the stripper
-/// could mistake for a declaration, and `$m…$meta` lexes as the ordinary
-/// identifier it is. The other order only happens to work while every byte the
-/// stripper deletes is ASCII, because it blanks a deleted range one *character*
-/// per space.
+/// `source` must retain the unit's original byte coordinates: both this pass
+/// and module-syntax removal consume ranges from the same parsed source.
+/// Run this first, then erase module syntax, then insert any anonymous default
+/// declaration terminator. Later dynamic-import processing sees the final text.
 ///
 /// The rewrite preserves the source's byte length and its line terminators, so
 /// span-derived `FunctionId`s and reported line numbers do not move. The
@@ -1213,7 +1219,9 @@ fn build_module_record(
     let lines = LineIndex::new(text);
 
     let mut record = ModuleRecordIr {
-        data: ModuleRecordDataIr::SourceText,
+        data: ModuleRecordDataIr::SourceText(super::source::ModuleSyntax::from_parsed(
+            text, item_list,
+        )),
         id,
         key,
         source_len: source.source_text.len(),
@@ -1230,6 +1238,7 @@ fn build_module_record(
         environment: Vec::new(),
         import_meta_sites: Vec::new(),
         dynamic_import_sites: Vec::new(),
+        dynamic_import_heads: Vec::new(),
         catalog_unrepresentable_requests: BTreeSet::new(),
     };
 
@@ -1456,6 +1465,7 @@ fn build_module_record(
     };
     item_list.visit_with(&mut scan);
     record.has_top_level_await = scan.top_level_await;
+    record.dynamic_import_heads = scan.source_heads();
     record.import_meta_sites = scan.import_meta_sites;
     // The visitor walks an expression's operands before its neighbours rather
     // than strictly left to right, so source order is restored here instead of
@@ -1694,7 +1704,44 @@ struct ModuleBodyScan<'a> {
     top_level_await: bool,
     import_meta_sites: Vec<SourceSpan>,
     dynamic_import_sites: Vec<DynamicImportSiteIr>,
+    dynamic_import_heads: Vec<(boa_ast::LinearSpan, ImportPhaseIr)>,
     function_depth: usize,
+}
+
+/// The exact prefix of an original parsed dynamic import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DynamicImportHead {
+    pub(super) span: SourceSpan,
+    pub(super) phase: ImportPhaseIr,
+}
+
+impl ModuleBodyScan<'_> {
+    fn source_heads(&mut self) -> Vec<DynamicImportHead> {
+        self.dynamic_import_heads
+            .sort_by_key(|(span, _)| span.start().pos());
+        let mut chars = self.text.char_indices();
+        let mut utf16 = 0;
+        let mut byte = 0;
+        let mut byte_at = |position: boa_ast::LinearPosition| {
+            while utf16 < position.pos() {
+                let (offset, ch) = chars.next().expect("parsed import head is inside source");
+                utf16 += ch.len_utf16();
+                byte = offset + ch.len_utf8();
+            }
+            assert_eq!(utf16, position.pos(), "ordered parser boundaries");
+            byte
+        };
+        self.dynamic_import_heads
+            .iter()
+            .map(|(span, phase)| DynamicImportHead {
+                span: SourceSpan {
+                    start: byte_at(span.start()),
+                    end: byte_at(span.end()),
+                },
+                phase: *phase,
+            })
+            .collect()
+    }
 }
 
 /// Statically recovers the request attributes of the literal subset whose
@@ -1882,6 +1929,10 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
                 dynamic_import_attributes(node, self.interner)
             }
         };
+        if let Some(span) = node.head_span() {
+            self.dynamic_import_heads
+                .push((span, ImportPhaseIr::from_ast(node.phase())));
+        }
         self.dynamic_import_sites.push(DynamicImportSiteIr {
             static_specifier,
             phase: ImportPhaseIr::from_ast(node.phase()),
@@ -2049,6 +2100,8 @@ fn script_record_with_admission(
             super::dynamic::validate_linker_identifiers(script.into(), interner, &key)?;
             Ok(script.strict())
         })?;
+    let (dynamic_import_sites, dynamic_import_heads) =
+        script_sites_with_admission(source, admission);
     Ok(ModuleRecordIr {
         data: ModuleRecordDataIr::Script,
         id,
@@ -2064,19 +2117,32 @@ fn script_record_with_admission(
         star_export_entries: Vec::new(),
         environment: Vec::new(),
         import_meta_sites: Vec::new(),
-        dynamic_import_sites: script_sites_with_admission(source, admission),
+        dynamic_import_sites,
+        dynamic_import_heads,
         catalog_unrepresentable_requests: BTreeSet::new(),
     })
 }
 
 pub(super) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
-    script_sites_with_admission(source, super::admission::GraphAdmission::LoadedClosure)
+    script_sites_with_admission(source, super::admission::GraphAdmission::LoadedClosure).0
+}
+
+/// Whether a retained Script AST contains a dynamic import, including a computed one.
+pub fn script_has_dynamic_import(source: &ParsedScript) -> bool {
+    struct FindImport;
+    impl<'ast> Visitor<'ast> for FindImport {
+        type BreakTy = ();
+        fn visit_import_call(&mut self, _: &'ast ImportCall) -> ControlFlow<Self::BreakTy> {
+            ControlFlow::Break(())
+        }
+    }
+    source.with_compiler_session(|script, _| script.visit_with(&mut FindImport).is_break())
 }
 
 fn script_sites_with_admission(
     source: &ParsedScript,
     admission: super::admission::GraphAdmission,
-) -> Vec<DynamicImportSiteIr> {
+) -> (Vec<DynamicImportSiteIr>, Vec<DynamicImportHead>) {
     source.with_compiler_session(|script, interner| {
         let mut scan = ModuleBodyScan {
             interner: Some(interner),
@@ -2085,7 +2151,8 @@ fn script_sites_with_admission(
             ..ModuleBodyScan::default()
         };
         let _ = script.visit_with(&mut scan);
-        scan.dynamic_import_sites
+        let heads = scan.source_heads();
+        (scan.dynamic_import_sites, heads)
     })
 }
 

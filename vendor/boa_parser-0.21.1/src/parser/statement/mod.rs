@@ -276,10 +276,7 @@ impl StatementList {
         }
     }
 
-    pub(super) fn with_allow_using_declarations(
-        mut self,
-        allow_using_declarations: bool,
-    ) -> Self {
+    pub(super) fn with_allow_using_declarations(mut self, allow_using_declarations: bool) -> Self {
         self.allow_using_declarations = allow_using_declarations;
         self
     }
@@ -467,8 +464,7 @@ where
                     .parse(cursor, interner)
                     .map(ast::StatementListItem::from)
             }
-            TokenKind::IdentifierName(_)
-            | TokenKind::Keyword((Keyword::Await, false))
+            TokenKind::IdentifierName(_) | TokenKind::Keyword((Keyword::Await, false))
                 if using_decl.is_some() =>
             {
                 Declaration::new(self.allow_yield, self.allow_await)
@@ -1033,7 +1029,7 @@ where
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
         let mut list = Vec::new();
         while cursor.peek(0, interner)?.is_some() {
-            let item = ModuleItem.parse(cursor, interner)?;
+            let (item, syntax) = ModuleItem.parse(cursor, interner)?;
 
             if let Err(error) = check_labels(&item) {
                 return Err(Error::lex(LexError::Syntax(
@@ -1049,10 +1045,10 @@ where
                 )));
             }
 
-            list.push(item);
+            list.push((item, syntax));
         }
 
-        let list = list.into();
+        let list = boa_ast::ModuleItemList::with_source_syntax(list);
 
         // It is a Syntax Error if AllPrivateIdentifiersValid of ModuleItemList with argument « » is false.
         if !all_private_identifiers_valid(&list, Vec::new()) {
@@ -1078,30 +1074,75 @@ impl<R> TokenParser<R> for ModuleItem
 where
     R: ReadChar,
 {
-    type Output = boa_ast::ModuleItem;
+    type Output = (boa_ast::ModuleItem, boa_ast::ModuleItemSourceSyntax);
 
     fn parse(self, cursor: &mut Cursor<R>, interner: &mut Interner) -> ParseResult<Self::Output> {
+        use boa_ast::{
+            LinearSpan, ModuleItem as Item, ModuleItemSourceSyntax as Syntax,
+            declaration::ExportDeclaration as Export,
+        };
         let tok = cursor.peek(0, interner).or_abrupt()?;
+        let first_span = tok.linear_span();
+        let is_export = matches!(tok.kind(), TokenKind::Keyword((Keyword::Export, false)));
+        let default_end = if is_export {
+            cursor.peek(1, interner)?.and_then(|next| {
+                matches!(next.kind(), TokenKind::Keyword((Keyword::Default, false)))
+                    .then_some(next.linear_span().end())
+            })
+        } else {
+            None
+        };
 
-        match tok.kind() {
+        let item = match cursor.peek(0, interner).or_abrupt()?.kind() {
             TokenKind::Keyword((Keyword::Export, false)) => ExportDeclaration
                 .parse(cursor, interner)
                 .map(Box::new)
-                .map(Self::Output::ExportDeclaration),
+                .map(Item::ExportDeclaration),
             TokenKind::Keyword((Keyword::Import, false)) => {
                 if ImportDeclaration::test(cursor, interner)? {
                     ImportDeclaration
                         .parse(cursor, interner)
-                        .map(Self::Output::ImportDeclaration)
+                        .map(Item::ImportDeclaration)
                 } else {
                     StatementListItem::new(false, true, false)
                         .parse(cursor, interner)
-                        .map(Self::Output::StatementListItem)
+                        .map(Item::StatementListItem)
                 }
             }
             _ => StatementListItem::new(false, true, false)
                 .parse(cursor, interner)
-                .map(Self::Output::StatementListItem),
-        }
+                .map(Item::StatementListItem),
+        }?;
+        let syntax = match &item {
+            Item::StatementListItem(_) => Syntax::Statement,
+            Item::ImportDeclaration(_) => {
+                Syntax::Declaration(LinearSpan::new(first_span.start(), cursor.linear_pos()))
+            }
+            Item::ExportDeclaration(export) => match export.as_ref() {
+                Export::ReExport { .. } | Export::List(_) => {
+                    Syntax::Declaration(LinearSpan::new(first_span.start(), cursor.linear_pos()))
+                }
+                Export::VarStatement(_) | Export::Declaration(_) => {
+                    Syntax::ExportKeyword(first_span)
+                }
+                Export::DefaultFunctionDeclaration(_)
+                | Export::DefaultGeneratorDeclaration(_)
+                | Export::DefaultAsyncFunctionDeclaration(_)
+                | Export::DefaultAsyncGeneratorDeclaration(_)
+                | Export::DefaultClassDeclaration(_)
+                | Export::DefaultAssignmentExpression(_) => Syntax::DefaultExport {
+                    keywords: LinearSpan::new(
+                        first_span.start(),
+                        default_end.expect("default export consumed its keyword"),
+                    ),
+                    declaration_end: (!matches!(
+                        export.as_ref(),
+                        Export::DefaultAssignmentExpression(_)
+                    ))
+                    .then_some(cursor.linear_pos()),
+                },
+            },
+        };
+        Ok((item, syntax))
     }
 }

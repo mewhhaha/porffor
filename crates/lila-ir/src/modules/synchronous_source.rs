@@ -149,6 +149,7 @@ pub(super) fn linked_module_execution_source(
                     .and_then(|body| {
                         super::default_export_definition::rewrite_source(
                             original.stable_rewrite(body),
+                            unit.record.source_syntax(),
                             rewrite,
                         )
                     })

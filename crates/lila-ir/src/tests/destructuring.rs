@@ -992,6 +992,27 @@ var obj = { x() { var b; [(super.man) = 1, b] = [1, 2]; [(super[8 + {}]) = 'mote
 }
 
 #[test]
+fn grouped_assignment_targets_preserve_property_and_rest_references() {
+    for source in [
+        "var x, o = {}; [(x), ((o.value)), ...((o.rest))] = source;",
+        "var x, o = {}; ({value: (x), other: ((o.value)), ...((o.rest))} = source);",
+        "var o = {}; for ([(o.value)] of source) {}",
+        "var o = {}; for ({value: (o.value)} of source) {}",
+    ] {
+        let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+    }
+    let program = lower_script(
+        "var o = {m(source) { [(super.value)] = source; ({...((super.rest))} = source); }};",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let body = debug_of_functions(&program);
+    assert_eq!(body.matches("AssignmentSuper").count(), 2, "{body}");
+    assert_eq!(body.matches("Capture(").count(), 2, "{body}");
+    assert_eq!(body.matches("PutCaptured").count(), 2, "{body}");
+}
+
+#[test]
 fn super_property_for_of_and_for_in_heads_write_through_the_super_reference() {
     let program = lower_script(
         r#"

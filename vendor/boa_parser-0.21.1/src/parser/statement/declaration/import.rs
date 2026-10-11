@@ -114,8 +114,6 @@ where
                     ModuleSpecifier::new(module_identifier),
                     ImportPhase::Evaluation,
                 )?;
-                cursor.expect_semicolon("import declaration", interner)?;
-
                 return Ok(AstImportDeclaration::new(
                     None,
                     ImportKind::DefaultOrUnnamed,
@@ -276,6 +274,7 @@ fn parse_module_request<R: ReadChar>(
     phase: ImportPhase,
 ) -> ParseResult<AstModuleRequest> {
     let attributes = parse_module_request_attributes(cursor, interner)?;
+    cursor.expect_semicolon("import declaration", interner)?;
     Ok(AstModuleRequest::with_phase_and_attributes(
         specifier, phase, attributes,
     ))

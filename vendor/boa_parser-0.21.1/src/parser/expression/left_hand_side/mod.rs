@@ -34,7 +34,7 @@ use crate::{
     source::ReadChar,
 };
 use boa_ast::{
-    Expression, Keyword, Position, Punctuator, Span, Spanned,
+    Expression, Keyword, LinearSpan, Position, Punctuator, Span, Spanned,
     expression::{ImportCall, SuperCall},
 };
 use boa_interner::{Interner, Sym};
@@ -174,11 +174,17 @@ where
             phase: boa_ast::declaration::ImportPhase,
             context_name: &'static str,
         ) -> ParseResult<Expression> {
+            let head_start = cursor
+                .peek(0, interner)?
+                .expect("import token")
+                .linear_span()
+                .start();
             cursor.advance(interner);
             if phase != boa_ast::declaration::ImportPhase::Evaluation {
                 cursor.advance(interner);
                 cursor.advance(interner);
             }
+            let head_span = LinearSpan::new(head_start, cursor.linear_pos());
             cursor.advance(interner);
 
             let arg = AssignmentExpression::new(true, allow_yield, allow_await)
@@ -217,6 +223,7 @@ where
 
             Ok(
                 ImportCall::new_with_phase_and_options(arg, options, phase, Span::new(start, end))
+                    .with_head_span(head_span)
                     .into(),
             )
         }
@@ -231,12 +238,7 @@ where
                 Arguments::new(self.allow_yield, self.allow_await).parse(cursor, interner)?;
             SuperCall::new(args, Span::new(start, args_span.end())).into()
         } else if let Some(start) =
-            is_import_phase_call(
-                cursor,
-                interner,
-                defer_sym,
-                "import.defer",
-            )?
+            is_import_phase_call(cursor, interner, defer_sym, "import.defer")?
         {
             CallExpressionTail::new(
                 self.allow_yield,
@@ -252,12 +254,9 @@ where
                 )?,
             )
             .parse(cursor, interner)?
-        } else if let Some(start) = is_import_phase_call(
-            cursor,
-            interner,
-            source_sym,
-            "import.source",
-        )? {
+        } else if let Some(start) =
+            is_import_phase_call(cursor, interner, source_sym, "import.source")?
+        {
             CallExpressionTail::new(
                 self.allow_yield,
                 self.allow_await,

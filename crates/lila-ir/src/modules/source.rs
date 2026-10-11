@@ -9,12 +9,9 @@
 //!
 //! [`link`]: super::link
 //!
-//! This scanner deletes exactly that syntax. Unlike the byte scanner it
-//! replaces, it is a real JavaScript lexical scanner: it tracks comments,
-//! string literals, template literals (including nested `${}` substitutions)
-//! and regular-expression literals, and it only treats `import`/`export` as
-//! module syntax at nesting depth zero and never immediately after `.`. So
-//! neither `const s = "export const x = 1;"` nor `obj.export` is touched.
+//! Module-only ranges come from the original parser, including ASI boundaries,
+//! import attributes and default declaration ends. Strings, regex literals,
+//! templates and property names never pass through a second lexer here.
 //!
 //! Deleted bytes are replaced with the same number of space *bytes* and every
 //! line terminator inside the deleted range is kept, so the stripped text has
@@ -24,10 +21,7 @@
 //! sequence and separate CR/LF sequences, although a replacement may move a
 //! sequence within its own span and therefore does not promise column fidelity.
 
-use crate::{
-    MergedName, DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR, DEFAULT_KEYWORD,
-    EXPORT_KEYWORD,
-};
+use crate::{MergedName, DEFAULT_BINDING_ASSIGN, DEFAULT_BINDING_LET, DEFAULT_BINDING_VAR};
 
 /// Module syntax the linker cannot express as Script text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,8 +193,7 @@ impl SpanStableReplacement {
 /// The ECMAScript LineTerminatorSequence beginning at this byte offset.
 ///
 /// CRLF is returned as one sequence; a standalone CR or LF is returned as one
-/// sequence of its own. All scanner paths use this helper so line comments and
-/// span-stable replacements cannot disagree about the lexical line boundary.
+/// sequence of its own. Replacements retain exactly this sequence inventory.
 fn ecmascript_line_terminator_sequence_at(source: &str, index: usize) -> Option<&str> {
     let remaining = source.get(index..)?;
     for sequence in ["\r\n", "\r", "\n", "\u{2028}", "\u{2029}"] {
@@ -222,7 +215,7 @@ fn contains_ecmascript_line_terminator(source: &str) -> bool {
     false
 }
 
-fn collect_ecmascript_line_terminator_sequences(source: &str) -> Vec<&str> {
+pub(super) fn collect_ecmascript_line_terminator_sequences(source: &str) -> Vec<&str> {
     let mut sequences = Vec::new();
     let mut index = 0usize;
     while index < source.len() {
@@ -236,16 +229,16 @@ fn collect_ecmascript_line_terminator_sequences(source: &str) -> Vec<&str> {
     sequences
 }
 
-/// What the scanner does with the `export default` keyword pair, decided by the
+/// How to rewrite the `export default` keyword pair, decided by the
 /// record rather than re-derived from the text.
 ///
 /// Once line terminators are reserved, the two keywords guarantee 13 bytes for
 /// generated code even in the narrowest split pair, `export\ndefault`. That is
 /// invariant B1, and const assertion V2 in `crate::binding_names` holds
 /// `MergedName::anonymous_default` to it at compile time using the very
-/// constants this scanner matches on — [`EXPORT_KEYWORD`], [`DEFAULT_KEYWORD`],
-/// [`DEFAULT_BINDING_LET`] and [`DEFAULT_BINDING_ASSIGN`]. The runtime check in
-/// `Scanner::rewrite_default_keywords` still verifies the actual source span.
+/// keyword and binding constants. The replacement constructor also verifies
+/// the actual source span before emitting [`DEFAULT_BINDING_LET`] and
+/// [`DEFAULT_BINDING_ASSIGN`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DefaultExportRewrite<'a> {
     /// No `export default` in this unit; one found anyway is a disagreement
@@ -268,738 +261,174 @@ pub(crate) enum DefaultExportRewrite<'a> {
     },
 }
 
-/// Deletes every top-level `import` declaration and every `export` modifier,
-/// and rewrites `export default` as `default_export` directs.
-///
-/// # Errors
-/// Returns [`StripError`] for module syntax this stage cannot express, and for
-/// source the scanner cannot lex (an unterminated string or comment).
-pub(crate) fn strip_module_syntax(
-    source: &str,
-    default_export: DefaultExportRewrite<'_>,
-) -> Result<String, StripError> {
-    let mut scanner = Scanner::new(source, default_export);
-    scanner.run()?;
-    Ok(scanner.finish())
+/// Source-only grammar recorded during the original Module parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ModuleSyntax {
+    edits: Vec<ParsedEdit>,
 }
 
-/// What a `/` means at the current position.
-enum SlashMeaning {
-    /// The previous significant token can end an expression, so `/` divides.
-    Divide,
-    /// The previous significant token cannot end an expression, so `/` opens a
-    /// regular-expression literal.
-    Regexp,
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ParsedEdit {
+    Blank(lila_front::SourceSpan),
+    Default {
+        keywords: lila_front::SourceSpan,
+        declaration_end: Option<usize>,
+    },
 }
 
-struct Scanner<'a> {
-    source: &'a str,
-    bytes: &'a [u8],
-    default_export: DefaultExportRewrite<'a>,
-    /// Byte ranges to rewrite, in ascending order and non-overlapping.
-    edits: Vec<SourceEdit>,
-    /// Nesting depth of `(`, `[` and `{`. Module declarations only exist at 0.
-    depth: usize,
-    /// One entry per open template substitution, holding the `depth` *inside*
-    /// it, so the `}` that closes it is told apart from an ordinary `}`.
-    template_stack: Vec<usize>,
-    slash: SlashMeaning,
-    /// The previous significant token was `.`, so the next identifier is a
-    /// property name (`obj.export`) rather than a keyword.
-    previous_was_dot: bool,
-    index: usize,
-}
-
-impl<'a> Scanner<'a> {
-    fn new(source: &'a str, default_export: DefaultExportRewrite<'a>) -> Self {
-        Self {
-            source,
-            bytes: source.as_bytes(),
-            default_export,
-            edits: Vec::new(),
-            depth: 0,
-            template_stack: Vec::new(),
-            slash: SlashMeaning::Regexp,
-            previous_was_dot: false,
-            index: 0,
-        }
-    }
-
-    /// Rebuilds the source with every rewritten range blanked or replaced.
-    ///
-    /// Rewritten ranges are produced in ascending order and never overlap, so
-    /// one forward pass suffices. A blank emits one space per source *byte* and
-    /// retains line-terminator sequences; a replacement already proves the
-    /// same byte length and ordered sequence list as the range it covers.
-    fn finish(self) -> String {
-        let mut rebuilt = String::with_capacity(self.source.len());
-        let mut cursor = 0usize;
-        for edit in &self.edits {
-            rebuilt.push_str(&self.source[cursor..edit.start]);
-            match &edit.kind {
-                ModuleSyntaxEdit::Replace(replacement) => {
-                    rebuilt.push_str(replacement.as_str());
-                }
-                ModuleSyntaxEdit::Blank => {
-                    let erased = &self.source[edit.start..edit.end];
-                    let mut index = 0usize;
-                    while index < erased.len() {
-                        if let Some(sequence) =
-                            ecmascript_line_terminator_sequence_at(erased, index)
-                        {
-                            rebuilt.push_str(sequence);
-                            index += sequence.len();
-                        } else {
-                            let width = erased[index..].chars().next().map_or(1, char::len_utf8);
-                            rebuilt.extend(core::iter::repeat_n(' ', width));
-                            index += width;
-                        }
-                    }
-                }
+impl ModuleSyntax {
+    pub(super) fn from_parsed(source: &str, items: &boa_ast::ModuleItemList) -> Self {
+        use boa_ast::ModuleItemSourceSyntax as Syntax;
+        assert_eq!(
+            items.items().len(),
+            items.source_syntax().len(),
+            "module rewriting requires provenance from the original parser"
+        );
+        // All boundaries are ordered, so map UTF-16 coordinates back to bytes
+        // in one walk, even for a module containing thousands of declarations.
+        let mut chars = source.char_indices();
+        let mut utf16 = 0usize;
+        let mut byte = 0usize;
+        let mut byte_at = |position: boa_ast::LinearPosition| {
+            while utf16 < position.pos() {
+                let (offset, ch) = chars.next().expect("parsed position is inside source");
+                utf16 += ch.len_utf16();
+                byte = offset + ch.len_utf8();
             }
-            cursor = edit.end;
-        }
-        rebuilt.push_str(&self.source[cursor..]);
-        rebuilt
-    }
-
-    fn run(&mut self) -> Result<(), StripError> {
-        while self.index < self.bytes.len() {
-            let byte = self.bytes[self.index];
-            match byte {
-                b'/' if self.bytes.get(self.index + 1) == Some(&b'/') => self.skip_line_comment(),
-                b'/' if self.bytes.get(self.index + 1) == Some(&b'*') => {
-                    self.skip_block_comment()?
+            assert_eq!(
+                utf16,
+                position.pos(),
+                "parsed positions are ordered scalar boundaries"
+            );
+            byte
+        };
+        let mut edits = Vec::new();
+        for syntax in items.source_syntax() {
+            match *syntax {
+                Syntax::Statement => {}
+                Syntax::Declaration(span) | Syntax::ExportKeyword(span) => {
+                    edits.push(ParsedEdit::Blank(lila_front::SourceSpan {
+                        start: byte_at(span.start()),
+                        end: byte_at(span.end()),
+                    }));
                 }
-                b'/' => match &self.slash {
-                    SlashMeaning::Regexp => {
-                        self.skip_regexp()?;
-                        self.slash = SlashMeaning::Divide;
-                        self.previous_was_dot = false;
-                    }
-                    SlashMeaning::Divide => {
-                        self.slash = SlashMeaning::Regexp;
-                        self.previous_was_dot = false;
-                        self.index += self.char_len();
-                    }
-                },
-                b'\'' | b'"' => {
-                    self.skip_string(byte)?;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
-                b'`' => {
-                    self.enter_template()?;
-                }
-                b'(' | b'[' => {
-                    self.depth += 1;
-                    self.index += 1;
-                    self.slash = SlashMeaning::Regexp;
-                    self.previous_was_dot = false;
-                }
-                b'{' => {
-                    self.depth += 1;
-                    self.index += 1;
-                    self.slash = SlashMeaning::Regexp;
-                    self.previous_was_dot = false;
-                }
-                b')' | b']' => {
-                    self.depth = self.depth.saturating_sub(1);
-                    self.index += 1;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
-                b'}' => {
-                    // A `}` that closes a template substitution resumes the
-                    // template body rather than ordinary source. The stack
-                    // holds the depth *inside* the substitution, so the match
-                    // is against the current depth before unwinding it.
-                    if self
-                        .template_stack
-                        .last()
-                        .is_some_and(|open_depth| *open_depth == self.depth)
-                    {
-                        self.template_stack.pop();
-                        self.depth = self.depth.saturating_sub(1);
-                        self.index += 1;
-                        self.resume_template()?;
-                        continue;
-                    }
-                    self.depth = self.depth.saturating_sub(1);
-                    self.index += 1;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
-                b'.' => {
-                    self.index += 1;
-                    self.slash = SlashMeaning::Regexp;
-                    self.previous_was_dot = true;
-                }
-                byte if !byte.is_ascii()
-                    && self.source[self.index..]
-                        .chars()
-                        .next()
-                        .is_some_and(is_js_whitespace) =>
-                {
-                    self.index += self.char_len();
-                }
-                byte if is_identifier_start_byte(byte) => self.scan_word()?,
-                byte if byte.is_ascii_digit() => {
-                    self.skip_number();
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                }
-                byte if byte.is_ascii_whitespace() => self.index += 1,
-                _ => {
-                    // Any other punctuator. `++`/`--` end an expression; every
-                    // other operator opens one.
-                    let two = self.source.get(self.index..self.index + 2);
-                    self.slash = if two == Some("++") || two == Some("--") {
-                        SlashMeaning::Divide
-                    } else {
-                        SlashMeaning::Regexp
+                Syntax::DefaultExport {
+                    keywords,
+                    declaration_end,
+                } => {
+                    let keywords = lila_front::SourceSpan {
+                        start: byte_at(keywords.start()),
+                        end: byte_at(keywords.end()),
                     };
-                    self.previous_was_dot = false;
-                    self.index += self.char_len();
+                    let declaration_end = declaration_end.map(&mut byte_at);
+                    edits.push(ParsedEdit::Default {
+                        keywords,
+                        declaration_end,
+                    });
                 }
             }
         }
-        Ok(())
+        Self { edits }
     }
 
-    fn char_len(&self) -> usize {
-        self.source[self.index..]
-            .chars()
-            .next()
-            .map_or(1, char::len_utf8)
-    }
-
-    fn scan_word(&mut self) -> Result<(), StripError> {
-        let start = self.index;
-        while let Some(character) = self.source[self.index..].chars().next() {
-            if character.is_ascii() {
-                if !is_identifier_part_byte(character as u8) {
-                    break;
-                }
-                self.index += 1;
-            } else {
-                if is_js_whitespace(character) {
-                    break;
-                }
-                self.index += character.len_utf8();
-            }
+    pub(super) fn default_declaration_end(
+        &self,
+        rewrite: DefaultExportRewrite<'_>,
+    ) -> Option<usize> {
+        if !matches!(rewrite, DefaultExportRewrite::Bind { .. }) {
+            return None;
         }
-        let word = &self.source[start..self.index];
-        let module_position = self.depth == 0 && self.template_stack.is_empty();
-        if module_position && !self.previous_was_dot {
-            match word {
-                "import" => {
-                    let after = self.peek_significant();
-                    // `import(` is a dynamic import and `import.meta` is an
-                    // expression; neither is a declaration.
-                    if after != Some(b'(') && after != Some(b'.') {
-                        let end = self.scan_import_declaration()?;
-                        self.edits.push(SourceEdit::blank(self.source, start, end)?);
-                        self.index = end;
-                        self.slash = SlashMeaning::Regexp;
-                        self.previous_was_dot = false;
-                        return Ok(());
-                    }
-                }
-                EXPORT_KEYWORD => {
-                    let edit = self.scan_export_prefix(start)?;
-                    self.index = edit.end;
-                    self.edits.push(edit);
-                    self.slash = SlashMeaning::Regexp;
-                    self.previous_was_dot = false;
-                    return Ok(());
-                }
-                _ => {}
-            }
-        }
-        // `return`, `typeof`, `case` and friends cannot end an expression, so a
-        // `/` after them opens a regular expression. Only a value-shaped word
-        // puts the scanner into divide context.
-        self.slash = match word {
-            "this" | "super" | "true" | "false" | "null" => SlashMeaning::Divide,
-            word if is_reserved_word(word) => SlashMeaning::Regexp,
-            _ => SlashMeaning::Divide,
-        };
-        self.previous_was_dot = false;
-        Ok(())
-    }
-
-    /// Byte offset one past the end of the `import` declaration starting at
-    /// `self.index` (which points just past the `import` keyword).
-    fn scan_import_declaration(&mut self) -> Result<usize, StripError> {
-        let mut cursor = self.index;
-        // Everything up to the module specifier is binding syntax. Braced
-        // import lists may hold string-literal names (`{ "a-b" as ab }`), so
-        // they are skipped whole; the first string outside them is the
-        // specifier.
-        loop {
-            cursor = self.skip_trivia_from(cursor)?;
-            let Some(byte) = self.bytes.get(cursor).copied() else {
-                return Err(StripError::new(
-                    "import declaration has no module specifier",
-                ));
-            };
-            match byte {
-                b'{' => cursor = self.balanced_brace_end(cursor)?,
-                b'\'' | b'"' => {
-                    cursor = self.string_end(cursor, byte)?;
-                    break;
-                }
-                _ => cursor += self.char_len_at(cursor),
-            }
-        }
-        cursor = self.skip_import_attributes(cursor)?;
-        self.consume_optional_semicolon(cursor)
-    }
-
-    /// End of an optional `with { ... }` / `assert { ... }` clause starting
-    /// after `cursor`, or `cursor` itself when there is none. An empty list is
-    /// still a clause.
-    fn skip_import_attributes(&self, cursor: usize) -> Result<usize, StripError> {
-        let after_specifier = self.skip_trivia_from(cursor)?;
-        if !(self.word_at(after_specifier, "with") || self.word_at(after_specifier, "assert")) {
-            return Ok(cursor);
-        }
-        let mut attributes = after_specifier;
-        while self
-            .bytes
-            .get(attributes)
-            .copied()
-            .is_some_and(is_identifier_part_byte)
-        {
-            attributes += 1;
-        }
-        attributes = self.skip_trivia_from(attributes)?;
-        if self.bytes.get(attributes) == Some(&b'{') {
-            return self.balanced_brace_end(attributes);
-        }
-        Ok(cursor)
-    }
-
-    /// End of `from "specifier" [with { ... }]` whose `from` starts at `from`.
-    fn from_clause_end(&self, from: usize, context: &str) -> Result<usize, StripError> {
-        let specifier = self.skip_trivia_from(from + "from".len())?;
-        let Some(quote @ (b'\'' | b'"')) = self.bytes.get(specifier).copied() else {
-            return Err(StripError::new(format!(
-                "{context} has no module specifier"
-            )));
-        };
-        let end = self.string_end(specifier, quote)?;
-        self.skip_import_attributes(end)
-    }
-
-    /// Edit for the part of an `export` declaration the linker rewrites.
-    ///
-    /// For `export { ... }` and `export * from "m"` that is the whole
-    /// declaration, blanked. For `export <declaration>` it is only the keyword,
-    /// so the declaration itself stays and runs exactly as written. For
-    /// `export default` it is both keywords, either blanked or replaced by a
-    /// declaration head — see [`DefaultExportRewrite`].
-    ///
-    /// `start` is the offset of the `export` keyword, which is where a
-    /// replacement has to begin.
-    fn scan_export_prefix(&mut self, start: usize) -> Result<SourceEdit, StripError> {
-        let after_keyword = self.index;
-        let cursor = self.skip_trivia_from(after_keyword)?;
-        match self.bytes.get(cursor).copied() {
-            Some(b'{') => {
-                let mut end = self.balanced_brace_end(cursor)?;
-                let after_list = self.skip_trivia_from(end)?;
-                if self.word_at(after_list, "from") {
-                    end = self.from_clause_end(after_list, "export ... from")?;
-                } else {
-                    end = after_list;
-                }
-                SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
-            }
-            Some(b'*') => {
-                // `export * from "m"` or `export * as name from "m"`, where
-                // `name` may be an identifier or a string literal.
-                let mut end = self.skip_trivia_from(cursor + 1)?;
-                if self.word_at(end, "as") {
-                    end = self.skip_trivia_from(end + "as".len())?;
-                    match self.bytes.get(end).copied() {
-                        Some(quote @ (b'\'' | b'"')) => end = self.string_end(end, quote)?,
-                        _ => {
-                            while self.source[end..]
-                                .chars()
-                                .next()
-                                .is_some_and(is_identifier_part)
-                            {
-                                end += self.char_len_at(end);
-                            }
-                        }
-                    }
-                    end = self.skip_trivia_from(end)?;
-                }
-                if !self.word_at(end, "from") {
-                    return Err(StripError::new("export * has no module specifier"));
-                }
-                end = self.from_clause_end(end, "export *")?;
-                SourceEdit::blank(self.source, start, self.consume_optional_semicolon(end)?)
-            }
-            _ if self.word_at(cursor, DEFAULT_KEYWORD) => {
-                self.rewrite_default_keywords(start, cursor + DEFAULT_KEYWORD.len())
-            }
-            Some(_) => SourceEdit::blank(self.source, start, after_keyword),
-            None => Err(StripError::new("`export` at end of source")),
-        }
-    }
-
-    /// Rewrite for the `export default` keyword pair spanning `start..end`.
-    ///
-    /// The named forms need nothing but the keywords gone: what follows is
-    /// already a `FunctionDeclaration` or `ClassDeclaration` that binds the
-    /// export entry's `[[LocalName]]`. The anonymous forms have no such name,
-    /// so the keywords become the head of a declaration of the minted one, and
-    /// the rest of the text — the function, the class or the expression — stays
-    /// exactly where it was as that declaration's initializer.
-    fn rewrite_default_keywords(&self, start: usize, end: usize) -> Result<SourceEdit, StripError> {
-        let (name, hoisted) = match self.default_export {
-            DefaultExportRewrite::None => {
-                return Err(StripError::new(
-                    "`export default` in a module whose record has no default export",
-                ));
-            }
-            DefaultExportRewrite::DeleteKeywords => {
-                return SourceEdit::blank(self.source, start, end);
-            }
-            DefaultExportRewrite::Bind { name, hoisted } => (name, hoisted),
-        };
-        let keyword = if hoisted {
-            DEFAULT_BINDING_VAR
-        } else {
-            DEFAULT_BINDING_LET
-        };
-        let name = name.as_str();
-        let width = end.saturating_sub(start);
-        let before_padding = format!("{keyword}{name}");
-        SourceEdit::replace_around_padding(
-            self.source,
-            start,
-            end,
-            &before_padding,
-            DEFAULT_BINDING_ASSIGN,
-        )
-        .map_err(|error| match error {
-            SpanStableReplacementError::DoesNotFit => StripError::new(format!(
-                "`export default` binding `{name}` does not fit in the {width} bytes it replaces \
-                 after preserving its line terminators"
-            )),
-            SpanStableReplacementError::InvalidSpan => StripError::new(format!(
-                "`export default` span {start}..{end} is not a span of this module's source text"
-            )),
-            SpanStableReplacementError::GeneratedLineTerminator => StripError::new(
-                "generated `export default` declaration head contains a line terminator",
-            ),
+        self.edits.iter().find_map(|edit| match edit {
+            ParsedEdit::Default {
+                declaration_end, ..
+            } => *declaration_end,
+            ParsedEdit::Blank(_) => None,
         })
     }
+}
 
-    fn consume_optional_semicolon(&self, end: usize) -> Result<usize, StripError> {
-        let after = self.skip_trivia_from(end)?;
-        if self.bytes.get(after) == Some(&b';') {
-            return Ok(after + 1);
-        }
-        Ok(end)
-    }
-
-    fn word_at(&self, index: usize, word: &str) -> bool {
-        let Some(slice) = self.source.get(index..index + word.len()) else {
-            return false;
-        };
-        if slice != word {
-            return false;
-        }
-        !self
-            .source
-            .get(index + word.len()..)
-            .and_then(|rest| rest.chars().next())
-            .is_some_and(is_identifier_part)
-    }
-
-    fn char_len_at(&self, index: usize) -> usize {
-        self.source[index..]
-            .chars()
-            .next()
-            .map_or(1, char::len_utf8)
-    }
-
-    /// Skips whitespace and comments starting at `index`.
-    fn skip_trivia_from(&self, mut index: usize) -> Result<usize, StripError> {
-        loop {
-            match self.bytes.get(index).copied() {
-                Some(byte) if byte.is_ascii_whitespace() => index += 1,
-                Some(b'/') if self.bytes.get(index + 1) == Some(&b'/') => {
-                    while index < self.source.len()
-                        && ecmascript_line_terminator_sequence_at(self.source, index).is_none()
-                    {
-                        index += self.char_len_at(index);
-                    }
-                }
-                Some(b'/') if self.bytes.get(index + 1) == Some(&b'*') => {
-                    let mut end = index + 2;
-                    loop {
-                        if end + 1 >= self.bytes.len() {
-                            return Err(StripError::new("unterminated block comment"));
-                        }
-                        if self.bytes[end] == b'*' && self.bytes[end + 1] == b'/' {
-                            end += 2;
-                            break;
-                        }
-                        end += 1;
-                    }
-                    index = end;
-                }
-                Some(byte) if !byte.is_ascii() => {
-                    let ch = self.source[index..].chars().next().unwrap_or(' ');
-                    if is_js_whitespace(ch) {
-                        index += ch.len_utf8();
+/// Deletes module-only grammar at ranges retained by the original parser.
+/// All untouched bytes and line terminator sequences remain in place.
+pub(super) fn strip_module_syntax(
+    source: &str,
+    syntax: &ModuleSyntax,
+    default_export: DefaultExportRewrite<'_>,
+) -> Result<String, StripError> {
+    let edits = syntax
+        .edits
+        .iter()
+        .map(|edit| match *edit {
+            ParsedEdit::Blank(span) => SourceEdit::blank(source, span.start, span.end),
+            ParsedEdit::Default { keywords, .. } => {
+                rewrite_default_keywords(source, keywords.start, keywords.end, default_export)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut rebuilt = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+    for edit in edits {
+        rebuilt.push_str(source.get(cursor..edit.start).ok_or_else(|| {
+            StripError::new("module syntax ranges are not ordered spans of this source")
+        })?);
+        match edit.kind {
+            ModuleSyntaxEdit::Replace(replacement) => rebuilt.push_str(replacement.as_str()),
+            ModuleSyntaxEdit::Blank => {
+                let erased = &source[edit.start..edit.end];
+                let mut index = 0usize;
+                while index < erased.len() {
+                    if let Some(sequence) = ecmascript_line_terminator_sequence_at(erased, index) {
+                        rebuilt.push_str(sequence);
+                        index += sequence.len();
                     } else {
-                        return Ok(index);
+                        let width = erased[index..]
+                            .chars()
+                            .next()
+                            .expect("nonempty suffix")
+                            .len_utf8();
+                        rebuilt.extend(core::iter::repeat_n(' ', width));
+                        index += width;
                     }
                 }
-                _ => return Ok(index),
             }
         }
+        cursor = edit.end;
     }
-
-    /// First non-whitespace, non-comment byte at or after `self.index`.
-    fn peek_significant(&self) -> Option<u8> {
-        let index = self.skip_trivia_from(self.index).ok()?;
-        self.bytes.get(index).copied()
-    }
-
-    fn string_end(&self, start: usize, quote: u8) -> Result<usize, StripError> {
-        let mut index = start + 1;
-        while index < self.bytes.len() {
-            match self.bytes[index] {
-                b'\\' => index += 1 + self.char_len_at((index + 1).min(self.bytes.len())),
-                byte if byte == quote => return Ok(index + 1),
-                _ => index += self.char_len_at(index),
-            }
-        }
-        Err(StripError::new("unterminated string literal"))
-    }
-
-    fn balanced_brace_end(&self, start: usize) -> Result<usize, StripError> {
-        let mut index = start;
-        let mut depth = 0usize;
-        while index < self.bytes.len() {
-            match self.bytes[index] {
-                b'{' => {
-                    depth += 1;
-                    index += 1;
-                }
-                b'}' => {
-                    depth -= 1;
-                    index += 1;
-                    if depth == 0 {
-                        return Ok(index);
-                    }
-                }
-                quote @ (b'\'' | b'"') => index = self.string_end(index, quote)?,
-                _ => index += self.char_len_at(index),
-            }
-        }
-        Err(StripError::new("unbalanced braces in module declaration"))
-    }
-
-    fn skip_line_comment(&mut self) {
-        while self.index < self.source.len()
-            && ecmascript_line_terminator_sequence_at(self.source, self.index).is_none()
-        {
-            self.index += self.char_len();
-        }
-    }
-
-    fn skip_block_comment(&mut self) -> Result<(), StripError> {
-        let mut index = self.index + 2;
-        loop {
-            if index + 1 >= self.bytes.len() {
-                return Err(StripError::new("unterminated block comment"));
-            }
-            if self.bytes[index] == b'*' && self.bytes[index + 1] == b'/' {
-                self.index = index + 2;
-                return Ok(());
-            }
-            index += 1;
-        }
-    }
-
-    fn skip_string(&mut self, quote: u8) -> Result<(), StripError> {
-        self.index = self.string_end(self.index, quote)?;
-        Ok(())
-    }
-
-    fn skip_number(&mut self) {
-        while self.bytes.get(self.index).copied().is_some_and(|byte| {
-            byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'_' || byte == b'$'
-        }) {
-            self.index += 1;
-        }
-    }
-
-    fn skip_regexp(&mut self) -> Result<(), StripError> {
-        let mut index = self.index + 1;
-        let mut in_class = false;
-        loop {
-            let Some(byte) = self.bytes.get(index).copied() else {
-                return Err(StripError::new("unterminated regular expression literal"));
-            };
-            match byte {
-                b'\\' => index += 1 + self.char_len_at((index + 1).min(self.bytes.len())),
-                b'[' => {
-                    in_class = true;
-                    index += 1;
-                }
-                b']' => {
-                    in_class = false;
-                    index += 1;
-                }
-                b'/' if !in_class => {
-                    index += 1;
-                    break;
-                }
-                b'\n' => return Err(StripError::new("unterminated regular expression literal")),
-                _ => index += self.char_len_at(index),
-            }
-        }
-        while self
-            .bytes
-            .get(index)
-            .copied()
-            .is_some_and(is_identifier_part_byte)
-        {
-            index += 1;
-        }
-        self.index = index;
-        Ok(())
-    }
-
-    /// Consumes a template literal starting at the backtick under the cursor,
-    /// stopping either after its closing backtick or inside a `${`
-    /// substitution (which is ordinary source and must keep being scanned).
-    fn enter_template(&mut self) -> Result<(), StripError> {
-        self.index += 1;
-        self.scan_template_body()
-    }
-
-    /// Continues a template body after the `}` that closed a substitution.
-    fn resume_template(&mut self) -> Result<(), StripError> {
-        self.scan_template_body()
-    }
-
-    fn scan_template_body(&mut self) -> Result<(), StripError> {
-        while let Some(byte) = self.bytes.get(self.index).copied() {
-            match byte {
-                b'\\' => {
-                    self.index += 1;
-                    self.index += self.char_len_at(self.index.min(self.bytes.len()));
-                }
-                b'`' => {
-                    self.index += 1;
-                    self.slash = SlashMeaning::Divide;
-                    self.previous_was_dot = false;
-                    return Ok(());
-                }
-                b'$' if self.bytes.get(self.index + 1) == Some(&b'{') => {
-                    self.index += 2;
-                    self.depth += 1;
-                    self.template_stack.push(self.depth);
-                    self.slash = SlashMeaning::Regexp;
-                    self.previous_was_dot = false;
-                    return Ok(());
-                }
-                _ => self.index += self.char_len_at(self.index),
-            }
-        }
-        Err(StripError::new("unterminated template literal"))
-    }
+    rebuilt.push_str(&source[cursor..]);
+    Ok(rebuilt)
 }
 
-fn is_identifier_start_byte(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_' || byte == b'$' || !byte.is_ascii()
-}
-
-fn is_identifier_part_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$' || !byte.is_ascii()
-}
-
-/// The scanner's deliberately conservative identifier boundary.
-///
-/// Non-ASCII source characters remain word-shaped unless ECMAScript classifies
-/// them as `WhiteSpace` or a `LineTerminator`. This matches [`Scanner::scan_word`]
-/// without inspecting a UTF-8 continuation byte in isolation.
-fn is_identifier_part(character: char) -> bool {
-    if character.is_ascii() {
-        is_identifier_part_byte(character as u8)
+fn rewrite_default_keywords(
+    source: &str,
+    start: usize,
+    end: usize,
+    rewrite: DefaultExportRewrite<'_>,
+) -> Result<SourceEdit, StripError> {
+    let (name, hoisted) = match rewrite {
+        DefaultExportRewrite::None => {
+            return Err(StripError::new(
+                "`export default` in a module whose record has no default export",
+            ))
+        }
+        DefaultExportRewrite::DeleteKeywords => return SourceEdit::blank(source, start, end),
+        DefaultExportRewrite::Bind { name, hoisted } => (name, hoisted),
+    };
+    let keyword = if hoisted {
+        DEFAULT_BINDING_VAR
     } else {
-        !is_js_whitespace(character)
-    }
-}
-
-/// ECMAScript `WhiteSpace` and `LineTerminator` code points.
-///
-/// This is intentionally not [`char::is_whitespace`]: Unicode `White_Space`
-/// also contains U+0085 NEXT LINE, which ECMAScript does not treat as trivia.
-fn is_js_whitespace(character: char) -> bool {
-    matches!(
-        character,
-        '\u{0009}' | '\u{000B}' | '\u{000C}' | '\u{0020}' | '\u{00A0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200A}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202F}'
-                | '\u{205F}'
-                | '\u{3000}'
-                | '\u{FEFF}'
-                | '\n'
-                | '\r'
-    )
-}
-
-fn is_reserved_word(word: &str) -> bool {
-    matches!(
-        word,
-        "await"
-            | "break"
-            | "case"
-            | "catch"
-            | "class"
-            | "const"
-            | "continue"
-            | "debugger"
-            | "default"
-            | "delete"
-            | "do"
-            | "else"
-            | "enum"
-            | "export"
-            | "extends"
-            | "finally"
-            | "for"
-            | "function"
-            | "if"
-            | "import"
-            | "in"
-            | "instanceof"
-            | "new"
-            | "return"
-            | "switch"
-            | "throw"
-            | "try"
-            | "typeof"
-            | "var"
-            | "void"
-            | "while"
-            | "with"
-            | "yield"
-    )
+        DEFAULT_BINDING_LET
+    };
+    let name = name.as_str();
+    let width = end.saturating_sub(start);
+    let before_padding = format!("{keyword}{name}");
+    SourceEdit::replace_around_padding(source, start, end, &before_padding, DEFAULT_BINDING_ASSIGN)
+        .map_err(|error| match error {
+            SpanStableReplacementError::DoesNotFit => StripError::new(format!(
+                "`export default` binding `{name}` does not fit in the {width} bytes it replaces after preserving its line terminators")),
+            SpanStableReplacementError::InvalidSpan => StripError::new(format!(
+                "`export default` span {start}..{end} is not a span of this module's source text")),
+            SpanStableReplacementError::GeneratedLineTerminator => StripError::new(
+                "generated `export default` declaration head contains a line terminator"),
+        })
 }
 
 #[cfg(test)]
@@ -1008,8 +437,18 @@ mod tests {
 
     use crate::{LocalName, MAX_LINKABLE_MODULE_UNIT_ID};
 
+    fn strip_parsed(source: &str, rewrite: DefaultExportRewrite<'_>) -> Result<String, StripError> {
+        let parsed = lila_front::parse(source, lila_front::ParseOptions::module())
+            .expect("test source must be a valid module");
+        let syntax = parsed
+            .as_module()
+            .unwrap()
+            .with_compiler_session(|module, _| ModuleSyntax::from_parsed(source, module.items()));
+        strip_module_syntax(source, &syntax, rewrite)
+    }
+
     fn strip(source: &str) -> String {
-        strip_module_syntax(source, DefaultExportRewrite::None).expect("source should strip")
+        strip_parsed(source, DefaultExportRewrite::None).expect("source should strip")
     }
 
     #[test]
@@ -1085,6 +524,19 @@ mod tests {
     }
 
     #[test]
+    fn grammar_context_keeps_regex_after_blocks_and_control_heads_untouched() {
+        for prefix in [
+            "if (true) {} /export/.test('export');",
+            "if (true) /}/.test('}');",
+            "function f() {} /export default/.test('export default');",
+            "const template = `${/export/.source} ${`${'import'}`}`;",
+        ] {
+            let source = format!("{prefix}\nexport const value = 1;");
+            assert_eq!(strip(&source), format!("{prefix}\n       const value = 1;"));
+        }
+    }
+
+    #[test]
     fn division_slash_does_not_consume_the_following_export_as_a_regexp() {
         let source = "const quotient = dividend / divisor;\nexport const x = 1;";
         assert_eq!(
@@ -1115,7 +567,7 @@ mod tests {
     /// that does: reported, never guessed at.
     #[test]
     fn export_default_without_a_record_entry_is_reported() {
-        let error = strip_module_syntax("export default 1;", DefaultExportRewrite::None)
+        let error = strip_parsed("export default 1;", DefaultExportRewrite::None)
             .expect_err("must be reported");
         assert!(error.reason.contains("export default"), "{}", error.reason);
     }
@@ -1125,7 +577,7 @@ mod tests {
     #[test]
     fn anonymous_export_default_becomes_a_declaration_of_the_minted_name() {
         let source = "export default 42;\nprint(1);\n";
-        let stripped = strip_module_syntax(
+        let stripped = strip_parsed(
             source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1159,7 +611,7 @@ mod tests {
             for (initializer, hoisted, declaration) in forms {
                 let source =
                     format!("export{trivia}default {initializer};\nconst after_split_default = 1;");
-                let stripped = strip_module_syntax(
+                let stripped = strip_parsed(
                     &source,
                     DefaultExportRewrite::Bind {
                         name: &name,
@@ -1198,7 +650,7 @@ mod tests {
     #[test]
     fn relocated_separate_cr_and_lf_sequences_keep_a_non_terminator_barrier() {
         let source = "export/*\rseparate\n*/default 42;\nconst after = 1;";
-        let stripped = strip_module_syntax(
+        let stripped = strip_parsed(
             source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1226,7 +678,7 @@ mod tests {
     #[test]
     fn relocated_cr_keeps_a_barrier_before_an_untouched_suffix_lf_at_the_cap() {
         let source = "export\rdefault\n42;\nconst after_boundary = 1;";
-        let stripped = strip_module_syntax(
+        let stripped = strip_parsed(
             source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(MAX_LINKABLE_MODULE_UNIT_ID),
@@ -1262,7 +714,7 @@ mod tests {
             let source = format!(
                 "// leading{terminator}export// between{terminator}default 42;\nconst after = 1;"
             );
-            let stripped = strip_module_syntax(
+            let stripped = strip_parsed(
                 &source,
                 DefaultExportRewrite::Bind {
                     name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1287,7 +739,7 @@ mod tests {
     #[test]
     fn unicode_whitespace_terminates_looked_ahead_module_keywords() {
         let default_source = "export default\u{2028}42;\nconst after_default = 1;";
-        let stripped_default = strip_module_syntax(
+        let stripped_default = strip_parsed(
             default_source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1321,7 +773,11 @@ mod tests {
             import_source.find("after_import")
         );
 
-        assert!(!is_js_whitespace('\u{0085}'));
+        assert!(lila_front::parse(
+            "export\u{0085}const value = 1;",
+            lila_front::ParseOptions::module()
+        )
+        .is_err());
     }
 
     /// The scanner must recognize non-ASCII whitespace both before a word and
@@ -1330,7 +786,7 @@ mod tests {
     #[test]
     fn unicode_whitespace_is_dispatched_and_terminates_scanned_words() {
         let leading_source = "\u{FEFF}export default 42;\nconst after_leading = 1;";
-        let stripped_leading = strip_module_syntax(
+        let stripped_leading = strip_parsed(
             leading_source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1346,7 +802,7 @@ mod tests {
         );
 
         let word_source = "export\u{00A0}default 42;\nconst after_word = 1;";
-        let stripped_word = strip_module_syntax(
+        let stripped_word = strip_parsed(
             word_source,
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(0),
@@ -1374,7 +830,7 @@ mod tests {
     /// runs, which `let` would have replaced with a TDZ.
     #[test]
     fn a_hoistable_anonymous_default_is_declared_with_var() {
-        let stripped = strip_module_syntax(
+        let stripped = strip_parsed(
             "export default function () {}",
             DefaultExportRewrite::Bind {
                 name: &LocalName::AnonymousDefault.merged_in(3),
@@ -1390,7 +846,7 @@ mod tests {
     #[test]
     fn a_named_export_default_only_loses_its_keywords() {
         let source = "export default function f() {}\n";
-        let stripped = strip_module_syntax(source, DefaultExportRewrite::DeleteKeywords)
+        let stripped = strip_parsed(source, DefaultExportRewrite::DeleteKeywords)
             .expect("source should strip");
         assert_eq!(stripped.len(), source.len());
         assert_eq!(stripped, "               function f() {}\n");
@@ -1409,7 +865,7 @@ mod tests {
     #[test]
     fn a_default_binding_that_does_not_fit_is_reported() {
         let over_cap = LocalName::AnonymousDefault.merged_in(1_234_567_890);
-        let error = strip_module_syntax(
+        let error = strip_parsed(
             "export default 1;",
             DefaultExportRewrite::Bind {
                 name: &over_cap,

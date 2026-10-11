@@ -1,19 +1,18 @@
 //! Object Expression.
 
 use crate::{
-    block_to_string,
+    LinearPosition, LinearSpan, LinearSpanIgnoreEq, Span, Spanned, block_to_string,
     expression::{
-        operator::assign::{AssignOp, AssignTarget},
         Expression, Identifier, RESERVED_IDENTIFIERS_STRICT,
+        operator::assign::{AssignOp, AssignTarget},
     },
     function::{FormalParameterList, FunctionBody},
     join_nodes,
-    operations::{contains, ContainsSymbol},
+    operations::{ContainsSymbol, contains},
     pattern::{ObjectPattern, ObjectPatternElement},
     property::{MethodDefinitionKind, PropertyName},
     scope::FunctionScopes,
     visitor::{VisitWith, Visitor, VisitorMut},
-    LinearPosition, LinearSpan, LinearSpanIgnoreEq, Span, Spanned,
 };
 use boa_interner::{Interner, Sym, ToIndentedString, ToInternedString};
 use core::{fmt::Write as _, ops::ControlFlow};
@@ -176,6 +175,29 @@ impl ObjectLiteral {
                             default_init: None,
                         });
                     }
+                    (_, Expression::Parenthesized(_)) => {
+                        // Parentheses preserve a simple assignment target, but
+                        // cannot turn an object/array literal into a pattern.
+                        match AssignTarget::from_expression_simple(expr, strict)? {
+                            AssignTarget::Identifier(ident) => {
+                                bindings.push(ObjectPatternElement::SingleName {
+                                    name: name.clone(),
+                                    ident,
+                                    default_init: None,
+                                });
+                            }
+                            AssignTarget::Access(access) => {
+                                bindings.push(ObjectPatternElement::AssignmentPropertyAccess {
+                                    name: name.clone(),
+                                    access,
+                                    default_init: None,
+                                });
+                            }
+                            AssignTarget::Pattern(_) | AssignTarget::WebCompatCall(_) => {
+                                return None;
+                            }
+                        }
+                    }
                     (PropertyName::Computed(name), Expression::Identifier(ident)) => {
                         bindings.push(ObjectPatternElement::SingleName {
                             ident: *ident,
@@ -186,16 +208,16 @@ impl ObjectLiteral {
                     _ => return None,
                 },
                 PropertyDefinition::SpreadObject(spread) => {
-                    match spread {
-                        Expression::Identifier(ident) => {
-                            bindings.push(ObjectPatternElement::RestProperty { ident: *ident });
+                    match AssignTarget::from_expression_simple(spread, strict)? {
+                        AssignTarget::Identifier(ident) => {
+                            bindings.push(ObjectPatternElement::RestProperty { ident });
                         }
-                        Expression::PropertyAccess(access) => {
+                        AssignTarget::Access(access) => {
                             bindings.push(ObjectPatternElement::AssignmentRestPropertyAccess {
-                                access: access.clone(),
+                                access,
                             });
                         }
-                        _ => return None,
+                        AssignTarget::Pattern(_) | AssignTarget::WebCompatCall(_) => return None,
                     }
                     if i + 1 != self.properties.len() {
                         return None;

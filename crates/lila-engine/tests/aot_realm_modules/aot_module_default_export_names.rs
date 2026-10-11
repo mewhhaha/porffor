@@ -19,6 +19,46 @@ enum EntryGoal {
     Script,
 }
 
+#[test]
+fn parsed_module_boundaries_preserve_regex_and_default_declaration_asi() {
+    assert_modules(
+        &[
+            ("entry.js", "import fn from './function.js'; import C from './class.js'; print(fn() + ':' + C.value);"),
+            ("function.js", "if (true) {} /export/.test('export'); export default function /* original */ () { return 17; }\n[1].forEach(value => print('function:' + value));"),
+            ("class.js", "if (true) /}/.test('}'); export default class { static value = 23; }\n[2].forEach(value => print('class:' + value));"),
+        ],
+        EntryGoal::Module,
+        &["function:1", "class:2", "17:23"],
+    );
+}
+
+#[test]
+fn parser_dynamic_heads_keep_regex_and_import_methods_in_script_and_module() {
+    for goal in [EntryGoal::Script, EntryGoal::Module] {
+        assert_modules(
+            &[
+                ("entry.js", "if (true) {} /import/.test('import'); if (true) /}/.test('}'); const object = { import() { return 7; } }; import('./value.js').then(ns => print(ns.value + object.import()));"),
+                ("value.js", "export const value = 35;"),
+            ],
+            goal,
+            &["42"],
+        );
+    }
+}
+
+#[test]
+fn dynamic_heads_survive_default_declaration_terminator_insertion() {
+    assert_modules(
+        &[
+            ("entry.js", "import fn from './fn.js'; print(fn());"),
+            ("fn.js", "export default function () { return 4; }\nimport('./value.js').then(ns => print(ns.value));"),
+            ("value.js", "export const value = 9;"),
+        ],
+        EntryGoal::Module,
+        &["4", "9"],
+    );
+}
+
 fn assert_modules(files: &[(&str, &str)], goal: EntryGoal, expected: &[&str]) {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let fixture = Modules(std::env::temp_dir().join(format!(

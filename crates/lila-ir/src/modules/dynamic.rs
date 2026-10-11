@@ -290,7 +290,7 @@ pub enum OuterScriptModuleDependency {
 pub fn classify_outer_script_module_dependency(source: &str) -> OuterScriptModuleDependency {
     match lila_front::parse(source, lila_front::ParseOptions::script()) {
         Ok(ParsedSource::Script(script)) => {
-            if super::record::script_dynamic_import_sites(&script).is_empty() {
+            if !super::record::script_has_dynamic_import(&script) {
                 OuterScriptModuleDependency::None
             } else {
                 OuterScriptModuleDependency::RequiresModuleGraph
@@ -307,24 +307,15 @@ pub fn classify_outer_script_module_dependency(source: &str) -> OuterScriptModul
     }
 }
 
-/// Whether `source` writes an `import()` call of any phase.
-///
-/// A *lexical* answer, so a host can ask it of a Script without parsing one: the
-/// scanner skips comments, strings, templates and regular expressions, so the
-/// only false positives left are the ones a parse would also have to
-/// disambiguate — a property or method literally named `import`
-/// (`{ import(x) {} }`), which `rewrite_dynamic_import_calls` reports rather
-/// than mis-rewrites.
-///
-/// This is what tells a host that a Script needs its `import()` targets loaded
-/// before it can be compiled. `false` means the ordinary single-source pipeline
-/// describes the Script exactly; a source the scanner cannot lex answers `false`
-/// too, because a source that does not lex does not parse either.
+/// Whether a successfully parsed Script contains a dynamic import of any phase.
+/// Hosts retaining the parsed Script should use [`super::script_has_dynamic_import`]
+/// directly to avoid parsing the same source twice.
 #[must_use]
 pub fn source_writes_dynamic_import(source: &str) -> bool {
-    ImportCallScanner::new(source)
-        .run()
-        .is_ok_and(|sites| !sites.is_empty())
+    matches!(
+        classify_outer_script_module_dependency(source),
+        OuterScriptModuleDependency::RequiresModuleGraph
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -629,42 +620,16 @@ impl ModuleGraphIr {
         text
     }
 
-    /// Rewrites every `import(` call site in `source` into a call to `unit`'s
-    /// dispatcher.
+    /// Rewrites dynamic-import heads retained by the original parser.
     ///
-    /// # Where this belongs in the linker's rewrite chain
-    ///
-    /// **Last.** `rewrite_import_meta` and
-    /// [`strip_module_syntax`](super::source::strip_module_syntax) both preserve
-    /// byte length, because their outputs are addressed by spans the record
-    /// captured against the original text. This one does not: the dispatcher
-    /// name is longer than the `import` keyword. Running it last means no
-    /// span-addressed pass ever sees the shifted offsets.
-    ///
-    /// It is otherwise indifferent to what ran before it. A static `import`
-    /// declaration is never followed by `(`, so stripping first or not changes
-    /// nothing, and `rewrite_import_meta` has already turned `import.meta` into
-    /// an ordinary identifier by the time this runs.
-    ///
-    /// This is a JavaScript lexical scan, not a substring replacement. Comments,
-    /// string literals, template literals with nested `${}` substitutions and
-    /// regular-expression literals are all skipped, and `import` is only a
-    /// keyword when it is not preceded by `.` — so `import.meta` and
-    /// `obj.import(x)` are left for their own owners, and `"import('m')"` inside
-    /// a string stays a string.
-    ///
-    /// The replacement is longer than the `import` keyword and inserts no line
-    /// terminator, so byte offsets shift within a line but the line structure of
-    /// the unit survives exactly.
+    /// The public entry accepts this unit's original source. The linker carries
+    /// source-boundary mappings across its earlier edits, so inserted default
+    /// declaration terminators cannot invalidate these ranges. Properties,
+    /// methods, regular expressions and comments are never rediscovered here.
     ///
     /// # Errors
-    /// Returns a diagnostic message body when the scanner cannot lex `source`
-    /// (an unterminated string, comment, template or regular expression), and
-    /// when it finds a call site in a unit whose record says the unit has none.
-    /// The second case means the lexical scan and boa's parse disagree — an
-    /// object literal or class body with a method literally named `import` is
-    /// the way to provoke it — and failing loudly beats emitting a call to a
-    /// dispatcher that was never declared.
+    /// Returns a diagnostic if the source does not belong to this unit, or if
+    /// original parser ranges have been lost during an earlier rewrite.
     ///
     /// # Panics
     /// Panics if `unit` is not a unit of this graph.
@@ -673,6 +638,9 @@ impl ModuleGraphIr {
         unit: ModuleUnitId,
         source: &str,
     ) -> Result<String, String> {
+        if source != self.unit(unit).source_text {
+            return Err("dynamic-import rewrite requires the unit's original source text".into());
+        }
         self.rewrite_dynamic_import_source(
             unit,
             super::callable_source::OriginalUnitSource::new(source),
@@ -685,59 +653,24 @@ impl ModuleGraphIr {
         unit: ModuleUnitId,
         mut source: super::callable_source::OriginalUnitSource,
     ) -> Result<super::callable_source::OriginalUnitSource, String> {
-        let sites = ImportCallScanner::new(source.text()).run()?;
-        // The cross-check runs *before* the empty-sites shortcut, or the
-        // shortcut becomes a hole exactly the shape of this check: a scanner
-        // false negative would return the source unrewritten, the merged script
-        // would still contain a real `ImportCall`, and it would reach the
-        // backend's `emit_dynamic_import` stub with no diagnostic naming the
-        // module. A miss must be as loud as a hallucination.
-        //
-        // A *count* comparison, not an emptiness one. The scanner flags any
-        // `import` word not preceded by `.` and followed by `(`, which includes
-        // `{ import() {} }`, `{ get import() {} }` and `class C { #import() {} }`
-        // — none of which boa records as an `ImportCall`. Testing emptiness lets
-        // a unit that has one real `import()` carry any number of hallucinated
-        // sites through, renaming a method to a dispatcher (a runtime
-        // `TypeError`) or emitting `#$lila$module$import$0()` (a syntax error
-        // in generated source).
-        //
-        // Compared *per phase*, so a scan that finds the right number of call
-        // sites but reads `import.defer(` as an unphased `import(` is caught
-        // too: that would rewrite the site to the wrong dispatcher and hand back
-        // an evaluated namespace where the program asked for a deferred one.
-        // A multiset rather than a sequence, because the record's order is boa's
-        // visit order and this scan's is source order, and the two need not
-        // agree for nested calls.
-        let recorded = &self.unit(unit).record.dynamic_import_sites;
-        for phase in [
-            ImportPhaseIr::Evaluation,
-            ImportPhaseIr::Defer,
-            ImportPhaseIr::Source,
-        ] {
-            let found = sites.iter().filter(|site| site.phase == phase).count();
-            let listed = recorded.iter().filter(|site| site.phase == phase).count();
-            if found != listed {
-                // No module key in the message: the caller in `modules::link`
-                // already prefixes `module {key}:`, and saying it twice reads as
-                // a bug in the diagnostic rather than in the source.
-                return Err(format!(
-                    "found {found} `import(` call site(s) in the {} phase but the module record \
-                     lists {listed}; a property or method named `import` cannot be told apart \
-                     lexically",
-                    phase.as_str()
-                ));
+        let record = &self.unit(unit).record;
+        let heads = &record.dynamic_import_heads;
+        if heads.len() != record.dynamic_import_sites.len() {
+            return Err("dynamic-import call is missing its original parser range".into());
+        }
+        let spans: Vec<_> = heads.iter().map(|head| head.span).collect();
+        let ranges = source.current_ranges(&spans)?;
+        for (head, range) in heads.iter().zip(ranges).rev() {
+            let mut replacement = dispatcher_name(unit, head.phase);
+            // Keep exact LineTerminatorSequences inside phase trivia. Spaces
+            // between them prevent separate CR and LF from becoming a CRLF.
+            for sequence in super::source::collect_ecmascript_line_terminator_sequences(
+                &source.text()[range.clone()],
+            ) {
+                replacement.push(' ');
+                replacement.push_str(sequence);
             }
-        }
-        if sites.is_empty() {
-            return Ok(source);
-        }
-
-        // Reverse source order keeps every scanner span valid until its one
-        // edit is applied, including nested import calls and UTF-8 trivia.
-        for site in sites.into_iter().rev() {
-            let name = dispatcher_name(unit, site.phase);
-            source.replace(site.start, site.end, &name);
+            source.replace(range.start, range.end, &replacement);
         }
         Ok(source)
     }
@@ -944,12 +877,9 @@ struct ImportCallSite {
 
 /// Finds the byte range of every `import` keyword that opens an `import(` call.
 ///
-/// A sibling of the scanner in [`source`](super::source), and deliberately not a
-/// reuse of it: that one deletes declarations, which only exist at nesting depth
-/// zero, while an `import()` call is an expression and can appear anywhere. The
-/// shared machinery is the lexing — comments, strings, templates, regular
-/// expressions — and the shared discipline is that a keyword after `.` is a
-/// property name.
+/// Used only as conservative evidence after Script parsing has failed. Valid
+/// source rewriting and dependency discovery consume the retained parser AST.
+/// A scanner failure or possible call never admits a source as dependency-free.
 struct ImportCallScanner<'a> {
     source: &'a str,
     bytes: &'a [u8],
@@ -1758,25 +1688,16 @@ mod tests {
         }
     }
 
-    /// A scanner miss must be as loud as a scanner hallucination: the count
-    /// cross-check runs before the empty-sites shortcut, so a unit whose record
-    /// lists a site the scan cannot find is reported rather than passed through
-    /// unrewritten.
     #[test]
-    fn a_recorded_site_the_scan_cannot_find_is_reported_rather_than_passed_through() {
+    fn rewriting_requires_the_original_unit_source() {
         let sources = sources_of(&[("d", "import(\"m\");")], 0, Vec::new());
         let graph = graph_of(&sources);
-        let error = graph
-            .rewrite_dynamic_import_calls(0, "print(1);")
-            .expect_err("a missing site must be reported");
-        // Assert the two facts, not the sentence: the message now names the
-        // request phase as well, and pinning the exact wording made this test
-        // fail for a phrasing change rather than a behaviour change.
-        assert!(
-            error.contains("found 0 `import(` call site(s)")
-                && error.contains("the module record lists 1"),
-            "got {error}"
-        );
+        for other in ["print(1);", "import(\"n\");", "const s = \"import('m')"] {
+            let error = graph
+                .rewrite_dynamic_import_calls(0, other)
+                .expect_err("ranges cannot be applied to a different source");
+            assert!(error.contains("original source text"), "{error}");
+        }
     }
 
     /// A `${}` substitution is ordinary source: a call site inside one is real.
@@ -1808,29 +1729,6 @@ mod tests {
             rewritten.lines().nth(1),
             Some("$lila$module$import$0(\"m\");")
         );
-    }
-
-    /// The lexical scan and boa's parse can only disagree through a method named
-    /// `import`. That must fail loudly, not emit a call to a function the
-    /// prelude never declared.
-    #[test]
-    fn a_call_site_the_record_does_not_list_is_reported() {
-        let sources = sources_of(&[("d", "print(1);")], 0, Vec::new());
-        let graph = graph_of(&sources);
-        let error = graph
-            .rewrite_dynamic_import_calls(0, "const o = { import() { return 1; } };")
-            .expect_err("a disagreement must be reported");
-        assert!(error.contains("the module record lists 0"), "got: {error}");
-    }
-
-    #[test]
-    fn an_unterminated_string_is_reported_rather_than_mangled() {
-        let sources = sources_of(&[("d", "import(x);")], 0, Vec::new());
-        let graph = graph_of(&sources);
-        let error = graph
-            .rewrite_dynamic_import_calls(0, "const s = \"import('m')")
-            .expect_err("an unlexable source must be reported");
-        assert!(error.contains("unterminated"), "got: {error}");
     }
 
     #[test]
@@ -2077,20 +1975,38 @@ mod tests {
         );
     }
 
-    /// A method literally named `import` is indistinguishable from an
-    /// `ImportCall` to a lexical scan, so a unit that has *both* a real
-    /// `import()` and such a method must be reported rather than have the
-    /// method renamed to the dispatcher.
     #[test]
-    fn a_hallucinated_call_site_alongside_a_real_one_is_reported() {
-        let sources = sources_of(&[("d", "import(\"a\");")], 0, Vec::new());
+    fn parser_heads_preserve_method_names_regex_and_nested_imports() {
+        let source = "if (true) {} /export/.test('export'); if (true) /}/.test('}'); const o = { import() { return 1; } }; import(import(\"a\"));";
+        let sources = sources_of(&[("d", source)], 0, Vec::new());
         let graph = graph_of(&sources);
-        let error = graph
-            .rewrite_dynamic_import_calls(0, "import(\"a\"); const o = { import() { return 1; } };")
-            .expect_err("a count disagreement must be reported");
-        assert!(error.contains("the module record lists 1"), "got: {error}");
-        // The caller owns the `module {key}:` prefix, so this must not add one.
-        assert!(!error.contains("module d:"), "got: {error}");
+        let rewritten = graph.rewrite_dynamic_import_calls(0, source).unwrap();
+        assert_eq!(
+            rewritten,
+            source.replace(
+                "import(import(\"a\"))",
+                "$lila$module$import$0($lila$module$import$0(\"a\"))"
+            )
+        );
+    }
+
+    #[test]
+    fn phase_head_trivia_preserves_exact_line_terminator_sequences() {
+        for trivia in ["/*\r x \n*/", "/*\r\n*/", "/*\u{2028}\u{2029}*/"] {
+            let source = format!("// 🦀\nimport {trivia} . defer ('a');");
+            let sources = sources_of(&[("d", &source)], 0, Vec::new());
+            let graph = graph_of(&sources);
+            let rewritten = graph.rewrite_dynamic_import_calls(0, &source).unwrap();
+            assert_eq!(
+                super::super::source::collect_ecmascript_line_terminator_sequences(&rewritten),
+                super::super::source::collect_ecmascript_line_terminator_sequences(&source)
+            );
+            lila_front::parse(&rewritten, lila_front::ParseOptions::script()).unwrap();
+            assert!(
+                rewritten.contains("$lila$module$import$0$defer"),
+                "{rewritten}"
+            );
+        }
     }
 
     #[test]

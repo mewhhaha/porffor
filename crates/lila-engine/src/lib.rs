@@ -8,7 +8,7 @@ use lila_intl::{
     INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
 };
 use lila_ir::{
-    source_writes_dynamic_import, CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic,
+    script_has_dynamic_import, CompletionKindIr, DynamicSourceRuntimeOperation, IrDiagnostic,
     ProgramIr, RuntimeSemanticGap, RuntimeSemanticRejection, ValueKind,
 };
 pub use lila_runtime::rooted_snapshot::{SnapshotCompletion, SnapshotLimits, SnapshotOutcome};
@@ -785,17 +785,15 @@ fn module_entry_graph(
 /// Discovery walks the retained Script AST without changing the parse goal,
 /// so sloppy Script forms remain valid.
 ///
-/// Two gates, cheap one first. The lexical scan runs on every Script and answers
-/// `false` for almost all of them; the retained AST is what actually decides,
-/// because only syntax tells `import(x)` apart from a method named `import`
-/// (`{ import(x) {} }`, `class C { import() {} }`) — and a Script that only has
-/// the latter must keep taking the ordinary single-source path it always did.
+/// The retained AST decides whether a Script needs a graph, including computed
+/// imports. Property and method names never become import requests, and this
+/// decision does not repeat the parser's lexical analysis.
 fn script_entry_graph(
     source: &lila_front::ParsedScript,
     options: &CompileOptions,
     policy: AmbientModuleLoaderPolicy,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    if !source_writes_dynamic_import(&source.source_text)
+    if !script_has_dynamic_import(source)
         && lila_ir::scan_script_realm_module_requests(source).is_empty()
     {
         return None;

@@ -98,3 +98,41 @@ fn cover_conversion_preserves_invalid_targets_rest_position_and_strict_errors() 
         );
     }
 }
+
+#[test]
+fn parenthesized_simple_targets_remain_valid_in_assignment_patterns() {
+    for source in [
+        "var x, target = {}; [(x), ((target.value))] = source;",
+        "var x, target = {}; ({value: (x), other: ((target.value))} = source);",
+        "var target = {}; [...((target.rest))] = source;",
+        "var target = {}; ({...((target.rest))} = source);",
+        "var target = {}; for ([(target.value)] of source) {}",
+        "var target = {}; for ({value: (target.value)} of source) {}",
+        "var target = {method(source) { [(super.value)] = source; ({...((super.rest))} = source); }};",
+    ] {
+        for options in [ParseOptions::script(), ParseOptions::module()] {
+            parse(source, options).unwrap_or_else(|error| panic!("{source}: {error}"));
+        }
+    }
+}
+
+#[test]
+fn grouping_never_admits_patterns_calls_or_optional_assignment_targets() {
+    for source in [
+        "[({x})] = source;",
+        "[([x])] = source;",
+        "({...({x})} = source);",
+        "[...(call())] = source;",
+        "({value: (call())} = source);",
+        "[(target?.value)] = source;",
+        "'use strict'; [(eval)] = source;",
+        "'use strict'; ({value: (arguments)} = source);",
+        "'use strict'; ({...(eval)} = source);",
+        "'use strict'; [...(arguments)] = source;",
+    ] {
+        assert!(
+            parse(source, ParseOptions::script()).is_err(),
+            "invalid grouped target: {source}"
+        );
+    }
+}

@@ -159,9 +159,9 @@ const ANONYMOUS_DEFAULT_PREFIX: &str = "$d";
 /// Separator between a unit id and whatever follows it in a minted name.
 const UNIT_ID_TERMINATOR: &str = "$";
 
-/// The `export` keyword, as `modules::source` matches it.
+/// Width of the parsed `export` keyword, reserved for generated binding heads.
 pub(crate) const EXPORT_KEYWORD: &str = "export";
-/// The `default` keyword, as `modules::source` matches it.
+/// Width of the parsed `default` keyword, reserved for generated binding heads.
 pub(crate) const DEFAULT_KEYWORD: &str = "default";
 /// Declaration head `modules::source` writes for a non-hoistable anonymous
 /// `export default`.

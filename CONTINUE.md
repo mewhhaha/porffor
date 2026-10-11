@@ -233,3 +233,28 @@ Raw watched logs and private drivers are ignored under
 `target/continuation-cloud-20261009/`; the checked-in compact receipts preserve
 verdicts, commands, hashes and diagnostics for fresh checkouts. Check disk before
 broad scopes and clear only completed incremental state between serial targets.
+
+## Parser/module range batch — 2026-10-10
+
+The verified batch admits parenthesized simple destructuring assignment
+and rest targets through the existing assignment-target authority. Module
+syntax now comes from the original parser's item ranges, stored on source-text
+records; the second lexer and default-declaration reparse are removed. Controls
+cover negative targets, receiver/order semantics, UTF-16/ASI/import attributes,
+regex ambiguity and anonymous declaration boundaries. Dynamic call heads also
+come from the original parser and survive earlier source insertions; Script
+discovery uses its retained AST. The fallback scanner is confined to conservative
+parse-failure probes. The 2026-10-11 frozen checkpoint passes 217 frontend
+checks, 1,500 IR unit checks, 11 IR integration checks, all-feature/all-target
+types, 38 focused native checks and all 191 exact product fixture IDs over 190
+files, including 187 Wasm-safe IDs. There are zero failures or timeouts. Original
+case limits and the inherited cloud resource policy remain unchanged. See
+[the receipt](docs/rust-rewrite/parser-module-ranges-20261010.md). Complete
+workspace/all-ignored, differential and current pinned-suite acceptance remain
+pending.
+
+The latest task audit still finds substantial open acceptance requirements:
+real weak reachability/ephemerons, shared-memory agents, suspended compositions,
+current pinned full-suite publication, sustained stress/differential runs and
+cross-host evidence. Wasmtime 47 has no weak-root or ephemeron API. Do not remove
+this handoff or tasks until the requested actual task completion is established.
