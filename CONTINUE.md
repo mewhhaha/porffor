@@ -11,7 +11,11 @@ yet. All 458 tooling tests, 47 publication-driver controls, eight regenerated
 Intl checks and final all-feature/all-target types pass. Thirteen initial
 native controls pass before the source-bound Intl refresh; the Test262 link
 then exhausted disk, so its native result is incomplete. Fresh complete
-acceptance is pending. The obsolete
+acceptance is pending. The clean-source retry passed eleven native controls,
+then exhausted disk during the Realm build. Obsolete workspace library copies
+and inactive caches were reclaimed; the public batch receipt explicitly records
+two overwritten old transcripts and separately sealed fresh retry evidence.
+The obsolete
 serial CLI attempt was deliberately interrupted before its complete result;
 none of its partial tests count as completed acceptance. The four engine tail
 targets passed 370 tests, including 141 RegExp and 199 Temporal controls. The

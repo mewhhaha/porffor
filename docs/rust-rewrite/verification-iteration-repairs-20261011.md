@@ -18,7 +18,16 @@ identities were refreshed. The next Test262 native link exhausted disk and
 failed with a linker bus error; it produced no native result. That attempt and
 its logs are retained, and inactive incremental caches, the failed partial ELF
 and the obsolete static CLI were reclaimed. Fresh complete native and
-cold-budget acceptance remain pending. The prior diagnostic
+cold-budget acceptance remain pending. A clean `27b4d5565` retry passed all
+eleven Intl/cache and compiler emission controls; the Realm build then exhausted
+disk while creating incremental data, before native execution. Retiring
+obsolete workspace libraries and inactive caches reclaimed 6,416,752,640 bytes.
+The retry accidentally reused two watcher labels, replacing the first eleven
+controls' original raw transcripts. Their original outcome receipt and outer
+watcher remain; the fresh retry transcripts are sealed at distinct paths. The
+two original Realm transcripts are preserved byte-for-byte. The public receipt
+marks the replaced transcripts unavailable. Future attempts use unique labels.
+The prior diagnostic
 CrossRealm program shrank from 289,319 to 240,368 bytes; this measurement does
 not establish a complete five-second campaign pass.
 

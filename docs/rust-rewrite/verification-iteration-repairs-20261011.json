@@ -69,8 +69,11 @@
                 "0"
               ]
             ],
-            "log": "target/watched/iteration-focused-intl-cache-0-20261011.log",
-            "sha256": "15b56a028eafd70b5f80af21540495f22a4853472ade8c6a96d6649ee46fb44e"
+            "sha256": "15b56a028eafd70b5f80af21540495f22a4853472ade8c6a96d6649ee46fb44e",
+            "original_watcher_log": "target/watched/iteration-focused-intl-cache-0-20261011.log",
+            "log": null,
+            "original_transcript_available": false,
+            "preservation_note": "Original raw transcript overwritten by retry label collision; original outcome receipt and outer watcher retained. Fresh retry transcript is archived separately."
           }
         ]
       },
@@ -120,8 +123,11 @@
                 "0"
               ]
             ],
-            "log": "target/watched/iteration-focused-compiler-emission-0-20261011.log",
-            "sha256": "df18ba571018478a8fc58975fc515ea94f12b9aa7835c901b1c4abc314f2b4f0"
+            "sha256": "df18ba571018478a8fc58975fc515ea94f12b9aa7835c901b1c4abc314f2b4f0",
+            "original_watcher_log": "target/watched/iteration-focused-compiler-emission-0-20261011.log",
+            "log": null,
+            "original_transcript_available": false,
+            "preservation_note": "Original raw transcript overwritten by retry label collision; original outcome receipt and outer watcher retained. Fresh retry transcript is archived separately."
           }
         ]
       },
@@ -799,5 +805,214 @@
       }
     ],
     "original_identity_receipt_failure": "Checkout absolute paths contained the retired repository name; public receipt paths are rendered relative to the workspace and original raw argv remains retained."
+  },
+  "native_retry_27b4d5565": {
+    "source": {
+      "head": "27b4d5565c3834239cc0178e16071078b4b78069",
+      "patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "untracked": {}
+    },
+    "driver_sha256": "61a93898fb7d1d9a1444c7b6807fc76f8d0e4bd4230f8b9ef98259ff913fa1e9",
+    "scopes": [
+      {
+        "label": "intl-cache",
+        "package": "lila-intl",
+        "selector": [
+          "--lib"
+        ],
+        "state": "passed",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "iteration-focused-intl-cache-0-20261011",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "./target/debug/deps/lila_intl-359eba652cb13597",
+              "selection::selected_profile_cache_tests::",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected": [
+              "selection::selected_profile_cache_tests::concurrent_identical_selections_keep_the_same_checked_owner",
+              "selection::selected_profile_cache_tests::failed_selection_never_replaces_the_previous_checked_owner",
+              "selection::selected_profile_cache_tests::identical_profile_reuses_one_admitted_owner_and_complete_actual_bytes",
+              "selection::selected_profile_cache_tests::over_budget_selection_still_works_without_retaining_global_frames",
+              "selection::selected_profile_cache_tests::same_custom_name_cannot_reuse_different_public_services_or_frames",
+              "selection::selected_profile_cache_tests::same_name_and_service_keep_distinct_actual_locale_projections"
+            ],
+            "seconds": 0.323,
+            "exit_code": 0,
+            "outcomes": [
+              [
+                "6",
+                "0",
+                "0"
+              ]
+            ],
+            "log": "target/verification-iteration-repairs-20261011/native-retry/transcripts/intl-cache-0.log",
+            "sha256": "424ab725340f1e731966c48d97f103b2690fd4acaa14436bd3d9df9634514c25",
+            "original_watcher_log": "target/watched/iteration-focused-intl-cache-0-20261011.log",
+            "transcript_relocated_after_completion": true
+          }
+        ],
+        "build_command": [
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--cloud-cpus",
+          "auto",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-intl",
+          "--lib",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 28.316,
+        "executable": "target/debug/deps/lila_intl-359eba652cb13597",
+        "executable_sha256": "c98ce31ae4dd41f41b958df1d399e2a03101b0f1eaf83fa7a34e0d6d20571334",
+        "executable_bytes": 206834680,
+        "released_executable": true
+      },
+      {
+        "label": "compiler-emission",
+        "package": "lila-aot-wasm",
+        "selector": [
+          "--test",
+          "emission"
+        ],
+        "state": "passed",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "iteration-focused-compiler-emission-0-20261011",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "./target/debug/deps/emission-aae27f6bbee1bb00",
+              "numeric_bitwise_emission::",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected": [
+              "numeric_bitwise_emission::coercive_add_sites_reuse_linked_conversion_bodies_with_bounded_growth",
+              "numeric_bitwise_emission::lexical_read_tdz_branches_share_one_runtime_error_without_erasing_reads",
+              "numeric_bitwise_emission::relational_sites_share_one_complete_runtime_comparison_with_bounded_growth",
+              "numeric_bitwise_emission::static_number_bitwise_sites_have_bounded_incremental_emission",
+              "numeric_bitwise_emission::unary_and_nested_number_sites_do_not_restore_generic_numeric_dispatch"
+            ],
+            "seconds": 15.236,
+            "exit_code": 0,
+            "outcomes": [
+              [
+                "5",
+                "0",
+                "0"
+              ]
+            ],
+            "log": "target/verification-iteration-repairs-20261011/native-retry/transcripts/compiler-emission-0.log",
+            "sha256": "019f6d6a77b3100e6171cffef32660cf487a5393fee16029f84a8d1fe6be91a8",
+            "original_watcher_log": "target/watched/iteration-focused-compiler-emission-0-20261011.log",
+            "transcript_relocated_after_completion": true
+          }
+        ],
+        "build_command": [
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--cloud-cpus",
+          "auto",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "--workspace",
+          "--test",
+          "emission",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 115.672,
+        "executable": "target/debug/deps/emission-aae27f6bbee1bb00",
+        "executable_sha256": "805dbcc7c81d840f10450c2e925b2b71805d011d8f68249b958b9ead00f0de79",
+        "executable_bytes": 196432808,
+        "released_executable": true
+      },
+      {
+        "label": "realm-controls",
+        "package": "lila-engine",
+        "selector": [
+          "--test",
+          "aot_realm_modules"
+        ],
+        "state": "build-failed",
+        "tests": [],
+        "build_command": [
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--cloud-cpus",
+          "auto",
+          "--",
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "--workspace",
+          "--test",
+          "aot_realm_modules",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 101,
+        "build_seconds": 259.266
+      }
+    ],
+    "state": "failed",
+    "source_unchanged": true,
+    "transcript_relocation_policy": "Actual complete retry transcripts copied byte-for-byte to distinct scope paths after watcher completion; native commands and outcomes unchanged.",
+    "completed_passes": 11,
+    "build_failure": "Realm build exhausted disk while creating incremental compilation data; no Realm native outcome.",
+    "receipt": "target/verification-iteration-repairs-20261011/native-retry/receipt.json",
+    "prune_receipt": "target/verification-iteration-repairs-20261011/retired-workspace-library-prune.json",
+    "reclaimed_bytes": 6416752640
   }
 }
