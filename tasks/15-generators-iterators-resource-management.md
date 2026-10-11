@@ -1,5 +1,15 @@
 # T15 — Generators, iterators, iterator helpers and resource management
 
+## Iterator chunking proposal — 2026-10-11
+
+The chunks/windows batch passes 24 focused native controls with zero failures
+or ignores and the complete official proposal selection on both backends:
+156/156 AOT and 156/156 oracle, with original deadlines and exact execution-ID
+censuses. On-demand GC Lists preserve whole values and borrowed Realms. Joined
+types and all twelve repository guards pass. Full-suite acceptance and task
+closure remain open. See the
+[checkpoint](../docs/rust-rewrite/iterator-chunking-20261011.md).
+
 ## Iterator materialization retains runtime protocol — 2026-10-07 dry source
 
 The remaining source-text iterator caches are removed. They replaced

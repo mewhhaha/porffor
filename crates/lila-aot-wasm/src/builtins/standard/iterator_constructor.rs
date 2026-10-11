@@ -4,6 +4,27 @@ use crate::functions::OrdinaryDefaultPrototype;
 /// This entry borrows the actual callable role rather than selecting an
 /// identity from a global or an environment-shaped integer.
 impl FunctionBuilder<'_> {
+    pub(super) fn emit_iterator_constructor_getter_builtin(
+        &mut self,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let realm = schema
+            .reserve_gc_local(function)
+            .initialize(self.emit_current_function_realm(function), function);
+        let constructor = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::IteratorConstructor,
+            &constructor,
+            function,
+        );
+        self.completion().set_normal(&constructor, function);
+        constructor.clear(function);
+        realm.clear(function);
+        Ok(())
+    }
+
     pub(super) fn emit_iterator_constructor_builtin(
         &mut self,
         function: &mut Function,

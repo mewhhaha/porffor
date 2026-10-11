@@ -4283,6 +4283,19 @@ require_fixed_string_count "$wasm_error_stack" 'NativeErrorObjectSchema::STACK' 
 require_fixed_string_count "$wasm_error_constructor" 'self.emit_append_error_data(header, "stack"' 0 'constructors do not shadow the inherited stack accessor'
 check_raw_line_budget "$wasm_error_stack" 200
 
+wasm_iterator_helpers="crates/lila-aot-wasm/src/builtins/standard/iterator_helpers.rs"
+wasm_iterator_buffered="crates/lila-aot-wasm/src/builtins/standard/iterator_helpers/buffered.rs"
+require_file "$wasm_iterator_buffered"
+require_exact_line_count "$wasm_iterator_helpers" 'mod buffered;' 1 'private buffered helper owner'
+for iterator_buffer_child in buffer_queue buffer_resume; do
+  iterator_buffer_path="crates/lila-aot-wasm/src/builtins/standard/iterator_helpers/buffered/$iterator_buffer_child.rs"
+  require_file "$iterator_buffer_path"
+  require_exact_line_count "$wasm_iterator_buffered" "mod $iterator_buffer_child;" 1 'private buffered helper child'
+  check_no_inline_legacy_includes "$iterator_buffer_path"
+  check_raw_line_budget "$iterator_buffer_path" 225
+done
+check_raw_line_budget "$wasm_iterator_buffered" 225
+
 wasm_promise_builtins="crates/lila-aot-wasm/src/builtins/promise.rs"
 require_file "$wasm_promise_builtins"
 check_no_inline_legacy_includes "$wasm_promise_builtins"

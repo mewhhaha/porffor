@@ -851,6 +851,8 @@ impl CompilerOwnedPool {
             "shortest",
             "longest",
             "strict",
+            "only-full",
+            "allow-partial",
             "zipKeyed",
             "Iterator filter helper return method must be callable",
             "Iterator filter helper return result must be object",

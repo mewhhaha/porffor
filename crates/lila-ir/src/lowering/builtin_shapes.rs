@@ -4407,6 +4407,18 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::IteratorPrototypeDrop,
             )),
         );
+        properties.insert(
+            "chunks".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeChunks,
+            )),
+        );
+        properties.insert(
+            "windows".to_string(),
+            ObjectShapeProperty::Data(Self::standard_builtin_value_info(
+                StandardBuiltinId::IteratorPrototypeWindows,
+            )),
+        );
         Box::new(HeapShape::Object(ObjectShape {
             provenance: HeapShapeProvenance::IntrinsicPrototype(
                 StandardBuiltinId::IteratorConstructor,
@@ -4493,6 +4505,25 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     pub(super) fn iterator_drop_helper_shape() -> Box<HeapShape> {
+        Box::new(HeapShape::Object(ObjectShape {
+            provenance: HeapShapeProvenance::Program,
+            prototype: Some(Self::iterator_helper_prototype_shape()),
+            properties: BTreeMap::new(),
+            private_brands: BTreeSet::new(),
+            boxed_primitive: None,
+        }))
+    }
+
+    pub(super) fn iterator_helper_info() -> ValueInfo {
+        ValueInfo {
+            kind: ValueKind::Object,
+            possible_kinds: KindSet::from_kind(ValueKind::Object),
+            heap_shape: Some(Self::iterator_helper_instance_shape()),
+            function_targets: FunctionTargetKnowledge::none(),
+        }
+    }
+
+    pub(super) fn iterator_helper_instance_shape() -> Box<HeapShape> {
         Box::new(HeapShape::Object(ObjectShape {
             provenance: HeapShapeProvenance::Program,
             prototype: Some(Self::iterator_helper_prototype_shape()),
@@ -5993,6 +6024,38 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorTakeReturn,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeChunks => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeChunks,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeWindows => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeWindows,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorBufferedNext => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorBufferedNext,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorBufferedReturn => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorBufferedReturn,
                 )),
                 ValueInfo::undefined(),
             ),

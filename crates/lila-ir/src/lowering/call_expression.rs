@@ -121,13 +121,18 @@ impl<'a> ScriptLowerer<'a> {
                                         | StandardBuiltinId::IteratorPrototypeFlatMap
                                         | StandardBuiltinId::IteratorPrototypeTake
                                         | StandardBuiltinId::IteratorPrototypeDrop
+                                        | StandardBuiltinId::IteratorPrototypeChunks
+                                        | StandardBuiltinId::IteratorPrototypeWindows
                                 )
                             });
                         if receiver_uses_array_for_each || receiver_uses_iterator_method {
                             let args = self
                                 .lower_call_args_expanding_spread(args)
                                 .into_arguments_after_expression(&mut receiver);
-                            if field_name != "take" && field_name != "drop" {
+                            if !matches!(
+                                field_name.as_str(),
+                                "take" | "drop" | "chunks" | "windows"
+                            ) {
                                 if let Some(callback) = args.first() {
                                     if let Some(callback_id) =
                                         self.resolve_single_function_target(callback)
@@ -169,7 +174,8 @@ impl<'a> ScriptLowerer<'a> {
                                     heap_shape: None,
                                     function_targets: FunctionTargetKnowledge::unknown(),
                                 },
-                                "map" | "filter" | "flatMap" | "take" | "drop" => ValueInfo {
+                                "map" | "filter" | "flatMap" | "take" | "drop" | "chunks"
+                                | "windows" => ValueInfo {
                                     kind: ValueKind::Object,
                                     possible_kinds: KindSet::from_kind(ValueKind::Object),
                                     heap_shape: Some(match field_name.as_str() {
@@ -177,6 +183,9 @@ impl<'a> ScriptLowerer<'a> {
                                         "filter" => Self::iterator_filter_helper_shape(),
                                         "flatMap" => Self::iterator_flat_map_helper_shape(),
                                         "take" => Self::iterator_take_helper_shape(),
+                                        "chunks" | "windows" => {
+                                            Self::iterator_helper_instance_shape()
+                                        }
                                         _ => Self::iterator_drop_helper_shape(),
                                     }),
                                     function_targets: FunctionTargetKnowledge::none(),

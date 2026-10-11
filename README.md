@@ -1,5 +1,12 @@
 # Lila
 
+Iterator chunks/windows pass all 156 official proposal cases on each backend,
+plus 24 focused native controls with no failures or ignores. On-demand GC Lists
+preserve whole values and exact window step ordering; the optional oracle also
+preserves helper completion and captured Realms. Full-suite acceptance and task
+closure remain open. See the
+[chunking checkpoint](docs/rust-rewrite/iterator-chunking-20261011.md).
+
 The Error stack accessor proposal is implemented in Wasm AOT and the optional
 oracle. All seventeen focused native controls, joined workspace types and twelve
 guards pass. The official selection passes 68/70 in AOT; both remaining cases

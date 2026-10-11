@@ -4,6 +4,8 @@ use crate::control_flow::OwnedSyncIterator;
 use crate::functions::NonArrayRealmIntrinsicSlot;
 use crate::objects::PropertyKeyLocals;
 
+mod buffered;
+pub(super) use buffered::BufferedIteratorKind;
 mod concat;
 mod lazy;
 mod protocol;
@@ -43,6 +45,7 @@ enum HelperKind {
     Drop,
     Concat,
     Zip,
+    Buffered,
 }
 #[derive(Clone, Copy)]
 enum HelperFlag {
@@ -58,6 +61,7 @@ enum HelperState {
     Drop(GcLocal<IteratorDropHelper>),
     Concat(GcLocal<IteratorConcatHelper>),
     Zip(GcLocal<IteratorZipHelper>),
+    Buffered(GcLocal<IteratorBufferedHelper>),
 }
 impl HelperKind {
     const ALL: &'static [Self] = &[
@@ -68,6 +72,7 @@ impl HelperKind {
         Self::Drop,
         Self::Concat,
         Self::Zip,
+        Self::Buffered,
     ];
     fn creator(self) -> StandardBuiltinId {
         match self {
@@ -78,6 +83,7 @@ impl HelperKind {
             Self::Drop => StandardBuiltinId::IteratorPrototypeDrop,
             Self::Concat => StandardBuiltinId::IteratorConcat,
             Self::Zip => StandardBuiltinId::IteratorZip,
+            Self::Buffered => StandardBuiltinId::IteratorPrototypeChunks,
         }
     }
     fn entry(self, operation: IteratorHelperOperation) -> StandardBuiltinId {
@@ -102,6 +108,12 @@ impl HelperKind {
             (Self::Concat, IteratorHelperOperation::Return) => {
                 StandardBuiltinId::IteratorConcatReturn
             }
+            (Self::Buffered, IteratorHelperOperation::Next) => {
+                StandardBuiltinId::IteratorBufferedNext
+            }
+            (Self::Buffered, IteratorHelperOperation::Return) => {
+                StandardBuiltinId::IteratorBufferedReturn
+            }
             (Self::Zip, IteratorHelperOperation::Next) => StandardBuiltinId::IteratorZipNext,
             (Self::Zip, IteratorHelperOperation::Return) => StandardBuiltinId::IteratorZipReturn,
         }
@@ -115,11 +127,17 @@ impl HelperKind {
             Self::Drop => RuntimeErrorMessage::ITERATOR_DROP_HELPER_IS_ALREADY_RUNNING,
             Self::Concat => RuntimeErrorMessage::ITERATOR_CONCAT_HELPER_IS_ALREADY_RUNNING,
             Self::Zip => RuntimeErrorMessage::ITERATOR_ZIP_HELPER_IS_ALREADY_RUNNING,
+            Self::Buffered => RuntimeErrorMessage::ITERATOR_BUFFER_HELPER_IS_ALREADY_RUNNING,
         }
     }
     fn test(self, value: &ValueLocals, schema: &RuntimeSchema, f: &mut Function) {
         value.reference().load(f);
         let heap = match self {
+            Self::Buffered => {
+                schema
+                    .reference_type::<IteratorBufferedHelper>(GcNullability::NonNullable)
+                    .heap_type
+            }
             Self::Map => {
                 schema
                     .reference_type::<IteratorMapHelper>(GcNullability::NonNullable)
@@ -160,6 +178,11 @@ impl HelperKind {
     }
     fn cast(self, value: &ValueLocals, schema: &RuntimeSchema, f: &mut Function) -> HelperState {
         match self {
+            Self::Buffered => HelperState::Buffered(
+                schema
+                    .reserve_gc_local(f)
+                    .initialize(value.cast_reference::<IteratorBufferedHelper>(schema, f), f),
+            ),
             Self::Map => HelperState::Map(
                 schema
                     .reserve_gc_local(f)
@@ -207,6 +230,20 @@ impl HelperState {
         f: &mut Function,
     ) {
         match self {
+            Self::Buffered(state) => match flag {
+                HelperFlag::Done => schema
+                    .field(IteratorBufferedHelperSchema::DONE)
+                    .read(state, schema, f)
+                    .store(into, f),
+                HelperFlag::Executing => schema
+                    .field(IteratorBufferedHelperSchema::EXECUTING)
+                    .read(state, schema, f)
+                    .store(into, f),
+                HelperFlag::Started => schema
+                    .field(IteratorBufferedHelperSchema::STARTED)
+                    .read(state, schema, f)
+                    .store(into, f),
+            },
             Self::Map(state) => match flag {
                 HelperFlag::Done => schema
                     .field(IteratorMapHelperSchema::DONE)
@@ -309,6 +346,22 @@ impl HelperState {
     }
     fn write_flag(&self, flag: HelperFlag, value: bool, schema: &RuntimeSchema, f: &mut Function) {
         match self {
+            Self::Buffered(state) => {
+                match flag {
+                    HelperFlag::Done => schema.field(IteratorBufferedHelperSchema::DONE).write(
+                        state,
+                        GcOperand::boolean(value),
+                        schema,
+                        f,
+                    ),
+                    HelperFlag::Executing => schema
+                        .field(IteratorBufferedHelperSchema::EXECUTING)
+                        .write(state, GcOperand::boolean(value), schema, f),
+                    HelperFlag::Started => schema
+                        .field(IteratorBufferedHelperSchema::STARTED)
+                        .write(state, GcOperand::boolean(value), schema, f),
+                }
+            }
             Self::Map(state) => {
                 match flag {
                     HelperFlag::Done => schema.field(IteratorMapHelperSchema::DONE).write(
@@ -443,6 +496,10 @@ impl HelperState {
     }
     fn realm(&self, schema: &RuntimeSchema, f: &mut Function) -> GcLocal<RealmRecord> {
         let reference = match self {
+            Self::Buffered(state) => schema
+                .field(IteratorBufferedHelperSchema::REALM)
+                .read(state, schema, f)
+                .reference(),
             Self::Map(state) => schema
                 .field(IteratorMapHelperSchema::REALM)
                 .read(state, schema, f)
@@ -476,6 +533,7 @@ impl HelperState {
     }
     fn clear(self, f: &mut Function) {
         match self {
+            Self::Buffered(state) => state.clear(f),
             Self::Map(state) => state.clear(f),
             Self::Filter(state) => state.clear(f),
             Self::FlatMap(state) => state.clear(f),
@@ -507,6 +565,13 @@ impl FunctionBuilder<'_> {
                     && self
                         .runtime_bootstrap_plan
                         .should_initialize_standard_builtin(StandardBuiltinId::IteratorZipKeyed);
+            let needed = needed
+                || matches!(kind, HelperKind::Buffered)
+                    && self
+                        .runtime_bootstrap_plan
+                        .should_initialize_standard_builtin(
+                            StandardBuiltinId::IteratorPrototypeWindows,
+                        );
             if !needed {
                 continue;
             }

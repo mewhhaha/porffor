@@ -1191,16 +1191,13 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: None,
                 function_targets: FunctionTargetKnowledge::unknown(),
             }),
-            StandardBuiltinId::IteratorPrototypeMap => Some(ValueInfo {
-                kind: ValueKind::Object,
-                possible_kinds: KindSet::from_kind(ValueKind::Object),
-                heap_shape: Some(Self::iterator_map_helper_shape()),
-                function_targets: FunctionTargetKnowledge::none(),
-            }),
+            StandardBuiltinId::IteratorPrototypeMap => Some(Self::iterator_helper_info()),
             StandardBuiltinId::IteratorConcatNext
             | StandardBuiltinId::IteratorConcatReturn
             | StandardBuiltinId::IteratorZipNext
-            | StandardBuiltinId::IteratorZipReturn => Some(ValueInfo {
+            | StandardBuiltinId::IteratorZipReturn
+            | StandardBuiltinId::IteratorBufferedNext
+            | StandardBuiltinId::IteratorBufferedReturn => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),
                 heap_shape: Some(Box::new(Self::empty_object_shape())),
@@ -1232,6 +1229,8 @@ impl<'a> ScriptLowerer<'a> {
                 heap_shape: Some(Self::iterator_take_helper_shape()),
                 function_targets: FunctionTargetKnowledge::none(),
             }),
+            StandardBuiltinId::IteratorPrototypeChunks
+            | StandardBuiltinId::IteratorPrototypeWindows => Some(Self::iterator_helper_info()),
             StandardBuiltinId::IteratorPrototypeDrop => Some(ValueInfo {
                 kind: ValueKind::Object,
                 possible_kinds: KindSet::from_kind(ValueKind::Object),

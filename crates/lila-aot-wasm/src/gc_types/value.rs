@@ -469,6 +469,7 @@ enum_i32_codec!(AsyncGeneratorReturnStage; Unawaited => 0, Awaited => 1);
 enum_i32_codec!(GeneratorDelegatePending; Normal => 0, Return => 1, Throw => 2, MissingThrowClose => 3, ReturnValue => 4, YieldValue => 5);
 enum_i32_codec!(HostResourceKind; SharedBuffer => 0);
 enum_i32_codec!(BufferOwnerKind; ArrayBuffer => 0, SharedArrayBuffer => 1);
+enum_i32_codec!(IteratorBufferMode; Chunks => 0, WindowsOnlyFull => 1, WindowsAllowPartial => 2);
 enum_i32_codec!(IteratorZipMode; Shortest => 0, Longest => 1, Strict => 2);
 enum_i32_codec!(ArrayFromAsyncStage; InputValue => 0, MappedValue => 1, AsyncIteratorResult => 2,
     AsyncCloseResult => 4);

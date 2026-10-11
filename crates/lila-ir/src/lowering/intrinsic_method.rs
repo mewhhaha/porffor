@@ -144,6 +144,8 @@ impl IntrinsicPrototype {
             (Self::Iterator, "flatMap") => B::IteratorPrototypeFlatMap,
             (Self::Iterator, "take") => B::IteratorPrototypeTake,
             (Self::Iterator, "drop") => B::IteratorPrototypeDrop,
+            (Self::Iterator, "chunks") => B::IteratorPrototypeChunks,
+            (Self::Iterator, "windows") => B::IteratorPrototypeWindows,
             (Self::RegExp, "exec") => B::RegExpPrototypeExec,
             (Self::RegExp, "test") => B::RegExpPrototypeTest,
             _ => return None,

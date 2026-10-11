@@ -594,6 +594,10 @@ pub(crate) fn standard_builtin_constructor_realm_slot(
         | StandardBuiltinId::IteratorPrototypeTake
         | StandardBuiltinId::IteratorTakeNext
         | StandardBuiltinId::IteratorTakeReturn
+        | StandardBuiltinId::IteratorPrototypeChunks
+        | StandardBuiltinId::IteratorPrototypeWindows
+        | StandardBuiltinId::IteratorBufferedNext
+        | StandardBuiltinId::IteratorBufferedReturn
         | StandardBuiltinId::IteratorPrototypeDrop
         | StandardBuiltinId::IteratorDropNext
         | StandardBuiltinId::IteratorDropReturn

@@ -39,7 +39,8 @@ mod generator;
 mod iterator_constructor;
 mod iterator_helpers;
 use iterator_helpers::{
-    IteratorHelperOperation, IteratorTerminalKind, IteratorZipInput, LazyIteratorKind,
+    BufferedIteratorKind, IteratorHelperOperation, IteratorTerminalKind, IteratorZipInput,
+    LazyIteratorKind,
 };
 mod typed_array_create_same_type;
 mod typed_array_methods;
@@ -918,6 +919,18 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
+            StandardBuiltinId::IteratorPrototypeChunks => {
+                self.emit_buffered_iterator_create(BufferedIteratorKind::Chunks, function)?
+            }
+            StandardBuiltinId::IteratorPrototypeWindows => {
+                self.emit_buffered_iterator_create(BufferedIteratorKind::Windows, function)?
+            }
+            StandardBuiltinId::IteratorBufferedNext => {
+                self.emit_buffered_iterator_resume(IteratorHelperOperation::Next, function)?
+            }
+            StandardBuiltinId::IteratorBufferedReturn => {
+                self.emit_buffered_iterator_resume(IteratorHelperOperation::Return, function)?
+            }
             StandardBuiltinId::IteratorPrototypeDrop => {
                 self.emit_lazy_iterator_create(LazyIteratorKind::Drop, function)?;
             }
@@ -936,20 +949,7 @@ impl<'a> FunctionBuilder<'a> {
                 )?;
             }
             StandardBuiltinId::IteratorPrototypeConstructorGetter => {
-                let schema = self.runtime_schema();
-                let realm = schema
-                    .reserve_gc_local(function)
-                    .initialize(self.emit_current_function_realm(function), function);
-                let constructor = schema.reserve_value_local(function);
-                self.emit_load_non_array_realm_intrinsic(
-                    &realm,
-                    NonArrayRealmIntrinsicSlot::IteratorConstructor,
-                    &constructor,
-                    function,
-                );
-                self.completion().set_normal(&constructor, function);
-                constructor.clear(function);
-                realm.clear(function);
+                self.emit_iterator_constructor_getter_builtin(function)?;
             }
             StandardBuiltinId::IteratorPrototypeConstructorSetter => {
                 self.emit_iterator_prototype_weird_setter(

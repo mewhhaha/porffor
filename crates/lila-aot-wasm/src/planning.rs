@@ -3182,6 +3182,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IteratorPrototypeFilter
             | StandardBuiltinId::IteratorPrototypeFlatMap
             | StandardBuiltinId::IteratorPrototypeTake
+            | StandardBuiltinId::IteratorPrototypeChunks
+            | StandardBuiltinId::IteratorPrototypeWindows
             | StandardBuiltinId::IteratorPrototypeDrop
             | StandardBuiltinId::IteratorPrototypeConstructorGetter
             | StandardBuiltinId::IteratorPrototypeConstructorSetter
@@ -5569,6 +5571,12 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "take" {
         return StandardBuiltinId::IteratorPrototypeTake.function_id() == *target;
     }
+    if name == "chunks" {
+        return StandardBuiltinId::IteratorPrototypeChunks.function_id() == *target;
+    }
+    if name == "windows" {
+        return StandardBuiltinId::IteratorPrototypeWindows.function_id() == *target;
+    }
     if name == "drop" {
         return StandardBuiltinId::IteratorPrototypeDrop.function_id() == *target;
     }
@@ -7083,6 +7091,10 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IteratorPrototypeTake => 1,
         StandardBuiltinId::IteratorTakeNext => 0,
         StandardBuiltinId::IteratorTakeReturn => 0,
+        StandardBuiltinId::IteratorPrototypeChunks => 1,
+        StandardBuiltinId::IteratorPrototypeWindows => 1,
+        StandardBuiltinId::IteratorBufferedNext => 0,
+        StandardBuiltinId::IteratorBufferedReturn => 0,
         StandardBuiltinId::IteratorPrototypeDrop => 1,
         StandardBuiltinId::IteratorDropNext => 0,
         StandardBuiltinId::IteratorDropReturn => 0,

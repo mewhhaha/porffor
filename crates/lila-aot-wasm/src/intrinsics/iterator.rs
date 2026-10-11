@@ -39,6 +39,8 @@ impl FunctionBuilder<'_> {
             ("flatMap", StandardBuiltinId::IteratorPrototypeFlatMap),
             ("take", StandardBuiltinId::IteratorPrototypeTake),
             ("drop", StandardBuiltinId::IteratorPrototypeDrop),
+            ("chunks", StandardBuiltinId::IteratorPrototypeChunks),
+            ("windows", StandardBuiltinId::IteratorPrototypeWindows),
         ] {
             self.emit_install_intrinsic_method(
                 context.prototype,

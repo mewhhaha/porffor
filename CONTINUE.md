@@ -1,5 +1,15 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Iterator chunking proposal — 2026-10-11
+
+The chunks/windows batch passes 24 focused native controls with zero failures
+or ignores and the complete official proposal selection on both backends:
+156/156 AOT and 156/156 oracle, with original deadlines and exact execution-ID
+censuses. On-demand GC Lists preserve whole values and borrowed Realms. Joined
+types and all twelve repository guards pass. Full-suite acceptance and task
+closure remain open. See the
+[checkpoint](docs/rust-rewrite/iterator-chunking-20261011.md).
+
 Work directly on `main` and push to `origin/main`; no feature branches or
 force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).

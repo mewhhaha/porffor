@@ -6603,6 +6603,34 @@ standard_builtin_catalog! {
         installer: None,
         native: "set stack",
     }
+    IteratorPrototypeChunks {
+        function: FunctionOrdinal(903) => "$builtin.IteratorPrototypeChunks",
+        debug: "Iterator.prototype.chunks",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "chunks",
+    }
+    IteratorPrototypeWindows {
+        function: FunctionOrdinal(904) => "$builtin.IteratorPrototypeWindows",
+        debug: "Iterator.prototype.windows",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "windows",
+    }
+    IteratorBufferedNext {
+        function: FunctionOrdinal(905) => "$builtin.IteratorBufferedNext",
+        debug: "Iterator buffered helper next",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "next",
+    }
+    IteratorBufferedReturn {
+        function: FunctionOrdinal(906) => "$builtin.IteratorBufferedReturn",
+        debug: "Iterator buffered helper return",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "return",
+    }
 }
 
 // Native metadata supplies both the initial public name and its frozen source

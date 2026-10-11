@@ -1,5 +1,8 @@
 //! Boa's implementation of ECMAScript's `IteratorRecord` and iterator prototype objects.
 
+mod buffered;
+use buffered::BufferedIterator;
+
 use crate::{
     Context, JsArgs, JsData, JsResult, JsString, JsValue,
     builtins::{
@@ -214,6 +217,8 @@ impl IntrinsicObject for Iterator {
             .method(Self::filter, js_string!("filter"), 1)
             .method(Self::take, js_string!("take"), 1)
             .method(Self::drop, js_string!("drop"), 1)
+            .method(Self::chunks, js_string!("chunks"), 1)
+            .method(Self::windows, js_string!("windows"), 1)
             .method(Self::flat_map, js_string!("flatMap"), 1)
             .method(Self::reduce, js_string!("reduce"), 1)
             .method(Self::to_array, js_string!("toArray"), 0)
@@ -243,7 +248,7 @@ impl BuiltInObject for Iterator {
 
 impl BuiltInConstructor for Iterator {
     const CONSTRUCTOR_ARGUMENTS: usize = 0;
-    const PROTOTYPE_STORAGE_SLOTS: usize = 13;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 15;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 4;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
@@ -370,6 +375,7 @@ struct WrapForValidIterator {
 
 #[derive(Debug, Clone, Trace, Finalize)]
 enum IteratorHelperKind {
+    Buffered(BufferedIterator),
     Map {
         iterated: IteratorRecord,
         mapper: JsObject,
@@ -419,6 +425,7 @@ enum IteratorHelperKind {
 
 #[derive(Debug, Clone, Trace, Finalize, JsData)]
 struct IteratorHelperObject {
+    realm: Realm,
     executing: bool,
     completed: bool,
     started: bool,
@@ -609,6 +616,7 @@ fn create_iterator_helper(kind: IteratorHelperKind, context: &Context) -> JsObje
             .iterator_prototypes()
             .iterator_helper(),
         IteratorHelperObject {
+            realm: context.realm().clone(),
             executing: false,
             completed: false,
             started: false,
@@ -668,6 +676,7 @@ impl WrapForValidIteratorPrototype {
 impl IteratorHelperObject {
     fn advance(&mut self, context: &mut Context) -> JsResult<JsValue> {
         match &mut self.kind {
+            IteratorHelperKind::Buffered(buffered) => buffered.advance(context),
             IteratorHelperKind::Map {
                 iterated,
                 mapper,
@@ -841,6 +850,7 @@ impl IteratorHelperObject {
 
     fn close(&mut self, context: &mut Context) -> JsResult<JsValue> {
         match &mut self.kind {
+            IteratorHelperKind::Buffered(buffered) => buffered.close(context),
             IteratorHelperKind::Map { iterated, .. }
             | IteratorHelperKind::Filter { iterated, .. }
             | IteratorHelperKind::Take { iterated, .. }
@@ -1113,7 +1123,7 @@ impl IteratorHelperPrototype {
         let object = this.as_object().ok_or_else(|| {
             JsNativeError::typ().with_message("%IteratorHelperPrototype%.next called on non-object")
         })?;
-        let kind = {
+        let (kind, realm) = {
             let mut helper = object.downcast_mut::<IteratorHelperObject>().ok_or_else(|| {
                 JsNativeError::typ()
                     .with_message("%IteratorHelperPrototype%.next requires internal slot")
@@ -1130,21 +1140,23 @@ impl IteratorHelperPrototype {
 
             helper.executing = true;
             helper.started = true;
-            helper.kind.clone()
+            (helper.kind.clone(), helper.realm.clone())
         };
 
         let mut helper = IteratorHelperObject {
+            realm: realm.clone(),
             executing: true,
             completed: false,
             started: true,
             kind,
         };
-        let result = helper.advance(context);
-        let completed = if let Ok(result_value) = &result {
-            IteratorResult::from_value(result_value.clone())?.complete(context)?
-        } else {
-            false
-        };
+        let previous = context.enter_realm(realm.clone());
+        let result = helper.advance(context).and_then(|value| {
+            let done = IteratorResult::from_value(value.clone())?.complete(context)?;
+            Ok((value, done))
+        }).map_err(|error| error.inject_realm(realm));
+        context.enter_realm(previous);
+        let completed = result.as_ref().map_or(true, |(_, done)| *done);
 
         let mut stored = object.downcast_mut::<IteratorHelperObject>().ok_or_else(|| {
             JsNativeError::typ()
@@ -1154,14 +1166,14 @@ impl IteratorHelperPrototype {
         stored.completed = completed;
         stored.started = true;
         stored.kind = helper.kind.clone();
-        result
+        result.map(|(value, _)| value)
     }
 
     fn return_(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
         let object = this.as_object().ok_or_else(|| {
             JsNativeError::typ().with_message("%IteratorHelperPrototype%.return called on non-object")
         })?;
-        let (kind, started) = {
+        let (kind, started, realm) = {
             let mut helper = object.downcast_mut::<IteratorHelperObject>().ok_or_else(|| {
                 JsNativeError::typ()
                     .with_message("%IteratorHelperPrototype%.return requires internal slot")
@@ -1180,16 +1192,21 @@ impl IteratorHelperPrototype {
             if helper.started {
                 helper.executing = true;
             }
-            (helper.kind.clone(), helper.started)
+            (helper.kind.clone(), helper.started, helper.realm.clone())
         };
 
         let mut helper = IteratorHelperObject {
+            realm: realm.clone(),
             executing: started,
             completed: true,
             started,
             kind,
         };
-        let result = helper.close(context);
+        let execution_realm = if started { realm } else { context.realm().clone() };
+        let previous = context.enter_realm(execution_realm.clone());
+        let result = helper.close(context).map(|_| iterator_done_result(context))
+            .map_err(|error| error.inject_realm(execution_realm));
+        context.enter_realm(previous);
 
         let mut stored = object.downcast_mut::<IteratorHelperObject>().ok_or_else(|| {
             JsNativeError::typ()

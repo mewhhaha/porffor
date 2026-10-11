@@ -234,6 +234,14 @@ closed_scalar_storage!(
     BufferOwnerKind
 );
 
+/// Validated chunk/window modes remain closed in every persisted helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IteratorBufferMode {
+    Chunks,
+    WindowsOnlyFull,
+    WindowsAllowPartial,
+}
+
 /// Validated Iterator.zip/zipKeyed options become this closed state domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IteratorZipMode {
@@ -310,6 +318,7 @@ pub(crate) enum HostResourceKind {
 closed_scalar_storage!(
     HostResourceKind,
     IteratorZipMode,
+    IteratorBufferMode,
     ProxyCallCapability,
     ExecutableCodeKind,
     BuiltinClosureCaptureKind,
@@ -1703,6 +1712,22 @@ gc_layout_registry! {
         struct IteratorFromWrapper => IteratorFromWrapperSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
             RECORD: GcRef<IteratorRecord>, Immutable, NonNullable;
+        }
+        struct IteratorBuffer => IteratorBufferSchema {
+            HEAD: GcRef<ArgumentListNode>, Mutable, Nullable;
+            TAIL: GcRef<ArgumentListNode>, Mutable, Nullable;
+            COUNT: I64Value, Mutable, NonNullable;
+        }
+        struct IteratorBufferedHelper => IteratorBufferedHelperSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            RECORD: GcRef<IteratorRecord>, Immutable, NonNullable;
+            BUFFER: GcRef<IteratorBuffer>, Immutable, NonNullable;
+            MODE: IteratorBufferMode, Immutable, NonNullable;
+            SIZE: I64Value, Immutable, NonNullable;
+            DONE: bool, Mutable, NonNullable;
+            EXECUTING: bool, Mutable, NonNullable;
+            REALM: GcRef<RealmRecord>, Immutable, NonNullable;
+            STARTED: bool, Mutable, NonNullable;
         }
         struct IteratorMapHelper => IteratorMapHelperSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
