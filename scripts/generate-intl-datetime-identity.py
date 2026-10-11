@@ -148,6 +148,8 @@ def main():
             if path.read_text() != contents:
                 raise ValueError(f"stale date/time identity: {relative}")
         else:
+            if path.exists() and path.read_text() == contents:
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
     print(json.dumps({"identity": json.loads(receipt)["provider_data_sha256"], "source_files": len(json.loads(receipt)["files"])}))

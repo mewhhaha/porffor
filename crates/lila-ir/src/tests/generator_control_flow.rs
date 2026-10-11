@@ -10,19 +10,65 @@ fn nonyielding_try_in_conditional_owns_states_before_a_yielding_finalizer() {
         }",
     );
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-    let function = program.script.as_ref().unwrap().functions.iter()
-        .find(|function| function.name == "conditional").unwrap();
-    let StatementIr::TryFinally { try_block, generator_plan: Some(_), .. } =
-        &function.body.statements[0]
-    else { panic!("outer finalizer owns its continuation"); };
-    let branch = try_block.statements.iter().find_map(|statement| {
-        if let StatementIr::OrdinaryGeneratorIf(branch) = statement { Some(branch) } else { None }
-    }).expect("the conditional must own the nonyielding try's states");
-    assert!(branch.then_branch().block().statements.iter().any(|statement| {
-        matches!(statement, StatementIr::TryCatch { generator_plan: Some(_), .. })
-    }), "the selected branch retains the complete try/catch owner");
-    assert_eq!(function.generator_plan.as_ref().unwrap().suspension_points.len(), 1,
-        "the conditional adds control states without inventing yields");
+    let function = program
+        .script
+        .as_ref()
+        .unwrap()
+        .functions
+        .iter()
+        .find(|function| function.name == "conditional")
+        .unwrap();
+    let StatementIr::TryFinally {
+        try_block,
+        generator_plan: Some(_),
+        ..
+    } = &function.body.statements[0]
+    else {
+        panic!("outer finalizer owns its continuation");
+    };
+    let branch = try_block
+        .statements
+        .iter()
+        .find_map(|statement| {
+            let StatementIr::LexicalBlock(prefix) = statement else {
+                return None;
+            };
+            prefix.iter().find_map(|statement| {
+                if let StatementIr::OrdinaryGeneratorIf(branch) = statement {
+                    Some(branch)
+                } else {
+                    None
+                }
+            })
+        })
+        .expect("the conditional's lexical prefix must retain its complete state owner");
+    assert!(
+        branch
+            .then_branch()
+            .block()
+            .statements
+            .iter()
+            .any(|statement| {
+                matches!(
+                    statement,
+                    StatementIr::TryCatch {
+                        generator_plan: Some(_),
+                        ..
+                    }
+                )
+            }),
+        "the selected branch retains the complete try/catch owner"
+    );
+    assert_eq!(
+        function
+            .generator_plan
+            .as_ref()
+            .unwrap()
+            .suspension_points
+            .len(),
+        1,
+        "the conditional adds control states without inventing yields"
+    );
 }
 
 #[test]
@@ -282,45 +328,91 @@ fn generator_branch_lexical_declaration_has_a_structured_resume_plan() {
 fn nested_generator_return_operands_retain_values_across_the_source_yield() {
     let source = "function* nestedOperand() { return 1 + (yield 2); }";
     let program = lower_script(source);
-    assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
-    let function = program.script.as_ref().unwrap().functions.iter()
-        .find(|function| function.name == "nestedOperand").unwrap();
-    assert_eq!(function.generator_plan, Some(GeneratorPlanIr {
-        entry_state: 0,
-        state_count: 2,
-        suspension_points: vec![GeneratorSuspensionPointIr {
-            suspend_state: 0, resume_state: 1,
-        }],
-    }));
+    assert!(
+        program.is_wasm_supported(),
+        "{source}: {:?}",
+        program.diagnostics
+    );
+    let function = program
+        .script
+        .as_ref()
+        .unwrap()
+        .functions
+        .iter()
+        .find(|function| function.name == "nestedOperand")
+        .unwrap();
+    assert_eq!(
+        function.generator_plan,
+        Some(GeneratorPlanIr {
+            entry_state: 0,
+            state_count: 2,
+            suspension_points: vec![GeneratorSuspensionPointIr {
+                suspend_state: 0,
+                resume_state: 1,
+            }],
+        })
+    );
     let mut statements = Vec::new();
     staged_operand_statements(&function.body.statements, &mut statements);
-    let (yield_index, received) = statements.iter().enumerate().find_map(|(index, statement)| {
-        match statement {
+    let (yield_index, received) = statements
+        .iter()
+        .enumerate()
+        .find_map(|(index, statement)| match statement {
             StatementIr::GeneratorYield {
-                value: TypedExpr { expr: ExprIr::Number(value), .. },
+                value:
+                    TypedExpr {
+                        expr: ExprIr::Number(value),
+                        ..
+                    },
                 resume_mode: GeneratorResumeModeIr::AssignIdentifier(received),
                 ..
             } if *value == 2f64.to_bits() => Some((index, received)),
             _ => None,
-        }
-    }).expect("the source yield retains its resumed value");
-    let (return_index, lhs, rhs) = statements.iter().enumerate().find_map(|(index, statement)| {
-        let StatementIr::Return(TypedExpr { expr: ExprIr::CoerciveAdd { lhs, rhs }, .. }) = statement
-        else { return None; };
-        let (ExprIr::Identifier(lhs), ExprIr::Identifier(rhs)) = (&lhs.expr, &rhs.expr)
-        else { panic!("addition consumes the two retained source operands"); };
-        Some((index, lhs, rhs))
-    }).expect("source addition follows the yield");
-    let lhs_index = statements.iter().position(|statement| matches!(statement,
+        })
+        .expect("the source yield retains its resumed value");
+    let (return_index, lhs, rhs) = statements
+        .iter()
+        .enumerate()
+        .find_map(|(index, statement)| {
+            let StatementIr::Return(TypedExpr {
+                expr: ExprIr::CoerciveAdd { lhs, rhs },
+                ..
+            }) = statement
+            else {
+                return None;
+            };
+            let (ExprIr::Identifier(lhs), ExprIr::Identifier(rhs)) = (&lhs.expr, &rhs.expr) else {
+                panic!("addition consumes the two retained source operands");
+            };
+            Some((index, lhs, rhs))
+        })
+        .expect("source addition follows the yield");
+    let lhs_index = statements
+        .iter()
+        .position(|statement| {
+            matches!(statement,
         StatementIr::Lexical { name, init: TypedExpr { expr: ExprIr::Number(value), .. }, .. }
-            if name == lhs && *value == 1f64.to_bits())).unwrap();
-    let rhs_index = statements.iter().position(|statement| matches!(statement,
+            if name == lhs && *value == 1f64.to_bits())
+        })
+        .unwrap();
+    let rhs_index = statements
+        .iter()
+        .position(|statement| {
+            matches!(statement,
         StatementIr::Lexical { name, init: TypedExpr { expr: ExprIr::Identifier(value), .. }, .. }
-            if name == rhs && value == received)).unwrap();
+            if name == rhs && value == received)
+        })
+        .unwrap();
     assert!(lhs_index < yield_index && yield_index < rhs_index && rhs_index < return_index);
     for name in [lhs, rhs, received] {
-        assert_eq!(function.owned_env_bindings.iter()
-            .filter(|binding| &binding.name == name).count(), 1);
+        assert_eq!(
+            function
+                .owned_env_bindings
+                .iter()
+                .filter(|binding| &binding.name == name)
+                .count(),
+            1
+        );
     }
 }
 

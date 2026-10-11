@@ -1,4 +1,5 @@
 use super::*;
+use crate::gc_types::I64Local;
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
@@ -71,6 +72,26 @@ struct StringRef {
 pub(crate) struct PooledCodeUnits {
     byte_offset: u32,
     length: u32,
+}
+
+/// Exact raw module data in the compiler-owned static image. Only collection
+/// creates these bounds; emission cannot substitute a text encoding.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PooledModuleBytes {
+    address: u32,
+    length: u32,
+}
+impl PooledModuleBytes {
+    pub(crate) fn emit_byte(&self, offset: I64Local, function: &mut Function) {
+        offset.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        function.instruction(&Instruction::I32Load8U(FunctionBuilder::memarg8(
+            u64::from(self.address),
+        )));
+    }
+    pub(crate) const fn length(self) -> u32 {
+        self.length
+    }
 }
 
 impl PooledCodeUnits {
@@ -341,6 +362,7 @@ pub(crate) struct StringPool {
     intl_supported_values: Option<Result<CompiledSupportedValuesTables, SupportedValuesPoolError>>,
     intl_default_locale: Option<lila_intl::CanonicalLocaleId>,
     pub(crate) bytes: Vec<u8>,
+    module_bytes: BTreeMap<lila_ir::ModuleUnitId, PooledModuleBytes>,
     pooled_code_unit_bytes: Vec<u8>,
     refs: BTreeMap<String, StringRef>,
     source_runtime_error_messages: BTreeMap<String, i64>,
@@ -2939,6 +2961,21 @@ impl StringPool {
 
     fn collect_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
+            ExprIr::BytesModuleValue(plan) => {
+                self.uses_heap = true;
+                if !self.module_bytes.contains_key(&plan.module()) {
+                    let bounds = u32::try_from(self.bytes.len())
+                        .ok()
+                        .and_then(|offset| STATIC_DATA_OFFSET.checked_add(offset))
+                        .zip(u32::try_from(plan.bytes().len()).ok())
+                        .filter(|(address, length)| address.checked_add(*length).is_some());
+                    if let Some((address, length)) = bounds {
+                        self.bytes.extend_from_slice(plan.bytes());
+                        self.module_bytes
+                            .insert(plan.module(), PooledModuleBytes { address, length });
+                    }
+                }
+            }
             ExprIr::JsonModuleValue(plan) => {
                 self.uses_heap = true;
                 let mut pending = vec![plan.value()];
@@ -4282,6 +4319,15 @@ impl StringPool {
 
     pub(crate) fn program_static_len(&self) -> u32 {
         (self.bytes.len() - self.compiler_owned.static_bytes) as u32
+    }
+
+    pub(crate) fn module_bytes(
+        &self,
+        module: lila_ir::ModuleUnitId,
+    ) -> Result<PooledModuleBytes, EmitError> {
+        self.module_bytes.get(&module).copied().ok_or_else(|| {
+            EmitError::unsupported("Bytes Module payload exceeds the static image address domain")
+        })
     }
 
     /// Pooled strings the program adds, with bounds into its own passive

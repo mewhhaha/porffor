@@ -374,6 +374,7 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::JsonModuleValue(_)
+        | ExprIr::BytesModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)

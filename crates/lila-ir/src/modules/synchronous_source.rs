@@ -133,11 +133,21 @@ pub(super) fn linked_module_execution_source(
                 hoisted,
             },
         };
-        let json = unit
+        let synthetic = unit
             .record
             .json_source()
-            .map(|source| JsonModuleValueIr::new(module, source.clone()));
-        let body = if json.is_some() {
+            .map(|source| {
+                super::SyntheticModuleValueIr::Json(JsonModuleValueIr::new(module, source.clone()))
+            })
+            .or_else(|| {
+                unit.record.bytes_source().map(|bytes| {
+                    super::SyntheticModuleValueIr::Bytes(BytesModuleValueIr::new(
+                        module,
+                        bytes.to_vec(),
+                    ))
+                })
+            });
+        let body = if synthetic.is_some() {
             None
         } else {
             let original = super::callable_source::OriginalUnitSource::new(
@@ -185,8 +195,8 @@ pub(super) fn linked_module_execution_source(
             }
             text.push_str("];\n");
         }
-        if json.is_some() {
-            // Synthetic default bindings exist at instantiation; JSON data is
+        if synthetic.is_some() {
+            // Synthetic default bindings exist at instantiation; synthetic data is
             // evaluated later by the native operation, never by this scaffold.
             text.push_str("let ");
             text.push_str(default_name.as_str());
@@ -194,7 +204,7 @@ pub(super) fn linked_module_execution_source(
         }
         // Trusted metadata turns this boundary into a private suspension.
         text.push_str("0;\n");
-        if json.is_some() {
+        if synthetic.is_some() {
             text.push_str(default_name.as_str());
             text.push_str(" = 0;\n");
         } else {
@@ -210,12 +220,12 @@ pub(super) fn linked_module_execution_source(
             imports,
             namespaces,
             has_import_meta: unit.record.import_meta_uses() > 0,
-            default_export: if json.is_some() {
+            default_export: if synthetic.is_some() {
                 DefaultExportFormIr::Absent
             } else {
                 unit.record.default_export_form()
             },
-            json,
+            synthetic,
             evaluation: super::ModuleEvaluationIr::new(module),
             kind,
             requests,

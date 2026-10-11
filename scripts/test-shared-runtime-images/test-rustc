@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Avoid disposable libtest incremental scratch; retain normal library caches."""
+"""Bound verification scratch without changing compiler or query semantics."""
 import os
 import sys
 
 
-def compiler_command(arguments):
-    """Preserve compiler arguments except incremental storage for --test units."""
+def compiler_command(arguments, omit_normal_incremental=False):
+    """Keep queries literal; omit scratch only for selected compiler units."""
     if not arguments:
         raise ValueError("expected the real rustc executable")
-    if "--test" not in arguments[1:]:
+    if "--test" not in arguments[1:] and not (
+            omit_normal_incremental and "--crate-name" in arguments[1:]):
         return list(arguments)
     command = [arguments[0]]
     index = 1
@@ -27,5 +28,6 @@ def compiler_command(arguments):
 
 
 if __name__ == "__main__":
-    command = compiler_command(sys.argv[1:])
+    command = compiler_command(sys.argv[1:],
+                               os.environ.get("LILA_TEST_NO_INCREMENTAL") == "1")
     os.execv(command[0], command)

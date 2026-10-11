@@ -93,6 +93,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
         "Module(ParsedModule)",
         "ScriptEntry(ParsedScript)",
         "Json(lila_front::ParsedJson)",
+        "Bytes(Vec<u8>)",
         "JsonRejected{source_text:String,error:lila_front::JsonParseError",
         "Rejected{source:SourceUnit,error:lila_front::ParseError,}",
     ] {
@@ -113,6 +114,9 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
     for method in [
         "new",
         "json",
+        "bytes",
+        "record_key",
+        "payload_bytes",
         "from_parsed",
         "from_parsed_script",
         "key",
@@ -176,7 +180,7 @@ fn graph_sources_keep_the_exact_public_closure_record_and_single_constructor() {
     );
     assert_eq!(
         MODULES_SOURCE
-            .matches("pub use module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};")
+            .matches("pub use module_key::{ModuleKey, ModuleRecordKey, ANONYMOUS_MODULE_KEY};")
             .count(),
         1
     );
@@ -243,7 +247,7 @@ fn loaded_source_callers_use_the_facade_while_construction_has_one_private_owner
         code_without_whitespace(identity),
         "source:&ModuleSourceIr)->LoadedSourceIdentity<'_>{matchsource.goal(){\
          ParseGoal::Script=>LoadedSourceIdentity::Script(source.key()),\
-         ParseGoal::Module=>LoadedSourceIdentity::Module(source.key()),}}",
+         ParseGoal::Module=>LoadedSourceIdentity::Module(source.key(),source.kind()),}}",
         "closure identity must read the retained source goal through the facade"
     );
     assert!(!ADMISSION_CLOSURE_SOURCE.contains("ModuleSourceIr"));

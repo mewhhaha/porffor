@@ -32,6 +32,15 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             wrapper.compiler_command([])
 
+    def test_opt_in_normal_units_omit_only_scratch_and_queries_stay_literal(self):
+        arguments = ["/rustc", "--crate-name", "lila_ir", "file.rs", "--crate-type", "rlib",
+                     "-C", "incremental=/cache", "-Copt-level=0", "--cfg", "feature=\"modules\""]
+        self.assertEqual(wrapper.compiler_command(arguments, omit_normal_incremental=True),
+                         ["/rustc", "--crate-name", "lila_ir", "file.rs", "--crate-type", "rlib",
+                          "-Copt-level=0", "--cfg", "feature=\"modules\""])
+        for query in [["/rustc", "-vV"], ["/rustc", "--print", "cfg"]]:
+            self.assertEqual(wrapper.compiler_command(query, omit_normal_incremental=True), query)
+
     def test_executed_compiler_receives_literal_arguments_and_keeps_failure_exit(self):
         with tempfile.TemporaryDirectory() as directory:
             compiler = Path(directory) / "compiler"

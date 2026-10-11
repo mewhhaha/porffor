@@ -2317,6 +2317,7 @@ pub enum ExprIr {
     ModuleBindingRead(crate::modules::ModuleCellIr),
     /// Native data evaluation of a genuine JSON synthetic module record.
     JsonModuleValue(Box<crate::modules::JsonModuleValueIr>),
+    BytesModuleValue(Box<crate::modules::BytesModuleValueIr>),
     ModuleEvaluate(crate::modules::ModuleEvaluationIr),
     DeferredModuleEvaluate(crate::modules::DeferredModuleEvaluationIr),
     ModuleHasAsyncDependencies(crate::modules::ModuleEvaluationIr),
@@ -5860,6 +5861,7 @@ impl IrSummaryCounts {
             ExprIr::ModuleExecutionGraph(_)
             | ExprIr::ModuleBindingRead(_)
             | ExprIr::JsonModuleValue(_)
+            | ExprIr::BytesModuleValue(_)
             | ExprIr::ModuleEvaluate(_)
             | ExprIr::DeferredModuleEvaluate(_)
             | ExprIr::ModuleHasAsyncDependencies(_)

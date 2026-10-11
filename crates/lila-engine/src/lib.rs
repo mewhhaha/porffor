@@ -1438,11 +1438,12 @@ fn is_wasm_epoch_interrupt(err: &wasmtime::Error) -> bool {
 }
 
 pub use lila_runtime::{
-    AgentId, EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph,
-    EmbeddedModuleGraphError, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
-    EmbeddedModuleRequest, EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
-    GlobalEnvironmentId, HostClock, HostHooks, HostOutputEvent, HostRandom, HostRandomError,
-    IntrinsicDescriptor, IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
+    AgentId, EmbeddedModuleBytesInput, EmbeddedModuleContents, EmbeddedModuleEntryInput,
+    EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleGraphError, EmbeddedModuleInput,
+    EmbeddedModuleKind, EmbeddedModuleReferrer, EmbeddedModuleRequest,
+    EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput, GlobalEnvironmentId, HostClock,
+    HostHooks, HostOutputEvent, HostRandom, HostRandomError, IntrinsicDescriptor,
+    IntrinsicFunctionMetadata, IntrinsicId, IntrinsicKind, IntrinsicLink,
     IntrinsicPropertyAttributes, IntrinsicPropertyDescriptor, IntrinsicPropertyKey,
     IntrinsicPropertyValue, IntrinsicRole, InvalidObservedBigInt, ModuleLoadingPolicy,
     MonotonicClockDuration, MonotonicClockInstant, NullHostHooks, ObservedBigInt,

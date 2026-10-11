@@ -3712,6 +3712,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::JsonModuleValue(_)
+        | ExprIr::BytesModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)
@@ -4512,6 +4513,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::JsonModuleValue(_)
+        | ExprIr::BytesModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)
@@ -5762,6 +5764,7 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
         }
         ExprIr::ModuleBindingRead(_)
         | ExprIr::JsonModuleValue(_)
+        | ExprIr::BytesModuleValue(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)
         | ExprIr::ModuleDeferredImportEvaluate(_) => false,

@@ -54,7 +54,7 @@ fn stage(
     let referrer = if graph.unit(graph.entry).record.key == key {
         graph.entry
     } else {
-        graph.keys[&key]
+        graph.keys[&ModuleRecordKey::new(key.clone(), ModuleKindIr::SourceText)]
     };
     let matches = graph
         .dynamic_rejections
@@ -89,14 +89,22 @@ fn script_admission_preserves_independent_valid_closures_and_rejection_stages() 
     assert_eq!(graph.unit(graph.entry).source_text, source);
     assert!(!graph.unit(graph.entry).record.script_entry_strict);
     assert_eq!(graph.units.len(), 3);
-    assert!(graph.keys.contains_key(&ModuleKey::from_host("valid.js")));
-    assert!(graph.keys.contains_key(&ModuleKey::from_host("shared.js")));
-    assert!(!graph
-        .keys
-        .contains_key(&ModuleKey::from_host("malformed.js")));
-    assert!(!graph
-        .keys
-        .contains_key(&ModuleKey::from_host("missing-export.js")));
+    assert!(graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("valid.js"),
+        ModuleKindIr::SourceText
+    )));
+    assert!(graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("shared.js"),
+        ModuleKindIr::SourceText
+    )));
+    assert!(!graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("malformed.js"),
+        ModuleKindIr::SourceText
+    )));
+    assert!(!graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("missing-export.js"),
+        ModuleKindIr::SourceText
+    )));
     assert!(graph.link_errors.is_empty());
     assert_eq!(graph.dynamic_rejections.len(), 2);
     assert_eq!(
@@ -148,7 +156,10 @@ fn projected_nonzero_script_entry_keeps_its_parse_goal_and_strictness() {
     ));
     assert!(graph.entry_is_script);
     assert_eq!(graph.entry, 1);
-    assert!(!graph.keys.contains_key(&ModuleKey::from_host("entry.js")));
+    assert!(!graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("entry.js"),
+        ModuleKindIr::SourceText
+    )));
     assert_eq!(graph.unit(graph.entry).source_text, source);
     assert!(graph.unit(graph.entry).record.script_entry_strict);
     assert_eq!(
@@ -329,7 +340,8 @@ fn script_and_same_url_module_keep_independent_source_and_rejection_ownership() 
         0,
     ));
     assert_eq!(graph.units.len(), 2);
-    let module = graph.keys[&ModuleKey::from_host("entry.js")];
+    let module = graph.keys
+        [&ModuleRecordKey::new(ModuleKey::from_host("entry.js"), ModuleKindIr::SourceText)];
     assert_ne!(module, graph.entry, "a Script is outside the Module map");
     assert!(graph.unit(graph.entry).record.environment.is_empty());
     assert!(!graph.unit(module).record.environment.is_empty());
@@ -502,7 +514,10 @@ fn computed_catalog_site_admits_declared_empty_variants_and_their_static_depende
     assert_eq!(graph.dynamic_components().len(), 2);
     for name in ["one.js", "two.js", "dep.js"] {
         assert!(
-            graph.keys.contains_key(&ModuleKey::from_host(name)),
+            graph.keys.contains_key(&ModuleRecordKey::new(
+                ModuleKey::from_host(name),
+                ModuleKindIr::SourceText
+            )),
             "{name}"
         );
     }
@@ -513,7 +528,10 @@ fn computed_catalog_site_admits_declared_empty_variants_and_their_static_depende
         "unused-body.js",
     ] {
         assert!(
-            !graph.keys.contains_key(&ModuleKey::from_host(name)),
+            !graph.keys.contains_key(&ModuleRecordKey::new(
+                ModuleKey::from_host(name),
+                ModuleKindIr::SourceText
+            )),
             "{name}"
         );
     }
@@ -570,7 +588,10 @@ fn runtime_attributes_share_exact_component_and_rejection_projection() {
     assert!(dispatcher.contains("astral"));
     assert!(dispatcher.contains("bmp"));
     assert!(dispatcher.contains("$lila$module$SyntaxError"));
-    assert!(!graph.keys.contains_key(&ModuleKey::from_host("other.js")));
+    assert!(!graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("other.js"),
+        ModuleKindIr::SourceText
+    )));
 }
 
 #[test]
@@ -601,7 +622,10 @@ fn computed_defer_admits_dependencies_and_preserves_dependency_rejection_stage()
     );
     for name in ["valid.js", "dep.js"] {
         assert_eq!(
-            graph.evaluation_mode(graph.keys[&ModuleKey::from_host(name)]),
+            graph.evaluation_mode(
+                graph.keys
+                    [&ModuleRecordKey::new(ModuleKey::from_host(name), ModuleKindIr::SourceText)]
+            ),
             ModuleEvaluationModeIr::Deferred
         );
     }
@@ -772,7 +796,12 @@ fn loaded_closure_keeps_its_computed_discovery_and_unreferenced_body_behavior() 
     assert_eq!(loaded.units.len(), 2);
     assert!(loaded.dynamic_components().is_empty());
     assert_eq!(
-        loaded.evaluation_mode(loaded.keys[&ModuleKey::from_host("target.js")]),
+        loaded.evaluation_mode(
+            loaded.keys[&ModuleRecordKey::new(
+                ModuleKey::from_host("target.js"),
+                ModuleKindIr::SourceText
+            )]
+        ),
         ModuleEvaluationModeIr::Eager
     );
     let declared = complete(&sources);
@@ -801,7 +830,8 @@ fn complete_script_and_same_identity_module_keep_independent_referrer_tables() {
     let graph = complete(&sources);
     assert_eq!(graph.units.len(), 3);
     assert!(graph.dynamic_rejections.is_empty());
-    let module = graph.keys[&ModuleKey::from_host("entry.js")];
+    let module = graph.keys
+        [&ModuleRecordKey::new(ModuleKey::from_host("entry.js"), ModuleKindIr::SourceText)];
     assert_ne!(module, graph.entry);
     let child_request = ModuleRequestIr::plain("./child.js");
     let child = graph
@@ -966,7 +996,8 @@ fn computed_loaded_imports_reuse_source_discovered_keys_with_their_own_phases() 
     };
     let graph = link_loaded_graph(&sources, false)
         .unwrap_or_else(|rejection| panic!("loaded module rejected: {:?}", rejection.diagnostics));
-    let target = graph.keys[&ModuleKey::from_host("value.js")];
+    let target = graph.keys
+        [&ModuleRecordKey::new(ModuleKey::from_host("value.js"), ModuleKindIr::SourceText)];
     assert_eq!(graph.dynamic_components().len(), 2);
     for phase in [ImportPhaseIr::Evaluation, ImportPhaseIr::Defer] {
         let request = ModuleRequestIr::from_key(ModuleRequestKeyIr::plain("./value.js"), phase);

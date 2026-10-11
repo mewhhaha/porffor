@@ -27,9 +27,9 @@ pub struct ModuleGraphIr {
     pub entry: ModuleUnitId,
     /// Every module. Index is the [`ModuleUnitId`].
     pub units: Vec<ModuleUnitIr>,
-    /// Host-normalized Module key to unit index. A Script entry is outside
+    /// Host-normalized locator and module kind to unit index. A Script entry is outside
     /// the module map even when a Module has the same canonical URL.
-    pub keys: BTreeMap<ModuleKey, ModuleUnitId>,
+    pub keys: BTreeMap<ModuleRecordKey, ModuleUnitId>,
     /// `(referrer, phase-free request key) -> target`, as resolved by the host.
     pub resolutions: BTreeMap<(ModuleUnitId, ModuleRequestKeyIr), ModuleUnitId>,
     /// Post-order DFS. Members of one strongly-connected component are

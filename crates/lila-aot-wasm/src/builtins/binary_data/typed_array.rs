@@ -1015,7 +1015,7 @@ impl FunctionBuilder<'_> {
         Ok(completed)
     }
 
-    fn emit_binary_allocate_typed_array(
+    pub(in crate::builtins) fn emit_binary_allocate_typed_array(
         &mut self,
         kind: TypedArrayElementKind,
         prototype: &ValueLocals,

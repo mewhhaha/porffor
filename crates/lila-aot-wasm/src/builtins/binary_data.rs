@@ -8,6 +8,7 @@ mod array_buffer;
 mod backing;
 mod data_view;
 mod float16;
+mod module_value;
 mod typed_array;
 
 pub(in crate::builtins) use backing::BufferAccess;

@@ -10,8 +10,8 @@ use boa_engine::module::{Module, ModuleLoader, ModuleRequest, ModuleRequestPhase
 use boa_engine::realm::Realm;
 use boa_engine::{js_string, Context, JsNativeError, JsObject, JsResult, JsString};
 use lila_runtime::{
-    EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleKind, EmbeddedModuleReferrer,
-    EmbeddedModuleRequest,
+    EmbeddedModuleContents, EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleKind,
+    EmbeddedModuleReferrer, EmbeddedModuleRequest,
 };
 
 use crate::source_with_name;
@@ -27,7 +27,7 @@ pub(crate) struct EmbeddedGraphModuleLoader {
 #[derive(Debug)]
 struct EmbeddedRealmModules {
     realm: Realm,
-    modules: RefCell<BTreeMap<String, Module>>,
+    modules: RefCell<BTreeMap<(String, EmbeddedModuleKind), Module>>,
 }
 
 impl EmbeddedGraphModuleLoader {
@@ -98,34 +98,61 @@ impl EmbeddedGraphModuleLoader {
                 .into());
         }
         let owner = self.realm_modules(context.realm())?;
-        self.module(self.graph.entry().identity(), &owner, context)
+        self.module(
+            self.graph.entry().identity(),
+            EmbeddedModuleKind::SourceText,
+            &owner,
+            context,
+        )
     }
 
     fn module(
         &self,
         identity: &str,
+        kind: EmbeddedModuleKind,
         owner: &EmbeddedRealmModules,
         context: &mut Context,
     ) -> JsResult<Module> {
-        if let Some(module) = owner.modules.borrow().get(identity).cloned() {
+        if let Some(module) = owner
+            .modules
+            .borrow()
+            .get(&(identity.to_owned(), kind))
+            .cloned()
+        {
             return Ok(module);
         }
-        let source = self.graph.module(identity).ok_or_else(|| {
+        let source = self.graph.module(identity, kind).ok_or_else(|| {
             JsNativeError::typ().with_message("embedded module source is not declared")
         })?;
-        let module = match source.kind() {
-            EmbeddedModuleKind::SourceText => Module::parse(
-                source_with_name(source.source(), Some(source.identity())),
+        let module = match source.contents() {
+            EmbeddedModuleContents::SourceText(text) => Module::parse(
+                source_with_name(text, Some(source.identity())),
                 Some(owner.realm.clone()),
                 context,
             )?,
-            EmbeddedModuleKind::Json => {
+            EmbeddedModuleContents::Json(text) => {
                 // Boa's JSON factory takes its Realm from Context. A borrowed
                 // foreign import callback must still allocate its data and any
                 // parse error in the actual referrer module's Realm.
                 let previous = context.enter_realm(owner.realm.clone());
-                let result = Module::parse_json(js_string!(source.source()), context)
+                let result = Module::parse_json(js_string!(text.as_str()), context)
                     .map_err(|error| crate::oracle_exception::host_failure(error, context));
+                context.enter_realm(previous);
+                result?
+            }
+            EmbeddedModuleContents::Bytes(bytes) => {
+                let previous = context.enter_realm(owner.realm.clone());
+                let result: JsResult<Module> = (|| {
+                    let buffer = crate::JsArrayBuffer::from_byte_block_immutable(
+                        crate::AlignedVec::from_iter(0, bytes.iter().copied()),
+                        context,
+                    )?;
+                    let array = crate::JsUint8Array::from_array_buffer(buffer, context)?;
+                    Ok(Module::from_value_as_default(
+                        crate::JsValue::from(array),
+                        context,
+                    ))
+                })();
                 context.enter_realm(previous);
                 result?
             }
@@ -133,11 +160,11 @@ impl EmbeddedGraphModuleLoader {
         owner
             .modules
             .borrow_mut()
-            .insert(identity.to_owned(), module.clone());
+            .insert((identity.to_owned(), kind), module.clone());
         Ok(module)
     }
 
-    fn module_identity(&self, module: &Module) -> JsResult<String> {
+    fn module_identity(&self, module: &Module) -> JsResult<(String, EmbeddedModuleKind)> {
         let owner = self.realm_modules(module.realm())?;
         if let Some(identity) = owner
             .modules
@@ -158,19 +185,23 @@ impl EmbeddedGraphModuleLoader {
                 JsNativeError::typ()
                     .with_message("embedded Module has no exact UTF-8 source identity")
             })?;
-        if self.graph.module(identity).is_none() {
+        if self
+            .graph
+            .module(identity, EmbeddedModuleKind::SourceText)
+            .is_none()
+        {
             return Err(JsNativeError::typ()
                 .with_message("embedded Module source identity is not declared")
                 .into());
         }
-        Ok(identity.to_owned())
+        Ok((identity.to_owned(), EmbeddedModuleKind::SourceText))
     }
 
     fn referrer(&self, referrer: &Referrer) -> JsResult<EmbeddedModuleReferrer> {
         match referrer {
             Referrer::Module(module) => self
                 .module_identity(module)
-                .map(EmbeddedModuleReferrer::Module),
+                .map(|(identity, _)| EmbeddedModuleReferrer::Module(identity)),
             Referrer::Script(_) => match referrer.path() {
                 // The root factory supplies this exact virtual locator after
                 // source/goal/identity validation. It is not canonicalized or
@@ -244,7 +275,7 @@ impl ModuleLoader for EmbeddedGraphModuleLoader {
             // The exact host key is phase-free, but these declared source kinds
             // have no Module Source Object. Refuse both static and dynamic
             // Source requests after original attribute validation/source parsing.
-            let module = self.module(target.identity(), &owner, &mut context)?;
+            let module = self.module(target.identity(), target.kind(), &owner, &mut context)?;
             if phase == ModuleRequestPhase::Source {
                 return Err(JsNativeError::syntax()
                     .with_message("source phase imports are unavailable for embedded SourceText and JSON modules")
@@ -264,12 +295,12 @@ impl ModuleLoader for EmbeddedGraphModuleLoader {
         module: &Module,
         context: &mut Context,
     ) {
-        let Ok(identity) = self.module_identity(module) else {
+        let Ok((identity, kind)) = self.module_identity(module) else {
             // Boa's hook is non-fallible. An unowned native Module cannot be
             // produced by this session; expose no fabricated URL for it.
             return;
         };
-        let Some(source) = self.graph.module(&identity) else {
+        let Some(source) = self.graph.module(&identity, kind) else {
             return;
         };
         import_meta

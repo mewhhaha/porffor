@@ -503,6 +503,7 @@ enum ModuleRecordDataIr {
     SourceText(super::source::ModuleSyntax),
     Script,
     Json(lila_front::ParsedJson),
+    Bytes(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -587,6 +588,7 @@ impl ModuleRecordIr {
             ModuleRecordDataIr::SourceText(_) => ModuleKindIr::SourceText,
             ModuleRecordDataIr::Script => ModuleKindIr::Script,
             ModuleRecordDataIr::Json(_) => ModuleKindIr::Json,
+            ModuleRecordDataIr::Bytes(_) => ModuleKindIr::Bytes,
         }
     }
 
@@ -597,20 +599,54 @@ impl ModuleRecordIr {
         }
     }
 
+    pub(super) fn bytes_source(&self) -> Option<&[u8]> {
+        match &self.data {
+            ModuleRecordDataIr::Bytes(bytes) => Some(bytes),
+            ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::Json(_) => None,
+        }
+    }
+
     pub(super) fn source_syntax(&self) -> Option<&super::source::ModuleSyntax> {
         match &self.data {
             ModuleRecordDataIr::SourceText(syntax) => Some(syntax),
-            ModuleRecordDataIr::Script | ModuleRecordDataIr::Json(_) => None,
+            ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::Json(_)
+            | ModuleRecordDataIr::Bytes(_) => None,
         }
     }
 
     /// JSON has exactly one mutable default cell, initialized to undefined at linking.
     pub(super) fn json(source: &lila_front::ParsedJson, id: ModuleUnitId, key: ModuleKey) -> Self {
-        Self {
-            data: ModuleRecordDataIr::Json(source.clone()),
+        Self::synthetic(
+            ModuleRecordDataIr::Json(source.clone()),
+            source.source_text().len(),
             id,
             key,
-            source_len: source.source_text().len(),
+        )
+    }
+
+    pub(super) fn bytes(bytes: &[u8], id: ModuleUnitId, key: ModuleKey) -> Self {
+        Self::synthetic(
+            ModuleRecordDataIr::Bytes(bytes.to_vec()),
+            bytes.len(),
+            id,
+            key,
+        )
+    }
+
+    fn synthetic(
+        data: ModuleRecordDataIr,
+        source_len: usize,
+        id: ModuleUnitId,
+        key: ModuleKey,
+    ) -> Self {
+        Self {
+            data,
+            id,
+            key,
+            source_len,
             has_top_level_await: false,
             script_entry_strict: true,
             requested_modules: Vec::new(),

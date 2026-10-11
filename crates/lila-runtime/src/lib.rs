@@ -10,10 +10,11 @@ pub mod rooted_snapshot;
 pub use oracle_exception::{OracleExceptionPhase, OracleExceptionType};
 
 pub use embedded_module_graph::{
-    EmbeddedModuleEntry, EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph,
-    EmbeddedModuleGraphError, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
-    EmbeddedModuleRequest, EmbeddedModuleResolution, EmbeddedModuleResolutionInput,
-    EmbeddedModuleSource, EmbeddedModuleSourceInput,
+    EmbeddedModuleBytesInput, EmbeddedModuleContents, EmbeddedModuleEntry,
+    EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleGraphError,
+    EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer, EmbeddedModuleRequest,
+    EmbeddedModuleResolution, EmbeddedModuleResolutionInput, EmbeddedModuleSource,
+    EmbeddedModuleSourceInput,
 };
 
 static NEXT_REALM_ID: AtomicU64 = AtomicU64::new(1);

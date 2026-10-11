@@ -58,7 +58,10 @@ fn linked(files: &[(&str, &str)]) -> ModuleGraphIr {
 fn unit_of(graph: &ModuleGraphIr, key: &str) -> ModuleUnitId {
     *graph
         .keys
-        .get(&ModuleKey::from_host(key))
+        .get(&crate::ModuleRecordKey::new(
+            ModuleKey::from_host(key),
+            crate::ModuleKindIr::SourceText,
+        ))
         .expect("key is in the graph")
 }
 

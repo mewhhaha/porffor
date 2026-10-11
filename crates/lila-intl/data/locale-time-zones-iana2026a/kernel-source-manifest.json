@@ -17,7 +17,7 @@
     }
   ],
   "domain": "lila-locale-time-zones-native-v1",
-  "kernel_sha256": "911cb6664198a416b5a79c27c3d8288feb63dfb6d4c4621c2c7cf12f1e869162",
+  "kernel_sha256": "0a09cad4e780097a34cce53f9c8177353f8ee0bdc1dea3f5b0b120d3de6011ab",
   "production_sources": [
     {
       "bytes": 76004,
@@ -35,9 +35,9 @@
       "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 80664,
+      "bytes": 80880,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "65df705bbfd0f90575288da7b052f704079438b4c3e554ae2b9c05f179e8ef0e"
+      "sha256": "888919e9a2a4e80737acfd879bc4329ef44205530c65b4eff6ad26e586d6ec3c"
     },
     {
       "bytes": 33803,
@@ -172,7 +172,7 @@
     {
       "bytes": 565,
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "35fde0aab0da7af756cf6e17c76e1363b25a266be5ed5cc4e44b108c8c47b14b"
+      "sha256": "73820e286b0bc41979ea9cc418a11464f6b642dc4571c6ed29699b0b82385488"
     },
     {
       "bytes": 3624,
@@ -230,9 +230,9 @@
       "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
     },
     {
-      "bytes": 10370,
+      "bytes": 10454,
       "path": "scripts/generate-intl-locale-time-zones-profile.py",
-      "sha256": "23c2b4348c1abe2b832cd8b637053a5baffbd22c0eff645dbb8ec8e8eb0f2a4c"
+      "sha256": "b32827be816356d1126a33fe8222f32e988c90b3c89e932b974963803af273da"
     }
   ],
   "schema": 1

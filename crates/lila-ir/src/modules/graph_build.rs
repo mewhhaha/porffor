@@ -53,11 +53,11 @@ fn assemble_sources(
         // may share a canonical URL with an imported Module without sharing
         // either its parse goal or its environment.
         if !is_script {
-            if let Some(&existing) = graph.keys.get(source.key()) {
+            if let Some(&existing) = graph.keys.get(&source.record_key()) {
                 // Same module key, different bytes: the host contradicted
                 // itself, and there is no honest way to pick a winner.
-                if (graph.units[existing as usize].source_text != source.source_text()
-                    || graph.units[existing as usize].record.kind() != source.kind())
+                if (graph.units[existing as usize].payload_bytes() != source.payload_bytes()
+                    || graph.units[existing as usize].meta_url != source.meta_url())
                     && !inconsistent.iter().any(|key| key == source.key())
                 {
                     inconsistent.push(source.key().clone());
@@ -87,6 +87,11 @@ fn assemble_sources(
         let record = match &source.parse {
             ModuleParse::Json(parsed) => Ok(super::record::ModuleRecordIr::json(
                 parsed,
+                id,
+                source.key().clone(),
+            )),
+            ModuleParse::Bytes(bytes) => Ok(super::record::ModuleRecordIr::bytes(
+                bytes,
                 id,
                 source.key().clone(),
             )),
@@ -128,7 +133,7 @@ fn assemble_sources(
                 let resolved_indirect_exports =
                     vec![ResolvedBindingIr::NotFound; record.indirect_export_entries.len()];
                 if !is_script {
-                    graph.keys.insert(source.key().clone(), id);
+                    graph.keys.insert(source.record_key(), id);
                 }
                 graph.units.push(ModuleUnitIr {
                     record,

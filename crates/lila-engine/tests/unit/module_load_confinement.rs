@@ -42,7 +42,10 @@ fn direct_load_rejects_outside_keys_before_reading_source() {
     // Invalid UTF-8 would produce Io if the implementation tried to read it.
     fs::write(&outside, [0xff]).unwrap();
     assert!(matches!(
-        fixture.loader().load(&Fixture::key(&outside)),
+        fixture.loader().load(&lila_ir::ModuleRecordKey::new(
+            Fixture::key(&outside),
+            lila_ir::ModuleKindIr::SourceText
+        )),
         Err(ModuleLoadError::Denied { .. })
     ));
 }
@@ -69,7 +72,10 @@ fn a_similarly_prefixed_sibling_directory_is_not_inside_the_root() {
     let outside = sibling.join("entry.js");
     fs::write(&outside, "export const outside = true;").unwrap();
     assert!(matches!(
-        fixture.loader().load(&Fixture::key(&outside)),
+        fixture.loader().load(&lila_ir::ModuleRecordKey::new(
+            Fixture::key(&outside),
+            lila_ir::ModuleKindIr::SourceText
+        )),
         Err(ModuleLoadError::Denied { .. })
     ));
 }
@@ -80,7 +86,13 @@ fn direct_load_inside_the_root_preserves_source_and_key() {
     let inside = fixture.root().join("entry.js");
     fs::write(&inside, "export const inside = true;").unwrap();
     let key = Fixture::key(&inside);
-    let loaded = fixture.loader().load(&key).unwrap();
+    let loaded = fixture
+        .loader()
+        .load(&lila_ir::ModuleRecordKey::new(
+            key.clone(),
+            lila_ir::ModuleKindIr::SourceText,
+        ))
+        .unwrap();
     assert_eq!(loaded.key, key);
     assert_eq!(
         loaded.kind,
@@ -103,7 +115,43 @@ fn a_resolved_path_replaced_by_an_outside_symlink_is_denied_at_load() {
     fs::remove_file(&inside).unwrap();
     std::os::unix::fs::symlink(&outside, &inside).unwrap();
     assert!(matches!(
-        loader.load(&key),
+        loader.load(&lila_ir::ModuleRecordKey::new(
+            key.clone(),
+            lila_ir::ModuleKindIr::SourceText
+        )),
+        Err(ModuleLoadError::Denied { .. })
+    ));
+}
+
+#[test]
+fn bytes_loads_preserve_invalid_utf8_and_do_not_infer_kind_from_extension() {
+    let fixture = Fixture::new();
+    for name in ["payload.js", "payload.json", "payload.bin", "empty.dat"] {
+        let path = fixture.root().join(name);
+        let bytes: &[u8] = if name == "empty.dat" {
+            &[]
+        } else {
+            &[0, 255, 128, 65]
+        };
+        fs::write(&path, bytes).unwrap();
+        let key = Fixture::key(&path);
+        let loaded = fixture
+            .loader()
+            .load(&lila_ir::ModuleRecordKey::new(
+                key.clone(),
+                lila_ir::ModuleKindIr::Bytes,
+            ))
+            .unwrap();
+        assert_eq!(loaded.key, key);
+        assert_eq!(loaded.kind, LoadedModuleKind::Bytes(bytes.to_vec()));
+    }
+    let outside = fixture.0.join("outside.bin");
+    fs::write(&outside, [255]).unwrap();
+    assert!(matches!(
+        fixture.loader().load(&lila_ir::ModuleRecordKey::new(
+            Fixture::key(&outside),
+            lila_ir::ModuleKindIr::Bytes
+        )),
         Err(ModuleLoadError::Denied { .. })
     ));
 }

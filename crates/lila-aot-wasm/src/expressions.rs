@@ -730,6 +730,9 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_module_binding_read(target, output, function)?
             }
             ExprIr::JsonModuleValue(plan) => self.emit_json_module_value(plan, output, function)?,
+            ExprIr::BytesModuleValue(plan) => {
+                self.emit_bytes_module_value(plan, output, function)?
+            }
             ExprIr::ModuleEvaluate(plan) => self.emit_module_evaluate(plan, output, function)?,
             ExprIr::ModuleHasAsyncDependencies(plan) => {
                 self.emit_module_has_async_dependencies(plan, output, function)?

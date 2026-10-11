@@ -174,6 +174,8 @@ def main():
             if target.read_bytes() != content:
                 raise ValueError('generated output differs: ' + str(path))
         else:
+            if target.exists() and target.read_bytes() == content:
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
     print(json.dumps({'status': 'PASS SOURCE ONLY', 'outputs': 3, 'Cargo': 0, 'product_execution': 0}))

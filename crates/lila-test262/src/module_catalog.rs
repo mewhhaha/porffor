@@ -14,10 +14,14 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use lila_engine::{
-    EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleInput,
-    EmbeddedModuleReferrer, EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
+    EmbeddedModuleBytesInput, EmbeddedModuleContents, EmbeddedModuleEntryInput, EmbeddedModuleGoal,
+    EmbeddedModuleGraph, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
+    EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
 };
 use lila_ir::{ModuleKey, ModuleRequestKeyIr, ModuleSourceIr};
+
+#[cfg(test)]
+mod tests;
 
 /// The declared graph and the virtual identity the entry must compile under.
 pub(crate) struct CaseModuleCatalog {
@@ -146,13 +150,19 @@ enum Node {
 
 type RequestRow = (Node, String, Vec<(String, String)>);
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct ModuleTarget {
+    path: PathBuf,
+    kind: EmbeddedModuleKind,
+}
+
 struct Catalog {
     root: PathBuf,
     entry_path: PathBuf,
     goal: EmbeddedModuleGoal,
     /// Every readable file some row targets, by canonical path.
-    texts: BTreeMap<PathBuf, String>,
-    edges: BTreeMap<RequestRow, PathBuf>,
+    texts: BTreeMap<ModuleTarget, EmbeddedModuleContents>,
+    edges: BTreeMap<RequestRow, ModuleTarget>,
 }
 
 impl Catalog {
@@ -179,7 +189,7 @@ impl Catalog {
             }
             for (specifier, attributes) in &rows {
                 if let Some(target) = self.resolve(&base, specifier, attributes) {
-                    if let Some(parent) = target.parent() {
+                    if let Some(parent) = target.path.parent() {
                         referenced_dirs.insert(parent.to_path_buf());
                     }
                 }
@@ -219,10 +229,13 @@ impl Catalog {
         let Some(target) = self.resolve(base, &key.1, &key.2) else {
             return;
         };
-        let is_entry_module = self.goal == EmbeddedModuleGoal::Module && target == self.entry_path;
+        let is_entry_module = self.goal == EmbeddedModuleGoal::Module
+            && target.path == self.entry_path
+            && target.kind == EmbeddedModuleKind::SourceText;
         if !is_entry_module {
-            let text = self.texts[&target].clone();
-            pending.push_back((Node::Module(target.clone()), text));
+            if let EmbeddedModuleContents::SourceText(text) = &self.texts[&target] {
+                pending.push_back((Node::Module(target.path.clone()), text.clone()));
+            }
         }
         self.edges.insert(key, target);
     }
@@ -243,11 +256,6 @@ impl Catalog {
                     _ => None,
                 }
             }
-            Node::Module(path) if is_json(path) => Some(ModuleSourceIr::json(
-                ModuleKey::from_host("module"),
-                text.to_owned(),
-                String::new(),
-            )),
             Node::Module(_) => Some(ModuleSourceIr::new(
                 ModuleKey::from_host("module"),
                 text.to_owned(),
@@ -293,7 +301,8 @@ impl Catalog {
             } else {
                 Vec::new()
             };
-            rows.push((specifier, attributes));
+            rows.push((specifier.clone(), attributes));
+            rows.push((specifier, vec![("type".to_owned(), "bytes".to_owned())]));
         }
         rows.sort();
         rows
@@ -306,9 +315,10 @@ impl Catalog {
         base: &Path,
         specifier: &str,
         attributes: &[(String, String)],
-    ) -> Option<PathBuf> {
+    ) -> Option<ModuleTarget> {
         let json = matches!(attributes, [(key, value)] if key == "type" && value == "json");
-        if !attributes.is_empty() && !json {
+        let bytes = matches!(attributes, [(key, value)] if key == "type" && value == "bytes");
+        if !attributes.is_empty() && !json && !bytes {
             return None;
         }
         let candidate = if Path::new(specifier).is_absolute() {
@@ -320,14 +330,37 @@ impl Catalog {
         };
         let normalized = normalize(&candidate);
         let resolved = normalized.canonicalize().unwrap_or(normalized);
-        if !resolved.starts_with(&self.root) || !resolved.is_file() || is_json(&resolved) != json {
+        if !resolved.starts_with(&self.root)
+            || !resolved.is_file()
+            || (!bytes && is_json(&resolved) != json)
+        {
             return None;
         }
-        if !self.texts.contains_key(&resolved) {
-            let text = fs::read_to_string(&resolved).ok()?;
-            self.texts.insert(resolved.clone(), text);
+        let target = ModuleTarget {
+            path: resolved,
+            kind: if bytes {
+                EmbeddedModuleKind::Bytes
+            } else if json {
+                EmbeddedModuleKind::Json
+            } else {
+                EmbeddedModuleKind::SourceText
+            },
+        };
+        if !self.texts.contains_key(&target) {
+            let contents = match target.kind {
+                EmbeddedModuleKind::SourceText => {
+                    EmbeddedModuleContents::SourceText(fs::read_to_string(&target.path).ok()?)
+                }
+                EmbeddedModuleKind::Json => {
+                    EmbeddedModuleContents::Json(fs::read_to_string(&target.path).ok()?)
+                }
+                EmbeddedModuleKind::Bytes => {
+                    EmbeddedModuleContents::Bytes(fs::read(&target.path).ok()?)
+                }
+            };
+            self.texts.insert(target.clone(), contents);
         }
-        Some(resolved)
+        Some(target)
     }
 
     fn into_graph(self, entry_source: &str) -> Result<CaseModuleCatalog, String> {
@@ -338,22 +371,39 @@ impl Catalog {
             source: entry_source.to_owned(),
             meta_url: format!("lila://{entry_identity}"),
         };
-        let targets: BTreeSet<&PathBuf> = self.edges.values().collect();
+        let targets: BTreeSet<&ModuleTarget> = self.edges.values().collect();
         let mut modules = Vec::new();
-        for path in targets {
-            if self.goal == EmbeddedModuleGoal::Module && *path == self.entry_path {
+        for target in targets {
+            if self.goal == EmbeddedModuleGoal::Module
+                && target.path == self.entry_path
+                && target.kind == EmbeddedModuleKind::SourceText
+            {
                 continue;
             }
-            let identity = identity(path)?;
-            let input = EmbeddedModuleSourceInput {
-                meta_url: format!("lila://{identity}"),
-                identity,
-                source: self.texts[path].clone(),
-            };
-            modules.push(if is_json(path) {
-                EmbeddedModuleInput::Json(input)
-            } else {
-                EmbeddedModuleInput::SourceText(input)
+            let identity = identity(&target.path)?;
+            let meta_url = format!("lila://{identity}");
+            modules.push(match &self.texts[target] {
+                EmbeddedModuleContents::SourceText(text) => {
+                    EmbeddedModuleInput::SourceText(EmbeddedModuleSourceInput {
+                        identity,
+                        meta_url,
+                        source: text.clone(),
+                    })
+                }
+                EmbeddedModuleContents::Json(text) => {
+                    EmbeddedModuleInput::Json(EmbeddedModuleSourceInput {
+                        identity,
+                        meta_url,
+                        source: text.clone(),
+                    })
+                }
+                EmbeddedModuleContents::Bytes(bytes) => {
+                    EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
+                        identity,
+                        meta_url,
+                        bytes: bytes.clone(),
+                    })
+                }
             });
         }
         let mut resolutions = Vec::new();
@@ -367,7 +417,7 @@ impl Catalog {
                 referrer,
                 specifier: specifier.clone(),
                 attributes: attributes.clone(),
-                target: identity(target)?,
+                target: identity(&target.path)?,
             });
         }
         EmbeddedModuleGraph::try_new_typed(entry, modules, resolutions)

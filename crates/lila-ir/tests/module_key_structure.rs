@@ -29,7 +29,7 @@ fn module_key_has_one_private_owner_and_narrow_public_facade() {
     assert_eq!(MODULES_SOURCE.matches("\nmod module_key;\n").count(), 1);
     assert_eq!(
         MODULES_SOURCE
-            .matches("pub use module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};")
+            .matches("pub use module_key::{ModuleKey, ModuleRecordKey, ANONYMOUS_MODULE_KEY};")
             .count(),
         1
     );
@@ -63,7 +63,9 @@ fn module_key_keeps_opaque_storage_and_one_host_constructor() {
     assert_eq!(OWNER_SOURCE.matches("pub fn from_host(").count(), 1);
     assert_eq!(OWNER_SOURCE.matches("pub fn as_str(").count(), 1);
     assert!(!OWNER_SOURCE.contains("impl From<"));
-    assert!(!OWNER_SOURCE.contains("pub fn new("));
+    assert!(OWNER_SOURCE.contains("pub struct ModuleRecordKey"));
+    assert!(OWNER_SOURCE.contains("locator: ModuleKey"));
+    assert!(OWNER_SOURCE.contains("kind: super::ModuleKindIr"));
     assert!(!OWNER_SOURCE.contains("pub struct ModuleKey(pub String)"));
 
     let methods = OWNER_SOURCE
@@ -115,15 +117,18 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
     assert!(!LINK_SOURCE.contains("ANONYMOUS_MODULE_KEY"));
     assert!(!GRAPH_SOURCE.contains("ANONYMOUS_MODULE_KEY"));
     assert!(LOADED_SOURCES_SOURCE.contains("key: ModuleKey,"));
-    assert!(GRAPH_SOURCE.contains("pub keys: BTreeMap<ModuleKey, ModuleUnitId>,"));
+    assert!(GRAPH_SOURCE.contains("pub keys: BTreeMap<ModuleRecordKey, ModuleUnitId>,"));
     let record = code_without_whitespace(RECORD_SOURCE);
     assert!(record.contains("pubkey:ModuleKey,"));
     assert!(record.contains("key:ModuleKey,"));
     let loader = code_without_whitespace(ENGINE_LOADER_SOURCE);
-    assert!(loader.contains("pubuselila_ir::{ModuleKey,ModuleRequestKeyIr};"));
+    assert!(loader
+        .contains("pubuselila_ir::{ModuleKey,ModuleKindIr,ModuleRecordKey,ModuleRequestKeyIr};"));
     assert!(loader.contains("referrer:Option<&ModuleKey>,"));
     assert!(loader.contains("Result<ModuleKey,ModuleLoadError>"));
-    assert!(loader.contains("fnload(&self,key:&ModuleKey)->Result<LoadedModule,ModuleLoadError>"));
+    assert!(
+        loader.contains("fnload(&self,key:&ModuleRecordKey)->Result<LoadedModule,ModuleLoadError>")
+    );
     assert!(LINK_ERROR_SOURCE.contains(
         "InconsistentLoad {\n        /// The key loaded inconsistently.\n        key: ModuleKey,"
     ));

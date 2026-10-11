@@ -1,10 +1,80 @@
 use std::sync::Arc;
 
 use lila_runtime::{
-    EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleGraphError,
-    EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer, EmbeddedModuleRequest,
-    EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput, ModuleLoadingPolicy,
+    EmbeddedModuleBytesInput, EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph,
+    EmbeddedModuleGraphError, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
+    EmbeddedModuleRequest, EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
+    ModuleLoadingPolicy,
 };
+
+#[test]
+fn raw_payload_and_requested_kind_bind_identity_without_changing_the_url() {
+    let make = |payload: Vec<u8>| {
+        EmbeddedModuleGraph::try_new_typed(
+            entry(EmbeddedModuleGoal::Module),
+            vec![EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
+                identity: "case/entry.js".into(),
+                bytes: payload,
+                meta_url: "lila://metadata/entry.js".into(),
+            })],
+            vec![edge(
+                EmbeddedModuleReferrer::Module("case/entry.js".into()),
+                "./entry.js",
+                vec![("type".into(), "bytes".into())],
+                "case/entry.js",
+            )],
+        )
+    };
+    let graph = make(vec![0, 255, 128]).unwrap();
+    assert_eq!(graph.modules().len(), 2);
+    assert_eq!(graph.dependency_modules().count(), 1);
+    let raw = graph
+        .resolve(
+            &EmbeddedModuleReferrer::Module("case/entry.js".into()),
+            &request("./entry.js", vec![("type".into(), "bytes".into())]),
+        )
+        .unwrap();
+    assert_eq!(raw.kind(), EmbeddedModuleKind::Bytes);
+    assert_eq!(raw.payload_bytes(), &[0, 255, 128]);
+    assert_eq!(raw.source_text(), None);
+    assert_eq!(raw.meta_url(), graph.entry().meta_url());
+    assert_ne!(
+        graph.fingerprint(),
+        make(vec![0, 255, 129]).unwrap().fingerprint()
+    );
+    assert_ne!(graph.fingerprint(), make(Vec::new()).unwrap().fingerprint());
+}
+
+#[test]
+fn bytes_are_not_source_or_json_and_do_not_accept_extra_attributes() {
+    for attributes in [
+        Vec::new(),
+        vec![("type".into(), "json".into())],
+        vec![
+            ("type".into(), "bytes".into()),
+            ("extra".into(), "no".into()),
+        ],
+    ] {
+        let graph = EmbeddedModuleGraph::try_new_typed(
+            entry(EmbeddedModuleGoal::Script),
+            vec![EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
+                identity: "raw".into(),
+                bytes: vec![255],
+                meta_url: "lila://raw".into(),
+            })],
+            vec![edge(
+                EmbeddedModuleReferrer::Script("case/entry.js".into()),
+                "raw",
+                attributes,
+                "raw",
+            )],
+        );
+        assert!(matches!(
+            graph,
+            Err(EmbeddedModuleGraphError::RecordKindMismatch { .. })
+        ));
+    }
+}
 
 #[test]
 fn declared_json_kind_is_fingerprinted_and_requires_its_exact_type() {
@@ -26,7 +96,9 @@ fn declared_json_kind_is_fingerprinted_and_requires_its_exact_type() {
     };
     let json = make(true, vec![("type".into(), "json".into())]).unwrap();
     assert_eq!(
-        json.module("case/data.json").unwrap().kind(),
+        json.module("case/data.json", EmbeddedModuleKind::Json)
+            .unwrap()
+            .kind(),
         EmbeddedModuleKind::Json
     );
     let js = make(false, Vec::new()).unwrap();
@@ -154,14 +226,19 @@ fn script_module_and_unlocated_requests_have_exact_distinct_referrers() {
     .unwrap();
     let self_import = request("./entry.js", vec![]);
     assert_eq!(
-        graph.resolve(&script, &self_import).unwrap().source(),
+        graph
+            .resolve(&script, &self_import)
+            .unwrap()
+            .source_text()
+            .unwrap(),
         "export const role = 'module';"
     );
     assert_eq!(
         graph
             .resolve(&same_locator_module, &self_import)
             .unwrap()
-            .source(),
+            .source_text()
+            .unwrap(),
         "export const role = 'leaf';"
     );
     assert!(graph
@@ -239,7 +316,7 @@ fn canonical_attributes_and_row_reordering_preserve_the_complete_snapshot() {
             .dependency_modules()
             .map(|source| EmbeddedModuleSourceInput {
                 identity: source.identity().into(),
-                source: source.source().into(),
+                source: source.source_text().unwrap().into(),
                 meta_url: source.meta_url().into(),
             })
             .collect(),

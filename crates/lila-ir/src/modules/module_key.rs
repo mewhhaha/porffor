@@ -32,3 +32,23 @@ impl ModuleKey {
 /// Not a path, and never resolvable: a caller with no filename also has no
 /// directory to resolve relative specifiers against.
 pub const ANONYMOUS_MODULE_KEY: &str = "<entry>";
+
+/// One module record at a host locator. Different requested module types at
+/// the same locator own distinct records and canonical namespace/default cells.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ModuleRecordKey {
+    locator: ModuleKey,
+    kind: super::ModuleKindIr,
+}
+
+impl ModuleRecordKey {
+    pub fn new(locator: ModuleKey, kind: super::ModuleKindIr) -> Self {
+        Self { locator, kind }
+    }
+    pub fn locator(&self) -> &ModuleKey {
+        &self.locator
+    }
+    pub const fn kind(&self) -> super::ModuleKindIr {
+        self.kind
+    }
+}

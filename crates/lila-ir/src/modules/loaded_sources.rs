@@ -10,7 +10,7 @@ use super::record::{
 /// One already-loaded and exactly-once-parsed graph source, plus the key the
 /// host resolved it under.
 ///
-/// Every dependency is a Source Text or JSON Module record. The entry may instead be
+/// Every dependency is a Source Text, JSON, or Bytes Module record. The entry may instead be
 /// Script syntax for [`crate::lower_script_graph`]; the lowerer validates that
 /// placement before graph construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,10 +21,11 @@ pub struct ModuleSourceIr {
 }
 
 /// Record syntax is part of host identity and is never inferred from equal bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ModuleKindIr {
     SourceText,
     Json,
+    Bytes,
     Script,
 }
 
@@ -34,16 +35,26 @@ impl ModuleKindIr {
             Self::SourceText => 0,
             Self::Json => 1,
             Self::Script => 2,
+            Self::Bytes => 3,
         }
     }
+    pub fn requested(request: &ModuleRequestKeyIr) -> Self {
+        match request.attributes() {
+            [attribute] if attribute.key == "type" && attribute.value == "json" => Self::Json,
+            [attribute] if attribute.key == "type" && attribute.value == "bytes" => Self::Bytes,
+            _ => Self::SourceText,
+        }
+    }
+
     pub fn matches_request(self, request: &ModuleRequestKeyIr) -> bool {
         match self {
-            Self::SourceText => !request
-                .attributes()
-                .iter()
-                .any(|attribute| attribute.key == "type" && attribute.value == "json"),
+            Self::SourceText => !request.attributes().iter().any(|attribute| {
+                attribute.key == "type" && matches!(attribute.value.as_str(), "json" | "bytes")
+            }),
             Self::Json => matches!(request.attributes(), [attribute]
                 if attribute.key == "type" && attribute.value == "json"),
+            Self::Bytes => matches!(request.attributes(), [attribute]
+                if attribute.key == "type" && attribute.value == "bytes"),
             Self::Script => false,
         }
     }
@@ -53,6 +64,7 @@ impl ModuleKindIr {
 pub(super) enum ModuleParse {
     Module(ParsedModule),
     Json(lila_front::ParsedJson),
+    Bytes(Vec<u8>),
     JsonRejected {
         source_text: String,
         error: lila_front::JsonParseError,
@@ -77,6 +89,7 @@ impl ModuleSourceIr {
             }),
             ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
             | ModuleParse::JsonRejected { .. } => Vec::new(),
         }
     }
@@ -94,11 +107,37 @@ impl ModuleSourceIr {
         }
     }
 
+    /// Retains raw data without parsing or decoding it as JavaScript or UTF-8.
+    pub fn bytes(key: ModuleKey, bytes: Vec<u8>, meta_url: String) -> Self {
+        Self {
+            key,
+            meta_url,
+            parse: ModuleParse::Bytes(bytes),
+        }
+    }
+
+    pub fn record_key(&self) -> super::ModuleRecordKey {
+        super::ModuleRecordKey::new(self.key.clone(), self.kind())
+    }
+
+    /// Exact loaded payload used for host identity, including invalid UTF-8.
+    pub fn payload_bytes(&self) -> &[u8] {
+        match &self.parse {
+            ModuleParse::Bytes(bytes) => bytes,
+            ModuleParse::Module(_)
+            | ModuleParse::Json(_)
+            | ModuleParse::JsonRejected { .. }
+            | ModuleParse::ScriptEntry(_)
+            | ModuleParse::Rejected { .. } => self.source_text().as_bytes(),
+        }
+    }
+
     pub const fn kind(&self) -> ModuleKindIr {
         match &self.parse {
             ModuleParse::Module(_) | ModuleParse::Rejected { .. } => ModuleKindIr::SourceText,
             ModuleParse::Json(_) | ModuleParse::JsonRejected { .. } => ModuleKindIr::Json,
             ModuleParse::ScriptEntry(_) => ModuleKindIr::Script,
+            ModuleParse::Bytes(_) => ModuleKindIr::Bytes,
         }
     }
     /// Parses one loaded module and retains either the typed syntax product or
@@ -167,6 +206,7 @@ impl ModuleSourceIr {
         match &self.parse {
             ModuleParse::Module(source) => &source.source_text,
             ModuleParse::Json(source) => source.source_text(),
+            ModuleParse::Bytes(_) => "",
             ModuleParse::JsonRejected { source_text, .. } => source_text,
             ModuleParse::ScriptEntry(source) => &source.source_text,
             ModuleParse::Rejected { source, .. } => &source.source_text,
@@ -184,7 +224,7 @@ impl ModuleSourceIr {
     pub fn module_requests(&self) -> Option<Vec<ModuleRequestKeyIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
-            ModuleParse::Json(_) => Some(Vec::new()),
+            ModuleParse::Json(_) | ModuleParse::Bytes(_) => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(scan_script_module_requests(source)),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
@@ -198,7 +238,7 @@ impl ModuleSourceIr {
     pub fn module_loading_requests(&self) -> Option<Vec<ModuleRequestIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_loading_requests(source)),
-            ModuleParse::Json(_) => Some(Vec::new()),
+            ModuleParse::Json(_) | ModuleParse::Bytes(_) => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(loading_requests_with_dynamic_imports(
                 Vec::new(),
                 &script_dynamic_import_sites(source),
@@ -224,6 +264,7 @@ impl ModuleSourceIr {
             ModuleParse::Module(_)
             | ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
             | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -234,6 +275,7 @@ impl ModuleSourceIr {
             ModuleParse::Module(_)
             | ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
             | ModuleParse::JsonRejected { .. } => ParseGoal::Module,
             ModuleParse::ScriptEntry(_) => ParseGoal::Script,
         }

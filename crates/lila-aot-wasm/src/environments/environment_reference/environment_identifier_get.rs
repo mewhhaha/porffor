@@ -6,7 +6,9 @@ use crate::runtime_helpers::{
     EnvironmentIdentifierGetStrictArguments, EnvironmentIdentifierGetStrictParameters,
     EnvironmentIdentifierTypeofSloppyArguments, EnvironmentIdentifierTypeofSloppyParameters,
     EnvironmentIdentifierTypeofStrictArguments, EnvironmentIdentifierTypeofStrictParameters,
-    HelperParameters,
+    HelperParameters, WithEnvironmentGetBindingValueSloppyArguments,
+    WithEnvironmentGetBindingValueSloppyParameters, WithEnvironmentGetBindingValueStrictArguments,
+    WithEnvironmentGetBindingValueStrictParameters,
 };
 
 macro_rules! environment_identifier_get_helper {
@@ -57,11 +59,93 @@ macro_rules! environment_identifier_get_helper {
     };
 }
 
+macro_rules! selected_with_get_helper {
+    ($compile:ident, $id:ident, $parameters:ident, $strictness:ident) => {
+        pub(crate) fn $compile(&mut self) -> Result<Function, EmitError> {
+            let mut function = self.begin_helper_body(RuntimeHelperId::$id);
+            let parameters = self.helper_parameters::<$parameters>(&mut function);
+            self.push_scope();
+            self.completion().initialize(&mut function);
+            let pending = self.runtime_schema().reserve_completion(&mut function);
+            pending.initialize(&mut function);
+            self.emit_selected_with_get_binding_value_inline(
+                &parameters.name,
+                &parameters.target,
+                Strictness::$strictness,
+                &pending,
+                &mut function,
+            )?;
+            self.completion().copy_from(&pending, &mut function);
+            pending.clear(&mut function);
+            self.pop_scope();
+            self.clear_helper_execution_realm(&mut function);
+            parameters.release(&mut function);
+            self.completion().emit(&mut function);
+            function.instruction(&Instruction::End);
+            Ok(self.finish_function(function))
+        }
+    };
+}
+
 impl FunctionBuilder<'_> {
+    selected_with_get_helper!(
+        compile_with_environment_get_binding_value_sloppy_helper,
+        WithEnvironmentGetBindingValueSloppy,
+        WithEnvironmentGetBindingValueSloppyParameters,
+        Sloppy
+    );
+    selected_with_get_helper!(
+        compile_with_environment_get_binding_value_strict_helper,
+        WithEnvironmentGetBindingValueStrict,
+        WithEnvironmentGetBindingValueStrictParameters,
+        Strict
+    );
+
     /// Static With planning already selected this object. Keep its independently
     /// observable HasProperty recheck and Get inside the shared GetValue body;
     /// the source caller retains its lazy outer-environment fallback.
     pub(crate) fn emit_selected_with_get_binding_value(
+        &mut self,
+        name: &GcLocal<StringValue>,
+        object: &ValueLocals,
+        strictness: Strictness,
+        pending: &crate::gc_types::CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm(function);
+        let base = self.runtime_helper_base()?;
+        match strictness {
+            Strictness::Sloppy => schema
+                .call_helper(
+                    WithEnvironmentGetBindingValueSloppyArguments::new(
+                        object,
+                        name,
+                        &realm,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                )
+                .store(pending, function),
+            Strictness::Strict => schema
+                .call_helper(
+                    WithEnvironmentGetBindingValueStrictArguments::new(
+                        object,
+                        name,
+                        &realm,
+                        self.current_environment(),
+                    ),
+                    base,
+                    function,
+                )
+                .store(pending, function),
+        }
+        realm.clear(function);
+        Ok(())
+    }
+
+    fn emit_selected_with_get_binding_value_inline(
         &mut self,
         name: &GcLocal<StringValue>,
         object: &ValueLocals,

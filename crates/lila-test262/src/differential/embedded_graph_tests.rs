@@ -47,6 +47,63 @@ fn decode(json: &str) -> DifferentialCase {
     DifferentialCase::from_json(json).expect("authored complete graph is admissible")
 }
 
+#[test]
+fn binary_wire_roundtrips_raw_bytes_and_rejects_ambiguous_payloads() {
+    let wire = serde_json::json!({
+        "schema_version":4, "id":"binary-wire", "observation_contract":"primitive_completion_print_transcript", "timeout_ms":5000,
+        "module_graph": {
+            "entry":{"goal":"module", "identity":"entry.js", "source":"export default 1;", "meta_url":"lila://entry"},
+            "modules":[{"kind":"bytes", "identity":"entry.js", "bytes":[0,255,128], "meta_url":"lila://entry"}], "resolutions":[]
+        }
+    });
+    let case = decode(&wire.to_string());
+    let roundtrip = decode(&case.to_pretty_json().unwrap());
+    assert_eq!(case, roundtrip);
+    let graph = roundtrip.module_graph().unwrap();
+    assert_eq!(graph.dependency_modules().count(), 1);
+    assert_eq!(
+        graph
+            .module("entry.js", lila_engine::EmbeddedModuleKind::Bytes)
+            .unwrap()
+            .payload_bytes(),
+        &[0, 255, 128]
+    );
+    let mut changed = wire.clone();
+    changed["module_graph"]["modules"][0]["bytes"] = serde_json::json!([0, 255, 129]);
+    assert_ne!(
+        case_fingerprint(&case),
+        case_fingerprint(&decode(&changed.to_string()))
+    );
+    for patch in [
+        serde_json::json!({"source":"text"}),
+        serde_json::json!({"kind":"json"}),
+        serde_json::json!({"bytes":null}),
+        serde_json::json!({"bytes":[256]}),
+        serde_json::json!({"bytes":[-1]}),
+    ] {
+        let mut invalid = wire.clone();
+        invalid["module_graph"]["modules"][0]
+            .as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        assert!(
+            DifferentialCase::from_json(&invalid.to_string()).is_err(),
+            "{invalid}"
+        );
+    }
+    let mut empty = wire;
+    empty["module_graph"]["modules"][0]["bytes"] = serde_json::json!([]);
+    assert_eq!(
+        decode(&empty.to_string())
+            .module_graph()
+            .unwrap()
+            .module("entry.js", lila_engine::EmbeddedModuleKind::Bytes)
+            .unwrap()
+            .payload_bytes(),
+        b"" as &[u8]
+    );
+}
+
 fn mutated(json: &str, change: impl FnOnce(&mut serde_json::Value)) -> DifferentialCase {
     let mut wire: serde_json::Value = serde_json::from_str(json).unwrap();
     change(&mut wire);
@@ -96,7 +153,11 @@ fn v4_roundtrip_couples_the_exact_entry_and_shared_execution_policy() {
     let graph = script_case.module_graph().unwrap();
     assert_ne!(
         graph.entry().source(),
-        graph.module("entry.js").unwrap().source()
+        graph
+            .module("entry.js", lila_engine::EmbeddedModuleKind::SourceText)
+            .unwrap()
+            .source_text()
+            .unwrap()
     );
 }
 
@@ -122,7 +183,7 @@ fn typed_json_records_survive_worker_projection_and_bind_case_identity() {
         roundtrip
             .module_graph()
             .unwrap()
-            .module("data.json")
+            .module("data.json", lila_engine::EmbeddedModuleKind::Json)
             .unwrap()
             .kind(),
         lila_engine::EmbeddedModuleKind::Json

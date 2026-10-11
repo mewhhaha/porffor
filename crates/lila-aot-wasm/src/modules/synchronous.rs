@@ -7,9 +7,9 @@ use lila_ir::{
 };
 
 impl FunctionBuilder<'_> {
-    pub(crate) fn json_module_realm(
+    pub(crate) fn data_module_realm(
         &mut self,
-        plan: &lila_ir::JsonModuleValueIr,
+        module: u32,
         function: &mut Function,
     ) -> Result<GcLocal<RealmRecord>, EmitError> {
         if !self
@@ -19,11 +19,11 @@ impl FunctionBuilder<'_> {
             .is_some_and(|owner| owner.protocol() == FunctionProtocolIr::ModuleActivation)
         {
             return Err(EmitError::unsupported(
-                "JSON evaluation requires its private module activation",
+                "Synthetic data evaluation requires its private module activation",
             ));
         }
         let schema = self.runtime_schema();
-        let record = self.module_record_local(plan.module(), function)?;
+        let record = self.module_record_local(module, function)?;
         let realm = schema.reserve_gc_local(function).initialize(
             schema
                 .struct_type::<ModuleRecord>()

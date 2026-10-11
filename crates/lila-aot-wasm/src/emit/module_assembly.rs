@@ -1275,6 +1275,8 @@ pub(super) fn emit_script_module(
             EnvironmentIdentifierReadTypeofSloppy, compile_environment_identifier_read_typeof_sloppy_helper;
             EnvironmentIdentifierReadTypeofStrict, compile_environment_identifier_read_typeof_strict_helper;
             EnvironmentIdentifierResolve, compile_environment_identifier_resolve_helper;
+            WithEnvironmentGetBindingValueSloppy, compile_with_environment_get_binding_value_sloppy_helper;
+            WithEnvironmentGetBindingValueStrict, compile_with_environment_get_binding_value_strict_helper;
             EnvironmentIdentifierGetSloppy, compile_environment_identifier_get_sloppy_helper;
             EnvironmentIdentifierGetStrict, compile_environment_identifier_get_strict_helper;
             EnvironmentIdentifierTypeofSloppy, compile_environment_identifier_typeof_sloppy_helper;

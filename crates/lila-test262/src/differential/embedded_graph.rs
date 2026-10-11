@@ -2,7 +2,7 @@
 
 use super::*;
 use lila_engine::{
-    EmbeddedModuleEntryInput, EmbeddedModuleInput, EmbeddedModuleKind,
+    EmbeddedModuleBytesInput, EmbeddedModuleEntryInput, EmbeddedModuleInput, EmbeddedModuleKind,
     EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
 };
 
@@ -39,7 +39,10 @@ struct ModuleWire {
     #[serde(default, skip_serializing_if = "ModuleKindWire::is_source_text")]
     kind: ModuleKindWire,
     identity: String,
-    source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bytes: Option<Vec<u8>>,
     meta_url: String,
 }
 
@@ -49,6 +52,7 @@ enum ModuleKindWire {
     #[default]
     SourceText,
     Json,
+    Bytes,
 }
 impl ModuleKindWire {
     fn is_source_text(&self) -> bool {
@@ -112,18 +116,33 @@ impl ModuleGraphWire {
             },
             self.modules
                 .into_iter()
-                .map(|module| {
-                    let source = EmbeddedModuleSourceInput {
-                        identity: module.identity,
-                        source: module.source,
-                        meta_url: module.meta_url,
-                    };
-                    match module.kind {
-                        ModuleKindWire::SourceText => EmbeddedModuleInput::SourceText(source),
-                        ModuleKindWire::Json => EmbeddedModuleInput::Json(source),
+                .map(|module| match (module.kind, module.source, module.bytes) {
+                    (ModuleKindWire::SourceText, Some(source), None) => {
+                        Ok(EmbeddedModuleInput::SourceText(EmbeddedModuleSourceInput {
+                            identity: module.identity,
+                            source,
+                            meta_url: module.meta_url,
+                        }))
                     }
+                    (ModuleKindWire::Json, Some(source), None) => {
+                        Ok(EmbeddedModuleInput::Json(EmbeddedModuleSourceInput {
+                            identity: module.identity,
+                            source,
+                            meta_url: module.meta_url,
+                        }))
+                    }
+                    (ModuleKindWire::Bytes, None, Some(bytes)) => {
+                        Ok(EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
+                            identity: module.identity,
+                            bytes,
+                            meta_url: module.meta_url,
+                        }))
+                    }
+                    _ => Err(DifferentialError::InvalidCorpus(
+                        "embedded module kind must own exactly its text or binary payload".into(),
+                    )),
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, _>>()?,
             self.resolutions
                 .into_iter()
                 .map(|resolution| EmbeddedModuleResolutionInput {
@@ -167,9 +186,12 @@ impl Serialize for GraphProjection<'_> {
                     kind: match module.kind() {
                         EmbeddedModuleKind::SourceText => ModuleKindWire::SourceText,
                         EmbeddedModuleKind::Json => ModuleKindWire::Json,
+                        EmbeddedModuleKind::Bytes => ModuleKindWire::Bytes,
                     },
                     identity: module.identity().into(),
-                    source: module.source().into(),
+                    source: module.source_text().map(str::to_owned),
+                    bytes: (module.kind() == EmbeddedModuleKind::Bytes)
+                        .then(|| module.payload_bytes().to_vec()),
                     meta_url: module.meta_url().into(),
                 })
                 .collect(),

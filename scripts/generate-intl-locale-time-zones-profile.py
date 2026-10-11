@@ -200,6 +200,8 @@ def main():
             if path.read_bytes() != raw:
                 raise ValueError('generated Locale time-zone output differs: ' + str(name))
         else:
+            if path.exists() and path.read_bytes() == raw:
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
     print(json.dumps({'status': 'PASS SOURCE ONLY', 'outputs': len(results), 'actual_iana_rows': 418,

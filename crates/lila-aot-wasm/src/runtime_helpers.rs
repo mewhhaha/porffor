@@ -925,6 +925,8 @@ runtime_helper_domain! {
     ValueToPropertyKey / ValueToPropertyKeyArguments / ValueToPropertyKeyParameters / "value_to_property_key" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     ObjectHasProperty / ObjectHasPropertyArguments / ObjectHasPropertyParameters / "object_has_property" { target:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
     WithEnvironmentHasBinding / WithEnvironmentHasBindingArguments / WithEnvironmentHasBindingParameters / "with_environment_has_binding" { target:Value,name:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    WithEnvironmentGetBindingValueSloppy / WithEnvironmentGetBindingValueSloppyArguments / WithEnvironmentGetBindingValueSloppyParameters / "with_environment_get_binding_value_sloppy" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    WithEnvironmentGetBindingValueStrict / WithEnvironmentGetBindingValueStrictArguments / WithEnvironmentGetBindingValueStrictParameters / "with_environment_get_binding_value_strict" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     RegExpCompiler / RegExpCompilerArguments / RegExpCompilerParameters / "regexp_compiler" { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
     ModuleInitialize / ModuleInitializeArguments / ModuleInitializeParameters / "module_initialize" { realm:(Ref RealmRecord NonNullable) } => Completion;
     ModuleEvaluate / ModuleEvaluateArguments / ModuleEvaluateParameters / "module_evaluate" { module:(Ref ModuleRecord NonNullable) } => Completion;
@@ -1047,6 +1049,8 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => HelperOwner::Runtime,
             Self::ObjectHasProperty => HelperOwner::Runtime,
             Self::WithEnvironmentHasBinding => HelperOwner::Runtime,
+            Self::WithEnvironmentGetBindingValueSloppy => HelperOwner::Runtime,
+            Self::WithEnvironmentGetBindingValueStrict => HelperOwner::Runtime,
             Self::RegExpCompiler => HelperOwner::Runtime,
             Self::ModuleInitialize => HelperOwner::Program,
             Self::ModuleEvaluate => HelperOwner::Program,
@@ -1153,6 +1157,8 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => true,
             Self::ObjectHasProperty => true,
             Self::WithEnvironmentHasBinding => true,
+            Self::WithEnvironmentGetBindingValueSloppy => true,
+            Self::WithEnvironmentGetBindingValueStrict => true,
             Self::EnvironmentIdentifierReadSloppy => true,
             Self::EnvironmentIdentifierReadStrict => true,
             Self::EnvironmentIdentifierReadTypeofSloppy => true,

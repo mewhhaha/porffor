@@ -24,6 +24,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
         ExprIr::ModuleExecutionGraph(_)
         | ExprIr::ModuleBindingRead(_)
         | ExprIr::JsonModuleValue(_)
+        | ExprIr::BytesModuleValue(_)
         | ExprIr::ModuleEvaluate(_)
         | ExprIr::DeferredModuleEvaluate(_)
         | ExprIr::ModuleHasAsyncDependencies(_)

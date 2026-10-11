@@ -17,7 +17,7 @@ impl FunctionBuilder<'_> {
         output: &ValueLocals,
         f: &mut Function,
     ) -> Result<(), EmitError> {
-        let realm = self.json_module_realm(plan, f)?;
+        let realm = self.data_module_realm(plan.module(), f)?;
         let s = self.runtime_schema();
         let mut roots = vec![Some(s.reserve_value_local(f))];
         let mut work = vec![Work::Value(plan.value(), 0)];

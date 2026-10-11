@@ -59,8 +59,12 @@ fn dependency_pruning_reindexes_edges_and_preserves_real_source_identities() {
     assert_eq!(pruned.modules[1].edges[0].target, ModuleId(0));
     let case = pruned.case(plan()).unwrap();
     let graph = case.module_graph().unwrap();
-    assert!(graph.module("module-1.mjs").is_none());
-    assert!(graph.module("module-2.mjs").is_some());
+    assert!(graph
+        .module("module-1.mjs", lila_engine::EmbeddedModuleKind::SourceText)
+        .is_none());
+    assert!(graph
+        .module("module-2.mjs", lila_engine::EmbeddedModuleKind::SourceText)
+        .is_some());
     assert_eq!(graph.resolutions().len(), 2);
     assert!(case.source().contains("'./module-2.mjs'"));
     assert_eq!(
@@ -83,14 +87,17 @@ fn generation_and_every_reduction_publish_one_complete_exact_graph() {
     assert_eq!(case.source(), graph.entry().source());
     assert!(case.source().contains("import.meta.url"));
     for row in graph.resolutions() {
-        assert!(graph.module(row.target()).is_some());
+        assert!(graph
+            .module(row.target(), row.request().module_kind())
+            .is_some());
         let EmbeddedModuleReferrer::Module(referrer) = row.referrer() else {
             panic!("all requests have actual module origins");
         };
         assert!(graph
-            .module(referrer)
+            .module(referrer, lila_engine::EmbeddedModuleKind::SourceText)
             .unwrap()
-            .source()
+            .source_text()
+            .unwrap()
             .contains(row.request().specifier()));
     }
     for reduced in program.reductions() {
@@ -151,7 +158,9 @@ fn reduction_retains_v4_print_difference_with_complete_changed_graph_fingerprint
     assert_eq!(report, compare(&case, true));
     let graph = case.module_graph().unwrap();
     for row in graph.resolutions() {
-        assert!(graph.module(row.target()).is_some());
+        assert!(graph
+            .module(row.target(), row.request().module_kind())
+            .is_some());
     }
 }
 #[test]
@@ -252,7 +261,11 @@ fn async_reductions_preserve_declared_requests_attributes_and_topological_owners
             case
         );
         for row in case.module_graph().unwrap().resolutions() {
-            assert!(case.module_graph().unwrap().module(row.target()).is_some());
+            assert!(case
+                .module_graph()
+                .unwrap()
+                .module(row.target(), row.request().module_kind())
+                .is_some());
         }
     }
     let Outcome::ReducedMismatch {

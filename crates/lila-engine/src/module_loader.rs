@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource};
 use lila_ir::{ModuleGraphSources, ModuleSourceIr};
-pub use lila_ir::{ModuleKey, ModuleRequestKeyIr};
+pub use lila_ir::{ModuleKey, ModuleKindIr, ModuleRecordKey, ModuleRequestKeyIr};
 use lila_runtime::{
     EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleKind, EmbeddedModuleReferrer,
 };
@@ -142,10 +142,19 @@ fn load_embedded_module_graph(
         },
         EmbeddedSourceRole::UnlocatedScript => EmbeddedModuleReferrer::Unlocated,
     };
-    let mut indices = BTreeMap::from([(entry_referrer, 0u32)]);
+    let entry_kind = entry_module.kind();
+    let mut indices = BTreeMap::from([((entry_referrer, entry_kind), 0u32)]);
     let mut modules = vec![entry_module];
     for module in graph.modules() {
-        let referrer = EmbeddedModuleReferrer::Module(module.identity().to_owned());
+        let kind = match module.kind() {
+            EmbeddedModuleKind::SourceText => ModuleKindIr::SourceText,
+            EmbeddedModuleKind::Json => ModuleKindIr::Json,
+            EmbeddedModuleKind::Bytes => ModuleKindIr::Bytes,
+        };
+        let referrer = (
+            EmbeddedModuleReferrer::Module(module.identity().to_owned()),
+            kind,
+        );
         if indices.contains_key(&referrer) {
             continue;
         }
@@ -155,21 +164,22 @@ fn load_embedded_module_graph(
         })?;
         indices.insert(referrer, index);
         let key = ModuleKey::from_host(module.identity());
-        let source = module.source().to_owned();
         let url = module.meta_url().to_owned();
-        modules.push(match module.kind() {
-            EmbeddedModuleKind::SourceText => ModuleSourceIr::new(key, source, url),
-            EmbeddedModuleKind::Json => ModuleSourceIr::json(key, source, url),
+        modules.push(match module.contents() {
+            lila_runtime::EmbeddedModuleContents::SourceText(text) => {
+                ModuleSourceIr::new(key, text.clone(), url)
+            }
+            lila_runtime::EmbeddedModuleContents::Json(text) => {
+                ModuleSourceIr::json(key, text.clone(), url)
+            }
+            lila_runtime::EmbeddedModuleContents::Bytes(bytes) => {
+                ModuleSourceIr::bytes(key, bytes.clone(), url)
+            }
         });
     }
     let mut resolutions = Vec::new();
     let mut realm_requests = BTreeMap::new();
     for resolution in graph.resolutions() {
-        let target = *indices
-            .get(&EmbeddedModuleReferrer::Module(
-                resolution.target().to_owned(),
-            ))
-            .expect("validated embedded target must retain a canonical Module row");
         let request = ModuleRequestKeyIr::try_new(
             resolution.request().specifier(),
             resolution
@@ -182,9 +192,20 @@ fn load_embedded_module_graph(
                 }),
         )
         .expect("embedded request owner already validated unique attributes");
+        let target = indices[&(
+            EmbeddedModuleReferrer::Module(resolution.target().to_owned()),
+            ModuleKindIr::requested(&request),
+        )];
         if resolution.referrer() == &EmbeddedModuleReferrer::Realm {
             realm_requests.insert(request, lila_ir::RealmModuleResolutionIr::Loaded(target));
-        } else if let Some(&referrer) = indices.get(resolution.referrer()) {
+        } else if let Some(&referrer) = indices.get(&(
+            resolution.referrer().clone(),
+            match resolution.referrer() {
+                EmbeddedModuleReferrer::Script(_) => ModuleKindIr::Script,
+                EmbeddedModuleReferrer::Module(_) => ModuleKindIr::SourceText,
+                EmbeddedModuleReferrer::Realm | EmbeddedModuleReferrer::Unlocated => entry_kind,
+            },
+        )) {
             resolutions.push((referrer, request, target));
         }
     }
@@ -203,6 +224,8 @@ pub enum LoadedModuleKind {
     Source(String),
     /// JSON grammar and a genuine default-only synthetic module record.
     Json(String),
+    /// Raw Bytes Module data, without UTF-8 decoding.
+    Bytes(Vec<u8>),
 }
 
 /// One loaded module.
@@ -284,11 +307,11 @@ pub trait HostModuleLoader: Send + Sync {
         request: &ModuleRequestKeyIr,
     ) -> Result<ModuleKey, ModuleLoadError>;
 
-    /// `HostLoadImportedModule`: key to module contents.
+    /// `HostLoadImportedModule`: host locator and requested record kind to contents.
     ///
     /// # Errors
     /// Returns an error when the module cannot be read.
-    fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError>;
+    fn load(&self, key: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError>;
 
     /// Normalizes an entry locator the embedder supplied directly, without a
     /// referrer, and mints its stable [`ModuleKey`].
@@ -328,9 +351,9 @@ impl HostModuleLoader for RejectAllModuleLoader {
         })
     }
 
-    fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
+    fn load(&self, key: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError> {
         Err(ModuleLoadError::Denied {
-            specifier: key.as_str().to_string(),
+            specifier: key.locator().as_str().to_string(),
             reason: "module loading disabled by host policy".to_string(),
         })
     }
@@ -416,7 +439,9 @@ impl HostModuleLoader for FilesystemModuleLoader {
     ) -> Result<ModuleKey, ModuleLoadError> {
         let json = matches!(request.attributes(), [attribute]
             if attribute.key == "type" && attribute.value == "json");
-        if !request.attributes().is_empty() && !json {
+        let bytes = matches!(request.attributes(), [attribute]
+            if attribute.key == "type" && attribute.value == "bytes");
+        if !request.attributes().is_empty() && !json && !bytes {
             let attribute = &request.attributes()[0];
             return Err(ModuleLoadError::UnsupportedAttribute {
                 key: attribute.key.clone(),
@@ -446,10 +471,11 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 referrer: referrer.cloned(),
             });
         }
-        if resolved
-            .extension()
-            .is_some_and(|extension| extension == "json")
-            != json
+        if !bytes
+            && resolved
+                .extension()
+                .is_some_and(|extension| extension == "json")
+                != json
         {
             return Err(ModuleLoadError::UnsupportedAttribute {
                 key: "type".to_owned(),
@@ -471,27 +497,35 @@ impl HostModuleLoader for FilesystemModuleLoader {
         )
     }
 
-    fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
+    fn load(&self, key: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError> {
         // Entry loads and public trait calls need not pass through resolve.
         // Revalidate the path here as well: an earlier resolution is not an
         // enduring authority to read a path that now points outside the root.
-        let path = self.confine(key.as_str(), Path::new(key.as_str()))?;
-        let text = std::fs::read_to_string(&path).map_err(|error| ModuleLoadError::Io {
-            key: key.clone(),
+        let locator = key.locator();
+        let path = self.confine(locator.as_str(), Path::new(locator.as_str()))?;
+        let io = |error: std::io::Error| ModuleLoadError::Io {
+            key: locator.clone(),
             message: error.to_string(),
-        })?;
-        let kind = if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
-            LoadedModuleKind::Json(text)
-        } else {
-            LoadedModuleKind::Source(text)
+        };
+        let kind = match key.kind() {
+            ModuleKindIr::SourceText => {
+                LoadedModuleKind::Source(std::fs::read_to_string(&path).map_err(io)?)
+            }
+            ModuleKindIr::Json => {
+                LoadedModuleKind::Json(std::fs::read_to_string(&path).map_err(io)?)
+            }
+            ModuleKindIr::Bytes => LoadedModuleKind::Bytes(std::fs::read(&path).map_err(io)?),
+            ModuleKindIr::Script => {
+                return Err(ModuleLoadError::Denied {
+                    specifier: locator.as_str().into(),
+                    reason: "a Script is not an importable Module Record".into(),
+                })
+            }
         };
         Ok(LoadedModule {
             meta_url: format!("file://{}", path.display()),
             kind,
-            key: key.clone(),
+            key: locator.clone(),
         })
     }
 }
@@ -519,7 +553,10 @@ pub fn load_module_graph(
             format!("file://{}", entry_key.as_str()),
         ),
         ModuleEntry::HostLoad { .. } => {
-            let loaded = loader.load(&entry_key)?;
+            let loaded = loader.load(&ModuleRecordKey::new(
+                entry_key.clone(),
+                ModuleKindIr::SourceText,
+            ))?;
             loaded_module_source(loaded)
         }
     };
@@ -596,13 +633,13 @@ pub(crate) fn extend_module_graph_realm_requests(
     // Both the key a request resolved to and the key its load reported map
     // here, so a loader that normalizes further on load still reads each
     // module once.
-    let mut indices: BTreeMap<ModuleKey, u32> = BTreeMap::new();
+    let mut indices: BTreeMap<ModuleRecordKey, u32> = BTreeMap::new();
     // A Script Record is not a member of the host module map. Importing its
     // own URL loads that URL under Module grammar and owns a separate module
     // environment, even when the bytes happen to be identical.
     for (index, module) in modules.iter().enumerate() {
         if module.goal() == ParseGoal::Module {
-            indices.insert(module.key().clone(), index as u32);
+            indices.insert(module.record_key(), index as u32);
         }
     }
     let mut pending = VecDeque::from([entry]);
@@ -664,7 +701,9 @@ pub(crate) fn extend_module_graph_realm_requests(
                     continue;
                 }
             };
-            if let Some(index) = indices.get(&target_key).copied() {
+            let target_record =
+                ModuleRecordKey::new(target_key.clone(), ModuleKindIr::requested(&request));
+            if let Some(index) = indices.get(&target_record).copied() {
                 if !modules[index as usize].kind().matches_request(&request) {
                     if origin.is_none() {
                         realm_requests.insert(
@@ -688,7 +727,7 @@ pub(crate) fn extend_module_graph_realm_requests(
                 }
                 continue;
             }
-            let loaded = match loader.load(&target_key) {
+            let loaded = match loader.load(&target_record) {
                 Ok(loaded) => loaded,
                 Err(error) => {
                     if origin.is_none() {
@@ -700,10 +739,8 @@ pub(crate) fn extend_module_graph_realm_requests(
                     continue;
                 }
             };
-            let (loaded_kind, loaded_text) = match &loaded.kind {
-                LoadedModuleKind::Source(text) => (lila_ir::ModuleKindIr::SourceText, text),
-                LoadedModuleKind::Json(text) => (lila_ir::ModuleKindIr::Json, text),
-            };
+            let source = loaded_module_source(loaded);
+            let loaded_kind = source.kind();
             if !loaded_kind.matches_request(&request) {
                 if origin.is_none() {
                     realm_requests.insert(
@@ -720,18 +757,17 @@ pub(crate) fn extend_module_graph_realm_requests(
             // reached it. Text that disagrees is pushed through as a duplicate
             // key so `build_graph` reports one `InconsistentLoad` rather than
             // silently running one of the two.
-            let existing = indices.get(&loaded.key).copied();
+            let existing = indices.get(&source.record_key()).copied();
             let target = match existing {
                 Some(index)
-                    if modules[index as usize].source_text() == loaded_text
-                        && modules[index as usize].kind() == loaded_kind =>
+                    if modules[index as usize].payload_bytes() == source.payload_bytes()
+                        && modules[index as usize].meta_url() == source.meta_url() =>
                 {
                     index
                 }
                 _ => {
-                    let source = loaded_module_source(loaded);
                     let index = u32::try_from(modules.len()).unwrap_or(u32::MAX);
-                    let loaded_key = source.key().clone();
+                    let loaded_key = source.record_key();
                     modules.push(source);
                     if existing.is_none() {
                         indices.insert(loaded_key, index);
@@ -739,7 +775,7 @@ pub(crate) fn extend_module_graph_realm_requests(
                     index
                 }
             };
-            indices.insert(target_key, target);
+            indices.insert(target_record, target);
             match origin {
                 Some(referrer) => resolutions.push((referrer, request, target)),
                 None => {
@@ -762,6 +798,7 @@ fn loaded_module_source(loaded: LoadedModule) -> ModuleSourceIr {
     match loaded.kind {
         LoadedModuleKind::Source(text) => ModuleSourceIr::new(loaded.key, text, loaded.meta_url),
         LoadedModuleKind::Json(text) => ModuleSourceIr::json(loaded.key, text, loaded.meta_url),
+        LoadedModuleKind::Bytes(bytes) => ModuleSourceIr::bytes(loaded.key, bytes, loaded.meta_url),
     }
 }
 
@@ -863,7 +900,7 @@ mod tests {
         let graph = program.modules.expect("distinct Script and Module units");
         assert_eq!(graph.units.len(), 2);
         assert_eq!(graph.entry, 0);
-        assert_eq!(graph.keys[sources.modules[1].key()], 1);
+        assert_eq!(graph.keys[&sources.modules[1].record_key()], 1);
         let _ = fs::remove_dir_all(&base);
     }
 
@@ -892,7 +929,10 @@ mod tests {
             Err(ModuleLoadError::Denied { .. })
         ));
         assert!(matches!(
-            loader.load(&ModuleKey::from_host("ambient.js")),
+            loader.load(&ModuleRecordKey::new(
+                ModuleKey::from_host("ambient.js"),
+                ModuleKindIr::SourceText
+            )),
             Err(ModuleLoadError::Denied { .. })
         ));
     }
@@ -915,7 +955,8 @@ mod tests {
                 );
                 Ok(ModuleKey::from_host(request.specifier()))
             }
-            fn load(&self, key: &ModuleKey) -> Result<LoadedModule, ModuleLoadError> {
+            fn load(&self, record: &ModuleRecordKey) -> Result<LoadedModule, ModuleLoadError> {
+                let key = record.locator();
                 self.loads.fetch_add(1, Ordering::SeqCst);
                 let kind = match key.as_str() {
                     "value" => LoadedModuleKind::Source("export const value = 7;".into()),
@@ -1253,7 +1294,9 @@ mod tests {
         .expect("the test attribute key is unique");
         let referrer = ModuleKey::from_host(root.join("entry.js").to_string_lossy().into_owned());
         let key = loader.resolve(Some(&referrer), &request).unwrap();
-        let loaded = loader.load(&key).unwrap();
+        let loaded = loader
+            .load(&ModuleRecordKey::new(key.clone(), ModuleKindIr::Json))
+            .unwrap();
         assert_eq!(loaded.kind, LoadedModuleKind::Json("{\"a\": 1}".to_owned()));
         let source = loaded_module_source(loaded);
         assert_eq!(source.kind(), lila_ir::ModuleKindIr::Json);

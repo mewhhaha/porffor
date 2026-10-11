@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 80664,
+      "bytes": 80880,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "65df705bbfd0f90575288da7b052f704079438b4c3e554ae2b9c05f179e8ef0e"
+      "sha256": "888919e9a2a4e80737acfd879bc4329ef44205530c65b4eff6ad26e586d6ec3c"
     },
     {
       "bytes": 81131,
@@ -203,7 +203,7 @@
     {
       "bytes": 20776,
       "path": "crates/lila-intl/data/iana-tzdb-2026a/manifest.json",
-      "sha256": "5853791cf543b7db5b314d5ff51fbb4d8a467f3df6d75022ab3132d139ecab6f"
+      "sha256": "e6462dff7376b9be5ebfead3dc9822ef1526bcc707455edd7187368a2ada72a9"
     },
     {
       "bytes": 8141,
@@ -503,7 +503,7 @@
     {
       "bytes": 565,
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "35fde0aab0da7af756cf6e17c76e1363b25a266be5ed5cc4e44b108c8c47b14b"
+      "sha256": "73820e286b0bc41979ea9cc418a11464f6b642dc4571c6ed29699b0b82385488"
     },
     {
       "bytes": 1169,
@@ -556,9 +556,9 @@
       "sha256": "77f90d8e57b0d0c063cbd8ac30957ebc12b27811a3806b106f76428a9cb2ad33"
     },
     {
-      "bytes": 8630,
+      "bytes": 8718,
       "path": "scripts/generate-intl-datetime-identity.py",
-      "sha256": "cf9ce43521b5cf7390fed74a1632dee0b5159801a3dc6b4bf60f1e43dfb9fd06"
+      "sha256": "8a330206b82fd863cdfc4a19dc80e603048ef631ebb78a6e9fa22426fe350588"
     },
     {
       "bytes": 18118,
@@ -832,7 +832,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "086a17517431f5912e3bc1f3f3d9779b6135cb74011bdf3de035ae6d92090e02",
+  "provider_data_sha256": "2837f310e5b887458184c9d7194b3094bfc90a0a18dfc95ac56a664a7c36ef90",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

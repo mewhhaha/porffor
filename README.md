@@ -1,3 +1,22 @@
+## Bytes module and verification repair — 2026-10-11
+
+Raw Bytes module support is implemented through kind-aware host loading,
+linking, native immutable buffers and the optional oracle. Source Text, JSON
+and Bytes records can share a locator while retaining their own identities.
+The [data contract](docs/rust-rewrite/bytes-module-data.md) describes the raw
+payload and Realm invariants; native and pinned acceptance is pending.
+
+The latest unchanged-source inventory attempt completes 2,901 native controls:
+2,897 pass and four fail. It defers 83 targets for disk capacity and one library
+build exhausts disk before admission. A separate actual AOT library run passes
+332/333; the remaining With size guard improves to 10,548 bytes against its
+unchanged 9,000-byte limit. Three campaigns retain actual five-second AOT
+timeouts. The IR failure searches through the wrong statement wrapper; its
+state ownership assertions are retained with the correct lexical-prefix lookup.
+Shared selected With setup and idempotent Intl generators pass workspace types,
+470 tooling controls and 27 prechecks; native verification remains pending.
+Full-suite acceptance and task cleanup remain open.
+
 # Lila
 
 ## 2026-10-11 typed-root and static With repair

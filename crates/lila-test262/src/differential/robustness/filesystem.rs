@@ -198,7 +198,10 @@ impl FilesystemProbe {
     pub(super) fn load(&self, key: &ModuleKey) -> Result<(), ProbeError> {
         let loaded = self
             .loader
-            .load(key)
+            .load(&lila_ir::ModuleRecordKey::new(
+                key.clone(),
+                lila_ir::ModuleKindIr::SourceText,
+            ))
             .map_err(|error| ProbeError::Rejected(error.to_string()))?;
         self.require_owned_key(&loaded.key)?;
         if loaded.key != *key {

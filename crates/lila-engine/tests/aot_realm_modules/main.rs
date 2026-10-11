@@ -7,6 +7,7 @@ mod aot_abstract_module_source;
 mod aot_aggregate_error_constructor_realm;
 mod aot_array_by_copy_realm;
 mod aot_bigint_conversion_error_realm;
+mod aot_bytes_modules;
 mod aot_created_realm_array_iterator;
 mod aot_created_realm_async_disposable_stack;
 mod aot_created_realm_disposable_stack;

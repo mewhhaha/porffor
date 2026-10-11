@@ -14,13 +14,13 @@ mod tests;
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum LoadedSourceIdentity<'a> {
     Script(&'a ModuleKey),
-    Module(&'a ModuleKey),
+    Module(&'a ModuleKey, ModuleKindIr),
 }
 
 fn source_identity(source: &ModuleSourceIr) -> LoadedSourceIdentity<'_> {
     match source.goal() {
         ParseGoal::Script => LoadedSourceIdentity::Script(source.key()),
-        ParseGoal::Module => LoadedSourceIdentity::Module(source.key()),
+        ParseGoal::Module => LoadedSourceIdentity::Module(source.key(), source.kind()),
     }
 }
 
@@ -199,6 +199,11 @@ fn link_admitted_graph(
         let record = match &source.parse {
             ModuleParse::Json(parsed) => Ok(super::record::ModuleRecordIr::json(
                 parsed,
+                id,
+                source.key().clone(),
+            )),
+            ModuleParse::Bytes(bytes) => Ok(super::record::ModuleRecordIr::bytes(
+                bytes,
                 id,
                 source.key().clone(),
             )),
@@ -410,7 +415,9 @@ fn link_admitted_graph(
     for (referrer, request, stage, message) in rejected_requests {
         let referrer = match source_identity(&sources.modules[referrer as usize]) {
             LoadedSourceIdentity::Script(_) => graph.entry,
-            LoadedSourceIdentity::Module(key) => graph.keys[key],
+            LoadedSourceIdentity::Module(key, kind) => {
+                graph.keys[&ModuleRecordKey::new(key.clone(), kind)]
+            }
         };
         if !graph
             .dynamic_rejections
@@ -450,8 +457,11 @@ fn host_identity_is_consistent(sources: &ModuleGraphSources) -> bool {
             continue;
         }
         if loaded
-            .insert(source.key(), (source.kind(), source.source_text()))
-            .is_some_and(|previous| previous != (source.kind(), source.source_text()))
+            .insert(
+                (source.key(), source.kind()),
+                (source.payload_bytes(), source.meta_url()),
+            )
+            .is_some_and(|previous| previous != (source.payload_bytes(), source.meta_url()))
         {
             return false;
         }

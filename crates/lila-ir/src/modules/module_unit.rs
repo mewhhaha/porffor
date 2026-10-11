@@ -38,3 +38,11 @@ pub struct ModuleUnitIr {
     /// cell addressable without resolving a second time.
     pub resolved_indirect_exports: Vec<ResolvedBindingIr>,
 }
+
+impl ModuleUnitIr {
+    pub(super) fn payload_bytes(&self) -> &[u8] {
+        self.record
+            .bytes_source()
+            .unwrap_or_else(|| self.source_text.as_bytes())
+    }
+}

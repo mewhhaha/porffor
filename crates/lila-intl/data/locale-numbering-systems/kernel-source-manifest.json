@@ -24,7 +24,7 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "lila-locale-numbering-systems-native-v1",
-  "kernel_sha256": "bd8083a222e81c45660ffd35a81e93ef755bdcd873faf6e1515ae153dcf6e498",
+  "kernel_sha256": "b42e03af53a98bebc2948e0e143b7543ae8c5ed1af32189d50dbe96cc3d8ee45",
   "number_locales": 1082,
   "production_sources": [
     {
@@ -43,9 +43,9 @@
       "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 80664,
+      "bytes": 80880,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "65df705bbfd0f90575288da7b052f704079438b4c3e554ae2b9c05f179e8ef0e"
+      "sha256": "888919e9a2a4e80737acfd879bc4329ef44205530c65b4eff6ad26e586d6ec3c"
     },
     {
       "bytes": 33803,
@@ -303,9 +303,9 @@
       "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
     },
     {
-      "bytes": 8820,
+      "bytes": 8916,
       "path": "scripts/generate-intl-locale-numbering-systems-identity.py",
-      "sha256": "7c75875eecfcbada246bce0869acf38bca5e785e6c157253f7927c3147df1308"
+      "sha256": "7242856a86c02fe6c892f8555b4c1d99ad673fe38fa56050ffb4274669542a5c"
     },
     {
       "bytes": 11411,

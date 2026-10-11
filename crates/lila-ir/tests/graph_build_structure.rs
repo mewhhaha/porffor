@@ -63,12 +63,14 @@ fn graph_build_keeps_parse_once_unit_minting_and_the_closed_parse_dispatch() {
 fn graph_build_keeps_module_identity_separate_from_script_and_rejects_host_contradictions() {
     let owner = OWNER_SOURCE.split_whitespace().collect::<String>();
     assert!(owner.contains("ifis_script&&source_index!=sources.entryasusize{"));
-    assert!(owner.contains("if!is_script{ifletSome(&existing)=graph.keys.get(source.key()){"));
+    assert!(
+        owner.contains("if!is_script{ifletSome(&existing)=graph.keys.get(&source.record_key()){")
+    );
     assert!(owner.contains(
-        "if!is_script{graph.keys.insert(source.key().clone(),id);}graph.units.push(ModuleUnitIr{"
+        "if!is_script{graph.keys.insert(source.record_key(),id);}graph.units.push(ModuleUnitIr{"
     ));
     assert!(owner.contains(".get(*targetasusize).is_some_and(|source|matches!(&source.parse,ModuleParse::ScriptEntry(_)))"));
-    assert!(OWNER_SOURCE.contains("if let Some(&existing) = graph.keys.get(source.key())"));
+    assert!(OWNER_SOURCE.contains("if let Some(&existing) = graph.keys.get(&source.record_key())"));
     assert!(OWNER_SOURCE.contains("ModuleLinkErrorIr::InconsistentLoad { key }"));
     assert!(OWNER_SOURCE.contains("graph.resolutions.remove(&identity);"));
     assert!(OWNER_SOURCE.contains("inconsistent_resolutions.insert(identity);"));

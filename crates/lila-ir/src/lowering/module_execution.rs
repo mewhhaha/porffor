@@ -101,8 +101,15 @@ impl ScriptLowerer<'_> {
                 ExprIr::FunctionValue(builtin.function_id()),
             ));
         }
-        let operation = if let Some(json) = operations.json_values.get(&pointer) {
-            ExprIr::JsonModuleValue(Box::new(json.clone()))
+        let operation = if let Some(value) = operations.synthetic_values.get(&pointer) {
+            match value {
+                crate::modules::SyntheticModuleValueIr::Json(json) => {
+                    ExprIr::JsonModuleValue(Box::new(json.clone()))
+                }
+                crate::modules::SyntheticModuleValueIr::Bytes(bytes) => {
+                    ExprIr::BytesModuleValue(Box::new(bytes.clone()))
+                }
+            }
         } else if let Some(cell) = operations.reads.get(&pointer) {
             ExprIr::ModuleBindingRead(cell.clone())
         } else if let Some(evaluation) = operations.evaluations.get(&pointer) {
@@ -125,9 +132,9 @@ impl ScriptLowerer<'_> {
         };
         self.invalidate_unknown_user_code_effects();
         let info = match &operation {
-            ExprIr::ModuleBindingRead(_) | ExprIr::JsonModuleValue(_) => {
-                unknown_runtime_value_info()
-            }
+            ExprIr::ModuleBindingRead(_)
+            | ExprIr::JsonModuleValue(_)
+            | ExprIr::BytesModuleValue(_) => unknown_runtime_value_info(),
             ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_) => {
                 ValueInfo::new(ValueKind::Object)
             }

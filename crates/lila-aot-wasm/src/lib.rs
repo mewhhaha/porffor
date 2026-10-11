@@ -3439,7 +3439,7 @@ object[key];
             let runtime_names = function_names_in_bytes(runtime.bytes());
             let indices = [
                 "helper::with_environment_has_binding",
-                "helper::environment_identifier_get_sloppy",
+                "helper::with_environment_get_binding_value_sloppy",
             ]
             .map(|name| {
                 *runtime_names

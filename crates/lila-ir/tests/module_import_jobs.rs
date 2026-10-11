@@ -2,6 +2,7 @@ use lila_ir::{
     lower_module_graph, EarlyErrorCode, IrDiagnosticPhase, ModuleGraphSources, ModuleKey,
     ModuleSourceIr, NativeErrorKind,
 };
+use lila_ir::{ModuleKindIr, ModuleRecordKey};
 
 fn sources(files: &[(&str, &str)]) -> ModuleGraphSources {
     let modules = files
@@ -50,7 +51,10 @@ fn dynamic_only_invalid_closures_do_not_reject_the_entry() {
         3,
         "only entry and valid static closure own activations"
     );
-    assert!(graph.keys.contains_key(&ModuleKey::from_host("shared.js")));
+    assert!(graph.keys.contains_key(&ModuleRecordKey::new(
+        ModuleKey::from_host("shared.js"),
+        ModuleKindIr::SourceText
+    )));
     assert!(graph.link_errors.is_empty());
 }
 

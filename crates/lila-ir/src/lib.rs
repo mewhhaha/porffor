@@ -241,16 +241,16 @@ pub use modules::{
     ImportEntryIr, ImportNameIr, ImportPhaseIr, IndirectExportEntryIr, LinkedProgram,
     LocalExportEntryIr, ModuleBindingKindIr, ModuleBindingNameIr, ModuleEnvBindingIr,
     ModuleEvaluationModeIr, ModuleGraphIr, ModuleGraphSources, ModuleKey, ModuleKindIr,
-    ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr, ModuleRecordIr,
+    ModuleLinkErrorIr, ModuleNamespaceExportIr, ModuleNamespaceIr, ModuleRecordIr, ModuleRecordKey,
     ModuleRequestAttributesIr, ModuleRequestIr, ModuleRequestKeyIr, ModuleSourceIr, ModuleUnitId,
     ModuleUnitIr, OuterScriptModuleDependency, RealmModuleResolutionIr, ResolvedBindingIr,
     StarExportEntryIr, ANONYMOUS_MODULE_KEY,
 };
 pub use modules::{
-    DeferredModuleEvaluationIr, JsonModuleValueIr, JsonValue, ModuleActivationIr,
-    ModuleActivationKindIr, ModuleCellIr, ModuleEntryEvaluationIr, ModuleEntryEvaluationKindIr,
-    ModuleEvaluationIr, ModuleExecutionGraphIr, ModuleExecutionRequestIr, ModuleImportBindingIr,
-    ModuleRequestPhaseIr,
+    BytesModuleValueIr, DeferredModuleEvaluationIr, JsonModuleValueIr, JsonValue,
+    ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr, ModuleEntryEvaluationIr,
+    ModuleEntryEvaluationKindIr, ModuleEvaluationIr, ModuleExecutionGraphIr,
+    ModuleExecutionRequestIr, ModuleImportBindingIr, ModuleRequestPhaseIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,

@@ -19,7 +19,7 @@ pub(crate) struct ModuleExecutionAnalysis {
     pub(crate) publishers: BTreeMap<usize, (u32, ModuleNamespaceModeIr)>,
     pub(crate) boundaries: BTreeSet<usize>,
     pub(crate) intrinsics: BTreeMap<usize, StandardBuiltinId>,
-    pub(crate) json_values: BTreeMap<usize, JsonModuleValueIr>,
+    pub(crate) synthetic_values: BTreeMap<usize, super::SyntheticModuleValueIr>,
 }
 
 impl ModuleExecutionAnalysis {
@@ -54,7 +54,7 @@ pub(super) struct ModuleUnitDefinition {
     pub(super) namespaces: Vec<(ModuleNamespaceModeIr, Vec<ResolvedBindingIr>)>,
     pub(super) has_import_meta: bool,
     pub(super) default_export: DefaultExportFormIr,
-    pub(super) json: Option<JsonModuleValueIr>,
+    pub(super) synthetic: Option<super::SyntheticModuleValueIr>,
     pub(super) evaluation: ModuleEvaluationIr,
     pub(super) kind: ModuleActivationKindIr,
     pub(super) requests: Vec<ModuleExecutionRequestIr>,
@@ -320,14 +320,14 @@ impl ModuleExecutionDefinitions {
                         .insert(std::ptr::from_ref(expression) as usize, resolve(export));
                 }
             }
-            if unit.json.is_some() {
+            if unit.synthetic.is_some() {
                 let StatementListItem::Declaration(declaration) =
-                    statements.next().expect("JSON default cell")
+                    statements.next().expect("Synthetic data default cell")
                 else {
-                    panic!("JSON default cell is lexical")
+                    panic!("Synthetic data default cell is lexical")
                 };
                 let Declaration::Lexical(declaration) = declaration.as_ref() else {
-                    panic!("JSON default cell is lexical")
+                    panic!("Synthetic data default cell is lexical")
                 };
                 assert_eq!(declaration.variable_list().as_ref().len(), 1);
             }
@@ -340,20 +340,20 @@ impl ModuleExecutionDefinitions {
                 .module_execution
                 .boundaries
                 .insert(std::ptr::from_ref(boundary.as_ref()) as usize);
-            if let Some(json) = &unit.json {
+            if let Some(value) = &unit.synthetic {
                 let StatementListItem::Statement(statement) =
-                    statements.next().expect("JSON native evaluation")
+                    statements.next().expect("Synthetic data native evaluation")
                 else {
-                    panic!("JSON evaluation is a statement")
+                    panic!("Synthetic data evaluation is a statement")
                 };
                 let Statement::Expression(Expression::Assign(assignment)) = statement.as_ref()
                 else {
-                    panic!("JSON evaluation publishes its default cell")
+                    panic!("Synthetic data evaluation publishes its default cell")
                 };
                 analysis
                     .module_execution
-                    .json_values
-                    .insert(std::ptr::from_ref(assignment.rhs()) as usize, json.clone());
+                    .synthetic_values
+                    .insert(std::ptr::from_ref(assignment.rhs()) as usize, value.clone());
             }
             super::default_export_definition::apply_synchronous_default(
                 owner.body(),

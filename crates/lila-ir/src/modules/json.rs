@@ -19,3 +19,27 @@ impl JsonModuleValueIr {
         self.source.value()
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BytesModuleValueIr {
+    module: ModuleUnitId,
+    bytes: Vec<u8>,
+}
+
+impl BytesModuleValueIr {
+    pub(super) fn new(module: ModuleUnitId, bytes: Vec<u8>) -> Self {
+        Self { module, bytes }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SyntheticModuleValueIr {
+    Json(JsonModuleValueIr),
+    Bytes(BytesModuleValueIr),
+}

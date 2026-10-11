@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "debd9b18328cad560faeccb00be4ae85af69167cc3965c48494dbadc682f6d04",
+  "kernel_sha256": "630e685e57b1e2595b6907d0aa10477afda044188e63cf0cc77d84ad7dc31169",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -226,9 +226,9 @@
       "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 80664,
+      "bytes": 80880,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "65df705bbfd0f90575288da7b052f704079438b4c3e554ae2b9c05f179e8ef0e"
+      "sha256": "888919e9a2a4e80737acfd879bc4329ef44205530c65b4eff6ad26e586d6ec3c"
     },
     {
       "bytes": 33803,
@@ -551,9 +551,9 @@
       "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
     },
     {
-      "bytes": 12711,
+      "bytes": 12795,
       "path": "scripts/generate-intl-locale-collations-identity.py",
-      "sha256": "6a254e6ab0e864ba0146f891247ef6319af2fdea81e09d15d54cd394dcadfca1"
+      "sha256": "757375bcc60c41649d0f85bf2e479b2cdf83dd71c257ffb7f2a1a64b4c34e20b"
     }
   ],
   "schema": 1,

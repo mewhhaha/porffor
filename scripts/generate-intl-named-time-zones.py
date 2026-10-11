@@ -362,6 +362,8 @@ def main():
             if not path.is_file() or path.read_bytes() != content:
                 raise SystemExit(f"stale generated named-zone file: {relative}")
         else:
+            if path.exists() and path.read_bytes() == content:
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
 

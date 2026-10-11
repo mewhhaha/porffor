@@ -227,6 +227,8 @@ def main():
             if actual.read_bytes() != data:
                 raise ValueError('generated output differs: ' + str(path))
         else:
+            if actual.exists() and actual.read_bytes() == data:
+                continue
             actual.parent.mkdir(parents=True, exist_ok=True)
             actual.write_bytes(data)
     print('PASS exact complete CLDR47 timeData profile/native identity' if args.check else 'GENERATED exact complete CLDR47 calendarPreferenceData profile/native identity')

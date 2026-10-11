@@ -34,16 +34,33 @@ pub struct EmbeddedModuleSourceInput {
 }
 
 /// The host's declared record kind, independently of the bytes' grammar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EmbeddedModuleKind {
     SourceText,
     Json,
+    Bytes,
 }
 
 #[derive(Debug)]
 pub enum EmbeddedModuleInput {
     SourceText(EmbeddedModuleSourceInput),
     Json(EmbeddedModuleSourceInput),
+    Bytes(EmbeddedModuleBytesInput),
+}
+
+/// Untrusted raw payload: no text decoding or grammar selection is implied.
+#[derive(Debug)]
+pub struct EmbeddedModuleBytesInput {
+    pub identity: String,
+    pub bytes: Vec<u8>,
+    pub meta_url: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum EmbeddedModuleContents {
+    SourceText(String),
+    Json(String),
+    Bytes(Vec<u8>),
 }
 
 /// A referrer role is distinct from its locator. In particular a Script can
@@ -104,6 +121,14 @@ impl EmbeddedModuleRequest {
         &self.attributes
     }
 
+    pub fn module_kind(&self) -> EmbeddedModuleKind {
+        match self.attributes() {
+            [(key, value)] if key == "type" && value == "json" => EmbeddedModuleKind::Json,
+            [(key, value)] if key == "type" && value == "bytes" => EmbeddedModuleKind::Bytes,
+            _ => EmbeddedModuleKind::SourceText,
+        }
+    }
+
     fn cmp(&self, other: &Self) -> Ordering {
         utf16_cmp(&self.specifier, &other.specifier).then_with(|| {
             for (left, right) in self.attributes.iter().zip(&other.attributes) {
@@ -145,24 +170,41 @@ impl EmbeddedModuleEntry {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct EmbeddedModuleSource {
-    kind: EmbeddedModuleKind,
+    contents: EmbeddedModuleContents,
     identity: String,
-    source: String,
     meta_url: String,
 }
 
 impl EmbeddedModuleSource {
     pub const fn kind(&self) -> EmbeddedModuleKind {
-        self.kind
+        match &self.contents {
+            EmbeddedModuleContents::SourceText(_) => EmbeddedModuleKind::SourceText,
+            EmbeddedModuleContents::Json(_) => EmbeddedModuleKind::Json,
+            EmbeddedModuleContents::Bytes(_) => EmbeddedModuleKind::Bytes,
+        }
     }
     pub fn identity(&self) -> &str {
         &self.identity
     }
-
-    pub fn source(&self) -> &str {
-        &self.source
+    pub fn contents(&self) -> &EmbeddedModuleContents {
+        &self.contents
     }
-
+    pub fn source_text(&self) -> Option<&str> {
+        match &self.contents {
+            EmbeddedModuleContents::SourceText(text) | EmbeddedModuleContents::Json(text) => {
+                Some(text)
+            }
+            EmbeddedModuleContents::Bytes(_) => None,
+        }
+    }
+    pub fn payload_bytes(&self) -> &[u8] {
+        match &self.contents {
+            EmbeddedModuleContents::SourceText(text) | EmbeddedModuleContents::Json(text) => {
+                text.as_bytes()
+            }
+            EmbeddedModuleContents::Bytes(bytes) => bytes,
+        }
+    }
     pub fn meta_url(&self) -> &str {
         &self.meta_url
     }
@@ -230,31 +272,48 @@ impl EmbeddedModuleGraph {
         };
         let mut completed_modules = Vec::with_capacity(modules.len());
         for module in modules {
-            let (kind, module) = match module {
-                EmbeddedModuleInput::SourceText(module) => (EmbeddedModuleKind::SourceText, module),
-                EmbeddedModuleInput::Json(module) => (EmbeddedModuleKind::Json, module),
+            let (identity, meta_url, contents) = match module {
+                EmbeddedModuleInput::SourceText(module) => (
+                    module.identity,
+                    module.meta_url,
+                    EmbeddedModuleContents::SourceText(module.source),
+                ),
+                EmbeddedModuleInput::Json(module) => (
+                    module.identity,
+                    module.meta_url,
+                    EmbeddedModuleContents::Json(module.source),
+                ),
+                EmbeddedModuleInput::Bytes(module) => (
+                    module.identity,
+                    module.meta_url,
+                    EmbeddedModuleContents::Bytes(module.bytes),
+                ),
             };
-            validate_identity(&module.identity)?;
-            validate_meta_url(&module.meta_url)?;
+            validate_identity(&identity)?;
+            validate_meta_url(&meta_url)?;
             completed_modules.push(EmbeddedModuleSource {
-                kind,
-                identity: module.identity,
-                source: module.source,
-                meta_url: module.meta_url,
+                identity,
+                meta_url,
+                contents,
             });
         }
         match entry.goal {
             EmbeddedModuleGoal::Script => {}
             EmbeddedModuleGoal::Module => completed_modules.push(EmbeddedModuleSource {
-                kind: EmbeddedModuleKind::SourceText,
+                contents: EmbeddedModuleContents::SourceText(entry.source.clone()),
                 identity: entry.identity.clone(),
-                source: entry.source.clone(),
                 meta_url: entry.meta_url.clone(),
             }),
         }
-        completed_modules.sort_by(|left, right| left.identity.cmp(&right.identity));
+        completed_modules.sort_by(|left, right| {
+            left.identity
+                .cmp(&right.identity)
+                .then_with(|| left.kind().cmp(&right.kind()))
+        });
         for adjacent in completed_modules.windows(2) {
-            if adjacent[0].identity == adjacent[1].identity {
+            if adjacent[0].identity == adjacent[1].identity
+                && adjacent[0].kind() == adjacent[1].kind()
+            {
                 return Err(EmbeddedModuleGraphError::DuplicateModule {
                     identity: adjacent[0].identity.clone(),
                 });
@@ -270,7 +329,8 @@ impl EmbeddedModuleGraph {
                 }
                 EmbeddedModuleReferrer::Module(identity) => {
                     validate_identity(identity)?;
-                    find_module(&completed_modules, identity).is_some()
+                    find_module(&completed_modules, identity, EmbeddedModuleKind::SourceText)
+                        .is_some()
                 }
                 EmbeddedModuleReferrer::Unlocated | EmbeddedModuleReferrer::Realm => true,
             };
@@ -280,23 +340,34 @@ impl EmbeddedModuleGraph {
                 });
             }
             validate_identity(&resolution.target)?;
-            let Some(target) = find_module(&completed_modules, &resolution.target) else {
-                return Err(EmbeddedModuleGraphError::MissingTarget {
-                    identity: resolution.target,
-                });
-            };
             let request =
                 EmbeddedModuleRequest::try_new(resolution.specifier, resolution.attributes)?;
-            let json =
-                matches!(request.attributes(), [(key, value)] if key == "type" && value == "json");
-            let declares_json = request
+            let target = find_module(
+                &completed_modules,
+                &resolution.target,
+                request.module_kind(),
+            );
+            if target.is_none() {
+                return Err(
+                    if completed_modules
+                        .iter()
+                        .any(|module| module.identity == resolution.target)
+                    {
+                        EmbeddedModuleGraphError::RecordKindMismatch {
+                            identity: resolution.target,
+                        }
+                    } else {
+                        EmbeddedModuleGraphError::MissingTarget {
+                            identity: resolution.target,
+                        }
+                    },
+                );
+            }
+            let declares_data = request
                 .attributes()
                 .iter()
-                .any(|(key, value)| key == "type" && value == "json");
-            if match target.kind {
-                EmbeddedModuleKind::Json => !json,
-                EmbeddedModuleKind::SourceText => declares_json,
-            } {
+                .any(|(key, value)| key == "type" && matches!(value.as_str(), "json" | "bytes"));
+            if request.module_kind() == EmbeddedModuleKind::SourceText && declares_data {
                 return Err(EmbeddedModuleGraphError::RecordKindMismatch {
                     identity: resolution.target,
                 });
@@ -344,12 +415,18 @@ impl EmbeddedModuleGraph {
     /// entry. A Script's same-locator Module dependency remains included.
     pub fn dependency_modules(&self) -> impl Iterator<Item = &EmbeddedModuleSource> {
         self.modules.iter().filter(|module| {
-            self.entry.goal == EmbeddedModuleGoal::Script || module.identity != self.entry.identity
+            self.entry.goal == EmbeddedModuleGoal::Script
+                || module.identity != self.entry.identity
+                || module.kind() != EmbeddedModuleKind::SourceText
         })
     }
 
-    pub fn module(&self, identity: &str) -> Option<&EmbeddedModuleSource> {
-        find_module(&self.modules, identity)
+    pub fn module(
+        &self,
+        identity: &str,
+        kind: EmbeddedModuleKind,
+    ) -> Option<&EmbeddedModuleSource> {
+        find_module(&self.modules, identity, kind)
     }
 
     pub fn resolutions(&self) -> &[EmbeddedModuleResolution] {
@@ -372,7 +449,7 @@ impl EmbeddedModuleGraph {
                     .then_with(|| resolution.request.cmp(request))
             })
             .ok()?;
-        self.module(&self.resolutions[index].target)
+        self.module(&self.resolutions[index].target, request.module_kind())
     }
 
     /// SHA-256 of the complete canonical, length-framed source policy. Unused
@@ -499,9 +576,16 @@ fn validate_meta_url(meta_url: &str) -> Result<(), EmbeddedModuleGraphError> {
 fn find_module<'a>(
     modules: &'a [EmbeddedModuleSource],
     identity: &str,
+    kind: EmbeddedModuleKind,
 ) -> Option<&'a EmbeddedModuleSource> {
     let index = modules
-        .binary_search_by(|module| module.identity.as_str().cmp(identity))
+        .binary_search_by(|module| {
+            module
+                .identity
+                .as_str()
+                .cmp(identity)
+                .then_with(|| module.kind().cmp(&kind))
+        })
         .ok()?;
     Some(&modules[index])
 }
@@ -525,7 +609,7 @@ fn fingerprint(
     resolutions: &[EmbeddedModuleResolution],
 ) -> Result<[u8; 32], EmbeddedModuleGraphError> {
     let mut hash = Sha256::new();
-    hash.update(b"lila-embedded-module-graph-v2");
+    hash.update(b"lila-embedded-module-graph-v3");
     hash.update([match entry.goal {
         EmbeddedModuleGoal::Script => 0,
         EmbeddedModuleGoal::Module => 1,
@@ -535,12 +619,14 @@ fn fingerprint(
     hash_field(&mut hash, &entry.meta_url)?;
     hash_count(&mut hash, modules.len())?;
     for module in modules {
-        hash.update([match module.kind {
+        hash.update([match module.kind() {
             EmbeddedModuleKind::SourceText => 0,
             EmbeddedModuleKind::Json => 1,
+            EmbeddedModuleKind::Bytes => 2,
         }]);
         hash_field(&mut hash, &module.identity)?;
-        hash_field(&mut hash, &module.source)?;
+        hash_count(&mut hash, module.payload_bytes().len())?;
+        hash.update(module.payload_bytes());
         hash_field(&mut hash, &module.meta_url)?;
     }
     hash_count(&mut hash, resolutions.len())?;

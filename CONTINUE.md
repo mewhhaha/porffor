@@ -1,3 +1,20 @@
+## Bytes module and remaining acceptance — 2026-10-11
+
+The clean `77d7d3e46` complete inventory attempt finishes with 2,897 passes and
+four failures across 2,901 native controls; 83 targets are storage-deferred and
+one library build fails with actual ENOSPC before native admission. The separate
+source-bound AOT library executes all 333 controls: 332 pass and one With size
+guard fails at 10,548 bytes (4,289 to 14,837; unchanged ceiling 9,000).
+All 447 Test262 library and four corpus controls pass. The three campaign
+failures are actual original-five-second AOT timeouts, with no phase attribution
+in their canonical reports. Sixteen original-budget worker controls pass.
+Every original report is preserved unchanged. The IR conditional assertion must
+look through its legitimate lexical prefix; complete branch/Try ownership remains
+required. A root-written coherent Bytes/raw-loader/graph/wire/native/oracle batch,
+shared selected With setup and idempotent Intl writes are now being verified.
+Do not claim full acceptance or delete this ledger before final required checks
+and durable ownership migration.
+
 # CONTINUE — handoff state (2026-10-11)
 ## 2026-10-11 typed-root and static With repair
 

@@ -131,7 +131,7 @@ fn dynamic_malformed_json_and_source_phase_stay_import_job_rejections() {
 }
 
 #[test]
-fn identical_bytes_do_not_merge_contradictory_record_kinds() {
+fn identical_bytes_at_one_locator_keep_distinct_record_kinds() {
     let mut graph = sources(
         "import value from './data.json' with { type: 'json' };",
         "0",
@@ -142,5 +142,10 @@ fn identical_bytes_do_not_merge_contradictory_record_kinds() {
         "0".into(),
         "file:///data.json".into(),
     ));
-    assert!(!lower_module_graph(&graph).is_wasm_supported());
+    let program = lower_module_graph(&graph);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let graph = program.modules.unwrap();
+    assert_eq!(graph.units.len(), 3);
+    assert_eq!(graph.unit(1).record.kind(), ModuleKindIr::Json);
+    assert_eq!(graph.unit(2).record.kind(), ModuleKindIr::SourceText);
 }

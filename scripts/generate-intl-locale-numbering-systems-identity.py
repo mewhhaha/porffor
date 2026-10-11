@@ -144,7 +144,10 @@ def main():
         if args.check:
             if path.read_bytes()!=raw:raise ValueError('generated source identity differs: '+str(name))
         else:
-            path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(raw)
+            if path.exists() and path.read_bytes() == raw:
+                continue
+            path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(raw)
     print(json.dumps({'status':'PASS SOURCE ONLY','outputs':2,'NumberFormat_data_changed':False,'Cargo_commands':0,'product_commands':0}))
 
 
