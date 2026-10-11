@@ -10,7 +10,9 @@ use crate::runtime_helpers::{
 };
 
 mod captured_identifier_reference;
+mod environment_identifier_get;
 mod environment_identifier_put;
+mod environment_identifier_resolve;
 mod global_identifier_read;
 
 #[derive(Clone, Copy)]
@@ -79,7 +81,7 @@ impl FunctionBuilder<'_> {
         self.emit_resolve_environment_identifier_from_record(name, strictness, record, function)
     }
 
-    fn emit_resolve_environment_identifier_from_record(
+    fn emit_resolve_environment_identifier_body_from_record(
         &mut self,
         name: &GcLocal<StringValue>,
         strictness: Strictness,
@@ -434,7 +436,7 @@ pub(crate) enum EnvironmentIdentifierRead {
 }
 
 impl FunctionBuilder<'_> {
-    pub(crate) fn emit_environment_identifier_get(
+    fn emit_environment_identifier_get_body(
         &mut self,
         reference: &EnvironmentIdentifierReference,
         read: EnvironmentIdentifierRead,

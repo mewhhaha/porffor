@@ -24,7 +24,7 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "lila-locale-numbering-systems-native-v1",
-  "kernel_sha256": "1e8cb7cfbd3821430915decc781179a883fb747d16fad90d27efe7dcc56c8801",
+  "kernel_sha256": "5a2f5722c8f748f823aea1a11b430854b04753632cefcb2f21be6afa79a948af",
   "number_locales": 1082,
   "production_sources": [
     {
@@ -43,9 +43,9 @@
       "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
-      "bytes": 80051,
+      "bytes": 80254,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "4b66e05d1d51ad65652b79f0356f8a0d2990c2057f06e0b0f5e96741ad22789a"
+      "sha256": "a93effaad3668b0cf4f8033e7901d561de1bc9ea99aa41b134b3f94a91158bb1"
     },
     {
       "bytes": 33803,

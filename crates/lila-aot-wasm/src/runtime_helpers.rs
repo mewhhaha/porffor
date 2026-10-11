@@ -540,6 +540,45 @@ impl StatusCompletionCallResult {
 pub(crate) struct RealmImportCallResult {
     private: (),
 }
+/// ResolveBinding returns its complete completion and the held Reference.
+/// Root every GC edge before the caller can propagate an abrupt completion.
+#[must_use = "the completion and held Reference must be consumed together"]
+pub(crate) struct EnvironmentIdentifierResolutionCallResult {
+    private: (),
+}
+impl EnvironmentIdentifierResolutionCallResult {
+    pub(crate) fn bind(
+        self,
+        schema: &RuntimeSchema,
+        completion: &CompletionLocals,
+        kind: I32Local,
+        base: &ValueLocals,
+        function: &mut Function,
+    ) -> (
+        GcLocal<Environment, Nullable>,
+        GcLocal<NamedBinding, Nullable>,
+        GcLocal<BindingCell, Nullable>,
+    ) {
+        base.store_value_result(function);
+        let cell = ReferenceHelperResult {
+            private: std::marker::PhantomData,
+        }
+        .bind(schema, schema.reserve_gc_local(function), function);
+        let entry = ReferenceHelperResult {
+            private: std::marker::PhantomData,
+        }
+        .bind(schema, schema.reserve_gc_local(function), function);
+        let record = ReferenceHelperResult {
+            private: std::marker::PhantomData,
+        }
+        .bind(schema, schema.reserve_gc_local(function), function);
+        kind.store(function);
+        completion
+            .value()
+            .store_call_result(completion.kind(), completion.target(), function);
+        (record, entry, cell)
+    }
+}
 impl RealmImportCallResult {
     pub(crate) fn store(
         self,
@@ -683,6 +722,7 @@ macro_rules! helper_field {
     (@result_type RegExpCompile) => { RegExpCompileCallResult };
     (@result_type StatusCompletion) => { StatusCompletionCallResult };
     (@result_type RealmImport) => { RealmImportCallResult };
+    (@result_type EnvironmentIdentifierResolution) => { EnvironmentIdentifierResolutionCallResult };
     (@result_type ModuleGather) => { ModuleGatherCallResult };
     (@result_type RealmInitializeIntrinsics) => { RealmInitializeIntrinsicsCallResult };
     (@result_abi Completion) => { crate::module::COMPLETION_TYPES.to_vec() };
@@ -700,6 +740,17 @@ macro_rules! helper_field {
     (@result_abi RegExpCompile) => { vec![AbiType::Gc(GcLayout::RegExpProgram, GcNullability::Nullable), AbiType::I32, AbiType::I64, AbiType::I64] };
     (@result_abi StatusCompletion) => { { let mut types = crate::module::COMPLETION_TYPES.to_vec(); types.push(AbiType::I32); types } };
     (@result_abi RealmImport) => { { let mut types = crate::module::COMPLETION_TYPES.to_vec(); types.extend([AbiType::I32, AbiType::I64, AbiType::EqRef]); types } };
+    (@result_abi EnvironmentIdentifierResolution) => { {
+        let mut types = crate::module::COMPLETION_TYPES.to_vec();
+        types.extend([
+            AbiType::I32,
+            AbiType::Gc(GcLayout::Environment, GcNullability::Nullable),
+            AbiType::Gc(GcLayout::NamedBinding, GcNullability::Nullable),
+            AbiType::Gc(GcLayout::BindingCell, GcNullability::Nullable),
+            AbiType::I32, AbiType::I64, AbiType::EqRef,
+        ]);
+        types
+    } };
     (@result_abi ModuleGather) => { vec![AbiType::Gc(GcLayout::ModuleRegistry, GcNullability::NonNullable), AbiType::I64] };
     (@result_abi RealmInitializeIntrinsics) => { vec![AbiType::Gc(GcLayout::OrdinaryObject, GcNullability::Nullable); 6] };
     (@result Completion) => { HelperCompletion { private: () } };
@@ -717,6 +768,7 @@ macro_rules! helper_field {
     (@result RegExpCompile) => { RegExpCompileCallResult { private: () } };
     (@result StatusCompletion) => { StatusCompletionCallResult { private: () } };
     (@result RealmImport) => { RealmImportCallResult { private: () } };
+    (@result EnvironmentIdentifierResolution) => { EnvironmentIdentifierResolutionCallResult { private: () } };
     (@result ModuleGather) => { ModuleGatherCallResult { private: () } };
     (@result RealmInitializeIntrinsics) => { RealmInitializeIntrinsicsCallResult { private: () } };
 }
@@ -899,6 +951,11 @@ runtime_helper_domain! {
     AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierResolve / EnvironmentIdentifierResolveArguments / EnvironmentIdentifierResolveParameters / "environment_identifier_resolve" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => EnvironmentIdentifierResolution;
+    EnvironmentIdentifierGetSloppy / EnvironmentIdentifierGetSloppyArguments / EnvironmentIdentifierGetSloppyParameters / "environment_identifier_get_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierGetStrict / EnvironmentIdentifierGetStrictArguments / EnvironmentIdentifierGetStrictParameters / "environment_identifier_get_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierTypeofSloppy / EnvironmentIdentifierTypeofSloppyArguments / EnvironmentIdentifierTypeofSloppyParameters / "environment_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierTypeofStrict / EnvironmentIdentifierTypeofStrictArguments / EnvironmentIdentifierTypeofStrictParameters / "environment_identifier_typeof_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     EnvironmentIdentifierPutSloppy / EnvironmentIdentifierPutSloppyArguments / EnvironmentIdentifierPutSloppyParameters / "environment_identifier_put_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     EnvironmentIdentifierPutStrict / EnvironmentIdentifierPutStrictArguments / EnvironmentIdentifierPutStrictParameters / "environment_identifier_put_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     GlobalIdentifierReadSloppy / GlobalIdentifierReadSloppyArguments / GlobalIdentifierReadSloppyParameters / "global_identifier_read_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
@@ -1014,6 +1071,11 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorYieldReturnReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorAwaitReturnReactions => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierResolve => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierGetSloppy => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierGetStrict => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierTypeofSloppy => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierTypeofStrict => HelperOwner::Runtime,
             Self::EnvironmentIdentifierPutSloppy => HelperOwner::Runtime,
             Self::EnvironmentIdentifierPutStrict => HelperOwner::Runtime,
             Self::GlobalIdentifierReadSloppy => HelperOwner::Runtime,
@@ -1083,6 +1145,11 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => true,
             Self::ObjectHasProperty => true,
             Self::WithEnvironmentHasBinding => true,
+            Self::EnvironmentIdentifierResolve => true,
+            Self::EnvironmentIdentifierGetSloppy => true,
+            Self::EnvironmentIdentifierGetStrict => true,
+            Self::EnvironmentIdentifierTypeofSloppy => true,
+            Self::EnvironmentIdentifierTypeofStrict => true,
             Self::EnvironmentIdentifierPutSloppy => true,
             Self::EnvironmentIdentifierPutStrict => true,
             Self::GlobalIdentifierReadSloppy => true,

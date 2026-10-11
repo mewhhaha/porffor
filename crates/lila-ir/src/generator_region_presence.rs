@@ -1,4 +1,4 @@
-//! Eager With and assignable ForIn phases need complete enclosing control.
+//! Owners of continuation states need complete enclosing control.
 
 use super::*;
 use boa_ast::statement::iteration::ForInLoop;
@@ -27,7 +27,11 @@ pub(crate) fn contains_ordinary_generator_phase_owner<N: VisitWith + ?Sized>(sou
                 Statement::With(_)
                 | Statement::ForLoop(_)
                 | Statement::WhileLoop(_)
-                | Statement::DoWhileLoop(_) => ControlFlow::Break(()),
+                | Statement::DoWhileLoop(_)
+                // Every generator try clause reserves an exit state, even
+                // without a yield. A surrounding conditional must own the
+                // selected/skipped clause and join those states explicitly.
+                | Statement::Try(_) => ControlFlow::Break(()),
                 Statement::ForInLoop(_) | Statement::ForOfLoop(_) => source.visit_with(self),
                 Statement::Var(_)
                 | Statement::Empty
@@ -40,7 +44,6 @@ pub(crate) fn contains_ordinary_generator_phase_owner<N: VisitWith + ?Sized>(sou
                 | Statement::Break(_)
                 | Statement::Continue(_)
                 | Statement::Throw(_)
-                | Statement::Try(_)
                 | Statement::Return(_) => source.visit_with(self),
             }
         }

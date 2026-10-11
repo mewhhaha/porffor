@@ -26,6 +26,53 @@ fn assert_with_binding(source: &str) {
 }
 
 #[test]
+fn shared_resolution_keeps_typeof_strictness_and_abrupt_search_completion() {
+    assert_with_binding(
+        r#"
+function read(scope, strict, typeOf) {
+  with (scope) {
+    if (strict) {
+      if (typeOf) return function () { 'use strict'; return typeof selected; };
+      return function () { 'use strict'; return selected; };
+    }
+    if (typeOf) return function () { return typeof selected; };
+    return function () { return selected; };
+  }
+}
+var valid = true;
+for (var strict of [false, true]) {
+  for (var typeOf of [false, true]) {
+    var calls = 0;
+    var target = { selected: 7 };
+    var scope = new Proxy(target, {
+      has(object, key) {
+        if (key === 'selected') {
+          calls++;
+          if (calls === 1) { delete object.selected; return true; }
+        }
+        return Reflect.has(object, key);
+      }
+    });
+    var callback = read(scope, strict, typeOf), caught, result;
+    try { result = callback(); } catch (error) { caught = error; }
+    valid = valid && calls === 2 && (strict ? caught instanceof ReferenceError :
+      caught === undefined && result === (typeOf ? 'undefined' : undefined));
+    if (typeOf) valid = valid && read({}, strict, true)() === 'undefined';
+    var marker = {}, finalized = 0;
+    callback = read(new Proxy({}, {
+      has(object, key) { if (key === 'selected') throw marker; return false; }
+    }), strict, typeOf);
+    caught = undefined;
+    try { try { callback(); } finally { finalized++; } } catch (error) { caught = error; }
+    valid = valid && caught === marker && finalized === 1;
+  }
+}
+valid;
+"#,
+    );
+}
+
+#[test]
 fn with_has_binding_orders_proxy_protocol_and_preserves_receivers() {
     assert_with_binding(
         r#"

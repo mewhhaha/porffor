@@ -1,5 +1,5 @@
 //! PutValue consumes the original held Reference after RHS evaluation. Only
-//! the complete write dispatch is shared; binding selection stays in P.
+//! the write dispatch is shared; the caller retains binding selection before RHS effects.
 
 use super::*;
 use crate::runtime_helpers::{

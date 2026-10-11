@@ -1,4 +1,31 @@
 #[test]
+fn nonyielding_try_in_conditional_owns_states_before_a_yielding_finalizer() {
+    let program = lower_script(
+        "function* conditional(flag) {
+            try {
+                if (flag) { try { throw 1; } catch (error) { flag = error; } }
+                else { flag = 0; }
+                return flag;
+            } finally { yield 'cleanup'; }
+        }",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let function = program.script.as_ref().unwrap().functions.iter()
+        .find(|function| function.name == "conditional").unwrap();
+    let StatementIr::TryFinally { try_block, generator_plan: Some(_), .. } =
+        &function.body.statements[0]
+    else { panic!("outer finalizer owns its continuation"); };
+    let branch = try_block.statements.iter().find_map(|statement| {
+        if let StatementIr::OrdinaryGeneratorIf(branch) = statement { Some(branch) } else { None }
+    }).expect("the conditional must own the nonyielding try's states");
+    assert!(branch.then_branch().block().statements.iter().any(|statement| {
+        matches!(statement, StatementIr::TryCatch { generator_plan: Some(_), .. })
+    }), "the selected branch retains the complete try/catch owner");
+    assert_eq!(function.generator_plan.as_ref().unwrap().suspension_points.len(), 1,
+        "the conditional adds control states without inventing yields");
+}
+
+#[test]
 fn records_generator_try_catch_finally_resume_state_boundaries() {
     let program = lower_script(
         "function* sequence() {

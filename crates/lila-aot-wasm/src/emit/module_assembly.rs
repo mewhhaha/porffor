@@ -1236,7 +1236,7 @@ pub(super) fn emit_script_module(
         // Each runtime algorithm has one typed body. Calls from bootstrap,
         // builtins and source functions share these declarations.
         macro_rules! register_runtime_helper {
-            ($id:ident, $compile:ident) => {{
+            ($($id:ident, $compile:ident);+ $(;)?) => { $({
                 let mut builder = FunctionBuilder::new_runtime_operation_helper(
                     module_package.schema(),
                     RuntimeHelperId::$id,
@@ -1247,7 +1247,7 @@ pub(super) fn emit_script_module(
                     runtime_helper_base,
                 );
                 helper_bodies.insert(RuntimeHelperId::$id, builder.$compile()?);
-            }};
+            })+ };
         }
         register_runtime_helper!(OrdinaryPropertyFind, compile_ordinary_property_find_helper);
         register_runtime_helper!(
@@ -1270,28 +1270,17 @@ pub(super) fn emit_script_module(
         );
         register_runtime_helper!(RelationalComparison, compile_relational_comparison_helper);
         register_runtime_helper!(
-            EnvironmentIdentifierPutSloppy,
-            compile_environment_identifier_put_sloppy_helper
-        );
-        register_runtime_helper!(
-            EnvironmentIdentifierPutStrict,
-            compile_environment_identifier_put_strict_helper
-        );
-        register_runtime_helper!(
-            GlobalIdentifierReadSloppy,
-            compile_global_identifier_read_sloppy_helper
-        );
-        register_runtime_helper!(
-            GlobalIdentifierReadStrict,
-            compile_global_identifier_read_strict_helper
-        );
-        register_runtime_helper!(
-            GlobalIdentifierTypeofSloppy,
-            compile_global_identifier_typeof_sloppy_helper
-        );
-        register_runtime_helper!(
-            GlobalIdentifierTypeofStrict,
-            compile_global_identifier_typeof_strict_helper
+            EnvironmentIdentifierResolve, compile_environment_identifier_resolve_helper;
+            EnvironmentIdentifierGetSloppy, compile_environment_identifier_get_sloppy_helper;
+            EnvironmentIdentifierGetStrict, compile_environment_identifier_get_strict_helper;
+            EnvironmentIdentifierTypeofSloppy, compile_environment_identifier_typeof_sloppy_helper;
+            EnvironmentIdentifierTypeofStrict, compile_environment_identifier_typeof_strict_helper;
+            EnvironmentIdentifierPutSloppy, compile_environment_identifier_put_sloppy_helper;
+            EnvironmentIdentifierPutStrict, compile_environment_identifier_put_strict_helper;
+            GlobalIdentifierReadSloppy, compile_global_identifier_read_sloppy_helper;
+            GlobalIdentifierReadStrict, compile_global_identifier_read_strict_helper;
+            GlobalIdentifierTypeofSloppy, compile_global_identifier_typeof_sloppy_helper;
+            GlobalIdentifierTypeofStrict, compile_global_identifier_typeof_strict_helper;
         );
         register_runtime_helper!(PrivateElementAdd, compile_private_element_add_helper);
         register_runtime_helper!(PrivateFieldDefine, compile_private_field_define_helper);

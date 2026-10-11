@@ -3428,12 +3428,55 @@ object[key];
         let growth = repeated_bytes
             .checked_sub(single_bytes)
             .expect("additional observable reads must not shrink the body");
-        // Frozen main added 92,151 bytes for these nine sites. This ceiling
-        // detects a return to the repeated generic HasBinding expression tree.
+        // The complete ResolveBinding/GetBindingValue dispatch belongs in R;
+        // repeated observable reads in P retain only rooted helper operands.
         assert!(
-            growth < 45_000,
+            growth < 9_000,
             "nine With reads added {growth} bytes ({single_bytes} -> {repeated_bytes})"
         );
+        for artifact in [&single, &repeated] {
+            let runtime = artifact.runtime().expect("With reads link R");
+            let runtime_names = function_names_in_bytes(runtime.bytes());
+            let indices = [
+                "helper::environment_identifier_resolve",
+                "helper::environment_identifier_get_sloppy",
+            ]
+            .map(|name| {
+                *runtime_names
+                    .iter()
+                    .find(|(_, actual)| actual.as_str() == name)
+                    .expect("the shared lookup body exists")
+                    .0
+            });
+            let program_names = function_names(artifact);
+            let mut index = imported_function_count_in_bytes(&artifact.bytes);
+            let mut found = false;
+            for payload in Parser::new(0).parse_all(&artifact.bytes) {
+                if let Payload::CodeSectionEntry(body) = payload.expect("P decodes") {
+                    if program_names
+                        .get(&index)
+                        .is_some_and(|name| name.starts_with("js::probe#"))
+                    {
+                        let calls = body
+                            .get_operators_reader()
+                            .expect("probe opens")
+                            .into_iter()
+                            .filter_map(|operator| match operator.expect("operator decodes") {
+                                Operator::Call { function_index } => Some(function_index),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+                        assert!(
+                            indices.iter().all(|helper| calls.contains(helper)),
+                            "the actual With probe calls both shared lookup bodies"
+                        );
+                        found = true;
+                    }
+                    index += 1;
+                }
+            }
+            assert!(found, "the actual probe body is inspected");
+        }
     }
 
     #[test]

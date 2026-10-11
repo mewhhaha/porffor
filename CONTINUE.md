@@ -1,5 +1,20 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Shared binding and generator repair — 2026-10-11
+
+The latest complete-inventory attempt on `1ad5e2be0` runs 478 native tests:
+472 pass, six campaigns fail and none are ignored. The original five-second
+worker target passes all sixteen controls, and the Test262 library passes all
+447 controls. Two builds exhaust disk before native admission; 243 targets
+remain unstarted. Five failing campaign scopes contain actual AOT timeouts;
+one also proves a generator continuation invariant failure. Original reports
+and outcomes are preserved. The next repair shares complete environment
+resolution/read dispatch, accounts for nonyielding generator try states in
+conditional branches, and keeps test selectors on one Cargo feature graph.
+Final workspace types, all 465 tooling tests, eleven repository guards and
+eight Intl reproduction checks pass. Fresh native acceptance is pending. See
+the [repair record](docs/rust-rewrite/shared-binding-repairs-20261011.md).
+
 ## Cold compiler verification repair — 2026-10-11
 
 The unchanged `05f1a740a` focused attempts finish with 494 native passes,

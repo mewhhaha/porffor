@@ -36,6 +36,14 @@ fn assert_modes(source: &str, expected: &str) {
 }
 
 #[test]
+fn nonyielding_try_branches_preserve_completion_across_a_yielding_finalizer() {
+    assert_modes(
+        include_str!("../fixtures/generator_value_branches/conditional_try.js"),
+        "generator-conditional-try:ok",
+    );
+}
+
+#[test]
 fn selected_yields_capture_received_values_and_skipped_branches_keep_original_values() {
     assert_modes(
         include_str!("../fixtures/generator_value_branches/values_and_skips.js"),
