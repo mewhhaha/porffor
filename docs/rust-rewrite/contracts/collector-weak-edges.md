@@ -26,12 +26,21 @@ release those roots at the real job boundary. Finalization requires weak targets
 and tokens, strong holdings, and ordinary cleanup-job scheduling in the correct
 Realm. Collector support alone does not implement those JavaScript algorithms.
 
-The current product capability remains `WasmWeakReachabilityCapability::Unavailable`
-until all four weak families, their host ABI and job integration are complete.
-The earlier
-[unavailable-facility contract](weak-unavailable-runtime-boundary.md) still
-governs successful product weak operations. No second JavaScript heap or
-strong-retaining weak substitute is introduced.
+The product now selects `WasmWeakReachabilityCapability::CopyingCollector`.
+All sixteen routes use the typed weak host ABI and actual GC wrapper brands.
+WeakMap values are complete StoredValue ephemeron edges; WeakSet memberships
+use null conditional values. WeakRef construction and upgrades enter the
+Store-local kept-root set, cleared after the initial script/module job and
+every dequeued job. Finalization cells retain holdings strongly and targets and
+tokens weakly, with one cleanup job per queued registry in its captured Realm.
+Cleanup removes a cell before invoking its callback and re-reads the list after
+user code. A throw ends that cleanup invocation and reaches a separate host
+report event; it preserves the initial script completion.
+
+The [earlier unavailable-facility contract](weak-unavailable-runtime-boundary.md)
+records the retired product boundary. No second JavaScript heap or
+strong-retaining weak substitute is introduced. Product integration acceptance
+is recorded separately from the verified collector foundation.
 
 The native collector controls in
 [`weak_gc_facility/main.rs`](../../../crates/lila-engine/tests/weak_gc_facility/main.rs)

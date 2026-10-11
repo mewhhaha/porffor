@@ -1065,27 +1065,19 @@ fn run_wasm_backend_succeeds_for_created_realm_weak_collection_publication() {
 }
 
 #[test]
-fn run_wasm_backend_reports_uncatchable_created_realm_weak_capability() {
+fn run_wasm_backend_uses_real_created_realm_weak_storage() {
     let output = Command::new(env!("CARGO_BIN_EXE_lila"))
         .arg("run")
         .arg("--execution-backend")
         .arg("wasm")
-        .arg(fixture_path("wasm_weak_reachability_unavailable.js"))
+        .arg(fixture_path("wasm_weak_reachability.js"))
         .output()
         .expect("run command should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "stdout={stdout} stderr={stderr}");
+    assert!(output.status.success(), "stdout={stdout} stderr={stderr}");
     assert!(
-        stderr.contains("T05: weak references and ephemerons are unavailable"),
-        "{stderr}"
-    );
-    assert!(
-        !stdout.contains("capability rejection was caught"),
-        "{stdout}"
-    );
-    assert!(
-        !stdout.contains("capability rejection was ignored"),
+        stdout.contains("weak storage:ok") && stdout.contains("backend_used: WasmAot"),
         "{stdout}"
     );
 }

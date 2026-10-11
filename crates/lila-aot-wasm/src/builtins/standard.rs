@@ -26,7 +26,7 @@ use super::temporal_plain_month_day::TemporalPlainMonthDayStringMode;
 use super::temporal_plain_time_methods::TemporalPlainTimeStringMode;
 use super::temporal_plain_year_month::TemporalPlainYearMonthField;
 use super::temporal_plain_year_month_methods::TemporalPlainYearMonthStringMode;
-use super::weak_unavailable::WeakBuiltin;
+use super::weak::WeakBuiltin;
 use crate::gc_types::*;
 
 mod array_iterator_creation;
@@ -119,40 +119,37 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_map_prototype_size_getter(function)?;
             }
             StandardBuiltinId::WeakMapConstructor => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakMapConstructor, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapConstructor, function)?;
             }
             StandardBuiltinId::WeakSetConstructor => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakSetConstructor, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakSetConstructor, function)?;
             }
             StandardBuiltinId::WeakSetPrototypeAdd => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakSetPrototypeAdd, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakSetPrototypeAdd, function)?;
             }
             StandardBuiltinId::WeakSetPrototypeDelete => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakSetPrototypeDelete, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakSetPrototypeDelete, function)?;
             }
             StandardBuiltinId::WeakSetPrototypeHas => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakSetPrototypeHas, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakSetPrototypeHas, function)?;
             }
             StandardBuiltinId::WeakRefConstructor => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakRefConstructor, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakRefConstructor, function)?;
             }
             StandardBuiltinId::WeakRefPrototypeDeref => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakRefPrototypeDeref, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakRefPrototypeDeref, function)?;
             }
             StandardBuiltinId::FinalizationRegistryConstructor => {
-                self.emit_weak_unavailable_builtin(
-                    WeakBuiltin::FinalizationRegistryConstructor,
-                    function,
-                )?;
+                self.emit_weak_builtin(WeakBuiltin::FinalizationRegistryConstructor, function)?;
             }
             StandardBuiltinId::FinalizationRegistryPrototypeRegister => {
-                self.emit_weak_unavailable_builtin(
+                self.emit_weak_builtin(
                     WeakBuiltin::FinalizationRegistryPrototypeRegister,
                     function,
                 )?;
             }
             StandardBuiltinId::FinalizationRegistryPrototypeUnregister => {
-                self.emit_weak_unavailable_builtin(
+                self.emit_weak_builtin(
                     WeakBuiltin::FinalizationRegistryPrototypeUnregister,
                     function,
                 )?;
@@ -206,28 +203,22 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_async_disposable_stack_dispose_async_rejected(function)?;
             }
             StandardBuiltinId::WeakMapPrototypeDelete => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakMapPrototypeDelete, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeDelete, function)?;
             }
             StandardBuiltinId::WeakMapPrototypeGet => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakMapPrototypeGet, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeGet, function)?;
             }
             StandardBuiltinId::WeakMapPrototypeGetOrInsert => {
-                self.emit_weak_unavailable_builtin(
-                    WeakBuiltin::WeakMapPrototypeGetOrInsert,
-                    function,
-                )?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeGetOrInsert, function)?;
             }
             StandardBuiltinId::WeakMapPrototypeGetOrInsertComputed => {
-                self.emit_weak_unavailable_builtin(
-                    WeakBuiltin::WeakMapPrototypeGetOrInsertComputed,
-                    function,
-                )?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeGetOrInsertComputed, function)?;
             }
             StandardBuiltinId::WeakMapPrototypeHas => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakMapPrototypeHas, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeHas, function)?;
             }
             StandardBuiltinId::WeakMapPrototypeSet => {
-                self.emit_weak_unavailable_builtin(WeakBuiltin::WeakMapPrototypeSet, function)?;
+                self.emit_weak_builtin(WeakBuiltin::WeakMapPrototypeSet, function)?;
             }
             StandardBuiltinId::SetConstructor => {
                 self.emit_set_constructor(function)?;

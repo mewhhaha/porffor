@@ -117,6 +117,27 @@ static_signature_domain! {
     // One native FIFO owns blocking and asynchronous waiters on each byte resource.
     HostSharedBufferWait => ([ExternRef(NonNullable), I64, I32, I64, I64], [I32]),
 
+    // Weak operands cross as real rooted eqrefs and native slot resources.
+    HostWeakMapAllocate => ([], [ExternRef(NonNullable)]),
+    HostWeakSetAllocate => ([], [ExternRef(NonNullable)]),
+    HostWeakMapSet => ([EqRef, ExternRef(NonNullable), EqRef, EqRef], []),
+    HostWeakMapGet => ([ExternRef(NonNullable), EqRef], [EqRef]),
+    HostWeakMapHas => ([ExternRef(NonNullable), EqRef], [I32]),
+    HostWeakMapDelete => ([ExternRef(NonNullable), EqRef], [I32]),
+    HostWeakSetAdd => ([EqRef, ExternRef(NonNullable), EqRef], []),
+    HostWeakSetHas => ([ExternRef(NonNullable), EqRef], [I32]),
+    HostWeakSetDelete => ([ExternRef(NonNullable), EqRef], [I32]),
+    HostWeakRefAllocate => ([EqRef, EqRef], [ExternRef(NonNullable)]),
+    HostWeakRefDeref => ([ExternRef(NonNullable)], [EqRef]),
+    HostWeakJobFinish => ([], []),
+    HostFinalizationTrack => ([EqRef], []),
+    HostFinalizationNextRegistry => ([], [EqRef]),
+    HostFinalizationCellAllocate => ([EqRef, EqRef, EqRef], [ExternRef(NonNullable)]),
+    HostFinalizationTargetAlive => ([ExternRef(NonNullable)], [I32]),
+    HostFinalizationTokenMatches => ([ExternRef(NonNullable), EqRef], [I32]),
+    HostFinalizationCellRemove => ([ExternRef(NonNullable)], []),
+    HostReportCleanupException => ([I32, I64, EqRef, EqRef, EqRef], []),
+
     // Only signatures with concrete runtime references share its recursion group.
     // Independent host signatures above must canonicalize as singleton types.
     JavaScriptFunction => ([Gc(GcLayout::FunctionObject, NonNullable), I32, I64, EqRef,

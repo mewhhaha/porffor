@@ -1,7 +1,6 @@
 use lila_engine::{
     CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
     ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder, RunOptions,
-    RuntimeUnavailableCapability, WasmExecutionFailureKind,
 };
 
 fn options() -> CompileOptions {
@@ -59,33 +58,13 @@ fn early_weak_errors_and_prototype_abrupt_completion_keep_order_and_realm() {
 }
 
 #[test]
-fn valid_weak_construction_reports_a_capability_failure_through_aliases_and_catches() {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    let capability = RuntimeUnavailableCapability::WeakReachability;
+fn valid_weak_construction_uses_real_slots_through_aliases_and_created_realms() {
     for source in [
-        "try { new WeakMap(); } catch (error) {}",
-        "try { new WeakSet(); } catch (error) {}",
-        "try { new WeakRef({}); } catch (error) {}",
-        "try { new FinalizationRegistry(function() {}); } catch (error) {}",
+        "new WeakMap();", "new WeakSet();", "new WeakRef({});", "new FinalizationRegistry(function() {});",
         "const realm = __lilaCreateRealm().global; const C = realm.WeakMap; realm.WeakMap = null; Reflect.construct(C, []);",
         "const realm = __lilaCreateRealm().global; const C = realm.WeakSet; realm.WeakSet = null; Reflect.construct(C, []);",
         "const realm = __lilaCreateRealm().global; const C = realm.WeakRef; realm.WeakRef = null; Reflect.construct(C, [{}]);",
         "const realm = __lilaCreateRealm().global; const C = realm.FinalizationRegistry; realm.FinalizationRegistry = null; Reflect.construct(C, [function() {}]);",
-        "new WeakRef(Symbol('unregistered'));",
-        "new WeakRef(Symbol.iterator);",
-        "new WeakRef(new Proxy({}, {}));",
-    ] {
-        for directive in ["", "'use strict';\n"] {
-            let source = format!("{directive}{source}\n262;");
-            let error = Engine::new(RealmBuilder::new().build())
-                .observe_script(&source, options(), run_options())
-                .expect_err("valid weak construction must reject before a strong record can be returned");
-            assert_eq!(error.wasm_execution_failure_kind(), Some(WasmExecutionFailureKind::UnavailableCapability), "{source}: {error:?}");
-            assert_eq!(error.runtime_unavailable_capabilities(), vec![capability]);
-            assert!(error.runtime_semantic_gaps().is_empty());
-            assert!(error.runtime_dynamic_source_operations().is_empty());
-            assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
-            assert_eq!(error.message(), capability.to_string());
-        }
-    }
+        "new WeakRef(Symbol('unregistered'));", "new WeakRef(Symbol.iterator);", "new WeakRef(new Proxy({}, {}));",
+    ] { assert_normal(source, vec![]); }
 }

@@ -323,6 +323,7 @@ impl<'a> FunctionBuilder<'a> {
         self.normalize_base_class_constructor_result(&mut function);
         self.emit_derived_constructor_body_result(&mut function)?;
         if self.is_main() && self.uses_heap {
+            self.emit_finish_weak_job(&mut function)?;
             if self
                 .functions
                 .monotonic_clock_nanos_import_function_index()

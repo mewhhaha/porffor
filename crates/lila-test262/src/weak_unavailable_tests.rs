@@ -1,8 +1,7 @@
 use super::*;
 
 #[test]
-fn weak_capability_rejection_cannot_pass_by_catch_or_runtime_negative() {
-    let capability = lila_ir::RuntimeUnavailableCapability::WeakReachability;
+fn supported_weak_construction_passes_positive_cases_and_rejects_runtime_negatives() {
     let preludes = PreludeStore::default();
     for call in [
         "new WeakMap();",
@@ -26,13 +25,15 @@ fn weak_capability_rejection_cannot_pass_by_catch_or_runtime_negative() {
                 })
             });
             let result = run_one_case(&case, &preludes, 60_000, ExecutionBackend::WasmAot);
-            let TestStatus::Failed(failure) = result.status else {
-                panic!("weak reachability unavailable cannot become PASS: {expected:?}: {call}");
-            };
-            assert_eq!(failure.kind, FailureKind::Unsupported, "{failure:?}");
-            assert_eq!(failure.outcome, OutcomeKind::NotImplemented, "{failure:?}");
-            assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
-            assert_eq!(failure.detail, format!("[origin:unknown] {capability}"));
+            match expected {
+                None => assert_eq!(result.status, TestStatus::Passed, "{call}: {result:?}"),
+                Some(_) => {
+                    let TestStatus::Failed(failure) = result.status else {
+                        panic!("successful weak construction must not satisfy a runtime negative");
+                    };
+                    assert_ne!(failure.kind, FailureKind::Unsupported, "{failure:?}");
+                }
+            }
         }
     }
 }

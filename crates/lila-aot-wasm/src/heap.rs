@@ -403,6 +403,7 @@ impl PromiseReactionCallbackKind {
 runtime_scalar_domain!(PromiseJobKind, 1, {
     Reaction = 1,
     ResolveThenable = 2,
+    FinalizationCleanup = 3,
 });
 
 runtime_scalar_domain!(AsyncModuleEntryMode, 0, {

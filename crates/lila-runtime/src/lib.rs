@@ -1180,6 +1180,8 @@ pub enum ObservedCompletion {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostOutputEvent {
     PrintLine(String),
+    /// Host-defined reporting of a job exception, independent of completion.
+    ReportedException(String),
 }
 
 pub trait HostHooks: Send + Sync {
@@ -1188,6 +1190,8 @@ pub trait HostHooks: Send + Sync {
     }
 
     fn print_line(&self, _text: &str) {}
+
+    fn report_exception(&self, _text: &str) {}
 }
 
 #[derive(Debug, Default)]

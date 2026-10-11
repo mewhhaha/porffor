@@ -117,4 +117,4 @@ mod uint8array_base64_encode;
 mod uint8array_codecs;
 mod uint8array_hex;
 mod uri;
-mod weak_unavailable;
+mod weak;

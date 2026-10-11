@@ -3927,8 +3927,8 @@ check_raw_line_budget "$wasm_host_detach_array_buffer" 50
 check_no_inline_legacy_includes "$wasm_host_builtins"
 # Created globals use the shared completed Realm bootstrap; the retired private
 # WeakRef installer cannot provide a weak facility through ordinary GC fields.
-require_file crates/lila-aot-wasm/src/builtins/weak_unavailable.rs
-require_module_decl crates/lila-aot-wasm/src/builtins/mod.rs weak_unavailable
+require_file crates/lila-aot-wasm/src/builtins/weak.rs
+require_module_decl crates/lila-aot-wasm/src/builtins/mod.rs weak
 check_no_inline_legacy_includes "$wasm_bigint_builtins"
 check_no_inline_legacy_includes "$wasm_bigint_radix_formatting"
 for bigint_domain in BigIntFixedWidthOperation BigIntPrototypeOperation; do
@@ -4549,7 +4549,7 @@ done
 # T02's strong Map get-or-insert owner. Its two crate-visible semantic entry
 # points remain product-callable, but only the private child may construct the
 # raw value-source policy or call the shared parameterized emitter. WeakMap's
-# selected-runtime rejection is owned by weak_unavailable, not this algorithm.
+# collector-backed weak storage is owned by weak, independently of this strong algorithm.
 wasm_collections_builtins="crates/lila-aot-wasm/src/builtins/collections.rs"
 wasm_map_get_or_insert="crates/lila-aot-wasm/src/builtins/collections/map_get_or_insert.rs"
 require_file "$wasm_map_get_or_insert"

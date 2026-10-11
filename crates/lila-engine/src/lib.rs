@@ -96,6 +96,7 @@ use wasmtime_config::{
 mod wasm_gc_completion;
 mod wasm_gc_host;
 mod wasm_gc_intl_host;
+mod wasm_gc_weak_host;
 use wasm_gc_completion::GcMainCompletion;
 use wasmtime::AsContext;
 
@@ -1933,6 +1934,15 @@ impl WasmOutputEvents {
         }
     }
 
+    fn record_exception(&self, text: &str) {
+        if let Self::Capture(events) = self {
+            events
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(HostOutputEvent::ReportedException(text.to_string()));
+        }
+    }
+
     fn take(&self) -> Vec<HostOutputEvent> {
         let Self::Capture(events) = self else {
             return Vec::new();
@@ -1944,8 +1954,8 @@ impl WasmOutputEvents {
     }
 }
 
-#[derive(Clone)]
 struct WasmHostState {
+    weak: wasm_gc_weak_host::WeakGcState,
     realm: Realm,
     output_events: WasmOutputEvents,
     intl_kernel: Arc<IntlKernel<EmbeddedIntlProvider>>,
@@ -3605,6 +3615,7 @@ impl Engine {
         let mut store = WasmtimeStore::new(
             &engine,
             WasmHostState {
+                weak: wasm_gc_weak_host::WeakGcState::default(),
                 realm: self.realm.clone(),
                 output_events: WasmOutputEvents::for_mode(mode),
                 intl_kernel,
@@ -4224,7 +4235,7 @@ var $262 = {
     }
 
     #[test]
-    fn product_wasmtime_profiles_require_copying_with_no_weak_capability() {
+    fn product_wasmtime_profiles_require_copying_weak_capability() {
         for engine in [
             shared_wasm_engine().expect("fast required runtime should initialize"),
             shared_size_optimized_wasm_engine()
@@ -4249,7 +4260,7 @@ var $262 = {
         );
         assert_eq!(
             PRODUCT_WASMTIME_POLICY.weak_reachability_capability(),
-            WasmWeakReachabilityCapability::Unavailable
+            WasmWeakReachabilityCapability::CopyingCollector
         );
     }
 
@@ -4275,7 +4286,7 @@ var $262 = {
         );
         assert_eq!(
             error.wasm_weak_reachability_capability(),
-            Some(WasmWeakReachabilityCapability::Unavailable)
+            Some(WasmWeakReachabilityCapability::CopyingCollector)
         );
     }
 
@@ -6876,6 +6887,7 @@ report;
         let mut store = WasmtimeStore::new(
             &wasm_engine,
             WasmHostState {
+                weak: wasm_gc_weak_host::WeakGcState::default(),
                 realm: engine.realm.clone(),
                 output_events: WasmOutputEvents::DelegateOnly,
                 intl_kernel: shared_embedded_intl_kernel()

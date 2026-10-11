@@ -442,6 +442,7 @@ mod loader_policy {
             .into_iter()
             .map(|event| match event {
                 HostOutputEvent::PrintLine(text) => text,
+                HostOutputEvent::ReportedException(text) => format!("reported exception: {text}"),
             })
             .collect();
         (outcome.completion, events)

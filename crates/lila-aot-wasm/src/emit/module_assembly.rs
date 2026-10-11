@@ -241,6 +241,7 @@ pub(super) fn emit_script_module(
         uses_atomics_wait,
         uses_intl_host,
         uses_system_time_zone,
+        uses_heap,
     );
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);

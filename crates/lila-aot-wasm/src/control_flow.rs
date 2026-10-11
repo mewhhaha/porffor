@@ -403,6 +403,8 @@ pub(crate) enum SyncIteratorConsumer {
     AggregateError,
     MapConstructor,
     SetConstructor,
+    WeakMapConstructor,
+    WeakSetConstructor,
     ObjectFromEntries,
     MapGroupBy,
     ObjectGroupBy,
@@ -9144,6 +9146,36 @@ impl<'a> FunctionBuilder<'a> {
                 SyncIteratorConsumer::SetConstructor,
                 SyncIteratorProtocolError::NextResultNotObject,
             ) => RuntimeErrorMessage::SET_CONSTRUCTOR_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::WeakMapConstructor, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::WEAKMAP_CONSTRUCTOR_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::WeakMapConstructor,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::WEAKMAP_CONSTRUCTOR_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (
+                SyncIteratorConsumer::WeakMapConstructor,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => RuntimeErrorMessage::WEAKMAP_CONSTRUCTOR_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE,
+            (
+                SyncIteratorConsumer::WeakMapConstructor,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::WEAKMAP_CONSTRUCTOR_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
+            (SyncIteratorConsumer::WeakSetConstructor, SyncIteratorProtocolError::NotIterable) => {
+                RuntimeErrorMessage::WEAKSET_CONSTRUCTOR_ITERATOR_METHOD_IS_NOT_CALLABLE
+            }
+            (
+                SyncIteratorConsumer::WeakSetConstructor,
+                SyncIteratorProtocolError::MethodResultNotObject,
+            ) => RuntimeErrorMessage::WEAKSET_CONSTRUCTOR_ITERATOR_METHOD_MUST_RETURN_AN_OBJECT,
+            (
+                SyncIteratorConsumer::WeakSetConstructor,
+                SyncIteratorProtocolError::NextNotCallable,
+            ) => RuntimeErrorMessage::WEAKSET_CONSTRUCTOR_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE,
+            (
+                SyncIteratorConsumer::WeakSetConstructor,
+                SyncIteratorProtocolError::NextResultNotObject,
+            ) => RuntimeErrorMessage::WEAKSET_CONSTRUCTOR_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT,
             (SyncIteratorConsumer::ObjectFromEntries, SyncIteratorProtocolError::NotIterable) => {
                 RuntimeErrorMessage::OBJECT_FROMENTRIES_ITERATOR_METHOD_IS_NOT_CALLABLE
             }

@@ -4,6 +4,7 @@ use super::*;
 use crate::WasmRuntimeValueTag;
 
 mod object_header_projection;
+mod weak_host;
 
 macro_rules! scalar_local {
     ($name:ident, $ty:ident) => {
@@ -422,7 +423,7 @@ enum_i32_codec!(crate::heap::PromiseReactionType; Fulfill => 1, Reject => 2);
 enum_i32_codec!(crate::heap::PromiseReactionCallbackKind; Default => 0, AsyncFunction => 1,
     AsyncGeneratorAwaitReturn => 2, AsyncGeneratorAwait => 3, AsyncGeneratorYield => 4,
     AsyncGeneratorYieldReturn => 5, ModuleBody => 6, ModuleJoin => 7, AsyncFromSyncIterator => 8);
-enum_i32_codec!(crate::heap::PromiseJobKind; Reaction => 1, ResolveThenable => 2);
+enum_i32_codec!(crate::heap::PromiseJobKind; Reaction => 1, ResolveThenable => 2, FinalizationCleanup => 3);
 enum_i32_codec!(crate::heap::AsyncModuleEntryMode; Allocate => 0, Instantiate => 1, Execute => 2);
 enum_i32_codec!(crate::heap::ModuleEvaluationState; Linked => 0, Evaluating => 1,
     EvaluatingAsync => 2, Evaluated => 3);
@@ -467,7 +468,7 @@ enum_i32_codec!(PrivateElementKind; Brand => 0, Field => 1, Method => 2, Accesso
 enum_i32_codec!(AwaitCompletionKind; Normal => 0, Throw => 1);
 enum_i32_codec!(AsyncGeneratorReturnStage; Unawaited => 0, Awaited => 1);
 enum_i32_codec!(GeneratorDelegatePending; Normal => 0, Return => 1, Throw => 2, MissingThrowClose => 3, ReturnValue => 4, YieldValue => 5);
-enum_i32_codec!(HostResourceKind; SharedBuffer => 0);
+enum_i32_codec!(HostResourceKind; SharedBuffer => 0, WeakMap => 1, WeakSet => 2, WeakRef => 3, FinalizationCell => 4);
 enum_i32_codec!(BufferOwnerKind; ArrayBuffer => 0, SharedArrayBuffer => 1);
 enum_i32_codec!(IteratorBufferMode; Chunks => 0, WindowsOnlyFull => 1, WindowsAllowPartial => 2);
 enum_i32_codec!(IteratorZipMode; Shortest => 0, Longest => 1, Strict => 2);

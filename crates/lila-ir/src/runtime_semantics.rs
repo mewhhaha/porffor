@@ -5,15 +5,19 @@ use crate::{DynamicFunctionKind, DynamicSourceRuntimeOperation, TaskId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WasmWeakReachabilityCapability {
     Unavailable,
+    CopyingCollector,
 }
 
 pub const PRODUCT_WASM_WEAK_REACHABILITY: WasmWeakReachabilityCapability =
-    WasmWeakReachabilityCapability::Unavailable;
+    WasmWeakReachabilityCapability::CopyingCollector;
 
 impl WasmWeakReachabilityCapability {
     pub const fn report(self) -> &'static str {
         match self {
             Self::Unavailable => "weak-references=unavailable ephemerons=unavailable",
+            Self::CopyingCollector => {
+                "weak-references=copying-collector ephemerons=owner-key-fixed-point"
+            }
         }
     }
 }

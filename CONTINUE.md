@@ -1,5 +1,15 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## JavaScript weak integration — 2026-10-11 focused checkpoint
+
+The sixteen routes, actual GC brands, kept-root job boundaries and finalization
+jobs pass nineteen focused native controls with zero failures or ignores.
+Joined all-feature/all-target types pass. The complete 677 weak-feature IDs
+and the 70 Error stack proposal IDs await execution; full-suite and task
+acceptance remains open. This supersedes older unavailable-product paragraphs
+below. See the
+[integration checkpoint](docs/rust-rewrite/weak-product-integration-20261011.md).
+
 ## Weak collector foundation — 2026-10-11 verified checkpoint
 
 The pinned copying collector now has real weak targets and owner/key-gated

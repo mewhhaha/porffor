@@ -39,6 +39,9 @@ struct StdoutHostHooks {
 }
 
 impl HostHooks for StdoutHostHooks {
+    fn report_exception(&self, text: &str) {
+        eprintln!("{text}");
+    }
     fn print_line(&self, text: &str) {
         let mut output = self
             .output

@@ -89,6 +89,11 @@ impl WasmtimeRuntimePolicy {
         }
         match self.weak_reachability {
             WasmWeakReachabilityCapability::Unavailable => {}
+            WasmWeakReachabilityCapability::CopyingCollector => {
+                if engine.get_collector() != Some(Collector::Copying) {
+                    return Err("weak reachability requires the patched copying collector");
+                }
+            }
         }
         Ok(())
     }
@@ -114,6 +119,9 @@ impl WasmtimeRuntimePolicy {
 
         match self.weak_reachability {
             WasmWeakReachabilityCapability::Unavailable => {}
+            WasmWeakReachabilityCapability::CopyingCollector => {
+                config.collector(Collector::Copying);
+            }
         }
     }
 }

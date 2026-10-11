@@ -3,6 +3,9 @@ use super::*;
 /// A queue append must carry the exact target, full argument and Realm policy.
 /// Reaction and thenable payloads cannot occupy each other's target fields.
 enum PromiseJobToEnqueue<'a> {
+    FinalizationCleanup {
+        registry: &'a GcLocal<FinalizationRegistryObject>,
+    },
     Reaction {
         reaction: &'a GcLocal<PromiseReaction>,
         argument: &'a ValueLocals,
@@ -14,6 +17,17 @@ enum PromiseJobToEnqueue<'a> {
 }
 
 impl FunctionBuilder<'_> {
+    pub(crate) fn emit_enqueue_finalization_job(
+        &mut self,
+        registry: &GcLocal<FinalizationRegistryObject>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_enqueue_promise_job(
+            PromiseJobToEnqueue::FinalizationCleanup { registry },
+            function,
+        )
+    }
+
     pub(super) fn emit_enqueue_promise_reaction_job(
         &mut self,
         reaction: &GcLocal<PromiseReaction>,
@@ -77,6 +91,43 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let job: GcLocal<PendingJob> = match selected {
+            PromiseJobToEnqueue::FinalizationCleanup { registry } => {
+                let undefined = schema.reserve_value_local(function);
+                undefined.set_undefined(function);
+                let value = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .struct_type::<StoredValue>()
+                        .from_value(&undefined, function),
+                    function,
+                );
+                let realm = schema.reserve_gc_local(function).initialize(
+                    schema
+                        .field(FinalizationRegistryObjectSchema::REALM)
+                        .read(registry, schema, function)
+                        .reference(),
+                    function,
+                );
+                let job = schema.reserve_gc_local(function).initialize(
+                    schema.struct_type::<PendingJob>().construct(
+                        (
+                            GcOperand::constant(PromiseJobKind::FinalizationCleanup),
+                            GcOperand::null(schema),
+                            GcOperand::null(schema),
+                            GcOperand::nullable_reference(registry, schema),
+                            GcOperand::reference(&value, schema),
+                            GcOperand::nullable_reference(&realm, schema),
+                            GcOperand::null(schema),
+                        ),
+                        function,
+                    ),
+                    function,
+                );
+                realm.clear(function);
+                value.clear(function);
+                undefined.clear(function);
+                job
+            }
+
             PromiseJobToEnqueue::Reaction { reaction, argument } => {
                 let value = schema.reserve_gc_local(function).initialize(
                     schema
@@ -90,6 +141,7 @@ impl FunctionBuilder<'_> {
                         (
                             GcOperand::constant(PromiseJobKind::Reaction),
                             GcOperand::nullable_reference(reaction, schema),
+                            GcOperand::null(schema),
                             GcOperand::null(schema),
                             GcOperand::reference(&value, schema),
                             GcOperand::reference(&realm, schema),
@@ -119,6 +171,7 @@ impl FunctionBuilder<'_> {
                             GcOperand::constant(PromiseJobKind::ResolveThenable),
                             GcOperand::null(schema),
                             GcOperand::nullable_reference(thenable, schema),
+                            GcOperand::null(schema),
                             GcOperand::reference(&value, schema),
                             GcOperand::nullable_reference(&realm, schema),
                             GcOperand::null(schema),

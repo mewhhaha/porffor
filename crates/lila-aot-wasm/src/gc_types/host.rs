@@ -320,6 +320,25 @@ gc_host_imports! {
     IntlProviderCall => ("intl_provider_call", HostIntlProviderCall),
     SystemTimeZoneSnapshot => ("system_time_zone_snapshot", HostSystemTimeZoneSnapshot),
     SharedBufferWait => ("shared_buffer_wait", HostSharedBufferWait),
+    WeakMapAllocate => ("weak_map_allocate", HostWeakMapAllocate),
+    WeakSetAllocate => ("weak_set_allocate", HostWeakSetAllocate),
+    WeakMapSet => ("weak_map_set", HostWeakMapSet),
+    WeakMapGet => ("weak_map_get", HostWeakMapGet),
+    WeakMapHas => ("weak_map_has", HostWeakMapHas),
+    WeakMapDelete => ("weak_map_delete", HostWeakMapDelete),
+    WeakSetAdd => ("weak_set_add", HostWeakSetAdd),
+    WeakSetHas => ("weak_set_has", HostWeakSetHas),
+    WeakSetDelete => ("weak_set_delete", HostWeakSetDelete),
+    WeakRefAllocate => ("weak_ref_allocate", HostWeakRefAllocate),
+    WeakRefDeref => ("weak_ref_deref", HostWeakRefDeref),
+    WeakJobFinish => ("weak_job_finish", HostWeakJobFinish),
+    FinalizationTrack => ("finalization_track", HostFinalizationTrack),
+    FinalizationNextRegistry => ("finalization_next_registry", HostFinalizationNextRegistry),
+    FinalizationCellAllocate => ("finalization_cell_allocate", HostFinalizationCellAllocate),
+    FinalizationTargetAlive => ("finalization_target_alive", HostFinalizationTargetAlive),
+    FinalizationTokenMatches => ("finalization_token_matches", HostFinalizationTokenMatches),
+    FinalizationCellRemove => ("finalization_cell_remove", HostFinalizationCellRemove),
+    ReportCleanupException => ("report_cleanup_exception", HostReportCleanupException),
 }
 
 /// Only declaration assigns a function index, together with its closed import
@@ -374,6 +393,7 @@ impl GcHostImports {
         wait_sync: bool,
         intl_provider: bool,
         system_time_zone: bool,
+        weak: bool,
     ) -> Self {
         let mut declarations = Vec::new();
         for import in GcHostImport::ALL {
@@ -391,6 +411,25 @@ impl GcHostImports {
                 GcHostImport::SharedBufferWait => wait_sync,
                 GcHostImport::IntlProviderCall => intl_provider,
                 GcHostImport::SystemTimeZoneSnapshot => system_time_zone,
+                GcHostImport::WeakMapAllocate
+                | GcHostImport::WeakSetAllocate
+                | GcHostImport::WeakMapSet
+                | GcHostImport::WeakMapGet
+                | GcHostImport::WeakMapHas
+                | GcHostImport::WeakMapDelete
+                | GcHostImport::WeakSetAdd
+                | GcHostImport::WeakSetHas
+                | GcHostImport::WeakSetDelete
+                | GcHostImport::WeakRefAllocate
+                | GcHostImport::WeakRefDeref
+                | GcHostImport::WeakJobFinish
+                | GcHostImport::FinalizationTrack
+                | GcHostImport::FinalizationNextRegistry
+                | GcHostImport::FinalizationCellAllocate
+                | GcHostImport::FinalizationTargetAlive
+                | GcHostImport::FinalizationTokenMatches
+                | GcHostImport::FinalizationCellRemove
+                | GcHostImport::ReportCleanupException => weak,
             };
             if needed {
                 declarations.push(DeclaredGcHostImport {

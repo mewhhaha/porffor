@@ -314,6 +314,10 @@ pub(crate) enum ArrayFromAsyncSourceMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostResourceKind {
     SharedBuffer,
+    WeakMap,
+    WeakSet,
+    WeakRef,
+    FinalizationCell,
 }
 closed_scalar_storage!(
     HostResourceKind,
@@ -1161,6 +1165,7 @@ gc_layout_registry! {
             KIND: crate::heap::PromiseJobKind, Immutable, NonNullable;
             REACTION: GcRef<PromiseReaction>, Immutable, Nullable;
             THENABLE: GcRef<PromiseThenableJob>, Immutable, Nullable;
+            REGISTRY: GcRef<FinalizationRegistryObject>, Immutable, Nullable;
             ARGUMENT: GcRef<StoredValue>, Immutable, NonNullable;
             REALM: GcRef<RealmRecord>, Immutable, Nullable;
             NEXT: GcRef<PendingJob>, Mutable, Nullable;
@@ -1228,6 +1233,33 @@ gc_layout_registry! {
             LIVE_COUNT: I64Value, Mutable, NonNullable;
             HISTORY_LENGTH: I64Value, Mutable, NonNullable;
             HASH_INDEX: GcRef<CollectionHashTable>, Mutable, NonNullable;
+        }
+        // Native resources contain collector slot IDs, never strong JS keys.
+        struct WeakMapObject => WeakMapObjectSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            RESOURCE: GcRef<HostResource>, Immutable, NonNullable;
+        }
+        struct WeakSetObject => WeakSetObjectSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            RESOURCE: GcRef<HostResource>, Immutable, NonNullable;
+        }
+        // Prepared unpublished records acquire their weak resource before use.
+        struct WeakRefObject => WeakRefObjectSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            RESOURCE: GcRef<HostResource>, Mutable, Nullable;
+            TARGET_TAG: I32Value, Immutable, NonNullable;
+        }
+        struct FinalizationRegistryObject => FinalizationRegistryObjectSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            CALLBACK: GcRef<StoredValue>, Immutable, NonNullable;
+            REALM: GcRef<RealmRecord>, Immutable, NonNullable;
+            CELLS: GcRef<FinalizationCell>, Mutable, Nullable;
+            CLEANUP_QUEUED: bool, Mutable, NonNullable;
+        }
+        struct FinalizationCell => FinalizationCellSchema {
+            HOLDINGS: GcRef<StoredValue>, Immutable, NonNullable;
+            RESOURCE: GcRef<HostResource>, Mutable, Nullable;
+            NEXT: GcRef<FinalizationCell>, Mutable, Nullable;
         }
         struct MapEntry => MapEntrySchema {
             KEY: GcRef<StoredValue>, Immutable, NonNullable;

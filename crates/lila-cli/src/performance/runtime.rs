@@ -279,6 +279,7 @@ impl Observation {
             process_memory: ProcessMemoryMeasurement::from_profile(profile)?,
             output: profile.outcome.output_events.iter().map(|event| match event {
                 HostOutputEvent::PrintLine(text) => text.clone(),
+                HostOutputEvent::ReportedException(text) => format!("reported exception: {text}"),
             }).collect() })
     }
     fn validate(&self) -> Result<(), String> {

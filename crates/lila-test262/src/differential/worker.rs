@@ -208,6 +208,13 @@ impl fmt::Debug for Journal {
 }
 
 impl lila_engine::HostHooks for JournalOutput {
+    fn report_exception(&self, text: &str) {
+        self.journal
+            .lock()
+            .unwrap_or_else(|_| std::process::exit(JOURNAL_EXIT))
+            .print(&format!("reported exception: {text}"));
+    }
+
     fn print_line(&self, text: &str) {
         match self.journal.lock() {
             Ok(mut journal) => journal.print(text),
@@ -384,6 +391,9 @@ fn execute_case(
                 .into_iter()
                 .map(|event| match event {
                     HostOutputEvent::PrintLine(text) => text,
+                    HostOutputEvent::ReportedException(text) => {
+                        format!("reported exception: {text}")
+                    }
                 })
                 .collect();
             let journal = journal

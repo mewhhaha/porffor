@@ -33,7 +33,7 @@ impl FunctionBuilder<'_> {
         text.clear(f);
         Ok(key)
     }
-    fn emit_collection_get(
+    pub(super) fn emit_collection_get(
         &mut self,
         receiver: &ValueLocals,
         name: &str,
@@ -45,7 +45,11 @@ impl FunctionBuilder<'_> {
         key.clear(f);
         Ok(())
     }
-    fn emit_collection_propagate(&mut self, result: &CompletionLocals, f: &mut Function) {
+    pub(super) fn emit_collection_propagate(
+        &mut self,
+        result: &CompletionLocals,
+        f: &mut Function,
+    ) {
         self.completion().copy_from(result, f);
         self.emit_propagate_current_throw_if_needed(f);
     }
@@ -65,7 +69,7 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
     }
-    fn emit_collection_close_abrupt(
+    pub(super) fn emit_collection_close_abrupt(
         &mut self,
         iterator: &OwnedSyncIterator,
         pending: &CompletionLocals,
@@ -83,7 +87,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         Ok(())
     }
-    fn emit_collection_assert_callable(
+    pub(super) fn emit_collection_assert_callable(
         &mut self,
         value: &ValueLocals,
         message: RuntimeErrorMessage,
@@ -115,7 +119,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         f.instruction(&Instruction::End);
     }
-    fn emit_collection_boolean(&self, boolean: I32Local, f: &mut Function) {
+    pub(super) fn emit_collection_boolean(&self, boolean: I32Local, f: &mut Function) {
         let s = self.runtime_schema();
         let v = s.reserve_value_local(f);
         v.set_boolean(boolean, f);

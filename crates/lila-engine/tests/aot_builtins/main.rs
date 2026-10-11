@@ -76,6 +76,7 @@ mod aot_typed_array_species;
 mod aot_uint8array_base64_decode;
 mod aot_uint8array_base64_encode;
 mod aot_uint8array_hex;
+mod aot_weak_reachability;
 mod aot_weak_unavailable;
 mod aot_well_known_symbol_identity;
 mod reflect_descriptor_object_realm;

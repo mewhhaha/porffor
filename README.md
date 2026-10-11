@@ -1,12 +1,12 @@
 # Lila
 
-The pinned copying collector has real weak targets and owner/key-gated
-ephemerons. All 22 focused native collector and image controls pass with zero
-failures or ignores, including thirteen cancellation boundaries. The image
-leaf archive is now 11 KB while executables still link the immutable data.
-JavaScript weak APIs still require builtin, host and job integration before
-their capability can be enabled. See the
-[foundation checkpoint](docs/rust-rewrite/weak-collector-foundation-20261011.md).
+All four JavaScript weak families now use collector-backed storage and real
+job boundaries. Nineteen focused native controls and joined workspace types
+pass, including forced-GC reachability, finalization error reporting, CLI and
+Test262 accounting. The complete 677 weak-feature execution IDs and the 70
+Error stack IDs await execution; full acceptance remains open. The collector
+foundation separately passes 22 native controls. See the
+[integration checkpoint](docs/rust-rewrite/weak-product-integration-20261011.md).
 
 Iterator chunks/windows pass all 156 official proposal cases on each backend,
 plus 24 focused native controls with no failures or ignores. On-demand GC Lists

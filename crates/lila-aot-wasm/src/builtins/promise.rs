@@ -3352,6 +3352,18 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             match selected {
+                PromiseJobKind::FinalizationCleanup => {
+                    let registry = schema.reserve_gc_local(function).initialize(
+                        schema
+                            .field(PendingJobSchema::REGISTRY)
+                            .read(&job, schema, function)
+                            .reference()
+                            .require_non_null(function),
+                        function,
+                    );
+                    self.emit_run_finalization_job(&registry, function)?;
+                    registry.clear(function);
+                }
                 PromiseJobKind::Reaction => {
                     let reaction = schema.reserve_gc_local(function).initialize(
                         schema
@@ -3405,6 +3417,7 @@ impl<'a> FunctionBuilder<'a> {
         next.clear(function);
         job.clear(function);
         head.clear(function);
+        self.emit_finish_weak_job(function)?;
         if self
             .functions
             .monotonic_clock_nanos_import_function_index()

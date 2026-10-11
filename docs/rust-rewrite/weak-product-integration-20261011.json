@@ -1,0 +1,974 @@
+{
+  "date": "2026-10-11",
+  "scope": "JavaScript weak integration focused checkpoint; complete pinned selection and full acceptance pending",
+  "path_format": "Paths and executable arguments are relative to the verification working directory.",
+  "focused_native_passed": 19,
+  "focused_native_failed": 0,
+  "focused_native_ignored": 0,
+  "weak_source_files": 339,
+  "weak_source_execution_ids": 677,
+  "error_stack_source_execution_ids": 70,
+  "native": {
+    "state": "passed",
+    "source": {
+      "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+      "patch_sha256": "c57257054a7992466a703113d0bc0fb3a532e068ed6e8ac6e8032b31b23f4dd4",
+      "untracked": {
+        "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+        "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+        "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+        "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+        "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+        "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+        "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+        "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+        "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+        "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+        "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+        "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+      }
+    },
+    "driver_sha256": "9825a614e10c12d5ba5eceaa89524cfb1ae5d2c35bbc7d6776d51c55d173a07a",
+    "native_test_cpus": [
+      0
+    ],
+    "scopes": [
+      {
+        "label": "weak-builtins",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-engine",
+          "--all-features",
+          "--test",
+          "aot_builtins",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 2.534,
+        "build_log_sha256": "a1602e83697b59f68352cec3e2bbf7f219dcf5b4dfdfe62078a85b9e568922cb",
+        "build_stderr_sha256": "116a44cb300a483c1b1ebe96c17fd5fac0f3149a80f75ffa251db30995f1e087",
+        "executable": "target/debug/deps/aot_builtins-4d7a61d746bc0df7",
+        "executable_bytes": 645963488,
+        "executable_sha256": "01002c4aff5a73c5274e9d6d90493e0310cf407b35eee0a7a6f966297f623189",
+        "selected_tests": [
+          "aot_weak_reachability::an_unreachable_collection_does_not_retain_values_for_live_keys",
+          "aot_weak_reachability::cleanup_is_a_job_and_can_unregister_remaining_cleared_cells",
+          "aot_weak_reachability::cleanup_throw_is_reported_and_remaining_cells_wait_for_another_job",
+          "aot_weak_reachability::ephemeron_chains_survive_and_key_value_cycles_are_reclaimed",
+          "aot_weak_reachability::unregister_after_target_collection_prevents_cleanup",
+          "aot_weak_reachability::weak_ref_keeps_targets_through_construction_and_successful_deref_jobs",
+          "aot_weak_reachability::weak_storage_preserves_undefined_presence_symbols_and_callback_mutation",
+          "aot_weak_unavailable::early_weak_errors_and_prototype_abrupt_completion_keep_order_and_realm",
+          "aot_weak_unavailable::valid_weak_construction_uses_real_slots_through_aliases_and_created_realms",
+          "aot_weak_unavailable::weak_intrinsics_keep_created_realm_descriptors_and_invalid_receiver_errors"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-retry-weak-builtins-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/aot_builtins-4d7a61d746bc0df7",
+          "aot_weak",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 48.514,
+        "log": "target/watched/weak-product-retry-weak-builtins-a7a847e30-native.log",
+        "log_sha256": "3e22150cf863027e0b9d2f00222a24be624a1ac0fe7b6f3431bd7c472a16b079",
+        "completed_executable_pruned": true,
+        "pruned_aliases": [
+          "target/debug/deps/aot_builtins-4d7a61d746bc0df7"
+        ]
+      }
+    ],
+    "source_unchanged": true
+  },
+  "native_followup": {
+    "state": "passed",
+    "source": {
+      "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+      "patch_sha256": "c57257054a7992466a703113d0bc0fb3a532e068ed6e8ac6e8032b31b23f4dd4",
+      "untracked": {
+        "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+        "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+        "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+        "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+        "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+        "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+        "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+        "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+        "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+        "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+        "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+        "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+      }
+    },
+    "driver_sha256": "bbc1a9a702c6b0a82761936dc691329d1887a8fb8494752c56c17d6227214dc5",
+    "native_test_cpus": [
+      0
+    ],
+    "scopes": [
+      {
+        "label": "policy",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-engine",
+          "--all-features",
+          "--lib",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 14.253,
+        "build_log_sha256": "081d4dca884362bc500a7a84ccd68acec56d687a814ec59502021f269a4e61ba",
+        "build_stderr_sha256": "3e7792b24663b9b1017edd2b67b31d0c4ddd15679db8085971ea908ef1b4157f",
+        "executable": "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+        "executable_bytes": 656156272,
+        "executable_sha256": "aa5e5055600fae96033664ec65ad701312b7816fd75f63302d93c558ff4b0c0c",
+        "selected_tests": [
+          "tests::product_wasmtime_profiles_require_copying_weak_capability"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-policy-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+          "product_wasmtime_profiles_require_copying_weak_capability",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 0.07,
+        "log": "target/watched/weak-product-followup-policy-a7a847e30-native.log",
+        "log_sha256": "4abd7e4116f45a631ea107e32d09ddedb2946552738b2af537a439d507bec629"
+      },
+      {
+        "label": "policy-rejections",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-engine",
+          "--all-features",
+          "--lib",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 0.634,
+        "build_log_sha256": "02ba7c148ec7f26152bb130495ab06b2bd89e6fddbd3aa0a8a023e7ad4e162c4",
+        "build_stderr_sha256": "0d59940303fdfa9bccea14a589a316d83182cfbcac596fcf745d601a1decb246",
+        "executable": "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+        "executable_bytes": 656156272,
+        "executable_sha256": "aa5e5055600fae96033664ec65ad701312b7816fd75f63302d93c558ff4b0c0c",
+        "selected_tests": [
+          "tests::required_runtime_refuses_implicit_collector_selection",
+          "tests::required_runtime_rejects_disabled_gc_support"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-policy-rejections-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+          "tests::required_runtime_",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 0.072,
+        "log": "target/watched/weak-product-followup-policy-rejections-a7a847e30-native.log",
+        "log_sha256": "3b989b94004c87b8b96e14fbd566b36f7b601223a54ffe09a06df547abcc8652",
+        "completed_executable_pruned": true,
+        "pruned_aliases": [
+          "target/debug/deps/lila_engine-bd7f2cc33ede506b"
+        ]
+      },
+      {
+        "label": "weak-accounting",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-test262",
+          "--all-features",
+          "--lib",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 23.83,
+        "build_log_sha256": "54ce7c51620e1d19e1168cf1987270fb4be6e2311454f4fc6e2805ffe9343849",
+        "build_stderr_sha256": "d51cbedbccfde734cb55de20fc35eb1377f93875ad1081fa58b5aae6dba96968",
+        "executable": "target/debug/deps/lila_test262-7dd5a531e7192076",
+        "executable_bytes": 678690984,
+        "executable_sha256": "ee9af6b1c9dd58ee1b34417080da656ff078b26af06a8e5f6c399c955912c961",
+        "selected_tests": [
+          "weak_unavailable_tests::supported_weak_construction_passes_positive_cases_and_rejects_runtime_negatives",
+          "weak_unavailable_tests::weak_early_javascript_errors_still_satisfy_runtime_negatives"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-weak-accounting-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/lila_test262-7dd5a531e7192076",
+          "weak_unavailable_tests::",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 9.963,
+        "log": "target/watched/weak-product-followup-weak-accounting-a7a847e30-native.log",
+        "log_sha256": "45f224d1f0374d02dda55162a39ae018aa9ab2ea6a691ed035b774c8321c992f",
+        "completed_executable_pruned": true,
+        "pruned_aliases": [
+          "target/debug/deps/lila_test262-7dd5a531e7192076"
+        ]
+      },
+      {
+        "label": "cli-weak-publication",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-cli",
+          "--all-features",
+          "--test",
+          "cli",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 27.56,
+        "build_log_sha256": "42e1761d8f8e2c1eb564f34dcfd1a6dc661cc681ebe0cc0eb5f7061e296b633f",
+        "build_stderr_sha256": "ce951546a0767840794dcb53e9ead1524168ddeb27db43acb58b8695e34678fa",
+        "executable": "target/debug/deps/cli-c451302326ebe4b7",
+        "executable_bytes": 682587496,
+        "executable_sha256": "a1ae5261feb631c4cfe33ce73201fdf4ffab59da504c37b70e5e404e2f5b1d69",
+        "selected_tests": [
+          "iterator::run_wasm_backend_succeeds_for_created_realm_weak_collection_publication",
+          "iterator::run_wasm_backend_succeeds_for_created_realm_weak_ref_publication"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-cli-weak-publication-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/cli-c451302326ebe4b7",
+          "iterator::run_wasm_backend_succeeds_for_created_realm_weak",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 11.864,
+        "log": "target/watched/weak-product-followup-cli-weak-publication-a7a847e30-native.log",
+        "log_sha256": "53e669c3752f5fcb9c514c79e69f8732d88fee04d7896e627788cd9a355f988f"
+      },
+      {
+        "label": "cli-finalization-publication",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-cli",
+          "--all-features",
+          "--test",
+          "cli",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 0.6,
+        "build_log_sha256": "141ac99f03f9ec1ff59821d7d451ea5f7a618665b28bfc345e062aa75291168d",
+        "build_stderr_sha256": "afedd6306e653e090ba2d5f5015b542fcc95febf36e3b08141395a55111e6245",
+        "executable": "target/debug/deps/cli-c451302326ebe4b7",
+        "executable_bytes": 682587496,
+        "executable_sha256": "a1ae5261feb631c4cfe33ce73201fdf4ffab59da504c37b70e5e404e2f5b1d69",
+        "selected_tests": [
+          "iterator::run_wasm_backend_succeeds_for_created_realm_finalization_registry_publication"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-cli-finalization-publication-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/cli-c451302326ebe4b7",
+          "iterator::run_wasm_backend_succeeds_for_created_realm_finalization_registry_publication",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 6.213,
+        "log": "target/watched/weak-product-followup-cli-finalization-publication-a7a847e30-native.log",
+        "log_sha256": "cf3adcf73e367ac834db9970ebdf0e605af87ebe4acb2ff9c3cfeb1169bb072e"
+      },
+      {
+        "label": "cli-weak-storage",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-cli",
+          "--all-features",
+          "--test",
+          "cli",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 0.584,
+        "build_log_sha256": "57dd8281032c23c01470a594131a57ef6020fd7177ce6f81f125ddc7a82ff156",
+        "build_stderr_sha256": "0284b813b48a860ab4a2028e11f8562e87b385a595b21bd9585dedd696c6e51e",
+        "executable": "target/debug/deps/cli-c451302326ebe4b7",
+        "executable_bytes": 682587496,
+        "executable_sha256": "a1ae5261feb631c4cfe33ce73201fdf4ffab59da504c37b70e5e404e2f5b1d69",
+        "selected_tests": [
+          "iterator::run_wasm_backend_uses_real_created_realm_weak_storage"
+        ],
+        "command": [
+          "taskset",
+          "-c",
+          "0",
+          "./scripts/run-watched.sh",
+          "--label",
+          "weak-product-followup-cli-weak-storage-a7a847e30-native",
+          "--stall",
+          "900",
+          "--poll",
+          "1",
+          "--",
+          "python3",
+          "-B",
+          "scripts/limited_verification.py",
+          "--cloud",
+          "--",
+          "target/debug/deps/cli-c451302326ebe4b7",
+          "iterator::run_wasm_backend_uses_real_created_realm_weak_storage",
+          "--test-threads=1",
+          "--include-ignored"
+        ],
+        "exit_code": 0,
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        "run_seconds": 4.773,
+        "log": "target/watched/weak-product-followup-cli-weak-storage-a7a847e30-native.log",
+        "log_sha256": "1e13db3b01a1d0755db71ae08e8983714b6addd79c7f8fbb6cce3cf5677debf7",
+        "completed_executable_pruned": true,
+        "pruned_aliases": [
+          "target/debug/deps/cli-c451302326ebe4b7"
+        ]
+      }
+    ],
+    "source_unchanged": true
+  },
+  "types": {
+    "state": "passed",
+    "source": {
+      "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+      "patch_sha256": "c228c4582cf61026266fd4b8025530e9e09bc7ba010774c9af69c49e7cabe925",
+      "untracked": {
+        "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+        "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+        "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+        "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+        "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+        "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+        "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+        "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+        "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+        "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+        "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+        "docs/rust-rewrite/weak-product-integration-20261011.json": "73b159a7ffc7676a232489c8e15b72e2c4b4fa3226cd355eec611fc9ef5656cb",
+        "docs/rust-rewrite/weak-product-integration-20261011.md": "bb48876c8851d3ea228861e6b129e818c439da1c189df4917a6ff0fe7c85a4ce"
+      }
+    },
+    "command": [
+      "./scripts/run-watched.sh",
+      "--label",
+      "weak-product-types-final-a7a847e30",
+      "--stall",
+      "900",
+      "--poll",
+      "1",
+      "--",
+      "python3",
+      "-B",
+      "scripts/limited_verification.py",
+      "--cloud",
+      "--cloud-cpus",
+      "auto",
+      "--",
+      "cargo",
+      "check",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--all-features",
+      "--all-targets"
+    ],
+    "driver_sha256": "f21bd96f1646169c00d1185c0dde55b2ec95980fbe2a26607bf995de2e346c32",
+    "exit_code": 0,
+    "seconds": 2.567,
+    "source_unchanged": true,
+    "log": "target/watched/weak-product-types-final-a7a847e30.log",
+    "log_sha256": "9d1bccd89e696fc115db324861444aed633bea66132edcfd7e9e6d37ecd43307"
+  },
+  "preceding_failed_types": [
+    {
+      "state": "failed",
+      "source": {
+        "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+        "patch_sha256": "1ca5c35d18d33962ebfba3d0580dcf3e42a121aaa2c044648ae7062c2e0afabb",
+        "untracked": {
+          "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+          "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+          "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+          "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+          "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+          "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+          "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "d11a5e14105ef3b2934a32f47b7b5feef9f9764c12ec29bda7e4d0c62f703e0f",
+          "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "d47edc9066ebbad42ed2cf54474e302cfa986c32253b77205eda91e97b3580fc",
+          "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+          "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+          "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "b337974b188d78a7ee8247bb63759f51af95ff82732bde3246c511cd2dc986e5",
+          "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+        }
+      },
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "weak-product-types-a7a847e30",
+        "--stall",
+        "900",
+        "--poll",
+        "1",
+        "--",
+        "python3",
+        "-B",
+        "scripts/limited_verification.py",
+        "--cloud",
+        "--cloud-cpus",
+        "auto",
+        "--",
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--all-features",
+        "--all-targets"
+      ],
+      "driver_sha256": "1e44478c6c825cc84584af0adfa71a03156ef6b56e9240fae328690fffeff8e9",
+      "exit_code": 101,
+      "seconds": 205.899,
+      "source_unchanged": true,
+      "log": "target/watched/weak-product-types-a7a847e30.log",
+      "log_sha256": "2434c47aefcb6ee317069ac5e7e187cb02036b36cc0666572a7957e74a5486d3"
+    },
+    {
+      "state": "failed",
+      "source": {
+        "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+        "patch_sha256": "301c37ed215e9a4d409fa30e4c7296ab42cbbaa776ce3cfa3c0d68c6c898f3fe",
+        "untracked": {
+          "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+          "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+          "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+          "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+          "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+          "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+          "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+          "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+          "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+          "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+          "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+          "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+        }
+      },
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "weak-product-types-retry-a7a847e30",
+        "--stall",
+        "900",
+        "--poll",
+        "1",
+        "--",
+        "python3",
+        "-B",
+        "scripts/limited_verification.py",
+        "--cloud",
+        "--cloud-cpus",
+        "auto",
+        "--",
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--all-features",
+        "--all-targets"
+      ],
+      "driver_sha256": "c53c443c8bf9daa4ebabe4988e2711bb05b1ee3e7be34e56633f1bd4ba5e1ce3",
+      "exit_code": 101,
+      "seconds": 55.293,
+      "source_unchanged": true,
+      "log": "target/watched/weak-product-types-retry-a7a847e30.log",
+      "log_sha256": "62a623d7666b805eec459a3f679156cbc2230c2b8b3ffd97584ecebcdec40db4"
+    },
+    {
+      "state": "failed",
+      "source": {
+        "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+        "patch_sha256": "94373ff3cef3073128a0482553d934f5402ea184351cbce0492d5b65724ec731",
+        "untracked": {
+          "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+          "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+          "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+          "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+          "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+          "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+          "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+          "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+          "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+          "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+          "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+          "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+          "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+          "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+          "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+          "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+        }
+      },
+      "command": [
+        "./scripts/run-watched.sh",
+        "--label",
+        "weak-product-types-retry2-a7a847e30",
+        "--stall",
+        "900",
+        "--poll",
+        "1",
+        "--",
+        "python3",
+        "-B",
+        "scripts/limited_verification.py",
+        "--cloud",
+        "--cloud-cpus",
+        "auto",
+        "--",
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--all-features",
+        "--all-targets"
+      ],
+      "driver_sha256": "896e3feb8e356a7132c6e1653795c3c628a063e3bfd7725b104711707a5896ac",
+      "exit_code": 101,
+      "seconds": 4.294,
+      "source_unchanged": true,
+      "log": "target/watched/weak-product-types-retry2-a7a847e30.log",
+      "log_sha256": "38fbfd50969b9e39e2d944fa453e330ebe68225332a817f47850c72da1efb520"
+    }
+  ],
+  "preceding_native_link_failure": {
+    "state": "failed",
+    "source": {
+      "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+      "patch_sha256": "c57257054a7992466a703113d0bc0fb3a532e068ed6e8ac6e8032b31b23f4dd4",
+      "untracked": {
+        "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+        "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+        "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+        "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+        "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+        "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+        "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+        "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+        "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+        "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+        "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+        "docs/rust-rewrite/weak-product-integration-20261011.md": "6a73a55c56abea61b6f2c4b7eb3636571b25fcdc83f0d7d4abc7dc79fc417d61"
+      }
+    },
+    "driver_sha256": "69b461d27746f4b9958c241ebfc10d2fc53438795acc8823a02fdc1881375482",
+    "native_test_cpus": [
+      0
+    ],
+    "scopes": [
+      {
+        "label": "weak-builtins",
+        "state": "build-failed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "lila-engine",
+          "--all-features",
+          "--test",
+          "aot_builtins",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 101,
+        "build_seconds": 168.44,
+        "build_log_sha256": "7308aa50e1b75460c7e2f4660dcb671827e2b52cfe949ecf0ef5923f2b68831e",
+        "build_stderr_sha256": "167028b602e698a85cbe2f60853ba354304fb2c19f5ede15559702917b671f93"
+      }
+    ],
+    "source_unchanged": true
+  },
+  "guards": {
+    "state": "passed",
+    "source": {
+      "head": "a7a847e305d2b8aa3eab9a6ed072ae18406739c4",
+      "patch_sha256": "c228c4582cf61026266fd4b8025530e9e09bc7ba010774c9af69c49e7cabe925",
+      "untracked": {
+        "crates/lila-aot-wasm/src/builtins/weak.rs": "d237b73de7e6580db182b62e16afe42cbcd38e7977e5de0c8f716d216a5ca91b",
+        "crates/lila-aot-wasm/src/builtins/weak/collections.rs": "3fc4123273591fe6a667b4d368ff6488968a37cb5eef10a3bfb2df7ea0df78ca",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/map.rs": "e00cb3f4e103366cf0a429c0660fc9e5d1c8201316809e405605dd858b208a29",
+        "crates/lila-aot-wasm/src/builtins/weak/collections/set.rs": "06ed086b176a6c1614735d554fdc642212638371f3ba85efad08b303fc45e873",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors.rs": "479b6ff92c1b46bea2e36601aff54595df6fbf1ff9c3fd5845f2010ce95ab940",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/map.rs": "086084609dad15b8b2835d586dba3d839bba93cf6e86299471e8cca5a7c65633",
+        "crates/lila-aot-wasm/src/builtins/weak/constructors/set.rs": "4a055c1cdb0236d49a53ec5cc010a3e78f61ea553f92e96bd3c8b04ad338ffb1",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization.rs": "db4012dc3f510d59d5124d0be7ec51bbb9f13688b989b77af6c6c3ebc6de2c02",
+        "crates/lila-aot-wasm/src/builtins/weak/finalization/cells.rs": "1fcc6ef8f69b72a59ffbbd71f488f81a4a528534c5c93af20ac11c03cbaff051",
+        "crates/lila-aot-wasm/src/builtins/weak/jobs.rs": "11a0c4c0ccc92aaeed36d74d4ef65afa7b99d5cc4749625a9b7399df7d41d4e2",
+        "crates/lila-aot-wasm/src/builtins/weak/references.rs": "7a3259f27d6304cc5ca2aa81c71c02571ca6fb5fdda8a8fb563a50584af7c49c",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host.rs": "aae4d7d61492a12da5d7a33cc1ebfbc070a436208648076a86b59fb9baf5b7fa",
+        "crates/lila-aot-wasm/src/gc_types/value/weak_host/finalization.rs": "2115c3526064086f8236edfa17ad029be25171a3123c68911585d2762b20d177",
+        "crates/lila-cli/tests/fixtures/wasm_weak_reachability.js": "ad992650e4503e2bb064cc52cedef2a259537db6f41dbf7857563c6951c7f2c4",
+        "crates/lila-engine/src/wasm_gc_weak_host.rs": "08eacc929bf01ad9d2ec953830459dbe80d6c78a1ae6424f1af88bc07e48d56e",
+        "crates/lila-engine/src/wasm_gc_weak_host/collections.rs": "f4531a84df4e09a99f4346f2de9ecaa369af2ba706c85e382620e7fa472e435e",
+        "crates/lila-engine/src/wasm_gc_weak_host/finalization.rs": "3fdeef75ae0ff695a899158d822cfaef276d69f02cf2a23f1fd518e7235d96d3",
+        "crates/lila-engine/src/wasm_gc_weak_host/references.rs": "4eb0879184088087f46aa983ebebe6b1c955a0d9309127476934334ebb70bb76",
+        "crates/lila-engine/src/wasm_gc_weak_host/reporting.rs": "02bb03993b56ac309c8b7a998e07c1295e156461e99a865e6e41778c3e6a4785",
+        "crates/lila-engine/tests/aot_builtins/aot_weak_reachability.rs": "57d6d93e33a955b6d7ad688fd75ea0fb0a9c6180e336b5d3c0dda628636cda11",
+        "docs/rust-rewrite/weak-product-integration-20261011.json": "73b159a7ffc7676a232489c8e15b72e2c4b4fa3226cd355eec611fc9ef5656cb",
+        "docs/rust-rewrite/weak-product-integration-20261011.md": "bb48876c8851d3ea228861e6b129e818c439da1c189df4917a6ff0fe7c85a4ce"
+      }
+    },
+    "driver_sha256": "4bca97de9be39a81caaa4b32ef303f176e732bed721ee11b74734f99df42886c",
+    "native_test_cpus": [
+      0
+    ],
+    "scopes": [
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 6.987,
+        "log": "target/weak-product-20261011/guards-final/0.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "HEAD",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.138,
+        "log": "target/weak-product-20261011/guards-final/1.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "./scripts/check-task-plan.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.552,
+        "log": "target/weak-product-20261011/guards-final/2.log",
+        "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+      },
+      {
+        "command": [
+          "./scripts/tests/check-readme-status-artifacts.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.837,
+        "log": "target/weak-product-20261011/guards-final/3.log",
+        "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+      },
+      {
+        "command": [
+          "./scripts/tests/audit-test262-shortcut-scanner.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 2.292,
+        "log": "target/weak-product-20261011/guards-final/4.log",
+        "log_sha256": "fea51cf09407b8afd3d97746310b61869b4461ed783eba2fd34fafbac7b7ddbe"
+      },
+      {
+        "command": [
+          "./scripts/check-module-boundaries.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 9.052,
+        "log": "target/weak-product-20261011/guards-final/5.log",
+        "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+      },
+      {
+        "command": [
+          "./scripts/audit-test262-shortcuts.sh",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.52,
+        "log": "target/weak-product-20261011/guards-final/6.log",
+        "log_sha256": "8cf5515c7330113a203b7c360cadf7f12d033eac5f9d0e16f7f2a88e921fc870"
+      },
+      {
+        "command": [
+          "./scripts/check-test262-host-abi.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.078,
+        "log": "target/weak-product-20261011/guards-final/7.log",
+        "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+      },
+      {
+        "command": [
+          "./scripts/check-no-legacy-js.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.115,
+        "log": "target/weak-product-20261011/guards-final/8.log",
+        "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+      },
+      {
+        "command": [
+          "./scripts/check-lila-identity.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 27.062,
+        "log": "target/weak-product-20261011/guards-final/9.log",
+        "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+      },
+      {
+        "command": [
+          "./scripts/check-no-interpreter-in-product-graph.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.516,
+        "log": "target/weak-product-20261011/guards-final/10.log",
+        "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+      },
+      {
+        "command": [
+          "python3",
+          "-B",
+          "scripts/check_conformance_source_pins.py"
+        ],
+        "exit_code": 0,
+        "seconds": 0.961,
+        "log": "target/weak-product-20261011/guards-final/11.log",
+        "log_sha256": "85cb85643f5437e6b54080860661a4e59b154e6f9d075cdd17e384a7d4a01cfc"
+      }
+    ],
+    "source_unchanged": true
+  },
+  "full_acceptance": "pending"
+}
