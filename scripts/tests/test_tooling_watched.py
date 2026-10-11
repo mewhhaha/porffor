@@ -95,6 +95,16 @@ class WatchedCommandTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("STALLED", result.stderr)
 
+    def test_completion_wakes_the_guard_before_a_long_poll_interval(self):
+        result = subprocess.run(
+            ["sh", str(SCRIPT), "--poll", "30", "--stall", "5", "--",
+             sys.executable, "-S", "-c", "print('completed')"],
+            cwd=self.root, capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("with status 0", result.stdout)
+        self.assertEqual((self.root / "target/watched/run.log").read_text(), "completed\n")
+
     def test_cpu_cap_is_still_used(self):
         capped = self.root / "scripts/capped.sh"
         capped.parent.mkdir()

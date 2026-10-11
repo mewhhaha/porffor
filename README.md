@@ -81,8 +81,13 @@ shared-core probe proves that two retained modules within
 measure about 24 ms instead of 130 ms; all three native controls pass in each
 configuration; all 28 current launcher controls pass. This is diagnostic evidence,
 not a general performance benchmark. Cloud retention is additionally bounded to
-one eighth of the inherited cap. Watched commands use `--poll 1` to reduce
-completion lag. Local verification retains its 4 GiB/no-swap/grouped-OOM policy.
+one eighth of the inherited cap. Watched commands wake immediately when the
+supervised process exits; log growth and stall limits remain periodically
+checked. For complete Rust test sweeps, keep the test child on one CPU even when
+Cargo compilation uses auto affinity: the engine library's first default pool
+follows CPU affinity, while later controls explicitly require one worker.
+Local verification retains its 4 GiB/no-swap/grouped-OOM policy. See the
+[verification repair checkpoint](docs/rust-rewrite/verification-repairs-20261011.md).
 Cargo's native-core producer also uses the existing bounded Cranelift function
 cache. Function, target and compiler-flag identities permit reuse across source
 edits; every build still emits and validates its current raw runtime, precompiles

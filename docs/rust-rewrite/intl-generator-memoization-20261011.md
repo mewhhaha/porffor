@@ -29,6 +29,9 @@ supplies a complete reproduction verdict. The first wrapper hid producer
 progress; the corrected wrapper streams it with the same 900-second stall
 budget. The second run was stopped at 151/1,082 profiles to measure this change.
 
-Complete pinned payload reproduction, Rust workspace/runtime, differential
-and current full Test262 acceptance remain required. Canonical conformance
+The later [verification repair checkpoint](verification-repairs-20261011.md)
+reproduces all 1,082 locales and 78 numbering systems: the complete 6,091,829-byte
+payload remains byte-identical. Its receipt preserves the original completed
+reproduction and the two stale identity checks repaired through their generators.
+Rust workspace/runtime, differential and current full Test262 acceptance remain required. Canonical conformance
 totals and task states are unchanged.

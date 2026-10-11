@@ -81,12 +81,23 @@ def main(argv=None) -> int:
     previous_handlers = {sig: signal.signal(sig, request_stop)
                          for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     process = None
+    completion_thread = None
     started = time.monotonic()
     status = 1
     try:
         with log.open("wb") as output:
             process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
                                        start_new_session=True)
+
+            def wake_on_completion():
+                process.wait()
+                stop.set()
+
+            # Log growth needs periodic checks; process completion does not.
+            # Wake immediately instead of adding a full polling interval to
+            # every short check in a serial verification batch.
+            completion_thread = threading.Thread(target=wake_on_completion, daemon=True)
+            completion_thread.start()
             last_growth = started
             previous_size = 0
             while True:
@@ -121,6 +132,8 @@ def main(argv=None) -> int:
         try:
             if process is not None:
                 terminate_group(process)
+            if completion_thread is not None:
+                completion_thread.join()
         finally:
             for sig, handler in previous_handlers.items():
                 signal.signal(sig, handler)

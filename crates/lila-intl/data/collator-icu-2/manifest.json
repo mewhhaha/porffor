@@ -160,11 +160,11 @@
     },
     {
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "0da2dcef529825c0ed9800127c113e0fabf99b03ee08d04a622ddaa677bec050"
+      "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
     },
     {
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "17cbaf61426ef76508f075c1f63d278e1d96bee469bce728e81b716373bfc250"
+      "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
     },
     {
       "path": "crates/lila-intl/src/collator_image/projection/rows.rs",
@@ -237,5 +237,5 @@
   "utf16_policy": "direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker",
   "available_locales_count": null,
   "available_sort_collations_count": null,
-  "data_sha256": "82900b7d51cae5a14541b7d8262b578ef383cace46ea5de9f02a02e5dd3a06e3"
+  "data_sha256": "9050f6e9e65849e7ba185f3216ea1ac3ebc25a54f32e5d7dda4169921a0caadf"
 }

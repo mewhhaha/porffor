@@ -1,5 +1,8 @@
 use lila_front::{parse, ParseOptions};
-use lila_ir::{lower, ExprIr, ForInitIr, GlobalDeclarationSetIr, StatementIr, TypedExpr};
+use lila_ir::{
+    lower, EnvironmentIdentifierOperationIr, EnvironmentIdentifierResolutionStart, ExprIr,
+    ForInitIr, GlobalDeclarationSetIr, SpecOperationIr, StatementIr, Strictness, TypedExpr,
+};
 
 fn declaration_evaluations<'a>(
     statements: &'a [StatementIr],
@@ -86,27 +89,32 @@ fn with_var_initializer_retains_reference_selection_and_declaration_completion()
         let [initializer] = initializers.as_slice() else {
             panic!("one variable initializer must retain empty completion: {initializers:?}");
         };
-        let ExprIr::MaterializeBinding {
-            value: selection,
-            body,
-            ..
-        } = &initializer.expr
-        else {
+        let ExprIr::EnvironmentIdentifier(identifier) = &initializer.expr else {
             panic!("the Object Environment Record selection must be retained: {initializer:?}");
         };
-        assert!(
-            matches!(selection.expr, ExprIr::Conditional { .. }),
-            "the Object Environment Record is selected before evaluating the initializer",
+        assert_eq!(identifier.name, "selected");
+        assert_eq!(identifier.strictness, Strictness::Sloppy);
+        assert_eq!(
+            identifier.resolution_start(),
+            EnvironmentIdentifierResolutionStart::GlobalEnvironment,
         );
-        let ExprIr::MaterializeBinding {
-            value: rhs_value, ..
-        } = &body.expr
+        let EnvironmentIdentifierOperationIr::AssignWithGlobalFallback { selection, value } =
+            &identifier.operation
         else {
-            panic!("the initializer is evaluated once, after the selection: {body:?}");
+            panic!("the initializer must retain its complete with/global Reference");
         };
         assert!(
-            matches!(rhs_value.expr, ExprIr::DeleteProperty { .. }),
-            "the initializer is bound after selection: {rhs_value:?}",
+            matches!(&selection.expr, ExprIr::Conditional { condition, .. }
+            if matches!(&condition.expr, ExprIr::SpecOperation {
+                operation: SpecOperationIr::WithEnvironmentHasBinding, ..
+            })),
+            "the Object Environment Record is selected before evaluating the initializer",
+        );
+        let operands: Vec<_> = identifier.operation.operands().collect();
+        assert_eq!(operands, [selection.as_ref(), value.as_ref()]);
+        assert!(
+            matches!(value.expr, ExprIr::DeleteProperty { .. }),
+            "the initializer is evaluated once, after selection: {value:?}",
         );
         assert_eq!(
             script.global_bindings.get("selected").unwrap().declarations,

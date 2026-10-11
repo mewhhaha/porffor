@@ -22,7 +22,9 @@ dependency identities. Named-zone identity precedes the locale-zone kernel;
 DateTime identity precedes its locale consumers; List precedes Duration.
 Profile payloads remain byte-identical. All fourteen identity/alias generator
 checks and nine formatting/repository guards pass. Complete pinned payload
-reproduction is still running; its completed scope needs a separate receipt.
+reproduction is complete in the later
+[verification repair checkpoint](verification-repairs-20261011.md), which records
+all active payload checks, the repaired Collator identity and exact log hashes.
 The first wrapper was deliberately stopped because it buffered the generator's
 progress. Its replacement streams that progress with the original 900-second
 stall budget; the stopped attempt supplies no complete reproduction verdict.

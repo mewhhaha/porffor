@@ -432,5 +432,6 @@
       "log": "target/intl-tooling-repair-20261011/check-22.log",
       "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
     }
-  ]
+  ],
+  "successor_payload_reproduction_receipt": "docs/rust-rewrite/verification-repairs-20261011.json"
 }

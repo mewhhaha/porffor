@@ -58,7 +58,7 @@
     {
       "bytes": 9251,
       "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
-      "sha256": "690fee8f2b1a56ce84a13a0b807875b77bfbc607a99fe069e2ed009397df0608"
+      "sha256": "52bc455f614bb1220fe1d30a859fdb0149038a6d3ea31b05698c7a6ea9a602c3"
     },
     {
       "bytes": 7792,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "cdb3656dc27783f08e3e476ad270ed1851fee6e08a2fa4a1d04ce584af92af6f",
+  "kernel_sha256": "fb508f8986ae615d020a24ff216c68886a435e4f39a4be22a18e4644dc50ef1f",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/lila-intl/src/collator/identity.rs",
-      "sha256": "a0c4ab4a0bf3864b59c5d8de3af47b28a077edae78b9244d108f6aa1dd346d5e"
+      "sha256": "7d5d377b075156115f791fe929ff60d6bbba8ee6af2182c6336c1bd42741c0ef"
     },
     {
       "bytes": 31472,

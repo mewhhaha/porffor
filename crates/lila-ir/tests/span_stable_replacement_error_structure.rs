@@ -170,29 +170,25 @@ fn replacement_failure_producers_preserve_all_six_conditions_and_their_order() {
 
 #[test]
 fn default_export_rewrite_exhaustively_maps_each_failure_without_reordering_output() {
-    let rewrite = bounded(
-        OWNER_SOURCE,
-        "fn rewrite_default_keywords(&self, start: usize, end: usize)",
-        "fn consume_optional_semicolon(&self, end: usize)",
-    );
+    let rewrite = bounded(OWNER_SOURCE, "fn rewrite_default_keywords(", "#[cfg(test)]");
     assert_eq!(
         code_without_whitespace(bounded(
             rewrite,
             "SourceEdit::replace_around_padding(",
             ".map_err(|error| match error {",
         )),
-        "self.source,start,end,&before_padding,DEFAULT_BINDING_ASSIGN,)"
+        "source,start,end,&before_padding,DEFAULT_BINDING_ASSIGN)"
     );
     let route = bounded(rewrite, ".map_err(|error| match error {", "        })");
     assert_eq!(
         code_without_whitespace(route),
         "SpanStableReplacementError::DoesNotFit=>StripError::new(format!(\
-         \"`exportdefault`binding`{name}`doesnotfitinthe{width}bytesitreplaces\\\
+         \"`exportdefault`binding`{name}`doesnotfitinthe{width}bytesitreplaces\
          afterpreservingitslineterminators\")),\
          SpanStableReplacementError::InvalidSpan=>StripError::new(format!(\
          \"`exportdefault`span{start}..{end}isnotaspanofthismodule'ssourcetext\")),\
          SpanStableReplacementError::GeneratedLineTerminator=>StripError::new(\
-         \"generated`exportdefault`declarationheadcontainsalineterminator\",),"
+         \"generated`exportdefault`declarationheadcontainsalineterminator\"),"
     );
     assert!(!route.contains("_ =>"));
 

@@ -5,13 +5,39 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Verification repair batch — 2026-10-11
+
+Complete active Intl payload reproduction passes, including all 1,082
+NumberFormat locales. Collator's current emitter identities and dependent
+locale-collations binding are refreshed normally. All sixteen current Intl
+source/image checks pass. CI checks the consumed timezone native image and adds
+the missing Collator check; historical timezone rows/report remain unchanged.
+The watcher now wakes immediately on process exit, with all eight focused
+cleanup/status controls passing. All 438 tooling tests and joined all-feature
+types pass; both repaired IR targets pass all six tests. The controls retain
+the parser-range rewrite and typed with/global Reference guarantees. See the
+[repair checkpoint](docs/rust-rewrite/verification-repairs-20261011.md).
+
+The all-feature workspace probe was interrupted after 168 complete scopes:
+3,359 passes, two IR failures and two documentation ignores. All 217 frontend
+and 969 AOT checks pass. Its incomplete engine scope saw 25 invalid-topology
+failure markers: auto affinity initialized two compilation workers before later
+controls explicitly required one. The same executable proves the conflict and
+passes both affected lifecycle controls under one test CPU. Future workspace
+drivers retain auto affinity for Cargo compilation, but nest the ordinary
+single-CPU cloud launcher around every test. Environment-only worker settings
+do not override the library's affinity-derived first default pool. Preserve all
+original receipts and archived transcripts. Fresh complete repaired-source
+verification, task completion and deletion remain pending.
+
 ## Intl source recovery — 2026-10-11
 
 The memoization checkpoint passes 432 tooling tests with zero failures/errors,
 including four new NumberFormat memoization controls. Bounded producer caches
 preserve exact data, provenance and coverage bytes for eight varied locales;
 the isolated extraction measures 15.145 seconds versus 20.705 initially.
-Complete pinned reproduction is still pending. See the
+Complete pinned NumberFormat reproduction now passes; see the verification
+repair receipt above and the
 [generator receipt](docs/rust-rewrite/intl-generator-memoization-20261011.md).
 The preceding source-recovery checkpoint passes 428 tests.
 Restore-and-pin repairs track the exact Unicode17 `UnicodeData.txt` and CLDR47
@@ -23,7 +49,7 @@ Complete Rust workspace/runtime, differential and pinned acceptance remain open.
 
 ## Worker source reuse and cloud drivers — 2026-10-11
 
-The latest complete tooling suite passes all 437 tests, including five new
+That worker/driver checkpoint passes all 437 tests, including five new
 cloud-driver controls. Differential/robustness/closure wrappers accept explicit
 `--cloud` and validate the inherited finite machine cap; local 4096 MiB policy,
 counts, deadlines and actual native acceptance remain unchanged. See the
@@ -34,7 +60,8 @@ controls pass; the persisted source and exact execution IDs are independently
 checked. The regenerated shortcut inventory changes three line numbers only.
 See the [worker receipt](docs/rust-rewrite/test262-worker-source-reuse-20261011.md).
 Complete workspace/ignored/default, differential and pinned acceptance remain
-pending. The independent Intl reproduction is still running.
+pending. Active Intl payload reproduction is now complete; see the repair
+checkpoint above.
 
 ## Cargo runtime reuse — 2026-10-11
 

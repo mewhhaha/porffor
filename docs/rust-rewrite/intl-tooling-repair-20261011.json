@@ -576,5 +576,6 @@
       "bytes": 175,
       "sha256": "8b2bb2832ff03bc5fea41ced167c0f1a31296b576f26ac52f8ac297a63258515"
     }
-  ]
+  ],
+  "successor_payload_reproduction_receipt": "docs/rust-rewrite/verification-repairs-20261011.json"
 }
