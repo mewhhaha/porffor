@@ -6589,6 +6589,20 @@ standard_builtin_catalog! {
         native: "",
     }
 
+    ErrorPrototypeStackGetter {
+        function: FunctionOrdinal(901) => "$builtin.Error.prototype.stack.get",
+        debug: "get Error.prototype.stack",
+        flags: [],
+        installer: None,
+        native: "get stack",
+    }
+    ErrorPrototypeStackSetter {
+        function: FunctionOrdinal(902) => "$builtin.Error.prototype.stack.set",
+        debug: "set Error.prototype.stack",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "set stack",
+    }
 }
 
 // Native metadata supplies both the initial public name and its frozen source

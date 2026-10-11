@@ -1,5 +1,16 @@
 # T24 — Globals, native errors, Annex B and remaining host-visible builtins
 
+## Error stack accessor proposal — 2026-10-11
+
+The getter/setter, internal native capture and optional oracle follow the exact
+stage-three proposal. All seventeen focused native controls, joined workspace
+types and twelve guards pass. The complete official selection passes 68/70 AOT
+and 70/70 oracle; both remaining AOT IDs reach the existing WeakMap/WeakSet
+runtime rejection. Implement the actual T05 weak/ephemeron facility and rerun
+those exact IDs. Full-suite acceptance and task closure remain open. See the
+[contract](../docs/rust-rewrite/contracts/error-stack-accessors.md) and
+[checkpoint](../docs/rust-rewrite/error-stack-accessors-20261011.md).
+
 ## ShadowRealm implementation batch — 2026-10-07 dry source
 
 The native family now has catalog and prototype publication, a strongly rooted

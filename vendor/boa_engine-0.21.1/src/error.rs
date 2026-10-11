@@ -1263,6 +1263,7 @@ impl JsNativeError {
             Error::with_shadow_entry(tag, position.0.clone()),
         );
 
+        Error::capture_stack_message(&o, &js_string!(message.as_ref()));
         o.create_non_enumerable_data_property_or_throw(
             js_string!("message"),
             js_string!(message.as_ref()),

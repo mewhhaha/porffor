@@ -1541,6 +1541,7 @@ gc_layout_registry! {
 
         struct NativeErrorObject => NativeErrorObjectSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            STACK: GcRef<StringValue>, Immutable, NonNullable;
         }
         struct MapIteratorObject => MapIteratorObjectSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;

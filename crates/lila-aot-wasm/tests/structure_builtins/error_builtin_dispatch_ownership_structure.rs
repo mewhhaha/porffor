@@ -214,11 +214,7 @@ fn error_builtin_is_the_exact_non_capability_dispatch_authority() {
     assert_eq!(exact_identifier_count(&lexical_probe, "ErrorBuiltin"), 1);
 
     let declaration = rust_code(
-        bounded(
-            ERROR_SOURCE,
-            "mod runtime_error;",
-            "enum ErrorCauseOptionsArgument",
-        ),
+        bounded(ERROR_SOURCE, "mod stack;", "enum ErrorCauseOptionsArgument"),
         true,
     );
     assert_eq!(
@@ -270,7 +266,9 @@ fn sole_error_emitter_consumes_every_dispatch_and_constructor_family() {
             consumer
                 .matches(&format!("NativeErrorKind::{kind}"))
                 .count(),
-            1,
+            // SuppressedError allocates directly here; AggregateError's
+            // typed allocation belongs to its preparation child module.
+            if kind == "SuppressedError" { 2 } else { 1 },
             "constructor family `{kind}`"
         );
     }

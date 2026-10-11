@@ -25,6 +25,7 @@ use crate::{
 use boa_gc::{Finalize, Trace};
 use boa_macros::js_str;
 
+mod stack;
 pub(crate) mod aggregate;
 pub(crate) mod eval;
 pub(crate) mod range;
@@ -142,6 +143,10 @@ pub enum ErrorKind {
 pub struct Error {
     pub(crate) tag: ErrorKind,
 
+    /// Captured implementation-defined text; ordinary properties never update it.
+    #[unsafe_ignore_trace]
+    pub(crate) stack: JsString,
+
     // The position of where the Error was created does not affect equality check.
     #[unsafe_ignore_trace]
     pub(crate) position: IgnoreEq<Option<ShadowEntry>>,
@@ -160,6 +165,7 @@ impl Error {
     pub fn new(tag: ErrorKind) -> Self {
         Self {
             tag,
+            stack: Self::stack_name(tag),
             position: IgnoreEq(None),
         }
     }
@@ -168,6 +174,7 @@ impl Error {
     pub(crate) fn with_shadow_entry(tag: ErrorKind, entry: Option<ShadowEntry>) -> Self {
         Self {
             tag,
+            stack: Self::stack_name(tag),
             position: IgnoreEq(entry),
         }
     }
@@ -176,6 +183,7 @@ impl Error {
     pub(crate) fn with_caller_position(tag: ErrorKind, context: &Context) -> Self {
         Self {
             tag,
+            stack: Self::stack_name(tag),
             position: IgnoreEq(context.vm.shadow_stack.caller_position()),
         }
     }
@@ -187,7 +195,13 @@ impl IntrinsicObject for Error {
         let builder = BuiltInBuilder::from_standard_constructor::<Self>(realm)
             .property(js_string!("name"), Self::NAME, attribute)
             .property(js_string!("message"), js_string!(), attribute)
-            .method(Self::to_string, js_string!("toString"), 0);
+            .method(Self::to_string, js_string!("toString"), 0)
+            .accessor(
+                js_string!("stack"),
+                Some(Self::stack_getter(realm)),
+                Some(Self::stack_setter(realm)),
+                Attribute::NON_ENUMERABLE | Attribute::CONFIGURABLE,
+            );
 
         #[cfg(feature = "experimental")]
         let builder = builder.static_method(Error::is_error, js_string!("isError"), 1);
@@ -206,7 +220,7 @@ impl BuiltInObject for Error {
 
 impl BuiltInConstructor for Error {
     const CONSTRUCTOR_ARGUMENTS: usize = 1;
-    const PROTOTYPE_STORAGE_SLOTS: usize = 3;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 5;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 1;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
@@ -246,6 +260,7 @@ impl BuiltInConstructor for Error {
             let msg = message.to_string(context)?;
 
             // b. Perform CreateNonEnumerableDataPropertyOrThrow(O, "message", msg).
+            Error::capture_stack_message(&o, &msg);
             o.create_non_enumerable_data_property_or_throw(js_string!("message"), msg, context);
         }
 

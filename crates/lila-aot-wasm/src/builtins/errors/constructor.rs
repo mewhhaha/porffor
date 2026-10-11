@@ -8,7 +8,7 @@ pub(super) struct ErrorConstructorPrototypeLocals(ValueLocals);
 /// An unpublished Error header. Publication installs the NativeErrorObject
 /// brand once, after constructor-specific own properties have been prepared.
 #[must_use]
-pub(super) struct PreparedNativeErrorInstance(GcLocal<OrdinaryObject>);
+pub(super) struct PreparedNativeErrorInstance(GcLocal<OrdinaryObject>, GcLocal<StringValue>);
 
 impl PreparedNativeErrorInstance {
     pub(super) fn header(&self) -> &GcLocal<OrdinaryObject> {
@@ -23,9 +23,13 @@ impl PreparedNativeErrorInstance {
     ) {
         let schema = builder.runtime_schema();
         let error = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<NativeErrorObject>()
-                .construct((GcOperand::reference(&self.0, schema),), function),
+            schema.struct_type::<NativeErrorObject>().construct(
+                (
+                    GcOperand::reference(&self.0, schema),
+                    GcOperand::reference(&self.1, schema),
+                ),
+                function,
+            ),
             function,
         );
         result.value().set_reference(&error, schema, function);
@@ -34,6 +38,7 @@ impl PreparedNativeErrorInstance {
         result.target().store(function);
         error.clear(function);
         self.0.clear(function);
+        self.1.clear(function);
     }
 }
 
@@ -60,7 +65,11 @@ impl FunctionBuilder<'_> {
             OrdinaryDefaultPrototype::MessageError(kind),
             function,
         )?;
-        let instance = self.emit_prepare_native_error_instance(prototype.value(), function)?;
+        let instance = self.emit_prepare_native_error_instance(
+            prototype.value(),
+            kind.native_error_kind(),
+            function,
+        )?;
         let message =
             self.emit_install_optional_error_message(instance.header(), &argument, function)?;
         self.emit_install_error_cause_from_arg(
@@ -68,7 +77,7 @@ impl FunctionBuilder<'_> {
             ErrorCauseOptionsArgument::MessageError,
             function,
         )?;
-        self.emit_install_error_stack_from_message(kind, instance.header(), &message, function)?;
+        self.emit_capture_error_stack_from_message(&instance, &message, function)?;
         message.clear(function);
         instance.publish(self, result, function);
         prototype.clear(function);
@@ -116,6 +125,7 @@ impl FunctionBuilder<'_> {
     pub(super) fn emit_prepare_native_error_instance(
         &mut self,
         prototype: &ValueLocals,
+        kind: NativeErrorKind,
         function: &mut Function,
     ) -> Result<PreparedNativeErrorInstance, EmitError> {
         let schema = self.runtime_schema();
@@ -123,7 +133,11 @@ impl FunctionBuilder<'_> {
             self.emit_alloc_plain_object_with_prototype(Some(prototype), function)?,
             function,
         );
-        Ok(PreparedNativeErrorInstance(header))
+        let stack = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(kind.as_str(), function)?,
+            function,
+        );
+        Ok(PreparedNativeErrorInstance(header, stack))
     }
 
     /// Undefined omits the own message. All other values are converted once,
@@ -163,48 +177,38 @@ impl FunctionBuilder<'_> {
 
     /// The implementation-defined stack is the native name plus the already
     /// converted message. It performs no observable name/message Gets.
-    fn emit_install_error_stack_from_message(
+    pub(super) fn emit_capture_error_stack_from_message(
         &mut self,
-        kind: ErrorMessageConstructorKind,
-        header: &GcLocal<OrdinaryObject>,
+        instance: &PreparedNativeErrorInstance,
         message: &GcLocal<StringValue>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let name = schema.reserve_gc_local(function).initialize(
-            self.emit_interned_string_reference(kind.native_error_kind().as_str(), function)?,
-            function,
-        );
         let empty = schema
             .reserve_gc_local(function)
             .initialize(self.emit_interned_string_reference("", function)?, function);
-        let stack = schema.reserve_value_local(function);
         self.emit_string_payload_equality_i32(message, &empty, function);
+        function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        stack.set_reference(&name, schema, function);
-        function.instruction(&Instruction::Else);
         let separator = schema.reserve_gc_local(function).initialize(
             self.emit_interned_string_reference(": ", function)?,
             function,
         );
         let prefix = schema.reserve_gc_local(function).initialize(
-            self.emit_concat_gc_strings(&name, &separator, function),
+            self.emit_concat_gc_strings(&instance.1, &separator, function),
             function,
         );
         let joined = schema.reserve_gc_local(function).initialize(
             self.emit_concat_gc_strings(&prefix, message, function),
             function,
         );
-        stack.set_reference(&joined, schema, function);
+        instance.1.replace(joined.load(schema, function), function);
         joined.clear(function);
         prefix.clear(function);
         separator.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_append_error_data(header, "stack", &stack, function)?;
-        stack.clear(function);
         empty.clear(function);
-        name.clear(function);
         Ok(())
     }
 }

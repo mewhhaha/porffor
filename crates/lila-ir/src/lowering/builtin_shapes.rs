@@ -3148,6 +3148,17 @@ impl<'a> ScriptLowerer<'a> {
                     false,
                 )),
             );
+            properties.insert(
+                "stack".to_string(),
+                ObjectShapeProperty::Accessor {
+                    getter: Some(ObjectAccessorShape {
+                        function_id: StandardBuiltinId::ErrorPrototypeStackGetter.function_id(),
+                    }),
+                    setter: Some(ObjectAccessorShape {
+                        function_id: StandardBuiltinId::ErrorPrototypeStackSetter.function_id(),
+                    }),
+                },
+            );
         }
         Box::new(HeapShape::Object(ObjectShape {
             provenance: HeapShapeProvenance::IntrinsicPrototype(builtin),
@@ -7838,6 +7849,19 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::SetPrototypeSizeGetter => (
                 ValueKind::Number,
                 KindSet::from_kind(ValueKind::Number),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ErrorPrototypeStackGetter => (
+                ValueKind::Dynamic,
+                KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                None,
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::ErrorPrototypeStackSetter => (
+                ValueKind::Undefined,
+                KindSet::from_kind(ValueKind::Undefined),
                 None,
                 ValueInfo::undefined(),
             ),

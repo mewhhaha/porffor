@@ -3020,6 +3020,12 @@ impl<'a> FunctionBuilder<'a> {
             }
             StandardBuiltinId::ErrorConstructor => self.emit_error_constructor_builtin(function)?,
             StandardBuiltinId::ErrorIsError => self.emit_error_is_error_builtin(function)?,
+            StandardBuiltinId::ErrorPrototypeStackGetter => {
+                self.emit_error_stack_getter_builtin(function)?
+            }
+            StandardBuiltinId::ErrorPrototypeStackSetter => {
+                self.emit_error_stack_setter_builtin(function)?
+            }
             StandardBuiltinId::EvalErrorConstructor => {
                 self.emit_eval_error_constructor_builtin(function)?
             }

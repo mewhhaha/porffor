@@ -19,7 +19,11 @@ impl FunctionBuilder<'_> {
             &prototype,
             function,
         );
-        let instance = self.emit_prepare_native_error_instance(&prototype, function)?;
+        let instance = self.emit_prepare_native_error_instance(
+            &prototype,
+            NativeErrorKind::AggregateError,
+            function,
+        )?;
         self.emit_append_error_data(instance.header(), "errors", errors, function)?;
         instance.publish(self, result, function);
         prototype.clear(function);

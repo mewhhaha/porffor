@@ -99,6 +99,7 @@ impl BuiltInConstructor for TypeError {
             let msg = message.to_string(context)?;
 
             // b. Perform CreateNonEnumerableDataPropertyOrThrow(O, "message", msg).
+            Error::capture_stack_message(&o, &msg);
             o.create_non_enumerable_data_property_or_throw(js_string!("message"), msg, context);
         }
 

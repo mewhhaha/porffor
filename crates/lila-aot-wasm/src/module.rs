@@ -748,6 +748,8 @@ pub(crate) fn standard_builtin_constructor_realm_slot(
         | StandardBuiltinId::DataViewPrototypeGetBigUint64
         | StandardBuiltinId::DataViewPrototypeSetBigUint64
         | StandardBuiltinId::ErrorPrototypeToString
+        | StandardBuiltinId::ErrorPrototypeStackGetter
+        | StandardBuiltinId::ErrorPrototypeStackSetter
         | StandardBuiltinId::ThrowTypeError
         | StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter
         | StandardBuiltinId::JsonParse

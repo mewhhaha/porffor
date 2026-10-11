@@ -1,5 +1,12 @@
 # Lila
 
+The Error stack accessor proposal is implemented in Wasm AOT and the optional
+oracle. All seventeen focused native controls, joined workspace types and twelve
+guards pass. The official selection passes 68/70 in AOT; both remaining cases
+reach existing WeakMap/WeakSet runtime rejection. The oracle passes all 70.
+Full-suite and task closure remain open. See the
+[accessor checkpoint](docs/rust-rewrite/error-stack-accessors-20261011.md).
+
 Cargo embeds the shared runtime images as immutable linked data through a
 separate `lila-runtime-image` crate. Engine metadata falls from about 288 MB to
 1.3–1.8 MB; image metadata is 3.8 KB. The checked producer, native admission and

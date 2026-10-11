@@ -20,6 +20,7 @@ mod aot_direct_eval_spread;
 mod aot_dynamic_source_capability;
 mod aot_embedded_module_graph;
 mod aot_empty_dynamic_functions;
+mod aot_error_stack_accessors;
 mod aot_execution_global_environment;
 mod aot_finite_indirect_eval;
 mod aot_fresh_script_global_lexicals;

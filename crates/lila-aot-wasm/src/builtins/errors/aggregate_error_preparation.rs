@@ -12,7 +12,11 @@ impl FunctionBuilder<'_> {
         message: &ValueLocals,
         function: &mut Function,
     ) -> Result<PreparedAggregateErrorLocal, EmitError> {
-        let instance = self.emit_prepare_native_error_instance(prototype, function)?;
+        let instance = self.emit_prepare_native_error_instance(
+            prototype,
+            NativeErrorKind::AggregateError,
+            function,
+        )?;
         let message =
             self.emit_install_optional_error_message(instance.header(), message, function)?;
         self.emit_install_error_cause_from_arg(
@@ -20,6 +24,7 @@ impl FunctionBuilder<'_> {
             ErrorCauseOptionsArgument::AggregateError,
             function,
         )?;
+        self.emit_capture_error_stack_from_message(&instance, &message, function)?;
         message.clear(function);
         Ok(PreparedAggregateErrorLocal(instance))
     }

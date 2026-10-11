@@ -9642,7 +9642,7 @@ impl<'a> ScriptLowerer<'a> {
     // `is_error_prototype_expr` and `is_error_constructor_expr` used to sit
     // here. The latter's only caller rejected `Error.stack` (and every native
     // error constructor's `.stack`) as an unsupported compiler slice. ECMA-262
-    // defines no `stack` property on those constructors or their prototypes, so
+    // defines no `stack` property on those constructors, so
     // the read is an ordinary [[Get]] that yields undefined unless the program
     // defined the property itself; it now lowers like any other property read.
 

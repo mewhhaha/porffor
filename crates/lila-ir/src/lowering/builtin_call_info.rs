@@ -36,7 +36,16 @@ impl<'a> ScriptLowerer<'a> {
                     "dynamic-source builtins must consume their resolved disposition before builtin result analysis"
                 )
             }
-            StandardBuiltinId::FunctionPrototype => Some(ValueInfo::undefined()),
+            StandardBuiltinId::FunctionPrototype | StandardBuiltinId::ErrorPrototypeStackSetter => {
+                Some(ValueInfo::undefined())
+            }
+            StandardBuiltinId::ErrorPrototypeStackGetter => Some(ValueInfo {
+                kind: ValueKind::Dynamic,
+                possible_kinds: KindSet::from_kind(ValueKind::String)
+                    .union(KindSet::from_kind(ValueKind::Undefined)),
+                heap_shape: None,
+                function_targets: FunctionTargetKnowledge::none(),
+            }),
             StandardBuiltinId::FunctionPrototypeSymbolHasInstance => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }

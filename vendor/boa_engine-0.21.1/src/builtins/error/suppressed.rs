@@ -77,6 +77,7 @@ impl BuiltInConstructor for SuppressedError {
         let message = args.get_or_undefined(2);
         if !message.is_undefined() {
             let message = message.to_string(context)?;
+            Error::capture_stack_message(&object, &message);
             object.create_non_enumerable_data_property_or_throw(
                 js_string!("message"),
                 message,

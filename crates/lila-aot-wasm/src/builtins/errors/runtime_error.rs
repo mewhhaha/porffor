@@ -191,9 +191,13 @@ impl FunctionBuilder<'_> {
         key.clear(&mut function);
         value.clear(&mut function);
         let error = schema.reserve_gc_local(&mut function).initialize(
-            schema
-                .struct_type::<NativeErrorObject>()
-                .construct((GcOperand::reference(&header, schema),), &mut function),
+            schema.struct_type::<NativeErrorObject>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::reference(&parameters.message, schema),
+                ),
+                &mut function,
+            ),
             &mut function,
         );
         error.load(schema, &mut function);
@@ -363,16 +367,25 @@ impl FunctionBuilder<'_> {
             self.emit_alloc_plain_object_with_prototype(Some(prototype), function)?,
             function,
         );
+        let stack = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("TypeError", function)?,
+            function,
+        );
         let error = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<NativeErrorObject>()
-                .construct((GcOperand::reference(&header, schema),), function),
+            schema.struct_type::<NativeErrorObject>().construct(
+                (
+                    GcOperand::reference(&header, schema),
+                    GcOperand::reference(&stack, schema),
+                ),
+                function,
+            ),
             function,
         );
         let value = schema.reserve_value_local(function);
         value.set_reference(&error, schema, function);
         result.set_throw(&value, function);
         self.emit_set_thrown_error_text(NativeErrorKind::TypeError, None, function)?;
+        stack.clear(function);
         value.clear(function);
         error.clear(function);
         header.clear(function);

@@ -4276,6 +4276,12 @@ require_regex_count "$wasm_promise_any_error" \
 check_raw_line_budget "$wasm_error_builtins" 400
 check_raw_line_budget "$wasm_aggregate_error_preparation" 100
 check_raw_line_budget "$wasm_error_constructor" 250
+wasm_error_stack="crates/lila-aot-wasm/src/builtins/errors/stack.rs"
+require_file "$wasm_error_stack"
+require_exact_line_count "$wasm_error_builtins" 'mod stack;' 1 'private Error stack owner'
+require_fixed_string_count "$wasm_error_stack" 'NativeErrorObjectSchema::STACK' 1 'getter reads native ErrorData storage'
+require_fixed_string_count "$wasm_error_constructor" 'self.emit_append_error_data(header, "stack"' 0 'constructors do not shadow the inherited stack accessor'
+check_raw_line_budget "$wasm_error_stack" 200
 
 wasm_promise_builtins="crates/lila-aot-wasm/src/builtins/promise.rs"
 require_file "$wasm_promise_builtins"

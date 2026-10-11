@@ -2,6 +2,7 @@
 
 use super::super::*;
 use super::{IntrinsicInstall, IntrinsicKey};
+use crate::objects::{AccessorDescriptor, AccessorGetter, AccessorSetter};
 
 impl FunctionBuilder<'_> {
     pub(crate) fn install_error_constructor_intrinsics(
@@ -24,6 +25,17 @@ impl FunctionBuilder<'_> {
             StandardBuiltinId::ErrorIsError,
             context.realm,
             true,
+            true,
+            function,
+        )?;
+        self.emit_install_intrinsic_accessor(
+            context.prototype,
+            IntrinsicKey::Name("stack"),
+            AccessorDescriptor::GetterAndSetter {
+                getter: AccessorGetter::new(StandardBuiltinId::ErrorPrototypeStackGetter),
+                setter: AccessorSetter::new(StandardBuiltinId::ErrorPrototypeStackSetter),
+            },
+            context.realm,
             true,
             function,
         )?;

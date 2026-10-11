@@ -11,6 +11,7 @@ mod constructor;
 mod promise_any;
 mod prototype_to_string;
 mod runtime_error;
+mod stack;
 
 enum ErrorBuiltin {
     IsError,
@@ -99,8 +100,11 @@ impl FunctionBuilder<'_> {
                         OrdinaryDefaultPrototype::SuppressedError,
                         function,
                     )?;
-                    let instance =
-                        self.emit_prepare_native_error_instance(prototype.value(), function)?;
+                    let instance = self.emit_prepare_native_error_instance(
+                        prototype.value(),
+                        NativeErrorKind::SuppressedError,
+                        function,
+                    )?;
                     let converted = self.emit_install_optional_error_message(
                         instance.header(),
                         &message,
@@ -113,6 +117,7 @@ impl FunctionBuilder<'_> {
                         &suppressed,
                         function,
                     )?;
+                    self.emit_capture_error_stack_from_message(&instance, &converted, function)?;
                     converted.clear(function);
                     instance.publish(self, &result, function);
                     prototype.clear(function);
@@ -301,11 +306,16 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let instance = self.emit_prepare_native_error_instance(prototype, function)?;
+        let instance = self.emit_prepare_native_error_instance(
+            prototype,
+            NativeErrorKind::SuppressedError,
+            function,
+        )?;
         if let Some(message) = message {
             let value = schema.reserve_value_local(function);
             value.set_reference(message, schema, function);
             self.emit_append_error_data(instance.header(), "message", &value, function)?;
+            self.emit_capture_error_stack_from_message(&instance, message, function)?;
             value.clear(function);
         }
         self.emit_append_error_data(instance.header(), "error", error, function)?;

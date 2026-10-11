@@ -5,6 +5,17 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Error stack accessor proposal — 2026-10-11
+
+Error.prototype.stack is implemented in Wasm AOT and the optional oracle.
+All seventeen focused native controls, joined all-feature/all-target types and
+twelve guards pass. The complete official proposal selection passes 68/70 AOT
+and 70/70 oracle. Both remaining AOT IDs are getter-no-error-data.js modes that
+construct WeakMap/WeakSet receivers and reach the explicit T05 runtime gap;
+implement actual weak roots/ephemerons without filtering those cases. Full-suite
+acceptance and task closure remain open. See the
+[checkpoint](docs/rust-rewrite/error-stack-accessors-20261011.md).
+
 ## Runtime image metadata boundary — 2026-10-11
 
 The verified batch moves immutable image data into a linked data archive through

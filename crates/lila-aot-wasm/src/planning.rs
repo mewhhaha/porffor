@@ -1560,6 +1560,17 @@ impl RuntimeBootstrapPlan {
                 self.require_standard_builtin(dependency);
             }
         }
+        if builtin == StandardBuiltinId::ErrorConstructor {
+            self.require_standard_builtin(StandardBuiltinId::ErrorPrototypeStackGetter);
+            self.require_standard_builtin(StandardBuiltinId::ErrorPrototypeStackSetter);
+        }
+        if matches!(
+            builtin,
+            StandardBuiltinId::ErrorPrototypeStackGetter
+                | StandardBuiltinId::ErrorPrototypeStackSetter
+        ) {
+            self.require_standard_builtin(StandardBuiltinId::ErrorConstructor);
+        }
         if builtin == StandardBuiltinId::DisposableStackPrototypeDispose {
             // DisposeResources constructs this intrinsic when a later disposer
             // suppresses an earlier abrupt completion.
@@ -1892,6 +1903,7 @@ impl RuntimeBootstrapPlan {
             builtin,
             StandardBuiltinId::IteratorPrototypeConstructorSetter
                 | StandardBuiltinId::IteratorPrototypeToStringTagSetter
+                | StandardBuiltinId::ErrorPrototypeStackSetter
         ) {
             // SetterThatIgnoresPrototypeProperties performs
             // [[GetOwnProperty]] through the descriptor builtin and
@@ -7545,7 +7557,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::IntlLocalePrototypeGetNumberingSystems
         | StandardBuiltinId::IntlLocalePrototypeGetHourCycles
         | StandardBuiltinId::IntlLocalePrototypeGetTextInfo => 0,
-        StandardBuiltinId::ErrorIsError => 1,
+        StandardBuiltinId::ErrorIsError | StandardBuiltinId::ErrorPrototypeStackSetter => 1,
         StandardBuiltinId::SuppressedErrorConstructor => 3,
         StandardBuiltinId::AggregateErrorConstructor => 2,
         StandardBuiltinId::ErrorConstructor
@@ -7564,6 +7576,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         | StandardBuiltinId::FunctionPrototype
         | StandardBuiltinId::FunctionPrototypeToString
         | StandardBuiltinId::ErrorPrototypeToString
+        | StandardBuiltinId::ErrorPrototypeStackGetter
         | StandardBuiltinId::ThrowTypeError
         | StandardBuiltinId::AbstractModuleSourceConstructor
         | StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter
