@@ -1,4 +1,4 @@
-# JavaScript weak integration — 2026-10-11 focused checkpoint
+# JavaScript weak integration — 2026-10-11 verified selection
 
 All sixteen WeakMap, WeakSet, WeakRef and FinalizationRegistry routes now use
 actual GC brands and the patched copying collector. Native resources hold weak
@@ -29,9 +29,16 @@ one libtest worker, include-ignored and the original fixture deadlines.
 
 The complete weak-feature source census contains 339 files and 677 execution
 IDs: 603 IDs in the four builtin directories plus 74 tagged cross-family,
-subclassing, object and staging IDs. Their execution and the 70 Error stack
-proposal IDs remain pending. Full suites and task closure remain open; no
-focused result changes the canonical pinned-suite denominator.
+subclassing, object and staging IDs. All 677 pass in Wasm AOT, as do all 70
+Error stack proposal IDs: 747 exact IDs, zero failures and zero timeouts.
+The execution keeps four case workers, one compilation job, the original
+60,000 ms execution timeout and the existing bounded cold compilation allowance.
+The first outer watcher interrupted the run because child checkpoints went to
+private log files. Its 240 successful WeakMap checkpoints were retained and
+revalidated by resume against the same compiler, sources and exact case set;
+the retry forwards progress to the watcher. This is a complete selected run
+with validated reuse. Full suites and task closure remain open; the canonical
+pinned-suite denominator is unchanged.
 
 The [receipt](weak-product-integration-20261011.json) retains the successful
 executable digests, exact native inventories, unchanged-source identities and

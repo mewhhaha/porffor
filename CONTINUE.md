@@ -4,9 +4,10 @@
 
 The sixteen routes, actual GC brands, kept-root job boundaries and finalization
 jobs pass nineteen focused native controls with zero failures or ignores.
-Joined all-feature/all-target types pass. The complete 677 weak-feature IDs
-and the 70 Error stack proposal IDs await execution; full-suite and task
-acceptance remains open. This supersedes older unavailable-product paragraphs
+Joined all-feature/all-target types pass. All 677 weak-feature IDs and all
+70 Error stack proposal IDs pass with zero failures or timeouts. The selected
+run reuses 240 exact validated checkpoints from the interrupted WeakMap attempt;
+full-suite and task acceptance remains open. This supersedes older unavailable-product paragraphs
 below. See the
 [integration checkpoint](docs/rust-rewrite/weak-product-integration-20261011.md).
 

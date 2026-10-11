@@ -3,8 +3,9 @@
 All four JavaScript weak families now use collector-backed storage and real
 job boundaries. Nineteen focused native controls and joined workspace types
 pass, including forced-GC reachability, finalization error reporting, CLI and
-Test262 accounting. The complete 677 weak-feature execution IDs and the 70
-Error stack IDs await execution; full acceptance remains open. The collector
+Test262 accounting. All 677 weak-feature execution IDs and all 70 Error stack
+IDs pass with zero failures or timeouts, including 240 exact validated resumed
+checkpoints. Full acceptance remains open. The collector
 foundation separately passes 22 native controls. See the
 [integration checkpoint](docs/rust-rewrite/weak-product-integration-20261011.md).
 
@@ -17,8 +18,8 @@ closure remain open. See the
 
 The Error stack accessor proposal is implemented in Wasm AOT and the optional
 oracle. All seventeen focused native controls, joined workspace types and twelve
-guards pass. The official selection passes 68/70 in AOT; both remaining cases
-reach existing WeakMap/WeakSet runtime rejection. The oracle passes all 70.
+guards pass. The current official selection passes all 70 in AOT after weak
+collection integration; the earlier oracle selection also passes all 70.
 Full-suite and task closure remain open. See the
 [accessor checkpoint](docs/rust-rewrite/error-stack-accessors-20261011.md).
 
