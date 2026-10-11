@@ -1270,6 +1270,10 @@ pub(super) fn emit_script_module(
         );
         register_runtime_helper!(RelationalComparison, compile_relational_comparison_helper);
         register_runtime_helper!(
+            EnvironmentIdentifierReadSloppy, compile_environment_identifier_read_sloppy_helper;
+            EnvironmentIdentifierReadStrict, compile_environment_identifier_read_strict_helper;
+            EnvironmentIdentifierReadTypeofSloppy, compile_environment_identifier_read_typeof_sloppy_helper;
+            EnvironmentIdentifierReadTypeofStrict, compile_environment_identifier_read_typeof_strict_helper;
             EnvironmentIdentifierResolve, compile_environment_identifier_resolve_helper;
             EnvironmentIdentifierGetSloppy, compile_environment_identifier_get_sloppy_helper;
             EnvironmentIdentifierGetStrict, compile_environment_identifier_get_strict_helper;

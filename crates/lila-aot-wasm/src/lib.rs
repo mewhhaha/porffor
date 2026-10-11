@@ -3434,14 +3434,10 @@ object[key];
             growth < 9_000,
             "nine With reads added {growth} bytes ({single_bytes} -> {repeated_bytes})"
         );
-        for artifact in [&single, &repeated] {
+        for (artifact, count) in [(&single, 1), (&repeated, 10)] {
             let runtime = artifact.runtime().expect("With reads link R");
             let runtime_names = function_names_in_bytes(runtime.bytes());
-            let indices = [
-                "helper::environment_identifier_resolve",
-                "helper::environment_identifier_get_sloppy",
-            ]
-            .map(|name| {
+            let indices = ["helper::environment_identifier_read_sloppy"].map(|name| {
                 *runtime_names
                     .iter()
                     .find(|(_, actual)| actual.as_str() == name)
@@ -3467,8 +3463,10 @@ object[key];
                             })
                             .collect::<Vec<_>>();
                         assert!(
-                            indices.iter().all(|helper| calls.contains(helper)),
-                            "the actual With probe calls both shared lookup bodies"
+                            indices.iter().all(|helper| {
+                                calls.iter().filter(|callee| *callee == helper).count() == count
+                            }),
+                            "each actual With read calls its complete shared body once"
                         );
                         found = true;
                     }

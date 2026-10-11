@@ -141,9 +141,45 @@ impl FunctionBuilder<'_> {
                 key.clear(function);
                 return Ok(());
             }
-            Operation::Read
-            | Operation::Typeof
-            | Operation::CaptureCallReference { .. }
+            Operation::Read | Operation::Typeof => {
+                let read = if matches!(identifier.operation, Operation::Typeof) {
+                    EnvironmentIdentifierRead::Typeof
+                } else {
+                    EnvironmentIdentifierRead::Value
+                };
+                // No source evaluation separates ResolveBinding and GetValue.
+                // Keep the held Reference entirely inside the shared runtime.
+                let record = match identifier.resolution_start() {
+                    EnvironmentIdentifierResolutionStart::CurrentEnvironment => {
+                        self.resolve_env_handle_local(0, function)
+                    }
+                    EnvironmentIdentifierResolutionStart::GlobalEnvironment => {
+                        let global = self.emit_source_global_environment_to_local(function);
+                        let record = schema
+                            .reserve_gc_local(function)
+                            .initialize(global.load(schema, function).nullable(), function);
+                        global.clear(function);
+                        record
+                    }
+                };
+                self.emit_environment_identifier_read_from_record(
+                    &key,
+                    identifier.strictness,
+                    read,
+                    record,
+                    &value,
+                    function,
+                )?;
+                if matches!(identifier.operation, Operation::Typeof) {
+                    self.emit_typeof_value(&value, output, function)?;
+                } else {
+                    output.copy_from(&value, function);
+                }
+                value.clear(function);
+                key.clear(function);
+                return Ok(());
+            }
+            Operation::CaptureCallReference { .. }
             | Operation::Assign { .. }
             | Operation::Delete
             | Operation::Update { .. }

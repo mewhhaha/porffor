@@ -12,6 +12,7 @@ use crate::runtime_helpers::{
 mod captured_identifier_reference;
 mod environment_identifier_get;
 mod environment_identifier_put;
+mod environment_identifier_read;
 mod environment_identifier_resolve;
 mod global_identifier_read;
 

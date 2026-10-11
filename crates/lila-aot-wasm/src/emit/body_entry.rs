@@ -110,6 +110,10 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::TemporalCalendarDifferenceDate
             | RuntimeHelperId::ObjectHasProperty
             | RuntimeHelperId::WithEnvironmentHasBinding
+            | RuntimeHelperId::EnvironmentIdentifierReadSloppy
+            | RuntimeHelperId::EnvironmentIdentifierReadStrict
+            | RuntimeHelperId::EnvironmentIdentifierReadTypeofSloppy
+            | RuntimeHelperId::EnvironmentIdentifierReadTypeofStrict
             | RuntimeHelperId::EnvironmentIdentifierResolve
             | RuntimeHelperId::EnvironmentIdentifierGetSloppy
             | RuntimeHelperId::EnvironmentIdentifierGetStrict

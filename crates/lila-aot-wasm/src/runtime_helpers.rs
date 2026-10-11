@@ -951,6 +951,10 @@ runtime_helper_domain! {
     AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
     AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierReadSloppy / EnvironmentIdentifierReadSloppyArguments / EnvironmentIdentifierReadSloppyParameters / "environment_identifier_read_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierReadStrict / EnvironmentIdentifierReadStrictArguments / EnvironmentIdentifierReadStrictParameters / "environment_identifier_read_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierReadTypeofSloppy / EnvironmentIdentifierReadTypeofSloppyArguments / EnvironmentIdentifierReadTypeofSloppyParameters / "environment_identifier_read_typeof_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    EnvironmentIdentifierReadTypeofStrict / EnvironmentIdentifierReadTypeofStrictArguments / EnvironmentIdentifierReadTypeofStrictParameters / "environment_identifier_read_typeof_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     EnvironmentIdentifierResolve / EnvironmentIdentifierResolveArguments / EnvironmentIdentifierResolveParameters / "environment_identifier_resolve" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => EnvironmentIdentifierResolution;
     EnvironmentIdentifierGetSloppy / EnvironmentIdentifierGetSloppyArguments / EnvironmentIdentifierGetSloppyParameters / "environment_identifier_get_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     EnvironmentIdentifierGetStrict / EnvironmentIdentifierGetStrictArguments / EnvironmentIdentifierGetStrictParameters / "environment_identifier_get_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
@@ -1071,6 +1075,10 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorYieldReturnReactions => HelperOwner::Runtime,
             Self::AsyncGeneratorAwaitReturnReactions => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierReadSloppy => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierReadStrict => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierReadTypeofSloppy => HelperOwner::Runtime,
+            Self::EnvironmentIdentifierReadTypeofStrict => HelperOwner::Runtime,
             Self::EnvironmentIdentifierResolve => HelperOwner::Runtime,
             Self::EnvironmentIdentifierGetSloppy => HelperOwner::Runtime,
             Self::EnvironmentIdentifierGetStrict => HelperOwner::Runtime,
@@ -1145,6 +1153,10 @@ impl RuntimeHelperId {
             Self::ValueToPropertyKey => true,
             Self::ObjectHasProperty => true,
             Self::WithEnvironmentHasBinding => true,
+            Self::EnvironmentIdentifierReadSloppy => true,
+            Self::EnvironmentIdentifierReadStrict => true,
+            Self::EnvironmentIdentifierReadTypeofSloppy => true,
+            Self::EnvironmentIdentifierReadTypeofStrict => true,
             Self::EnvironmentIdentifierResolve => true,
             Self::EnvironmentIdentifierGetSloppy => true,
             Self::EnvironmentIdentifierGetStrict => true,

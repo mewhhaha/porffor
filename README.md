@@ -1,4 +1,16 @@
 # Lila
+## 2026-10-11 complete-read follow-up
+
+The `c51cd5cd5` native attempt has 801 passes and eight failures across 809
+admitted controls. The ordinary-generator campaign now matches; seven generated
+campaigns still hit the original five-second AOT budget. A repeated With-read
+body-size control fails at 22,401 added bytes. Ordinary reads now keep resolve
+and get together in R, and libtest compilation can omit disposable incremental
+scratch while normal library caches remain reusable. The
+[implementation and actual acceptance boundary](docs/rust-rewrite/combined-read-repairs-20261011.md)
+retains every failure and unstarted scope. Full suites, pinned acceptance and
+ownership migration remain open.
+
 
 The latest complete-inventory attempt on `1ad5e2be0` runs 478 native tests:
 472 pass, six campaigns fail and none are ignored. The original five-second

@@ -40,10 +40,13 @@ The next verification driver uses a stable workspace package selection for
 every Cargo test selector. Duplicate target names are mapped by exact Cargo
 package ID, name and kind, with missing, duplicate and unexpected executables
 rejected. One selector build feeds separate native inventories and verdicts.
-Completed incremental caches can be retired during Cargo only after observing
-the producer's exact rustc process exit, its matching successful artifact, and
-the absence of a live compiler using that path. Dependencies, active compiler
-caches, runtime images, native worker counts and deadlines are preserved.
+The first cache monitor does not retire anything: rustc reports the shared
+incremental root, while the monitor expects the opaque child cache. Its empty
+retirement receipt cannot establish a disk bound. The subsequent opt-in
+libtest compiler wrapper omits incremental storage for test units, preserving
+normal library caches. Cleanup otherwise runs between Cargo producers under
+the Cargo lock. Dependencies, active compiler caches, runtime images, native
+worker counts and deadlines are preserved.
 
 Final all-target/all-feature workspace types, all 465 tooling controls, eleven
 repository guards and eight regenerated Intl reproduction checks pass. The
