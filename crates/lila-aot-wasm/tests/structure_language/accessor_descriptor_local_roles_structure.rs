@@ -168,6 +168,7 @@ fn every_definition_producer_names_getter_and_setter_roles() {
         ("intrinsics/array.rs", [1, 0, 0, 0]),
         ("intrinsics/binary_data.rs", [5, 0, 0, 0]),
         ("intrinsics/collections.rs", [5, 0, 0, 0]),
+        ("intrinsics/errors.rs", [1, 0, 0, 0]),
         ("intrinsics/intl.rs", [0, 1, 0, 0]),
         ("intrinsics/iterator.rs", [2, 0, 0, 0]),
         ("intrinsics/mod.rs", [0, 1, 1, 0]),
@@ -187,11 +188,11 @@ fn every_definition_producer_names_getter_and_setter_roles() {
         .collect::<Vec<_>>()
         .join("\n");
     for (role, count) in [
-        ("AccessorGetter::new(", 24),
-        ("AccessorSetter::new(", 3),
+        ("AccessorGetter::new(", 25),
+        ("AccessorSetter::new(", 4),
         ("AccessorGetterLocals::new(", 6),
         ("AccessorSetterLocals::new(", 5),
-        ("AccessorDescriptor::", 24),
+        ("AccessorDescriptor::", 25),
         ("AccessorDescriptorLocals::", 7),
     ] {
         assert_eq!(producers.matches(role).count(), count, "{role}");

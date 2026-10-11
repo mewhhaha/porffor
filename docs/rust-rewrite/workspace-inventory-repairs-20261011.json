@@ -1,0 +1,1962 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-11",
+  "scope": "Four exact inventory repairs and optional Linux native libtest debug stripping; complete acceptance remains open.",
+  "native": {
+    "state": "passed",
+    "source": {
+      "head": "74ef4d67fe10a300961d69d879da1de9d52f6628",
+      "patch_sha256": "cac9bfc26fe6e5da29905247cdb82d5cdf85c5d6f0726a9941812a4086376334",
+      "untracked": {
+        "scripts/test-shared-runtime-images/strip_debug.py": "ad4b342c20a8a5655019b30fdfff307764c8ba28ce9eaee51452a7986b188b16"
+      }
+    },
+    "driver_sha256": "0e42f0a5825d932e4abfb571b5a0c332358dbd4fb3346ccd26439b6d8c545783",
+    "tool_files": {
+      "scripts/test-shared-runtime-images/cc": "65af73c856185c00992137fb79e4302c71fed5a5c232fa50290fe4a13c8a7a84",
+      "scripts/test-shared-runtime-images/shared_image.py": "322d9af9d5aaf631f4261191f8771e3de6d4f850032fb6eec58f3d8da03415f8",
+      "scripts/test-shared-runtime-images/strip_debug.py": "ad4b342c20a8a5655019b30fdfff307764c8ba28ce9eaee51452a7986b188b16"
+    },
+    "scopes": [
+      {
+        "label": "runtime-link",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-aot-wasm",
+          "--test",
+          "runtime_link",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 1.742,
+        "executable": "target/debug/deps/runtime_link-9da4ee97878415e2",
+        "executable_bytes": 196106664,
+        "executable_sha256": "35f2cd037cf6bf09a38f2a6f8c5dded2bb50ad9f8f6db2c1a2906f3faf892afb",
+        "runtime_image_dependency": "no-live-runtime-image-symbols",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-runtime-link-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/runtime_link-9da4ee97878415e2",
+              "",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "host_import_function_indices_structure::authority_has_twenty_six_scalar_roles_and_one_required_role_plus_gc_imports",
+              "host_import_function_indices_structure::contract_and_t02_own_the_authority",
+              "host_import_function_indices_structure::named_registry_getters_are_the_only_raw_index_projections",
+              "host_import_function_indices_structure::role_and_authority_census_is_closed_over_product_sources",
+              "host_import_function_indices_structure::sole_producer_builds_every_typed_role_and_registry_stores_authority_intact",
+              "pooled_string_data::literal_length_grows_passive_data_without_expanding_bootstrap_code",
+              "rooted_snapshot_exports::snapshot_witness_exports_are_opt_in_actual_gc_globals",
+              "runtime_error_active_handler_structure::canonical_router_prefers_a_typed_active_target_and_returns_only_without_one",
+              "runtime_error_active_handler_structure::fresh_runtime_error_delegates_to_the_canonical_current_throw_router",
+              "runtime_error_active_handler_structure::strict_array_index_failure_and_internal_catch_remain_the_consumer_contract",
+              "runtime_import_reachability::exponentiation_retains_its_planned_host_dependency",
+              "runtime_import_reachability::observable_intrinsics_keep_callable_bodies_and_provider_imports",
+              "runtime_import_reachability::runtime_elision_keeps_the_experimental_wasm_gc_contract",
+              "runtime_import_reachability::runtime_free_ir_does_not_introduce_intl_or_clock_imports",
+              "runtime_import_reachability::unproven_ir_retains_ordinary_realm_bootstrap",
+              "runtime_regexp_entry_kind_structure::literal_allocation_and_static_slot_publication_require_a_compiled_program",
+              "runtime_regexp_entry_kind_structure::runtime_regexp_entry_kind_has_one_private_capability_free_owner",
+              "runtime_regexp_entry_kind_structure::runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies",
+              "thrown_error_diagnostic_kind_authority_structure::all_three_producers_forward_the_error_kind_they_already_own",
+              "thrown_error_diagnostic_kind_authority_structure::contract_and_task_record_the_authority_and_non_claim",
+              "thrown_error_diagnostic_kind_authority_structure::diagnostic_publication_follows_object_creation_and_precedes_throw_completion",
+              "thrown_error_diagnostic_kind_authority_structure::diagnostic_publisher_accepts_only_native_error_kind",
+              "unhandled_rejection_reporting_structure::contract_and_public_fixtures_pin_values_ordering_and_failure_precedence",
+              "unhandled_rejection_reporting_structure::public_rejection_cli_regressions_remain_registered",
+              "unhandled_rejection_reporting_structure::public_rejection_fixtures_require_reporting_without_source_print_calls"
+            ],
+            "passed": 25,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 41.651,
+            "log": "target/watched/workspace-inventory-repairs-runtime-link-0-74ef4d67f.log",
+            "log_sha256": "fb9d800af186b47fcc61a2db8c74562754754cbd7cf12f21f1af41c3cc7cfe3f"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/runtime_link-9da4ee97878415e2"
+        ]
+      },
+      {
+        "label": "iterator-policy",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-aot-wasm",
+          "--test",
+          "structure_async",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 3.082,
+        "executable": "target/debug/deps/structure_async-47e47b511d130383",
+        "executable_bytes": 229169904,
+        "executable_sha256": "6682710d8ffa40e2765a6dc0de49c26498cb4490850e5522a223ff9a13ad12a4",
+        "runtime_image_dependency": "no-live-runtime-image-symbols",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-iterator-policy-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/structure_async-47e47b511d130383",
+              "",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "async_array_destructuring_structure::actual_async_array_semantic_cohorts_emit_valid_existing_gc_records",
+              "async_array_destructuring_structure::rejected_await_and_normal_resume_consume_original_iterator_and_identifier_records",
+              "async_disposable_stack_dispose_completion_kind_structure::completion_kind_has_one_typed_store_and_two_typed_reads",
+              "async_disposable_stack_dispose_completion_kind_structure::completion_kind_serialization_is_exhaustive_and_exact",
+              "async_disposable_stack_dispose_completion_kind_structure::disposal_completion_kind_has_one_closed_typed_gc_domain",
+              "async_disposable_stack_dispose_completion_kind_structure::initialization_suppression_and_settlement_name_their_completion_routes",
+              "async_for_in_enumeration_structure::async_reference_and_whole_completion_cohort_uses_original_cursor_and_activation_edges",
+              "async_for_in_enumeration_structure::complete_async_head_proxy_and_body_regions_emit_the_original_native_enumeration_cursor",
+              "async_generator_await_using_structure::backend_owner_selects_layout_and_scope_compilation_exhaustively",
+              "async_generator_await_using_structure::backend_walker_awaits_and_dispatches_through_the_selected_owner",
+              "async_generator_await_using_structure::exact_inventory_and_durable_fixture_bound_the_claim",
+              "async_generator_await_using_structure::ir_makes_the_async_dispose_execution_owner_closed_and_distinct",
+              "async_generator_await_using_structure::lowering_mints_the_async_generator_owner_before_initializers_and_finalizes_once",
+              "async_generator_classic_loop_structure::mixed_classic_fixture_artifacts_validate_shared_gc_roots_and_reconstructed_control_frames",
+              "async_generator_complete_step_kind_structure::complete_step_kind_is_one_closed_domain_with_one_boolean_projection",
+              "async_generator_delegation_kind_structure::control_flow_has_exactly_one_producer_for_each_delegation_kind",
+              "async_generator_delegation_kind_structure::delegation_kind_is_the_exact_non_capability_two_row_domain",
+              "async_generator_for_in_structure::mixed_for_in_completion_fixture_emits_original_reference_cursor_and_request_owners",
+              "async_generator_for_in_structure::mixed_for_in_enumeration_fixture_emits_original_cursor_and_nested_lexical_ancestry",
+              "async_generator_switch_structure::mixed_switch_completion_fixture_emits_original_pending_completion_and_reference_edges",
+              "async_generator_switch_structure::mixed_switch_selection_fixture_emits_valid_caseblock_cells_and_original_queue",
+              "async_generator_synchronous_using_structure::backend_owner_exhaustively_selects_async_generator_authority",
+              "async_generator_synchronous_using_structure::exact_inventory_and_durable_consumer_bound_the_claim",
+              "async_generator_synchronous_using_structure::ir_requires_a_distinct_private_async_generator_capability",
+              "async_generator_synchronous_using_structure::lowering_selects_owner_and_rejects_initializer_suspension_before_lowering",
+              "async_generator_synchronous_using_structure::state_walkers_include_async_generator_body_but_never_generator_offsets",
+              "async_generator_with_structure::mixed_with_environment_fixture_emits_valid_original_gc_and_request_queue_owners",
+              "async_generator_with_structure::mixed_with_reference_and_completion_fixture_emits_original_retained_cells_and_cleanup",
+              "async_with_environment_structure::awaited_with_reference_selection_and_rejection_keep_original_invocation_cells",
+              "async_with_environment_structure::plain_async_with_semantic_cohort_emits_valid_existing_gc_environment_records",
+              "for_await_activation_layout_structure::activation_owner_is_must_use_and_capability_free",
+              "for_await_activation_layout_structure::allocation_does_not_attach_the_compiler_binding_view",
+              "for_await_activation_layout_structure::captured_iteration_cleanup_consumes_the_saved_gc_environment_authority",
+              "for_await_activation_layout_structure::contract_and_task_record_the_capability_boundary_and_nonclaims",
+              "for_await_activation_layout_structure::one_borrowed_owner_selects_typed_activation_resume_and_await_policies",
+              "for_await_iterator_symbol_domain_structure::async_symbol_precedes_the_nullish_sync_fallback",
+              "for_await_iterator_symbol_domain_structure::for_await_iterator_symbols_have_one_exhaustive_name_projection",
+              "for_await_iterator_symbol_domain_structure::well_known_symbol_reader_accepts_only_the_closed_domain",
+              "for_of_array_iterator_protocol_structure::every_array_iterator_path_uses_dynamic_protocol_values_without_a_kind_gate",
+              "for_of_array_iterator_protocol_structure::immediate_array_for_of_has_no_index_walk_ir_or_backend",
+              "for_of_array_iterator_protocol_structure::resumable_array_iteration_has_a_dedicated_sync_protocol_statement",
+              "for_of_string_iterator_protocol_structure::directly_awaiting_string_loop_bodies_use_the_resumable_sync_protocol",
+              "for_of_string_iterator_protocol_structure::generic_string_values_are_dynamic_and_iterator_lookup_boxes_in_the_current_realm",
+              "for_of_string_iterator_protocol_structure::immediate_string_for_of_has_no_code_point_walk_ir_backend_or_witness",
+              "generator_array_destructuring_structure::actual_array_pattern_semantic_cohorts_emit_valid_retained_record_gc_code",
+              "generator_array_destructuring_structure::nested_patterns_and_delegated_defaults_share_the_existing_gc_iterator_record",
+              "generator_delegate_property_domain_structure::delegate_property_domains_are_private_capability_free_and_single_owned",
+              "generator_delegate_protocol_error_authority_structure::every_generator_delegation_error_producer_names_its_protocol_failure",
+              "generator_delegate_protocol_error_authority_structure::generator_delegation_protocol_errors_have_one_private_closed_domain",
+              "generator_delegate_protocol_error_authority_structure::shared_delegation_checks_require_the_closed_error_authority",
+              "generator_delegate_protocol_error_authority_structure::the_protocol_error_projection_is_exhaustive_and_owns_the_diagnostics",
+              "generator_for_in_enumeration_structure::full_head_body_and_proxy_regions_emit_the_same_valid_native_cursor",
+              "generator_for_in_enumeration_structure::original_reference_and_pattern_heads_share_native_enumeration_and_retirement",
+              "generator_instance_prototype_structure::generator_instance_family_selects_its_own_realm_intrinsic_exhaustively",
+              "generator_instance_prototype_structure::generator_instance_prototype_has_one_private_owner",
+              "generator_with_environment_structure::complete_with_semantic_cohort_emits_valid_original_gc_environment_cells",
+              "generator_with_environment_structure::escaped_generator_switch_uses_original_captured_with_cells_across_resumes",
+              "generator_with_environment_structure::nested_with_and_iterator_finalizers_share_saved_native_parent_records",
+              "plain_async_classic_for_await_using_structure::backend_keeps_continue_inside_and_routes_every_terminal_edge_through_disposal",
+              "plain_async_classic_for_await_using_structure::backend_reconstructs_the_loop_environment_and_leaves_it_before_dispatch",
+              "plain_async_classic_for_await_using_structure::exact_inventory_and_durable_fixture_bound_the_verified_claim",
+              "plain_async_classic_for_await_using_structure::ir_owns_one_closed_nonempty_classic_for_async_dispose_capability",
+              "plain_async_classic_for_await_using_structure::lowering_holds_an_unfinished_owner_until_test_update_and_body_are_lowered",
+              "plain_async_for_of_await_using_structure::backend_disposes_and_awaits_before_choosing_next_or_iterator_close",
+              "plain_async_for_of_await_using_structure::backend_typestate_and_exhaustive_consumers_make_the_async_head_compile_visible",
+              "plain_async_for_of_await_using_structure::exact_inventory_is_raw_and_the_consumer_oracle_pins_the_lifecycle_boundary",
+              "plain_async_for_of_await_using_structure::ir_head_makes_the_repeating_async_capability_and_iterator_record_indivisible",
+              "plain_async_for_of_await_using_structure::lowering_holds_the_iterator_roles_until_the_body_has_allocated_source_states",
+              "plain_async_function_await_using_structure::backend_typestates_and_closed_entry_kinds_own_the_async_lifecycle",
+              "plain_async_function_await_using_structure::exact_inventory_and_durable_fixture_bound_the_claim",
+              "plain_async_function_await_using_structure::ir_owns_a_nonempty_async_resource_domain_and_closed_finalizer_states",
+              "plain_async_function_await_using_structure::lowering_selects_the_plain_async_owner_before_minting_one_finalizer",
+              "plain_async_function_synchronous_using_structure::analysis_and_lowering_mint_one_suspension_owned_async_capability",
+              "plain_async_function_synchronous_using_structure::async_state_traversal_enters_only_the_async_owned_scope_body",
+              "plain_async_function_synchronous_using_structure::backend_owner_exhaustively_selects_async_state_and_completion_authority",
+              "plain_async_function_synchronous_using_structure::durable_consumer_and_exact_two_execution_inventory_bound_the_claim",
+              "plain_async_function_synchronous_using_structure::ir_requires_a_distinct_private_async_function_capability",
+              "plain_async_sync_for_of_iterator_record_structure::backend_exhaustively_uses_each_resumable_value_storage_lifetime",
+              "plain_async_sync_for_of_iterator_record_structure::checked_body_preserves_structure_and_rejects_unowned_continuations",
+              "plain_async_sync_for_of_iterator_record_structure::closed_plan_couples_the_iterator_record_checked_body_states_and_environments",
+              "plain_async_sync_for_of_iterator_record_structure::closed_resumable_owner_selects_each_activation_body_and_completion_protocol",
+              "plain_async_sync_for_of_iterator_record_structure::lowering_allocates_typed_record_slots_and_never_synthesizes_an_array_walk",
+              "plain_async_sync_for_of_iterator_record_structure::planner_adds_every_persistent_record_local_to_the_deepest_child",
+              "plain_async_sync_for_of_iterator_record_structure::resumable_sync_for_of_emitter_has_one_private_child_owner_and_two_typed_routes",
+              "plain_async_sync_for_of_iterator_record_structure::runtime_oracles_cover_acquisition_close_errors_strings_and_fresh_bindings",
+              "plain_async_sync_for_of_iterator_record_structure::shared_identifier_head_and_generator_plan_are_validated_before_backend_use",
+              "plain_generator_synchronous_using_structure::backend_exhaustively_selects_local_or_activation_backed_capability_storage",
+              "plain_generator_synchronous_using_structure::durable_consumer_and_exact_two_execution_inventory_bound_the_claim",
+              "plain_generator_synchronous_using_structure::ir_requires_one_closed_execution_owner_and_private_generator_capability",
+              "plain_generator_synchronous_using_structure::lowering_selects_and_allocates_the_owner_before_any_resource_initializer",
+              "resumable_loop_iteration_environment_structure::async_generator_classic_for_registers_activation_owned_lexicals_before_loop_plan",
+              "sync_dispose_completion_continuation_structure::continuation_is_must_use_and_capability_free",
+              "sync_dispose_completion_continuation_structure::contract_and_task_record_the_one_way_continuation_boundary",
+              "sync_dispose_completion_continuation_structure::producers_move_one_continuation_into_the_sole_exhaustive_consumer",
+              "sync_iterator_consumer_capability_structure::consumer_routes_and_runtime_witness_are_a_closed_census",
+              "sync_iterator_consumer_capability_structure::each_shared_semantic_owner_constructs_one_consumer_and_borrows_it_for_the_full_walk",
+              "sync_iterator_consumer_capability_structure::shared_iterator_operations_borrow_consumer_and_project_the_error_realm",
+              "sync_iterator_consumer_capability_structure::sync_iterator_consumer_is_the_exact_capability_free_domain",
+              "sync_iterator_locals_release_ownership_structure::acquisition_publishes_a_complete_record_before_consuming_cleanup",
+              "sync_iterator_locals_release_ownership_structure::all_protocol_operations_borrow_before_the_owner_is_consumed",
+              "sync_iterator_locals_release_ownership_structure::release_ownership_contract_and_recursive_census_remain_closed",
+              "sync_iterator_locals_release_ownership_structure::sync_iterator_owner_exposes_only_a_borrowed_typed_record",
+              "synchronous_using_classic_for_structure::backend_nests_continue_inside_one_disposal_capability_and_restores_after_it",
+              "synchronous_using_classic_for_structure::branch_completion_survives_finalizers_and_is_consumed_at_its_target",
+              "synchronous_using_classic_for_structure::closed_initializer_keeps_the_classic_for_as_the_direct_control_owner",
+              "synchronous_using_classic_for_structure::focused_oracle_covers_the_exact_vendored_boundaries_without_broad_claims",
+              "synchronous_using_for_of_structure::backend_consumes_each_closed_head_and_disposes_before_loop_continue_or_close",
+              "synchronous_using_for_of_structure::closed_head_forces_resources_onto_the_generic_synchronous_protocol",
+              "synchronous_using_for_of_structure::comma_operands_route_abrupt_completion_before_the_right_operand",
+              "synchronous_using_for_of_structure::fixture_and_current_failure_cohort_bound_the_claim",
+              "synchronous_using_for_of_structure::lowering_keeps_tdz_and_protocol_decisions_at_the_closed_head_boundary",
+              "synchronous_using_scope_structure::acquisition_publishes_only_after_validation_then_initializes_the_binding",
+              "synchronous_using_scope_structure::ir_owns_one_statically_nonempty_synchronous_dispose_capability",
+              "synchronous_using_scope_structure::lowering_nests_reached_suffixes_without_generic_finally_or_double_initialization",
+              "synchronous_using_scope_structure::noncopyable_completion_is_captured_walked_in_reverse_folded_and_restored_once"
+            ],
+            "passed": 115,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 61.13,
+            "log": "target/watched/workspace-inventory-repairs-iterator-policy-0-74ef4d67f.log",
+            "log_sha256": "aad28e9e190f624260c61b20afcf39220070cca48b4c160576db8688685d351a"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/structure_async-47e47b511d130383"
+        ]
+      },
+      {
+        "label": "accessor-policy",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-aot-wasm",
+          "--test",
+          "structure_language",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 3.248,
+        "executable": "target/debug/deps/structure_language-a0ae0cb43ef897e0",
+        "executable_bytes": 97636032,
+        "executable_sha256": "8e2b77c6209d2b97b8dcf49ea02437ae28f41e7c02b98ec0f998e840c9eb41ca",
+        "runtime_image_dependency": "no-live-runtime-image-symbols",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-accessor-policy-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/structure_language-a0ae0cb43ef897e0",
+              "",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "accessor_descriptor_local_roles_structure::accessor_descriptor_roles_form_one_exact_nonempty_domain",
+              "accessor_descriptor_local_roles_structure::every_definition_producer_names_getter_and_setter_roles",
+              "accessor_descriptor_local_roles_structure::focused_accessor_behavior_and_evidence_remain_in_inventory",
+              "accessor_descriptor_local_roles_structure::intrinsic_materialization_preserves_nonempty_roles_and_order",
+              "accessor_descriptor_local_roles_structure::three_definition_boundaries_consume_the_typed_descriptor",
+              "append_target_scope_structure::append_helpers_accept_only_the_ordinary_header_and_share_one_projection",
+              "append_target_scope_structure::realm_array_bootstrap_publishes_only_the_initialized_exotic",
+              "arguments_binding_protocol_ownership_structure::binding_authority_is_one_private_non_cloneable_closed_lifecycle",
+              "arguments_binding_protocol_ownership_structure::binding_transition_moves_the_protocol_and_presence_cannot_recover_it",
+              "arguments_binding_protocol_ownership_structure::ownership_contract_and_task_record_the_verification_boundary",
+              "arguments_binding_protocol_ownership_structure::parameter_binding_consumes_authority_before_owned_initialization",
+              "arguments_callee_descriptor_structure::arguments_callee_define_boundary_accepts_only_one_validated_descriptor",
+              "arguments_callee_descriptor_structure::arguments_callee_definition_keeps_the_sole_complete_conversion_producer",
+              "arguments_callee_descriptor_structure::arguments_callee_uses_the_same_six_field_validated_gc_descriptor",
+              "arguments_callee_descriptor_structure::initial_callee_kind_and_updates_share_canonical_protocol_and_classification",
+              "arguments_index_descriptor_structure::arguments_index_define_has_one_typed_validated_boundary",
+              "arguments_index_descriptor_structure::dynamic_arguments_named_writes_never_enter_ordinary_object_storage",
+              "completion_exit_structure::public_rejection_regressions_retain_their_fixture_routes",
+              "completion_kind_registry_domain_structure::completion_kind_registry_contains_only_the_ordered_closed_domain",
+              "completion_kind_registry_domain_structure::completion_kind_registry_tests_use_enum_projections",
+              "conversion_abrupt_route_capability_structure::conversion_finishers_and_native_consumers_keep_their_abrupt_obligations",
+              "conversion_abrupt_route_capability_structure::conversion_routes_keep_exact_nonduplicable_domains_and_complete_outputs",
+              "descriptor_known_present_compatibility_structure::compatibility_borrows_complete_value_roles_without_raw_word_authority",
+              "descriptor_known_present_compatibility_structure::compatibility_exhaustively_projects_absent_known_and_runtime_presence",
+              "descriptor_known_present_compatibility_structure::compatibility_exhaustively_projects_known_and_runtime_flags",
+              "descriptor_known_present_compatibility_structure::fresh_runtime_errors_append_message_without_recursive_validation",
+              "descriptor_known_present_compatibility_structure::ordinary_and_indexed_definitions_share_the_complete_compatibility_check",
+              "descriptor_known_present_compatibility_structure::static_and_runtime_kind_terms_share_the_same_projection",
+              "destructuring_iterator_locals_ownership_structure::array_destructuring_borrows_one_bundle_then_releases_all_locals_in_reverse",
+              "destructuring_iterator_locals_ownership_structure::destructuring_iterator_locals_is_one_capability_free_reservation_bundle",
+              "destructuring_iterator_locals_ownership_structure::ownership_contract_and_recursive_source_census_remain_closed",
+              "destructuring_iterator_locals_ownership_structure::protocol_projection_borrows_the_bundle_without_transferring_its_release_owner",
+              "destructuring_iterator_step_kind_structure::contract_and_existing_cli_witnesses_pin_both_step_kinds",
+              "destructuring_iterator_step_kind_structure::exactly_three_array_element_producers_select_their_step_kind",
+              "destructuring_iterator_step_kind_structure::step_kind_exhaustively_owns_the_iterator_value_read",
+              "destructuring_iterator_step_kind_structure::step_kind_is_the_exact_private_no_capability_domain",
+              "destructuring_iterator_step_kind_structure::step_protocol_failures_use_the_typed_authority_after_marking_done",
+              "global_object_environment_compound_assignment_structure::all_eager_operators_preserve_the_rhs_and_global_reference_owner",
+              "global_object_environment_compound_assignment_structure::consumer_and_exact_current_pin_inventory_cover_the_durable_contract",
+              "global_object_environment_compound_assignment_structure::global_eager_assignments_retain_global_resolution_in_root_and_nested_owners",
+              "global_object_environment_compound_assignment_structure::shared_sealed_lifecycle_rechecks_get_and_put_before_exposing_result",
+              "global_object_environment_numeric_update_structure::all_numeric_modes_retain_global_resolution_for_declared_and_unknown_names",
+              "global_object_environment_numeric_update_structure::durable_consumer_and_exact_current_pin_inventories_bound_the_claim",
+              "global_object_environment_numeric_update_structure::global_update_keeps_the_record_while_parameter_and_capture_updates_keep_storage",
+              "global_object_environment_numeric_update_structure::one_private_fixed_role_carrier_drives_the_shared_numeric_lifecycle",
+              "may_throw_abrupt_route_ownership_structure::builtin_to_number_owner_routes_throw_to_cleanup_before_reading_number_bits",
+              "may_throw_abrupt_route_ownership_structure::contract_and_task_record_named_completion_ownership",
+              "may_throw_abrupt_route_ownership_structure::generic_abrupt_route_authority_is_absent",
+              "may_throw_abrupt_route_ownership_structure::get_v_owner_propagates_the_whole_abrupt_completion_before_publication",
+              "numeric_update_value_kind_structure::backend_consumers_are_exhaustive_and_have_no_impossible_kind_branch",
+              "numeric_update_value_kind_structure::contract_and_task_record_the_closed_numeric_update_boundary",
+              "numeric_update_value_kind_structure::every_numeric_update_ir_carrier_stores_the_closed_kind",
+              "numeric_update_value_kind_structure::numeric_update_kind_is_one_closed_domain_with_total_value_kind_projection",
+              "object_environment_logical_assignment_structure::durable_fixture_and_exact_current_pin_inventory_bound_the_claim",
+              "object_environment_logical_assignment_structure::pre_rhs_location_snapshot_and_closed_mapper_make_ordering_explicit",
+              "object_environment_logical_assignment_structure::shared_private_lifecycle_keeps_putvalue_inside_the_taken_branch",
+              "object_environment_logical_assignment_structure::with_selection_and_global_start_consume_one_selected_reference",
+              "object_literal_home_object_structure::durable_fixture_and_exact_current_failure_inventory_bound_the_claim",
+              "object_literal_home_object_structure::object_method_protocol_and_private_carrier_close_the_ir_domain",
+              "object_literal_home_object_structure::super_references_carry_receiver_and_parameter_initializers_gain_context_first",
+              "object_method_arrow_super_structure::analysis_mints_one_home_object_capability_before_capture_resolution",
+              "object_method_arrow_super_structure::exact_witnesses_controls_fixture_and_nonclaims_are_pinned",
+              "object_method_arrow_super_structure::lexical_super_owner_role_is_closed_and_protocol_derived",
+              "obsolete_builtin_emitter_absence_structure::live_neighboring_emitters_remain_owned_and_reachable",
+              "obsolete_builtin_emitter_absence_structure::obsolete_builtin_emitters_are_absent_from_backend_sources",
+              "obsolete_builtin_emitter_absence_structure::removal_has_frozen_source_evidence",
+              "obsolete_core_backend_api_absence_structure::live_neighboring_apis_remain_reachable",
+              "obsolete_core_backend_api_absence_structure::obsolete_core_backend_apis_are_absent",
+              "obsolete_core_backend_api_absence_structure::removal_has_frozen_source_evidence",
+              "obsolete_planning_analysis_absence_structure::live_planning_and_ir_authorities_remain",
+              "obsolete_planning_analysis_absence_structure::removal_has_frozen_source_evidence",
+              "obsolete_planning_analysis_absence_structure::unreachable_planning_analysis_is_absent",
+              "obsolete_static_generator_backend_absence_structure::retired_static_generator_protocol_has_no_producer_or_consumer",
+              "ordinary_property_eager_compound_assignment_structure::aot_typestate_forces_raw_key_get_result_and_putvalue_transitions",
+              "ordinary_property_eager_compound_assignment_structure::exact_a7_inventory_is_raw_unmasked_and_keeps_all_t3_controls",
+              "ordinary_property_eager_compound_assignment_structure::exhaustive_consumers_and_gc_owners_name_each_fused_phase",
+              "ordinary_property_eager_compound_assignment_structure::fixture_observes_all_eager_operators_and_the_reference_lifecycle",
+              "ordinary_property_eager_compound_assignment_structure::ir_owns_one_closed_ordinary_property_eager_reference",
+              "ordinary_property_eager_compound_assignment_structure::lowering_intercepts_all_eager_access_operators_before_generic_reference_decomposition",
+              "ordinary_property_eager_compound_assignment_structure::status_records_the_exact_baseline_and_keeps_the_batch_bounded",
+              "ordinary_property_logical_assignment_structure::durable_fixture_covers_reference_order_false_set_and_primitive_receiver",
+              "ordinary_property_logical_assignment_structure::exact_current_pin_false_set_cohort_and_independent_controls_stay_unmasked",
+              "ordinary_property_logical_assignment_structure::exhaustive_consumers_and_budget_name_the_fused_lifecycle",
+              "ordinary_property_logical_assignment_structure::ir_consumes_one_closed_ordinary_property_logical_reference",
+              "ordinary_property_logical_assignment_structure::lowering_intercepts_only_simple_property_logical_assignments",
+              "ordinary_property_numeric_update_structure::aot_typestate_forces_get_tonumeric_delta_put_and_result_publication",
+              "ordinary_property_numeric_update_structure::dry_status_records_the_exact_current_baseline_and_nonclaims",
+              "ordinary_property_numeric_update_structure::exact_a6_inventory_is_raw_unmasked_and_runs_in_both_modes",
+              "ordinary_property_numeric_update_structure::exhaustive_consumers_and_gc_owners_name_each_fused_phase",
+              "ordinary_property_numeric_update_structure::fixture_observes_all_modes_numeric_domains_and_reference_phases",
+              "ordinary_property_numeric_update_structure::ir_owns_one_closed_ordinary_property_numeric_update_reference",
+              "ordinary_property_numeric_update_structure::lowering_exhaustively_intercepts_simple_updates_before_decomposed_property_access",
+              "ordinary_property_plain_assignment_structure::exact_inventory_is_raw_unmasked_and_controls_remain_separate",
+              "ordinary_property_plain_assignment_structure::fixture_observes_the_plain_put_value_lifecycle",
+              "ordinary_property_plain_assignment_structure::ir_owns_one_closed_plain_assignment_reference",
+              "ordinary_property_plain_assignment_structure::lowering_builds_the_reference_before_rhs_and_intercepts_the_closed_ast_arm",
+              "ordinary_property_plain_assignment_structure::verified_status_records_the_exact_baseline_results_and_nonclaims",
+              "ordinary_set_receiver_fallback_structure::contract_and_existing_product_witness_pin_the_closed_seam",
+              "prepared_destructuring_property_key_ownership_structure::contract_task_and_existing_semantic_witness_name_the_boundary",
+              "prepared_destructuring_target_structure::focused_evidence_covers_direct_property_nested_and_private_writes",
+              "prepared_destructuring_target_structure::preparation_exhaustively_constructs_the_matching_target_variant",
+              "prepared_destructuring_target_structure::prepared_identifier_write_cannot_spell_an_environment_reference",
+              "prepared_destructuring_target_structure::prepared_target_is_one_private_must_use_capability_free_domain",
+              "prepared_destructuring_target_structure::write_consumes_only_the_prepared_target_without_a_parallel_ir_discriminant",
+              "private_element_entry_protocol_structure::private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner",
+              "shadowed_property_read_arm_absence_structure::private_types_and_imports_have_direct_owners",
+              "shadowed_property_read_arm_absence_structure::property_read_dispatch_has_one_whole_value_route",
+              "shadowed_property_read_arm_absence_structure::removal_has_frozen_source_evidence",
+              "shape_accessor_reference_selection_structure::exactly_nine_product_producers_choose_their_accessor_selection",
+              "shape_accessor_reference_selection_structure::shape_accessor_reference_selection_is_a_private_three_variant_domain",
+              "shape_accessor_reference_selection_structure::static_and_dynamic_shape_accessors_project_the_selection_directly",
+              "spec_operation_object_target_kind_structure::all_six_object_only_operations_consume_one_shared_runtime_admission",
+              "spec_operation_object_target_kind_structure::contract_and_task_record_shared_object_target_ownership",
+              "spec_operation_object_target_kind_structure::object_target_projection_classifies_the_complete_runtime_value",
+              "spec_operation_object_target_kind_structure::property_operations_keep_completed_key_and_original_receiver_authorities",
+              "stored_descriptor_role_relation_structure::complete_record_readers_bind_every_stored_role_to_its_named_field",
+              "stored_descriptor_role_relation_structure::contract_and_task_record_the_role_relation",
+              "stored_descriptor_role_relation_structure::stored_descriptor_read_and_compatibility_owners_have_a_closed_source_census",
+              "stored_descriptor_role_relation_structure::stored_descriptor_roles_are_exact_private_wrappers",
+              "stored_property_attributes_structure::one_exhaustive_projection_owns_both_descriptor_kinds",
+              "stored_property_attributes_structure::stored_property_attributes_is_the_exact_capability_free_domain",
+              "stored_property_attributes_structure::task_and_contract_record_the_stored_attribute_boundary",
+              "strict_equality_static_kind_structure::contract_and_task_record_total_strict_equality_ownership",
+              "super_property_reference_mutation_structure::aot_mutation_lifecycle_has_one_private_file_owner_and_closed_callers",
+              "super_property_reference_mutation_structure::aot_typestate_forces_one_key_coercion_get_and_putvalue",
+              "super_property_reference_mutation_structure::exhaustive_consumers_and_exact_evidence_inventory_remain_visible",
+              "super_property_reference_mutation_structure::fused_consumer_publishes_results_only_after_putvalue",
+              "super_property_reference_mutation_structure::ir_owns_one_closed_super_reference_mutation",
+              "super_property_reference_mutation_structure::lowering_intercepts_super_before_generic_update_and_keeps_rhs_in_the_fused_operation",
+              "try_clause_empty_completion_seed_structure::every_try_clause_entry_seeds_an_undefined_statement_result",
+              "try_clause_empty_completion_seed_structure::try_clause_entry_inventory_covers_three_try_six_catch_and_six_finally_paths",
+              "typeof_static_kind_structure::callable_objects_and_htmldda_override_the_default_in_spec_order",
+              "typeof_static_kind_structure::contract_and_task_record_the_runtime_value_typeof_owner",
+              "typeof_static_kind_structure::runtime_typeof_preserves_exact_primitive_spellings_and_the_object_default",
+              "typeof_static_kind_structure::typeof_evaluates_its_whole_operand_once_before_observing_the_result",
+              "unary_numeric_ir_structure::contract_and_behavior_witness_cover_both_unary_numeric_kinds",
+              "unary_numeric_ir_structure::lowering_keeps_to_number_and_to_numeric_domains_separate",
+              "unary_numeric_ir_structure::unary_plus_and_minus_have_distinct_ir_states",
+              "with_environment_compound_assignment_structure::consumer_and_exact_current_pin_inventory_cover_the_durable_contract",
+              "with_environment_compound_assignment_structure::lowering_exhausts_twelve_eager_ops_and_keeps_logical_assignment_out",
+              "with_environment_compound_assignment_structure::one_nonempty_noncopy_plan_owns_the_complete_compound_assignment",
+              "with_environment_compound_assignment_structure::selected_branch_orders_get_apply_put_and_result_on_one_object",
+              "with_environment_compound_assignment_structure::with_selection_keeps_its_object_and_distinguishes_global_from_local_fallback",
+              "with_environment_identifier_call_structure::aot_preserves_explicit_this_and_evaluates_arguments_after_the_callee",
+              "with_environment_identifier_call_structure::exact_witness_and_fixture_bound_the_claim",
+              "with_environment_identifier_call_structure::lowerer_intercepts_before_folds_and_keeps_fallback_runtime_authoritative",
+              "with_environment_identifier_call_structure::noncopy_plan_owns_the_only_callee_withbaseobject_product",
+              "with_environment_numeric_update_structure::consumer_and_exact_current_pin_inventory_cover_the_durable_contract",
+              "with_environment_numeric_update_structure::one_nonempty_noncopy_plan_owns_the_complete_numeric_update",
+              "with_environment_numeric_update_structure::selected_branch_orders_get_numeric_delta_put_and_result",
+              "with_environment_numeric_update_structure::with_updates_keep_object_selection_and_the_located_fallback_for_all_four_modes"
+            ],
+            "passed": 151,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 18.572,
+            "log": "target/watched/workspace-inventory-repairs-accessor-policy-0-74ef4d67f.log",
+            "log_sha256": "057aea3cdf0c52a660d80f57ce4593d196c270b156ee6fdb0c64b23633e52e61"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/structure_language-a0ae0cb43ef897e0"
+        ]
+      },
+      {
+        "label": "shared-engine",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-engine",
+          "--lib",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 57.725,
+        "executable": "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+        "executable_bytes": 186450960,
+        "executable_sha256": "3e3047a7874d09680b3a565a90a9a124505e86a2f56631931f84a5cc4a07a022",
+        "shared_runtime_image": {
+          "identity": {
+            "archive_sha256": "d419cf1aacaac5f98cfd74d0f7e71a7a38c9d96de226adc9595491a9002c73ab",
+            "linker_sha256": "4739514e3484915747c34b35007cd990235cc6b490b2d0525a61ac402ca16af9",
+            "builder_sha256": "322d9af9d5aaf631f4261191f8771e3de6d4f850032fb6eec58f3d8da03415f8",
+            "target": "x86_64-unknown-linux-gnu",
+            "schema": 2
+          },
+          "archive": "target/debug/build/lila-runtime-image-5f92f83740b20eb8/out/liblila_runtime_images.a",
+          "command": [
+            "/workspace/.lila-tools/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld",
+            "-flavor",
+            "gnu",
+            "-shared",
+            "--whole-archive",
+            "target/debug/build/lila-runtime-image-5f92f83740b20eb8/out/liblila_runtime_images.a",
+            "--no-whole-archive",
+            "-soname",
+            "liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so",
+            "-o",
+            "target/shared-test-runtime-images/liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so.tmp"
+          ],
+          "symbols": {
+            "LILA_RUNTIME_MANIFEST": {
+              "bytes": 172,
+              "sha256": "ef513b0be24463a9b64ab2097dbfaa7d33bb357bac12f429830e2c4b934a5be9"
+            },
+            "LILA_RUNTIME_NATIVE": {
+              "bytes": 246626768,
+              "sha256": "063235b79e84fb4067a414c1008644309d37a7e9995d8d29674fc16b47b7f87a"
+            },
+            "LILA_RUNTIME_PACKAGE": {
+              "bytes": 41161693,
+              "sha256": "08c10c1238fda1b35ea5da2d5f736a39875e675ad6b8a5a5ea0cb071224be08b"
+            }
+          },
+          "shared_sha256": "4312edc495cd75d31b7b22ebe2576e0e9482c92ccce2f31c1399c8b86f43a779",
+          "shared_bytes": 287790904
+        },
+        "sealed_link_event": {
+          "output": "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+          "executable_sha256": "3e3047a7874d09680b3a565a90a9a124505e86a2f56631931f84a5cc4a07a022",
+          "shared_image": "target/shared-test-runtime-images/liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so",
+          "identity": {
+            "archive_sha256": "d419cf1aacaac5f98cfd74d0f7e71a7a38c9d96de226adc9595491a9002c73ab",
+            "linker_sha256": "4739514e3484915747c34b35007cd990235cc6b490b2d0525a61ac402ca16af9",
+            "builder_sha256": "322d9af9d5aaf631f4261191f8771e3de6d4f850032fb6eec58f3d8da03415f8",
+            "target": "x86_64-unknown-linux-gnu",
+            "schema": 2
+          },
+          "parent_rustc_test": true,
+          "debug_sections": {
+            "command": [
+              "/usr/bin/objcopy",
+              "--strip-debug",
+              "target/debug/deps/lila_engine-bd7f2cc33ede506b"
+            ],
+            "tool_sha256": "403f90bbd5d26c8ab9a2ad51f56255b812e8858a83aa8740ee71791071ddb580",
+            "original_sha256": "807970780198bbc88561572c241d4f9acee172d0983f366ca161c11b1d5a63d9",
+            "original_bytes": 368369160,
+            "stripped_sha256": "3e3047a7874d09680b3a565a90a9a124505e86a2f56631931f84a5cc4a07a022",
+            "stripped_bytes": 186450960,
+            "seconds": 0.974,
+            "allocated_sections": {
+              ".interp": {
+                "kind": 1,
+                "flags": 2,
+                "address": 736,
+                "bytes": 28,
+                "alignment": 1,
+                "sha256": "9097c98ea70f6f3b01d50145eb72bf55ad1f4e9713bccf27bd6405d6254eed00"
+              },
+              ".note.ABI-tag": {
+                "kind": 7,
+                "flags": 2,
+                "address": 764,
+                "bytes": 32,
+                "alignment": 4,
+                "sha256": "6e48317ad93a8ac2dc04321465ede06d1274543fc8ab172e68171a9d684bb313"
+              },
+              ".note.gnu.build-id": {
+                "kind": 7,
+                "flags": 2,
+                "address": 796,
+                "bytes": 36,
+                "alignment": 4,
+                "sha256": "fc036f80bf7aef0553011de3709589187f46d253efdc8b3be557f2daed037c83"
+              },
+              ".dynsym": {
+                "kind": 11,
+                "flags": 2,
+                "address": 832,
+                "bytes": 4128,
+                "alignment": 8,
+                "sha256": "6687eb612080645f63a710045c61c6b3489103d07d40c61fc0a1c6518685599a"
+              },
+              ".gnu.version": {
+                "kind": 1879048191,
+                "flags": 2,
+                "address": 4960,
+                "bytes": 344,
+                "alignment": 2,
+                "sha256": "cb657afc01b81165b43c068e87db9a357b35ef885c00db7b83553f5d3f524298"
+              },
+              ".gnu.version_r": {
+                "kind": 1879048190,
+                "flags": 2,
+                "address": 5304,
+                "bytes": 496,
+                "alignment": 4,
+                "sha256": "a053d65b88da52970352fe008c27cffc8796f098e27d5f4ccc067656d4526046"
+              },
+              ".gnu.hash": {
+                "kind": 1879048182,
+                "flags": 2,
+                "address": 5800,
+                "bytes": 28,
+                "alignment": 8,
+                "sha256": "d2a1894ca408ec07007100fd9ae72d876ec3a35f9a596268987f877cd8ce28de"
+              },
+              ".dynstr": {
+                "kind": 3,
+                "flags": 2,
+                "address": 5828,
+                "bytes": 2546,
+                "alignment": 1,
+                "sha256": "999c24d8535a891e330d1e62c995c9f8ab33ae8aceade4bbf217dc8e7ba4d791"
+              },
+              ".rela.dyn": {
+                "kind": 4,
+                "flags": 2,
+                "address": 8376,
+                "bytes": 5941104,
+                "alignment": 8,
+                "sha256": "7b2a55b419a4cdc7935b43441fcc64d8f7103e2f712af07c6ef6eeb619978c56"
+              },
+              ".rela.plt": {
+                "kind": 4,
+                "flags": 66,
+                "address": 5949480,
+                "bytes": 264,
+                "alignment": 8,
+                "sha256": "0b3ff3b6b9ce063c111d74c84c1e0c64e8c42fdf81ec82853dceadedc8dea074"
+              },
+              ".rodata": {
+                "kind": 1,
+                "flags": 50,
+                "address": 5949760,
+                "bytes": 62726128,
+                "alignment": 64,
+                "sha256": "fcec34e92e601f408ed54c1100008d0fbf3ca81b7b3709c47ed12e500e5da17f"
+              },
+              ".gcc_except_table": {
+                "kind": 1,
+                "flags": 2,
+                "address": 68675888,
+                "bytes": 2478812,
+                "alignment": 4,
+                "sha256": "5f1213418e7e53abf404523d88826b88d6a163154479008513889df1af4a7007"
+              },
+              ".debug_gdb_scripts": {
+                "kind": 1,
+                "flags": 50,
+                "address": 71154700,
+                "bytes": 34,
+                "alignment": 1,
+                "sha256": "90b05a6111bee6fd5b996298dba2fda834c39fb2709fd7f2377455c439f84eee"
+              },
+              ".eh_frame_hdr": {
+                "kind": 1,
+                "flags": 2,
+                "address": 71154736,
+                "bytes": 1467388,
+                "alignment": 4,
+                "sha256": "654be4ec4c0bc24e8b4f0bfca5b3a0e83560312395ea8b62353e8ec29ae32d9d"
+              },
+              ".eh_frame": {
+                "kind": 1,
+                "flags": 2,
+                "address": 72622128,
+                "bytes": 6065728,
+                "alignment": 8,
+                "sha256": "b9a914035406bf27f4e1b47941e7365613d19950a8c0da0f5cd6aea2302c6fc5"
+              },
+              ".text": {
+                "kind": 1,
+                "flags": 6,
+                "address": 78691968,
+                "bytes": 58498981,
+                "alignment": 64,
+                "sha256": "e1d584b3f85bd1cc25332eedb7bae7eef6e243e012f63e99290edc91e815276f"
+              },
+              ".init": {
+                "kind": 1,
+                "flags": 6,
+                "address": 137190952,
+                "bytes": 23,
+                "alignment": 4,
+                "sha256": "796f881adf1516ce4d5a54d79937664ad7aa71dbc0a4d6ba5c543f1a5e1b2394"
+              },
+              ".fini": {
+                "kind": 1,
+                "flags": 6,
+                "address": 137190976,
+                "bytes": 9,
+                "alignment": 4,
+                "sha256": "66e6f54550612182b4ad78f30b140dd08318b968db3878de2db65fef87dc04d7"
+              },
+              ".plt": {
+                "kind": 1,
+                "flags": 6,
+                "address": 137190992,
+                "bytes": 192,
+                "alignment": 16,
+                "sha256": "fd91203276f385c237a07061cc904ef3ca4068a711e22e260d8957b216450bba"
+              },
+              ".tdata": {
+                "kind": 1,
+                "flags": 1027,
+                "address": 137195280,
+                "bytes": 272,
+                "alignment": 8,
+                "sha256": "4a47bf950f7b16dd92a9bea437378714d90503fc97c1cba4bca55c77ab8eb423"
+              },
+              ".tbss": {
+                "kind": 8,
+                "flags": 1027,
+                "address": 137195552,
+                "bytes": 1456,
+                "alignment": 8,
+                "sha256": null
+              },
+              ".fini_array": {
+                "kind": 15,
+                "flags": 3,
+                "address": 137195552,
+                "bytes": 8,
+                "alignment": 8,
+                "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
+              },
+              ".init_array": {
+                "kind": 14,
+                "flags": 2097155,
+                "address": 137195560,
+                "bytes": 16,
+                "alignment": 8,
+                "sha256": "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+              },
+              ".data.rel.ro": {
+                "kind": 1,
+                "flags": 2097155,
+                "address": 137195584,
+                "bytes": 2925432,
+                "alignment": 32,
+                "sha256": "504c075262eb4e679080dda207b56cc7fd9d9324c7da380b82a91b29dbfc278e"
+              },
+              ".dynamic": {
+                "kind": 6,
+                "flags": 3,
+                "address": 140121016,
+                "bytes": 512,
+                "alignment": 8,
+                "sha256": "5a917bf5ae10310a8ed78fb178ef287632a0f77172a8d82a7bf44b22355d2ac4"
+              },
+              ".got": {
+                "kind": 1,
+                "flags": 3,
+                "address": 140121528,
+                "bytes": 792432,
+                "alignment": 8,
+                "sha256": "7f165cdf5405c68315df5dd0462238c9870f60b9a2e9bf76f1f5fcb638301121"
+              },
+              ".got.plt": {
+                "kind": 1,
+                "flags": 3,
+                "address": 140913960,
+                "bytes": 112,
+                "alignment": 8,
+                "sha256": "b97118562da7231be9355feadc98de866ce3c2eb0a5e381144429b3c4a1a3b42"
+              },
+              ".relro_padding": {
+                "kind": 8,
+                "flags": 3,
+                "address": 140914072,
+                "bytes": 616,
+                "alignment": 1,
+                "sha256": null
+              },
+              ".tm_clone_table": {
+                "kind": 1,
+                "flags": 3,
+                "address": 140918168,
+                "bytes": 0,
+                "alignment": 8,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              },
+              ".data": {
+                "kind": 1,
+                "flags": 3,
+                "address": 140918176,
+                "bytes": 7472,
+                "alignment": 16,
+                "sha256": "6e8544bd6a58d1ffc402e7de400dc950b5167bb5fb6eab5cef5fb4e0937a858a"
+              },
+              ".bss": {
+                "kind": 8,
+                "flags": 3,
+                "address": 140925648,
+                "bytes": 1500,
+                "alignment": 8,
+                "sha256": null
+              }
+            },
+            "diagnostics": "DWARF source lines removed; global symbols and compiled panic locations retained"
+          }
+        },
+        "runtime_image_dependency": "shared",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-shared-engine-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+              "wasm_backend_characterization_matrix_locks_public_surface_and_outcomes",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "tests::wasm_backend_characterization_matrix_locks_public_surface_and_outcomes"
+            ],
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 7.76,
+            "log": "target/watched/workspace-inventory-repairs-shared-engine-0-74ef4d67f.log",
+            "log_sha256": "fd780081db51ac1903a422b2a1620ffa06fdf98846dab6356ff3fcf08130c51c"
+          },
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-shared-engine-1-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+              "embedded_runtime::tests::",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "embedded_runtime::tests::embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches",
+              "embedded_runtime::tests::embedded_runtime_matches_target_emission_and_preserves_native_compatibility_checks",
+              "embedded_runtime::tests::precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code"
+            ],
+            "passed": 3,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 7.189,
+            "log": "target/watched/workspace-inventory-repairs-shared-engine-1-74ef4d67f.log",
+            "log_sha256": "322ba94d3263ad1978e21b5caa237bbb8aee853e11a7e4f16ac554532563a1c2"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/lila_engine-bd7f2cc33ede506b"
+        ]
+      },
+      {
+        "label": "shared-fresh-program",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-engine",
+          "--test",
+          "runtime_cache",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 4.222,
+        "executable": "target/debug/deps/runtime_cache-ccb11b5dd930fee0",
+        "executable_bytes": 177269392,
+        "executable_sha256": "05f5478f4005cefa567c2d4e3c68f5110c5f56180e8504304214f1c73814df36",
+        "shared_runtime_image": {
+          "identity": {
+            "archive_sha256": "d419cf1aacaac5f98cfd74d0f7e71a7a38c9d96de226adc9595491a9002c73ab",
+            "linker_sha256": "4739514e3484915747c34b35007cd990235cc6b490b2d0525a61ac402ca16af9",
+            "builder_sha256": "322d9af9d5aaf631f4261191f8771e3de6d4f850032fb6eec58f3d8da03415f8",
+            "target": "x86_64-unknown-linux-gnu",
+            "schema": 2
+          },
+          "archive": "target/debug/build/lila-runtime-image-5f92f83740b20eb8/out/liblila_runtime_images.a",
+          "command": [
+            "/workspace/.lila-tools/rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld",
+            "-flavor",
+            "gnu",
+            "-shared",
+            "--whole-archive",
+            "target/debug/build/lila-runtime-image-5f92f83740b20eb8/out/liblila_runtime_images.a",
+            "--no-whole-archive",
+            "-soname",
+            "liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so",
+            "-o",
+            "target/shared-test-runtime-images/liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so.tmp"
+          ],
+          "symbols": {
+            "LILA_RUNTIME_MANIFEST": {
+              "bytes": 172,
+              "sha256": "ef513b0be24463a9b64ab2097dbfaa7d33bb357bac12f429830e2c4b934a5be9"
+            },
+            "LILA_RUNTIME_NATIVE": {
+              "bytes": 246626768,
+              "sha256": "063235b79e84fb4067a414c1008644309d37a7e9995d8d29674fc16b47b7f87a"
+            },
+            "LILA_RUNTIME_PACKAGE": {
+              "bytes": 41161693,
+              "sha256": "08c10c1238fda1b35ea5da2d5f736a39875e675ad6b8a5a5ea0cb071224be08b"
+            }
+          },
+          "shared_sha256": "4312edc495cd75d31b7b22ebe2576e0e9482c92ccce2f31c1399c8b86f43a779",
+          "shared_bytes": 287790904
+        },
+        "sealed_link_event": {
+          "output": "target/debug/deps/runtime_cache-ccb11b5dd930fee0",
+          "executable_sha256": "05f5478f4005cefa567c2d4e3c68f5110c5f56180e8504304214f1c73814df36",
+          "shared_image": "target/shared-test-runtime-images/liblila_runtime_images_a05380c07ba4472baf2776067e4bfc6516bf5fb16c329f1050a4bf9d32ee2091.so",
+          "identity": {
+            "archive_sha256": "d419cf1aacaac5f98cfd74d0f7e71a7a38c9d96de226adc9595491a9002c73ab",
+            "linker_sha256": "4739514e3484915747c34b35007cd990235cc6b490b2d0525a61ac402ca16af9",
+            "builder_sha256": "322d9af9d5aaf631f4261191f8771e3de6d4f850032fb6eec58f3d8da03415f8",
+            "target": "x86_64-unknown-linux-gnu",
+            "schema": 2
+          },
+          "parent_rustc_test": true,
+          "debug_sections": {
+            "command": [
+              "/usr/bin/objcopy",
+              "--strip-debug",
+              "target/debug/deps/runtime_cache-ccb11b5dd930fee0"
+            ],
+            "tool_sha256": "403f90bbd5d26c8ab9a2ad51f56255b812e8858a83aa8740ee71791071ddb580",
+            "original_sha256": "88a60099f1bcda2d5bfffd03c8fee0e76864903d3d0a6d28099004ba1f82cfe9",
+            "original_bytes": 356450936,
+            "stripped_sha256": "05f5478f4005cefa567c2d4e3c68f5110c5f56180e8504304214f1c73814df36",
+            "stripped_bytes": 177269392,
+            "seconds": 0.887,
+            "allocated_sections": {
+              ".interp": {
+                "kind": 1,
+                "flags": 2,
+                "address": 736,
+                "bytes": 28,
+                "alignment": 1,
+                "sha256": "9097c98ea70f6f3b01d50145eb72bf55ad1f4e9713bccf27bd6405d6254eed00"
+              },
+              ".note.ABI-tag": {
+                "kind": 7,
+                "flags": 2,
+                "address": 764,
+                "bytes": 32,
+                "alignment": 4,
+                "sha256": "6e48317ad93a8ac2dc04321465ede06d1274543fc8ab172e68171a9d684bb313"
+              },
+              ".note.gnu.build-id": {
+                "kind": 7,
+                "flags": 2,
+                "address": 796,
+                "bytes": 36,
+                "alignment": 4,
+                "sha256": "ae88a8fe2a3cb3ced1f932c3d243284a343d97ea745ac43dd6a67ab50421d522"
+              },
+              ".dynsym": {
+                "kind": 11,
+                "flags": 2,
+                "address": 832,
+                "bytes": 4248,
+                "alignment": 8,
+                "sha256": "24b3f67f461e3adf4fb8d63a0c4edfddd3a5cbe3ed76cd4397ad99cefe43b058"
+              },
+              ".gnu.version": {
+                "kind": 1879048191,
+                "flags": 2,
+                "address": 5080,
+                "bytes": 354,
+                "alignment": 2,
+                "sha256": "a42f68ead1e5af1ab046ae76eac0c7693b3edc71aef08216251b0abf84c6f5f2"
+              },
+              ".gnu.version_r": {
+                "kind": 1879048190,
+                "flags": 2,
+                "address": 5436,
+                "bytes": 528,
+                "alignment": 4,
+                "sha256": "6fe65f4224595866e5274531d1213405b339cbf7ff798423d9376b1bf0086415"
+              },
+              ".gnu.hash": {
+                "kind": 1879048182,
+                "flags": 2,
+                "address": 5968,
+                "bytes": 28,
+                "alignment": 8,
+                "sha256": "8a6a9192aa1a4f7cfa012185dca2f05e7f3563326d7aff7fbb28f350b5108933"
+              },
+              ".dynstr": {
+                "kind": 3,
+                "flags": 2,
+                "address": 5996,
+                "bytes": 2600,
+                "alignment": 1,
+                "sha256": "bc5160c71f73922c6d8032fcdf1a3ac574a19f8ea25dc2b6aac9ab47dd830fe1"
+              },
+              ".rela.dyn": {
+                "kind": 4,
+                "flags": 2,
+                "address": 8600,
+                "bytes": 5825520,
+                "alignment": 8,
+                "sha256": "da5a36e362769a66e66327ed2b45ae047fbfe6a7899c2e3cfd6b8bb779745c92"
+              },
+              ".rela.plt": {
+                "kind": 4,
+                "flags": 66,
+                "address": 5834120,
+                "bytes": 264,
+                "alignment": 8,
+                "sha256": "2357ee1cbab570e084b9b22936bc1bc85f603942161b57c67d8b0da19fe042a2"
+              },
+              ".gcc_except_table": {
+                "kind": 1,
+                "flags": 2,
+                "address": 5834384,
+                "bytes": 2322320,
+                "alignment": 4,
+                "sha256": "5c3055990df0261d394382c918338867df85d58fee13af313045060ffc409c45"
+              },
+              ".rodata": {
+                "kind": 1,
+                "flags": 50,
+                "address": 8156736,
+                "bytes": 60282344,
+                "alignment": 64,
+                "sha256": "f4c11dfec2d7c3b13cdc73f6224b86f94df6f7289489513cb4665189067fbf1f"
+              },
+              ".debug_gdb_scripts": {
+                "kind": 1,
+                "flags": 50,
+                "address": 68439080,
+                "bytes": 34,
+                "alignment": 1,
+                "sha256": "90b05a6111bee6fd5b996298dba2fda834c39fb2709fd7f2377455c439f84eee"
+              },
+              ".eh_frame_hdr": {
+                "kind": 1,
+                "flags": 2,
+                "address": 68439116,
+                "bytes": 1368588,
+                "alignment": 4,
+                "sha256": "722ac2f3f4d59bc937f6c573c685d549792f630fba1cdfe5674040c36cf1b1d5"
+              },
+              ".eh_frame": {
+                "kind": 1,
+                "flags": 2,
+                "address": 69807704,
+                "bytes": 5712168,
+                "alignment": 8,
+                "sha256": "26bc900de6e4e9b45649467510aa4b57327a4ed6ae4c58823b79933fdd3ff0ac"
+              },
+              ".text": {
+                "kind": 1,
+                "flags": 6,
+                "address": 75523968,
+                "bytes": 55494101,
+                "alignment": 64,
+                "sha256": "d932169ff2255837e20ab47b091ef3ef6beee4879e18422da1664e977f9f7b57"
+              },
+              ".init": {
+                "kind": 1,
+                "flags": 6,
+                "address": 131018072,
+                "bytes": 23,
+                "alignment": 4,
+                "sha256": "cdcae1ac9aba88de0fa227c4d336f6197c3c89f52083b559de366820344231f7"
+              },
+              ".fini": {
+                "kind": 1,
+                "flags": 6,
+                "address": 131018096,
+                "bytes": 9,
+                "alignment": 4,
+                "sha256": "66e6f54550612182b4ad78f30b140dd08318b968db3878de2db65fef87dc04d7"
+              },
+              ".plt": {
+                "kind": 1,
+                "flags": 6,
+                "address": 131018112,
+                "bytes": 192,
+                "alignment": 16,
+                "sha256": "65276f054ec43b8b521baaa0dca29298f2d690a53ec3828fca2455e8a901b8a1"
+              },
+              ".tdata": {
+                "kind": 1,
+                "flags": 1027,
+                "address": 131022400,
+                "bytes": 272,
+                "alignment": 8,
+                "sha256": "4a47bf950f7b16dd92a9bea437378714d90503fc97c1cba4bca55c77ab8eb423"
+              },
+              ".tbss": {
+                "kind": 8,
+                "flags": 1027,
+                "address": 131022672,
+                "bytes": 1456,
+                "alignment": 8,
+                "sha256": null
+              },
+              ".fini_array": {
+                "kind": 15,
+                "flags": 3,
+                "address": 131022672,
+                "bytes": 8,
+                "alignment": 8,
+                "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
+              },
+              ".init_array": {
+                "kind": 14,
+                "flags": 2097155,
+                "address": 131022680,
+                "bytes": 16,
+                "alignment": 8,
+                "sha256": "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+              },
+              ".data.rel.ro": {
+                "kind": 1,
+                "flags": 2097155,
+                "address": 131022720,
+                "bytes": 2603816,
+                "alignment": 32,
+                "sha256": "32d4293206cdf266ac40178e57c23e55b5f9f509d6b035ecc665b3f8d6fcc8b4"
+              },
+              ".dynamic": {
+                "kind": 6,
+                "flags": 3,
+                "address": 133626536,
+                "bytes": 512,
+                "alignment": 8,
+                "sha256": "c1207819b1f8b514c9a24711b70dd19ed6271d642f439e2f45d1dc25c1ce61d0"
+              },
+              ".got": {
+                "kind": 1,
+                "flags": 3,
+                "address": 133627048,
+                "bytes": 851936,
+                "alignment": 8,
+                "sha256": "885773497e592880efe6c3c4689655fe6ddd52ae4725b61712cfc2ea7c1bcc08"
+              },
+              ".got.plt": {
+                "kind": 1,
+                "flags": 3,
+                "address": 134478984,
+                "bytes": 112,
+                "alignment": 8,
+                "sha256": "c2f9d82f440f649ceae6ef86ca762bf19cb38c85d47a9395905cf576ce4b161a"
+              },
+              ".relro_padding": {
+                "kind": 8,
+                "flags": 3,
+                "address": 134479096,
+                "bytes": 776,
+                "alignment": 1,
+                "sha256": null
+              },
+              ".tm_clone_table": {
+                "kind": 1,
+                "flags": 3,
+                "address": 134483192,
+                "bytes": 0,
+                "alignment": 8,
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              },
+              ".data": {
+                "kind": 1,
+                "flags": 3,
+                "address": 134483200,
+                "bytes": 7416,
+                "alignment": 16,
+                "sha256": "58d761770d2063f316e15e73aa6b817ebeab063487eabb54cd4557e2f8a157dd"
+              },
+              ".bss": {
+                "kind": 8,
+                "flags": 3,
+                "address": 134490616,
+                "bytes": 1468,
+                "alignment": 8,
+                "sha256": null
+              }
+            },
+            "diagnostics": "DWARF source lines removed; global symbols and compiled panic locations retained"
+          }
+        },
+        "runtime_image_dependency": "shared",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-shared-fresh-program-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/runtime_cache-ccb11b5dd930fee0",
+              "embedded_runtime_executes_fresh_programs_without_a_native_runtime_compile",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "runtime_artifact_cache::embedded_runtime_executes_fresh_programs_without_a_native_runtime_compile"
+            ],
+            "passed": 1,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 18.485,
+            "log": "target/watched/workspace-inventory-repairs-shared-fresh-program-0-74ef4d67f.log",
+            "log_sha256": "e5a7b7485e7fdf03b965eee0577145e3e547165990fd46e11597ba17cfce72a5"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/runtime_cache-ccb11b5dd930fee0"
+        ]
+      },
+      {
+        "label": "cli-deadlines",
+        "state": "passed",
+        "build_command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "--all-features",
+          "-p",
+          "lila-cli",
+          "--test",
+          "test262_case_deadline",
+          "--no-run",
+          "--message-format=json"
+        ],
+        "build_exit": 0,
+        "build_seconds": 4.876,
+        "executable": "target/debug/deps/test262_case_deadline-360bdea3a0bc9317",
+        "executable_bytes": 8374936,
+        "executable_sha256": "0f56ee992f94c3976ac4791a9fa7a9b122ad80dc41c976b6adf55ca596fc939e",
+        "runtime_image_dependency": "no-live-runtime-image-symbols",
+        "tests": [
+          {
+            "command": [
+              "taskset",
+              "-c",
+              "0",
+              "./scripts/run-watched.sh",
+              "--label",
+              "workspace-inventory-repairs-cli-deadlines-0-74ef4d67f",
+              "--stall",
+              "900",
+              "--poll",
+              "1",
+              "--",
+              "python3",
+              "-B",
+              "scripts/limited_verification.py",
+              "--cloud",
+              "--",
+              "target/debug/deps/test262_case_deadline-360bdea3a0bc9317",
+              "",
+              "--test-threads=1",
+              "--include-ignored"
+            ],
+            "selected_tests": [
+              "default_supervisor_ignores_legacy_bypass_and_preserves_exact_compiler_identity",
+              "hidden_worker_rejects_directory_selection_without_writing_execution_evidence",
+              "reused_supervisor_preserves_semantic_failures_and_every_remaining_id",
+              "reused_supervisor_replaces_workers_at_the_bounded_request_limit",
+              "reused_worker_requests_have_fresh_realms_and_exact_independent_snapshots"
+            ],
+            "passed": 5,
+            "failed": 0,
+            "ignored": 0,
+            "exit_code": 0,
+            "seconds": 13.932,
+            "log": "target/watched/workspace-inventory-repairs-cli-deadlines-0-74ef4d67f.log",
+            "log_sha256": "3656ae8c6b7afac16fa1f40259a286231f41acad6fd6e64e3f5e5048afbf6a46"
+          }
+        ],
+        "pruned_completed_executables": [
+          "target/debug/deps/test262_case_deadline-360bdea3a0bc9317"
+        ]
+      }
+    ],
+    "source_unchanged": true
+  },
+  "native_passes": 301,
+  "types": {
+    "command": [
+      "cargo",
+      "check",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--all-features",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "log": "target/watched/workspace-inventory-repairs-types.log",
+    "log_sha256": "5fe71b8e35353beb8bc4724ce0bf9648208a1885495cf9a43af7e9deed332b49"
+  },
+  "guards": {
+    "state": "passed",
+    "source": {
+      "head": "74ef4d67fe10a300961d69d879da1de9d52f6628",
+      "patch_sha256": "cac9bfc26fe6e5da29905247cdb82d5cdf85c5d6f0726a9941812a4086376334",
+      "untracked": {
+        "scripts/test-shared-runtime-images/strip_debug.py": "ad4b342c20a8a5655019b30fdfff307764c8ba28ce9eaee51452a7986b188b16"
+      }
+    },
+    "driver_sha256": "d177cfddae04b423f5bb09393af84dcb456e719a0ec79c7d3485e6acbfb25740",
+    "native_test_cpus": [
+      0
+    ],
+    "scopes": [
+      {
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 6.237,
+        "log": "target/workspace-inventory-repairs-20261011/guards/0.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "HEAD",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.112,
+        "log": "target/workspace-inventory-repairs-20261011/guards/1.log",
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "./scripts/check-task-plan.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.466,
+        "log": "target/workspace-inventory-repairs-20261011/guards/2.log",
+        "log_sha256": "f6439be9f1315eea3d6d4e531a4e5c3d9f3bb5de5bf89dd385a2c6160e63de3b"
+      },
+      {
+        "command": [
+          "./scripts/tests/check-readme-status-artifacts.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.861,
+        "log": "target/workspace-inventory-repairs-20261011/guards/3.log",
+        "log_sha256": "25ff3c0111b92bbb50a93e501b868e0233c1a05d9b0bfca1e9f0dc95b84a5c8a"
+      },
+      {
+        "command": [
+          "./scripts/tests/audit-test262-shortcut-scanner.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 2.444,
+        "log": "target/workspace-inventory-repairs-20261011/guards/4.log",
+        "log_sha256": "2c90419cc695bad58c587effe9693d920791f6fa23ab767eb2f8a25a55423222"
+      },
+      {
+        "command": [
+          "./scripts/check-module-boundaries.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 10.181,
+        "log": "target/workspace-inventory-repairs-20261011/guards/5.log",
+        "log_sha256": "28facb4883a92c0e5cf71eef8a307812d139873c0ee34d1ce262125595b07219"
+      },
+      {
+        "command": [
+          "./scripts/audit-test262-shortcuts.sh",
+          "--check"
+        ],
+        "exit_code": 0,
+        "seconds": 0.601,
+        "log": "target/workspace-inventory-repairs-20261011/guards/6.log",
+        "log_sha256": "8cf5515c7330113a203b7c360cadf7f12d033eac5f9d0e16f7f2a88e921fc870"
+      },
+      {
+        "command": [
+          "./scripts/check-test262-host-abi.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.122,
+        "log": "target/workspace-inventory-repairs-20261011/guards/7.log",
+        "log_sha256": "90e76e8b52349598378cfbc4b4de3834c85bc593383db707f64e5525df8b195b"
+      },
+      {
+        "command": [
+          "./scripts/check-no-legacy-js.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.141,
+        "log": "target/workspace-inventory-repairs-20261011/guards/8.log",
+        "log_sha256": "23f652498aae7906b6d934dd7d962b03971cc3dcdb8add58222e0ebde99ae086"
+      },
+      {
+        "command": [
+          "./scripts/check-lila-identity.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 31.753,
+        "log": "target/workspace-inventory-repairs-20261011/guards/9.log",
+        "log_sha256": "a91c6925d8cf022c2129871b62499cc5f76d899b88d5fc7a71a9b140f2f32fec"
+      },
+      {
+        "command": [
+          "./scripts/check-no-interpreter-in-product-graph.sh"
+        ],
+        "exit_code": 0,
+        "seconds": 0.54,
+        "log": "target/workspace-inventory-repairs-20261011/guards/10.log",
+        "log_sha256": "1870a666bf384c895b80049fcdfb61fd51ab6c43ae5aa2ef9f888f7faeeff0a6"
+      },
+      {
+        "command": [
+          "python3",
+          "-B",
+          "scripts/check_conformance_source_pins.py"
+        ],
+        "exit_code": 0,
+        "seconds": 1.07,
+        "log": "target/workspace-inventory-repairs-20261011/guards/11.log",
+        "log_sha256": "85cb85643f5437e6b54080860661a4e59b154e6f9d075cdd17e384a7d4a01cfc"
+      }
+    ],
+    "source_unchanged": true
+  },
+  "eight_intl_reproduction_checks": {
+    "source_changed": false,
+    "all_exit_zero": true,
+    "commands": [
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-named-time-zones.py",
+        "--root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-time-zones-profile.py",
+        "--root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-datetime-identity.py",
+        "--repository",
+        ".",
+        "--calendar-root",
+        ".",
+        "--lock",
+        "Cargo.lock",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-hour-cycles-profile.py",
+        "--primary-root",
+        ".",
+        "--output-root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-text-profile.py",
+        "--primary-root",
+        ".",
+        "--output-root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-calendars-profile.py",
+        "--primary-root",
+        ".",
+        "--output-root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-collations-identity.py",
+        "--root",
+        ".",
+        "--check"
+      ],
+      [
+        "python3",
+        "-B",
+        "scripts/generate-intl-locale-numbering-systems-identity.py",
+        "--primary-root",
+        ".",
+        "--output-root",
+        ".",
+        "--check"
+      ]
+    ]
+  },
+  "copied_elf_probe": {
+    "original": "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+    "original_sha256": "29e9e669bf02ae6c27c88f808b07c8520e8f9f997789bd288b8e76e6b56bacbe",
+    "original_bytes": 368367888,
+    "copy_sha256": "e19a49a95dfb91519f3d8cddf16e4ed88a2ce6c369fb825b36c1ae67eef124a9",
+    "copy_bytes": 186449712,
+    "transformation": [
+      "/usr/bin/objcopy",
+      "--strip-debug",
+      "target/debug/deps/lila_engine-bd7f2cc33ede506b",
+      "target/case-worker-reuse-20261011/strip-probe-retry/engine-stripped"
+    ],
+    "transformation_seconds": 0.572,
+    "allocated_sections_identical": {
+      ".interp": {
+        "kind": 1,
+        "flags": 2,
+        "address": 736,
+        "bytes": 28,
+        "alignment": 1,
+        "sha256": "9097c98ea70f6f3b01d50145eb72bf55ad1f4e9713bccf27bd6405d6254eed00"
+      },
+      ".note.ABI-tag": {
+        "kind": 7,
+        "flags": 2,
+        "address": 764,
+        "bytes": 32,
+        "alignment": 4,
+        "sha256": "6e48317ad93a8ac2dc04321465ede06d1274543fc8ab172e68171a9d684bb313"
+      },
+      ".note.gnu.build-id": {
+        "kind": 7,
+        "flags": 2,
+        "address": 796,
+        "bytes": 36,
+        "alignment": 4,
+        "sha256": "344a652d5c9ba94e4693c4c7f6f1c8cd4d26165ec06801dfc060125679d5ee3d"
+      },
+      ".dynsym": {
+        "kind": 11,
+        "flags": 2,
+        "address": 832,
+        "bytes": 4128,
+        "alignment": 8,
+        "sha256": "6687eb612080645f63a710045c61c6b3489103d07d40c61fc0a1c6518685599a"
+      },
+      ".gnu.version": {
+        "kind": 1879048191,
+        "flags": 2,
+        "address": 4960,
+        "bytes": 344,
+        "alignment": 2,
+        "sha256": "cb657afc01b81165b43c068e87db9a357b35ef885c00db7b83553f5d3f524298"
+      },
+      ".gnu.version_r": {
+        "kind": 1879048190,
+        "flags": 2,
+        "address": 5304,
+        "bytes": 496,
+        "alignment": 4,
+        "sha256": "a053d65b88da52970352fe008c27cffc8796f098e27d5f4ccc067656d4526046"
+      },
+      ".gnu.hash": {
+        "kind": 1879048182,
+        "flags": 2,
+        "address": 5800,
+        "bytes": 28,
+        "alignment": 8,
+        "sha256": "d2a1894ca408ec07007100fd9ae72d876ec3a35f9a596268987f877cd8ce28de"
+      },
+      ".dynstr": {
+        "kind": 3,
+        "flags": 2,
+        "address": 5828,
+        "bytes": 2546,
+        "alignment": 1,
+        "sha256": "40fef1be6d9961a6bf2aceca0a1eb6ba07a254e4096592707c61555fc875bcff"
+      },
+      ".rela.dyn": {
+        "kind": 4,
+        "flags": 2,
+        "address": 8376,
+        "bytes": 5940648,
+        "alignment": 8,
+        "sha256": "d55350a138275741a4c2f3e7125c1728bed792239af309e66185bafc73203ccd"
+      },
+      ".rela.plt": {
+        "kind": 4,
+        "flags": 66,
+        "address": 5949024,
+        "bytes": 264,
+        "alignment": 8,
+        "sha256": "798d2e7b46fb8a8e752e137357a879d154a3c185b2d8680a062d173d2901f70b"
+      },
+      ".rodata": {
+        "kind": 1,
+        "flags": 50,
+        "address": 5949312,
+        "bytes": 62725616,
+        "alignment": 64,
+        "sha256": "8e5837844dd3c7f8457eecd5f70b58bc948772cc89eee7455eb4dd7bda3fff1b"
+      },
+      ".gcc_except_table": {
+        "kind": 1,
+        "flags": 2,
+        "address": 68674928,
+        "bytes": 2478812,
+        "alignment": 4,
+        "sha256": "5f1213418e7e53abf404523d88826b88d6a163154479008513889df1af4a7007"
+      },
+      ".debug_gdb_scripts": {
+        "kind": 1,
+        "flags": 50,
+        "address": 71153740,
+        "bytes": 34,
+        "alignment": 1,
+        "sha256": "90b05a6111bee6fd5b996298dba2fda834c39fb2709fd7f2377455c439f84eee"
+      },
+      ".eh_frame_hdr": {
+        "kind": 1,
+        "flags": 2,
+        "address": 71153776,
+        "bytes": 1467388,
+        "alignment": 4,
+        "sha256": "654be4ec4c0bc24e8b4f0bfca5b3a0e83560312395ea8b62353e8ec29ae32d9d"
+      },
+      ".eh_frame": {
+        "kind": 1,
+        "flags": 2,
+        "address": 72621168,
+        "bytes": 6065728,
+        "alignment": 8,
+        "sha256": "55d3d1e447d6d0ef67d595134985919f79860247ab92cc39828c652be0f0a41a"
+      },
+      ".text": {
+        "kind": 1,
+        "flags": 6,
+        "address": 78691008,
+        "bytes": 58498981,
+        "alignment": 64,
+        "sha256": "4d6547d93dd6c70b7322fc0864e3047b4ba3d4bf20f31f2da892f25b550137de"
+      },
+      ".init": {
+        "kind": 1,
+        "flags": 6,
+        "address": 137189992,
+        "bytes": 23,
+        "alignment": 4,
+        "sha256": "79ca31557c8b8b516af2266cfe1a612311fcb30db941790310eaa81d7bef5df7"
+      },
+      ".fini": {
+        "kind": 1,
+        "flags": 6,
+        "address": 137190016,
+        "bytes": 9,
+        "alignment": 4,
+        "sha256": "66e6f54550612182b4ad78f30b140dd08318b968db3878de2db65fef87dc04d7"
+      },
+      ".plt": {
+        "kind": 1,
+        "flags": 6,
+        "address": 137190032,
+        "bytes": 192,
+        "alignment": 16,
+        "sha256": "f76938f0adebca3c928ec0bbee1e8f4a88144939e1054690f40808eae08cd94e"
+      },
+      ".tdata": {
+        "kind": 1,
+        "flags": 1027,
+        "address": 137194320,
+        "bytes": 272,
+        "alignment": 8,
+        "sha256": "4a47bf950f7b16dd92a9bea437378714d90503fc97c1cba4bca55c77ab8eb423"
+      },
+      ".tbss": {
+        "kind": 8,
+        "flags": 1027,
+        "address": 137194592,
+        "bytes": 1456,
+        "alignment": 8,
+        "sha256": null
+      },
+      ".fini_array": {
+        "kind": 15,
+        "flags": 3,
+        "address": 137194592,
+        "bytes": 8,
+        "alignment": 8,
+        "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
+      },
+      ".init_array": {
+        "kind": 14,
+        "flags": 2097155,
+        "address": 137194600,
+        "bytes": 16,
+        "alignment": 8,
+        "sha256": "374708fff7719dd5979ec875d56cd2286f6d3cf7ec317a3b25632aab28ec37bb"
+      },
+      ".data.rel.ro": {
+        "kind": 1,
+        "flags": 2097155,
+        "address": 137194624,
+        "bytes": 2925144,
+        "alignment": 32,
+        "sha256": "ef7f47a899bbd9af631aaa09613c87b67ec591cd84ff91e816eb69d4fef664f3"
+      },
+      ".dynamic": {
+        "kind": 6,
+        "flags": 3,
+        "address": 140119768,
+        "bytes": 512,
+        "alignment": 8,
+        "sha256": "d9e1c2316049c9971f96a83eb94053bd5b2c90b36e370e45a52786a26508dd96"
+      },
+      ".got": {
+        "kind": 1,
+        "flags": 3,
+        "address": 140120280,
+        "bytes": 792432,
+        "alignment": 8,
+        "sha256": "7f165cdf5405c68315df5dd0462238c9870f60b9a2e9bf76f1f5fcb638301121"
+      },
+      ".got.plt": {
+        "kind": 1,
+        "flags": 3,
+        "address": 140912712,
+        "bytes": 112,
+        "alignment": 8,
+        "sha256": "199ad572bf2949383dc026e0139c2438d28004427d4a2e34c60075a300b64bf4"
+      },
+      ".relro_padding": {
+        "kind": 8,
+        "flags": 3,
+        "address": 140912824,
+        "bytes": 1864,
+        "alignment": 1,
+        "sha256": null
+      },
+      ".tm_clone_table": {
+        "kind": 1,
+        "flags": 3,
+        "address": 140916920,
+        "bytes": 0,
+        "alignment": 8,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      ".data": {
+        "kind": 1,
+        "flags": 3,
+        "address": 140916928,
+        "bytes": 7472,
+        "alignment": 16,
+        "sha256": "6e8544bd6a58d1ffc402e7de400dc950b5167bb5fb6eab5cef5fb4e0937a858a"
+      },
+      ".bss": {
+        "kind": 8,
+        "flags": 3,
+        "address": 140924400,
+        "bytes": 1500,
+        "alignment": 8,
+        "sha256": null
+      }
+    },
+    "global_symbols_identical": true,
+    "dynamic_tags_identical": true,
+    "selected_tests": [
+      "embedded_runtime::tests::embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches",
+      "embedded_runtime::tests::embedded_runtime_matches_target_emission_and_preserves_native_compatibility_checks",
+      "embedded_runtime::tests::precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code"
+    ],
+    "diagnostic_tradeoff": "Rust backtraces lose DWARF source lines; compiled panic locations remain in allocated readonly data; optional test-only proposal",
+    "exit_code": 0,
+    "test_seconds": 6.649,
+    "log_sha256": "c7cb66310a8b5b606cd3ca635f93f7c07a6fca5262007f47cd02fea87ff00527",
+    "completed_copy_pruned": true
+  },
+  "preceding_workspace_diagnosis": {
+    "head": "74ef4d67fe10a300961d69d879da1de9d52f6628",
+    "all_features": true,
+    "include_ignored": true,
+    "complete_target_states": {
+      "passed": 165,
+      "failed": 4,
+      "interrupted": 2,
+      "pending": 77
+    },
+    "completed_native_passes": 4229,
+    "completed_native_failures": 4,
+    "failure_scopes": [
+      {
+        "package": "lila-aot-wasm",
+        "target": "runtime_link",
+        "outcomes": [
+          {
+            "passed": 24,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log": "target/watched/workspace-workspace-all-74ef4d67f-20261011-0163-lila-aot-wasm-runtime_link.log",
+        "log_sha256": "ca3f6d060a94562049ba99410dd885012743347f413c274776ed52eae5a73ec7"
+      },
+      {
+        "package": "lila-aot-wasm",
+        "target": "structure_async",
+        "outcomes": [
+          {
+            "passed": 114,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log": "target/watched/workspace-workspace-all-74ef4d67f-20261011-0164-lila-aot-wasm-structure_async.log",
+        "log_sha256": "d23a426944c4e9543333febce2ab14a9d60d82c09a1f2420307e62aea40072d6"
+      },
+      {
+        "package": "lila-aot-wasm",
+        "target": "structure_language",
+        "outcomes": [
+          {
+            "passed": 150,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log": "target/watched/workspace-workspace-all-74ef4d67f-20261011-0166-lila-aot-wasm-structure_language.log",
+        "log_sha256": "c04b1e7696bfc282adf4dc32e910077d1913078271a19927c0d94ae3479a50e2"
+      },
+      {
+        "package": "lila-engine",
+        "target": "lila_engine",
+        "outcomes": [
+          {
+            "passed": 870,
+            "failed": 1,
+            "ignored": 0
+          }
+        ],
+        "log": "target/watched/workspace-workspace-all-74ef4d67f-20261011-0168-lila-engine-lila_engine.log",
+        "log_sha256": "88eb04e80fc8d40603aac6baa491a90f6111ba68978568b7b99048bd05e64011"
+      }
+    ],
+    "partial_scopes": [
+      {
+        "target": "aot_async",
+        "pass_markers": 159,
+        "failure_markers": 0
+      },
+      {
+        "target": "aot_builtins",
+        "pass_markers": 9,
+        "failure_markers": 0
+      }
+    ],
+    "watcher_exit_code": 143,
+    "raw_receipt": "target/workspace-all-74ef4d67f-20261011/interruption-checkpoint.json",
+    "raw_receipt_sha256": "e9f43ab29f2e2487109f4832961b4f1ee047fb34cd87359dfefa25ae205cd6b8"
+  },
+  "timing_regression": {
+    "unchanged_timeout_ms": 5000,
+    "first_seed": 1270,
+    "grammar": "metamorphic-stateful-v2",
+    "failed_backend": "wasm-aot",
+    "failure": "timeout",
+    "oracle": "primitive-completion plus complete print transcript",
+    "temporal_seed_3215": "not reached",
+    "log": "target/watched/temporal-campaign-original-5s-74ef4d67f.log",
+    "log_sha256": "c3b08da54953783ccfe3f7b0c7c7f4293622fb8465ed4b7f23b88439b16086e0",
+    "diagnostic_only_trace": "target/watched/cross-realm-original-5s-trace-idle-74ef4d67f.log",
+    "diagnostic_limitation": "older CLI controller versus fresh worker rejected journal identity; its stage trace is not acceptance evidence"
+  },
+  "prior_probe_failures": {
+    "copied_strip_probe": "private driver selected absent executable field; corrected to exact command executable",
+    "native_driver_first_attempt": "private script generation syntax error before execution; corrected; no native pass inferred"
+  }
+}

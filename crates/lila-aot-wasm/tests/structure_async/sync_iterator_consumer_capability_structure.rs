@@ -81,6 +81,8 @@ fn sync_iterator_consumer_is_the_exact_capability_free_domain() {
             "AggregateError,",
             "MapConstructor,",
             "SetConstructor,",
+            "WeakMapConstructor,",
+            "WeakSetConstructor,",
             "ObjectFromEntries,",
             "MapGroupBy,",
             "ObjectGroupBy,",
@@ -330,6 +332,8 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
         "AggregateError",
         "MapConstructor",
         "SetConstructor",
+        "WeakMapConstructor",
+        "WeakSetConstructor",
         "ObjectFromEntries",
         "MapGroupBy",
         "ObjectGroupBy",
@@ -444,8 +448,8 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
         assert!(evidence.contains("SyncIteratorConsumer"));
         assert!(evidence.contains("borrow"));
     }
-    // The retained contract records the earlier policy domain; the actual
-    // native record and complete closed policy projection are checked above.
+    // The contract records the current closed diagnostic policy and the
+    // separate linear native iterator owner checked above.
     assert!(CONTRACT.contains("ListFormat"));
     assert!(TASK.contains("capability-free"));
     assert!(TASK.contains("sync-iterator-consumer-capability.md"));

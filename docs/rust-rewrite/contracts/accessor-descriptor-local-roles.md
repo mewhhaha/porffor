@@ -27,7 +27,10 @@ definition preserves absent endpoints through descriptor compatibility.
 ## Scope and evidence
 
 This covers the named object-literal accessor boundary, intrinsic accessor
-installation, and the Function/Arguments restricted accessors. General
+installation, the Function/Arguments restricted accessors and the paired
+Error.prototype.stack getter/setter. The Error stack bootstrap producer uses
+`AccessorDescriptor::GetterAndSetter` with distinct typed endpoints; its existing
+getter, setter and borrowed-Realm native fixtures provide behavior controls. General
 `Object.defineProperty` and class descriptor construction continue through
 their separate validated descriptor-lattice owners. The migration preserves
 instruction and property order, flags, identities and Realm selection.
@@ -36,8 +39,9 @@ The source control pins the exact nonempty domain, all three borrowed
 signatures, intrinsic materialization ordering, the sole field projection,
 and the recursive producer/caller census. Existing object-form, class
 auto-accessor and TypedArray-accessor CLI fixtures remain focused behavioral
-controls. Current native and artifact verification is pending; the historical
-checkpoint below does not establish that this GC revision passes.
+controls. The complete current `structure_language` target passes 151 controls
+in the [repair checkpoint](../workspace-inventory-repairs-20261011.md). The
+historical checkpoint below retains its earlier source scope.
 
 ```sh
 cargo test -p lila-aot-wasm --test structure_language -- accessor_descriptor_local_roles_structure::

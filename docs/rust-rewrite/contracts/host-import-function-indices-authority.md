@@ -1,56 +1,55 @@
 # Host import function indices authority
 
-Status: implemented; includes the required typed runtime-semantics rejection capability.
+Status: implemented; includes scalar roles, typed GC capabilities and required runtime-semantics rejection.
 
 ## Closed host import roles
 
-The optional Wasm function indices for `number_pow`, `wall_clock_millis`,
-shared-memory allocation, `monotonic_clock_nanos`, `sleep_nanos`, `agent_call`,
-`intl_call`, `system_time_zone`, `random_f64`, and the twenty `math_*` transcendentals (`math_acos`
-through `math_tanh` plus `math_atan2`), plus the required
-`reject_runtime_semantics` index, cross emission planning through one non-copyable
-`HostImportFunctionIndices` authority. Each position accepts a distinct,
-non-derived Rust role type.
+Twenty-six optional scalar roles and one required rejection role cross emission
+planning through the non-copyable `HostImportFunctionIndices` authority. Each
+position accepts a distinct, non-derived Rust role type. The optional roles are
+Number power, wall clock, monotonic clock, sleep, agent call, random, and twenty
+`math_*` transcendentals. The twenty-seven named registry getters are the sole
+raw-index projections into Wasm `call` instructions.
 
-Previously `emit.rs` passed eight adjacent `Option<u32>` values to
-`FunctionMetaRegistry::new`. Transposing two values compiled and could route a
-generated `call` to the wrong imported capability or Wasm signature. The typed
-constructor now rejects such a transposition. There is one complete producer,
-and `FunctionMetaRegistry` stores the authority intact rather than flattening it
-back into raw fields.
+Previously `emit.rs` passed adjacent `Option<u32>` indices to
+`FunctionMetaRegistry::new`. Transposing two values compiled and could select the
+wrong imported capability or signature. The typed constructor rejects such a
+transposition. One complete producer builds the authority, and the registry
+stores it intact.
 
-The thirty named registry getters are the only raw-index projections.
-They remain the semantic boundary at which a role-specific index becomes the
-`u32` required by `wasm_encoder::Instruction::Call`; all downstream callers and
-the twenty-nine optional import roles preserve their order. The configured-zone role is claimed after the existing optional math roles, so
-existing optional indices retain their relative order. It reuses the registered
-`(i64) -> i64` signature and has a consumed immutable Realm primitive caller.
-The required rejection import follows them, takes one closed-domain `i64` reason code and returns no value. Its
-index cannot be absent: any dynamically selected intrinsic can require this
-capability, including one reached through a property or proxy. The wire domain
-also carries explicitly owned compiler gaps such as incomplete Temporal
-rounding-window operations; those gaps do not change the import's position or unary signature.
-
-## Durable evidence
-
-`host_import_function_indices_structure` uses a Rust lexical scanner that
-excludes comments and all Rust string and character literal forms. It pins the
-thirty exact role types (twenty-nine optional and one required), lack of derived capabilities, authority fields and
-constructor, recursive source census, sole complete producer, intact registry
-storage, and the thirty named sole projections.
-
-On 2026-08-27, its five focused structure tests passed, as did
-`cargo check -p lila-aot-wasm`. Six existing emission witnesses passed for the
-Number power, Date clock, `Math.random`, Intl, Test262 agent, and Atomics
-timeout import paths. Rustfmt's check mode and `git diff --check` also passed
-for the scoped source, test, task, and contract files.
-
-The role authority does not claim that every host capability or Test262 lane
-is complete. The rejection import adds an execution capability boundary;
-its typed error is not a JavaScript completion and remains non-passing in
-Test262. See [dynamic-source-capability.md](dynamic-source-capability.md) and
+The required `reject_runtime_semantics` index follows the scalar roles. Its
+closed-domain `i64` reason code returns no value. This compiler capability error
+is not a JavaScript completion and remains non-passing in Test262. See
+[dynamic-source-capability.md](dynamic-source-capability.md) and
 [temporal-named-zone-authority.md](temporal-named-zone-authority.md).
 
-The configured-zone extension and its updated closed-role structural census are
-staged with the Date local-time batch. Their compile and runtime checks are
-pending; the earlier dated checkpoint above describes the original authority.
+## GC host capabilities
+
+GC-reference signatures have a separate closed `GcHostImport` authority.
+Shared-buffer allocation, Intl provider calls and system timezone snapshots
+moved here; their retired scalar role types have no product references.
+`GcHostImports::plan` exhaustively selects each static signature and assigns a
+checked function index. `DeclaredGcHostImport` carries the role with that index;
+callers retrieve it by its enum variant rather than transposing raw integers.
+
+The current domain has 34 entries: 15 collection, byte-array, shared-buffer,
+agent, waiter, Intl and timezone capabilities, followed by 19 weak collection,
+weak reference, kept-root job and finalization capabilities. Allocation,
+ephemeron operations, dereferencing, registry/cell lifecycle and cleanup error
+reporting have distinct signatures and roles. The exact macro entry inventory
+is pinned by `host_import_function_indices_structure`; its recursive Rust
+lexical census excludes comments and string/character literal forms.
+
+## Evidence
+
+The source controls pin all 27 scalar roles and projections, the sole complete
+producer, intact registry storage, all 34 GC declarations, checked index
+assignment and absence of retired scalar roles. The 2026-10-11 complete workspace
+probe exposed its stale 15-entry GC inventory after weak integration. The
+corrected inventory retains the closed boundary. All 25 controls in its complete
+`runtime_link` target pass in the [repair checkpoint](../workspace-inventory-repairs-20261011.md).
+
+The historical 2026-08-27 authority checkpoint passed five focused structure
+controls, its scoped type check and six existing Number, Date, Math.random,
+Intl, Test262 agent and Atomics emission witnesses. That earlier receipt does
+not establish the newer GC capability inventory or complete suite acceptance.

@@ -1,5 +1,12 @@
 # Lila
 
+The workspace inventory repair passes all 301 focused native checks, joined
+workspace types and twelve guards. Optional debug stripping reduces the Engine
+native test executable from 368 MB to 186 MB while preserving all executable
+data. Complete workspace and pinned acceptance remain open; the original
+five-second campaign is still red. See the
+[repair checkpoint](docs/rust-rewrite/workspace-inventory-repairs-20261011.md).
+
 Opt-in bounded Test262 worker reuse passes 21 native controls with fresh
 JavaScript state, exact snapshots and unchanged deadlines. On a sixteen-case
 synthetic selection it reduces elapsed time from 65.367 to 5.119 seconds.

@@ -15,6 +15,17 @@ Each successful test link records its executable digest and shared-image identit
 in `target/shared-test-runtime-images/test-links.jsonl`. Keep the cache while
 any such test executable is in use.
 
+Set `LILA_TEST_STRIP_DEBUG=1` with that linker to remove DWARF sections from
+those native test executables after linking and before the executable digest is
+sealed. Every allocated ELF section must retain its exact bytes, flags, address
+and alignment. Global symbols and compiled panic locations remain; Rust
+backtraces lose DWARF source lines. This explicit option reduces disk pressure
+for broad verification. It does not alter product or doctest links. As with PATH,
+the environment option does not change Cargo's unit fingerprint: relink a
+completed older test executable before claiming stripping. Never rewrite a
+running executable. The linker event records the original/transformed digests,
+size, tool identity and allocated-section census.
+
 `lila test262 run --reuse-case-workers` opts into at most 64 sequential requests
 per supervised process, sharing compiler/runtime caches. Every case still
 creates a fresh Engine, Realm, Store, GC state and native agent ownership.

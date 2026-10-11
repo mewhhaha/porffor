@@ -416,14 +416,44 @@ fn authority_has_twenty_six_scalar_roles_and_one_required_role_plus_gc_imports()
     }
     let host = rust_code(GC_HOST_SOURCE).normalized;
     let domain = bounded(&host, "gc_host_imports!{", "}");
-    assert_eq!(domain.matches("=>(").count(), 15);
+    assert_eq!(domain.matches("=>(").count(), 34);
     for marker in [
+        "CollectGc=>(\"collect_gc\",HostCollectGc)",
+        "ByteArrayAllocate=>(\"byte_array_allocate\",HostByteArrayAllocate)",
         "SharedBufferAllocate=>(\"shared_buffer_allocate\",HostSharedBufferAllocate)",
+        "SharedBufferBase=>(\"shared_buffer_base\",HostSharedBufferBase)",
+        "SharedBufferLength=>(\"shared_buffer_length\",HostSharedBufferLength)",
+        "SharedBufferMaximum=>(\"shared_buffer_maximum\",HostSharedBufferMaximum)",
+        "SharedBufferGrowable=>(\"shared_buffer_growable\",HostSharedBufferGrowable)",
+        "SharedBufferGrow=>(\"shared_buffer_grow\",HostSharedBufferGrow)",
+        "AgentBroadcastResource=>(\"agent_broadcast_resource\",HostAgentBroadcastResource)",
+        "AgentReceiveResource=>(\"agent_receive_resource\",HostAgentReceiveResource)",
+        "RegisterAsyncWaiter=>(\"register_async_waiter\",HostRegisterAsyncWaiter)",
+        "NotifyAsyncWaiters=>(\"notify_async_waiters\",HostNotifyAsyncWaiters)",
         "IntlProviderCall=>(\"intl_provider_call\",HostIntlProviderCall)",
         "SystemTimeZoneSnapshot=>(\"system_time_zone_snapshot\",HostSystemTimeZoneSnapshot)",
         "SharedBufferWait=>(\"shared_buffer_wait\",HostSharedBufferWait)",
+        "WeakMapAllocate=>(\"weak_map_allocate\",HostWeakMapAllocate)",
+        "WeakSetAllocate=>(\"weak_set_allocate\",HostWeakSetAllocate)",
+        "WeakMapSet=>(\"weak_map_set\",HostWeakMapSet)",
+        "WeakMapGet=>(\"weak_map_get\",HostWeakMapGet)",
+        "WeakMapHas=>(\"weak_map_has\",HostWeakMapHas)",
+        "WeakMapDelete=>(\"weak_map_delete\",HostWeakMapDelete)",
+        "WeakSetAdd=>(\"weak_set_add\",HostWeakSetAdd)",
+        "WeakSetHas=>(\"weak_set_has\",HostWeakSetHas)",
+        "WeakSetDelete=>(\"weak_set_delete\",HostWeakSetDelete)",
+        "WeakRefAllocate=>(\"weak_ref_allocate\",HostWeakRefAllocate)",
+        "WeakRefDeref=>(\"weak_ref_deref\",HostWeakRefDeref)",
+        "WeakJobFinish=>(\"weak_job_finish\",HostWeakJobFinish)",
+        "FinalizationTrack=>(\"finalization_track\",HostFinalizationTrack)",
+        "FinalizationNextRegistry=>(\"finalization_next_registry\",HostFinalizationNextRegistry)",
+        "FinalizationCellAllocate=>(\"finalization_cell_allocate\",HostFinalizationCellAllocate)",
+        "FinalizationTargetAlive=>(\"finalization_target_alive\",HostFinalizationTargetAlive)",
+        "FinalizationTokenMatches=>(\"finalization_token_matches\",HostFinalizationTokenMatches)",
+        "FinalizationCellRemove=>(\"finalization_cell_remove\",HostFinalizationCellRemove)",
+        "ReportCleanupException=>(\"report_cleanup_exception\",HostReportCleanupException)",
     ] {
-        assert!(domain.contains(marker), "replacement import {marker}");
+        assert!(domain.contains(marker), "GC import {marker}");
     }
     assert!(host
         .contains("pub(crate)structDeclaredGcHostImport{import:GcHostImport,function_index:u32,}"));

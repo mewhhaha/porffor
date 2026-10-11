@@ -1,5 +1,18 @@
 # CONTINUE — handoff state (2026-10-11)
 
+## Workspace inventory repair and smaller tests — 2026-10-11
+
+Four stale weak/Error stack inventories are repaired. All 301 focused native
+checks, joined all-feature/all-target types, eight Intl reproduction checks and
+twelve guards pass. `LILA_TEST_STRIP_DEBUG=1` halves the Engine test executable
+through the shared-image linker, with allocated sections checked before its
+digest is sealed. Complete repaired-source workspace/default/ignored, release,
+campaign and current pinned acceptance remain open. The preceding sweep keeps
+4,229 passes and four failures across 169 completed scopes, plus two interrupted
+scopes; it was deliberately stopped for this repair. The original five-second
+campaign now fails first on CrossRealm seed 1270, so Temporal 3215 is unreached.
+See the [checkpoint](docs/rust-rewrite/workspace-inventory-repairs-20261011.md).
+
 ## Bounded worker reuse and native iteration — 2026-10-11
 
 The opt-in `--reuse-case-workers` route passes all 21 focused native controls,

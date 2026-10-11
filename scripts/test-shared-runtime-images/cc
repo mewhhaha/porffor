@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from shared_image import shared_image
+from strip_debug import strip_debug
 
 args = sys.argv[1:]
 parent = Path('/proc') / str(os.getppid())
@@ -41,11 +42,12 @@ if test and '-llila_runtime_images' in args:
     status = subprocess.run(['/usr/bin/cc', *args]).returncode
     if status:
         sys.exit(status if status > 0 else 128 - status)
+    debug_receipt = strip_debug(output) if os.environ.get('LILA_TEST_STRIP_DEBUG') == '1' else None
     with output.open('rb') as stream:
         executable_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
     log = root / 'target/shared-test-runtime-images/test-links.jsonl'
     with log.open('a') as stream:
         fcntl.flock(stream, fcntl.LOCK_EX)
-        stream.write(json.dumps({'output': str(output), 'executable_sha256': executable_sha256, 'shared_image': str(image), 'identity': receipt['identity'], 'parent_rustc_test': True}) + '\n')
+        stream.write(json.dumps({'output': str(output), 'executable_sha256': executable_sha256, 'shared_image': str(image), 'identity': receipt['identity'], 'parent_rustc_test': True, 'debug_sections': debug_receipt}) + '\n')
     sys.exit(0)
 os.execv('/usr/bin/cc', ['/usr/bin/cc', *args])
