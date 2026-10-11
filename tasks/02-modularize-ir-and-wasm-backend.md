@@ -1,5 +1,15 @@
 # T02 — Modularize the IR and Wasm backend
 
+## Runtime image metadata boundary — 2026-10-11
+
+Immutable linked image data has a separate Cargo leaf crate while the
+existing checked runtime producer and Engine's admission remain authoritative.
+This removes the initializer from Engine's compilation ownership without adding
+a retained Module owner. Engine metadata is now 1.3–1.8 MB versus about 288 MB,
+and image metadata is 3.8 KB. All eleven focused native controls, joined types and
+twelve guards pass; complete workspace/pinned and cross-host proof remain open;
+see the [checkpoint](../docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
+
 ## Ownership audit and remaining proof — 2026-10-08
 
 The frozen workspace sweep exposes guards that still inspect retired raw-heap

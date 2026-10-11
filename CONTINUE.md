@@ -5,6 +5,17 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Runtime image metadata boundary — 2026-10-11
+
+The verified batch moves immutable image data into a linked data archive through
+a small leaf crate, preserving the checked producer, shared source fingerprint
+and Engine's native admission. Joined all-feature/all-target types, twelve guards
+and all eleven focused native controls pass, including the default graph.
+Engine metadata is 1.3–1.8 MB versus about 288 MB; image metadata is 3.8 KB.
+Git-only reuse, complete workspace/pinned acceptance and task closure remain open.
+See the
+[metadata checkpoint](docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
+
 ## Complete upstream source pin update — 2026-10-11
 
 The whole official Test262 tree and embedded assertion/resource/property
@@ -28,8 +39,9 @@ Joined all-feature/all-target types and all eleven repository guards pass.
 The preceding nine-pass/one-failure diagnosis and low-disk link failures remain
 in the [repair receipt](docs/rust-rewrite/async-disposal-and-thenable-realms-20261011.md).
 Fresh complete workspace and pinned-suite acceptance, task completion and
-handoff deletion remain pending. Next apply the complete official Test262 and
-exact ECMA-262 source pin update prepared under target/spec-pin-upgrade-20261011.
+handoff deletion remain pending. The complete official Test262 and exact
+ECMA-262 source pin update is now verified above; implement the newly exposed
+Iterator chunking and Error stack accessor proposal features next.
 
 ## Native agent message IDs — 2026-10-11
 

@@ -50,6 +50,10 @@ impl Drop for Workspace {
 fn every_previously_omitted_compiler_input_invalidates_the_cache() {
     for input in [
         "crates/lila-runtime/src/lib.rs",
+        "crates/lila-runtime-image/Cargo.toml",
+        "crates/lila-runtime-image/build.rs",
+        "crates/lila-runtime-image/build/objects.rs",
+        "crates/lila-runtime-image/src/lib.rs",
         "crates/lila-intl/src/lib.rs",
         "crates/lila-engine/src/wasmtime_policy.rs",
         "crates/lila-engine/src/wasmtime_config.rs",

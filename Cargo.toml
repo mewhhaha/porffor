@@ -5,6 +5,7 @@ members = [
   "crates/lila-intl",
   "crates/lila-intl-collator-data",
   "crates/lila-runtime",
+  "crates/lila-runtime-image",
   "crates/lila-spec-exec",
   "crates/lila-aot-wasm",
   "crates/lila-backend-c",
@@ -75,6 +76,8 @@ opt-level = 0
 opt-level = 0
 [profile.dev.package.lila-runtime]
 opt-level = 0
+[profile.dev.package.lila-runtime-image]
+opt-level = 0
 [profile.dev.package.lila-spec-exec]
 opt-level = 0
 [profile.dev.package.lila-aot-wasm]
@@ -97,6 +100,8 @@ opt-level = 0
 [profile.test.package.lila-intl]
 opt-level = 0
 [profile.test.package.lila-runtime]
+opt-level = 0
+[profile.test.package.lila-runtime-image]
 opt-level = 0
 [profile.test.package.lila-spec-exec]
 opt-level = 0

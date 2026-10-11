@@ -58,8 +58,8 @@ fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
 
 #[test]
 fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
-    if MANIFEST.is_empty() {
-        assert!(PACKAGE.is_empty() && NATIVE.is_empty());
+    if manifest_bytes().is_empty() {
+        assert!(package().is_empty() && native().is_empty());
         assert!(!cfg!(all(
             target_endian = "little",
             any(
@@ -70,19 +70,19 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
         )));
         return;
     }
-    for end in 0..MANIFEST.len() {
-        assert!(manifest::Manifest::decode(&MANIFEST[..end]).is_none());
+    for end in 0..manifest_bytes().len() {
+        assert!(manifest::Manifest::decode(&manifest_bytes()[..end]).is_none());
     }
-    let mut extended = MANIFEST.to_vec();
+    let mut extended = manifest_bytes().to_vec();
     extended.push(0);
     assert!(manifest::Manifest::decode(&extended).is_none());
     assert!(EmbeddedNativeRuntime::admit().is_some());
-    let mut previous_version = MANIFEST.to_vec();
+    let mut previous_version = manifest_bytes().to_vec();
     previous_version[8..12].copy_from_slice(&1_u32.to_le_bytes());
     assert!(manifest::Manifest::decode(&previous_version).is_none());
     // Both mode bytes have closed domains, separately from product admission.
     for offset in [16, 17] {
-        let mut unknown_mode = MANIFEST.to_vec();
+        let mut unknown_mode = manifest_bytes().to_vec();
         unknown_mode[offset] = 2;
         assert!(manifest::Manifest::decode(&unknown_mode).is_none());
     }
@@ -95,7 +95,7 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
         "package digest",
         "native digest",
     ] {
-        let mut manifest = manifest::Manifest::decode(MANIFEST).unwrap();
+        let mut manifest = manifest::Manifest::decode(manifest_bytes()).unwrap();
         match field {
             "source" => manifest.source[0] ^= 1,
             "target" => manifest.target.push_str("-different"),
@@ -136,7 +136,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
             assert_eq!(runtime.key(), target.key());
             assert_eq!(
                 target.package_bytes(),
-                PACKAGE,
+                package(),
                 "the entire host/target raw package is byte-identical"
             );
             assert_eq!(

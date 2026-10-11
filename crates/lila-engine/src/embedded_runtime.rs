@@ -10,11 +10,9 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 use wasmtime::{Engine, Module};
 
-// One immutable allocation per build output. Const byte slices instead expand
-// these large payloads into the compiler metadata at their individual uses.
-static PACKAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-package.bin"));
-static NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-native.bin"));
-static MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-manifest.bin"));
+// The leaf crate owns the large initializers. Only non-inline accessor calls
+// enter Engine metadata; source and native admission remain local here.
+use lila_runtime_image::{manifest_bytes, native, package};
 
 fn expected_source() -> &'static [u8; 32] {
     static SOURCE: OnceLock<[u8; 32]> = OnceLock::new();
@@ -28,10 +26,10 @@ fn expected_source() -> &'static [u8; 32] {
 /// the package or native image and do not resolve any Intl component here.
 pub(super) fn inputs(cache: Option<&dyn RuntimeArtifactCache>) -> RuntimeArtifactInputs<'_> {
     let inputs = RuntimeArtifactInputs::new(cache);
-    if PACKAGE.is_empty() {
+    if package().is_empty() {
         inputs
     } else {
-        inputs.with_build_package(PACKAGE, expected_source())
+        inputs.with_build_package(package(), expected_source())
     }
 }
 
@@ -41,7 +39,7 @@ struct EmbeddedNativeRuntime {
 
 impl EmbeddedNativeRuntime {
     fn admit() -> Option<Self> {
-        Self::admit_manifest(manifest::Manifest::decode(MANIFEST)?)
+        Self::admit_manifest(manifest::Manifest::decode(manifest_bytes())?)
     }
 
     fn admit_manifest(manifest: manifest::Manifest) -> Option<Self> {
@@ -49,8 +47,8 @@ impl EmbeddedNativeRuntime {
             || manifest.target != env!("LILA_RUNTIME_BUILD_TARGET")
             || manifest.configuration != CONFIGURATION_SCHEMA
             || manifest.modes != manifest::COMPILATION_MODES
-            || manifest.package_digest != <[u8; 32]>::from(Sha256::digest(PACKAGE))
-            || manifest.native_digest != <[u8; 32]>::from(Sha256::digest(NATIVE))
+            || manifest.package_digest != <[u8; 32]>::from(Sha256::digest(package()))
+            || manifest.native_digest != <[u8; 32]>::from(Sha256::digest(native()))
         {
             return None;
         }
@@ -71,8 +69,8 @@ impl EmbeddedNativeRuntime {
         if !self.matches(runtime, mode) {
             return None;
         }
-        // SAFETY: NATIVE is exclusively the immutable include_bytes output of
-        // our build.rs, whose sole producer calls pinned Wasmtime's
+        // SAFETY: native() is exclusively the immutable Cargo output of
+        // lila-runtime-image build.rs, whose sole producer calls pinned Wasmtime's
         // precompile_module on RuntimeBuildArtifact::wasm(). That owner first
         // round-trips the exact raw R through full identity/layout validation.
         // The admitted manifest binds source, target, config, native bytes and
@@ -81,12 +79,12 @@ impl EmbeddedNativeRuntime {
         // execution Engine. The admitted modes explicitly allow optimized R
         // with Fast P; no separate build Engine survives or reaches the cache.
         // Wasmtime still checks version/features/collector/tunables/ISA.
-        match unsafe { Module::deserialize(engine, NATIVE) } {
+        match unsafe { Module::deserialize(engine, native()) } {
             Ok(module) => {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
                         "lila wasm trace: runtime-native-bundle hit: {} bytes (runtime: {}, execution: {})",
-                        NATIVE.len(),
+                        native().len(),
                         self.manifest.modes.runtime.as_str(),
                         mode.as_str()
                     );
@@ -115,7 +113,7 @@ pub(super) fn load_native(
     // Unsupported modes and different raw R keys do not touch the large
     // embedded images. This cheap metadata check can only reject a candidate;
     // the private authority still validates all manifest fields and digests.
-    let candidate = manifest::Manifest::decode(MANIFEST)?;
+    let candidate = manifest::Manifest::decode(manifest_bytes())?;
     if candidate.modes.execution != mode || runtime.key().as_bytes() != &candidate.runtime_key {
         return None;
     }

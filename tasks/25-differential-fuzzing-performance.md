@@ -1,5 +1,15 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Runtime image metadata boundary — 2026-10-11
+
+A non-inline leaf crate exposes Cargo's immutable linked runtime data. Source and
+target admission, fresh native precompilation and bounded R/P retention remain
+unchanged. Engine metadata is 1.3–1.8 MB versus about 288 MB; image metadata is
+3.8 KB. All eleven focused native controls, joined types and twelve guards pass.
+These artifact sizes do not establish a general build-speed improvement. Full
+campaigns, broad workspace and task closure remain open. See the
+[checkpoint](../docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
+
 ## Broad verification and remaining performance proof — 2026-10-08
 
 The complete frozen tooling sweep passes all 38 commands, 405 Python methods

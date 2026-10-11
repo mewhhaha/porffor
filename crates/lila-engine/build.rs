@@ -1,29 +1,9 @@
-#[path = "src/cache.rs"]
-#[allow(dead_code)] // The Cargo producer shares the bounded function-cache owner.
-mod cache;
 mod compiler_fingerprint;
-#[path = "src/embedded_runtime/build.rs"]
-mod native_runtime_build;
-#[path = "src/wasmtime_config.rs"]
-#[allow(dead_code)] // Both runtime modes are defined in the shared configuration.
-mod wasmtime_config;
-#[path = "src/wasmtime_policy.rs"]
-#[allow(dead_code)] // Runtime reporting methods share the same policy owner.
-mod wasmtime_policy;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    for variable in [
-        "LILA_CACHE_DIR",
-        "LILA_CACHE_LIMIT_BYTES",
-        "LILA_FUNCTION_CACHE_LIMIT_BYTES",
-        "XDG_CACHE_HOME",
-        "HOME",
-    ] {
-        println!("cargo:rerun-if-env-changed={variable}");
-    }
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let workspace = manifest
         .join("../..")
@@ -37,13 +17,6 @@ fn main() {
     println!("cargo:rustc-env=LILA_COMPILER_FINGERPRINT={fingerprint}");
     let target = std::env::var("TARGET").expect("Cargo target triple");
     println!("cargo:rustc-env=LILA_RUNTIME_BUILD_TARGET={target}");
-    native_runtime_build::write_bundle(
-        &PathBuf::from(std::env::var_os("OUT_DIR").expect("Cargo build output directory")),
-        &fingerprint,
-        &target,
-        &std::env::var("CARGO_CFG_TARGET_ARCH").expect("Cargo target architecture"),
-        &std::env::var("CARGO_CFG_TARGET_ENDIAN").expect("Cargo target endian"),
-    );
     println!(
         "cargo:rustc-env=LILA_COMPILER_FINGERPRINT_SCHEME={}",
         compiler_fingerprint::FINGERPRINT_SCHEME

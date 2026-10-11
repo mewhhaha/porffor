@@ -1,5 +1,13 @@
 # Lila
 
+Cargo embeds the shared runtime images as immutable linked data through a
+separate `lila-runtime-image` crate. Engine metadata falls from about 288 MB to
+1.3–1.8 MB; image metadata is 3.8 KB. The checked producer, native admission and
+bounded runtime retention remain authoritative. Eleven focused native controls,
+joined all-feature/all-target types and twelve guards pass. Full-suite and task
+closure remain pending. See the
+[metadata boundary checkpoint](docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
+
 ## Cloud continuation — 2026-10-10
 
 Retained binding cells carry source write policies independently of eval

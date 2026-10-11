@@ -3234,14 +3234,31 @@ require_fixed_string_count \
 engine_native_config="crates/lila-engine/src/wasmtime_config.rs"
 engine_embedded_runtime="crates/lila-engine/src/embedded_runtime.rs"
 engine_embedded_build="crates/lila-engine/src/embedded_runtime/build.rs"
+runtime_image_build="crates/lila-runtime-image/build.rs"
+runtime_image_source="crates/lila-runtime-image/src/lib.rs"
+runtime_image_objects="crates/lila-runtime-image/build/objects.rs"
 wasm_build_package="crates/lila-aot-wasm/src/runtime_artifact/build_package.rs"
-for native_owner in "$engine_native_config" "$engine_embedded_runtime" "$engine_embedded_build" "$wasm_build_package"; do
+for native_owner in "$engine_native_config" "$engine_embedded_runtime" "$engine_embedded_build" "$runtime_image_build" "$runtime_image_source" "$runtime_image_objects" crates/lila-runtime-image/Cargo.toml "$wasm_build_package"; do
   require_file "$native_owner"
 done
 require_exact_line_count crates/lila-engine/src/lib.rs 'mod wasmtime_config;' 1 'shared native configuration owner'
 require_exact_line_count crates/lila-engine/src/lib.rs 'mod embedded_runtime;' 1 'private embedded native authority'
-require_exact_line_count crates/lila-engine/build.rs '#[path = "src/wasmtime_config.rs"]' 1 'same Cargo configuration owner'
-require_exact_line_count crates/lila-engine/build.rs '#[path = "src/wasmtime_policy.rs"]' 1 'same Cargo capability policy'
+require_exact_line_count "$runtime_image_build" '#[path = "../lila-engine/src/wasmtime_config.rs"]' 1 'same Cargo configuration owner'
+require_exact_line_count "$runtime_image_build" '#[path = "../lila-engine/src/wasmtime_policy.rs"]' 1 'same Cargo capability policy'
+require_exact_line_count "$runtime_image_build" '#[path = "../lila-engine/src/embedded_runtime/build.rs"]' 1 'same checked raw runtime producer'
+require_fixed_string_count "$runtime_image_build" 'native_runtime_build::write_bundle(' 1 'one image production call'
+require_fixed_string_count crates/lila-engine/build.rs 'native_runtime_build::write_bundle(' 0 'Engine metadata build does not repeat image production'
+require_fixed_string_count "$engine_embedded_runtime" 'use lila_runtime_image::{manifest_bytes, native, package};' 1 'Engine consumes only immutable image accessors'
+require_fixed_string_count "$engine_embedded_runtime" 'include_bytes!' 0 'image bytes do not enter Engine initializers'
+require_fixed_string_count "$runtime_image_source" '#[inline(never)]' 3 'three non-inline image accessors'
+require_fixed_string_count "$runtime_image_source" 'include_bytes!' 0 'no large Rust initializer in leaf metadata'
+require_fixed_string_count "$runtime_image_build" 'objects::embed(&out, &target);' 1 'checked images become immutable linked data'
+require_fixed_string_count "$runtime_image_objects" '"--emit=obj"' 1 'data compilation emits no Rust metadata'
+require_fixed_string_count "$runtime_image_objects" '"-Cembed-bitcode=no"' 1 'data-only object contains no duplicate bitcode image'
+require_fixed_string_count "$runtime_image_objects" '.compile("lila_runtime_images")' 1 'target archiver owns the complete linked image'
+for image_part in package native manifest; do
+  require_fixed_string_count "$runtime_image_objects" "lila-runtime-${image_part}.bin" 1 'one data definition per Cargo-produced image'
+done
 require_exact_line_count crates/lila-aot-wasm/src/runtime_artifact.rs 'mod build_package;' 1 'private checked build-package owner'
 require_fixed_string_count "$engine_native_config" 'pub(crate) fn base_config(' 1 'one shared native configuration constructor'
 require_fixed_string_count "$engine_native_config" 'PRODUCT_WASMTIME_POLICY.configure(&mut config);' 1 'same required product capability configuration'
@@ -3250,7 +3267,7 @@ require_fixed_string_count "$engine_embedded_runtime" 'manifest.modes != manifes
 require_fixed_string_count "$engine_embedded_build" '.target(target)' 1 'explicit Cargo target without host ISA inference'
 require_fixed_string_count "$engine_embedded_build" 'config.parallel_compilation(false);' 1 'serial native build compilation'
 require_fixed_string_count "$engine_embedded_build" '.precompile_module(runtime.wasm())' 1 'precompile only the checked raw owner'
-require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, NATIVE)' 1 'native load accepts only immutable embedded bytes'
+require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, native())' 1 'native load accepts only immutable embedded bytes'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
 require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity)?' 1 'canonical complete raw layout admission'
@@ -3258,6 +3275,9 @@ require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_mod
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
 check_raw_line_budget "$engine_embedded_build" 140
+check_raw_line_budget "$runtime_image_build" 80
+check_raw_line_budget "$runtime_image_source" 60
+check_raw_line_budget "$runtime_image_objects" 120
 check_raw_line_budget "$wasm_build_package" 230
 # The cache damage controls deliberately construct foreign Wasm layouts. The
 # file-level gate makes those constructors unavailable to production Rust,

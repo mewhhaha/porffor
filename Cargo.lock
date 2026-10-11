@@ -1510,6 +1510,7 @@ dependencies = [
  "lila-intl",
  "lila-ir",
  "lila-runtime",
+ "lila-runtime-image",
  "lila-spec-exec",
  "rayon",
  "sha2",
@@ -1595,6 +1596,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "lila-runtime-image"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "lila-aot-wasm",
+ "lila-intl",
+ "lila-ir",
+ "sha2",
+ "wasmtime",
 ]
 
 [[package]]

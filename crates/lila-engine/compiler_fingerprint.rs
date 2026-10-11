@@ -19,6 +19,7 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
     "crates/lila-ir",
     "crates/lila-aot-wasm",
     "crates/lila-runtime",
+    "crates/lila-runtime-image", // Cargo producer and immutable image accessors.
     "crates/lila-intl",
     "crates/lila-engine/Cargo.toml",
     "crates/lila-engine/src",
