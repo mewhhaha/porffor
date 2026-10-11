@@ -1,3 +1,6 @@
+#[path = "src/cache.rs"]
+#[allow(dead_code)] // The Cargo producer shares the bounded function-cache owner.
+mod cache;
 mod compiler_fingerprint;
 #[path = "src/embedded_runtime/build.rs"]
 mod native_runtime_build;
@@ -12,6 +15,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    for variable in [
+        "LILA_CACHE_DIR",
+        "LILA_CACHE_LIMIT_BYTES",
+        "LILA_FUNCTION_CACHE_LIMIT_BYTES",
+        "XDG_CACHE_HOME",
+        "HOME",
+    ] {
+        println!("cargo:rerun-if-env-changed={variable}");
+    }
     let manifest = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let workspace = manifest
         .join("../..")

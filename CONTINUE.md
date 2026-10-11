@@ -5,6 +5,25 @@ force-push. Start with `AGENTS.md` and `tasks/README.md`. The detailed cloud
 receipt is [docs/rust-rewrite/cloud-continuation-20261009.md](docs/rust-rewrite/cloud-continuation-20261009.md).
 Use Luna agents for read-only chores/exploration; root writes code.
 
+## Cargo runtime reuse — 2026-10-11
+
+The Cargo producer shares the bounded Cranelift function cache while regenerating
+and admitting the current raw R and publishing the full current compiler-bound
+package. Embedded package/native/manifest bytes now each have one immutable
+static allocation. Three focused embedded-runtime unit controls and the existing
+fresh-program native-R reuse control pass. The complete bundle is byte-identical
+across every probe. Actual core precompile measures 120.724 seconds initially
+and 37.776 seconds fully warm, with 2,098 hits and zero misses. The earlier
+256 MiB function-cache budget evicts the approximately 313 MiB core working set
+and supplies no meaningful reuse; the cloud activation now defaults that disk
+tier to 512 MiB, preserving stricter explicit settings and the inherited machine
+memory/CPU limits. Local defaults remain unchanged.
+The [receipt](docs/rust-rewrite/build-runtime-reuse-20261011.md) retains the
+low-budget diagnostic, timings, metadata experiment and exact native evidence.
+Complete workspace/default-only/ignored-runtime, differential and pinned
+acceptance remain pending. Task states and canonical conformance counts remain
+unchanged. Do not delete this handoff or the unfinished task ledger yet.
+
 ## Cloud checkpoint
 
 The cloud machine has a finite 32 GiB inherited cgroup cap. Heavy work uses

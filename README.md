@@ -83,6 +83,18 @@ configuration; all 28 current launcher controls pass. This is diagnostic evidenc
 not a general performance benchmark. Cloud retention is additionally bounded to
 one eighth of the inherited cap. Watched commands use `--poll 1` to reduce
 completion lag. Local verification retains its 4 GiB/no-swap/grouped-OOM policy.
+Cargo's native-core producer also uses the existing bounded Cranelift function
+cache. Function, target and compiler-flag identities permit reuse across source
+edits; every build still emits and validates its current raw runtime, precompiles
+that runtime and packages it with the full current compiler fingerprint.
+An unavailable cache falls back to ordinary precompilation.
+The immutable embedded package, native image and manifest each have one static
+allocation, avoiding expansion of large byte constants into compiler metadata.
+With the cloud function-cache budget at 512 MiB, the actual core precompile
+measures 37.8 seconds warm versus 120.7 seconds initially, with byte-identical
+bundles. All four focused native/admission controls pass. The earlier 256 MiB
+budget continually evicted core stencils; its unchanged-time result is retained.
+See the [Cargo runtime reuse receipt](docs/rust-rewrite/build-runtime-reuse-20261011.md).
 The historical September 30 input containing 5,365 failing execution IDs remains
 unavailable; its owner believes it was never pushed. Publisher-generated pinned conformance
 totals and task states remain unchanged.

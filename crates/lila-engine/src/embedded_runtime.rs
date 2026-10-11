@@ -10,9 +10,11 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 use wasmtime::{Engine, Module};
 
-const PACKAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-package.bin"));
-const NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-native.bin"));
-const MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-manifest.bin"));
+// One immutable allocation per build output. Const byte slices instead expand
+// these large payloads into the compiler metadata at their individual uses.
+static PACKAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-package.bin"));
+static NATIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-native.bin"));
+static MANIFEST: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/lila-runtime-manifest.bin"));
 
 fn expected_source() -> &'static [u8; 32] {
     static SOURCE: OnceLock<[u8; 32]> = OnceLock::new();

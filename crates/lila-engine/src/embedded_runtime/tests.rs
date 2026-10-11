@@ -4,6 +4,59 @@ use lila_intl::{IntlCompilationProfile, IntlDataSelection};
 use wasmtime::WasmBacktraceDetails;
 
 #[test]
+fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
+    use std::sync::Arc;
+    let directory = std::env::temp_dir().join(format!(
+        "lila-build-runtime-function-cache-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&directory);
+    let compile = |value, mode, cached| {
+        // (module (func (export "answer") (result i32) i32.const VALUE))
+        let wasm = vec![
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 10, 1, 6, 97, 110,
+            115, 119, 101, 114, 0, 0, 10, 6, 1, 4, 0, 65, value, 11,
+        ];
+        let mut config = base_config(mode, WasmBacktraceDetails::Disable);
+        config.target(env!("LILA_RUNTIME_BUILD_TARGET")).unwrap();
+        config.parallel_compilation(false);
+        let cache =
+            Arc::new(crate::cache::FunctionCache::new(directory.clone(), 1024 * 1024).unwrap());
+        if cached {
+            config
+                .enable_incremental_compilation(cache.clone())
+                .unwrap();
+        }
+        let engine = Engine::new(&config).unwrap();
+        let native = engine.precompile_module(&wasm).unwrap();
+        let module = wasmtime::Module::new(&engine, &wasm).unwrap();
+        let mut store = wasmtime::Store::new(&engine, ());
+        store.set_epoch_deadline(1);
+        let instance = wasmtime::Instance::new(&mut store, &module, &[]).unwrap();
+        let answer = instance
+            .get_typed_func::<(), i32>(&mut store, "answer")
+            .unwrap();
+        assert_eq!(answer.call(&mut store, ()).unwrap(), i32::from(value));
+        (native, cache.counters())
+    };
+    let mode = manifest::COMPILATION_MODES.runtime;
+    let (cold, cold_counts) = compile(7, mode, true);
+    assert!(cold_counts.1 > 0);
+    let (warm, warm_counts) = compile(7, mode, true);
+    assert_eq!(cold, warm);
+    assert!(warm_counts.0 > 0);
+    assert_eq!(warm_counts.1, 0);
+    let (uncached, _) = compile(7, mode, false);
+    assert_eq!(warm, uncached);
+    let (changed, changed_counts) = compile(8, mode, true);
+    assert_ne!(warm, changed);
+    assert!(changed_counts.1 > 0);
+    let (_, different_mode_counts) = compile(7, WasmNativeCompilationMode::Fast, true);
+    assert!(different_mode_counts.1 > 0);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
     if MANIFEST.is_empty() {
         assert!(PACKAGE.is_empty() && NATIVE.is_empty());

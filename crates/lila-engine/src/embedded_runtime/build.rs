@@ -7,6 +7,7 @@ use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_ST
 use crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY;
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::Arc;
 use wasmtime::{Engine, WasmBacktraceDetails};
 
 pub(crate) fn write_bundle(
@@ -45,14 +46,38 @@ pub(crate) fn write_bundle(
                     .target(target)
                     .expect("supported target has a native compiler");
                 config.parallel_compilation(false);
+                // Cranelift keys stencils by function, ISA and compiler flags.
+                // Reuse that existing bounded store across source fingerprints;
+                // the current raw R still goes through Wasmtime precompilation,
+                // and the package below always binds the current full source.
+                let function_cache = crate::cache::FunctionCache::new(
+                    crate::cache::function_cache_directory(),
+                    crate::cache::function_cache_limit_bytes(),
+                )
+                .map(Arc::new)
+                .map_err(|error| {
+                    println!("cargo:warning=build runtime function cache unavailable: {error}");
+                })
+                .ok();
+                if let Some(cache) = &function_cache {
+                    config
+                        .enable_incremental_compilation(cache.clone())
+                        .expect("Cranelift supports the shared function cache");
+                }
                 let engine = Engine::new(&config)
                     .expect("build runtime has the product Wasmtime configuration");
                 PRODUCT_WASMTIME_POLICY
                     .verify_engine(&engine)
                     .expect("build engine has every required product capability");
+                let started = std::time::Instant::now();
                 let native = engine
                     .precompile_module(runtime.wasm())
                     .expect("exact checked runtime precompiles for the Cargo target");
+                println!("build runtime precompile: {:?}", started.elapsed());
+                if let Some(cache) = function_cache {
+                    let (hits, misses) = cache.counters();
+                    println!("build runtime function cache: {hits} hits, {misses} misses");
+                }
                 let manifest = manifest::Manifest {
                     source,
                     target: target.to_owned(),
