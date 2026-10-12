@@ -1,5 +1,27 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Exact debug sustained acceptance — 2026-10-12
+
+The frozen generator/oracle CLI passes all 704 nightly generated cases at the
+original 5,000 ms deadline. Exact original requests/IDs retain all 691 prior
+passes and eliminate all thirteen prior failures, with no omissions or
+regressions. Two implementation causes account for those thirteen cases;
+twenty-three original/transformed/minimized quick witnesses overlap and are
+not added to that denominator. Both deliberate syntax negatives retain their
+original raw both_failed reports and exit 1; their original campaign assertions
+verify the expected rejection separately from semantic equivalence.
+
+All 19 by 64 robustness IDs remain passing with unchanged inputs, target order
+and 300,000 ms bounds. All fourteen compiled corpus entries pass, preserving
+the original twelve bytes/order and appending two accepted minimized witnesses.
+Ten selected native scopes pass 1,958 controls, with every 1,954 prior selected
+ID retained and four added passing controls. All three original performance
+gates pass. See the [exact evidence](../docs/rust-rewrite/generator-oracle-repair-20261012.json).
+Complete default/all-feature native, optimized sustained/corpus/determinism,
+calibrated performance, further fuzz acceptance and final-source full conformance
+remain required. Two original deep WeakMap stress IDs remain red on both prior
+and current compilers and are tracked separately, without a deadline waiver.
+
 ## Exact-seed developer profile acceptance — 2026-10-12
 
 The coherent profile/loop/module repair passes 1,943 focused native controls,

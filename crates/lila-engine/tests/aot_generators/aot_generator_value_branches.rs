@@ -44,6 +44,14 @@ fn nonyielding_try_branches_preserve_completion_across_a_yielding_finalizer() {
 }
 
 #[test]
+fn nested_constant_branches_keep_checked_phases_and_finalizer_completions() {
+    assert_modes(
+        include_str!("../fixtures/generator_value_branches/nested_constant_if.js"),
+        "generator-nested-constant-if:ok",
+    );
+}
+
+#[test]
 fn selected_yields_capture_received_values_and_skipped_branches_keep_original_values() {
     assert_modes(
         include_str!("../fixtures/generator_value_branches/values_and_skips.js"),

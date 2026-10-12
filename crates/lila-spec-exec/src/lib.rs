@@ -3022,6 +3022,86 @@ mod tests {
         .expect("observed spec-exec script should reach an ECMAScript completion")
     }
 
+    #[test]
+    fn labelled_break_closes_skipped_iterators_in_order_and_preserves_abrupt_identity() {
+        for directive in ["", "'use strict';\n"] {
+            let outcome = observe_script(&format!(
+                r#"{directive}
+                    let events = [];
+                    const marker = {{}};
+                    function iterable(name, fail) {{
+                        let done = false;
+                        return {{[Symbol.iterator]() {{ return {{
+                            next() {{ if (done) return {{done: true}}; done = true; return {{done: false, value: 1}}; }},
+                            return() {{ events.push(name); if (fail) throw marker; return {{done: true}}; }}
+                        }}; }} }};
+                    }}
+                    outer: for (const first of iterable('outer', false)) {{
+                        for (const second of iterable('inner', false)) {{
+                            try {{ break outer; }} finally {{ events.push('finally'); }}
+                        }}
+                    }}
+                    if (events.join(',') !== 'finally,inner,outer') throw 'labelled break close order';
+                    print('break:' + events.join(','));
+                    events = [];
+                    block: {{
+                        for (const first of iterable('outer', false)) {{
+                            for (const second of iterable('inner', false)) break block;
+                        }}
+                    }}
+                    if (events.join(',') !== 'inner,outer') throw 'block break close order';
+                    print('block:' + events.join(','));
+                    events = [];
+                    for (const first of iterable('outer', false)) {{
+                        for (const second of iterable('inner', false)) break;
+                    }}
+                    if (events.join(',') !== 'inner') throw 'inner break closed active outer';
+                    print('local:' + events.join(','));
+                    events = [];
+                    outerContinue: for (const first of iterable('outer', false)) {{
+                        for (const second of iterable('inner', false)) continue outerContinue;
+                    }}
+                    if (events.join(',') !== 'inner') throw 'continue closed resumed outer';
+                    print('continue:' + events.join(','));
+                    events = [];
+                    let caught;
+                    try {{
+                        abrupt: for (const first of iterable('outer', false)) {{
+                            for (const second of iterable('inner', true)) break abrupt;
+                        }}
+                    }} catch (error) {{ caught = error; }}
+                    if (caught !== marker || events.join(',') !== 'inner,outer') throw 'close throw identity';
+                    print('throw:' + events.join(','));
+                    events = [];
+                    (async function() {{
+                        asyncOuter: for await (const first of iterable('outer', false)) {{
+                            for await (const second of iterable('inner', false)) break asyncOuter;
+                        }}
+                        if (events.join(',') !== 'inner,outer') throw 'async close order';
+                        print('async:' + events.join(','));
+                    }})();
+                    void 0;
+                "#
+            ));
+            assert_eq!(
+                outcome.completion,
+                ObservedCompletion::Normal(ObservedJsValue::Undefined)
+            );
+            assert_eq!(
+                outcome.output_events,
+                [
+                    "break:finally,inner,outer",
+                    "block:inner,outer",
+                    "local:inner",
+                    "continue:inner",
+                    "throw:inner,outer",
+                    "async:inner,outer",
+                ]
+                .map(|line| HostOutputEvent::PrintLine(line.into()))
+            );
+        }
+    }
+
     fn execute_script(
         source: &str,
         filename: Option<&str>,

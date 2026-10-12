@@ -1,0 +1,9 @@
+{
+  "schema_version": 3,
+  "id": "t25/regression/generator-nested-constant-if-finalizer",
+  "goal": "script",
+  "observation_contract": "primitive_completion_print_transcript",
+  "filename": "differential/witnesses/v3/generator-nested-constant-if-finalizer.js",
+  "timeout_ms": 5000,
+  "source": "'use strict';\nlet state=0; const probes=[];\nfunction* subject(){\nyield 0;\ntry{yield state;\nif(false){\ntry{\nif(false){\nprint('observe-0:'+state);\n}else{state=(state+(0))|0;print('else:'+state);}\n}finally{print('finally');\nprint('observe-1:'+state);\n}\n}else{state=(state+(0))|0;print('else:'+state);}\nreturn state;\n}finally{print('request-finally');const received=yield state;print('request-finally-resume:'+received);}\n}\nfunction finish(value){print('result:'+value); for(let p=0;p<probes.length;++p){print('capture:'+probes[p]());} print('state:'+state);}\nfunction failed(error){print('throw:'+error);finish(undefined);}\nfunction drive(){\nconst iterator=subject(); let ordinal=0; let step=iterator.next();\nprint('step:'+step.done+':'+step.value); while(!step.done){\nif(ordinal===1){++ordinal;step=iterator.return(7);}else{step=iterator.next(++ordinal);}\nprint('step:'+step.done+':'+step.value);}\nfinish(step.value);}\ntry{drive();}catch(error){failed(error);}\nvoid 0;\n"
+}

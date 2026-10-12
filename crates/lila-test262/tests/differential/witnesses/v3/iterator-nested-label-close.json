@@ -1,0 +1,9 @@
+{
+  "filename": "differential/witnesses/v3/iterator-nested-label-close.js",
+  "goal": "script",
+  "id": "t25/regression/iterator-nested-label-close",
+  "observation_contract": "primitive_completion_print_transcript",
+  "schema_version": 3,
+  "source": "let scenario_state=0;\nprint('scenario-start:iterator-close');\nfunction scenario_iterable(closeThrows,returnGetter){let cursor=0;const record={next(){print('next:'+cursor);if(cursor===0){record.next=function(){print('replacement-next');throw 77;};}if(cursor>=3)return {done:true};const current=++cursor;return {get value(){print('value:'+current);return current;},done:false};}};const close=function(){print('close:'+cursor);if(closeThrows)throw 23;return {done:true};};if(returnGetter){Object.defineProperty(record,'return',{get(){print('return-get');return close;}});}else{record.return=close;}return {[Symbol.iterator](){print('iterator');return record;}};}\nfor(let scenario_index=0;scenario_index<1;++scenario_index){\nswitch(scenario_index){\ncase 0:{\nouter:for(const first of scenario_iterable(false,false)){for(const second of scenario_iterable(false,false)){scenario_state=(scenario_state+first+second)|0;break outer;}}\nprint('scenario-step:0');\nbreak;}\n}\n}\nprint('scenario-result:'+scenario_state);\nprint('scenario-done:'+scenario_state);\nscenario_state;\n",
+  "timeout_ms": 5000
+}

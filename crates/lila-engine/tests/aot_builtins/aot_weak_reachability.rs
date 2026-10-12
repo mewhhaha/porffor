@@ -201,3 +201,120 @@ fn pending_reaction_closures_keep_cycles_until_settlement_and_release_them_after
         );
     }
 }
+
+#[test]
+fn emitted_cyclic_churn_reuses_the_product_gc_heap() {
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    for directive in ["", "\"use strict\";\n"] {
+        let source = format!(
+            r#"{directive}
+                const live = {{marker: 41}};
+                live.self = live;
+                const samples = [];
+                function churn(round) {{
+                    for (let index = 0; index < 512; index++) {{
+                        const left = {{round, index}};
+                        const right = {{left, marker: 73}};
+                        left.right = right;
+                        if (index === 0) samples.push(new WeakRef(left));
+                        if (right.left !== left || left.right.marker !== 73)
+                            throw 'cycle allocation';
+                    }}
+                }}
+                for (let round = 0; round < 128; round++) {{
+                    churn(round);
+                    gc();
+                    if (live.marker !== 41 || live.self !== live)
+                        throw 'retained cycle';
+                }}
+                Promise.resolve().then(function() {{
+                    gc();
+                    for (const sample of samples) {{
+                        if (sample.deref() !== undefined) throw 'released cycle retained';
+                    }}
+                    if (live.self !== live) throw 'live cycle lost';
+                    print('churn:128:512:ok');
+                }});
+                void 0;
+            "#
+        );
+        let engine = Engine::new(RealmBuilder::new().build());
+        let compilation = engine
+            .profile_script_compilation(
+                &source,
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap();
+        let profile = engine
+            .profile_wasm_execution(&compilation.artifact, Some(30_000), false)
+            .unwrap();
+        assert_eq!(profile.outcome.backend_used, ExecutionBackend::WasmAot);
+        assert!(
+            matches!(profile.outcome.completion, ObservedCompletion::Normal(_)),
+            "{:?}",
+            profile.outcome.completion
+        );
+        assert_eq!(
+            profile.outcome.output_events,
+            vec![HostOutputEvent::PrintLine("churn:128:512:ok".into())]
+        );
+        // These are reserved-capacity snapshots, not allocation/live-byte or
+        // pause counters. The original product configuration is used intact.
+        assert!(profile.heap.capacity_before_execution_bytes <= 16 * 1024 * 1024);
+        assert!(
+            profile.heap.capacity_after_execution_bytes <= 16 * 1024 * 1024,
+            "cyclic churn grew the product GC heap: {:?}",
+            profile.heap
+        );
+    }
+}
+
+#[test]
+fn escaped_closure_roots_foreign_cycles_until_release_in_a_later_job() {
+    for directive in ["", "\"use strict\";\n"] {
+        let events = run(&format!(
+            r#"{directive}
+                let keep, weak;
+                (function() {{
+                    const foreign = __lilaCreateRealm().global;
+                    const key = new foreign.Object();
+                    const local = {{marker: 73, foreign: key}};
+                    key.marker = 41;
+                    key.local = local;
+                    key.self = key;
+                    weak = new WeakRef(key);
+                    keep = function() {{
+                        gc();
+                        if (key.marker !== 41 || key.self !== key ||
+                            key.local !== local || local.foreign !== key ||
+                            local.marker !== 73 ||
+                            Object.getPrototypeOf(key) !== foreign.Object.prototype ||
+                            Object.getPrototypeOf(local) !== Object.prototype)
+                            throw 'cross-realm cycle roots';
+                        print('foreign:rooted');
+                    }};
+                }})();
+                Promise.resolve().then(function() {{
+                    gc();
+                    if (weak.deref() === undefined) throw 'closure lost foreign cycle';
+                    keep();
+                    keep = undefined;
+                }}).then(function() {{
+                    gc();
+                    if (weak.deref() !== undefined) throw 'released foreign cycle retained';
+                    print('foreign:released');
+                }});
+            "#
+        ));
+        assert_eq!(
+            events,
+            vec![
+                HostOutputEvent::PrintLine("foreign:rooted".into()),
+                HostOutputEvent::PrintLine("foreign:released".into()),
+            ]
+        );
+    }
+}

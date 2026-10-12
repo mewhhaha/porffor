@@ -1,3 +1,52 @@
+## Accepted generator/oracle batch and next measured repair — 2026-10-12
+
+The frozen compiler/oracle repair passes all 704 debug nightly campaign cases:
+13 prior failures eliminated, all 691 prior passes retained, no missing IDs or
+regressions, with byte-identical requests and the original 5,000 ms deadlines.
+All 1,216 robustness IDs retain their original inputs, order and 300,000 ms
+bounds and remain passing. All fourteen compiled corpus cases pass; the
+original twelve bytes/order remain and two actual minimized witnesses are
+appended. Ten selected native scopes pass 1,958 controls: every 1,954 prior
+selected ID remains passing and four new controls pass. Eight scopes are
+complete and two Engine scopes are filtered. The composite native baseline
+retains its separate source states; this is not a complete workspace pass.
+See [the source-bound record](docs/rust-rewrite/generator-oracle-repair-20261012.json).
+
+Generator If lowering now balances its region depth and reserves nested
+constant-branch phases. Boa's oracle labelled break closes every skipped inner
+iterator while preserving target-loop close ownership. Strict/sloppy controls
+cover complete values, yielded finally, return/throw, close order and abrupt
+identity. Two emitted GC controls prove bounded cyclic churn and escaped
+foreign-cycle survival/release. Capacity observations are reserved capacity,
+not allocation/live-byte/pause/peak metrics. The first auxiliary replay driver
+mistakenly rejected two deliberate syntax negatives; its red receipt and raw
+both_failed reports remain unchanged beside the checked continuation.
+
+The next measured repair is WeakMap lookup and collector marking. Both exact
+original 99,999-link pinned modes time out at 60,000 ms on the retained clean
+672 compiler and this repair compiler: two pre-existing failures, no regression.
+The host Vec lookup is quadratic; boxed StoredValue cells also make repeated
+whole-registry ephemeron passes quadratic. Root has ignored, uncompiled drafts
+under target/future-verification-drivers-20261012/weak-index-draft. Promote both
+cost repairs together, retaining actual owner/key weakness and all old controls.
+The planned index is non-rooting and Store/collection-epoch scoped; the planned
+collector queue is activated by first-copy notifications for both owner and key.
+All reservations precede heap movement. Draft review is not execution acceptance.
+
+Actual Cargo fingerprints also prove that Intl's test-only compiled_data feature
+widens the workspace library-test graph compared with the CLI build graph.
+An ignored opt-in test-package-isolation draft keeps exact native inventories
+while separating those roots; helper checks alone establish no build-speed gain.
+Do not force Cargo freshness or inherit passing verdicts. Protect retained
+passing library hardlinks before any build can overwrite their canonical paths.
+
+Next finish coherent GC/tooling checks, fresh complete all-feature/default
+native/ignored/docs with exact prior-ID comparison, optimized corpus/determinism
+and sustained campaigns, performance reports, historical/current-pin stress,
+real shard/resume and two full release families, verified publication and every
+remaining task gate. Preserve all fixture bodies, counts, deadlines and source
+pins. Delete this handoff and tasks only after actual completion.
+
 ## Accepted async loop/module batch and next gates — 2026-10-12
 
 The frozen semantic repair passes all seven selected scopes: 1,943 native

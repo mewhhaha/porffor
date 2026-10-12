@@ -59,6 +59,8 @@ impl DifferentialCorpus {
                 entry!("v4/t25-source-phase.json"),
                 entry!("v4/t25-undeclared-and-unused.json"),
                 entry!("v5/t25-object-graph-descriptors-and-realm.json"),
+                entry!("witnesses/v3/generator-nested-constant-if-finalizer.json"),
+                entry!("witnesses/v3/iterator-nested-label-close.json"),
             ],
         }
     }

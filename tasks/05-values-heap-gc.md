@@ -1,5 +1,25 @@
 # T05 — Value representation, heap, GC and weak reachability
 
+## Emitted lifecycle controls and measured weak stress — 2026-10-12
+
+The frozen generator/oracle batch passes ten selected native scopes, including
+all ten weak builtin controls. Two new emitted controls cover 128 rounds of
+512 dead cyclic pairs beside a surviving cycle, later-job WeakRef release, and
+an escaped closure retaining a foreign-Realm cycle until the closure is cleared.
+The measured before/after heap capacities stay within the configured 16 MiB;
+these are reserved-capacity observations, not allocation/live-byte/pause/peak
+measurements. All prior selected weak IDs remain passing. See the
+[source-bound record](../docs/rust-rewrite/generator-oracle-repair-20261012.json).
+
+The unchanged pinned 99,999-link WeakMap fixture times out in both script modes
+at the original 60,000 ms on both the actual retained clean 672 compiler and the
+new compiler. These two pre-existing failures have no regression. Source review
+confirms quadratic Vec lookup and repeated full ephemeron scans for boxed value
+chains. Both cost paths need a coherent repair with non-rooting lookup tokens,
+collection invalidation, genuine conditional marking and unchanged stress
+bounds. Draft design/control review does not pass that stress gate. Complete
+default/release/full-pin, independent-host and lifecycle acceptance remain open.
+
 ## Deterministic root and bounded-cycle source — 2026-10-12
 
 The frozen 032d2f5c7 full workspace result passes every existing GC scope; the

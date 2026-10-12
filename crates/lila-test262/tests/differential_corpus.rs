@@ -60,7 +60,7 @@ fn compiled_inventory_contains_every_current_json_fixture_once() {
     actual.sort();
     let compiled = DifferentialCorpus::compiled();
     assert!(!compiled.is_empty());
-    assert_eq!(compiled.len(), 12);
+    assert_eq!(compiled.len(), 14);
     assert_eq!(
         compiled.names().collect::<Vec<_>>(),
         actual.iter().map(String::as_str).collect::<Vec<_>>()
@@ -118,7 +118,7 @@ fn compiled_corpus_replays_every_entry_through_the_named_actual_worker() {
             report.matched(),
             report.failed()
         ),
-        (12, 12, 12, 0),
+        (14, 14, 14, 0),
         "actual corpus report: {report:?}; retained evidence: {}",
         output.display()
     );
@@ -126,7 +126,7 @@ fn compiled_corpus_replays_every_entry_through_the_named_actual_worker() {
     let aggregate: serde_json::Value =
         serde_json::from_slice(&std::fs::read(output.join("aggregate.json")).unwrap()).unwrap();
     assert_eq!(aggregate["semantic_equivalence"], "not_established");
-    for ordinal in 0..12 {
+    for ordinal in 0..14 {
         let row: serde_json::Value = serde_json::from_slice(
             &std::fs::read(output.join(format!("case-{ordinal:03}.report.json"))).unwrap(),
         )

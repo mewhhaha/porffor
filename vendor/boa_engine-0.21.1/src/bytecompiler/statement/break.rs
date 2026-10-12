@@ -41,6 +41,15 @@ impl ByteCompiler<'_> {
                 actions.push(JumpRecordAction::Transfer { index: i as u32 });
                 break;
             }
+
+            // A labelled break skips the normal exit of each inner loop.
+            // Close those iterators here; the target loop's own exit still
+            // owns its close, so this follows the target selection above.
+            if info.iterator_loop() {
+                actions.push(JumpRecordAction::CloseIterator {
+                    r#async: info.for_await_of_loop(),
+                });
+            }
         }
 
         actions.reverse();

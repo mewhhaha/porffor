@@ -285,6 +285,11 @@ impl ScriptLowerer<'_> {
         &mut self,
         source: &If,
     ) -> (StatementIr, ValueKind) {
+        // The complete source plan reserves phases for every nested If,
+        // including constant branches without their own suspension. Keep
+        // their lowering under the same owner instead of eagerly folding
+        // away phases that the enclosing checked region still owns.
+        self.ordinary_generator_region_depth += 1;
         let lowered = (|| -> Result<_, GeneratorLoopControlError> {
             let states = classic_generator_if_states(
                 source,
@@ -362,6 +367,7 @@ impl ScriptLowerer<'_> {
                 self.merge_value_kinds(then_kind, else_kind),
             ))
         })();
+        self.ordinary_generator_region_depth -= 1;
         self.finish_generator_loop_lowering(lowered)
     }
 }

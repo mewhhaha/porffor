@@ -1,5 +1,27 @@
 # Lila
 
+## Generator and iterator repair — 2026-10-12
+
+The frozen debug CLI passes all **704 nightly campaign cases**, eliminating
+the 13 previous failures while retaining all 691 previous passes on identical
+requests and original deadlines. All **1,216 robustness cases** remain passing.
+The compiled corpus passes **14/14**, preserving the original twelve entries
+and appending two minimized witnesses. The native focus passes **1,958 controls**:
+all 1,954 prior selected IDs remain passing and four new controls pass. Its ten
+scopes include eight complete scopes and two filtered Engine scopes; these are
+selected results, with complete default/all-feature and optimized acceptance
+still required. See the [exact comparisons](docs/rust-rewrite/generator-oracle-repair-20261012.json).
+
+Nested constant branches now retain their allocated generator phases, and the
+spec-exec oracle closes each skipped inner iterator on labelled break. New
+controls preserve values, close order, abrupt identity and yielding finalizers.
+Additional emitted GC controls cover cyclic churn and escaped foreign-Realm
+closures. On both this compiler and the retained earlier compiler, the original
+99,999-link WeakMap fixture still times out in both script modes at 60,000 ms:
+two pre-existing failures, zero regressions on those IDs. Its lookup and
+conditional-marking costs need repair. Full native/default/optimized, current-pin,
+performance, stress, publication and task closure remain open.
+
 ## Async loop and cold module repair — 2026-10-12
 
 The frozen repair passes **1,943 native controls, zero failures or ignores**.

@@ -1,5 +1,22 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Sustained debug failure elimination — 2026-10-12
+
+The generator/oracle repair completes all 704 nightly debug cases and all 1,216
+robustness cases. Exact original identities/requests eliminate thirteen campaign
+failures, retain every prior passing case and introduce no campaign regression.
+The compiled corpus passes fourteen entries, retaining the original twelve and
+appending two minimized witnesses. Ten selected native scopes pass 1,958
+controls: all 1,954 prior selected IDs remain passing and four new controls pass.
+The [complete selected evidence](../docs/rust-rewrite/generator-oracle-repair-20261012.json)
+preserves raw failures, source/CLI identities, limits and separate denominators.
+
+Both original deep WeakMap pinned modes remain red at 60,000 ms on both the
+retained earlier compiler and this compiler; they are pre-existing failures,
+not regressions. Coherent lookup/collector repair, complete native/default,
+optimized/current-pin/performance/stress/publication and remaining task gates
+are still required. Retain CONTINUE.md and this folder until actual completion.
+
 ## Complete native checkpoint — 2026-10-12
 
 Frozen 032d2f5c7 completes all 106 scopes: 8,959 pass, one fails, zero ignored.

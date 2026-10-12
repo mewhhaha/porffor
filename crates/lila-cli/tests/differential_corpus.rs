@@ -159,11 +159,11 @@ fn whole_compiled_inventory_keeps_every_worker_failure_and_refuses_output_reuse(
     let captured = replay(None, &output, "/bin/false");
     assert_eq!(captured.exit_code, 1);
     let report: serde_json::Value = serde_json::from_slice(&captured.stdout).unwrap();
-    assert_eq!(report["total"], 12);
-    assert_eq!(report["completed"], 12);
+    assert_eq!(report["total"], 14);
+    assert_eq!(report["completed"], 14);
     assert_eq!(report["matched"], 0);
-    assert_eq!(report["failed"], 12);
-    for ordinal in 0..12 {
+    assert_eq!(report["failed"], 14);
+    for ordinal in 0..14 {
         let row = read(&output.join(format!("case-{ordinal:03}.report.json")));
         assert_eq!(row["status"], "compared");
         assert_eq!(row["report"]["verdict"], "worker_failure");
