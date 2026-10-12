@@ -18,6 +18,8 @@ untrusted object into `CheckpointRunIdentityWire`, then calls the fallible
 parser. Invalid field combinations therefore cannot cross the snapshot input
 boundary as a `CheckpointRunIdentity`.
 
+Full, shard and matrix identities cross one typed admission point.
+
 ## Product ownership
 
 Full, shard, and matrix execution construct the admitted identity through

@@ -1,7 +1,5 @@
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/intl-locale-string-slot-dispatch.md");
-const TASK_T02: &str = include_str!("../../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK_T23: &str = include_str!("../../../../tasks/23-intl402.md");
 
 #[test]
 fn locale_string_slot_contract_records_exact_witnesses_and_nonclaims() {
@@ -18,7 +16,7 @@ fn locale_string_slot_contract_records_exact_witnesses_and_nonclaims() {
             "missing contract marker: {marker}"
         );
     }
-    for task in [TASK_T02, TASK_T23] {
+    for task in [CONTRACT] {
         assert!(task.contains("intl-locale-string-slot-dispatch.md"));
         assert!(task.contains("00486705af5ad3a89c1386f4ca8b3088d5531ca676a582aa643ca90bca658d6a"));
         assert!(task.contains("4/4"));

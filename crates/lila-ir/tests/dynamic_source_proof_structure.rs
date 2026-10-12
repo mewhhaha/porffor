@@ -1,7 +1,6 @@
 const SOURCE: &str = include_str!("../src/lowering/dynamic_source.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-source-capability.md");
-const TASK: &str = include_str!("../../../tasks/13-dynamic-source-evaluation.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -155,7 +154,7 @@ fn source_syntax_produces_one_proof_consumed_by_one_exhaustive_gap_projection() 
 #[test]
 fn contract_and_t13_record_the_one_shot_source_proof() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+    let task_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for marker in [
         "non-`Clone`, non-`Copy`",
         "seven lexical type mentions",

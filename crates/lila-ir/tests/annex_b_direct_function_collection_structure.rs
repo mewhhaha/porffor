@@ -3,7 +3,6 @@ const IR_TESTS_SOURCE: &str = include_str!("../src/tests/annex_b.rs");
 const CLI_TESTS: &str = include_str!("../../lila-cli/tests/cli/language.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/annex-b-direct-function-collection.md");
-const TASK: &str = include_str!("../../../tasks/24-globals-errors-annexb-host.md");
 const BLOCK_WITNESS: &str = include_str!(
     "../../../test262/vendor/test262/test/annexB/language/global-code/block-decl-global-init.js"
 );
@@ -252,8 +251,10 @@ fn annex_b_collection_contract_names_the_existing_behavioral_witnesses() {
         assert!(CONTRACT.contains(path), "contract omits witness: {path}");
     }
     assert!(CONTRACT.contains("byte-identical"));
-    assert!(TASK.contains("`AnnexBDirectFunctionCollection::{Skip, Record}`"));
-    assert!(code_without_whitespace(TASK).contains("noemitted-IR,Wasmorconformancechange"));
+    assert!(CONTRACT.contains("`AnnexBDirectFunctionCollection::{Skip, Record}`"));
+    assert!(code_without_whitespace(CONTRACT)
+        .contains("TheplannedIRandemittedWasmmustremainbyte-identical."));
+    assert!(code_without_whitespace(CONTRACT).contains("refreshaconformancecount"));
 }
 use std::fs;
 use std::path::Path;

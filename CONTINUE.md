@@ -1,3 +1,17 @@
+## Current original regression boundary — 2026-10-11
+
+Seven original failures are eliminated across the same 354 controls; one remains.
+See [ownership migration and regression evidence](docs/rust-rewrite/ownership-migration-repairs-20261011.md)
+for the complete original/current inventories and preserved reports. The latest
+source-fenced gate runs 3,574 controls: 3,572 pass, two fail, none are ignored.
+The original mutation timeout remains; the other failure is a newly exposed
+task-to-contract assertion. All ten additional failures from the preceding gate
+are eliminated. The 673-control IR grouping has an exact inventory bijection
+and matching CI scopes. The remaining assertion corrections and replacement
+UTF-16 output buffer await fresh native verification. Full native
+coverage, fresh pinned Test262 census/closure, remaining semantic repairs and
+publication still precede deletion of this file and tasks/.
+
 ## Bytes module and remaining acceptance — 2026-10-11
 
 The clean `77d7d3e46` complete inventory attempt finishes with 2,897 passes and

@@ -23,6 +23,17 @@ primitive conversion operations produce the JSON String completion; there
 is no serialization of Rust pointers or opaque Engine object categories.
 The corpus fingerprint includes the complete capture harness bytes.
 
+The optional Boa oracle initializes `Object.prototype` and `Function.prototype`
+in the same permitted intrinsic creation chronology as the AOT Realm. The
+pinned ECMA-262 CreateIntrinsics algorithm (§10.2.1) allows an initialization
+order consistent with intrinsic dependencies; OrdinaryOwnPropertyKeys
+(§10.1.10) still exposes chronological property creation. The oracle builder
+therefore chooses that chronology during initialization, rather than sorting
+or normalizing observed keys. User deletion and redefinition remain fully
+observable and ordered in both backends. The legacy `__proto__` setter has
+the required length 1 (B.2.2.1); the vendored oracle's previous length 0 was
+incorrect. Complete descriptors and ordered graph comparison remain intact.
+
 Object and Symbol IDs are assigned at their first encounter: named roots,
 named anchors, then a breadth-first object walk. Each object records its
 observable object/Array/callable category, extensibility, prototype reference

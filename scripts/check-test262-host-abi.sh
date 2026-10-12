@@ -3,6 +3,8 @@ set -euo pipefail
 
 contract="${1:-test262/backlog/host-abi.tsv}"
 
+conformance_owners="$(python3 -B scripts/conformance_owners.py --ids)"
+
 failures=0
 
 fail() {
@@ -10,9 +12,10 @@ fail() {
   failures=$((failures + 1))
 }
 
-valid_task_id() {
-  case "$1" in
-    T[0-2][0-9]|T26-unclassified) ;;
+valid_owner() {
+  [ "$1" = "T26-unclassified" ] && return 0
+  case " $conformance_owners " in
+    *" $1 "*) ;;
     *) return 1 ;;
   esac
   case "$1" in
@@ -87,7 +90,7 @@ while IFS= read -r line; do
   if ! valid_failure_class "$failure_class"; then
     fail "$contract:$line_no has invalid failure class: $failure_class"
   fi
-  if ! valid_task_id "$owner_task"; then
+  if ! valid_owner "$owner_task"; then
     fail "$contract:$line_no has invalid owner task: $owner_task"
   fi
   if grep -Fxq "$operation" "$seen_ops"; then

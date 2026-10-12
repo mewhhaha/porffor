@@ -3,7 +3,6 @@ const GC_SOURCE: &str = include_str!("../../src/wasm_gc_completion.rs");
 const GC_SCHEMA_SOURCE: &str = include_str!("../../../lila-aot-wasm/src/gc_types/host.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/wasm-top-level-completion-kind.md");
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -335,7 +334,7 @@ fn each_completion_consumer_owns_its_normal_and_throw_consequence() {
     ] {
         assert_eq!(structured.matches(consequence).count(), 1);
     }
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("WasmTopLevelCompletionKind"));
         assert!(evidence.contains("three exhaustive consumers"));
         assert!(evidence.contains("RootScope"));

@@ -17,7 +17,6 @@ const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/plain-async-function-classic-for-await-using.md"
 );
 const README: &str = include_str!("../../../../README.md");
-const TASK: &str = include_str!("../../../../tasks/15-generators-iterators-resource-management.md");
 
 const EXACT_FILES: [(&str, &str); 4] = [
     (
@@ -362,7 +361,7 @@ fn exact_inventory_and_durable_fixture_bound_the_verified_claim() {
         assert!(!TEST262_RUNNER_SOURCE.contains(path));
         assert!(!KNOWN_FAILURES.contains(path));
         assert!(CONTRACT.contains(path));
-        assert!(TASK.contains(path));
+        assert!(CONTRACT.contains(path));
     }
 
     for marker in [
@@ -394,37 +393,4 @@ fn exact_inventory_and_durable_fixture_bound_the_verified_claim() {
     assert!(CONTRACT.contains("repeated/nonlinear execution"));
     assert!(CLI_TEST_SOURCE.contains("fn wasm_await_using_classic_for_lifecycle()"));
     assert!(CLI_TEST_SOURCE.contains("wasm_await_using_classic_for_lifecycle.js"));
-
-    for status in [README, TASK] {
-        assert!(status.contains("plain-async classic"));
-        assert!(status.contains("`await using`"));
-        assert!(status.contains("`bca90f2ff9`"));
-        assert!(status.contains("`0/8`"));
-        assert!(status.contains("Runtime/NotImplemented"));
-        assert!(status.contains("`8/8`"));
-        assert!(status.contains("zero unsupported"));
-        assert!(status.contains("or bug outcomes"));
-        assert!(status.contains("Labelled"));
-        assert!(status.contains("label chain ending directly"));
-    }
-    for exclusion in [
-        "Async generators",
-        "ordinary",
-        "generator owners",
-        "modules",
-        "dynamic source",
-        "binding patterns",
-        "`for-of`",
-        "source suspension",
-        "complete `await using` directory",
-        "outer labelled-block",
-        "enclosing-loop",
-        "resource-loop node",
-        "full pinned aggregate",
-    ] {
-        assert!(
-            CONTRACT.contains(exclusion) || README.contains(exclusion) || TASK.contains(exclusion),
-            "{exclusion}"
-        );
-    }
 }

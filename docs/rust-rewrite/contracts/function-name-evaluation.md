@@ -53,7 +53,7 @@ all object-literal combinations containing `yield` or `await`.
 Focused verification commands:
 
 ```sh
-cargo test --locked -p lila-ir --test function_names
+cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::function_names::
 cargo test --locked -p lila-aot-wasm --test structure_language -- object_literal_home_object_structure::
 cargo test --locked -p lila-aot-wasm --lib nested_object_properties_retain_values_across_function_name_materialization
 cargo test --locked -p lila-engine --test aot_builtins -- aot_function_names:: --test-threads=1

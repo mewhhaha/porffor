@@ -66,14 +66,15 @@ incremental = true
 [profile.test.package."*"]
 opt-level = 2
 
-# Package overrides win over the wildcard dependency setting above. Keep all
-# frontend/IR crates at opt-level 0 for quick edits. The Intl admission and
+# Package overrides win over the wildcard dependency setting above. Keep the frontend at opt-level 0 for quick edits. IR
+# analysis runs at opt-level 1 because fixed-budget cases repeatedly walk
+# ordinary function plans and exact-context propagation. The Intl admission and
 # Wasm emitter run at opt-level 1: their cold per-case work dominates fixed
 # execution budgets and large suites, while higher optimization taxes rebuilds.
 [profile.dev.package.lila-front]
 opt-level = 0
 [profile.dev.package.lila-ir]
-opt-level = 0
+opt-level = 1
 [profile.dev.package.lila-intl]
 opt-level = 1
 [profile.dev.package.lila-runtime]
@@ -98,7 +99,7 @@ opt-level = 0
 [profile.test.package.lila-front]
 opt-level = 0
 [profile.test.package.lila-ir]
-opt-level = 0
+opt-level = 1
 [profile.test.package.lila-intl]
 opt-level = 1
 [profile.test.package.lila-runtime]

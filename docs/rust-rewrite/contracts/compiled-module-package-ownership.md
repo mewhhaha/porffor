@@ -78,7 +78,7 @@ independence. Separate Unicode parity checks pass 2/2, and the three native
 Unicode plus seven backreference-folding cohorts pass. Full IR passes 2,166
 checks, with one existing documentation example ignored. These results do not
 establish whole-corpus byte identity or close T05, runtime capability gaps or
-full conformance acceptance. See the [current task checkpoint](../../../tasks/README.md#closure-audit-and-verification--2026-10-08).
+full conformance acceptance. See the [ownership and acceptance requirements](../conformance-ownership.md).
 
 ## Historical checkpoints
 

@@ -4,7 +4,6 @@ const PROCESS_SOURCE: &str = include_str!("../src/differential/worker_process.rs
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/differential-backend-execution-ownership.md"
 );
-const TASK: &str = include_str!("../../../tasks/25-differential-fuzzing-performance.md");
 
 fn bounded_inclusive<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let start_offset = source
@@ -535,7 +534,7 @@ fn projection_consumes_the_envelope_and_all_five_result_routes() {
 #[test]
 fn contract_and_t25_record_the_owned_execution_lifecycle() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+    let task_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for marker in [
         "seven production mentions",
         "12 production result mentions",

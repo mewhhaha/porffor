@@ -67,7 +67,7 @@ Focused verification:
 ```sh
 cargo test -p lila-aot-wasm --test function_realm_outcome_structure --quiet
 bash scripts/check-module-boundaries.sh
-bash scripts/check-task-plan.sh
+./scripts/conformance_owners.py
 rustfmt --edition 2024 --check \
   crates/lila-aot-wasm/src/functions/function_realm.rs \
   crates/lila-aot-wasm/tests/function_realm_outcome_structure.rs

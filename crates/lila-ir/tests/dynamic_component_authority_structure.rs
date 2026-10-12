@@ -4,7 +4,6 @@ const CLASSIFICATION_SOURCE: &str =
     include_str!("../src/modules/graph_evaluation_classification.rs");
 const NAMESPACE_SOURCE: &str = include_str!("../src/modules/namespace.rs");
 const LINK_SOURCE: &str = include_str!("../src/modules/link.rs");
-const TASK: &str = include_str!("../../../tasks/12-modules-linking-loading.md");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-component-authority.md");
 
@@ -126,7 +125,7 @@ fn sibling_consumers_use_the_read_only_component_boundary() {
     assert!(CLASSIFICATION_SOURCE.contains("component.referrer()"));
     assert!(CLASSIFICATION_SOURCE.contains("component.target()"));
     assert!(NAMESPACE_SOURCE.contains("graph.dynamic_components()"));
-    assert!(TASK.contains("DynamicComponentIr"));
-    assert!(TASK.contains("read-only component slice"));
+    assert!(CONTRACT.contains("DynamicComponentIr"));
+    assert!(CONTRACT.contains("read-only component slice"));
     assert!(CONTRACT.contains("construction authority"));
 }

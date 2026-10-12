@@ -8,7 +8,6 @@ const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/numeric-conversion-realm-projection-capability.md"
 );
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -181,5 +180,4 @@ fn contract_and_t04_record_the_source_equivalent_capability_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("numeric-conversion-realm-projection-capability.md"));
 }

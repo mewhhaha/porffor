@@ -17,7 +17,9 @@ use lila_engine::{
     EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, ModuleLoadingPolicy,
     PromiseRejectionPolicy, RealmBuilder, RunOptions, WasmExecutionFailureKind,
 };
-use lila_ir::{EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, TaskId, UnsupportedFeature};
+use lila_ir::{
+    ConformanceOwner, EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, UnsupportedFeature,
+};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -564,7 +566,7 @@ impl Default for SuiteConfig {
             // Wasm-AOT stalls into a visible, bounded Timeout failure instead of
             // an unbounded multi-minute process stall. A correctness-green but
             // genuinely-this-slow case is itself performance debt (see
-            // tasks/25) and must not hide behind an inflated bound. A single
+            // conformance area T25) and must not hide behind an inflated bound. A single
             // fresh Engine/Wasmtime bootstrap plus compile in an unoptimized
             // debug build costs roughly 15-30s even for a trivial script, so
             // this floor keeps headroom above that legitimate cost while
@@ -1059,7 +1061,7 @@ impl Default for RunConfig {
             resume: false,
             snapshot_name: "latest".to_string(),
             // wasm-aot is the only backend whose results count as conformance
-            // (AGENTS.md, tasks/25, tasks/27). spec-exec remains available as an
+            // (AGENTS.md, conformance areas T25 and T27). spec-exec remains available as an
             // explicit, developer-selected differential oracle, never a harness
             // default.
             execution_backend: ExecutionBackend::WasmAot,
@@ -1584,13 +1586,13 @@ pub struct BacklogRecord {
 
 /// The owner of one non-passing Test262 case.
 ///
-/// The unclassified closure bucket is deliberately not a [`TaskId`]. Keeping
+/// The unclassified closure bucket is deliberately not a [`ConformanceOwner`]. Keeping
 /// it as a separate variant prevents `T26-unclassified` from leaking into the
 /// repository's closed task registry while preserving the stable artifact
 /// spelling at the serde boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BacklogOwner {
-    Task(TaskId),
+    Task(ConformanceOwner),
     Unclassified,
 }
 
@@ -1617,7 +1619,7 @@ impl std::str::FromStr for BacklogOwner {
             return Ok(Self::Unclassified);
         }
 
-        text.parse::<TaskId>()
+        text.parse::<ConformanceOwner>()
             .map(Self::Task)
             .map_err(|err| err.to_string())
     }
@@ -1706,14 +1708,14 @@ impl std::str::FromStr for BacklogDebtCategory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BacklogOwnership {
     Assigned {
-        task: TaskId,
+        task: ConformanceOwner,
         category: BacklogDebtCategory,
     },
     Unclassified,
 }
 
 impl BacklogOwnership {
-    pub const fn assigned(task: TaskId, category: BacklogDebtCategory) -> Self {
+    pub const fn assigned(task: ConformanceOwner, category: BacklogDebtCategory) -> Self {
         Self::Assigned { task, category }
     }
 
@@ -8343,20 +8345,26 @@ fn classify_backlog_owner(
     rules: &[BacklogOwnerRule],
 ) -> BacklogOwnership {
     if matches!(failure.kind, FailureKind::Parser | FailureKind::EarlyError) {
-        return BacklogOwnership::assigned(TaskId::T07, BacklogDebtCategory::Parser);
+        return BacklogOwnership::assigned(ConformanceOwner::T07, BacklogDebtCategory::Parser);
     }
     if failure.kind == FailureKind::Lowering {
-        return BacklogOwnership::assigned(TaskId::T04, BacklogDebtCategory::Semantic);
+        return BacklogOwnership::assigned(ConformanceOwner::T04, BacklogDebtCategory::Semantic);
     }
     if failure.kind == FailureKind::HostHarness || failure.origin == FailureOrigin::LocalHarness {
-        return BacklogOwnership::assigned(TaskId::T03, BacklogDebtCategory::Infrastructure);
+        return BacklogOwnership::assigned(
+            ConformanceOwner::T03,
+            BacklogDebtCategory::Infrastructure,
+        );
     }
     if case.is_some_and(|case| {
         case.features
             .iter()
             .any(|feature| feature == "eval" || feature == "dynamic-import")
     }) {
-        return BacklogOwnership::assigned(TaskId::T13, BacklogDebtCategory::DynamicSource);
+        return BacklogOwnership::assigned(
+            ConformanceOwner::T13,
+            BacklogDebtCategory::DynamicSource,
+        );
     }
     for rule in rules {
         if failure.test_path == rule.prefix
@@ -27601,7 +27609,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(record.test_path, "built-ins/Array/intentional-failure.js");
         assert_eq!(
             record.ownership,
-            BacklogOwnership::assigned(TaskId::T16, BacklogDebtCategory::Semantic)
+            BacklogOwnership::assigned(ConformanceOwner::T16, BacklogDebtCategory::Semantic)
         );
         assert_eq!(record.features, vec!["resizable-arraybuffer".to_string()]);
         assert!(record.duration_ms.is_some());
@@ -28097,7 +28105,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             // same backend the comparison below loads (spec-exec), otherwise the
             // aggregate snapshot is written under the wrong backend key. This is
             // no longer implied by RunConfig::default() since the harness default
-            // flipped to wasm-aot (tasks/25).
+            // flipped to wasm-aot (conformance area T25).
             execution_backend: ExecutionBackend::SpecExec,
             ..RunConfig::default()
         };
@@ -28272,7 +28280,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let ownership = classify_backlog_owner(&array_failure, None, &rules);
         assert_eq!(
             ownership,
-            BacklogOwnership::assigned(TaskId::T16, BacklogDebtCategory::Semantic)
+            BacklogOwnership::assigned(ConformanceOwner::T16, BacklogDebtCategory::Semantic)
         );
     }
 
@@ -28280,7 +28288,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     fn backlog_owner_and_category_are_closed_serialization_domains() {
         assert_eq!(
             "T16".parse::<BacklogOwner>(),
-            Ok(BacklogOwner::Task(TaskId::T16))
+            Ok(BacklogOwner::Task(ConformanceOwner::T16))
         );
         assert_eq!(
             "T26-unclassified".parse::<BacklogOwner>(),
@@ -28295,7 +28303,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert!("misc".parse::<BacklogDebtCategory>().is_err());
 
         assert_eq!(
-            serde_json::to_string(&BacklogOwner::Task(TaskId::T23)).unwrap(),
+            serde_json::to_string(&BacklogOwner::Task(ConformanceOwner::T23)).unwrap(),
             r#""T23""#
         );
         assert_eq!(
@@ -28307,7 +28315,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             r#""intl402""#
         );
 
-        let assigned = BacklogOwnership::assigned(TaskId::T23, BacklogDebtCategory::Intl402);
+        let assigned =
+            BacklogOwnership::assigned(ConformanceOwner::T23, BacklogDebtCategory::Intl402);
         assert_eq!(
             serde_json::from_str::<BacklogOwnership>(
                 r#"{"owner_task_id":"T23","debt_category":"intl402"}"#
@@ -28431,7 +28440,7 @@ assert.sameValue(bytes[3], 0);
     fn temporal_zoned_rounding_window_gap_cannot_pass_runtime_negative_or_catch() {
         let preludes = PreludeStore::default();
         let gap = lila_ir::RuntimeSemanticGap::TemporalZonedRoundingWindow;
-        assert_eq!(gap.owner(), TaskId::T22);
+        assert_eq!(gap.owner(), ConformanceOwner::T22);
         for expected_error in [None, Some(""), Some("Error"), Some("RangeError")] {
             let path = "intl402/Temporal/runtime-zoned-rounding-window.js";
             let mut case = synthetic_case(path);

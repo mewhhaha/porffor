@@ -88,7 +88,6 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
     // another identity owner or converting graph identities to specifier text.
     for source in [
         LOADED_SOURCES_SOURCE,
-        GRAPH_SOURCE,
         GRAPH_TESTS_SOURCE,
         GRAPH_BUILD_SOURCE,
         GRAPH_RESOLUTION_SOURCE,
@@ -106,6 +105,11 @@ fn module_key_callers_keep_the_public_identity_domain_without_compatibility_expo
         assert!(!source.contains("impl ModuleKey"));
         assert!(!source.contains("pub type ModuleKey"));
     }
+    // The graph stores the typed record identity (host locator plus kind).
+    assert!(GRAPH_SOURCE.contains("ModuleRecordKey"));
+    assert!(!GRAPH_SOURCE.contains("pub struct ModuleRecordKey"));
+    assert!(!GRAPH_SOURCE.contains("impl ModuleRecordKey"));
+    assert!(!GRAPH_SOURCE.contains("pub type ModuleRecordKey"));
     let (dynamic_production, dynamic_tests) = DYNAMIC_SOURCE
         .split_once("\n#[cfg(test)]\nmod tests {")
         .expect("dynamic import fixture keys are test-only");

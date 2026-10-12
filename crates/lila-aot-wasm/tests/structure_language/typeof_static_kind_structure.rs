@@ -1,7 +1,6 @@
 const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/typeof-static-kind-domain.md");
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -129,8 +128,8 @@ fn callable_objects_and_htmldda_override_the_default_in_spec_order() {
 }
 
 #[test]
-fn contract_and_task_record_the_runtime_value_typeof_owner() {
-    for source in [CONTRACT, TASK] {
+fn contract_records_the_runtime_value_typeof_owner() {
+    for source in [CONTRACT] {
         for marker in [
             "ValueLocals",
             "compile_typeof_payload",

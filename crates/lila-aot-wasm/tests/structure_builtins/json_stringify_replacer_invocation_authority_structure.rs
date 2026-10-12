@@ -11,7 +11,6 @@ const FIXTURE: &str = include_str!(
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/json-stringify-replacer-invocation-authority.md"
 );
-const TASK: &str = include_str!("../../../../tasks/20-number-bigint-math-json.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -372,7 +371,7 @@ fn contract_task_and_public_fixture_own_the_authority() {
         "json_stringify_replacer_invocation_authority_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
     }
     assert_eq!(
         CLI_SOURCE

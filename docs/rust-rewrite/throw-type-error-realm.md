@@ -54,7 +54,7 @@ The focused targets are:
 
 ```sh
 cargo test -p lila-engine --test aot_realm_modules -- aot_throw_type_error_realm:: --test-threads=1
-cargo test -p lila-ir --test throw_type_error_realm
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::throw_type_error_realm::
 cargo test -p lila-aot-wasm --test throw_type_error_realm_structure
 cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_tests::created_realm_function_sites_require_the_coupled_context -- --exact
 cargo test -p lila-aot-wasm --lib arguments_protocol::tests

@@ -21,7 +21,6 @@ const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/ordinary-property-eager-compound-assignment-reference.md"
 );
 const README: &str = include_str!("../../../../README.md");
-const TASK: &str = include_str!("../../../../tasks/08-environments-control-flow.md");
 
 macro_rules! exact_test262 {
     ($name:literal) => {
@@ -515,7 +514,7 @@ fn exact_a7_inventory_is_raw_unmasked_and_keeps_all_t3_controls() {
 
 #[test]
 fn status_records_the_exact_baseline_and_keeps_the_batch_bounded() {
-    for source in [README, TASK] {
+    for source in [README] {
         for marker in [
             "ae1bd994b",
             "22/88",

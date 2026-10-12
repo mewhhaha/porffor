@@ -352,7 +352,16 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let input = self.runtime_schema().reserve_value_local(function);
         self.compile_expr_to_value(expr, &input, function)?;
-        self.compile_truthy_tagged_i32(&input, function)?;
+        if expr.kind == ValueKind::Boolean {
+            // The normal value is already Boolean. Retain expression effects
+            // and abrupt completion, then consume its canonical scalar rather
+            // than dispatching over runtime tags that cannot occur here.
+            input.scalar().load(function);
+            function.instruction(&Instruction::I64Eqz);
+            function.instruction(&Instruction::I32Eqz);
+        } else {
+            self.compile_truthy_tagged_i32(&input, function)?;
+        }
         input.clear(function);
         Ok(())
     }

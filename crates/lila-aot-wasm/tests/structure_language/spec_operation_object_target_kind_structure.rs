@@ -1,7 +1,6 @@
 const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/spec-operation-object-target-kind.md");
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -116,8 +115,8 @@ fn property_operations_keep_completed_key_and_original_receiver_authorities() {
 }
 
 #[test]
-fn contract_and_task_record_shared_object_target_ownership() {
-    for source in [CONTRACT, TASK] {
+fn contract_records_shared_object_target_ownership() {
+    for source in [CONTRACT] {
         assert!(source.contains("SpecOperationObjectTargetKind"));
         assert!(source.contains("StaticallyObjectLike"));
         assert!(source.contains("RuntimeDynamic"));

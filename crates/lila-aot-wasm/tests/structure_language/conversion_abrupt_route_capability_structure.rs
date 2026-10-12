@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/conversion-abrupt-route-capabilities.md");
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -163,7 +162,7 @@ fn conversion_finishers_and_native_consumers_keep_their_abrupt_obligations() {
     assert!(reject.contains("CompletionKind::Throw.code()"));
     assert!(reject.contains("self.emit_af_settle(capability,PromiseSettlement::Reject,pending.value(),f)?;self.emit_branch_to_target(exit,f);"));
     // The dated contract still records the earlier route-domain migration.
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for route in [
             "ToPrimitiveAbruptRoute",
             "PrimitiveToStringAbruptRoute",

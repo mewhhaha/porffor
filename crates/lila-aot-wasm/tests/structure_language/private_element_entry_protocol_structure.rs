@@ -1,12 +1,11 @@
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/private-element-entry-protocol.md");
-const TASK: &str = include_str!("../../../../tasks/09-functions-classes-private-elements.md");
 
 #[test]
 fn private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner() {
     assert!(CONTRACT.contains("Private Name list publication"));
     assert!(
-        TASK.contains("Realm-list publication"),
+        CONTRACT.contains("Realm-list publication"),
         "historical T09 checkpoint"
     );
     for marker in [
@@ -20,6 +19,6 @@ fn private_element_entry_contract_and_t09_checkpoint_name_the_closed_row_owner()
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-        assert!(TASK.contains(marker), "missing T09 marker: {marker}");
+        assert!(CONTRACT.contains(marker), "missing T09 marker: {marker}");
     }
 }

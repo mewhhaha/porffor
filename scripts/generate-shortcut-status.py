@@ -82,10 +82,10 @@ def render(root: Path) -> str:
         '## Classification summary', '', '| Classification | Observations |', '| --- | ---: |',
     ]
     lines.extend(f'| `{kind}` | {counts[kind]} |' for kind in REASONS)
-    lines.extend([f'| **Total** | **{len(rows)}** |', '', '## Semantic shortcuts by removal task', '',
+    lines.extend([f'| **Total** | **{len(rows)}** |', '', '## Semantic shortcuts by removal owner', '',
                   'Only `semantic-shortcut` observations appear below. The canonical inventory',
-                  'also groups legitimate adaptations and diagnostic observations by task.', '',
-                  '| Removal task | Semantic observations |', '| --- | ---: |'])
+                  'also groups legitimate adaptations and diagnostic observations by owner.', '',
+                  '| Removal owner | Semantic observations |', '| --- | ---: |'])
     removals = Counter(row[4] for row in rows if row[2] == 'semantic-shortcut')
     lines.extend(f'| {task} | {count} |' for task, count in sorted(removals.items()))
     if not removals:
@@ -98,8 +98,8 @@ def render(root: Path) -> str:
                   'The generator alone cross-checks the committed ledger and inventory; it does',
                   'not replace the Rust selector scanner or verify every recorded classification.', '',
                   'Full-suite evidence and native snapshot provenance remain governed by',
-                  '[T01](../../tasks/01-baseline-and-generated-backlog.md) and',
-                  '[T26](../../tasks/26-zero-failure-conformance-closure.md). Only the Rust publisher',
+                  '[T01](../../docs/rust-rewrite/conformance-ownership.md#t01) and',
+                  '[T26](../../docs/rust-rewrite/conformance-ownership.md#t26). Only the Rust publisher',
                   'owns canonical Test262 result counts and the generated README conformance block.', ''])
     return '\n'.join(lines)
 

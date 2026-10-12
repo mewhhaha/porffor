@@ -5,7 +5,6 @@ const EPOCH_SOURCE: &str = include_str!("../../src/builtins/temporal/epoch.rs");
 const INSTANT_SOURCE: &str = include_str!("../../src/builtins/temporal_instant.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/temporal-instant-epoch-proof.md");
-const TASK: &str = include_str!("../../../../tasks/22-date-temporal.md");
 
 fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
     let bytes = source.as_bytes();
@@ -354,8 +353,8 @@ fn both_epoch_builtins_follow_validate_then_allocate() {
 }
 
 #[test]
-fn contract_and_task_record_the_epoch_proof() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_epoch_proof() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("EpochNanoseconds"));
         assert!(evidence.contains("non-`Copy`"));
         assert!(evidence.contains("emit_alloc_validated_temporal_instant"));

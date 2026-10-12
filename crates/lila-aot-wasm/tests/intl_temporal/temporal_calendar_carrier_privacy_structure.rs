@@ -1,10 +1,9 @@
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/temporal-calendar-carrier-privacy.md");
-const TASK: &str = include_str!("../../../../tasks/22-date-temporal.md");
 
 #[test]
 fn calendar_carrier_frozen_history_remains_documented() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `TemporalCalendarCarrier`"));
         assert!(
             evidence.contains("1726881c45223f008814169edef8a3066c23b8733d86714d63570535ba3dd831")

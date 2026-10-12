@@ -27,7 +27,7 @@ jobs:
           git rev-parse HEAD | tee /tmp/snapshot-comparison-evidence/source-commit.txt
           sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/src/snapshot_comparison_identity_tests.rs \
             | tee /tmp/snapshot-comparison-evidence/input-sha256.txt
-          cargo test --locked -p lila-test262 --lib --no-run --message-format=json \
+          cargo test --locked -p lila-test262 --lib --no-run --message-format=json-render-diagnostics \
             > /tmp/snapshot-comparison-evidence/build.jsonl
       - name: Execute the complete compiled inventory
         shell: bash

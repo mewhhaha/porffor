@@ -122,10 +122,24 @@ impl ScriptLowerer<'_> {
         // remap the constructors, fields and accessors that reference them.
         // Keep those bodies canonical until the complete identity graph can
         // be specialized together; dropping duplicate bodies is not sound.
+        // Exact contexts refine callsite facts independently of cloning the
+        // callee. Bound body duplication: large callbacks retain their fully
+        // general canonical body instead of repeatedly lowering/emitting it.
+        // This changes compiler precision and cost, never source evaluation.
+        const MAX_SPECIALIZED_SOURCE_BYTES: usize = 4096;
         self.analysis
             .function_plans
             .get(function_id)
-            .is_some_and(|plan| plan.captures.is_empty())
+            .is_some_and(|plan| {
+                plan.captures.is_empty()
+                    && match &plan.to_string_representation {
+                        CallableToStringRepresentation::ExactSource(source) => {
+                            source.len() <= MAX_SPECIALIZED_SOURCE_BYTES
+                        }
+                        CallableToStringRepresentation::NativeNamed(_)
+                        | CallableToStringRepresentation::NativeAnonymous => false,
+                    }
+            })
             && !self.analysis.class_execution_ids.values().any(|class_id| {
                 self.analysis.owner_plans[class_id]
                     .parent_owner_id

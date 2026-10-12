@@ -59,7 +59,7 @@ See the [optional chain contract](generator-optional-chain-yield-ownership.md).
 The new three Engine fixtures and actual IR controls remain unexecuted.
 
 The generator focused targets are `lila-engine --test aot_generators -- aot_generator_invocation_references::`
-and `lila-ir --test generator_invocation_boundaries`, with existing await and
+and `lila-ir --test lila_ir_integration -- ir_cases::generator_invocation_boundaries::`, with existing await and
 generator call controls affected. Fourteen generator fixture sources and twelve
 boundary refusal inputs are authored. Independent review corrected the
 prototype-setter admission mismatch and found no remaining source blocker;

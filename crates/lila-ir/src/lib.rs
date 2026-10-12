@@ -161,6 +161,7 @@ pub use eval_environment::{
     EvalBindingDeclarationIr, EvalDeclarativeEnvironmentKindIr, EvalEnvironmentRoleIr,
     EvalVisibleBindingIr,
 };
+mod ownership;
 mod prepared_script;
 mod prepared_source_cache;
 /// The Property Descriptor lattice (ECMA-262 6.2.6). See
@@ -170,7 +171,6 @@ mod regexp;
 mod regexp_unicode17;
 mod source_call_flow_proof;
 mod switch_storage;
-mod task;
 mod template_site;
 pub use template_site::{TemplateSiteId, TemplateSourceId, TemplateSourceIr};
 mod well_known;
@@ -263,6 +263,7 @@ pub use operations::{
     SpecOperationFamily, SpecOperationIr, ToPrimitiveHint, TrackedGapReason, UnaryBitwiseOp,
     UpdateReturnMode, COMPLETION_ABI_SLOTS, SPEC_OPERATION_CATALOG, SPEC_OPERATION_ROW_COUNT,
 };
+pub use ownership::{ConformanceOwner, ParseConformanceOwnerError};
 pub(crate) use prepared_function::DynamicFunctionSource;
 pub use prepared_function::{PreparedDynamicFunction, PreparedDynamicFunctionOutcome};
 pub use prepared_script::{
@@ -305,7 +306,6 @@ pub use runtime_semantics::{
     RuntimeSemanticGap, RuntimeSemanticRejection, RuntimeUnavailableCapability,
     WasmWeakReachabilityCapability, PRODUCT_WASM_WEAK_REACHABILITY,
 };
-pub use task::{ParseTaskIdError, TaskId};
 
 pub use names::*;
 pub(crate) use names::{

@@ -15,6 +15,8 @@ fn lower_control(source: &str) -> lila_ir::ProgramIr {
     );
     program
 }
+const ENVIRONMENT_REFERENCE_SOURCE: &str =
+    include_str!("../../src/environments/environment_reference.rs");
 const REFERENCE_SOURCE: &str = include_str!("../../../lila-ir/src/reference.rs");
 const FIXTURE: &str = include_str!(
     "../../../lila-cli/tests/fixtures/wasm_global_object_environment_compound_assignment.js"
@@ -197,12 +199,26 @@ fn shared_sealed_lifecycle_rechecks_get_and_put_before_exposing_result() {
         "    fn get_value(self, referenced_name: &str, strictness: Strictness) -> TypedExpr {",
         "    /// SetMutableBinding on the Object Environment Record selected before RHS.",
     );
-    assert!(get.contains("let recheck = self.has_property(referenced_name);"));
-    assert!(get.contains("ExprIr::PropertyRead"));
-    assert!(get.contains("Strictness::Sloppy => TypedExpr::undefined()"));
-    assert!(get.contains("Strictness::Strict => TypedExpr::from_info("));
-    assert!(get.contains("name: NativeErrorKind::ReferenceError"));
-    assert_before(get, "let recheck =", "let read =");
+    for operation in [
+        "SpecOperationIr::WithEnvironmentGetBindingValueSloppy",
+        "SpecOperationIr::WithEnvironmentGetBindingValueStrict",
+    ] {
+        assert!(get.contains(operation));
+    }
+    assert!(get.contains("self.read()"));
+    let runtime_get = bounded(
+        ENVIRONMENT_REFERENCE_SOURCE,
+        "    fn emit_environment_identifier_get_body(",
+        "    fn emit_environment_identifier_put_body(",
+    );
+    assert!(runtime_get.contains("RuntimeErrorMessage::OBJECT_ENVIRONMENT_BINDING_MISSING"));
+    assert!(runtime_get.contains("Strictness::Sloppy => value.set_undefined(function)"));
+    assert!(runtime_get.contains("EnvironmentReferenceKind::WithObject.code()"));
+    assert_before(
+        runtime_get,
+        "ObjectHasPropertyArguments::new(",
+        "ObjectReadArguments::new(",
+    );
 
     let put = bounded(
         objects,

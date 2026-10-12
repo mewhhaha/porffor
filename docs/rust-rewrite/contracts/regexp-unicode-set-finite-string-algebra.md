@@ -318,3 +318,9 @@ structure target `7/7`. `cargo check -p lila-ir`, formatting and diff checks
 were green with only the repository's existing warnings. No Wasm fixture,
 golden or Test262 status was rerun because the admitted behavior did not
 change.
+
+## Retained original verification
+
+The [finite-string historical checkpoint](../regexp-finite-string-algebra-historical-evidence.md)
+preserves the original pre-batch failures and exact 54-execution result migrated
+from the task ledger. It does not verify the current source.

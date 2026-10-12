@@ -30,7 +30,16 @@ fn module_unit_has_one_private_owner_and_narrow_public_facade() {
     assert!(!MODULES_SOURCE.contains("\nmod module_unit {\n"));
     assert!(!GRAPH_SOURCE.contains("pub struct ModuleUnitIr"));
     assert_eq!(OWNER_SOURCE.matches("pub struct ModuleUnitIr").count(), 1);
-    assert!(!OWNER_SOURCE.contains("impl ModuleUnitIr"));
+    assert_eq!(OWNER_SOURCE.matches("impl ModuleUnitIr").count(), 1);
+    let methods = OWNER_SOURCE
+        .split_once("impl ModuleUnitIr {")
+        .expect("private payload projection")
+        .1;
+    assert_eq!(
+        code_without_whitespace(methods),
+        "pub(super)fnpayload_bytes(&self)->&[u8]{self.record.bytes_source()\
+         .unwrap_or_else(||self.source_text.as_bytes())}}"
+    );
     assert_eq!(LIB_SOURCE.matches("ModuleUnitIr").count(), 1);
 }
 
@@ -39,7 +48,10 @@ fn module_unit_preserves_the_exact_public_field_record() {
     let fields = OWNER_SOURCE
         .split_once("pub struct ModuleUnitIr {")
         .expect("ModuleUnitIr fields")
-        .1;
+        .1
+        .split_once("\nimpl ModuleUnitIr {")
+        .expect("field record ends before the private projection")
+        .0;
     assert_eq!(
         code_without_whitespace(fields),
         "pubrecord:ModuleRecordIr,pubsource_text:String,pubmeta_url:String,\
@@ -53,7 +65,7 @@ fn module_unit_preserves_the_exact_public_field_record() {
 
 #[test]
 fn graph_keeps_its_domain_algorithms_while_construction_has_one_owner() {
-    assert_eq!(OWNER_SOURCE.matches("ModuleUnitIr").count(), 1);
+    assert_eq!(OWNER_SOURCE.matches("ModuleUnitIr").count(), 2);
     assert_eq!(GRAPH_SOURCE.matches("ModuleUnitIr").count(), 2);
     assert_eq!(GRAPH_BUILD_SOURCE.matches("ModuleUnitIr").count(), 2);
     assert_eq!(

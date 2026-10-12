@@ -25,11 +25,11 @@ use crate::{
 use boa_gc::{Finalize, Trace};
 use boa_macros::js_str;
 
-mod stack;
 pub(crate) mod aggregate;
 pub(crate) mod eval;
 pub(crate) mod range;
 pub(crate) mod reference;
+mod stack;
 pub(crate) mod suppressed;
 pub(crate) mod syntax;
 pub(crate) mod r#type;
@@ -193,8 +193,10 @@ impl IntrinsicObject for Error {
     fn init(realm: &Realm) {
         let attribute = Attribute::WRITABLE | Attribute::NON_ENUMERABLE | Attribute::CONFIGURABLE;
         let builder = BuiltInBuilder::from_standard_constructor::<Self>(realm)
+            .constructor_header()
             .property(js_string!("name"), Self::NAME, attribute)
             .property(js_string!("message"), js_string!(), attribute)
+            .prototype_constructor()
             .method(Self::to_string, js_string!("toString"), 0)
             .accessor(
                 js_string!("stack"),

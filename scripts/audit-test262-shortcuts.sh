@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+conformance_owners="$(python3 -B scripts/conformance_owners.py --ids)"
+
 mode="report"
 ledger="test262/backlog/shortcut-allowlist.tsv"
 inventory="test262/backlog/shortcut-inventory.md"
@@ -124,7 +126,7 @@ while IFS=$'\t' read -r key fingerprint classification owner_task removal_task r
       ;;
   esac
   for task in "$owner_task" "$removal_task"; do
-    if ! printf '%s\n' "$task" | grep -Eq '^T[0-2][0-9]$'; then
+    if [[ " $conformance_owners " != *" $task "* ]]; then
       printf 'audit-test262-shortcuts: %s has invalid concrete task id: %s\n' \
         "$key" "$task" >&2
       failures=$((failures + 1))

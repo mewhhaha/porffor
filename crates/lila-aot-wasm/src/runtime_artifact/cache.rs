@@ -11,7 +11,8 @@ use std::sync::Arc;
 use lila_intl::{INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION, INTL_SERVICE_SELECTION_CUSTOM_SECTION};
 use sha2::{Digest, Sha256};
 use wasmparser::{
-    DataKind, ExternalKind, Operator, Parser, Payload, TypeRef, Validator, WasmFeatures,
+    DataKind, ExternalKind, FuncValidatorAllocations, Operator, Parser, Payload, TypeRef,
+    ValidPayload, Validator, WasmFeatures,
 };
 
 use super::{runtime_key, RuntimeArtifact, RuntimeLayout, LAYOUT_VERSION};
@@ -223,9 +224,11 @@ fn decode_layout(
         | WasmFeatures::GC
         | WasmFeatures::EXCEPTIONS
         | WasmFeatures::TAIL_CALL;
-    Validator::new_with_features(features)
-        .validate_all(bytes)
-        .ok()?;
+    let mut validator = Validator::new_with_features(features);
+    let mut parser = Parser::new(0);
+    parser.set_features(features);
+    let mut function_allocations = FuncValidatorAllocations::default();
+    let mut validated_end = false;
 
     let mut imported_functions = 0u32;
     let mut function_types = Vec::new();
@@ -233,8 +236,20 @@ fn decode_layout(
     let mut exports = BTreeMap::new();
     let mut sections = identity.sections.clone();
     let mut data_count = 0;
-    for payload in Parser::new(0).parse_all(bytes) {
-        match payload.ok()? {
+    for payload in parser.parse_all(bytes) {
+        let payload = payload.ok()?;
+        match validator.payload(&payload).ok()? {
+            ValidPayload::Func(function, body) => {
+                let mut function_validator = function.into_validator(function_allocations);
+                function_validator.validate(&body).ok()?;
+                function_allocations = function_validator.into_allocations();
+            }
+            ValidPayload::End(_) => validated_end = true,
+            ValidPayload::Ok => {}
+            // A runtime artifact is a core module, never a component graph.
+            ValidPayload::Parser(_) => return None,
+        }
+        match payload {
             Payload::ImportSection(reader) => {
                 for import in reader.into_imports() {
                     let import = import.ok()?;
@@ -308,7 +323,12 @@ fn decode_layout(
             _ => {}
         }
     }
-    if data_count != 2 || !sections.is_empty() || function_types.is_empty() || globals.is_empty() {
+    if !validated_end
+        || data_count != 2
+        || !sections.is_empty()
+        || function_types.is_empty()
+        || globals.is_empty()
+    {
         return None;
     }
     for position in 0..u32::try_from(function_types.len()).ok()? {

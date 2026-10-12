@@ -341,6 +341,30 @@ fn exact_context_specialization_preserves_escaped_closure_environment() {
 }
 
 #[test]
+fn large_exact_context_body_keeps_its_canonical_closure_and_effects() {
+    let mutations = "object.count += 1;\n".repeat(250);
+    let source = format!(
+        "function large(object, marker) {{ {mutations} if (marker) throw marker; \
+         return function () {{ return object.count; }}; }} \
+         var object = {{count: 0}}, marker = {{}}; \
+         var callback = large(object, null); \
+         try {{ large(object, marker); }} catch (error) {{ object.caught = error; }} \
+         callback();"
+    );
+    let program = lower_script(&source);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script IR");
+    let bodies = script
+        .functions
+        .iter()
+        .filter(|function| function.name == "large")
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 1, "large bodies must not be cloned per call");
+    assert!(!bodies[0].id.contains("$exact"));
+    assert!(script.functions.iter().any(|function| !function.captured_bindings.is_empty()));
+}
+
+#[test]
 fn exact_context_specialization_preserves_escaped_callback_argument() {
     let source = "function invoke(callback) { return callback(); } function make() { let x = 1; return () => x; } let callback = make(); invoke(callback);";
     let program = lower_script(source);

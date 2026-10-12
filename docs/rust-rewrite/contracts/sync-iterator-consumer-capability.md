@@ -4,6 +4,9 @@ Status: implemented closed diagnostic policy and linear native iterator owner;
 the complete 115-control `structure_async` target passes in the
 [2026-10-11 repair checkpoint](../workspace-inventory-repairs-20261011.md).
 
+The diagnostic policy is capability-free; its Copy/Clone values cannot own
+or release the native iterator retained by `OwnedSyncIterator`.
+
 ## Closed consumer domain
 
 `SyncIteratorConsumer` has sixteen variants:

@@ -15,6 +15,10 @@
     var keyFor = Symbol.keyFor;
     var symbolDescription = descriptor(Symbol.prototype, "description").get;
     var RangeErrorConstructor = RangeError;
+    // Private argument lists remain own-data arrays even if the probe mutates
+    // Array.prototype. Only the captured native functions receive them.
+    var noArgs = [];
+    var oneArg = [0];
     var wellKnownNames = ["asyncIterator", "hasInstance", "isConcatSpreadable", "iterator", "match", "matchAll", "replace", "search", "species", "split", "toPrimitive", "toStringTag", "unscopables", "dispose", "asyncDispose"];
     var wellKnownValues = [];
     for (var w = 0; w < wellKnownNames.length; w++) {
@@ -37,7 +41,8 @@
         totalUnits += value.length;
         var output = list([]);
         for (var i = 0; i < value.length; i++) {
-            append(output, apply(charCode, value, [i]));
+            oneArg[0] = i;
+            append(output, apply(charCode, value, oneArg));
         }
         return output;
     }
@@ -53,7 +58,7 @@
         if (symbolValues.length === 256) { fail("selected object probe Symbol budget exceeded"); }
         id = symbolValues.length;
         append(symbolValues, value);
-        var name = apply(symbolDescription, value, []);
+        var name = apply(symbolDescription, value, noArgs);
         var origin = record({kind: "local"});
         var registered = keyFor(value);
         if (registered !== undefined) {
@@ -79,11 +84,11 @@
                 else if (input === Infinity) { decimal = "Infinity"; }
                 else if (input === -Infinity) { decimal = "-Infinity"; }
                 else if (input === 0 && 1 / input === -Infinity) { decimal = "-0"; }
-                else { decimal = apply(numberString, input, []); }
+                else { decimal = apply(numberString, input, noArgs); }
                 return record({type: "number_decimal", decimal: decimal});
             }
             case "string": return record({type: "string", units: units(input)});
-            case "bigint": return record({type: "big_int", decimal: apply(bigintString, input, [])});
+            case "bigint": return record({type: "big_int", decimal: apply(bigintString, input, noArgs)});
             case "symbol": return record({type: "symbol", id: symbol(input)});
             case "object": if (input === null) { return record({type: "null"}); }
             case "function": {
@@ -109,14 +114,15 @@
         if (!isArray(input) || input.length > 16) { fail("selected object probe root budget exceeded"); }
         var output = list([]);
         for (var i = 0; i < input.length; i++) {
-            var entry = ownData(input, apply(numberString, i, []));
+            var entry = ownData(input, apply(numberString, i, noArgs));
             var name = ownData(entry, "name");
             var selected = ownData(entry, "value");
             if (typeof name !== "string" || name.length === 0 || name.length > 64) {
                 fail("selected object probe root name rejected");
             }
             for (var n = 0; n < name.length; n++) {
-                var code = apply(charCode, name, [n]);
+                oneArg[0] = n;
+                var code = apply(charCode, name, oneArg);
                 if (!((code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 45 || code === 95)) {
                     fail("selected object probe root name rejected");
                 }

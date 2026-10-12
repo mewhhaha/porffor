@@ -70,7 +70,7 @@ validate both linked modules, exact canonical import/export types and pooled
 helper byte independence. Unicode parity checks pass 2/2; three native Unicode
 and seven backreference-folding cohorts pass. Full IR passes 2,166 checks, with
 one existing documentation example ignored. Whole-corpus byte identity and full
-task acceptance remain open; see the [current task checkpoint](../../../tasks/README.md#closure-audit-and-verification--2026-10-08).
+task acceptance remain open; see the [ownership and acceptance requirements](../conformance-ownership.md).
 
 ## Historical extraction evidence — 2026-10-06
 

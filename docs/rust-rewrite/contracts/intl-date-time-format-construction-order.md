@@ -82,7 +82,7 @@ This slice is closed over eight files:
 - `crates/lila-cli/tests/fixtures/wasm_intl_date_time_format_construction_order.js`;
 - `crates/lila-cli/tests/cli/intl.rs`;
 - this contract; and
-- `tasks/23-intl402.md`.
+- [Intl ownership](../conformance-ownership.md#t23).
 
 The dispatcher file is required: without its direct-returning classification,
 generic construction would perform another prototype `Get` before entering the

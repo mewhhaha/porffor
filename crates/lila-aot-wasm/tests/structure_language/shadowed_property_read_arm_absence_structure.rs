@@ -4,9 +4,9 @@ const OPERATIONS_SOURCE: &str = include_str!("../../src/operations.rs");
 const GC_LAYOUTS: &str = include_str!("../../src/gc_types/layouts.rs");
 const FUNCTIONS_SOURCE: &str = include_str!("../../src/functions.rs");
 const HOST_BUILTINS_SOURCE: &str = include_str!("../../src/builtins/host.rs");
+const READ_HELPER_SOURCE: &str = include_str!("../../src/emit/runtime_operations.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/shadowed-property-read-arm-removal.md");
-const TASK: &str = include_str!("../../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn property_read_source() -> &'static str {
     let start = OBJECTS_SOURCE
@@ -24,23 +24,35 @@ fn property_read_dispatch_has_one_whole_value_route() {
     let source = property_read_source();
     assert_eq!(
         source
-            .matches("self.emit_dynamic_property_read_with_key_locals(")
+            .matches("crate::runtime_helpers::DynamicPropertyReadArguments::new(")
             .count(),
         1
     );
     assert!(!source.contains("ValueKind::"));
     assert!(source.contains("receiver: &ValueLocals,"));
     let key = source.find("self.compile_property_key_operand(").unwrap();
-    let coercible = source
-        .find("self.compile_nullish_tagged_i32(receiver.tag(), function)?;")
+    let lookup = source
+        .find("crate::runtime_helpers::DynamicPropertyReadArguments::new(")
         .unwrap();
-    let convert = source
+    assert!(key < lookup);
+    assert!(!source.contains("self.emit_value_to_property_key_completion("));
+    let helper_start = READ_HELPER_SOURCE
+        .find("pub(super) fn compile_dynamic_property_read_helper(")
+        .unwrap();
+    let helper_end = READ_HELPER_SOURCE[helper_start..]
+        .find("pub(super) fn compile_proxy_call_helper(")
+        .unwrap()
+        + helper_start;
+    let helper = &READ_HELPER_SOURCE[helper_start..helper_end];
+    let coercible = helper.find("self.compile_nullish_tagged_i32(").unwrap();
+    let convert = helper
         .find("self.emit_value_to_property_key_completion(")
         .unwrap();
-    let lookup = source
+    let lookup = helper
         .find("self.emit_dynamic_property_read_with_key_locals(")
         .unwrap();
-    assert!(key < coercible && coercible < convert && convert < lookup);
+    assert!(coercible < convert && convert < lookup);
+    assert!(helper[convert..lookup].contains("self.emit_branch_to_target(exit,"));
 }
 
 #[test]
@@ -57,7 +69,7 @@ fn private_types_and_imports_have_direct_owners() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "68165b09f3c33dde58a972643a8dd69cf970bca44fff30af6baa600ad1063f76",
             "ed859523f2e4b103fb5b069adf5931321c934efd3ef99f6e6e98b359e63e6c87",

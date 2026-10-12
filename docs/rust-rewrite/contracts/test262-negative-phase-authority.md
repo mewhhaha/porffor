@@ -1,7 +1,8 @@
 # Test262 negative-phase authority
 
 `NegativeExpectation.phase: NegativePhase` is the sole admitted phase carried
-by a discovered negative test. Its four values are `parse`, `early`,
+by a discovered negative test. Its closed domain is `NegativePhase::{Parse, Early, Resolution, Runtime}`.
+The wire values are `parse`, `early`,
 `resolution`, and `runtime`; code after discovery cannot substitute an
 interchangeable string.
 
@@ -20,4 +21,4 @@ The focused unit regressions admit all four canonical spellings and reject
 `run-time` with path evidence. The standalone
 `negative_phase_authority_structure` target pins the typed field, the fallible
 discovery boundary, the absence of the former catch-all classifier, every
-downstream typed route, and this contract's T26 evidence.
+downstream typed route, and the durable negative-phase invariant.

@@ -1,3 +1,5 @@
+const ENVIRONMENT_REFERENCE_SOURCE: &str =
+    include_str!("../../src/environments/environment_reference.rs");
 const REFERENCE_SOURCE: &str = include_str!("../../../lila-ir/src/reference.rs");
 const ENVIRONMENT_EMITTER: &str = include_str!("../../src/expressions/environment_identifier.rs");
 const LOWERING_SOURCE: &str = include_str!("../../../lila-ir/src/lowering/assignment.rs");
@@ -106,9 +108,26 @@ fn shared_private_lifecycle_keeps_putvalue_inside_the_taken_branch() {
         "    fn put_value(",
         "    /// GetValue, ToNumeric/delta, same-base PutValue, then prefix/postfix",
     );
-    assert!(get.contains("let recheck = self.has_property(referenced_name);"));
-    assert!(get.contains("Strictness::Sloppy => TypedExpr::undefined()"));
-    assert!(get.contains("name: NativeErrorKind::ReferenceError"));
+    for operation in [
+        "SpecOperationIr::WithEnvironmentGetBindingValueSloppy",
+        "SpecOperationIr::WithEnvironmentGetBindingValueStrict",
+    ] {
+        assert!(get.contains(operation));
+    }
+    assert!(get.contains("self.read()"));
+    let runtime_get = bounded(
+        ENVIRONMENT_REFERENCE_SOURCE,
+        "    fn emit_environment_identifier_get_body(",
+        "    fn emit_environment_identifier_put_body(",
+    );
+    assert!(runtime_get.contains("RuntimeErrorMessage::OBJECT_ENVIRONMENT_BINDING_MISSING"));
+    assert!(runtime_get.contains("Strictness::Sloppy => value.set_undefined(function)"));
+    assert!(runtime_get.contains("EnvironmentReferenceKind::WithObject.code()"));
+    assert_before(
+        runtime_get,
+        "ObjectHasPropertyArguments::new(",
+        "ObjectReadArguments::new(",
+    );
     assert!(put.contains("let recheck = self.has_property(referenced_name);"));
     assert!(put.contains("Strictness::Sloppy => TypedExpr::from_info("));
     assert!(put.contains("Strictness::Strict => TypedExpr::from_info("));

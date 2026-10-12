@@ -27,6 +27,8 @@ fn with_selection(statements: &[StatementIr]) -> Option<&TypedExpr> {
         _ => None,
     })
 }
+const ENVIRONMENT_REFERENCE_SOURCE: &str =
+    include_str!("../../src/environments/environment_reference.rs");
 const REFERENCE_SOURCE: &str = include_str!("../../../lila-ir/src/reference.rs");
 const FIXTURE: &str =
     include_str!("../../../lila-cli/tests/fixtures/wasm_with_environment_numeric_update.js");
@@ -272,8 +274,26 @@ fn selected_branch_orders_get_numeric_delta_put_and_result() {
         "    fn get_value(self, referenced_name: &str, strictness: Strictness) -> TypedExpr {",
         "    /// SetMutableBinding on the Object Environment Record selected before RHS.",
     );
-    assert!(get.contains("let recheck = self.has_property(referenced_name);"));
-    assert_before(get, "let recheck", "ExprIr::PropertyRead");
+    for operation in [
+        "SpecOperationIr::WithEnvironmentGetBindingValueSloppy",
+        "SpecOperationIr::WithEnvironmentGetBindingValueStrict",
+    ] {
+        assert!(get.contains(operation));
+    }
+    assert!(get.contains("self.read()"));
+    let runtime_get = bounded(
+        ENVIRONMENT_REFERENCE_SOURCE,
+        "    fn emit_environment_identifier_get_body(",
+        "    fn emit_environment_identifier_put_body(",
+    );
+    assert!(runtime_get.contains("RuntimeErrorMessage::OBJECT_ENVIRONMENT_BINDING_MISSING"));
+    assert!(runtime_get.contains("Strictness::Sloppy => value.set_undefined(function)"));
+    assert!(runtime_get.contains("EnvironmentReferenceKind::WithObject.code()"));
+    assert_before(
+        runtime_get,
+        "ObjectHasPropertyArguments::new(",
+        "ObjectReadArguments::new(",
+    );
 
     let put = bounded(
         REFERENCE_SOURCE,

@@ -13,7 +13,9 @@ mod parse;
 mod parse_frame_state;
 mod quote;
 mod reviver;
+mod string_output;
 mod stringify;
+use string_output::StringOutputConstruction;
 mod stringify_replacer;
 use stringify_replacer::{
     JsonStringifyReplacerFunctionLocals, JsonStringifyReplacerInvocationLocals,

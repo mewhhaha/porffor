@@ -31,6 +31,6 @@ atoms remain separate matcher gaps; this change does not claim complete RegExp c
 Verification commands:
 
 ```sh
-cargo test -p lila-ir --test regexp_lookbehind_polarity_structure --test regexp_lookbehind_polarity --test regexp_lookaround
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::regexp_lookbehind_polarity_structure:: ir_cases::regexp_lookbehind_polarity:: ir_cases::regexp_lookaround::
 cargo test -p lila-engine --test aot_regexp -- aot_regexp_lookaround:: aot_regexp_lookbehind_anchors::
 ```

@@ -4,6 +4,9 @@ Status: the 2026-10-04 helper and four-operation descriptor source is authored;
 compilation and runtime verification are pending. Historical source and
 execution checkpoints are retained below.
 
+`ProxyRevocationRoute` is a crate-private, capability-free policy. Its variants
+select Realm and throw routing; they carry no native resource or heap ownership.
+
 ## Delete active-handler routing — 2026-10-04 dry source
 
 The actual Delete revocation producer now selects ProxyExecutionRealmToActiveHandler.

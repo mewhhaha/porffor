@@ -2,7 +2,6 @@ const REGEXP_SOURCE: &str = include_str!("../src/regexp.rs");
 const BEHAVIOR_SOURCE: &str = include_str!("regexp_lookbehind_polarity.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/regexp-lookbehind-polarity.md");
-const TASK: &str = include_str!("../../../tasks/19-regexp.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -116,10 +115,9 @@ fn focused_witness_and_evidence_cover_both_polarities() {
     assert!(BEHAVIOR_SOURCE.contains("assert_eq!(polarity_bits(&positive), (0, 0));"));
     assert!(BEHAVIOR_SOURCE.contains("assert_eq!(polarity_bits(&negative), (1, 1));"));
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("LookaroundPolarity"));
         assert!(evidence.contains("from_syntax_marker"));
         assert!(evidence.contains("operand_bit"));
     }
-    assert!(TASK.contains("regexp-lookbehind-polarity.md"));
 }

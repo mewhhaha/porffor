@@ -951,38 +951,18 @@ impl<'a> FunctionBuilder<'a> {
         let key_value = schema.reserve_value_local(function);
         let pending = schema.reserve_completion(function);
         self.compile_property_key_operand(key, &key_value, function)?;
-        let exit = self.open_frame(ControlFrameKind::Block, function);
-        self.compile_nullish_tagged_i32(receiver.tag(), function)?;
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_throw_runtime_error(
-            lila_ir::NativeErrorKind::TypeError,
-            RuntimeErrorMessage::CANNOT_READ_PROPERTIES_OF_NULL_OR_UNDEFINED,
-            &pending,
-            function,
-        )?;
-        self.emit_branch_to_target(exit, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.emit_value_to_property_key_completion(&key_value, &pending, function)?;
-        pending.kind().load(function);
-        function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
-        function.instruction(&Instruction::I32Eq);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_branch_to_target(exit, function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        // Only the normal String/Symbol conversion result reaches this factory.
-        let completed_key = self.emit_value_to_property_key_locals(pending.value(), function)?;
-        self.emit_dynamic_property_read_with_key_locals(
-            receiver,
-            receiver,
-            &completed_key,
-            &pending,
-            function,
-        )?;
-        completed_key.clear(function);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
+        schema
+            .call_helper(
+                crate::runtime_helpers::DynamicPropertyReadArguments::new(
+                    receiver,
+                    receiver,
+                    &key_value,
+                    self.current_environment(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(&pending, function);
         pending.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);

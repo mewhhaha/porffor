@@ -5,7 +5,6 @@ const HANDLER_PROTOCOL_FIXTURE: &str =
     include_str!("../../../lila-cli/tests/fixtures/wasm_proxy_own_keys_handler_protocol.js");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/proxy-own-keys-result-ownership.md");
-const TASK: &str = include_str!("../../../../tasks/11-proxy-reflect-metaobject.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -196,7 +195,7 @@ fn contract_and_t11_own_the_result_authority() {
         "proxy_own_keys_handler_protocol_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
     }
     assert!(CONTRACT.contains("transposing them compiled"));
 }

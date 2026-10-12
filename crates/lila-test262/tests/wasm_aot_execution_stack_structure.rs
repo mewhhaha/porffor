@@ -4,7 +4,6 @@ use std::path::Path;
 const OWNER_SOURCE: &str = include_str!("../src/lib.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-wasm-aot-execution-stack.md");
-const TASK: &str = include_str!("../../../tasks/03-conformance-harness-integrity.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -524,6 +523,6 @@ fn contract_and_t03_record_the_execution_stack_boundary() {
         "wasm_aot_enforces_async_done_output_after_jobs_drain",
     ] {
         assert!(CONTRACT.contains(evidence), "contract missing `{evidence}`");
-        assert!(TASK.contains(evidence), "T03 missing `{evidence}`");
+        assert!(CONTRACT.contains(evidence), "T03 missing `{evidence}`");
     }
 }

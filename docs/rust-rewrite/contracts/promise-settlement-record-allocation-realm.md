@@ -51,7 +51,7 @@ and diff hygiene are green.
 ```sh
 cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
 bash scripts/check-module-boundaries.sh
-bash scripts/check-task-plan.sh
+./scripts/conformance_owners.py
 ```
 
 Semantic-golden and published-status verification do not apply to this

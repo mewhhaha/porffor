@@ -217,7 +217,7 @@ call sites and the distinct already-accounted discard route.
 Focused verification commands are:
 
 ```sh
-cargo test -p lila-ir --test unsupported_dynamic_source_call_structure -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::unsupported_dynamic_source_call_structure:: --test-threads=1
 cargo test -p lila-ir dynamic_source_diagnostics_carry_closed_operation_and_requirement -- --test-threads=1
 ```
 
@@ -237,7 +237,7 @@ effects, non-string passthrough and replacement receivers. These commands are
 verification obligations, not claims that a fresh run has passed:
 
 ```sh
-cargo test -p lila-ir --test direct_eval_call_site_structure -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::direct_eval_call_site_structure:: --test-threads=1
 cargo test -p lila-engine --test aot_realm_modules -- aot_direct_eval_call_identity:: --test-threads=1
 ```
 
@@ -356,8 +356,8 @@ replacement callable into an intrinsic or grant indirect eval a caller scope.
 Focused ownership and behavior targets are:
 
 ```sh
-cargo test -p lila-ir --test forwarded_dynamic_source_call_structure -- --test-threads=1
-cargo test -p lila-ir --test forwarded_dynamic_source_call -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::forwarded_dynamic_source_call_structure:: --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::forwarded_dynamic_source_call:: --test-threads=1
 ```
 
 ## Current producer coverage
@@ -397,7 +397,7 @@ authority, Boolean ownership projection, wildcard or default route.
 Focused verification commands are:
 
 ```sh
-cargo test -p lila-ir --test optional_call_source_authority_structure -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::optional_call_source_authority_structure:: --test-threads=1
 cargo test -p lila-ir no_source_eval_works_through_alias_optional_and_safe_multi_target_calls -- --test-threads=1
 cargo test -p lila-ir grouped_optional_dynamic_source_prefix_is_accounted_once -- --test-threads=1
 ```

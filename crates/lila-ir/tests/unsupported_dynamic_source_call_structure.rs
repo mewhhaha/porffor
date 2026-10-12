@@ -5,7 +5,6 @@ const SOURCE: &str = include_str!("../src/lowering/dynamic_source.rs");
 const CALL_CANDIDATE_SOURCE: &str = include_str!("../src/lowering/call_candidate_analysis.rs");
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/dynamic-source-capability.md");
-const TASK: &str = include_str!("../../../tasks/13-dynamic-source-evaluation.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -174,7 +173,7 @@ fn resolution_produces_and_only_the_recorder_decomposes_the_accounting_pair() {
 #[test]
 fn contract_and_t13_record_one_shot_unsupported_accounting_ownership() {
     let contract_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    let task_words = TASK.split_whitespace().collect::<Vec<_>>().join(" ");
+    let task_words = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for marker in [
         "private, non-`Clone`, non-`Copy` `UnsupportedDynamicSourceCall`",
         "builtin-accounting identity and `DynamicSourceGap`",

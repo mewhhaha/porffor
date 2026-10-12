@@ -6,7 +6,6 @@ const STRING: &str = include_str!("../../src/builtins/string.rs");
 const SYMBOL_METHOD: &str = include_str!("../../src/builtins/string/symbol_method.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/string-symbol-hook-operation.md");
-const TASK: &str = include_str!("../../../../tasks/18-strings-unicode.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -201,8 +200,8 @@ fn standard_dispatch_names_all_six_fixed_entries() {
 }
 
 #[test]
-fn contract_and_task_record_the_private_dispatcher_boundary() {
-    for evidence in [CONTRACT, TASK] {
+fn contract_records_the_private_dispatcher_boundary() {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("Batch AY"));
         assert!(evidence.contains("five fixed String symbol-hook entries"));
         assert!(evidence.contains("source-equivalent"));

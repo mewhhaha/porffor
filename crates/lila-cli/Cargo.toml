@@ -16,7 +16,7 @@ sha2 = "0.10.9"
 # Off by default: product/release builds of `lila` must link no JavaScript
 # interpreter/VM engine (AGENTS.md). Enable only for developer-only
 # differential-oracle testing (`differential replay --oracle spec-exec` or an
-# explicit `--execution-backend spec-exec`); see tasks/25 and tasks/27. A plain
+# explicit `--execution-backend spec-exec`); see conformance areas T25 and T27. A plain
 # `cargo build -p lila-cli` must never pull in boa_engine.
 spec-exec-oracle = [
   "lila-engine/spec-exec-oracle",

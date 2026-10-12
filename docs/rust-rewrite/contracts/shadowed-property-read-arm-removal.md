@@ -2,6 +2,20 @@
 
 Status: implemented as a source-equivalent T02 reachability closure.
 
+## Current shared read kernel
+
+Ordinary reads evaluate their target and raw key operand in the caller, then
+invoke the registered `DynamicPropertyRead` runtime helper with the original
+receiver and caller environment. That helper performs RequireObjectCoercible
+before ToPropertyKey and passes only the completed key to `ObjectRead`.
+Nullish targets skip key conversion, raw key operand exceptions retain their
+identity, and conversion failures return the complete abrupt result before
+lookup. Proxy traps and accessors continue to receive the original receiver.
+This shared kernel replaces repeated inline emission without introducing a
+value-kind dispatch or changing the historical source evidence below.
+
+## Historical removal checkpoint
+
 `compile_property_read_from_locals` returned immediately to the complete
 dynamic property-read dispatcher for `ValueKind::Dynamic`. Its later dynamic
 match arm was therefore unreachable, as was a second String arm shadowed by

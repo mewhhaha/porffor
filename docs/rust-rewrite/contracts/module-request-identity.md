@@ -58,6 +58,8 @@ remaining distinguishable and source ordered wherever phase has semantics.
 
 ## Attributed re-export retention
 
+Attributed re-export requests retain their complete phaseful request and attributes.
+
 Boa's `ExportDeclaration::ReExport` owns a private-field `ReExportRequest`.
 Its sole public constructor accepts only the phase-free specifier and
 attributes and constructs the inner `ModuleRequest` with

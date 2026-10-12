@@ -152,7 +152,7 @@ sigma ranges, lone surrogates, scoped i restoration and reverse string lowering.
 All five emitted-compiler functions pass in the 2026-10-09 cloud checkpoint,
 including these nine additional comparisons and the unchanged original parity,
 resource, empty-composition and allocator-reuse controls. Broad verification is
-recorded separately in `CONTINUE.md`.
+governed by [conformance acceptance](../conformance-acceptance.md).
 
 Computed capture-array controls also allocate and mutate fresh arrays and objects
 after successful, syntax-failing and resource-failing compilation; retained

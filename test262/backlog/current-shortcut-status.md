@@ -15,12 +15,12 @@ audit means no unclassified selector drift; it does not mean zero shortcuts.
 | `semantic-shortcut` | 0 |
 | **Total** | **26** |
 
-## Semantic shortcuts by removal task
+## Semantic shortcuts by removal owner
 
 Only `semantic-shortcut` observations appear below. The canonical inventory
-also groups legitimate adaptations and diagnostic observations by task.
+also groups legitimate adaptations and diagnostic observations by owner.
 
-| Removal task | Semantic observations |
+| Removal owner | Semantic observations |
 | --- | ---: |
 | None | 0 |
 
@@ -29,8 +29,8 @@ also groups legitimate adaptations and diagnostic observations by task.
 | Input | SHA-256 |
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `a2f61a1a28deb2fe09fbf33b0973d9cb8ec4f0f0931a476b6752c19766ea9fa3` |
-| `test262/backlog/shortcut-inventory.md` | `1d9c24c0a06c638f7a9dbfe79446f66d1323380b886d3ce5916b383da871db7c` |
-| `crates/lila-test262/src/lib.rs` | `09c15e68ac62b47385e1b8e3476c0cafec8cb5fc4d98c52ea54ee4b9bcf6e50f` |
+| `test262/backlog/shortcut-inventory.md` | `306a82ea530d1e9ce37449bb92c579dfeed6b49bb54a0d4dac4468d69f6f9476` |
+| `crates/lila-test262/src/lib.rs` | `3e5d576e755e3ca8d651f29973d8bc9b42a0791de87c10056223f2a41eadb5d5` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.
@@ -38,6 +38,6 @@ The generator alone cross-checks the committed ledger and inventory; it does
 not replace the Rust selector scanner or verify every recorded classification.
 
 Full-suite evidence and native snapshot provenance remain governed by
-[T01](../../tasks/01-baseline-and-generated-backlog.md) and
-[T26](../../tasks/26-zero-failure-conformance-closure.md). Only the Rust publisher
+[T01](../../docs/rust-rewrite/conformance-ownership.md#t01) and
+[T26](../../docs/rust-rewrite/conformance-ownership.md#t26). Only the Rust publisher
 owns canonical Test262 result counts and the generated README conformance block.

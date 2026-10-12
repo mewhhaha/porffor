@@ -4,7 +4,6 @@ const ARRAY_POP_OVERRIDE_FIXTURE: &str =
 
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/array-pop-algorithm-owner.md");
-const TASK: &str = include_str!("../../../../tasks/16-arrays-and-array-builtins.md");
 
 #[test]
 fn pop_override_runtime_control_requires_generic_get_and_call_fallthrough() {
@@ -29,7 +28,7 @@ fn pop_override_runtime_control_requires_generic_get_and_call_fallthrough() {
 
 #[test]
 fn task_and_contract_record_the_closed_pop_dispatch() {
-    for evidence in [TASK, CONTRACT] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("PopMethodDispatch"));
         assert!(evidence.contains("ArrayCanonical"));
         assert!(evidence.contains("GenericGetCall"));

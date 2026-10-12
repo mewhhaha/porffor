@@ -1,7 +1,6 @@
 const HEAP_SOURCE: &str = include_str!("../../src/heap.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/stored-property-attributes.md");
-const TASK: &str = include_str!("../../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -71,7 +70,7 @@ fn one_exhaustive_projection_owns_both_descriptor_kinds() {
 
 #[test]
 fn task_and_contract_record_the_stored_attribute_boundary() {
-    for evidence in [TASK, CONTRACT] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("StoredPropertyAttributes"));
         assert!(evidence.contains("positional boolean"));
         assert!(evidence.contains("Accessor"));

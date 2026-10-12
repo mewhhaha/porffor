@@ -45,8 +45,8 @@ foreign-Realm values use the containing async function's existing completion
 transport. A nested ordinary using scope in an async owner retains its
 activation-backed capability even when this particular loop never suspends.
 
-Required verification includes `lila-ir --test synchronous_resource_loops`, the
-unchanged `--test module_instantiation`, `lila-engine --test aot_async -- aot_async_resource_loops::`,
+Required verification includes `lila-ir --test lila_ir_integration -- ir_cases::synchronous_resource_loops::`, the
+unchanged `--test lila_ir_integration -- ir_cases::module_instantiation::`, `lila-engine --test aot_async -- aot_async_resource_loops::`,
 `--test aot_async -- aot_async_for_of_continuations::`, and the existing synchronous loop
 structure/CLI resource targets. The new controls cover ordinary completion,
 continue/break/return, initializer/body/disposer/close errors, suppression,

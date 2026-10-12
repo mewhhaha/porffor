@@ -11,6 +11,9 @@ Number power, wall clock, monotonic clock, sleep, agent call, random, and twenty
 `math_*` transcendentals. The twenty-seven named registry getters are the sole
 raw-index projections into Wasm `call` instructions.
 
+Distinct constructor roles prevent callers from being able to
+transpose two raw `Option<u32>` positions.
+
 Previously `emit.rs` passed adjacent `Option<u32>` indices to
 `FunctionMetaRegistry::new`. Transposing two values compiled and could select the
 wrong imported capability or signature. The typed constructor rejects such a

@@ -13,7 +13,7 @@ Reference across the yield. The discarded statement consumes the resulting value
 without adding a second suspension plan or bypassing the existing Reference
 error/coercion rules. The original generator-reference native fixture and its
 30-second execution limits are unchanged; joined validation is recorded in
-[CONTINUE.md](../../../CONTINUE.md).
+[conformance acceptance](../conformance-acceptance.md).
 
 The private `generator_eager_value` owner evaluates and roots each whole binary
 operand in its real activation cell before invoking the existing arithmetic,

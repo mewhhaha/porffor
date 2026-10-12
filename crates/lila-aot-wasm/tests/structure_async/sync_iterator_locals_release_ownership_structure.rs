@@ -7,7 +7,6 @@ const MATH_SOURCE: &str = include_str!("../../src/builtins/math/sum_precise.rs")
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/sync-iterator-locals-release-ownership.md"
 );
-const TASK: &str = include_str!("../../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -199,7 +198,7 @@ fn release_ownership_contract_and_recursive_census_remain_closed() {
         0
     );
     assert_eq!(count_in_rust_sources(&source_root, "SyncIteratorLocals"), 0);
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("ReservedSyncIteratorLocals"));
         assert!(evidence.contains("SyncIteratorLocals"));
         assert!(evidence.contains("release"));

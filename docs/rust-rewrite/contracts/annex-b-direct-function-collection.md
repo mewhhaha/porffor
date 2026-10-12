@@ -5,7 +5,7 @@ declarations while planning Annex B block-level function semantics.
 
 ## Closed domain
 
-`AnnexBDirectFunctionCollection` has exactly two legal values:
+`AnnexBDirectFunctionCollection::{Skip, Record}` is the complete two-value domain:
 
 - `Skip` leaves direct declarations to their existing owner;
 - `Record` scans the current statement list and records its direct function

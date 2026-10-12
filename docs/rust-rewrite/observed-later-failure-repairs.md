@@ -265,7 +265,7 @@ resources and function sizes are retained under
 ## Remaining source-discovery cases
 
 All 18 remaining executions are typed Unsupported outcomes, owned by
-[T13 dynamic source evaluation](../../tasks/13-dynamic-source-evaluation.md).
+[T13 dynamic source evaluation](conformance-ownership.md#t13).
 Each of these nine physical files fails in both sloppy and strict Script mode:
 
 - `annexB/built-ins/RegExp/RegExp-leading-escape-BMP.js`

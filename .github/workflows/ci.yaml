@@ -20,7 +20,7 @@ jobs:
 
       - name: Check repository contracts
         run: |
-          ./scripts/check-task-plan.sh
+          ./scripts/conformance_owners.py
           ./scripts/tests/check-readme-status-artifacts.sh
           ./scripts/tests/audit-test262-shortcut-scanner.sh
           ./scripts/check-module-boundaries.sh
@@ -60,18 +60,18 @@ jobs:
           cargo test --release --locked -p lila-front --test regexp_legacy_astral_ranges
           cargo test --release --locked -p lila-intl --lib
           cargo test --release --locked -p lila-intl --test calendar_domain -- --test-threads=1
-          cargo test --release --locked -p lila-ir --test compound_addition_flow --test compound_assignment_saved_value --test regexp_legacy_pooled_class --test intl_locale_getters --test float16_array --test catch_pattern_owners
+          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::compound_addition_flow:: ir_cases::compound_assignment_saved_value:: ir_cases::regexp_legacy_pooled_class:: ir_cases::intl_locale_getters:: ir_cases::float16_array:: ir_cases::catch_pattern_owners::
           cargo test --release --locked -p lila-test262 --test wasm_aot_callable_harness -- --test-threads=2
           cargo test --release --locked -p lila-engine --test aot_language --test aot_builtins --test aot_intl --test aot_realm_modules --test aot_regexp -- aot_compound_addition_flow:: aot_compound_assignment_saved_value:: aot_constant_number_condition:: aot_set_algebra_copy_phases:: aot_intl_created_realm:: aot_intl_bound_format_realm:: aot_intl_keyword_aliases:: aot_intl_locale_host_import:: aot_intl_locale_constructor:: aot_intl_locale_options:: aot_intl_locale_likely_subtags:: aot_float16_array:: aot_typed_array_byte_copy:: aot_typed_array_constructor_error_realm:: aot_regexp_legacy_pooled_class:: aot_number_to_bigint:: aot_bigint_number_conversion:: aot_catch_pattern_owners:: aot_equality_operand_effects:: aot_intrinsic_receiver_observation:: --test-threads=2
 
       - name: Test module instantiation and suspension environments
         run: |
           cargo test --release --locked -p lila-ir --lib async_for_of_body
-          cargo test --release --locked -p lila-ir --test async_if_continuations --test async_for_of_continuations --test synchronous_resource_loops --test module_instantiation --test array_arguments_primitive --test module_default_export_names --test prepared_script_host_globals --test module_import_jobs --test graph_build_structure --test link_error_structure
+          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::async_if_continuations:: ir_cases::async_for_of_continuations:: ir_cases::synchronous_resource_loops:: ir_cases::module_instantiation:: ir_cases::array_arguments_primitive:: ir_cases::module_default_export_names:: ir_cases::prepared_script_host_globals:: ir_cases::module_import_jobs:: ir_cases::graph_build_structure:: ir_cases::link_error_structure::
           cargo test --release --locked -p lila-engine --lib module_prelude
           cargo test --release --locked -p lila-engine --lib module_async_runtime_tests -- --test-threads=2
           cargo test --release --locked -p lila-engine --test aot_realm_modules -- aot_module_async_lifecycle:: --test-threads=2
-          cargo test --release --locked -p lila-ir --test module_entry_completion
+          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::module_entry_completion::
           cargo test --release --locked -p lila-engine --test aot_realm_modules --test aot_builtins -- aot_module_entry_completion:: aot_promise_rejection_policy:: --test-threads=2
           cargo test --release --locked -p lila-engine --lib execution_failure::tests -- --test-threads=2
           cargo test --release --locked -p lila-test262 --lib module_entry_completion -- --test-threads=2
@@ -91,7 +91,7 @@ jobs:
           cargo test --release --locked -p lila-engine --lib array_present_index_tests -- --test-threads=2
           cargo test --release --locked -p lila-engine --test aot_builtins -- aot_array_index_storage:: --test-threads=2
           cargo test --release --locked -p lila-engine --test aot_builtins -- aot_string_match_call:: aot_string_constructor:: --test-threads=2
-          cargo test --release --locked -p lila-ir --test throw_type_error_realm
+          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::throw_type_error_realm::
           cargo test --release --locked -p lila-engine --test aot_realm_modules -- aot_throw_type_error_realm:: --test-threads=2
           cargo test --release --locked -p lila-ir --lib regexp::program::tests
 

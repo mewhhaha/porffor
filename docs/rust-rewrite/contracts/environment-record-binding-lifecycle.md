@@ -23,7 +23,7 @@ retained Reference therefore preserves the original const write rule after
 await/yield without changing declaration initialization or per-iteration cell
 ownership. Strict/sloppy native controls cover selected/skipped logical writes,
 direct/compound writes, coercion order, captures, blocks, loop heads and named
-self shadows. Their joined Rust validation is recorded in [CONTINUE.md](../../../CONTINUE.md).
+self shadows. Their joined Rust validation is recorded in [conformance acceptance](../conformance-acceptance.md).
 
 ## Current object-binding successor — 2026-10-04 dry source
 

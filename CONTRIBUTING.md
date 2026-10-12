@@ -11,8 +11,8 @@ surface or an oracle. Do not reintroduce a JavaScript compiler/runtime, npm or
 JSR packaging, or a source evaluator inside emitted Wasm.
 
 Before starting, read [AGENTS.md](AGENTS.md), the
-[implementation task index](tasks/README.md), and the task file that owns the
-area you intend to change.
+[conformance ownership](docs/rust-rewrite/conformance-ownership.md), and the
+[batch workflow](docs/rust-rewrite/batch-workflow.md).
 
 ## Setup
 
@@ -69,7 +69,8 @@ an emitted artifact.
 
 ## Choosing and owning work
 
-Every non-trivial change should have an owner in `tasks/`. Start with a
+Every non-trivial change should have a permanent
+[conformance owner](docs/rust-rewrite/conformance-ownership.md). Start with a
 reproducible failure or missing invariant, identify the smallest coherent
 feature batch, and coordinate edits to shared IR, lowering, object-operation,
 and Wasm backend files.
@@ -101,7 +102,7 @@ Useful commands include:
 cargo fmt --all -- --check
 cargo test -p lila-engine --quiet
 cargo test -p lila-cli --quiet
-./scripts/check-task-plan.sh
+./scripts/conformance_owners.py
 ./scripts/check-no-interpreter-in-product-graph.sh
 ```
 

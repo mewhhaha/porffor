@@ -12,7 +12,9 @@ const TEST262_RUNNER_SOURCE: &str = include_str!("../../../lila-test262/src/lib.
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../../test262/backlog/shortcut-allowlist.tsv");
 const KNOWN_FAILURES: &str = include_str!("../../../lila-cli/tests/known-failures.tsv");
 const README: &str = include_str!("../../../../README.md");
-const TASK: &str = include_str!("../../../../tasks/19-regexp.md");
+const HISTORICAL_STATUS: &str = include_str!(
+    "../../../../docs/rust-rewrite/regexp-finite-string-algebra-historical-evidence.md"
+);
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/regexp-unicode-set-finite-string-algebra.md"
 );
@@ -516,7 +518,7 @@ fn verified_status_preserves_baseline_and_exact_scope() {
             "This records no broader UnicodeSets or RegExp completion claim.",
         ),
         (
-            TASK,
+            HISTORICAL_STATUS,
             "this historical evidence records no broader UnicodeSets closure.",
         ),
     ] {

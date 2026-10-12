@@ -5,7 +5,6 @@ const ARGUMENTS_SOURCE: &str = include_str!("../../src/arguments_protocol.rs");
 const ENVIRONMENTS_SOURCE: &str = include_str!("../../src/environments.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/function-arguments-binding-ownership.md");
-const TASK: &str = include_str!("../../../../tasks/08-environments-control-flow.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -362,7 +361,7 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
 }
 
 #[test]
-fn ownership_contract_and_task_record_the_verification_boundary() {
+fn ownership_contract_records_the_verification_boundary() {
     for marker in [
         "Pending(Absent)  -> BoundAbsent",
         "Pending(Present) -> BoundPresent",
@@ -374,12 +373,5 @@ fn ownership_contract_and_task_record_the_verification_boundary() {
             CONTRACT.contains(marker),
             "missing contract marker `{marker}`"
         );
-    }
-    for marker in [
-        "function arguments binding protocol",
-        "arguments_binding_protocol_ownership_structure",
-        "source-equivalent T08 ownership closure",
-    ] {
-        assert!(TASK.contains(marker), "missing task marker `{marker}`");
     }
 }

@@ -43,7 +43,7 @@ class ShortcutStatusTests(unittest.TestCase):
         self.assertIn('| T13 | 1 |', report)
         self.assertIn('not a Test262 pass rate', report)
 
-    def test_all_classifications_count_but_only_semantic_tasks_group(self):
+    def test_all_classifications_count_but_only_semantic_owners_group(self):
         (self.root / MODULE.LEDGER).write_text('\n'.join([
             row(), row(2, 'legitimate-harness-adaptation', 'T03', 'T03', 'suite-selection'),
             row(3, 'diagnostic-instrumentation', 'T17', 'T17', 'artifact-routing'),
@@ -51,7 +51,7 @@ class ShortcutStatusTests(unittest.TestCase):
         (self.root / MODULE.INVENTORY).write_text(inventory(1, 1, 1))
         report = MODULE.render(self.root)
         self.assertIn('| **Total** | **3** |', report)
-        section = report.split('## Semantic shortcuts by removal task')[1].split('## Input identity')[0]
+        section = report.split('## Semantic shortcuts by removal owner')[1].split('## Input identity')[0]
         self.assertNotIn('| T03 |', section)
         self.assertNotIn('| T17 |', section)
 

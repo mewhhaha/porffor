@@ -1,23 +1,20 @@
-## Bytes module and verification repair — 2026-10-11
-
-Raw Bytes module support is implemented through kind-aware host loading,
-linking, native immutable buffers and the optional oracle. Source Text, JSON
-and Bytes records can share a locator while retaining their own identities.
-The [data contract](docs/rust-rewrite/bytes-module-data.md) describes the raw
-payload and Realm invariants; native and pinned acceptance is pending.
-
-The latest unchanged-source inventory attempt completes 2,901 native controls:
-2,897 pass and four fail. It defers 83 targets for disk capacity and one library
-build exhausts disk before admission. A separate actual AOT library run passes
-332/333; the remaining With size guard improves to 10,548 bytes against its
-unchanged 9,000-byte limit. Three campaigns retain actual five-second AOT
-timeouts. The IR failure searches through the wrong statement wrapper; its
-state ownership assertions are retained with the correct lexical-prefix lookup.
-Shared selected With setup and idempotent Intl generators pass workspace types,
-470 tooling controls and 27 prechecks; native verification remains pending.
-Full-suite acceptance and task cleanup remain open.
-
 # Lila
+
+## Original regression repair and ownership migration — 2026-10-11
+
+Seven of the eight original failures are eliminated across the same 354 native
+controls: 346 passes/eight failures becomes 353 passes/one failure, with no new
+failures in those scopes. Original campaign deadlines and the With body-size
+ceiling are unchanged. The latest 3,574-control gate has 3,572 passes, two
+failures and no ignores: the original mutation timeout and one newly exposed
+task-to-contract assertion. All ten additional failures from the preceding gate
+are eliminated. IR integration retains all 673 controls in one executable;
+actual inventories and all 16 CI scopes match exactly. The assertion correction
+and replacement UTF-16 output buffer await fresh verification. See the
+[repair evidence and limits](docs/rust-rewrite/ownership-migration-repairs-20261011.md).
+
+Raw Bytes module records and permanent conformance ownership are implemented.
+Full suites, fresh pinned acceptance, publication, and task cleanup remain open.
 
 ## 2026-10-11 typed-root and static With repair
 
@@ -171,7 +168,7 @@ architecture/accounting guards pass. Optional quota-bound native compilation
 and bounded shared-core retention reduce iteration overhead.
 The red checkpoints and original deadlines are preserved.
 See the [cloud receipt](docs/rust-rewrite/cloud-continuation-20261009.md)
-and [operational handoff](CONTINUE.md).
+and [acceptance requirements](docs/rust-rewrite/conformance-acceptance.md).
 
 Ordinary named-property storage separates insertion extent from capacity.
 Appending grows the table geometrically with typed Wasm GC `array.copy`;
@@ -310,7 +307,7 @@ updates guards to their actual source owners, and addresses observed Promise,
 Realm, Locale, Temporal, environment and tail-call failures. These proposals
 still need joined compilation, focused execution and a fresh broad checkpoint.
 A repaired source assertion alone does not establish the corresponding runtime
-behavior. See the [task closure map](tasks/README.md#workspace-audit-and-remaining-acceptance--2026-10-08).
+behavior. See the [task closure map](docs/rust-rewrite/conformance-ownership.md).
 
 Task status remains four complete, 25 in progress and T26 blocked. The original
 five-second campaign, genuine weak reachability, supported-host acceptance and
@@ -338,7 +335,7 @@ an interrupted partial baseline with failures recorded above. The task plan rema
 complete, 25 in progress and T26 blocked. Pinned conformance counts are unchanged.
 The recovered October 2 publication is historical and lacks current compiler
 binding; restoring its original files does not refresh conformance.
-See the [current checkpoint](tasks/README.md#runtime-persistence-and-verification--2026-10-08)
+See the [current checkpoint](docs/rust-rewrite/conformance-ownership.md)
 for exact scopes, refresh commands and remaining acceptance.
 
 ## Closure audit and verification — 2026-10-08
@@ -352,7 +349,7 @@ are unchanged. The original five-second campaign still times out during emission
 
 The task plan remains open: real weak-reference support, unresolved Temporal
 rounding, full pinned conformance and canonical publication remain required.
-See the [current checkpoint](tasks/README.md#closure-audit-and-verification--2026-10-08)
+See the [current checkpoint](docs/rust-rewrite/conformance-ownership.md)
 for exact evidence scopes, commands and retained failures.
 
 ## Focused iteration checkpoint — 2026-10-08
@@ -363,7 +360,7 @@ fixture from the retained 45-pass/one-failure native queue now passes its focuse
 rerun after the existing detached-call correction. The original five-second
 CrossRealm campaign still times out during Wasm emission; its selected worker
 was rebuilt, its deadline is unchanged and full-suite counts remain historical.
-See the [current task checkpoint](tasks/README.md#focused-iteration-checkpoint--2026-10-08)
+See the [ownership and acceptance requirements](docs/rust-rewrite/conformance-ownership.md)
 for commands, resource limits and the distinct evidence scopes.
 
 ## Implementation and verification — 2026-10-08
@@ -1198,7 +1195,7 @@ The parent dispatchers and mandatory validation constructors retain their
 ownership. Module checks follow the actual emitted JSON parser and current IR
 inventory; the cleanup's combined all-target Rust type check passed.
 Emitted-byte equivalence and runtime verification remain pending. See the
-[module task](tasks/02-modularize-ir-and-wasm-backend.md).
+[module task](docs/rust-rewrite/conformance-ownership.md#t02).
 
 Global `isNaN` and `isFinite` now retain their real emitted ToNumber path instead
 of folding literal strings or arrays through host parsing. This preserves the
@@ -1208,7 +1205,7 @@ predicate call-site folds while retaining native type-only semantics and full
 argument evaluation. The earlier global numeric batch passed the combined
 all-target Rust type check; the later fold retirement remains unverified.
 Execution and full T20 acceptance remain pending. See the
-[numeric task](tasks/20-number-bigint-math-json.md).
+[numeric task](docs/rust-rewrite/conformance-ownership.md#t20).
 
 Plain synchronous generators with eager identifier-headed `for-of` loops now
 carry unlabelled local `break` and `continue` through their existing Yield/Try
@@ -2602,7 +2599,7 @@ The largest remaining closure work is:
   sources and complete configured helper bodies. The source/generator audits,
   host ABI check, nine Python accounting tests, 15 scanner unit tests and shell
   ledger-drift controls pass. T03's required Cargo and pinned host/runtime gates
-  remain open; see [the current checkpoint and refresh commands](tasks/03-conformance-harness-integrity.md#current-repository-state).
+  remain open; see [the current checkpoint and refresh commands](docs/rust-rewrite/conformance-ownership.md#t03).
   The historical retirement notes below retain each cohort's recorded evidence
   and describe the helper routes that existed at that checkpoint. The census
   retains the audit-coverage rebaseline: the scanner covers multiline
@@ -3173,7 +3170,7 @@ The largest remaining closure work is:
 - build the planned differential generation, reduction, replay and sustained
   fuzzing pipeline.
 
-See [the implementation task plan](tasks/README.md) for the status and current
+See [the conformance ownership](docs/rust-rewrite/conformance-ownership.md) for the status and current
 repository evidence for every epic. Conformance percentages remain governed by
 the generated status block above, not by this task summary.
 
@@ -3454,11 +3451,13 @@ Useful status and triage commands:
 
 ## Contribution Protocol
 
-Task work is tracked under `tasks/`. Before opening a change that affects the
+Technical ownership and acceptance requirements live in the
+[conformance registry](docs/rust-rewrite/conformance-ownership.md).
+Before opening a change that affects the
 Rust rewrite or conformance story, run:
 
 ```sh
-./scripts/check-task-plan.sh
+./scripts/conformance_owners.py
 ./scripts/check-module-boundaries.sh
 ```
 
@@ -9357,7 +9356,7 @@ The capability notes above retain many earlier focused checkpoints. Current
 module, async/generator, iterator, Proxy, binary-data, RegExp, Intl and Temporal
 implementations have broader production owners, while their task-wide native,
 resource and full pinned-suite acceptance remains open. Actual current failures
-and runtime gaps are tracked in the [task plan](tasks/README.md).
+and runtime gaps are tracked in the [task plan](docs/rust-rewrite/conformance-ownership.md).
 
 No-argument `%eval%` and calls with a proven non-String first argument retain
 their ordinary pass-through semantics and argument effects. Finite discovered

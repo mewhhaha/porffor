@@ -48,7 +48,7 @@ match, Reference lifecycle and absence of alternate observations:
 
 ```console
 cargo check -p lila-ir
-cargo test -p lila-ir --test property_update_op_ownership_structure -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::property_update_op_ownership_structure:: --test-threads=1
 cargo test -p lila-aot-wasm --test structure_language -- ordinary_property_logical_assignment_structure:: --test-threads=1
 ```
 

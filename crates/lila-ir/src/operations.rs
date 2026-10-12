@@ -15,7 +15,7 @@
 
 use crate::{
     iterator_obligations::{site_emits, EmissionSite, IteratorObligation},
-    TaskId, ValueKind,
+    ConformanceOwner, ValueKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -672,7 +672,7 @@ pub enum OperationLoweringStatus {
     StatementEmission(&'static [EmissionSite]),
     TrackedGap {
         reason: TrackedGapReason,
-        owner: TaskId,
+        owner: ConformanceOwner,
     },
 }
 
@@ -1599,7 +1599,7 @@ pub(crate) struct TrackedGapRow {
     pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
     pub reason: TrackedGapReason,
-    pub owner: TaskId,
+    pub owner: ConformanceOwner,
 }
 
 impl TrackedGapRow {
@@ -1620,7 +1620,7 @@ impl TrackedGapRow {
     }
 }
 
-const T04: TaskId = TaskId::T04;
+const T04: ConformanceOwner = ConformanceOwner::T04;
 
 /// The 7.4 obligations plus `AsyncIteratorClose`, emitted by statement/expression
 /// arms rather than by a `SpecOperationIr` arm.

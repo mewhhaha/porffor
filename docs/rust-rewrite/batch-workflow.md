@@ -51,7 +51,7 @@ are unchanged. The original five-second campaign still times out during emission
 
 The task plan remains open: real weak-reference support, unresolved Temporal
 rounding, full pinned conformance and canonical publication remain required.
-See the [current checkpoint](../../tasks/README.md#closure-audit-and-verification--2026-10-08)
+See the [current checkpoint](conformance-ownership.md)
 for exact evidence scopes, commands and retained failures.
 
 ## Focused iteration checkpoint — 2026-10-08
@@ -64,7 +64,7 @@ during Wasm emission; preserve its deadline and evidence for profiling.
 The retained native journal is ahead of the older unfinished-queue notes below:
 45 of 46 functions passed there, and the remaining fixture now passes its exact
 rerun. These runs retain separate source and resource scopes. See the
-[current task checkpoint](../../tasks/README.md#focused-iteration-checkpoint--2026-10-08)
+[ownership and acceptance requirements](conformance-ownership.md)
 for results and the next focused step; no fresh full-suite result is claimed.
 
 ## Implementation and verification — 2026-10-08
@@ -996,7 +996,7 @@ whole-workspace/all-target Rust type check. The watched command
 passed with exit 0 in 30 seconds of watched wall time (Cargo 17.03 seconds).
 Formatting, module inventory and task-plan checks passed with exit 0. The
 authentic log and lock hashes are recorded in the
-[closure task](../../tasks/26-zero-failure-conformance-closure.md).
+[closure task](conformance-ownership.md#t26).
 This checkpoint includes current Concat species migration and authored Rust test
 targets; it does not execute tests, validate emitted Wasm or establish conformance.
 Runtime regressions and broad verification remain deferred.

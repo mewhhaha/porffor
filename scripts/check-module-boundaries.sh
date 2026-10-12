@@ -4435,7 +4435,7 @@ wasm_json_reviver="crates/lila-aot-wasm/src/builtins/json/reviver.rs"
 wasm_json_stringify="crates/lila-aot-wasm/src/builtins/json/stringify.rs"
 require_file "$wasm_json_builtins"
 check_no_inline_legacy_includes "$wasm_json_builtins"
-for json_child in grammar parse parse_frame_state quote reviver stringify stringify_replacer; do
+for json_child in grammar parse parse_frame_state quote reviver string_output stringify stringify_replacer; do
   json_child_source="crates/lila-aot-wasm/src/builtins/json/${json_child}.rs"
   require_file "$json_child_source"
   check_no_inline_legacy_includes "$json_child_source"
@@ -4488,6 +4488,9 @@ check_raw_line_budget "$wasm_json_parse_frame_state" 200
 check_raw_line_budget "$wasm_json_parse" 550
 check_raw_line_budget "$wasm_json_reviver" 550
 check_raw_line_budget "$wasm_json_stringify" 950
+wasm_json_output="crates/lila-aot-wasm/src/builtins/json/string_output.rs"
+require_fixed_string_count "$wasm_json_output" 'pub(super) struct StringOutputConstruction' 1 'private consuming JSON output owner'
+check_raw_line_budget "$wasm_json_output" 180
 wasm_json_replacer="crates/lila-aot-wasm/src/builtins/json/stringify_replacer.rs"
 require_fixed_string_count "$wasm_json_replacer" 'pub(super) struct JsonStringifyReplacerInvocationLocals' 1 'one private JSON replacer role authority'
 require_fixed_string_count "$wasm_json_replacer" 'pub(super) fn emit_json_apply_replacer_with_this(' 1 'one consuming JSON replacer boundary'
@@ -4792,7 +4795,10 @@ require_exact_line_count \
 wasm_objects_property_read="$(braced_rust_item_source crates/lila-aot-wasm/src/objects.rs '^pub[(]crate[)][[:space:]]+fn[[:space:]]+compile_property_read_from_locals[[:space:]]*[(]')"
 require_text_regex_count "$wasm_objects_property_read" 'receiver: &ValueLocals,' 1 'raw whole receiver property-read input'
 require_text_regex_count "$wasm_objects_property_read" 'output: &ValueLocals,' 1 'whole property-read result'
-require_text_regex_count "$wasm_objects_property_read" 'self\.emit_dynamic_property_read_with_key_locals[(]' 1 'sole dynamic property-read consumer'
+require_text_regex_count "$wasm_objects_property_read" 'crate::runtime_helpers::DynamicPropertyReadArguments::new[(]' 1 'sole raw-key property-read helper consumer'
+wasm_raw_key_property_read="$(braced_rust_item_source crates/lila-aot-wasm/src/emit/runtime_operations.rs '^pub[(]super[)][[:space:]]+fn[[:space:]]+compile_dynamic_property_read_helper[[:space:]]*[(]')"
+require_text_regex_count "$wasm_raw_key_property_read" 'self\.emit_value_to_property_key_completion[(]' 1 'raw-key conversion completion boundary'
+require_text_regex_count "$wasm_raw_key_property_read" 'self\.emit_dynamic_property_read_with_key_locals[(]' 1 'sole converted dynamic property-read consumer'
 wasm_dynamic_property_read="$(braced_rust_item_source crates/lila-aot-wasm/src/objects.rs '^pub[(]crate[)][[:space:]]+fn[[:space:]]+emit_dynamic_property_read_with_key_locals[[:space:]]*[(]')"
 require_text_regex_count "$wasm_dynamic_property_read" 'crate::runtime_helpers::ObjectReadArguments::new[(]' 1 'registered whole property-read helper boundary'
 require_text_regex_count "$wasm_dynamic_property_read" 'receiver: &ValueLocals,' 1 'retained whole Get receiver'

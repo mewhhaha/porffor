@@ -19,7 +19,7 @@ from run_aot_unit_shard import parse_inventory, passed_exactly_one
 def build_test_binary(target: str) -> Path:
     result = subprocess.run(
         ["cargo", "test", "--locked", "-p", "lila-engine", "--test", target,
-         "--no-run", "--message-format=json"],
+         "--no-run", "--message-format=json-render-diagnostics"],
         stdout=subprocess.PIPE, text=True, check=True,
     )
     executables = set()

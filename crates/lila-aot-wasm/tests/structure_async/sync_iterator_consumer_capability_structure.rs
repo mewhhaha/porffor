@@ -27,7 +27,6 @@ const ARRAY_ACCUMULATION_FIXTURE: &str =
     include_str!("../../../lila-cli/tests/fixtures/wasm_array_accumulation_iterator_errors.js");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/sync-iterator-consumer-capability.md");
-const TASK: &str = include_str!("../../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -444,13 +443,12 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
         assert!(LIST_FORMAT_ENGINE_TESTS.contains(&format!("fn {test}()")));
     }
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("SyncIteratorConsumer"));
         assert!(evidence.contains("borrow"));
     }
     // The contract records the current closed diagnostic policy and the
     // separate linear native iterator owner checked above.
     assert!(CONTRACT.contains("ListFormat"));
-    assert!(TASK.contains("capability-free"));
-    assert!(TASK.contains("sync-iterator-consumer-capability.md"));
+    assert!(CONTRACT.contains("capability-free"));
 }

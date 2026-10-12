@@ -106,7 +106,7 @@ pub use lila_intl::{
     CustomIntlProfile, CustomListProfile, CustomProfileId, IntlCompilationProfile,
     IntlDataSelection, SelectedIntlDataBundle,
 };
-pub use lila_ir::HostSurfacePolicy;
+pub use lila_ir::{ConformanceOwner, HostSurfacePolicy};
 pub use lila_ir::{RuntimeUnavailableCapability, WasmWeakReachabilityCapability};
 pub use lila_runtime::OracleExceptionPhase;
 pub use module_loader::{

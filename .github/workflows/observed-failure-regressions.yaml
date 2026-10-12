@@ -40,27 +40,20 @@ jobs:
       - name: Check independent source grammar and environment ownership
         run: |
           cargo test --locked -p lila-front --test comment_line_terminators --test dynamic_function_preparation --test eval_source
-          cargo test --locked -p lila-ir --test object_constructor_boxing --test prepared_dynamic_function --test prepared_script --test direct_eval_environment --test declaration_completion --test borrowed_eval_loop_heads --test forwarded_dynamic_source_call
-          cargo test --locked -p lila-ir --test constructor_throw_domain --test computed_numeric_method_calls
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::object_constructor_boxing:: ir_cases::prepared_dynamic_function:: ir_cases::prepared_script:: ir_cases::direct_eval_environment:: ir_cases::declaration_completion:: ir_cases::borrowed_eval_loop_heads:: ir_cases::forwarded_dynamic_source_call::
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::constructor_throw_domain:: ir_cases::computed_numeric_method_calls::
 
       - name: Check suspension storage and empty constructor lowering
         run: >-
-          cargo test --locked -p lila-ir
-          --test async_for_of_activation --test empty_function_and_erased_eval
-          --test generator_branch_lexicals
-          -- --test-threads=1
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::async_for_of_activation:: ir_cases::empty_function_and_erased_eval:: ir_cases::generator_branch_lexicals:: --test-threads=1
 
       - name: Check suspended class definitions and finite eval spreads
         run: >-
-          cargo test --locked -p lila-ir
-          --test class_computed_name_suspension --test direct_eval_spread
-          -- --test-threads=1
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::class_computed_name_suspension:: ir_cases::direct_eval_spread:: --test-threads=1
 
       - name: Check default-export names and awaited property assignments
         run: >-
-          cargo test --locked -p lila-ir
-          --test module_default_export_names --test async_property_assignment
-          -- --test-threads=1
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::module_default_export_names:: ir_cases::async_property_assignment:: --test-threads=1
 
       - name: Validate async-generator loop continuation ranges
         run: >-
@@ -81,19 +74,19 @@ jobs:
 
       - name: Check remainder, deletion, equality and finite eval lowering
         run: |
-          cargo test --locked --no-fail-fast -p lila-ir --test number_remainder --test delete_reference --test bigint_loose_equality --test finite_indirect_eval --test indirect_eval_admission
+          cargo test --locked --no-fail-fast -p lila-ir --test lila_ir_integration -- ir_cases::number_remainder:: ir_cases::delete_reference:: ir_cases::bigint_loose_equality:: ir_cases::finite_indirect_eval:: ir_cases::indirect_eval_admission::
           cargo test --locked -p lila-test262 --lib wasm_aot_allows_dataview_sab_and_immutable_setter_slice
 
       - name: Check completed-baseline syntax and reference lowering
         run: |
           cargo test --locked -p lila-front --test nul_source
-          cargo test --locked -p lila-ir --test function_names --test with_var_hoisting --test with_has_binding --test private_numeric_update
-          cargo test --locked -p lila-ir --test for_in_enumeration --test module_namespace_construction --test regexp_lookbehind_anchors --test regexp_lookaround --test regexp_lookbehind_polarity --test regexp_lookbehind_polarity_structure --test regexp_case_folding
-          cargo test --locked -p lila-ir --test regexp_word_boundary --test regexp_reverse_whitespace --test regexp_backreference_folding --test number_constructor_coercion
-          cargo test --locked -p lila-ir --test regexp_legacy_pooled_class --test legacy_utf16_pair_structure
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::function_names:: ir_cases::with_var_hoisting:: ir_cases::with_has_binding:: ir_cases::private_numeric_update::
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::for_in_enumeration:: ir_cases::module_namespace_construction:: ir_cases::regexp_lookbehind_anchors:: ir_cases::regexp_lookaround:: ir_cases::regexp_lookbehind_polarity:: ir_cases::regexp_lookbehind_polarity_structure:: ir_cases::regexp_case_folding::
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::regexp_word_boundary:: ir_cases::regexp_reverse_whitespace:: ir_cases::regexp_backreference_folding:: ir_cases::number_constructor_coercion::
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::regexp_legacy_pooled_class:: ir_cases::legacy_utf16_pair_structure::
           cargo test --locked -p lila-intl --lib
           cargo test --locked -p lila-intl --test calendar_domain -- --test-threads=1
-          cargo test --locked -p lila-ir --test float16_array --test intl_locale_getters --test temporal_instant_methods
+          cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::float16_array:: ir_cases::intl_locale_getters:: ir_cases::temporal_instant_methods::
 
       - name: Check Uint8Array codec lowering contracts
         run: |

@@ -12,7 +12,6 @@ const GC_LAYOUT_SOURCE: &str = include_str!("../../src/gc_types/layouts.rs");
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/destructuring-iterator-locals-ownership.md"
 );
-const TASK: &str = include_str!("../../../../tasks/15-generators-iterators-resource-management.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -237,7 +236,7 @@ fn ownership_contract_and_recursive_source_census_remain_closed() {
     );
     // These retained documents record the predecessor's borrowing obligation.
     // The current native ownership checks above follow its single GC successor.
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("DestructuringIteratorLocals"));
         assert!(evidence.contains("capability-free"));
         assert!(evidence.contains("borrow"));

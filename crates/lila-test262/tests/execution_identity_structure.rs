@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 const CONTRACT: &str =
     include_str!("../../../docs/rust-rewrite/contracts/test262-execution-identity.md");
-const TASK: &str = include_str!("../../../tasks/01-baseline-and-generated-backlog.md");
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -216,5 +215,5 @@ fn execution_plan_exhaustively_binds_flags_to_ordered_modes() {
     );
     assert!(!modes.contains("_=>"));
     assert!(CONTRACT.contains("TestExecutionPlan"));
-    assert!(TASK.contains("TestExecutionPlan"));
+    assert!(CONTRACT.contains("TestExecutionPlan"));
 }

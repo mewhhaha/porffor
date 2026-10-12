@@ -1,5 +1,6 @@
 //! SerializeJSONProperty is the sole registered recursive runtime owner.
 use super::*;
+
 impl FunctionBuilder<'_> {
     fn emit_json_stringify_call(
         &mut self,
@@ -640,12 +641,12 @@ impl FunctionBuilder<'_> {
     }
     fn emit_json_append_literal(
         &mut self,
-        output: &GcLocal<StringValue>,
+        output: &StringOutputConstruction,
         text: &str,
         f: &mut Function,
     ) -> Result<(), EmitError> {
         let part = self.emit_json_string(text, f)?;
-        output.replace(self.emit_concat_gc_strings(output, &part, f), f);
+        output.append(&part, self.runtime_schema(), f);
         part.clear(f);
         Ok(())
     }
@@ -715,7 +716,7 @@ impl FunctionBuilder<'_> {
         child_depth.store(f);
         let prefix = self.emit_json_indent(&gap, child_depth, f)?;
         let parent_prefix = self.emit_json_indent(&gap, indent, f)?;
-        let output = self.emit_json_string("", f)?;
+        let output = StringOutputConstruction::new(s, f);
         let result = s.reserve_value_local(f);
         let key_value = s.reserve_value_local(f);
         let pending = s.reserve_completion(f);
@@ -831,14 +832,14 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_json_append_literal(&output, "\n", f)?;
-        output.replace(self.emit_concat_gc_strings(&output, &prefix, f), f);
+        output.append(&prefix, s, f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         is_array.load(f);
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
         let quoted = self.emit_json_quote(&name, f)?;
-        output.replace(self.emit_concat_gc_strings(&output, &quoted, f), f);
+        output.append(&quoted, s, f);
         quoted.clear(f);
         self.emit_json_append_literal(&output, ":", f)?;
         gap_length.load(f);
@@ -853,7 +854,7 @@ impl FunctionBuilder<'_> {
         let text = s
             .reserve_gc_local(f)
             .initialize(result.cast_reference::<StringValue>(s, f), f);
-        output.replace(self.emit_concat_gc_strings(&output, &text, f), f);
+        output.append(&text, s, f);
         text.clear(f);
         json_i32(emitted, 1, f);
         self.pop_control(ControlFrameKind::If);
@@ -873,7 +874,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_json_append_literal(&output, "\n", f)?;
-        output.replace(self.emit_concat_gc_strings(&output, &parent_prefix, f), f);
+        output.append(&parent_prefix, s, f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         is_array.load(f);
@@ -883,6 +884,7 @@ impl FunctionBuilder<'_> {
         self.emit_json_append_literal(&output, "}", f)?;
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        let output = output.finish(s, f);
         out.set_reference(&output, s, f);
         keys.clear(f);
         s.release_i64_local(length, f);

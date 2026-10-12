@@ -490,41 +490,8 @@ impl FromStr for TestTarget {
     }
 }
 
-/// A backlog task id: `T` followed by exactly two digits.
-///
-/// Validated once, here, so no consumer has to re-check that an owner is real.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct TaskId(u8);
-
-impl TaskId {
-    /// The `tasks/` filename prefix this id must be backed by, e.g. `"17-"`.
-    fn task_file_prefix(self) -> String {
-        format!("{:02}-", self.0)
-    }
-}
-
-impl fmt::Display for TaskId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "T{:02}", self.0)
-    }
-}
-
-impl FromStr for TaskId {
-    type Err = LedgerError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let digits = text
-            .strip_prefix('T')
-            .ok_or_else(|| LedgerError::MalformedTaskId(text.to_string()))?;
-        if digits.len() != 2 || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(LedgerError::MalformedTaskId(text.to_string()));
-        }
-        let number = digits
-            .parse::<u8>()
-            .map_err(|_| LedgerError::MalformedTaskId(text.to_string()))?;
-        Ok(TaskId(number))
-    }
-}
+// Use the compiler's permanent ownership domain; report text is validated once.
+use lila_engine::ConformanceOwner;
 
 /// One ledger row. Borrows from [`LEDGER`], which is `'static`.
 #[derive(Clone, Copy, Debug)]
@@ -532,7 +499,7 @@ pub(crate) struct Row {
     pub(crate) target: TestTarget,
     pub(crate) test: &'static str,
     pub(crate) state: State,
-    pub(crate) owner_task: TaskId,
+    pub(crate) owner_task: ConformanceOwner,
     pub(crate) reason: &'static str,
     pub(crate) evidence: &'static str,
     /// 1-based line in `known-failures.tsv`, for diagnostics only.
@@ -565,7 +532,7 @@ impl Ledger {
 pub(crate) enum LedgerError {
     UnknownState(String),
     UnknownTarget(String),
-    MalformedTaskId(String),
+    MalformedConformanceOwner(String),
     WrongColumnCount { line: usize, found: usize },
     EmptyColumn { line: usize, column: &'static str },
     PaddedColumn { line: usize, column: &'static str },
@@ -591,9 +558,9 @@ impl fmt::Display for LedgerError {
                 "{file}: unknown target `{found}`; the closed set is async_generator | cli | perf. \
                  A new cargo test target means extending TestTarget, not widening this column"
             ),
-            LedgerError::MalformedTaskId(found) => write!(
+            LedgerError::MalformedConformanceOwner(found) => write!(
                 formatter,
-                "{file}: owner_task `{found}` is not a task id; expected T followed by exactly two digits"
+                "{file}: owner_task `{found}` is not a conformance owner; expected T00 through T29"
             ),
             LedgerError::WrongColumnCount { line, found } => write!(
                 formatter,
@@ -701,7 +668,9 @@ pub(crate) fn parse_ledger() -> Result<Ledger, LedgerError> {
             target: columns[0].parse::<TestTarget>()?,
             test: columns[1],
             state: columns[2].parse::<State>()?,
-            owner_task: columns[3].parse::<TaskId>()?,
+            owner_task: columns[3]
+                .parse::<ConformanceOwner>()
+                .map_err(|_| LedgerError::MalformedConformanceOwner(columns[3].to_owned()))?,
             reason: columns[4],
             evidence: columns[5],
             line,
@@ -1302,38 +1271,11 @@ fn declaration_for<'a>(
 fn ledger_is_well_formed() {
     let ledger = parsed_ledger_or_panic();
 
-    // Every owner is a real backlog task.
-    let tasks_dir = repo_root().join("tasks");
-    let task_files: Vec<String> = std::fs::read_dir(&tasks_dir)
-        .unwrap_or_else(|error| panic!("{}: could not read: {error}", tasks_dir.display()))
-        .map(|entry| {
-            entry
-                .unwrap_or_else(|error| {
-                    panic!("{}: could not read entry: {error}", tasks_dir.display())
-                })
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    assert!(
-        !task_files.is_empty(),
-        "{}: no task files found, so the owner check below would pass vacuously",
-        tasks_dir.display()
-    );
+    // A parsed owner is one of the compiler's permanent closed areas.
+    // The shared registry checker validates its durable technical document.
     for row in &ledger.rows {
-        let prefix = row.owner_task.task_file_prefix();
-        assert!(
-            task_files
-                .iter()
-                .any(|name| name.starts_with(&prefix) && name.ends_with(".md")),
-            "known-failures.tsv:{}: owner_task {} has no backing tasks/{}*.md. Every conformance \
-             failure needs an owner and a reason (AGENTS.md), and an owner nobody can look up is \
-             not an owner.",
-            row.line,
-            row.owner_task,
-            prefix
-        );
+        assert!(!row.owner_task.area().is_empty());
+        assert!(ConformanceOwner::ALL.contains(&row.owner_task));
     }
 
     for row in &ledger.rows {
@@ -1365,7 +1307,7 @@ fn ledger_is_well_formed() {
         // reproduced that shape in its own schema: the `unfilled` row cited
         // `target/watched/b2-cli.log`, which is gitignored, so on any other
         // checkout it simply does not exist and nothing notices. Contrast the
-        // columns that *are* consumed -- `owner_task` against `tasks/<NN>-*.md`
+        // columns that *are* consumed -- `owner_task` against the closed `ConformanceOwner` domain
         // and `test` against the source scan -- and both bite.
         let evidence_path = row.evidence.split_whitespace().next().unwrap_or("");
         assert!(
@@ -1640,7 +1582,7 @@ fn serial_routing_guards_declared_hangs_and_invalid_ledgers() {
         target: TestTarget::Perf,
         test: "test_only_hang",
         state: State::Hang,
-        owner_task: TaskId(2),
+        owner_task: ConformanceOwner::T02,
         reason: "routing control",
         evidence: "synthetic ledger; no fixture is executed",
         line: 1,

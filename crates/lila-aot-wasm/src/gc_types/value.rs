@@ -2708,6 +2708,69 @@ impl StringConstruction {
         unit.load(function);
         schema.array_type::<CodeUnitArray>().emit_set(function);
     }
+    /// Copy exact UTF-16 units into the unpublished backing array. Published
+    /// strings remain read-only; this capability belongs only to construction.
+    pub(crate) fn copy_units_from(
+        &self,
+        destination_index: I32Local,
+        source: &GcLocal<CodeUnitArray>,
+        length: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        self.units.load(schema, function);
+        destination_index.load(function);
+        source.load(schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        length.load(function);
+        let index = schema.array_type::<CodeUnitArray>().type_index().raw();
+        function.instruction(&Instruction::ArrayCopy {
+            array_type_index_dst: index,
+            array_type_index_src: index,
+        });
+    }
+    /// Reallocate this unpublished backing while preserving its used prefix.
+    pub(crate) fn grow(
+        &self,
+        capacity: I32Local,
+        used_length: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) {
+        let grown = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<CodeUnitArray>()
+                .filled(GcOperand::i32(0), capacity, function),
+            function,
+        );
+        grown.load(schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        self.units.load(schema, function);
+        function.instruction(&Instruction::I32Const(0));
+        used_length.load(function);
+        let index = schema.array_type::<CodeUnitArray>().type_index().raw();
+        function.instruction(&Instruction::ArrayCopy {
+            array_type_index_dst: index,
+            array_type_index_src: index,
+        });
+        self.units.replace(grown.load(schema, function), function);
+        grown.clear(function);
+    }
+    /// Consume spare capacity without exposing it as observable String units.
+    pub(crate) fn publish_prefix(
+        self,
+        length: I32Local,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> GcStackReference<StringValue> {
+        let exact = Self::allocate(schema, schema.reserve_gc_local(function), length, function);
+        let zero = schema.reserve_i32_local(function);
+        zero.set_constant(0, function);
+        exact.copy_units_from(zero, &self.units, length, schema, function);
+        self.units.clear(function);
+        schema.release_i32_local(zero, function);
+        exact.publish(schema, function)
+    }
     pub(crate) fn publish(
         self,
         schema: &RuntimeSchema,

@@ -21,7 +21,7 @@ reject source imports, and no ordinary tag object substitutes for a real module
 source representation. See the [source-phase contract](source-text-module-source-phase-rejection.md).
 
 ```sh
-cargo test -p lila-ir --test descriptor_source_text_attribute_selection_structure
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::descriptor_source_text_attribute_selection_structure::
 cargo test -p lila-ir property_descriptor::tests::source_descriptor_attribute_methods_preserve_explicit_false_fields -- --exact
 ```
 

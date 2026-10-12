@@ -82,7 +82,7 @@ a renamed filter from silently selecting zero tests.
 ```sh
 cargo fmt --all -- --check
 python3 -m unittest discover -s scripts/tests -p test_run_aot_unit_shard.py -v
-cargo test --locked -p lila-ir --test async_for_of_activation
+cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::async_for_of_activation::
 cargo test --locked -p lila-aot-wasm --lib code_sink:: -- --test-threads=1
 cargo test --locked -p lila-aot-wasm --test emission -- product_artifact:: --test-threads=1
 cargo test --locked -p lila-engine --test aot_language --test aot_async -- aot_control_flow:: aot_async_for_of:: --test-threads=1

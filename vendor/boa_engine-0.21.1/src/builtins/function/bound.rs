@@ -135,10 +135,7 @@ fn bound_function_exotic_call(
         .calling_convention_insert_arguments(argument_count, bound_args);
 
     // 5. Return ? Call(target, boundThis, args).
-    Ok(target.__call_with_context(
-        bound_args.len() + argument_count,
-        context.is_tail_call(),
-    ))
+    Ok(target.__call_with_context(bound_args.len() + argument_count, context.is_tail_call()))
 }
 
 /// Internal method `[[Construct]]` for Bound Function Exotic Objects

@@ -52,7 +52,7 @@ cargo test --locked -p lila-test262 \
   --test aggregate_evidence_requirement_structure \
   --test execution_identity_structure
 cargo fmt --all -- --check
-./scripts/check-task-plan.sh
+./scripts/conformance_owners.py
 ./scripts/check-module-boundaries.sh
 ```
 

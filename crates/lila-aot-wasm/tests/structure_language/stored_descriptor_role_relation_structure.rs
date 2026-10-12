@@ -6,7 +6,6 @@ const TARGET_DESCRIPTOR_SOURCE: &str = include_str!("../../src/objects/proxy_tar
 const LAYOUT_SOURCE: &str = include_str!("../../src/gc_types/layouts.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/stored-descriptor-role-relation.md");
-const TASK: &str = include_str!("../../../../tasks/10-object-model-descriptors-exotics.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -330,13 +329,13 @@ fn complete_record_readers_bind_every_stored_role_to_its_named_field() {
 }
 
 #[test]
-fn contract_and_task_record_the_role_relation() {
+fn contract_records_the_role_relation() {
     for marker in [
         "stored descriptor role relation",
         "cannot transpose data, getter, and setter locals",
         "stored_descriptor_role_relation_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
     }
 }

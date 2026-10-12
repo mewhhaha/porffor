@@ -74,7 +74,7 @@ for (var strict of [false, true]) {
         return Reflect.has(object, key);
       }
     });
-    var callback = read(scope, strict, typeOf), caught, result;
+    var callback = read(scope, strict, typeOf), caught = undefined, result;
     try { result = callback(); } catch (error) { caught = error; }
     valid = valid && calls === 2 && (strict ? caught instanceof ReferenceError
       && caught.message === 'object environment binding no longer exists' :

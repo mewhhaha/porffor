@@ -40,7 +40,7 @@ getters, inherited hooks, live join replacement, abrupt completion, custom strin
 tags, nested elements, and subsequent numeric operations.
 
 ```sh
-cargo test -p lila-ir --test array_arguments_primitive
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::array_arguments_primitive::
 cargo test -p lila-engine --test aot_builtins -- aot_array_arguments_primitive::
 cargo test -p lila-engine --test aot_language -- aot_compound_assignment_saved_value::
 cargo test -p lila-engine --test aot_builtins -- aot_function_coercion::

@@ -5,7 +5,6 @@ const EXPRESSION: &str =
 const CONTRACT: &str = include_str!(
     "../../../docs/rust-rewrite/contracts/short-circuit-previous-expression-exhaustiveness.md"
 );
-const TASK: &str = include_str!("../../../tasks/07-parser-grammar-early-errors.md");
 
 fn quoted_literal_end(source: &str, quote_start: usize, quote: u8) -> Option<usize> {
     let bytes = source.as_bytes();
@@ -236,7 +235,7 @@ fn mixed_short_circuit_operators_require_parentheses_under_both_goals() {
 }
 
 #[test]
-fn contract_and_task_record_exhaustiveness_without_a_conformance_claim() {
+fn contract_records_exhaustiveness_without_a_conformance_claim() {
     for marker in [
         "but supports no equality",
         "three exhaustive operator matches",
@@ -251,6 +250,6 @@ fn contract_and_task_record_exhaustiveness_without_a_conformance_claim() {
         "observers are three exhaustive",
         "no parser-behavior or conformance claim",
     ] {
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
     }
 }

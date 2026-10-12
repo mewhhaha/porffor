@@ -77,7 +77,7 @@ Existing core-options and neighboring authority tests remain required.
 
 ```sh
 cargo test -p lila-intl -- --test-threads=1
-cargo test -p lila-ir --test intl_locale_getters -- --test-threads=1
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::intl_locale_getters:: --test-threads=1
 cargo test -p lila-aot-wasm --test intl_temporal -- intl_canonical_locale_tag_invocation_structure:: intl_namespace_plan_structure:: --test-threads=1
 cargo test -p lila-aot-wasm --test intl_temporal -- intl_host_imports:: --test-threads=1
 cargo test -p lila-engine --test aot_intl -- aot_intl_locale_host_import:: --test-threads=1

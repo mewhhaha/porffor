@@ -1,4 +1,4 @@
-use crate::{DynamicFunctionKind, DynamicSourceRuntimeOperation, TaskId};
+use crate::{ConformanceOwner, DynamicFunctionKind, DynamicSourceRuntimeOperation};
 
 /// The weak-reference and ephemeron facility of the selected product runtime.
 /// This authority is consumed by both the Wasmtime policy and weak builtins.
@@ -30,9 +30,9 @@ pub enum RuntimeUnavailableCapability {
 }
 
 impl RuntimeUnavailableCapability {
-    pub const fn owner(self) -> TaskId {
+    pub const fn owner(self) -> ConformanceOwner {
         match self {
-            Self::WeakReachability => TaskId::T05,
+            Self::WeakReachability => ConformanceOwner::T05,
         }
     }
 }
@@ -59,11 +59,11 @@ pub enum RuntimeSemanticGap {
 }
 
 impl RuntimeSemanticGap {
-    pub const fn owner(self) -> TaskId {
+    pub const fn owner(self) -> ConformanceOwner {
         match self {
-            Self::TemporalNamedTimeZone => TaskId::T22,
-            Self::RegExpRuntimePatternCompilation => TaskId::T19,
-            Self::TemporalZonedRoundingWindow => TaskId::T22,
+            Self::TemporalNamedTimeZone => ConformanceOwner::T22,
+            Self::RegExpRuntimePatternCompilation => ConformanceOwner::T19,
+            Self::TemporalZonedRoundingWindow => ConformanceOwner::T22,
         }
     }
 }
@@ -203,7 +203,7 @@ mod tests {
         ];
         assert_eq!(
             RuntimeUnavailableCapability::WeakReachability.owner(),
-            TaskId::T05
+            ConformanceOwner::T05
         );
         for (code, reason) in reasons.into_iter().enumerate() {
             assert_eq!(reason.abi_code(), code as i64);
@@ -217,15 +217,15 @@ mod tests {
         }
         assert_eq!(
             RuntimeSemanticGap::TemporalNamedTimeZone.owner(),
-            TaskId::T22
+            ConformanceOwner::T22
         );
         assert_eq!(
             RuntimeSemanticGap::RegExpRuntimePatternCompilation.owner(),
-            TaskId::T19
+            ConformanceOwner::T19
         );
         assert_eq!(
             RuntimeSemanticGap::TemporalZonedRoundingWindow.owner(),
-            TaskId::T22
+            ConformanceOwner::T22
         );
     }
 }

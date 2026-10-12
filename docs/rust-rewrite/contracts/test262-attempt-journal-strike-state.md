@@ -2,6 +2,8 @@
 
 Status: implemented as a T03 harness-integrity invariant on 2026-08-28.
 
+Runtime attempt-journal strikes are non-zero by construction.
+
 ## Admitted domain
 
 `AttemptJournalFile.strikes` stores `CaseStrikes`, whose private payload is a

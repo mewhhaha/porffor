@@ -26,7 +26,7 @@ sha2 = "0.10.9"
 [features]
 # Off by default: keeps the Boa interpreter (lila-spec-exec / boa_engine)
 # out of product and release builds. Only enable for developer-only
-# differential-oracle testing (see AGENTS.md and tasks/25). Never enable this
+# differential-oracle testing (see AGENTS.md and conformance area T25). Never enable this
 # feature for a shipped/product build.
 spec-exec-oracle = ["dep:lila-spec-exec"]
 

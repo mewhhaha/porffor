@@ -1,6 +1,5 @@
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/temporal-plain-time-field-authority.md");
-const TASK: &str = include_str!("../../../../tasks/22-date-temporal.md");
 
 fn normalized(source: &str) -> String {
     source
@@ -10,9 +9,9 @@ fn normalized(source: &str) -> String {
 }
 
 #[test]
-fn contract_and_task_record_the_invariant_and_non_claim() {
+fn contract_records_the_invariant_and_non_claim() {
     let normalized_contract = normalized(CONTRACT);
-    let normalized_task = normalized(TASK);
+    let normalized_task = normalized(CONTRACT);
     for evidence in [
         "TemporalTimeUnit",
         "record offset",

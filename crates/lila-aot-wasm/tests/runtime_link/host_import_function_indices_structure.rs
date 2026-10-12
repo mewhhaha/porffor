@@ -7,7 +7,6 @@ const EMIT_SOURCE: &str = include_str!("../../src/emit/module_assembly.rs");
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/host-import-function-indices-authority.md"
 );
-const TASK: &str = include_str!("../../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 const ROLES: [(&str, &str, &str, &str); 26] = [
     (
@@ -606,8 +605,8 @@ fn contract_and_t02_own_the_authority() {
         "host_import_function_indices_structure",
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
-        assert!(TASK.contains(marker), "task marker `{marker}`");
+        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
     }
     assert!(CONTRACT.contains("Transposing two values compiled"));
-    assert!(TASK.contains("transpose two raw `Option<u32>` positions"));
+    assert!(CONTRACT.contains("transpose two raw `Option<u32>` positions"));
 }

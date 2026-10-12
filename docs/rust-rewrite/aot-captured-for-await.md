@@ -49,7 +49,7 @@ marked expected-failure, and no generated conformance counts are edited.
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lila-ir --test async_for_of_activation -- --test-threads=1
+cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::async_for_of_activation:: --test-threads=1
 cargo test --locked -p lila-aot-wasm --test structure_async -- for_await_activation_layout_structure::
 cargo test --locked -p lila-engine --test aot_async -- aot_captured_for_await:: --test-threads=1
 cargo test --locked -p lila-engine --test aot_async --test aot_generators --test aot_language -- aot_async_for_of:: aot_suspended_references:: aot_control_flow:: --test-threads=1

@@ -9,8 +9,6 @@ const BOUND_RECORD: &str = include_str!("../../src/functions/bound_function_reco
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/function-prototype-receiver-ownership.md"
 );
-const T02: &str = include_str!("../../../../tasks/02-modularize-ir-and-wasm-backend.md");
-const TASK: &str = include_str!("../../../../tasks/09-functions-classes-private-elements.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -461,7 +459,6 @@ fn contract_and_fixed_entries_record_the_current_receiver_authority() {
             CONTRACT.contains(marker),
             "historical contract marker `{marker}`"
         );
-        assert!(TASK.contains(marker), "historical task marker `{marker}`");
     }
     for marker in [
         "whole ValueLocals",
@@ -547,7 +544,7 @@ fn contract_and_fixed_entries_record_the_current_receiver_authority() {
             "fixed Function producer `{variant}`"
         );
     }
-    for evidence in [CONTRACT, T02, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("private `FunctionBuiltin`"));
         assert!(evidence.contains("fixed Function entries"));
     }

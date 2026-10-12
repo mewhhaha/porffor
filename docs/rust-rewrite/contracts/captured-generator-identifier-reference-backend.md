@@ -50,7 +50,7 @@ References therefore stay missing even if the RHS creates a global property,
 and global HasBinding throws prevent RHS effects. PutValue retains the existing
 live-record checks. New strict/sloppy controls cover property creation/deletion,
 unscopables changes, RHS throws and observable Proxy Has/Set ordering. Joined
-validation is recorded in [CONTINUE.md](../../../CONTINUE.md).
+validation is recorded in [conformance acceptance](../conformance-acceptance.md).
 
 The ordinary and resumed global assignment controls cover fresh Script `let`,
 `const` and uninitialized lexical shadows, strict unresolved References, and a

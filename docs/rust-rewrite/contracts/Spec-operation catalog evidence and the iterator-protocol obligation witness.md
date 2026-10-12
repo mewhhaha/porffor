@@ -273,7 +273,7 @@ Two derived facts that matter more than any single number:
 
 ## 3. Type mapping, Part A — the catalog becomes evidence
 
-The task domain lives in `crates/lila-ir/src/task.rs`; the catalog types and
+The task domain lives in `crates/lila-ir/src/ownership.rs`; the catalog types and
 rows live in `crates/lila-ir/src/operations.rs`.
 
 ### A1. `OperationLoweringStatus` — closed, evidence-carrying, no free variants
@@ -288,7 +288,7 @@ pub enum OperationLoweringStatus {
     /// `SpecOperationIr` arm. The evidence names which arm.
     StatementEmission(EmissionSite),
     /// Not implemented. Both fields are closed/validated; neither is free text.
-    TrackedGap { reason: TrackedGapReason, owner: TaskId },
+    TrackedGap { reason: TrackedGapReason, owner: ConformanceOwner },
 }
 ```
 
@@ -328,7 +328,7 @@ pub enum TrackedGapReason {
     ModelWithoutCallSite,
 }
 
-// `task.rs` generates the enum, `ALL`, `as_str`, `Display` and `FromStr` from
+// `ownership.rs` generates the enum, `ALL`, `as_str`, `Display` and `FromStr` from
 // this one registry. The generated `as_str` match is exhaustive.
 define_task_ids! {
     T00 = 0 => "T00",
@@ -337,9 +337,9 @@ define_task_ids! {
 }
 ```
 
-The generated `TaskId` enum is the only task-owner domain. A row uses
-`TaskId::T04`; a nonexistent `TaskId::T30` is `E0599`, while an external
-`"T30"` fails `FromStr` before a `TaskId` exists. Its stable text remains
+The generated `ConformanceOwner` enum is the only task-owner domain. A row uses
+`ConformanceOwner::T04`; a nonexistent `ConformanceOwner::T30` is `E0599`, while an external
+`"T30"` fails `FromStr` before a `ConformanceOwner` exists. Its stable text remains
 `T00`–`T29`. `T26-unclassified` remains a Test262 classification fallback and
 is deliberately rejected by the task-id parser.
 
@@ -429,7 +429,7 @@ pub struct TrackedGapRow {
     pub normal_result: NormalResult,
     pub abrupt: &'static [CompletionAbruptKind],
     pub reason: TrackedGapReason,
-    pub owner: TaskId,
+    pub owner: ConformanceOwner,
 }
 
 pub const TRACKED_GAP_ROWS: &[TrackedGapRow] = &[ /* the 12 rows of §3.6 */ ];
@@ -511,8 +511,8 @@ purpose is J3, not lookup.
   `SpecOperationIr::ALL`; hand-written rows can only be `TrackedGapRow`, whose
   type has no field capable of holding an implementation status.
 - *Add a row that duplicates an existing name.* **Compile error** (J1).
-- *Give a gap row a nonexistent owner.* **Compile error** (`TaskId::T30` has no
-  such variant); untrusted text fails `TaskId::from_str` before construction.
+- *Give a gap row a nonexistent owner.* **Compile error** (`ConformanceOwner::T30` has no
+  such variant); untrusted text fails `ConformanceOwner::from_str` before construction.
 - *Add a variant, add all four arms, and forget to list it in `ALL`.* **Not
   caught at compile time** — see ledger entry **L1**. Stable Rust has no
   `variant_count`, and no arrangement of const asserts can observe a variant that
@@ -838,7 +838,7 @@ what cannot be a type and why.
 | 2a | Add a `SpecOperationIr` variant, forget its catalog row. | Silently absent; `find_spec_operation` returns `None` at runtime. | **`E0004` × 4** — `SpecOperationIr::{family, normal_result, abrupt, catalog_index}` are exhaustive matches with no catch-all. |
 | 2b | Add a catalog row with no variant (e.g. `"ToNumericString"`). | Compiles; joins to nothing. | Only expressible as a `TrackedGapRow`, i.e. **an honest gap**. To claim implementation you must add the variant, which lands you in 2a's four matches. |
 | 3 | Record the wrong `abrupt` set on an implemented row (`MAY_THROW` vs `NO_ABRUPT`). | Free per-row argument at `operations.rs:1201`. | **No parameter exists.** `emitter_row`'s only input is the variant; `abrupt` comes from `SpecOperationIr::abrupt()`. (Whether that function itself is right is **ledger L2**.) |
-| 4 | Give a row an owner that is not a backlog task id. | Runtime `assert_eq!(task, "T04")` in a test (`operations.rs:1321`). | **`E0599`** for a nonexistent `TaskId` variant. Text crosses the boundary only through `FromStr`, which returns an error without constructing a task id. |
+| 4 | Give a row an owner that is not a backlog task id. | Runtime `assert_eq!(task, "T04")` in a test (`operations.rs:1321`). | **`E0599`** for a nonexistent `ConformanceOwner` variant. Text crosses the boundary only through `FromStr`, which returns an error without constructing a task id. |
 | 5 | Leave a `CatalogOnly` row in the table. | Test `panic!`s (`operations.rs:1325`). | **`E0599`/`E0433`** — the variant does not exist. |
 | 6 | A correctly-typed spec record survives with no call site because it is `pub`. Nine measured instances. | No warning; `pub` suppresses dead-code detection. | Eight are **deleted** (§8); `IteratorRecordIr` acquires a real call site inside `AsyncForOfIteratorPlanIr`. Deleting the last user of any of them now produces `E0432 unresolved import` at `lib.rs`, which is a build failure. |
 | 7 | Transpose `[[Iterator]]` and `[[NextMethod]]` in the `for await` plan. | Both are `String`; compiles; miscompiles every `for await`. | **`E0308`** — `IteratorSlot` vs `NextMethodSlot`. |
@@ -860,8 +860,8 @@ begins; this is the whole verification strategy for the area.
 All of §4 B1–B3. Depends on nothing. `cargo check -p lila-ir` after adding
 `mod iterator_obligations;` and the `pub use`.
 
-**R1 — `task.rs` plus `operations.rs`, Part A types.** The single-source
-`TaskId` registry; `NormalResult`, `TrackedGapReason`, `EmitterEvidence`, the new
+**R1 — `ownership.rs` plus `operations.rs`, Part A types.** The single-source
+`ConformanceOwner` registry; `NormalResult`, `TrackedGapReason`, `EmitterEvidence`, the new
 `OperationLoweringStatus`, `TrackedGapRow`, `str_eq`. Delete `CatalogOnly` and
 `SharedRustModel`. Not yet wired to the catalog.
 
@@ -997,7 +997,7 @@ Tests deleted (13 of 21 in `operations.rs`):
 |---|---|---|
 | `:1285` | `operations_catalog_covers_t04_required_operations` | Vacuous: `REQUIRED_T04_OPERATIONS` (`:1236-1283`) is a transcription of the table's own `name` column. |
 | `:1295` | `operations_catalog_names_are_unique` | Replaced by const assert J1. |
-| `:1307` | `operations_catalog_tracks_every_gap_or_shared_lowering` | Vacuous *and* false: 46 lines asserting that labels the table declares are the labels the table declares, including `rust_modeled.contains("IteratorClose")` while no Rust model of `IteratorClose` has a call site. Its four real fragments are replaced by: `NormalResult` (non-emptiness), `TaskId` (closed owner membership), variant deletion (`CatalogOnly`), and derived rows (the 46 `contains` lines). |
+| `:1307` | `operations_catalog_tracks_every_gap_or_shared_lowering` | Vacuous *and* false: 46 lines asserting that labels the table declares are the labels the table declares, including `rust_modeled.contains("IteratorClose")` while no Rust model of `IteratorClose` has a call site. Its four real fragments are replaced by: `NormalResult` (non-emptiness), `ConformanceOwner` (closed owner membership), variant deletion (`CatalogOnly`), and derived rows (the 46 `contains` lines). |
 | `:1617` | `operations_catalog_marks_abrupt_capable_operations` | Becomes an assertion about `abrupt()`'s own match once `abrupt` is derived. |
 | `:1379`, `:1438` | the two `IteratorRecordIr` tests | Replaced by tests of the non-generic form (slot newtypes, `kind`). |
 | `:1395`, `:1419` | `AbstractRelationalComparisonResult`, `IntegerIndexedConversionIr` tests | Types deleted. |
@@ -1183,8 +1183,8 @@ integrator runs the gate.
 
 ### 12.1 Landed in the owned files
 
-- `crates/lila-ir/src/task.rs` and `operations.rs` — Part A in full:
-  the closed `TaskId` registry, `NormalResult`, `TrackedGapReason`,
+- `crates/lila-ir/src/ownership.rs` and `operations.rs` — Part A in full:
+  the closed `ConformanceOwner` registry, `NormalResult`, `TrackedGapReason`,
   `EmitterEvidence`, the three-variant
   `OperationLoweringStatus`, `StatementEmissionRow`, `TrackedGapRow`, `str_eq`,
   the five exhaustive `const fn`s on `SpecOperationIr` (`family`,
@@ -1395,24 +1395,24 @@ construction sites and **ledger L6 is retired**.
 
 The first revision validated only shape and therefore accepted every `T` plus
 two digits. The §13 dry run replaced that with an intermediate
-`OwnerTaskId`/`BACKLOG_TASK_IDS` membership scan covering the then-current
+`OwnerConformanceOwner`/`BACKLOG_TASK_IDS` membership scan covering the then-current
 T00–T27 ledger. That fixed `T99`, but duplicated the ledger as strings and fell
 out of date when T28 and T29 landed.
 
 The current implementation replaces both with a macro-generated, `#[repr(u8)]`
-`TaskId` enum in `task.rs`. One registry generates its T00–T29 variants,
+`ConformanceOwner` enum in `ownership.rs`. One registry generates its T00–T29 variants,
 numeric discriminants, `ALL`, stable strings and parser. Catalog rows therefore
-write `TaskId::T04`; `TaskId::T99` is an unknown variant and external text must
+write `ConformanceOwner::T04`; `ConformanceOwner::T99` is an unknown variant and external text must
 parse successfully before a task value exists. Matches over the task domain can
 be exhaustive without a catch-all. `T26-unclassified` is explicitly not a
-task: it remains a Test262 ownership fallback bucket and parsing it as `TaskId`
+task: it remains a Test262 ownership fallback bucket and parsing it as `ConformanceOwner`
 fails.
 
 Note for the record: T04 *is* a real backlog task
-(`tasks/04-spec-operations-and-completion-abi.md`); the original dry run's claim
+([shared operation ownership](../conformance-ownership.md#t04)); the original dry run's claim
 that it did not exist came from checking `test262/backlog/ownership-map.tsv`,
 which maps Test262 path prefixes to tasks and so legitimately omits a task that
-owns no prefix. The twelve gap rows keep `TaskId::T04` and it is correct.
+owns no prefix. The twelve gap rows keep `ConformanceOwner::T04` and it is correct.
 
 ## 13.11 What `EmitterEvidence` proves, and how L2 must be scoped
 

@@ -76,7 +76,7 @@ the complete native import target remains pending.
 Run these sequentially under the resource launcher, reusing build artifacts:
 
 ```sh
-python3 scripts/limited_verification.py -- cargo test --locked -p lila-ir --test realm_module_catalog --test module_instantiation --test module_import_jobs --test complete_module_catalog
+python3 scripts/limited_verification.py -- cargo test --locked -p lila-ir --test lila_ir_integration -- ir_cases::realm_module_catalog:: ir_cases::module_instantiation:: ir_cases::module_import_jobs:: ir_cases::complete_module_catalog::
 python3 scripts/limited_verification.py -- cargo test --locked -p lila-runtime --test embedded_module_graph
 python3 scripts/limited_verification.py -- cargo test --locked -p lila-engine --lib discovered_realm_requests_keep_host_origin_and_closed_cached_outcomes
 python3 scripts/limited_verification.py -- cargo test --locked -p lila-engine --test aot_realm_modules -- aot_shadow_realm_import_value::

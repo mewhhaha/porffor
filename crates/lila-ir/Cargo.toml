@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "lila-ir"
 version.workspace = true
 edition.workspace = true
@@ -21,3 +22,7 @@ boa_parser = { version = "0.21.1", features = ["annex-b"] }
 
 [lib]
 path = "src/lib.rs"
+
+[[test]]
+name = "lila_ir_integration"
+path = "tests/integration.rs"

@@ -159,12 +159,23 @@ impl<'ctx> BuiltInBuilder<'ctx, OrdinaryObject> {
     }
 }
 
+enum PrototypeConstructorState {
+    Pending(Attribute),
+    Added,
+}
+
+enum ConstructorHeaderState {
+    Pending,
+    Added,
+}
+
 pub(crate) struct BuiltInConstructorWithPrototype<'ctx> {
     realm: &'ctx Realm,
     function: NativeFunctionPointer,
     name: JsString,
     length: usize,
 
+    constructor_header: ConstructorHeaderState,
     constructor_property_table: PropertyTableInner,
     constructor_storage: Vec<JsValue>,
     constructor: JsObject,
@@ -178,7 +189,7 @@ pub(crate) struct BuiltInConstructorWithPrototype<'ctx> {
     prototype_storage_slots_expected: usize,
     __proto__: JsPrototype,
     inherits: Option<JsObject>,
-    attributes: Attribute,
+    prototype_constructor: PrototypeConstructorState,
 }
 
 #[allow(dead_code)]
@@ -200,6 +211,9 @@ impl BuiltInConstructorWithPrototype<'_> {
     /// Default is `0`.
     #[inline]
     pub(crate) const fn length(mut self, length: usize) -> Self {
+        if let ConstructorHeaderState::Added = self.constructor_header {
+            panic!("constructor length must precede header creation");
+        }
         self.length = length;
         self
     }
@@ -208,6 +222,9 @@ impl BuiltInConstructorWithPrototype<'_> {
     ///
     /// Default is `""`
     pub(crate) fn name(mut self, name: JsString) -> Self {
+        if let ConstructorHeaderState::Added = self.constructor_header {
+            panic!("constructor name must precede header creation");
+        }
         self.name = name;
         self
     }
@@ -375,22 +392,55 @@ impl BuiltInConstructorWithPrototype<'_> {
 
     /// Specifies the property attributes of the prototype's "constructor" property.
     pub(crate) const fn constructor_attributes(mut self, attributes: Attribute) -> Self {
-        self.attributes = attributes;
+        match self.prototype_constructor {
+            PrototypeConstructorState::Pending(_) => {
+                self.prototype_constructor = PrototypeConstructorState::Pending(attributes);
+            }
+            PrototypeConstructorState::Added => {
+                panic!("constructor attributes must precede constructor creation");
+            }
+        }
         self
     }
 
-    #[track_caller]
-    pub(crate) fn build(mut self) {
+    /// Create the prototype's constructor property at this point in its
+    /// chronology. Intrinsic initialization may choose an order consistent
+    /// with its dependencies; later user deletion/redefinition stays observable.
+    pub(crate) fn prototype_constructor(mut self) -> Self {
+        let PrototypeConstructorState::Pending(attributes) = self.prototype_constructor else {
+            panic!("prototype constructor already created");
+        };
+        let object = self.constructor.clone();
+        self = self.property(CONSTRUCTOR, object, attributes);
+        self.prototype_constructor = PrototypeConstructorState::Added;
+        self
+    }
+
+    /// Create standard constructor metadata before any subsequent static
+    /// properties. Other intrinsic builders retain their existing chronology.
+    pub(crate) fn constructor_header(mut self) -> Self {
+        let ConstructorHeaderState::Pending = self.constructor_header else {
+            panic!("constructor header already created");
+        };
         let length = self.length;
         let name = self.name.clone();
         let prototype = self.prototype.clone();
         self = self.static_property(js_string!("length"), length, Attribute::CONFIGURABLE);
         self = self.static_property(js_string!("name"), name, Attribute::CONFIGURABLE);
         self = self.static_property(PROTOTYPE, prototype, Attribute::empty());
+        self.constructor_header = ConstructorHeaderState::Added;
+        self
+    }
 
-        let attributes = self.attributes;
-        let object = self.constructor.clone();
-        self = self.property(CONSTRUCTOR, object, attributes);
+    #[track_caller]
+    pub(crate) fn build(mut self) {
+        if let ConstructorHeaderState::Pending = self.constructor_header {
+            self = self.constructor_header();
+        }
+
+        if let PrototypeConstructorState::Pending(_) = self.prototype_constructor {
+            self = self.prototype_constructor();
+        }
 
         #[cfg(debug_assertions)]
         {
@@ -459,6 +509,10 @@ impl BuiltInConstructorWithPrototype<'_> {
     }
 
     pub(crate) fn build_without_prototype(mut self) {
+        assert!(
+            matches!(self.constructor_header, ConstructorHeaderState::Pending),
+            "a constructor without prototype cannot publish a prototype header"
+        );
         let length = self.length;
         let name = self.name.clone();
         self = self.static_property(js_string!("length"), length, Attribute::CONFIGURABLE);
@@ -597,6 +651,7 @@ impl<'ctx> BuiltInBuilder<'ctx, Callable<Constructor>> {
             function: SC::constructor,
             name: js_string!(SC::NAME),
             length: SC::CONSTRUCTOR_ARGUMENTS,
+            constructor_header: ConstructorHeaderState::Pending,
             constructor_property_table: PropertyTableInner::with_capacity(
                 SC::CONSTRUCTOR_STORAGE_SLOTS
                     + BuiltInConstructorWithPrototype::OWN_CONSTRUCTOR_STORAGE_SLOTS,
@@ -621,7 +676,9 @@ impl<'ctx> BuiltInBuilder<'ctx, Callable<Constructor>> {
             prototype_storage_slots_expected: SC::PROTOTYPE_STORAGE_SLOTS,
             __proto__: Some(realm.intrinsics().constructors().function().prototype()),
             inherits: Some(realm.intrinsics().constructors().object().prototype()),
-            attributes: Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::NON_ENUMERABLE,
+            prototype_constructor: PrototypeConstructorState::Pending(
+                Attribute::WRITABLE | Attribute::CONFIGURABLE | Attribute::NON_ENUMERABLE,
+            ),
         }
     }
 }

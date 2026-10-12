@@ -39,7 +39,7 @@ def passed_exactly_one(output: str, total: int) -> bool:
 def build_test_binary() -> Path:
     result = subprocess.run(
         ["cargo", "test", "--locked", "-p", "lila-aot-wasm", "--lib", "--no-run",
-         "--message-format=json"],
+         "--message-format=json-render-diagnostics"],
         stdout=subprocess.PIPE, text=True,
     )
     executables = set()

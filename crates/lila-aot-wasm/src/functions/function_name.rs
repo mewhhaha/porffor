@@ -41,9 +41,7 @@ impl FunctionBuilder<'_> {
         let left_length = schema.reserve_i32_local(function);
         let right_length = schema.reserve_i32_local(function);
         let total = schema.reserve_i32_local(function);
-        let source_index = schema.reserve_i32_local(function);
         let destination_index = schema.reserve_i32_local(function);
-        let unit = schema.reserve_i32_local(function);
         units.length(&left_units, schema, function);
         left_length.store(function);
         units.length(&right_units, schema, function);
@@ -66,35 +64,24 @@ impl FunctionBuilder<'_> {
         );
         function.instruction(&Instruction::I32Const(0));
         destination_index.store(function);
-        for (source, length) in [(&left_units, left_length), (&right_units, right_length)] {
-            function.instruction(&Instruction::I32Const(0));
-            source_index.store(function);
-            function.instruction(&Instruction::Block(BlockType::Empty));
-            function.instruction(&Instruction::Loop(BlockType::Empty));
-            source_index.load(function);
-            length.load(function);
-            function.instruction(&Instruction::I32GeU);
-            function.instruction(&Instruction::BrIf(1));
-            units
-                .read(source, source_index, schema, function)
-                .store(unit, function);
-            output.write(destination_index, unit, schema, function);
-            source_index.load(function);
-            function.instruction(&Instruction::I32Const(1));
-            function.instruction(&Instruction::I32Add);
-            source_index.store(function);
-            destination_index.load(function);
-            function.instruction(&Instruction::I32Const(1));
-            function.instruction(&Instruction::I32Add);
-            destination_index.store(function);
-            function.instruction(&Instruction::Br(0));
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
+        output.copy_units_from(
+            destination_index,
+            &left_units,
+            left_length,
+            schema,
+            function,
+        );
+        left_length.load(function);
+        destination_index.store(function);
+        output.copy_units_from(
+            destination_index,
+            &right_units,
+            right_length,
+            schema,
+            function,
+        );
         let value = output.publish(schema, function);
-        schema.release_i32_local(unit, function);
         schema.release_i32_local(destination_index, function);
-        schema.release_i32_local(source_index, function);
         schema.release_i32_local(total, function);
         schema.release_i32_local(right_length, function);
         schema.release_i32_local(left_length, function);

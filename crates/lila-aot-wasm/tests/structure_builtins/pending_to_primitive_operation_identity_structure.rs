@@ -8,7 +8,6 @@ const VALUE_SOURCE: &str = include_str!("../../src/gc_types/value.rs");
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/pending-to-primitive-operation-identity.md"
 );
-const TASK: &str = include_str!("../../../../tasks/04-spec-operations-and-completion-abi.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -163,7 +162,7 @@ fn every_raw_producer_constructs_the_fixed_identity_token() {
     assert!(!facade.contains("payload_local"));
     assert!(!facade.contains("tag_local"));
 
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("operation boundaries now own identity"));
         assert!(evidence.contains("ToPrimitive"));
         assert!(evidence.contains("unrepresentable"));

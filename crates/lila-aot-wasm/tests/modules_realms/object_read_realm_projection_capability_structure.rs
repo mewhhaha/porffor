@@ -1,7 +1,6 @@
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/object-read-realm-projection-capability.md"
 );
-const TASK: &str = include_str!("../../../../tasks/10-object-model-descriptors-exotics.md");
 
 #[test]
 fn contract_and_t10_record_the_source_equivalent_capability_closure() {
@@ -15,5 +14,4 @@ fn contract_and_t10_record_the_source_equivalent_capability_closure() {
             "missing contract marker `{marker}`"
         );
     }
-    assert!(TASK.contains("object-read-realm-projection-capability.md"));
 }

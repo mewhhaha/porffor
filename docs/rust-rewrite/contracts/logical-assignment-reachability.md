@@ -25,7 +25,7 @@ order, short-circuit behavior, write placement, IR shape or metadata result.
 Focused verification:
 
 ```console
-cargo test -p lila-ir --test logical_assignment_reachability_structure
+cargo test -p lila-ir --test lila_ir_integration -- ir_cases::logical_assignment_reachability_structure::
 cargo test -p lila-ir object_environment_logical_assignment
 cargo test -p lila-aot-wasm --test structure_language -- object_environment_logical_assignment_structure::
 ```

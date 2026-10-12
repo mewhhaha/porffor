@@ -321,19 +321,22 @@ impl IntrinsicObject for BuiltInFunctionObject {
         let throw_type_error = realm.intrinsics().objects().throw_type_error();
 
         BuiltInBuilder::from_standard_constructor::<Self>(realm)
+            .property(js_string!("length"), 0, Attribute::CONFIGURABLE)
+            .property(js_string!("name"), js_string!(), Attribute::CONFIGURABLE)
+            .prototype_constructor()
+            .method(Self::call, js_string!("call"), 1)
             .method(Self::apply, js_string!("apply"), 2)
             .method(Self::bind, js_string!("bind"), 1)
-            .method(Self::call, js_string!("call"), 1)
             .method(Self::to_string, js_string!("toString"), 0)
             .property(JsSymbol::has_instance(), has_instance, Attribute::default())
             .accessor(
-                js_string!("caller"),
+                js_string!("arguments"),
                 Some(throw_type_error.clone()),
                 Some(throw_type_error.clone()),
                 Attribute::CONFIGURABLE,
             )
             .accessor(
-                js_string!("arguments"),
+                js_string!("caller"),
                 Some(throw_type_error.clone()),
                 Some(throw_type_error),
                 Attribute::CONFIGURABLE,
@@ -361,7 +364,7 @@ impl BuiltInObject for BuiltInFunctionObject {
 
 impl BuiltInConstructor for BuiltInFunctionObject {
     const CONSTRUCTOR_ARGUMENTS: usize = 1;
-    const PROTOTYPE_STORAGE_SLOTS: usize = 10;
+    const PROTOTYPE_STORAGE_SLOTS: usize = 12;
     const CONSTRUCTOR_STORAGE_SLOTS: usize = 0;
 
     const STANDARD_CONSTRUCTOR: fn(&StandardConstructors) -> &StandardConstructor =
@@ -893,7 +896,11 @@ impl BuiltInFunctionObject {
             return Ok(JsString::from(code_points).into());
         }
 
-        if code.flags.get().contains(crate::vm::CodeBlockFlags::IS_CLASS_CONSTRUCTOR) {
+        if code
+            .flags
+            .get()
+            .contains(crate::vm::CodeBlockFlags::IS_CLASS_CONSTRUCTOR)
+        {
             let name = code.name();
             if name.is_empty() {
                 return Ok(js_string!("class {}").into());
@@ -925,7 +932,6 @@ impl BuiltInFunctionObject {
     fn prototype(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
         Ok(JsValue::undefined())
     }
-
 }
 
 /// Abstract operation `SetFunctionName`
@@ -996,11 +1002,13 @@ struct ActiveFunctionFrameData {
 }
 
 fn function_is_legacy_introspection_target(function: &JsObject) -> bool {
-    function.downcast_ref::<OrdinaryFunction>().is_some_and(|function| {
-        function.code.is_ordinary()
-            && !function.code.strict()
-            && function.code.has_prototype_property()
-    })
+    function
+        .downcast_ref::<OrdinaryFunction>()
+        .is_some_and(|function| {
+            function.code.is_ordinary()
+                && !function.code.strict()
+                && function.code.has_prototype_property()
+        })
 }
 
 fn collect_active_function_frames(context: &Context) -> Vec<ActiveFunctionFrameData> {
@@ -1054,10 +1062,14 @@ fn legacy_function_property_value(
         .nearest_declarative_ref()
         .cloned()
         .unwrap_or_else(|| context.vm.environments.global().clone());
-    Some(Ok(
-        arguments::MappedArguments::new(function, &[], &frames[index].arguments, &env, context)
-            .into(),
-    ))
+    Some(Ok(arguments::MappedArguments::new(
+        function,
+        &[],
+        &frames[index].arguments,
+        &env,
+        context,
+    )
+    .into()))
 }
 
 fn function_get(

@@ -1,10 +1,9 @@
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/temporal-field-offset-table-privacy.md");
-const TASK: &str = include_str!("../../../../tasks/22-date-temporal.md");
 
 #[test]
 fn field_offset_table_frozen_history_remains_documented() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         assert!(evidence.contains("owner-private `TEMPORAL_DURATION_FIELD_OFFSETS`"));
         assert!(evidence.contains("owner-private `TEMPORAL_PLAIN_DATE_TIME_FIELD_OFFSETS`"));
         assert!(

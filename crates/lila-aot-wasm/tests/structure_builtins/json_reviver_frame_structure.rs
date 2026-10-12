@@ -9,7 +9,6 @@ const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/json-reviver-frame.md");
 const PARSE_CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/json-parse-frame-state.md");
-const TASK: &str = include_str!("../../../../tasks/20-number-bigint-math-json.md");
 
 fn mask_line_and_block_comments(source: &str) -> String {
     let mut characters = source.chars().peekable();
@@ -213,7 +212,7 @@ fn runtime_parser_and_iterative_walk_are_the_only_reviver_owners() {
 
 #[test]
 fn reviver_frame_wire_domains_fix_four_states_and_two_property_roles() {
-    for evidence in [CONTRACT, PARSE_CONTRACT, TASK] {
+    for evidence in [CONTRACT, PARSE_CONTRACT] {
         let words = evidence.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(words.contains("Batch AM"));
         assert!(words.contains("capability-free JSON wire domains"));

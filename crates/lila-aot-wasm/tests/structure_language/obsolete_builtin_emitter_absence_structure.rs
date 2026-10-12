@@ -3,7 +3,6 @@ use std::path::Path;
 
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/obsolete-builtin-emitter-removal.md");
-const TASK: &str = include_str!("../../../../tasks/02-modularize-ir-and-wasm-backend.md");
 
 fn count_identifier(source: &str, identifier: &str) -> usize {
     source
@@ -107,7 +106,7 @@ fn live_neighboring_emitters_remain_owned_and_reachable() {
 
 #[test]
 fn removal_has_frozen_source_evidence() {
-    for evidence in [CONTRACT, TASK] {
+    for evidence in [CONTRACT] {
         for hash in [
             "e69fe8ffc2517b72e18a85800ae0556736ede49cf01cd12c29a563008d7d3767",
             "df9bc99017d1ab0080f962469ea29e263e3d59c15ba720e2eacfe099dacca563",

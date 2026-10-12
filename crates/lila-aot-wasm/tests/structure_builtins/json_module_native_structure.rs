@@ -23,7 +23,7 @@ fn native_json_evaluation_requires_the_actual_record_and_original_allocation_alg
     assert!(!owner.contains("pubfnnew("));
     assert!(source.contains("unit.record.json_source()"));
     assert!(source.contains("JsonModuleValueIr::new(module,source.clone())"));
-    assert!(definition.contains("module_execution.json_values.insert("));
+    assert!(definition.contains("module_execution.synthetic_values.insert("));
     assert!(expression.contains(
         "ExprIr::JsonModuleValue(plan)=>self.emit_json_module_value(plan,output,function)?"
     ));
