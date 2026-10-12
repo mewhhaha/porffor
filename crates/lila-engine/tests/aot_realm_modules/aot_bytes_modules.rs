@@ -16,31 +16,31 @@ import * as namespace from './shared.js' with {type:'bytes'};
 import binary from './binary.bin' with {type:'bytes'};
 import json from './data.json' with {type:'json'};
 import jsonBytes from './data.json' with {type:'bytes'};
-function require(value) { if (!value) throw 'Bytes module invariant'; }
+function require(value, label) { if (!value) throw 'Bytes module invariant: ' + label; }
 const viewPrototype = Uint8Array.prototype;
 const bufferPrototype = ArrayBuffer.prototype;
-require(source === 42 && url === 'lila://data/shared.js');
-require(raw === namespace.default && Object.keys(namespace).join(',') === 'default');
-require(Object.getPrototypeOf(raw) === viewPrototype && Object.getPrototypeOf(raw.buffer) === bufferPrototype);
-require(raw.length === 54 && raw[0] === 101 && raw[53] === 59);
-require(binary.length === 4 && binary[0] === 0 && binary[1] === 255 && binary[2] === 128 && binary[3] === 65);
-require(json.a === 1 && jsonBytes.length === 8 && jsonBytes[7] === 10);
-require(raw.buffer.immutable === true && raw.buffer.resizable === false);
+require(source === 42 && url === 'lila://data/shared.js', 'source text record and URL');
+require(raw === namespace.default && Object.keys(namespace).join(',') === 'default', 'default export and namespace');
+require(Object.getPrototypeOf(raw) === viewPrototype && Object.getPrototypeOf(raw.buffer) === bufferPrototype, 'view and buffer prototypes');
+require(raw.length === 54 && raw[0] === 101 && raw[53] === 59, 'source text raw bytes');
+require(binary.length === 4 && binary[0] === 0 && binary[1] === 255 && binary[2] === 128 && binary[3] === 65, 'arbitrary binary payload');
+require(json.a === 1 && jsonBytes.length === 8 && jsonBytes[7] === 10, 'JSON and Bytes records');
+require(raw.buffer.immutable === true && raw.buffer.resizable === false, 'immutable fixed buffer flags');
 for (const mutate of [() => { raw[0] = 7; }, () => raw.set([7]),
     () => new DataView(raw.buffer).setUint8(0, 7),
     () => raw.buffer.resize(0), () => raw.buffer.transfer(), () => raw.buffer.transferToFixedLength()]) {
     try { mutate(); throw 'immutable Bytes buffer changed'; }
-    catch (error) { require(error instanceof TypeError); }
+    catch (error) { require(error instanceof TypeError, 'immutable mutation rejects with TypeError'); }
 }
-require(raw[0] === 101);
+require(raw[0] === 101, 'original byte remains');
 const repeated = await Promise.all([import('./shared.js', {with:{type:'bytes'}}),
     import('./alias.js', {with:{type:'bytes'}})]);
-require(repeated[0] === namespace && repeated[1] === namespace);
+require(repeated[0] === namespace && repeated[1] === namespace, 'dynamic and aliased namespace identity');
 globalThis.Uint8Array = function () { throw 'public view constructor observed'; };
 globalThis.ArrayBuffer = function () { throw 'public buffer constructor observed'; };
 const empty = await import('./empty.dat', {with:{type:'bytes'}});
-require(empty.default.length === 0 && empty.default.buffer.immutable === true);
-require(Object.getPrototypeOf(empty.default) === viewPrototype);
+require(empty.default.length === 0 && empty.default.buffer.immutable === true, 'empty immutable buffer');
+require(Object.getPrototypeOf(empty.default) === viewPrototype, 'intrinsic allocation after public constructor replacement');
 print('native-bytes-modules:ok');
 "#;
     let bytes = |identity: &str, payload: &[u8]| {
@@ -116,7 +116,7 @@ print('native-bytes-modules:ok');
         assert_eq!(observed.backend_used, backend);
         assert!(
             matches!(observed.completion, ObservedCompletion::Normal(_)),
-            "{:?}",
+            "{backend:?}: {:?}",
             observed.completion
         );
         assert_eq!(

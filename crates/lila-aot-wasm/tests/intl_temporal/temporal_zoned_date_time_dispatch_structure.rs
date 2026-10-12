@@ -88,6 +88,7 @@ fn zoned_date_time_catalog_routes_use_four_fixed_family_entries() {
 #[test]
 fn zoned_date_time_dispatch_contract_records_exact_witnesses_and_nonclaims() {
     for marker in [
+        "3/3",
         "shared closed direction domains",
         "four fixed entries",
         "82f3f206759543894d9ec36a278938c4a17e3f0db2602df13f9c9e7c1f1756a0",
@@ -101,11 +102,5 @@ fn zoned_date_time_dispatch_contract_records_exact_witnesses_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [CONTRACT] {
-        assert!(task.contains("temporal-zoned-date-time-direction-dispatch.md"));
-        assert!(task.contains("82f3f206759543894d9ec36a278938c4a17e3f0db2602df13f9c9e7c1f1756a0"));
-        assert!(task.contains("3/3"));
-        assert!(task.contains("no new Temporal behavior"));
     }
 }

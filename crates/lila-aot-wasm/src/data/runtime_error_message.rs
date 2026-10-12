@@ -111,6 +111,7 @@ runtime_error_message_catalog! {
     ARRAYBUFFER_BYTELENGTH_GETTER_REQUIRES_ARRAYBUFFER => "ArrayBuffer byteLength getter requires ArrayBuffer",
     ARRAYBUFFER_CONSTRUCTOR_REQUIRES_NEW => "ArrayBuffer constructor requires new",
     ARRAYBUFFER_DETACHED_GETTER_REQUIRES_ARRAYBUFFER => "ArrayBuffer detached getter requires ArrayBuffer",
+    ARRAYBUFFER_IMMUTABLE_GETTER_REQUIRES_ARRAYBUFFER => "ArrayBuffer immutable getter requires ArrayBuffer",
     ARRAYBUFFER_MAXBYTELENGTH_GETTER_REQUIRES_ARRAYBUFFER => "ArrayBuffer maxByteLength getter requires ArrayBuffer",
     ARRAYBUFFER_RECEIVER_IS_IMMUTABLE => "ArrayBuffer receiver is immutable",
     ARRAYBUFFER_RESIZABLE_GETTER_REQUIRES_ARRAYBUFFER => "ArrayBuffer resizable getter requires ArrayBuffer",

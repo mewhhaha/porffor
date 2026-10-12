@@ -2769,6 +2769,7 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
             | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
             | StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+            | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter
             | StandardBuiltinId::ArrayBufferPrototypeResize
             | StandardBuiltinId::ArrayBufferPrototypeSlice
             | StandardBuiltinId::ArrayBufferPrototypeTransfer
@@ -7118,7 +7119,8 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::SharedArrayBufferPrototypeGrow => 1,
         StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter => 0,
         StandardBuiltinId::ArrayBufferPrototypeDetachedGetter => 0,
-        StandardBuiltinId::ArrayBufferPrototypeResizableGetter => 0,
+        StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+        | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => 0,
         StandardBuiltinId::ArrayBufferPrototypeResize => 1,
         StandardBuiltinId::ArrayBufferPrototypeSlice
         | StandardBuiltinId::SharedArrayBufferPrototypeSlice => 2,

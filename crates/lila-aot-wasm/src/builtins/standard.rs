@@ -1114,6 +1114,9 @@ impl<'a> FunctionBuilder<'a> {
                     function,
                 )?;
             }
+            StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => {
+                self.emit_array_buffer_accessor_builtin(ArrayBufferAccessor::Immutable, function)?;
+            }
             StandardBuiltinId::ArrayBufferPrototypeResizableGetter => {
                 self.emit_array_buffer_accessor_builtin(ArrayBufferAccessor::Resizable, function)?;
             }

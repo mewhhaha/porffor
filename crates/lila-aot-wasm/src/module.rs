@@ -675,6 +675,7 @@ pub(crate) fn standard_builtin_constructor_realm_slot(
         | StandardBuiltinId::ArrayBufferPrototypeDetachedGetter
         | StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter
         | StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+        | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter
         | StandardBuiltinId::ArrayBufferPrototypeResize
         | StandardBuiltinId::ArrayBufferPrototypeSlice
         | StandardBuiltinId::SharedArrayBufferPrototypeSlice

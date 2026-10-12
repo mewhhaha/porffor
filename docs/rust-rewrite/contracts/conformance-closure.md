@@ -1,17 +1,20 @@
 # Pinned conformance closure
 
 `lila test262 close-release [--snapshot-dir PATH] [--reuse-case-workers]` is the release verdict owner.
-`scripts/check-test262-closure.sh` invokes it through the existing 4096 MiB
-aggregate kernel-budget launcher with zero swap, grouped OOM, one CPU and one
-worker. The dedicated `conformance-closure.yaml` workflow consumes its exit code
+`scripts/check-test262-closure.sh` invokes it through the verification launcher.
+Local runs retain the 4096 MiB aggregate kernel budget with zero swap, grouped
+OOM, one CPU and one worker. Its explicit `--cloud` mode uses the cloud machine's
+finite inherited cgroup cap; a separate systemd scope is not required there.
+Closure execution remains serial on both routes. The dedicated `conformance-closure.yaml` workflow consumes its exit code
 on release tags or explicit dispatch and retains both families on a red verdict.
 CI's existing native release build and artifact upload require both ordinary
 validation and this reusable closure job on main. The full vendored suite is
 tracked in the checkout. The driver first runs the native `test262 sync` presence
 and pin-report route under the same cap; that route does not fetch or invent a
 suite. The closure owner then admits only its actual clean committed pin.
-Its self-hosted Linux runner requires actual systemd user cgroup delegation;
-missing capability rejects the attempt.
+The local self-hosted Linux route requires actual systemd user cgroup delegation;
+missing capability rejects that local attempt. Managed-cloud admission checks
+the finite inherited machine budget through the same launcher.
 
 The library accepts only the current canonical pinned suite, its clean committed
 content, complete embedded Wasm-AOT harness, actual running CLI worker, serial

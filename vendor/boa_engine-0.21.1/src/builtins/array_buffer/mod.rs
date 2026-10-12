@@ -448,11 +448,7 @@ impl IntrinsicObject for ArrayBuffer {
                 js_string!("transferToImmutable"),
                 0,
             )
-            .method(
-                Self::slice_to_immutable,
-                js_string!("sliceToImmutable"),
-                2,
-            );
+            .method(Self::slice_to_immutable, js_string!("sliceToImmutable"), 2);
 
         builder.build();
     }
@@ -784,6 +780,22 @@ impl ArrayBuffer {
         let new_len = final_.saturating_sub(first);
 
         let new = if to_immutable {
+            // Resolve both bounds before reobserving the source. The immutable
+            // proposal requires the final bound to survive coercion, even when
+            // the selected range is empty, and detachment takes precedence.
+            {
+                let buffer = buf.borrow();
+                if buffer.data().is_detached() {
+                    return Err(JsNativeError::typ()
+                        .with_message("ArrayBuffer detached while sliceToImmutable was running")
+                        .into());
+                }
+                if (buffer.data().len() as u64) < final_ {
+                    return Err(JsNativeError::range()
+                        .with_message("ArrayBuffer is shorter than the resolved final bound")
+                        .into());
+                }
+            }
             let constructor = context
                 .intrinsics()
                 .constructors()
@@ -854,10 +866,14 @@ impl ArrayBuffer {
                     .into());
             };
 
-            // 26. Perform CopyDataBlockBytes(toBuf, 0, fromBuf, first, newLen).
+            // Ordinary slice retains the requested destination size but copies
+            // only bytes still available after species effects. An empty copy
+            // must not index an offset beyond the resized source.
             let first = first as usize;
-            let new_len = new_len as usize;
-            to_buf[..new_len].copy_from_slice(&from_buf[first..first + new_len]);
+            let copy_len = (new_len as usize).min(from_buf.len().saturating_sub(first));
+            if copy_len != 0 {
+                to_buf[..copy_len].copy_from_slice(&from_buf[first..first + copy_len]);
+            }
         }
 
         // 27. Return new.

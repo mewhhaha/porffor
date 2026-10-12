@@ -5,36 +5,139 @@ use lila_engine::{
 
 fn assert_immutable_modes(source: &str, line: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    for directive in ["", "'use strict';\n"] {
-        let source = format!("{directive}var $262={{createRealm:__lilaCreateRealm}};\n{source}");
-        let observed = Engine::new(RealmBuilder::new().build())
-            .observe_script(
-                &source,
-                CompileOptions {
-                    host_surface_policy: HostSurfacePolicy::Test262,
-                    ..CompileOptions::default()
-                },
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    timeout_ms: Some(30_000),
-                    ..RunOptions::default()
-                },
-            )
-            .expect(
-                "finite integer-indexed property control compiles and executes through Wasm AOT",
+    #[cfg(feature = "spec-exec-oracle")]
+    let backends = [ExecutionBackend::WasmAot, ExecutionBackend::SpecExec];
+    #[cfg(not(feature = "spec-exec-oracle"))]
+    let backends = [ExecutionBackend::WasmAot];
+    for backend in backends {
+        for directive in ["", "'use strict';\n"] {
+            let source =
+                format!("{directive}var $262={{createRealm:__lilaCreateRealm}};\n{source}");
+            let observed = Engine::new(RealmBuilder::new().build())
+                .observe_script(
+                    &source,
+                    CompileOptions {
+                        host_surface_policy: HostSurfacePolicy::Test262,
+                        ..CompileOptions::default()
+                    },
+                    RunOptions {
+                        backend,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("finite integer-indexed property control compiles and executes");
+            assert_eq!(observed.backend_used, backend);
+            assert_eq!(
+                observed.completion,
+                ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(
+                    262.0
+                ))),
+                "{backend:?}: {source}"
             );
-        assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
-        assert_eq!(
-            observed.completion,
-            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(262.0))),
-            "{source}"
-        );
-        assert_eq!(
-            observed.output_events,
-            vec![HostOutputEvent::PrintLine(line.into())],
-            "{source}"
-        );
+            assert_eq!(
+                observed.output_events,
+                vec![HostOutputEvent::PrintLine(line.into())],
+                "{backend:?}: {source}"
+            );
+        }
     }
+}
+
+#[test]
+fn array_buffer_slices_reobserve_resized_sources_without_traps() {
+    assert_immutable_modes(
+        r#"
+function check(ok, label) { if (!ok) throw new Error(label); }
+function expectError(kind, fn, label) { var error; try { fn(); } catch (caught) { error = caught; } check(error instanceof kind, label); }
+function buffer() { var result = new ArrayBuffer(10, { maxByteLength: 10 }); var view = new Uint8Array(result); for (var i = 0; i < 10; ++i) view[i] = i + 1; return result; }
+var source = buffer(), trace = [];
+var start = { valueOf: function () { trace.push('start'); source.resize(9); return -7; } };
+var end = { valueOf: function () { trace.push('end'); source.resize(8); return -4; } };
+var result = source.sliceToImmutable(start, end), view = new Uint8Array(result);
+check(trace.join(',') === 'start,end' && result.immutable && view.length === 3 && view[0] === 4 && view[1] === 5 && view[2] === 6, 'immutable bounds use original length');
+source = buffer(); trace = [];
+end = { valueOf: function () { trace.push('end'); source.resize(5); return -4; } };
+expectError(RangeError, function () { source.sliceToImmutable(start, end); }, 'immutable resolved final no longer exists');
+check(trace.join(',') === 'start,end', 'both immutable bound conversions precede range rejection');
+source = buffer(); trace = [];
+end = { valueOf: function () { trace.push('end'); source.resize(5); source.transfer(); return 6; } };
+expectError(TypeError, function () { source.sliceToImmutable(start, end); }, 'detachment precedes immutable range rejection');
+check(trace.join(',') === 'start,end', 'both conversions precede detachment rejection');
+source = buffer();
+result = source.sliceToImmutable({ valueOf: function () { source.resize(5); return 9; } }, 0);
+check(result.immutable && result.byteLength === 0, 'empty immutable range ignores an unavailable first offset');
+source = buffer(); trace = [];
+source.constructor = { get [Symbol.species]() { trace.push('species'); return function (length) { trace.push('construct:' + length); source.resize(5); return new ArrayBuffer(length); }; } };
+result = source.slice({ valueOf: function () { trace.push('start'); return -7; } }, { valueOf: function () { trace.push('end'); return -4; } });
+view = new Uint8Array(result);
+check(trace.join(',') === 'start,end,species,construct:3' && view.length === 3 && view[0] === 4 && view[1] === 5 && view[2] === 0, 'ordinary species shrink copies surviving bytes into full destination');
+source = buffer();
+source.constructor = { [Symbol.species]: function (length) { source.resize(5); return new ArrayBuffer(length); } };
+result = source.slice(9); view = new Uint8Array(result);
+check(view.length === 1 && view[0] === 0, 'ordinary slice past resized source copies zero bytes');
+source = buffer(); trace = [];
+source.constructor = { [Symbol.species]: function (length) { trace.push('construct:' + length); source.transfer(); return new ArrayBuffer(length); } };
+expectError(TypeError, function () { source.slice({ valueOf: function () { trace.push('start'); return 0; } }, { valueOf: function () { trace.push('end'); return 1; } }); }, 'ordinary source detachment follows species effects');
+check(trace.join(',') === 'start,end,construct:1', 'ordinary detachment preserves constructor order');
+print('gc-array-buffer-slices:ok');
+262;
+"#,
+        "gc-array-buffer-slices:ok",
+    );
+}
+
+#[test]
+fn immutable_write_admission_precedes_argument_work_and_keeps_read_operations() {
+    assert_immutable_modes(
+        r#"
+function check(ok, label) { if (!ok) throw new Error(label); }
+function expectTypeError(fn, label) { var error; try { fn(); } catch (caught) { error = caught; } check(error instanceof TypeError, label); }
+var calls = [], argument = { valueOf: function () { calls.push('coerce'); return 0; } };
+var source = { get length() { calls.push('source.length'); return 1; }, get 0() { calls.push('source[0]'); return argument; } };
+var options = { get alphabet() { calls.push('alphabet'); return 'base64'; }, get lastChunkHandling() { calls.push('chunk'); return 'loose'; } };
+for (var length = 0; length < 3; length += 2) {
+  var original = new Uint8Array(length); if (length) original[0] = 7;
+  var array = new Uint8Array(original.buffer.transferToImmutable());
+  var mutations = [
+    function () { array.copyWithin(argument, argument, argument); },
+    function () { array.fill(argument, argument, argument); },
+    function () { array.reverse(); },
+    function () { array.sort(function () { calls.push('compare'); return 0; }); },
+    function () { array.set(source, argument); },
+    function () { array.setFromBase64('a', options); },
+    function () { array.setFromHex('0g'); }
+  ];
+  for (var index = 0; index < mutations.length; ++index) {
+    expectTypeError(mutations[index], 'immutable method ' + index + ' length ' + length);
+    check(calls.length === 0 && (!length || array[0] === 7), 'rejection before argument or callback observations');
+  }
+  check(array.subarray(0).length === length && array.slice(0).length === length, 'read species admission');
+  check(array.map(function (value) { return value; }).length === length && array.filter(function () { return true; }).length === length, 'immutable read source with mutable destinations');
+  check(array.toHex() === (length ? '0700' : '') && array.toBase64() === (length ? 'BwA=' : ''), 'read codecs remain allowed');
+}
+var integers = new Int32Array(1); integers[0] = 9;
+var atomic = new Int32Array(integers.buffer.transferToImmutable());
+var operations = [Atomics.add, Atomics.sub, Atomics.and, Atomics.or, Atomics.xor, Atomics.exchange, Atomics.store, Atomics.compareExchange];
+for (var operation = 0; operation < operations.length; ++operation) {
+  expectTypeError(function () { operations[operation](atomic, argument, argument, argument); }, 'immutable atomic write');
+  check(calls.length === 0 && Atomics.load(atomic, 0) === 9, 'atomic read retained and write rejects before index/value coercion');
+}
+var immutable = new Uint8Array(new ArrayBuffer(2).transferToImmutable());
+function ReadOnlyConstructor(count) { calls.push('construct:' + count); return immutable; }
+expectTypeError(function () { Uint8Array.of.call(ReadOnlyConstructor, argument); }, 'of write destination');
+check(calls.join(',') === 'construct:1', 'of validates before element conversion');
+calls = [];
+var arrayLike = { get length() { calls.push('length'); return 0; }, get 0() { calls.push('index'); return argument; } };
+expectTypeError(function () { Uint8Array.from.call(ReadOnlyConstructor, arrayLike); }, 'from empty write destination');
+check(calls.join(',') === 'length,construct:0', 'from length precedes construction and write admission');
+var mutable = new Uint8Array(2); mutable.set([7]); mutable.fill(8, 1); mutable.reverse();
+check(mutable[0] === 8 && mutable[1] === 7 && mutable.buffer.immutable === false, 'mutable writes retained');
+print('gc-immutable-write-admission:ok');
+262;
+"#,
+        "gc-immutable-write-admission:ok",
+    );
 }
 
 #[test]
@@ -182,5 +285,39 @@ print('gc-immutable-species:ok');
 262;
 "#,
         "gc-immutable-species:ok",
+    );
+}
+
+#[test]
+fn immutable_getter_reads_only_buffer_slots_and_retains_its_defining_realm() {
+    assert_immutable_modes(
+        r#"
+function check(ok, label) { if (!ok) throw new Error(label); }
+var descriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'immutable');
+var getter = descriptor.get;
+check(descriptor.set === undefined && !descriptor.enumerable && descriptor.configurable, 'getter descriptor');
+check(getter.length === 0 && getter.name === 'get immutable' && !Object.hasOwn(getter, 'prototype'), 'getter callable metadata');
+var mutable = new ArrayBuffer(1), resizable = new ArrayBuffer(1, {maxByteLength: 2});
+check(mutable.immutable === false && resizable.immutable === false, 'mutable slot');
+var immutable = mutable.transferToImmutable();
+check(immutable.immutable === true && getter.call(immutable) === true && mutable.detached && mutable.immutable === false, 'immutable and detached slots');
+var foreign = $262.createRealm().global;
+var foreignGetter = foreign.Object.getOwnPropertyDescriptor(foreign.ArrayBuffer.prototype, 'immutable').get;
+var localPrototype = TypeError.prototype, foreignPrototype = foreign.TypeError.prototype;
+check(foreignGetter.call(immutable) === true && getter.call(new foreign.ArrayBuffer(0)) === false, 'borrowed getter reads actual receiver');
+var traps = 0, proxy = new Proxy(immutable, { get: function () { ++traps; throw 'trap'; } });
+var invalid = [undefined, null, 1, 'buffer', {}, new SharedArrayBuffer(0), proxy];
+for (var index = 0; index < invalid.length; ++index) {
+    var caught = undefined;
+    try { getter.call(invalid[index]); } catch (error) { caught = error; }
+    check(Object.getPrototypeOf(caught) === localPrototype, 'local getter brand rejection');
+}
+var foreignError;
+try { foreignGetter.call(proxy); } catch (error) { foreignError = error; }
+check(Object.getPrototypeOf(foreignError) === foreignPrototype && traps === 0, 'foreign getter brand rejection without proxy observation');
+print('gc-immutable-getter:ok');
+262;
+"#,
+        "gc-immutable-getter:ok",
     );
 }

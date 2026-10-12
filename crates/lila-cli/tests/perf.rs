@@ -37,10 +37,16 @@ fn fixture_path(name: &str) -> String {
 }
 
 fn run_fixture(name: &str) {
+    run_fixture_with_host(name, "product");
+}
+
+fn run_fixture_with_host(name: &str, host: &str) {
     let output = lila_cli::run_cli_capture([
         "run".to_string(),
         "--execution-backend".to_string(),
         "wasm".to_string(),
+        "--host-surface".to_string(),
+        host.to_string(),
         fixture_path(name),
     ]);
     assert_eq!(
@@ -67,11 +73,15 @@ fn warm_exact_wasmtime_aot_is_sub_second() {
 fn warmed_twenty_case_chunk_is_under_five_seconds() {
     let cases = &chunk_cases::CASES;
     for case in cases {
-        run_fixture(case);
+        // This compiled conformance corpus includes deliberate assertion and
+        // buffer-detachment host bindings, as in the CLI fixture target.
+        run_fixture_with_host(case, "test262");
     }
     let started = Instant::now();
     for case in cases {
-        run_fixture(case);
+        // This compiled conformance corpus includes deliberate assertion and
+        // buffer-detachment host bindings, as in the CLI fixture target.
+        run_fixture_with_host(case, "test262");
     }
     let elapsed = started.elapsed();
     eprintln!("warmed 20-case Wasmtime-AOT chunk: {elapsed:?}");

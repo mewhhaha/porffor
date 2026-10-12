@@ -1,16 +1,51 @@
-## Current original regression boundary — 2026-10-11
+## Complete native baseline and current repair batch — 2026-10-12
 
-Seven original failures are eliminated across the same 354 controls; one remains.
-See [ownership migration and regression evidence](docs/rust-rewrite/ownership-migration-repairs-20261011.md)
-for the complete original/current inventories and preserved reports. The latest
-source-fenced gate runs 3,574 controls: 3,572 pass, two fail, none are ignored.
-The original mutation timeout remains; the other failure is a newly exposed
-task-to-contract assertion. All ten additional failures from the preceding gate
-are eliminated. The 673-control IR grouping has an exact inventory bijection
-and matching CI scopes. The remaining assertion corrections and replacement
-UTF-16 output buffer await fresh native verification. Full native
-coverage, fresh pinned Test262 census/closure, remaining semantic repairs and
-publication still precede deletion of this file and tasks/.
+The frozen cd8aa4a32 baseline completes all 106 workspace scopes with all features
+and ignored controls: 8,939 passes, 11 failures and zero ignores. Exact verdicts
+and source/inventory/transcript hashes are preserved in the
+[baseline and repair record](docs/rust-rewrite/native-workspace-repairs-20261012.md).
+Seven original failures are eliminated across the same 354 controls, one remains
+and no previously passing original control fails. The prior 3,574-control gate
+also has no regression on a passing ID; wider failures are recorded separately.
+
+A coherent successor repairs the missing immutable ArrayBuffer getter, primitive
+WeakMap/WeakSet diagnostic distinction, stale Error-stack expectation, five
+source/contract assertions, generated provider example and missing performance
+fixture host authority. Static keys, JSON punctuation, immutable Minimal data
+identity reuse and producer-only R register allocation address repeated work.
+Fresh native acceptance is required; no repaired/full-suite pass is claimed yet.
+The first successor focus completes 55 native controls: 54 pass, one fails,
+zero ignores. Exact comparison across 53 existing IDs eliminates seven failures,
+retains one and introduces no regression; both added IDs pass. Bytes succeeds
+on Wasm-AOT and still fails the optional oracle's immutable indexed write.
+The coherent oracle repair adds proposal-correct descriptors, Boolean Set
+rejection, typed read/write admission for methods, species, codecs and Atomics.
+Existing paired strict/sloppy immutable controls now cover both enabled backends;
+The first paired oracle follow-up passes ten of eleven controls: Bytes passes
+both backends, and the added write-order control passes. The descriptor control
+still fails newly enabled oracle freeze coverage; its gate-level regression is
+retained explicitly. The next repair fixes the mutable-only freeze shortcut,
+immutable-slice post-coercion bounds and ordinary-slice post-species copy bounds,
+with an added paired shrink/detachment/order/empty-range control. Native
+verification of that final follow-up passes all 12 controls, including both
+enabled backends. It eliminates the Bytes baseline failure and the newly exposed
+freeze regression, with no failure on any prior passing selected ID. All three
+added controls pass. All 473 Python tooling controls, all-feature/all-target
+types and ten source guards pass after the final repair.
+The Python cancellation fixture's PID publication race is repaired atomically.
+The first focus's two raw library transcripts were accidentally replaced by a
+diagnostic-label collision; receipts/inventories/verdicts and the full 8950-ID
+baseline remain. The manifest records this limit, new labels refuse collisions,
+and full fresh native unit verification remains mandatory.
+The current timing/documentation checkpoint passes 17 of 19 controls with zero
+ignores. The provider doctest now passes; mutation seed nine still times out at
+the unchanged 5,000 ms deadline, and the correctly completed twenty-case workload
+measures 5.304175098 seconds against five seconds. Neither timing failure is
+claimed repaired. Exact phase diagnostics are retained under
+`target/native-repair-phase-diagnostics-20261012`; they identify cold admission,
+P compilation and execution costs but are explicitly not acceptance.
+Use the complete source-fenced runner and exact before/after inventories. Do not
+delete this handoff or tasks before all requested acceptance is actually met.
 
 ## Bytes module and remaining acceptance — 2026-10-11
 
@@ -157,8 +192,9 @@ The pinned copying collector now has real weak targets and owner/key-gated
 ephemerons. Ten forced-GC controls, the thirteen-boundary cancellation control
 and eleven image controls pass: 22 native passes, zero failures or ignores.
 Joined workspace types pass. The image leaf archive is 10,718 bytes; three
-producers have matching digests. Product weak builtins and real job integration
-are still pending; the JavaScript capability remains unavailable. See the
+producers have matching digests. This foundation checkpoint is superseded by
+the verified JavaScript integration above; complete family acceptance remains
+open. See the
 [foundation checkpoint](docs/rust-rewrite/weak-collector-foundation-20261011.md).
 
 ## Iterator chunking proposal — 2026-10-11
@@ -181,9 +217,8 @@ Use Luna agents for read-only chores/exploration; root writes code.
 Error.prototype.stack is implemented in Wasm AOT and the optional oracle.
 All seventeen focused native controls, joined all-feature/all-target types and
 twelve guards pass. The complete official proposal selection passes 68/70 AOT
-and 70/70 oracle. Both remaining AOT IDs are getter-no-error-data.js modes that
-construct WeakMap/WeakSet receivers and reach the explicit T05 runtime gap;
-implement actual weak roots/ephemerons without filtering those cases. Full-suite
+and 70/70 oracle at this earlier checkpoint. The later weak integration above
+passes all 70/70 AOT IDs, including both weak-receiver modes. Full-suite
 acceptance and task closure remain open. See the
 [checkpoint](docs/rust-rewrite/error-stack-accessors-20261011.md).
 
@@ -259,7 +294,8 @@ its synchronous compiler work is still subject to the outer case supervisor.
 All 18 focused agent checks pass, including real shared-memory delivery,
 waitAsync notification/expiry, failure preservation, two-worker retrieval and
 a ten-minute sleep under a ten-second parent budget. Joined all-feature/all-target
-types and all eleven repository guards pass. BigInt message IDs and fresh complete agent-tree/pinned
+types and all eleven repository guards pass. BigInt message IDs are covered by
+the later focused ID checkpoint; fresh complete agent-tree/pinned
 acceptance remain open. See the
 [retrieval receipt](docs/rust-rewrite/agent-broadcast-retrieval-20261011.md).
 
@@ -589,8 +625,10 @@ workspace/all-ignored, differential and current pinned-suite acceptance remain
 pending.
 
 The latest task audit still finds substantial open acceptance requirements:
-real weak reachability/ephemerons, BigInt agent message IDs and current agent-tree
-acceptance, suspended compositions,
-current pinned full-suite publication, sustained stress/differential runs and
-cross-host evidence. Wasmtime 47 has no weak-root or ephemeron API. Do not remove
+fresh default/all-feature/all-ignored workspace verification, current agent-tree
+and stress acceptance, current pinned full-suite repeatable publication,
+sustained stress/differential runs and the architecture/integrity audit.
+Weak reachability/ephemerons and BigInt message IDs have verified focused
+successors. Intl cross-host capture/compare CI exists, but actual supported-host
+receipts remain required. Do not remove
 this handoff or tasks until the requested actual task completion is established.

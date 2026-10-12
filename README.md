@@ -1,20 +1,28 @@
 # Lila
 
-## Original regression repair and ownership migration — 2026-10-11
+## Complete workspace baseline — 2026-10-12
 
-Seven of the eight original failures are eliminated across the same 354 native
-controls: 346 passes/eight failures becomes 353 passes/one failure, with no new
-failures in those scopes. Original campaign deadlines and the With body-size
-ceiling are unchanged. The latest 3,574-control gate has 3,572 passes, two
-failures and no ignores: the original mutation timeout and one newly exposed
-task-to-contract assertion. All ten additional failures from the preceding gate
-are eliminated. IR integration retains all 673 controls in one executable;
-actual inventories and all 16 CI scopes match exactly. The assertion correction
-and replacement UTF-16 output buffer await fresh verification. See the
-[repair evidence and limits](docs/rust-rewrite/ownership-migration-repairs-20261011.md).
+The frozen all-feature workspace baseline includes every ignored control and
+all 106 native/documentation scopes: 8,939 tests pass, 11 fail, none are ignored.
+Against the original 354 controls, seven failures are eliminated, one remains
+and no previously passing test regresses. Exact verdicts and the next correctness
+and performance repairs are recorded in the
+[baseline and repair evidence](docs/rust-rewrite/native-workspace-repairs-20261012.md).
 
-Raw Bytes module records and permanent conformance ownership are implemented.
-Full suites, fresh pinned acceptance, publication, and task cleanup remain open.
+The focused successor runs 55 controls: 54 pass, one fails, none are ignored.
+Across 53 existing IDs, seven failures are eliminated and no passing ID regresses;
+both added controls pass. Subsequent oracle repairs pass all 12 paired native
+controls, including Bytes, immutable write/descriptor/freeze behavior and
+slice bounds after source resizing. All 473 tooling tests, current types and
+ten source checks pass. The current timing/documentation checkpoint passes
+17 of 19 controls: the provider doctest is repaired; the mutation campaign's
+five-second timeout and the twenty-case five-second limit remain red. Exact
+comparisons record no new failure on a previous passing ID in these final
+focused checkpoints. Full successor/default suites, fresh pinned acceptance,
+publication and task cleanup remain open. Refresh native
+evidence with the complete workspace runner documented in
+[the batch workflow](docs/rust-rewrite/batch-workflow.md). Pinned Test262 status
+continues to use its canonical publisher below.
 
 ## 2026-10-11 typed-root and static With repair
 

@@ -87,6 +87,10 @@ impl FunctionBuilder<'_> {
                     "resizable",
                     StandardBuiltinId::ArrayBufferPrototypeResizableGetter,
                 ),
+                (
+                    "immutable",
+                    StandardBuiltinId::ArrayBufferPrototypeImmutableGetter,
+                ),
             ] {
                 self.emit_install_intrinsic_accessor(
                     context.prototype,

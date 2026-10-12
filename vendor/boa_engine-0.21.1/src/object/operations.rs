@@ -1,5 +1,4 @@
 use super::internal_methods::InternalMethodPropertyContext;
-use std::sync::atomic::Ordering;
 use crate::value::JsVariant;
 use crate::{
     Context, JsResult, JsSymbol, JsValue,
@@ -17,6 +16,7 @@ use crate::{
     string::StaticJsStrings,
     value::Type,
 };
+use std::sync::atomic::Ordering;
 
 /// Object integrity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -508,6 +508,7 @@ impl JsObject {
 
         if level.is_frozen()
             && let Some(typed_array) = self.downcast_ref::<TypedArray>()
+            && !typed_array.has_immutable_buffer()
         {
             let buffer = typed_array.viewed_array_buffer().as_buffer();
             let Some(buf) = buffer

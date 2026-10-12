@@ -9,9 +9,9 @@ use crate::{
         JsData, JsObject,
         internal_methods::{
             InternalMethodPropertyContext, InternalObjectMethods, ORDINARY_INTERNAL_METHODS,
-            ordinary_define_own_property, ordinary_delete, ordinary_get,
-            ordinary_get_own_property, ordinary_has_property, ordinary_prevent_extensions,
-            ordinary_set, ordinary_try_get,
+            is_compatible_property_descriptor, ordinary_define_own_property, ordinary_delete,
+            ordinary_get, ordinary_get_own_property, ordinary_has_property,
+            ordinary_prevent_extensions, ordinary_set, ordinary_try_get,
         },
     },
     property::{PropertyDescriptor, PropertyKey},
@@ -20,6 +20,13 @@ use boa_gc::{Finalize, Trace};
 use boa_macros::js_str;
 
 use super::{TypedArrayKind, is_valid_integer_index};
+
+/// The immutable-buffer proposal distinguishes observation from mutation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TypedArrayAccess {
+    Read,
+    Write,
+}
 
 /// A `TypedArray` object is an exotic object that performs special handling of integer
 /// index property keys.
@@ -196,7 +203,11 @@ impl TypedArray {
     /// Abstract operation [`ValidateTypedArray ( O, order )`][spec].
     ///
     /// [spec]: https://tc39.es/ecma262/sec-validatetypedarray
-    pub(crate) fn validate(this: &JsValue, order: Ordering) -> JsResult<(JsObject<Self>, usize)> {
+    pub(crate) fn validate(
+        this: &JsValue,
+        order: Ordering,
+        access: TypedArrayAccess,
+    ) -> JsResult<(JsObject<Self>, usize)> {
         // 1. Perform ? RequireInternalSlot(O, [[TypedArrayName]]).
         let obj = this
             .as_object()
@@ -207,6 +218,8 @@ impl TypedArray {
 
         let len = {
             let array = obj.borrow();
+            // Write admission precedes bounds checks and all caller coercions.
+            array.data().require_access(access)?;
             let buffer = array.data().viewed_array_buffer().as_buffer();
             // 2. Assert: O has a [[ViewedArrayBuffer]] internal slot.
             // 3. Let taRecord be MakeTypedArrayWithBufferWitnessRecord(O, order).
@@ -224,6 +237,27 @@ impl TypedArray {
 
         // 5. Return taRecord.
         Ok((obj, len))
+    }
+
+    pub(crate) fn has_immutable_buffer(&self) -> bool {
+        self.viewed_array_buffer.as_buffer().is_immutable()
+    }
+
+    pub(crate) fn require_access(&self, access: TypedArrayAccess) -> JsResult<()> {
+        match access {
+            TypedArrayAccess::Read => Ok(()),
+            TypedArrayAccess::Write => {
+                if self.has_immutable_buffer() {
+                    Err(JsNativeError::typ()
+                        .with_message(
+                            "cannot write through a typed array backed by an immutable ArrayBuffer",
+                        )
+                        .into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
     }
 
     /// Validates `index` to be in bounds for the inner buffer of this `TypedArray`.
@@ -329,15 +363,19 @@ pub(crate) fn typed_array_exotic_get_own_property(
     if let Some(numeric_index) = p {
         // i. Let value be IntegerIndexedElementGet(O, numericIndex).
         let value = typed_array_get_element(obj, numeric_index);
+        let mutable = !obj
+            .downcast_ref::<TypedArray>()
+            .expect("typed array exotic object")
+            .has_immutable_buffer();
 
         // ii. If value is undefined, return undefined.
         // iii. Return the PropertyDescriptor { [[Value]]: value, [[Writable]]: true, [[Enumerable]]: true, [[Configurable]]: true }.
         return Ok(value.map(|v| {
             PropertyDescriptor::builder()
                 .value(v)
-                .writable(true)
+                .writable(mutable)
                 .enumerable(true)
-                .configurable(true)
+                .configurable(mutable)
                 .build()
         }));
     }
@@ -403,6 +441,15 @@ pub(crate) fn typed_array_exotic_define_own_property(
         // i. If IsValidIntegerIndex(O, numericIndex) is false, return false.
         if !is_valid_integer_index(obj, numeric_index) {
             return Ok(false);
+        }
+
+        if obj
+            .downcast_ref::<TypedArray>()
+            .expect("typed array exotic object")
+            .has_immutable_buffer()
+        {
+            let current = typed_array_exotic_get_own_property(obj, key, context)?;
+            return Ok(is_compatible_property_descriptor(false, desc, current));
         }
 
         // ii. If Desc has a [[Configurable]] field and Desc.[[Configurable]] is false, return false.
@@ -531,6 +578,14 @@ pub(crate) fn typed_array_exotic_set(
     // 1. If P is a String, then
     // 1.b. If numericIndex is not undefined, then
     if let Some(numeric_index) = p {
+        // Immutable canonical indices reject before receiver/index/value work.
+        if obj
+            .downcast_ref::<TypedArray>()
+            .expect("typed array exotic object")
+            .has_immutable_buffer()
+        {
+            return Ok(false);
+        }
         // i. If SameValue(O, Receiver) is true, then
         if JsValue::same_value(&obj.clone().into(), &receiver) {
             // 1. Perform ? IntegerIndexedElementSet(O, numericIndex, V).

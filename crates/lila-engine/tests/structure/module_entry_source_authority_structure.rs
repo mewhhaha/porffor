@@ -58,7 +58,7 @@ fn graph_loading_consumes_the_source_authority_exhaustively() {
     assert!(loading.contains(
         "ModuleEntry::InMemory{source_text,..}=>ModuleSourceIr::new(entry_key.clone(),source_text.clone(),"
     ));
-    assert!(loading.contains("ModuleEntry::HostLoad{..}=>{letloaded=loader.load(&ModuleRecordKey::new(entry_key.clone(),ModuleKindIr::SourceText))?;"));
+    assert!(loading.contains("ModuleEntry::HostLoad{..}=>{letloaded=loader.load(&ModuleRecordKey::new(entry_key.clone(),ModuleKindIr::SourceText,))?;loaded_module_source(loaded)"));
     assert!(!loading.contains("_=>"));
 }
 

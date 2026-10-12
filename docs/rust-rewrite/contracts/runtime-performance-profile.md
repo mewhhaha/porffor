@@ -244,9 +244,10 @@ packages use the existing raw cache/emitter. Scalar-only programs leave the
 candidate unresolved. Ordinary, rooted and cached-P paths share this resolver.
 
 A shared configuration owner supplies the existing feature, copying-collector,
-epoch, stack, memory and register-allocation settings to both Cargo and the
-product Engine. Cargo selects the existing SpeedAndSize optimization for R;
-Fast P still uses OptLevel::None. The ordinary size threshold, retry and fallback
+epoch, stack and memory settings to both Cargo and the product Engine.
+Cargo selects SpeedAndSize and the Backtracking register allocator for immutable
+R. Ordinary Fast P retains OptLevel::None and SinglePass register allocation;
+its compilation deadline and execution policy are unchanged. The ordinary size threshold, retry and fallback
 configuration are unchanged. Cargo explicitly selects TARGET and baseline ISA,
 uses serial native precompilation on the existing compiler stack, and disables
 ambient backtrace-detail selection. It produces a bundle only for supported
@@ -259,12 +260,13 @@ separate optimized Engine.
 The Engine's private native authority accepts only immutable include_bytes
 outputs from that Cargo producer. No file, cache blob or caller-provided native
 slice can enter its unsafe deserializer. A manifest binds source, target,
-configuration, the explicit pair of R image and execution modes, and both image
-digests to the actual admitted R key. The version-two manifest requires exactly
-SizeOptimized R with Fast execution; neither mode is inferred from the other.
+configuration, the explicit pair of R image and execution modes, the closed
+R allocator identity, and both image digests to the actual admitted R key.
+The version-three manifest requires SizeOptimized/Backtracking R with Fast
+execution; each field is decoded and admitted independently.
 Wasmtime still checks compiler version, proposals, collector, tunables and ISA;
 an incompatible known-valid image is an optimization miss. The pinned compiler
-[treats optimization level as semantics-neutral for deserialization](https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/engine.rs),
+[treats optimization level and register allocation as compatibility-neutral for deserialization](https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/engine.rs),
 while product mode admission still rejects each unsupported pair. The shared
 module-cache key remains the execution Engine's mode and raw Wasm digest, so
 an image compiled in a different mode cannot cross Engine ownership.

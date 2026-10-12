@@ -1,5 +1,36 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Complete native workspace runner — 2026-10-12
+
+Run from the repository root after writing the whole batch:
+
+```sh
+. /workspace/.lila-tools/activate.sh
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+  python3 -B scripts/run_workspace_tests.py --output target/workspace-fresh \
+  --all-features --include-ignored --test-processes 4 --partition-cli \
+  --shared-runtime-linker scripts/test-shared-runtime-images/cc \
+  --strip-test-debug --no-test-incremental --stop-on-build-failure
+```
+
+Use the available Rust toolchain activation path on other hosts. Omit
+`--all-features` for the independent default-feature suite and its oracle-refusal
+controls. The same selected workspace package graph is used for every Cargo
+selector. Every qualified native ID is inventoried; the CLI partitioner checks
+four disjoint exact native lists before any body runs and retains each original
+transcript. Each native process has one CPU and one test thread. Cargo stays
+serial. Original-budget campaigns, workers, corpora, performance, publication
+and documentation drain other native work first. Documentation collects every
+package outcome with `--no-fail-fast`; a failing package remains failed.
+
+The receipt binds source state, actual Cargo artifacts, shared data, inventories
+and native outcomes. Completed test ELFs can be removed to keep the run within
+available disk after their identity and verdict are sealed. Build deferrals are
+incomplete coverage, never passes. A continuation may select only previously
+unexecuted scopes from the identical source; preserved pass/fail outcomes cannot
+be replaced. Compare exact IDs before and after repairs, recording failures on
+new IDs separately from regressions on previously passing tests.
+
 ## Opt-in iteration tooling — 2026-10-11
 
 The Linux x86_64 test linker can share the exact immutable runtime image data

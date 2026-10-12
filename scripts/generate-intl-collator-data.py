@@ -22,6 +22,58 @@ DATA = Path('crates/lila-intl/data/collator-icu-2')
 OWNER = Path('crates/lila-intl/src/collator')
 EXPORT_OWNER = Path('crates/lila-intl-collator-data/src')
 
+# The pinned exporter emits a schematic, ignored example with a placeholder
+# include path. Keep its original bytes and replace only that documentation;
+# all macro bodies, include paths and exported ICU data remain byte-identical.
+SCHEMATIC_EXAMPLE = '''# [doc = r" ```ignore"] # [doc = r" struct MyProvider;"] # [doc = r" const _: () = {"] # [doc = r#"     include!("path/to/generated/macros.rs");"#] # [doc = r"     make_provider!(MyProvider);"] # [doc = r"     impl_core_helloworld_v1!(MyProvider);"] # [doc = r" }"] # [doc = r" ```"]'''
+PROVIDER_EXAMPLE = '''```rust
+use icu_provider::{marker::NeverMarker, DataErrorKind, DataProvider, DataRequest};
+use lila_intl_collator_data::__make_provider;
+struct MyProvider;
+__make_provider!(MyProvider);
+let result = <MyProvider as DataProvider<NeverMarker<()>>>::load(
+    &MyProvider, DataRequest::default(),
+);
+assert_eq!(result.unwrap_err().kind, DataErrorKind::MarkerNotFound);
+```'''
+
+
+def normalize_provider_documentation(raw):
+    old = SCHEMATIC_EXAMPLE.encode()
+    if raw.count(old) != 1:
+        raise ValueError('pinned exporter documentation changed')
+    new = ' '.join('# [doc = ' + json.dumps(line) + ']'
+                   for line in PROVIDER_EXAMPLE.splitlines()).encode()
+    return raw.replace(old, new, 1)
+
+
+def consumed_export(inputs, export):
+    projection = inputs['documentation_projection']
+    if (set(projection) != {'schema_version', 'raw_mod', 'policy'}
+            or projection['schema_version'] != 1
+            or projection['policy'] != 'exact provider example documentation only'):
+        raise ValueError('unreviewed Collator documentation projection')
+    raw_row = projection['raw_mod']
+    if set(raw_row) != {'path', 'sha256', 'bytes'} or raw_row['path'] != 'exported-mod.rs':
+        raise ValueError('unreviewed raw exporter module owner')
+    raw = (ROOT / DATA / raw_row['path']).read_bytes()
+    original = next(row for row in export['generated_files'] if row['path'] == 'mod.rs')
+    if (sha(raw) != original['sha256'] or len(raw) != original['bytes']
+            or raw_row['sha256'] != original['sha256'] or raw_row['bytes'] != original['bytes']):
+        raise ValueError('raw exporter module identity mismatch')
+    projected = normalize_provider_documentation(raw)
+    expected = [dict(row) for row in export['generated_files']]
+    for row in expected:
+        if row['path'] == 'mod.rs':
+            row.update(sha256=sha(projected), bytes=len(projected))
+    if inputs['generated_outputs'] != expected:
+        raise ValueError('consumed Collator projection inventory mismatch')
+    for row in expected:
+        content = (ROOT / EXPORT_OWNER / 'generated' / row['path']).read_bytes()
+        if sha(content) != row['sha256'] or len(content) != row['bytes']:
+            raise ValueError('consumed generated source identity mismatch: ' + row['path'])
+    return projected
+
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
@@ -70,10 +122,7 @@ def sources():
         raise ValueError('actual constructor admission closure mismatch')
     if sha(members['foundation/Cargo.lock'])!=export['cargo_lock_sha256'] or sha(members['foundation/admission/Cargo.lock'])!=admission['cargo_lock_sha256']:
         raise ValueError('actual proof lock association mismatch')
-    for row in export['generated_files']:
-        content=(ROOT/EXPORT_OWNER/'generated'/row['path']).read_bytes()
-        if sha(content)!=row['sha256'] or len(content)!=row['bytes']:
-            raise ValueError('consumed generated source identity mismatch: '+row['path'])
+    consumed_export(inputs, export)
     inventory=ROOT/inputs['candidate_locale_inventory']['source']
     if sha(inventory.read_bytes())!=inputs['candidate_locale_inventory']['sha256']:
         raise ValueError('candidate locale inventory identity mismatch')
@@ -145,6 +194,10 @@ def reexport(inputs,members,export):
         for row in export['generated_files']:
             if sha(actual[row['path']])!=row['sha256']:
                 raise ValueError('real reexport bytes differ: '+row['path'])
+        actual['mod.rs'] = normalize_provider_documentation(actual['mod.rs'])
+        for row in inputs['generated_outputs']:
+            if actual[row['path']] != (ROOT/EXPORT_OWNER/'generated'/row['path']).read_bytes():
+                raise ValueError('consumed normalized reexport differs: '+row['path'])
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--check',action='store_true');parser.add_argument('--reexport',action='store_true');args=parser.parse_args()

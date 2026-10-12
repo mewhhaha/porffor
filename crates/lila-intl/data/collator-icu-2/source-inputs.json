@@ -198,9 +198,9 @@
       "sha256": "4e401c5f9c8dd104e665d884c8172b5fc85643d6e6eafff5b4498a40d574d8b1"
     },
     {
-      "bytes": 2033,
+      "bytes": 2238,
       "path": "mod.rs",
-      "sha256": "2f7c390bcfeb3bf4f2ac333abf074a3c11fafd5f624779c26a94ac8483e679d6"
+      "sha256": "f01cadf70a86bb6dc5afc72fbb664fa8595fce6262cbbe739dcd99cf3a9f7f1e"
     },
     {
       "bytes": 71288,
@@ -216,5 +216,14 @@
   "actual_metadata_source_ids": 144,
   "actual_foundation_constructor_configurations": 7056,
   "available_locales_count": null,
-  "available_public_sort_collations_count": null
+  "available_public_sort_collations_count": null,
+  "documentation_projection": {
+    "schema_version": 1,
+    "raw_mod": {
+      "path": "exported-mod.rs",
+      "sha256": "2f7c390bcfeb3bf4f2ac333abf074a3c11fafd5f624779c26a94ac8483e679d6",
+      "bytes": 2033
+    },
+    "policy": "exact provider example documentation only"
+  }
 }

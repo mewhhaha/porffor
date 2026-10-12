@@ -6,7 +6,7 @@
 //! runtime's data segments and each newly collected program pool.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use lila_intl::{INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION, INTL_SERVICE_SELECTION_CUSTOM_SECTION};
 use sha2::{Digest, Sha256};
@@ -48,6 +48,7 @@ pub trait RuntimeArtifactCache {
     fn remove(&self, key: RuntimeArtifactCacheKey);
 }
 
+#[derive(Clone)]
 pub(super) struct RuntimeIdentity {
     sections: BTreeMap<&'static str, Arc<[u8]>>,
     digest: [u8; DIGEST_BYTES],
@@ -58,6 +59,24 @@ impl RuntimeIdentity {
         let selected = selection.selected().map_err(|error| {
             EmitError::unsupported(format!("failed to select the Intl artifact data: {error}"))
         })?;
+        if matches!(
+            selected.identity().profile().profile(),
+            lila_intl::IntlDataProfile::Minimal
+        ) {
+            // SelectedIntlDataBundle privately constructs this single immutable
+            // process-wide bundle. Hash its complete physical frames once;
+            // subsequent admissions retain those exact shared bytes and digest.
+            static MINIMAL: OnceLock<RuntimeIdentity> = OnceLock::new();
+            return Ok(MINIMAL
+                .get_or_init(|| Self::from_selected(selected))
+                .clone());
+        }
+        // Custom profiles can reuse a name with different physical data. Their
+        // complete section contents still determine every admission identity.
+        Ok(Self::from_selected(selected))
+    }
+
+    fn from_selected(selected: &lila_intl::SelectedIntlDataBundle) -> Self {
         let mut sections: BTreeMap<_, _> = selected.component_sections().into_iter().collect();
         sections.insert(
             INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
@@ -69,7 +88,7 @@ impl RuntimeIdentity {
                 Arc::from(services.wire().to_le_bytes()),
             );
         }
-        Ok(Self::from_sections(sections))
+        Self::from_sections(sections)
     }
 
     fn from_sections(sections: BTreeMap<&'static str, Arc<[u8]>>) -> Self {

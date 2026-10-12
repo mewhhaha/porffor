@@ -41,6 +41,11 @@ pub(crate) fn write_bundle(
                     manifest::COMPILATION_MODES.runtime,
                     WasmBacktraceDetails::Disable,
                 );
+                // Spend allocator work once on immutable R. Ordinary P retains
+                // base_config's SinglePass allocator and Fast compilation.
+                config.cranelift_regalloc_algorithm(
+                    manifest::COMPILATION_MODES.register_allocation.algorithm(),
+                );
                 // Explicit target also disables build-host CPU feature inference.
                 config
                     .target(target)

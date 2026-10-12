@@ -23,6 +23,7 @@ pub(in crate::builtins) enum ArrayBufferAccessor {
     ByteLength,
     MaxByteLength,
     Resizable,
+    Immutable,
     Detached,
 }
 #[derive(Clone, Copy)]

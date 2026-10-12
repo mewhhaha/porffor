@@ -718,6 +718,8 @@ pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_DETACHED_GETTER_FUNCTION_ID: &str =
     "$builtin.ArrayBuffer.prototype.detached.get";
 pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_MAX_BYTE_LENGTH_GETTER_FUNCTION_ID: &str =
     "$builtin.ArrayBuffer.prototype.maxByteLength.get";
+pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_IMMUTABLE_GETTER_FUNCTION_ID: &str =
+    "$builtin.ArrayBuffer.prototype.immutable.get";
 pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_RESIZABLE_GETTER_FUNCTION_ID: &str =
     "$builtin.ArrayBuffer.prototype.resizable.get";
 pub const BUILTIN_ARRAY_BUFFER_PROTOTYPE_RESIZE_FUNCTION_ID: &str =

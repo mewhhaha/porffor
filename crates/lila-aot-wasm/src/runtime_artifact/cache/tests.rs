@@ -9,6 +9,38 @@ use wasm_encoder::{
     MemoryType, Module, TypeSection, ValType,
 };
 
+#[test]
+fn immutable_minimal_identity_matches_full_frames_without_aliasing_custom_profiles() {
+    let minimal = lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal);
+    let selected = minimal.selected().unwrap();
+    let full = RuntimeIdentity::from_selected(selected);
+    let cached = RuntimeIdentity::admit(&minimal).unwrap();
+    let again = RuntimeIdentity::admit(&lila_intl::IntlDataSelection::new(
+        lila_intl::IntlCompilationProfile::Minimal,
+    ))
+    .unwrap();
+    assert_eq!(full.digest(), cached.digest());
+    assert_eq!(full.sections, cached.sections);
+    assert_eq!(full.cache_key(&[17; 32]), cached.cache_key(&[17; 32]));
+    assert_ne!(cached.cache_key(&[17; 32]), cached.cache_key(&[18; 32]));
+    for (name, bytes) in &cached.sections {
+        assert!(Arc::ptr_eq(bytes, &again.sections[name]));
+    }
+    let custom = lila_intl::CustomIntlProfile::for_services(
+        lila_intl::CustomProfileId::parse("minimal-identity-control").unwrap(),
+        &["ListFormat"],
+    )
+    .unwrap();
+    let selection = lila_intl::IntlDataSelection::new(
+        lila_intl::IntlCompilationProfile::CustomProjection(custom),
+    );
+    let custom = RuntimeIdentity::admit(&selection).unwrap();
+    let custom_full = RuntimeIdentity::from_selected(selection.selected().unwrap());
+    assert_eq!(custom.digest(), custom_full.digest());
+    assert_eq!(custom.sections, custom_full.sections);
+    assert_ne!(custom.digest(), cached.digest());
+}
+
 struct MemoryCache {
     compiler: [u8; 32],
     entries: RefCell<HashMap<RuntimeArtifactCacheKey, Vec<u8>>>,

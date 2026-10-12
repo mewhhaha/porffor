@@ -340,10 +340,14 @@ fn contract_and_t07_record_the_borrowed_exhaustive_boundary() {
             "missing contract marker `{marker}`"
         );
     }
-    let task = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(task.contains("LexicalDeclarationContext::{Statement, ForHead}"));
-    assert!(task.contains("This is source-equivalent parser"));
-    assert!(task.contains("invariant closure"));
-    assert!(task.contains("Direct vendor-file `rustfmt --check`"));
-    assert!(task.contains("touched match regions are clean"));
+    let contract = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
+    for marker in [
+        "`LexicalDeclarationContext` is the private two-row authority",
+        "`BindingList` borrows the context",
+        "There is no Boolean projection, equality test, wildcard or default behavior",
+        "It changes no grammar, diagnostic wording, token consumption, error precedence or accepted program",
+        "This contract does not claim that the complete vendor file is format-clean",
+    ] {
+        assert!(contract.contains(marker), "missing contract marker `{marker}`");
+    }
 }

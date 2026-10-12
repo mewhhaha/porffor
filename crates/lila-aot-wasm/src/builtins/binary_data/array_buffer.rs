@@ -280,6 +280,9 @@ impl FunctionBuilder<'_> {
             ArrayBufferAccessor::Resizable => {
                 RuntimeErrorMessage::ARRAYBUFFER_RESIZABLE_GETTER_REQUIRES_ARRAYBUFFER
             }
+            ArrayBufferAccessor::Immutable => {
+                RuntimeErrorMessage::ARRAYBUFFER_IMMUTABLE_GETTER_REQUIRES_ARRAYBUFFER
+            }
             ArrayBufferAccessor::Detached => {
                 RuntimeErrorMessage::ARRAYBUFFER_DETACHED_GETTER_REQUIRES_ARRAYBUFFER
             }
@@ -304,6 +307,12 @@ impl FunctionBuilder<'_> {
                     .store(flag, f);
                 output.value().set_boolean(flag, f);
             }
+            ArrayBufferAccessor::Immutable => {
+                s.field(ArrayBufferSchema::IMMUTABLE)
+                    .read(&buffer, s, f)
+                    .store(flag, f);
+                output.value().set_boolean(flag, f);
+            }
             ArrayBufferAccessor::ByteLength | ArrayBufferAccessor::MaxByteLength => {
                 f.instruction(&Instruction::I64Const(0));
                 number.store(f);
@@ -321,7 +330,9 @@ impl FunctionBuilder<'_> {
                             .read(&buffer, s, f)
                             .store_i64(number, f);
                     }
-                    ArrayBufferAccessor::Resizable | ArrayBufferAccessor::Detached => {
+                    ArrayBufferAccessor::Resizable
+                    | ArrayBufferAccessor::Immutable
+                    | ArrayBufferAccessor::Detached => {
                         unreachable!("numeric accessor")
                     }
                 }

@@ -4,6 +4,7 @@ const CONTRACT: &str =
 #[test]
 fn locale_string_slot_contract_records_exact_witnesses_and_nonclaims() {
     for marker in [
+        "4/4",
         "private, non-derived domain",
         "five fixed entries",
         "00486705af5ad3a89c1386f4ca8b3088d5531ca676a582aa643ca90bca658d6a",
@@ -15,11 +16,5 @@ fn locale_string_slot_contract_records_exact_witnesses_and_nonclaims() {
             CONTRACT.contains(marker),
             "missing contract marker: {marker}"
         );
-    }
-    for task in [CONTRACT] {
-        assert!(task.contains("intl-locale-string-slot-dispatch.md"));
-        assert!(task.contains("00486705af5ad3a89c1386f4ca8b3088d5531ca676a582aa643ca90bca658d6a"));
-        assert!(task.contains("4/4"));
-        assert!(task.contains("no new Intl behavior"));
     }
 }

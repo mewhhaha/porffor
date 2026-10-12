@@ -2,7 +2,24 @@
 
 use crate::wasmtime_config::WasmNativeCompilationMode;
 const MAGIC: &[u8; 8] = b"LILANR01";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
+
+/// Only the immutable Cargo-produced image uses the optimizing allocator.
+/// Its native stack maps are emitted by Wasmtime and remain admission-checked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeRegisterAllocation {
+    SinglePass,
+    Backtracking,
+}
+
+impl RuntimeRegisterAllocation {
+    pub(crate) fn algorithm(self) -> wasmtime::RegallocAlgorithm {
+        match self {
+            Self::SinglePass => wasmtime::RegallocAlgorithm::SinglePass,
+            Self::Backtracking => wasmtime::RegallocAlgorithm::Backtracking,
+        }
+    }
+}
 
 /// Image optimization is independent of the Engine that owns the loaded R.
 /// Keep this pair explicit: Wasmtime accepts optimization differences, while
@@ -11,11 +28,13 @@ const VERSION: u32 = 2;
 pub(crate) struct CompilationModes {
     pub(crate) runtime: WasmNativeCompilationMode,
     pub(crate) execution: WasmNativeCompilationMode,
+    pub(crate) register_allocation: RuntimeRegisterAllocation,
 }
 
 pub(crate) const COMPILATION_MODES: CompilationModes = CompilationModes {
     runtime: WasmNativeCompilationMode::SizeOptimized,
     execution: WasmNativeCompilationMode::Fast,
+    register_allocation: RuntimeRegisterAllocation::Backtracking,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,6 +60,10 @@ impl Manifest {
                 WasmNativeCompilationMode::SizeOptimized => 1,
             });
         }
+        bytes.push(match self.modes.register_allocation {
+            RuntimeRegisterAllocation::SinglePass => 0,
+            RuntimeRegisterAllocation::Backtracking => 1,
+        });
         bytes.extend_from_slice(
             &u16::try_from(self.target.len())
                 .expect("target triple fits manifest")
@@ -79,6 +102,11 @@ impl Manifest {
         let modes = CompilationModes {
             runtime: mode(take::<1>(&mut bytes)?[0])?,
             execution: mode(take::<1>(&mut bytes)?[0])?,
+            register_allocation: match take::<1>(&mut bytes)?[0] {
+                0 => RuntimeRegisterAllocation::SinglePass,
+                1 => RuntimeRegisterAllocation::Backtracking,
+                _ => return None,
+            },
         };
         let length = usize::from(u16::from_le_bytes(take(&mut bytes)?));
         if length > 256 {

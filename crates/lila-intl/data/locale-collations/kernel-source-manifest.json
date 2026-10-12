@@ -36,9 +36,9 @@
       "sha256": "4e401c5f9c8dd104e665d884c8172b5fc85643d6e6eafff5b4498a40d574d8b1"
     },
     {
-      "bytes": 2033,
+      "bytes": 2238,
       "path": "crates/lila-intl-collator-data/src/generated/mod.rs",
-      "sha256": "2f7c390bcfeb3bf4f2ac333abf074a3c11fafd5f624779c26a94ac8483e679d6"
+      "sha256": "f01cadf70a86bb6dc5afc72fbb664fa8595fce6262cbbe739dcd99cf3a9f7f1e"
     },
     {
       "bytes": 71288,
@@ -58,12 +58,12 @@
     {
       "bytes": 9251,
       "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
-      "sha256": "52bc455f614bb1220fe1d30a859fdb0149038a6d3ea31b05698c7a6ea9a602c3"
+      "sha256": "32bfa1f7182535f2fb817cf1098705ba6f347746c79b80ec0af6268187ff9859"
     },
     {
-      "bytes": 7792,
+      "bytes": 8073,
       "path": "crates/lila-intl/data/collator-icu-2/source-inputs.json",
-      "sha256": "4d8fe5b9a1afb8eff2b0d6f9376a0dc44b774f9fdad586652c74a2aaf6d0ca5c"
+      "sha256": "98a52fd466e018a3b7d3d92fa74f1eadc83053f33b46f6a32e70a242af9e9eb4"
     },
     {
       "bytes": 2200270,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "5a52d5ac283d03fe1f41f68d790ed3a62fd32a279dd9746370d3c5c9b0128805",
+  "kernel_sha256": "2389370223dee8faeccea60c487817feab33c0653f4f7d34a0512ce192559df3",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/lila-intl/src/collator/identity.rs",
-      "sha256": "7d5d377b075156115f791fe929ff60d6bbba8ee6af2182c6336c1bd42741c0ef"
+      "sha256": "541c1e2eb90ef45006be84328804ccc14ffb7b75c87002989da88676343572bf"
     },
     {
       "bytes": 31472,

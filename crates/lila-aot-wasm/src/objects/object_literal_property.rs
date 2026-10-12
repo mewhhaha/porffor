@@ -75,8 +75,7 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_literal_property_abrupt_exit(pending, function);
             return Ok(());
         }
-        let key_value = schema.reserve_value_local(function);
-        match property {
+        let key = match property {
             ObjectPropertyIr::Data { key, .. }
             | ObjectPropertyIr::NonEnumerableData { key, .. }
             | ObjectPropertyIr::Method { key, .. }
@@ -86,20 +85,25 @@ impl<'a> FunctionBuilder<'a> {
                     self.emit_interned_string_reference(key, function)?,
                     function,
                 );
-                key_value.set_reference(&string, schema, function);
+                let key =
+                    crate::operations::PropertyKeyLocals::from_string(schema, &string, function);
                 string.clear(function);
+                key
             }
             ObjectPropertyIr::ComputedData { key, .. }
             | ObjectPropertyIr::ComputedMethod { key, .. }
             | ObjectPropertyIr::ComputedGetter { key, .. }
             | ObjectPropertyIr::ComputedSetter { key, .. } => {
-                self.compile_expr_to_value(key, &key_value, function)?
+                let key_value = schema.reserve_value_local(function);
+                self.compile_expr_to_value(key, &key_value, function)?;
+                let key = self.emit_value_to_property_key_locals(&key_value, function)?;
+                key_value.clear(function);
+                key
             }
             ObjectPropertyIr::PrototypeSetter { .. } | ObjectPropertyIr::Spread { .. } => {
                 unreachable!("non-property source arms are consumed above")
             }
-        }
-        let key = self.emit_value_to_property_key_locals(&key_value, function)?;
+        };
         match property {
             ObjectPropertyIr::Data {
                 value: expression, ..
@@ -226,7 +230,6 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         key.clear(function);
-        key_value.clear(function);
         self.emit_literal_property_abrupt_exit(pending, function);
         Ok(())
     }

@@ -244,12 +244,13 @@ fn contract_records_exhaustiveness_without_a_conformance_claim() {
     ] {
         assert!(CONTRACT.contains(marker), "contract marker `{marker}`");
     }
+    let contract = CONTRACT.split_whitespace().collect::<Vec<_>>().join(" ");
     for marker in [
         "private `PreviousExpr::{None, Logical, Coalesce}`",
-        "equality capability",
-        "observers are three exhaustive",
+        "supports no equality comparison",
+        "three exhaustive operator matches",
         "no parser-behavior or conformance claim",
     ] {
-        assert!(CONTRACT.contains(marker), "task marker `{marker}`");
+        assert!(contract.contains(marker), "contract marker `{marker}`");
     }
 }

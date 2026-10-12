@@ -142,6 +142,16 @@ impl<'a> ScriptLowerer<'a> {
             },
         );
         properties.insert(
+            "immutable".to_string(),
+            ObjectShapeProperty::Accessor {
+                getter: Some(ObjectAccessorShape {
+                    function_id: StandardBuiltinId::ArrayBufferPrototypeImmutableGetter
+                        .function_id(),
+                }),
+                setter: None,
+            },
+        );
+        properties.insert(
             "resizable".to_string(),
             ObjectShapeProperty::Accessor {
                 getter: Some(ObjectAccessorShape {
@@ -6253,7 +6263,8 @@ impl<'a> ScriptLowerer<'a> {
                 None,
                 ValueInfo::undefined(),
             ),
-            StandardBuiltinId::ArrayBufferPrototypeResizableGetter => (
+            StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+            | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => (
                 ValueKind::Boolean,
                 KindSet::from_kind(ValueKind::Boolean),
                 None,

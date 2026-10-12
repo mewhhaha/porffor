@@ -13,12 +13,16 @@ SCRIPT = Path(__file__).resolve().parents[1] / "run-watched.sh"
 TREE = '''
 import os, subprocess, sys
 from pathlib import Path
-Path("parent.pid").write_text(str(os.getpid()))
+parent_pid = Path("parent.pid.tmp")
+parent_pid.write_text(str(os.getpid()))
+parent_pid.replace("parent.pid")
 child = subprocess.Popen([sys.executable, "-S", "-c", """
 import os, signal, time
 from pathlib import Path
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
-Path('child.pid').write_text(str(os.getpid()))
+child_pid = Path('child.pid.tmp')
+child_pid.write_text(str(os.getpid()))
+child_pid.replace('child.pid')
 time.sleep(60)
 """])
 child.wait()

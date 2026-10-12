@@ -1041,6 +1041,7 @@ impl CompilerOwnedPool {
             "byteLength",
             "maxByteLength",
             "resizable",
+            "immutable",
             "growable",
             "grow",
             "Symbol.dispose",

@@ -37,6 +37,7 @@ pub(crate) use builtin::{BuiltinTypedArray, is_valid_integer_index};
 pub(crate) use element::Float16;
 pub(crate) use element::{Atomic, ClampedU8, Element};
 pub use object::TypedArray;
+pub(crate) use object::TypedArrayAccess;
 
 pub(crate) trait TypedArrayMarker {
     type Element: Element;
@@ -83,7 +84,11 @@ impl<T: TypedArrayMarker> IntrinsicObject for T {
 
         let builder = if T::ERASED == TypedArrayKind::Uint8 {
             builder
-                .static_method(uint8array_encoding::from_base64, js_string!("fromBase64"), 1)
+                .static_method(
+                    uint8array_encoding::from_base64,
+                    js_string!("fromBase64"),
+                    1,
+                )
                 .static_method(uint8array_encoding::from_hex, js_string!("fromHex"), 1)
                 .method(
                     uint8array_encoding::set_from_base64,

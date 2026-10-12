@@ -11,13 +11,14 @@ fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&directory);
-    let compile = |value, mode, cached| {
+    let compile = |value, mode, allocator: manifest::RuntimeRegisterAllocation, cached| {
         // (module (func (export "answer") (result i32) i32.const VALUE))
         let wasm = vec![
             0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 10, 1, 6, 97, 110,
             115, 119, 101, 114, 0, 0, 10, 6, 1, 4, 0, 65, value, 11,
         ];
         let mut config = base_config(mode, WasmBacktraceDetails::Disable);
+        config.cranelift_regalloc_algorithm(allocator.algorithm());
         config.target(env!("LILA_RUNTIME_BUILD_TARGET")).unwrap();
         config.parallel_compilation(false);
         let cache =
@@ -40,19 +41,33 @@ fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
         (native, cache.counters())
     };
     let mode = manifest::COMPILATION_MODES.runtime;
-    let (cold, cold_counts) = compile(7, mode, true);
+    let allocator = manifest::COMPILATION_MODES.register_allocation;
+    let (cold, cold_counts) = compile(7, mode, allocator, true);
     assert!(cold_counts.1 > 0);
-    let (warm, warm_counts) = compile(7, mode, true);
+    let (warm, warm_counts) = compile(7, mode, allocator, true);
     assert_eq!(cold, warm);
     assert!(warm_counts.0 > 0);
     assert_eq!(warm_counts.1, 0);
-    let (uncached, _) = compile(7, mode, false);
+    let (uncached, _) = compile(7, mode, allocator, false);
     assert_eq!(warm, uncached);
-    let (changed, changed_counts) = compile(8, mode, true);
+    let (changed, changed_counts) = compile(8, mode, allocator, true);
     assert_ne!(warm, changed);
     assert!(changed_counts.1 > 0);
-    let (_, different_mode_counts) = compile(7, WasmNativeCompilationMode::Fast, true);
+    let (_, different_mode_counts) = compile(
+        7,
+        WasmNativeCompilationMode::Fast,
+        manifest::RuntimeRegisterAllocation::SinglePass,
+        true,
+    );
     assert!(different_mode_counts.1 > 0);
+    let (_, different_allocator_counts) = compile(
+        7,
+        mode,
+        manifest::RuntimeRegisterAllocation::SinglePass,
+        true,
+    );
+    assert!(different_allocator_counts.1 > 0);
+
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -80,8 +95,8 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
     let mut previous_version = manifest_bytes().to_vec();
     previous_version[8..12].copy_from_slice(&1_u32.to_le_bytes());
     assert!(manifest::Manifest::decode(&previous_version).is_none());
-    // Both mode bytes have closed domains, separately from product admission.
-    for offset in [16, 17] {
+    // Both optimization modes and the producer allocator have closed domains.
+    for offset in [16, 17, 18] {
         let mut unknown_mode = manifest_bytes().to_vec();
         unknown_mode[offset] = 2;
         assert!(manifest::Manifest::decode(&unknown_mode).is_none());
@@ -92,6 +107,7 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
         "configuration",
         "runtime mode",
         "execution mode",
+        "runtime register allocation",
         "package digest",
         "native digest",
     ] {
@@ -102,6 +118,10 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
             "configuration" => manifest.configuration += 1,
             "runtime mode" => manifest.modes.runtime = WasmNativeCompilationMode::Fast,
             "execution mode" => manifest.modes.execution = WasmNativeCompilationMode::SizeOptimized,
+            "runtime register allocation" => {
+                manifest.modes.register_allocation =
+                    manifest::RuntimeRegisterAllocation::SinglePass;
+            }
             "package digest" => manifest.package_digest[0] ^= 1,
             "native digest" => manifest.native_digest[0] ^= 1,
             _ => unreachable!(),
@@ -153,11 +173,16 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                 bundle.manifest.modes.execution,
                 WasmNativeCompilationMode::Fast
             );
-            let runtime_compiler = Engine::new(&base_config(
-                bundle.manifest.modes.runtime,
-                WasmBacktraceDetails::Disable,
-            ))
-            .unwrap();
+            assert_eq!(
+                bundle.manifest.modes.register_allocation,
+                manifest::RuntimeRegisterAllocation::Backtracking,
+            );
+            let mut runtime_config =
+                base_config(bundle.manifest.modes.runtime, WasmBacktraceDetails::Disable);
+            runtime_config.cranelift_regalloc_algorithm(
+                bundle.manifest.modes.register_allocation.algorithm(),
+            );
+            let runtime_compiler = Engine::new(&runtime_config).unwrap();
             assert_eq!(
                 runtime_compiler.get_cranelift_opt_level(),
                 Some(wasmtime::OptLevel::SpeedAndSize),
@@ -177,7 +202,9 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                 .unwrap();
             let first = bundle
                 .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
-                .expect("baseline ISA bundle loads on the actual target");
+                .expect(
+                    "Backtracking-produced R loads into the actual Fast/SinglePass target engine",
+                );
             assert!(
                 Engine::same(first.engine(), &engine),
                 "optimized R is owned by the actual Fast execution Engine"

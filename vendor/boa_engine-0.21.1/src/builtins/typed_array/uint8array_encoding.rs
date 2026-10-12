@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use super::{TypedArray, TypedArrayKind};
+use super::{TypedArray, TypedArrayAccess, TypedArrayKind};
 use crate::{
     Context, JsArgs, JsNativeError, JsObject, JsResult, JsString, JsValue, js_string,
     object::builtins::JsUint8Array,
@@ -41,7 +41,11 @@ struct DecodeFailure {
 
 type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 
-pub(super) fn from_base64(_: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
+pub(super) fn from_base64(
+    _: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
     let input = require_string_argument(args.get_or_undefined(0), "Uint8Array.fromBase64")?;
     let options = parse_from_base64_options(args.get_or_undefined(1), context)?;
     let decoded = decode_base64(&input, options, None).map_err(|failure| failure.error)?;
@@ -61,10 +65,17 @@ pub(super) fn set_from_base64(
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let target = require_uint8_array_object(this, "Uint8Array.prototype.setFromBase64")?;
-    let input = require_string_argument(args.get_or_undefined(0), "Uint8Array.prototype.setFromBase64")?;
+    let target = require_uint8_array_object(
+        this,
+        "Uint8Array.prototype.setFromBase64",
+        TypedArrayAccess::Write,
+    )?;
+    let input = require_string_argument(
+        args.get_or_undefined(0),
+        "Uint8Array.prototype.setFromBase64",
+    )?;
     let options = parse_from_base64_options(args.get_or_undefined(1), context)?;
-    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst)?;
+    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst, TypedArrayAccess::Read)?;
     let max_len = target.borrow().data().array_length(buf_len) as usize;
 
     match decode_base64(&input, options, Some(max_len)) {
@@ -84,9 +95,14 @@ pub(super) fn set_from_hex(
     args: &[JsValue],
     context: &mut Context,
 ) -> JsResult<JsValue> {
-    let target = require_uint8_array_object(this, "Uint8Array.prototype.setFromHex")?;
-    let input = require_string_argument(args.get_or_undefined(0), "Uint8Array.prototype.setFromHex")?;
-    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst)?;
+    let target = require_uint8_array_object(
+        this,
+        "Uint8Array.prototype.setFromHex",
+        TypedArrayAccess::Write,
+    )?;
+    let input =
+        require_string_argument(args.get_or_undefined(0), "Uint8Array.prototype.setFromHex")?;
+    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst, TypedArrayAccess::Read)?;
     let max_len = target.borrow().data().array_length(buf_len) as usize;
 
     match decode_hex(&input, Some(max_len)) {
@@ -101,19 +117,27 @@ pub(super) fn set_from_hex(
     }
 }
 
-pub(super) fn to_base64(this: &JsValue, args: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let target = require_uint8_array_object(this, "Uint8Array.prototype.toBase64")?;
+pub(super) fn to_base64(
+    this: &JsValue,
+    args: &[JsValue],
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let target = require_uint8_array_object(
+        this,
+        "Uint8Array.prototype.toBase64",
+        TypedArrayAccess::Read,
+    )?;
     let options = parse_to_base64_options(args.get_or_undefined(0), context)?;
-    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst)?;
+    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst, TypedArrayAccess::Read)?;
     let len = target.borrow().data().array_length(buf_len) as usize;
     let target = target.upcast();
 
     let mut bytes = Vec::with_capacity(len);
     for index in 0..len {
         let value = target.get(index, context)?;
-        let byte = value
-            .as_number()
-            .ok_or_else(|| JsNativeError::typ().with_message("typed array element was not numeric"))?;
+        let byte = value.as_number().ok_or_else(|| {
+            JsNativeError::typ().with_message("typed array element was not numeric")
+        })?;
         bytes.push(byte as u8);
     }
 
@@ -121,17 +145,18 @@ pub(super) fn to_base64(this: &JsValue, args: &[JsValue], context: &mut Context)
 }
 
 pub(super) fn to_hex(this: &JsValue, _: &[JsValue], context: &mut Context) -> JsResult<JsValue> {
-    let target = require_uint8_array_object(this, "Uint8Array.prototype.toHex")?;
-    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst)?;
+    let target =
+        require_uint8_array_object(this, "Uint8Array.prototype.toHex", TypedArrayAccess::Read)?;
+    let (_, buf_len) = TypedArray::validate(this, Ordering::SeqCst, TypedArrayAccess::Read)?;
     let len = target.borrow().data().array_length(buf_len) as usize;
     let target = target.upcast();
 
     let mut out = String::with_capacity(len * 2);
     for index in 0..len {
         let value = target.get(index, context)?;
-        let byte = value
-            .as_number()
-            .ok_or_else(|| JsNativeError::typ().with_message("typed array element was not numeric"))? as u8;
+        let byte = value.as_number().ok_or_else(|| {
+            JsNativeError::typ().with_message("typed array element was not numeric")
+        })? as u8;
         out.push(hex_char(byte >> 4));
         out.push(hex_char(byte & 0x0f));
     }
@@ -139,16 +164,23 @@ pub(super) fn to_hex(this: &JsValue, _: &[JsValue], context: &mut Context) -> Js
     Ok(JsString::from(out).into())
 }
 
-fn require_uint8_array_object(this: &JsValue, name: &'static str) -> JsResult<JsObject<TypedArray>> {
+fn require_uint8_array_object(
+    this: &JsValue,
+    name: &'static str,
+    access: TypedArrayAccess,
+) -> JsResult<JsObject<TypedArray>> {
     let object = this
         .as_object()
         .and_then(|obj| obj.clone().downcast::<TypedArray>().ok())
-        .ok_or_else(|| JsNativeError::typ().with_message(format!("{name} called on non-Uint8Array receiver")))?;
+        .ok_or_else(|| {
+            JsNativeError::typ().with_message(format!("{name} called on non-Uint8Array receiver"))
+        })?;
     if object.borrow().data().kind() != TypedArrayKind::Uint8 {
         return Err(JsNativeError::typ()
             .with_message(format!("{name} called on non-Uint8Array receiver"))
             .into());
     }
+    object.borrow().data().require_access(access)?;
     Ok(object)
 }
 
@@ -156,9 +188,11 @@ fn require_string_argument(value: &JsValue, name: &'static str) -> JsResult<Stri
     let string = value.as_string().ok_or_else(|| {
         JsNativeError::typ().with_message(format!("{name} requires string input"))
     })?;
-    string
-        .to_std_string()
-        .map_err(|_| JsNativeError::typ().with_message(format!("{name} requires string input")).into())
+    string.to_std_string().map_err(|_| {
+        JsNativeError::typ()
+            .with_message(format!("{name} requires string input"))
+            .into()
+    })
 }
 
 fn parse_from_base64_options(
@@ -174,9 +208,8 @@ fn parse_from_base64_options(
 
     let object = value.to_object(context)?;
     let alphabet = parse_base64_alphabet_option(&object.get(js_string!("alphabet"), context)?)?;
-    let last_chunk_handling = parse_last_chunk_handling_option(
-        &object.get(js_string!("lastChunkHandling"), context)?,
-    )?;
+    let last_chunk_handling =
+        parse_last_chunk_handling_option(&object.get(js_string!("lastChunkHandling"), context)?)?;
     Ok(FromBase64Options {
         alphabet,
         last_chunk_handling,
@@ -193,9 +226,7 @@ fn parse_to_base64_options(value: &JsValue, context: &mut Context) -> JsResult<T
 
     let object = value.to_object(context)?;
     let alphabet = parse_base64_alphabet_option(&object.get(js_string!("alphabet"), context)?)?;
-    let omit_padding = object
-        .get(js_string!("omitPadding"), context)?
-        .to_boolean();
+    let omit_padding = object.get(js_string!("omitPadding"), context)?.to_boolean();
     Ok(ToBase64Options {
         alphabet,
         omit_padding,
@@ -231,7 +262,11 @@ fn parse_last_chunk_handling_option(value: &JsValue) -> JsResult<LastChunkHandli
     }
 }
 
-fn write_prefix(target: &JsObject<TypedArray>, bytes: &[u8], context: &mut Context) -> JsResult<()> {
+fn write_prefix(
+    target: &JsObject<TypedArray>,
+    bytes: &[u8],
+    context: &mut Context,
+) -> JsResult<()> {
     let target = target.clone().upcast();
     for (index, byte) in bytes.iter().enumerate() {
         target.set(index, JsValue::from(*byte), true, context)?;
@@ -284,7 +319,10 @@ fn decode_hex(input: &str, max_len: Option<usize>) -> DecodeResult {
                 };
                 bytes.push((hi << 4) | lo);
             }
-            return Ok(DecodeSuccess { read: max_read, bytes });
+            return Ok(DecodeSuccess {
+                read: max_read,
+                bytes,
+            });
         }
     }
 
@@ -360,7 +398,9 @@ fn decode_base64(input: &str, options: FromBase64Options, max_len: Option<usize>
 
         if chunk_len < 4 {
             if options.last_chunk_handling == LastChunkHandling::StopBeforePartial {
-                if chunk[..chunk_len].contains(&b'=') && !is_skippable_stop_before_partial_chunk(&chunk, chunk_len) {
+                if chunk[..chunk_len].contains(&b'=')
+                    && !is_skippable_stop_before_partial_chunk(&chunk, chunk_len)
+                {
                     return Err(DecodeFailure {
                         bytes: out,
                         error: syntax_error("invalid base64 input"),
@@ -531,8 +571,12 @@ fn decode_base64_value(byte: u8, alphabet: Base64Alphabet) -> Option<u8> {
 
 fn encode_base64(bytes: &[u8], options: ToBase64Options) -> String {
     let alphabet = match options.alphabet {
-        Base64Alphabet::Base64 => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/",
-        Base64Alphabet::Base64Url => b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        Base64Alphabet::Base64 => {
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+        }
+        Base64Alphabet::Base64Url => {
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        }
     };
 
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);

@@ -3263,6 +3263,8 @@ require_exact_line_count crates/lila-aot-wasm/src/runtime_artifact.rs 'mod build
 require_fixed_string_count "$engine_native_config" 'pub(crate) fn base_config(' 1 'one shared native configuration constructor'
 require_fixed_string_count "$engine_native_config" 'PRODUCT_WASMTIME_POLICY.configure(&mut config);' 1 'same required product capability configuration'
 require_fixed_string_count "$engine_embedded_build" 'manifest::COMPILATION_MODES.runtime' 1 'build R uses the admitted image compilation mode'
+require_fixed_string_count "$engine_embedded_build" 'manifest::COMPILATION_MODES.register_allocation.algorithm()' 1 'immutable R uses its separately admitted register allocator'
+require_fixed_string_count "$engine_native_config" 'config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);' 1 'ordinary P retains the linear native compilation allocator'
 require_fixed_string_count "$engine_embedded_runtime" 'manifest.modes != manifest::COMPILATION_MODES' 1 'native authority checks both image and execution modes'
 require_fixed_string_count "$engine_embedded_build" '.target(target)' 1 'explicit Cargo target without host ISA inference'
 require_fixed_string_count "$engine_embedded_build" 'config.parallel_compilation(false);' 1 'serial native build compilation'

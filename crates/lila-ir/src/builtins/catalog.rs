@@ -6631,6 +6631,13 @@ standard_builtin_catalog! {
         installer: None,
         native: "return",
     }
+    ArrayBufferPrototypeImmutableGetter {
+        function: FunctionOrdinal(907) => BUILTIN_ARRAY_BUFFER_PROTOTYPE_IMMUTABLE_GETTER_FUNCTION_ID,
+        debug: "get ArrayBuffer.prototype.immutable",
+        flags: [],
+        installer: None,
+        native: "get immutable",
+    }
 }
 
 // Native metadata supplies both the initial public name and its frozen source

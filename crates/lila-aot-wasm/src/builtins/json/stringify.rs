@@ -645,9 +645,7 @@ impl FunctionBuilder<'_> {
         text: &str,
         f: &mut Function,
     ) -> Result<(), EmitError> {
-        let part = self.emit_json_string(text, f)?;
-        output.append(&part, self.runtime_schema(), f);
-        part.clear(f);
+        output.append_literal(text, self.runtime_schema(), f);
         Ok(())
     }
     fn emit_json_serialize_container(

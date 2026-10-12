@@ -67,7 +67,11 @@ fn run_wasm_backend_installs_error_constructor_stack() {
         .output()
         .expect("run command should run");
 
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("backend_used: WasmAot"));
     assert!(stdout.contains("number(348"));

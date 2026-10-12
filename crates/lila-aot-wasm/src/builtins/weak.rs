@@ -51,6 +51,13 @@ impl WeakFamily {
             Self::Registry => OrdinaryDefaultPrototype::FinalizationRegistry,
         }
     }
+    fn primitive_receiver_error(self) -> Option<RuntimeErrorMessage> {
+        match self {
+            Self::Map => Some(RuntimeErrorMessage::WEAKMAP_METHOD_RECEIVER_IS_NOT_AN_OBJECT),
+            Self::Set => Some(RuntimeErrorMessage::WEAKSET_METHOD_RECEIVER_IS_NOT_AN_OBJECT),
+            Self::Ref | Self::Registry => None,
+        }
+    }
     fn receiver_error(self) -> RuntimeErrorMessage {
         match self {
             Self::Map => RuntimeErrorMessage::WEAKMAP_METHOD_RECEIVER_DOES_NOT_HAVE_WEAKMAPDATA,
@@ -126,6 +133,11 @@ impl FunctionBuilder<'_> {
         let s = self.runtime_schema();
         let receiver = s.reserve_value_local(f);
         self.compile_this_to_locals(&receiver, f)?;
+        if let Some(message) = family.primitive_receiver_error() {
+            self.emit_is_heap_object_like_tag_i32(receiver.tag(), f);
+            f.instruction(&Instruction::I32Eqz);
+            self.emit_weak_assert(message, f)?;
+        }
         receiver.reference().load(f);
         f.instruction(&Instruction::RefTestNonNull(
             s.reference_type::<T>(GcNullability::NonNullable).heap_type,

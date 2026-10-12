@@ -1368,7 +1368,8 @@ impl<'a> ScriptLowerer<'a> {
             StandardBuiltinId::ArrayBufferPrototypeMaxByteLengthGetter => {
                 Some(ValueInfo::new(ValueKind::Number))
             }
-            StandardBuiltinId::ArrayBufferPrototypeResizableGetter => {
+            StandardBuiltinId::ArrayBufferPrototypeResizableGetter
+            | StandardBuiltinId::ArrayBufferPrototypeImmutableGetter => {
                 Some(ValueInfo::new(ValueKind::Boolean))
             }
             StandardBuiltinId::ArrayBufferPrototypeResize => Some(ValueInfo::undefined()),
