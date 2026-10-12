@@ -744,18 +744,16 @@ enum AmbientModuleLoaderPolicy {
 fn configured_module_loader(
     options: &CompileOptions,
     policy: AmbientModuleLoaderPolicy,
-) -> Option<Box<dyn HostModuleLoader + 'static>> {
+) -> Result<Box<dyn HostModuleLoader + 'static>, EngineError> {
     match policy {
-        AmbientModuleLoaderPolicy::Filesystem => Some(Box::new(
+        AmbientModuleLoaderPolicy::Filesystem => Ok(Box::new(
             FilesystemModuleLoader::new(
                 options.module_root.as_deref(),
                 options.filename.as_deref(),
             )
-            .ok()?,
+            .map_err(|error| EngineError::new(error.to_string()))?,
         )),
-        AmbientModuleLoaderPolicy::RejectAll => {
-            Some(Box::new(module_loader::RejectAllModuleLoader))
-        }
+        AmbientModuleLoaderPolicy::RejectAll => Ok(Box::new(module_loader::RejectAllModuleLoader)),
     }
 }
 
@@ -769,12 +767,10 @@ fn configured_module_loader(
 fn module_entry_graph(
     source: &lila_front::ParsedModule,
     options: &CompileOptions,
-    policy: AmbientModuleLoaderPolicy,
+    loader: &dyn HostModuleLoader,
 ) -> Option<lila_ir::ModuleGraphSources> {
-    let loader = configured_module_loader(options, policy)?;
     let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
-    module_loader::load_module_graph_from_parsed(entry_locator, source.clone(), loader.as_ref())
-        .ok()
+    module_loader::load_module_graph_from_parsed(entry_locator, source.clone(), loader).ok()
 }
 
 /// The module graph a Script's `import()` calls reach, or `None` when the Script
@@ -795,21 +791,17 @@ fn module_entry_graph(
 fn script_entry_graph(
     source: &lila_front::ParsedScript,
     options: &CompileOptions,
-    policy: AmbientModuleLoaderPolicy,
+    loader: &dyn HostModuleLoader,
 ) -> Option<lila_ir::ModuleGraphSources> {
     if !script_has_dynamic_import(source)
         && lila_ir::scan_script_realm_module_requests(source).is_empty()
     {
         return None;
     }
-    let loader = configured_module_loader(options, policy)?;
     let entry_locator = options.filename.as_deref().unwrap_or("<entry>");
-    let graph = module_loader::load_module_graph_from_parsed_script(
-        entry_locator,
-        source.clone(),
-        loader.as_ref(),
-    )
-    .ok()?;
+    let graph =
+        module_loader::load_module_graph_from_parsed_script(entry_locator, source.clone(), loader)
+            .ok()?;
     let entry = graph.modules.get(graph.entry as usize)?;
     if !entry.script_has_dynamic_import_sites()? {
         return None;
@@ -822,7 +814,7 @@ fn parse_ambient_entry(
     goal: ParseGoal,
     options: &CompileOptions,
     policy: AmbientModuleLoaderPolicy,
-) -> Result<(ParsedSource, Option<lila_ir::ModuleGraphSources>), EngineError> {
+) -> Result<(ParsedSource, PreparedModuleCompilation), EngineError> {
     let parse_started = std::time::Instant::now();
     let source = parse(
         source_text,
@@ -835,11 +827,19 @@ fn parse_ambient_entry(
     if std::env::var_os("LILA_WASM_TRACE").is_some() {
         eprintln!("lila wasm trace: parse: {:?}", parse_started.elapsed());
     }
+    let loader = configured_module_loader(options, policy)?;
     let graph = match &source {
-        ParsedSource::Script(source) => script_entry_graph(source, options, policy),
-        ParsedSource::Module(source) => module_entry_graph(source, options, policy),
+        ParsedSource::Script(source) => script_entry_graph(source, options, loader.as_ref()),
+        ParsedSource::Module(source) => module_entry_graph(source, options, loader.as_ref()),
     };
-    Ok((source, graph))
+    Ok((
+        source,
+        PreparedModuleCompilation::Ambient {
+            policy,
+            loader,
+            graph,
+        },
+    ))
 }
 
 /// Cache key for a program, covering the whole module graph when there is one.
@@ -896,6 +896,10 @@ fn program_cache_key_for_role(
 enum PreparedModuleCompilation {
     Ambient {
         policy: AmbientModuleLoaderPolicy,
+        // A successful graph-free artifact has completed finite-source
+        // discovery with an actual loader. No absent-loader success can
+        // silently cache an unresolved filesystem dependency.
+        loader: Box<dyn HostModuleLoader>,
         graph: Option<lila_ir::ModuleGraphSources>,
     },
     Embedded {
@@ -911,6 +915,14 @@ impl PreparedModuleCompilation {
             Self::Embedded { graph, .. } => Some(graph),
         }
     }
+}
+
+/// Retained syntax and admitted module authority before lowering. A cache miss
+/// consumes this owner once; cached programs retain no analysis or IR facts.
+struct ParsedCompilation {
+    source: ParsedSource,
+    module_prelude: Option<lila_front::ParsedScript>,
+    modules: PreparedModuleCompilation,
 }
 
 struct PreparedCompilation {
@@ -2740,40 +2752,73 @@ impl Engine {
         cache: Option<Arc<cache::FunctionCache>>,
         role: module_loader::EmbeddedSourceRole,
     ) -> Result<ProgramWasmArtifact, EngineError> {
-        let prepared = self.prepare_compilation_for_role(source, goal, &options, role)?;
-        let key =
-            program_cache_key_for_role(source, goal, &options, prepared.modules.graph(), role);
-        if let (Some(cache), Some(key)) = (&cache, key) {
-            let cache_started = std::time::Instant::now();
-            // A cached program recorded against another runtime is a miss.
-            if let Some((bytes, runtime)) = cache.read(&key).and_then(|entry| {
-                wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile, cache)
-            }) {
-                if std::env::var_os("LILA_WASM_TRACE").is_some() {
-                    eprintln!(
-                        "lila wasm trace: program-cache hit: {} bytes in {:?}",
-                        bytes.len(),
-                        cache_started.elapsed()
-                    );
-                }
-                return Ok(ProgramWasmArtifact {
-                    bytes,
-                    runtime,
-                    cached_entry: Some(ProgramWasmCacheEntry {
-                        cache: Arc::clone(cache),
-                        key,
-                    }),
-                });
+        let parsed = self.parse_compilation_for_role(source, goal, &options, role)?;
+        // This is an exact candidate, not a claim that the first AST scan has
+        // closed every finite-source dependency. A successful prior None key
+        // was stored only after full catalog preparation with the retained
+        // ambient loader. Any discovered request made that graph Some (or
+        // failed compilation), so its artifact cannot match this candidate.
+        let candidate_key = match (&parsed.source, &parsed.modules) {
+            (ParsedSource::Script(_), PreparedModuleCompilation::Ambient { graph: None, .. }) => {
+                program_cache_key_for_role(source, goal, &options, None, role)
             }
-            if std::env::var_os("LILA_WASM_TRACE").is_some() {
-                eprintln!(
-                    "lila wasm trace: program-cache miss: {:?}",
-                    cache_started.elapsed()
-                );
+            _ => None,
+        };
+        if let (Some(cache), Some(key)) = (&cache, candidate_key) {
+            if let Some(artifact) = Self::load_cached_program_wasm(cache, key, &options) {
+                return Ok(artifact);
             }
         }
 
+        let prepared = Self::lower_parsed_compilation(parsed, &options)?;
+        let key =
+            program_cache_key_for_role(source, goal, &options, prepared.modules.graph(), role);
+        // A graph discovered by finite-source lowering gets its final digest;
+        // a graph-free miss does not reread the same cache entry.
+        if key != candidate_key {
+            if let (Some(cache), Some(key)) = (&cache, key) {
+                if let Some(artifact) = Self::load_cached_program_wasm(cache, key, &options) {
+                    return Ok(artifact);
+                }
+            }
+        }
         self.compile_program_wasm_with_key_on_current_thread(prepared, cache, key)
+    }
+
+    fn load_cached_program_wasm(
+        cache: &Arc<cache::FunctionCache>,
+        key: [u8; 32],
+        options: &CompileOptions,
+    ) -> Option<ProgramWasmArtifact> {
+        let started = std::time::Instant::now();
+        let admitted = cache.read(&key).and_then(|entry| {
+            wasm_runtime_link::decode_cache_entry(&entry, &options.intl_profile, cache)
+        });
+        if let Some((bytes, runtime)) = admitted {
+            if std::env::var_os("LILA_WASM_TRACE").is_some() {
+                eprintln!(
+                    "lila wasm trace: program-cache hit: {} bytes in {:?}",
+                    bytes.len(),
+                    started.elapsed()
+                );
+            }
+            Some(ProgramWasmArtifact {
+                bytes,
+                runtime,
+                cached_entry: Some(ProgramWasmCacheEntry {
+                    cache: Arc::clone(cache),
+                    key,
+                }),
+            })
+        } else {
+            if std::env::var_os("LILA_WASM_TRACE").is_some() {
+                eprintln!(
+                    "lila wasm trace: program-cache miss: {:?}",
+                    started.elapsed()
+                );
+            }
+            None
+        }
     }
 
     fn compile_program_wasm_on_current_thread(
@@ -2985,12 +3030,23 @@ impl Engine {
         options: &CompileOptions,
         role: module_loader::EmbeddedSourceRole,
     ) -> Result<PreparedCompilation, EngineError> {
+        let parsed = self.parse_compilation_for_role(source_text, goal, options, role)?;
+        Self::lower_parsed_compilation(parsed, options)
+    }
+
+    fn parse_compilation_for_role(
+        &self,
+        source_text: &str,
+        goal: ParseGoal,
+        options: &CompileOptions,
+        role: module_loader::EmbeddedSourceRole,
+    ) -> Result<ParsedCompilation, EngineError> {
         if goal == ParseGoal::Script && options.module_prelude.is_some() {
             return Err(EngineError::new("a Module prelude requires a Module entry"));
         }
         let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
         let parse_started = std::time::Instant::now();
-        let (source, mut modules) = match &options.module_loading_policy {
+        let (source, modules) = match &options.module_loading_policy {
             ModuleLoadingPolicy::Embedded(graph) => {
                 let admitted = role
                     .parse_entry(graph, source_text, goal, options.filename.as_deref())
@@ -3016,16 +3072,18 @@ impl Engine {
                     },
                 )
             }
-            ModuleLoadingPolicy::Filesystem => {
-                let policy = AmbientModuleLoaderPolicy::Filesystem;
-                let (source, graph) = parse_ambient_entry(source_text, goal, options, policy)?;
-                (source, PreparedModuleCompilation::Ambient { policy, graph })
-            }
-            ModuleLoadingPolicy::RejectAll => {
-                let policy = AmbientModuleLoaderPolicy::RejectAll;
-                let (source, graph) = parse_ambient_entry(source_text, goal, options, policy)?;
-                (source, PreparedModuleCompilation::Ambient { policy, graph })
-            }
+            ModuleLoadingPolicy::Filesystem => parse_ambient_entry(
+                source_text,
+                goal,
+                options,
+                AmbientModuleLoaderPolicy::Filesystem,
+            )?,
+            ModuleLoadingPolicy::RejectAll => parse_ambient_entry(
+                source_text,
+                goal,
+                options,
+                AmbientModuleLoaderPolicy::RejectAll,
+            )?,
         };
         let module_prelude = options
             .module_prelude
@@ -3039,6 +3097,22 @@ impl Engine {
                     })
             })
             .transpose()?;
+        Ok(ParsedCompilation {
+            source,
+            module_prelude,
+            modules,
+        })
+    }
+
+    fn lower_parsed_compilation(
+        parsed: ParsedCompilation,
+        options: &CompileOptions,
+    ) -> Result<PreparedCompilation, EngineError> {
+        let ParsedCompilation {
+            source,
+            module_prelude,
+            mut modules,
+        } = parsed;
         let lower_started = std::time::Instant::now();
         let ir = prepared_source_catalog::prepare_source_catalog(
             &source,
@@ -3046,7 +3120,7 @@ impl Engine {
             &mut modules,
             options,
         )?;
-        if trace {
+        if std::env::var_os("LILA_WASM_TRACE").is_some() {
             eprintln!("lila wasm trace: lower: {:?}", lower_started.elapsed());
         }
         Ok(PreparedCompilation {

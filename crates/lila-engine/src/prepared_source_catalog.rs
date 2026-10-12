@@ -33,7 +33,7 @@ pub(super) fn prepare_source_catalog(
                 }
             },
         };
-        let PreparedModuleCompilation::Ambient { policy, graph } = modules else {
+        let PreparedModuleCompilation::Ambient { loader, graph, .. } = modules else {
             // Complete catalogs have their exact Realm-origin resolutions
             // already. Finite strings cannot grant ambient loading authority.
             return Ok(ir);
@@ -50,13 +50,6 @@ pub(super) fn prepare_source_catalog(
         if requests.is_empty() {
             return Ok(ir);
         }
-        let Some(loader) = configured_module_loader(options, *policy) else {
-            // Source candidates never grant loading authority or force their
-            // speculative call to execute. Without a host loader the actual
-            // native import owns asynchronous rejection through its existing
-            // no-catalog path; an ordinary user method remains an ordinary call.
-            return Ok(ir);
-        };
         if graph.is_none() {
             let locator = options.filename.as_deref().unwrap_or("<entry>");
             let loaded = match source {
@@ -227,5 +220,92 @@ export const value = 1;
             lila_ir::RealmModuleResolutionIr::Rejected("different host failure".into()),
         );
         assert_ne!(module_graph_digest(graph), module_graph_digest(&changed));
+    }
+
+    #[test]
+    fn cached_program_cannot_hide_a_current_parse_error_or_script_prelude_rejection() {
+        let files = ModuleFiles::new();
+        let cache =
+            Arc::new(cache::FunctionCache::new(files.0.join("cache"), 64 * 1024 * 1024).unwrap());
+        let engine = Engine::new(RealmBuilder::new().build());
+        let options = files.options();
+        let valid = run_on_sized_stack(|| {
+            engine.load_or_compile_program_wasm_on_current_thread(
+                "true;",
+                ParseGoal::Script,
+                options.clone(),
+                Some(Arc::clone(&cache)),
+            )
+        })
+        .unwrap();
+        for (source, mut options) in [("function {", options.clone()), ("true;", options)] {
+            if source == "true;" {
+                options.module_prelude = Some("var supplied = 1;".into());
+            }
+            let key = program_cache_key_for_role(
+                source,
+                ParseGoal::Script,
+                &options,
+                None,
+                module_loader::EmbeddedSourceRole::Entry,
+            )
+            .unwrap();
+            assert!(cache.write(&key, wasm_runtime_link::encode_cache_entry(valid.program())));
+            assert!(
+                engine
+                    .load_or_compile_program_wasm_on_current_thread(
+                        source,
+                        ParseGoal::Script,
+                        options,
+                        Some(Arc::clone(&cache)),
+                    )
+                    .is_err(),
+                "cache must not mask current source admission: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn cached_finite_source_program_tracks_dependency_edits_and_rejections() {
+        let files = ModuleFiles::new();
+        let source = r#"void new ShadowRealm().evaluate('void new ShadowRealm().importValue("./value.js", "value")'); true;"#;
+        files.write("entry.js", source);
+        files.write("value.js", "export const value = 1;");
+        let options = files.options();
+        let cache =
+            Arc::new(cache::FunctionCache::new(files.0.join("cache"), 64 * 1024 * 1024).unwrap());
+        let engine = Engine::new(RealmBuilder::new().build());
+        let load = || {
+            run_on_sized_stack(|| {
+                engine.load_or_compile_program_wasm_on_current_thread(
+                    source,
+                    ParseGoal::Script,
+                    options.clone(),
+                    Some(Arc::clone(&cache)),
+                )
+            })
+        };
+        let first = load().unwrap();
+        assert!(first.cached_entry.is_none());
+        let warm = load().unwrap();
+        assert!(warm.cached_entry.is_some());
+        assert_eq!(first.bytes, warm.bytes);
+        files.write("value.js", "export const value = 2;");
+        let edited = load().unwrap();
+        assert!(
+            edited.cached_entry.is_none(),
+            "finite-source dependency edit must miss"
+        );
+        assert_ne!(first.bytes, edited.bytes);
+        let warm_edit = load().unwrap();
+        assert!(warm_edit.cached_entry.is_some());
+        assert_eq!(edited.bytes, warm_edit.bytes);
+        std::fs::remove_file(files.0.join("value.js")).unwrap();
+        let removed = load().unwrap();
+        assert!(
+            removed.cached_entry.is_none(),
+            "a missing dependency cannot use loaded code"
+        );
+        assert_ne!(edited.bytes, removed.bytes);
     }
 }

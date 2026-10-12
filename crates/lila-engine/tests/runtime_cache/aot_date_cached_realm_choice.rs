@@ -278,4 +278,30 @@ fn date_cached_source_and_artifact_use_each_executing_realms_choice() {
         2,
         "the two named-Realm executions must populate distinct source entries\n{stderr}"
     );
+    // compiled_cases() also lowers twice to measure the exact cache budget.
+    // Only phases with a cache result belong to the four actual executions.
+    let execution_lowerings = stderr
+        .split("lila wasm trace: parse: ")
+        .filter_map(|phase| {
+            let hit = phase.lines().find_map(|line| {
+                if line.starts_with("lila wasm trace: program-cache hit: ") {
+                    Some(true)
+                } else if line.starts_with("lila wasm trace: program-cache miss: ") {
+                    Some(false)
+                } else {
+                    None
+                }
+            })?;
+            let lowerings = phase
+                .lines()
+                .filter(|line| line.starts_with("lila wasm trace: lower: "))
+                .count();
+            Some((hit, lowerings))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        execution_lowerings,
+        [(false, 1), (true, 0), (false, 1), (true, 0)],
+        "each cold execution lowers once; each cached execution uses the new Realm without lowering\n{stderr}"
+    );
 }

@@ -1,5 +1,40 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Current acceptance boundary — 2026-10-12
+
+The complete c235e0f4f successor executes all 106 native/documentation scopes:
+8,952 passes, two failures and zero ignored controls. Nine of the original
+eleven failures are eliminated, with no regression on a prior passing native
+ID. The checked b98881601 measured batch completes 2,564 selected controls:
+2,562 passes, two failures and no prior passing ID regression. Mutation seed
+nine again matches the oracle; seed ten and the twenty-case timing gate remain
+red under their original limits. All 475 tooling controls and ten source guards
+pass. Full/default/current-pin/stress/publication acceptance and task closure
+remain open; retain the handoff and task folder.
+
+The Array argument/range follow-up completes 2,554 controls: 2,552 pass, two
+fail, none ignored. No prior passing native ID fails, but seed nine regresses
+again to timeout and seed ten is unrun. The twenty-case gate is 5.111949005
+seconds; no failure is eliminated. The
+[exact follow-up record](../docs/rust-rewrite/native-array-argument-context-20261012.json)
+retains both comparison levels. Parsed graph-free cache reuse and simple own-Get
+source repairs pass all-feature/all-target types, formatting and ten source
+guards. Their frozen native focus completes 3,424 controls: 3,422 pass, two fail,
+none ignored. All five added IDs pass. The twenty-case failure is eliminated;
+mutation seed nine still times out and seed ten is unexecuted. The other failure
+is a new Date trace assertion that counts budget compilation as execution.
+Its separate test-only correction passes, checking cold-only lowering and fresh
+Realms without changing the private cache budget. Full/default/current-pin/task
+acceptance remains open. See the
+[exact new record](../docs/rust-rewrite/native-parsed-cache-simple-get-20261012.json).
+
+The tracked September backlog contains all 5,365 historical failure IDs even
+though its raw aggregate is absent. The exact replay input retains every ID,
+including two whose file is absent from the current pin. Extracting that list
+does not establish current membership, compiler provenance or passing outcomes.
+See the [source-bound comparison](../docs/rust-rewrite/native-measured-iteration-20261012.json)
+and [current handoff](../CONTINUE.md).
+
 ## Cloud continuation checkpoint — 2026-10-10
 
 The complete serial engine checkpoint finishes at 3,157 passes, 15 failures and

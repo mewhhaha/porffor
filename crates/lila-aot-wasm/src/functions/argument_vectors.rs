@@ -1,7 +1,7 @@
 use super::*;
 use crate::gc_types::{
-    ArgumentListNode, ArgumentListNodeSchema, GcLocal, GcOperand, I32Local, Nullable, StoredValue,
-    ValueArray, ValueLocals,
+    ArgumentListNode, ArgumentListNodeSchema, ArrayObject, ArrayObjectSchema, GcLocal,
+    GcNullability, GcOperand, I32Local, Nullable, StoredValue, ValueArray, ValueLocals,
 };
 
 /// Only finish can publish the completed List. Append retains whole values;
@@ -414,6 +414,33 @@ impl FunctionBuilder<'_> {
         self.emit_branch_to_target(exit, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        let base = self.runtime_helper_base.ok_or_else(|| {
+            EmitError::unsupported("compiler invariant: conversion helper catalog is absent")
+        })?;
+        // Concrete Arrays have an own nonconfigurable uint32 data length.
+        // Capture it once, just as LengthOfArrayLike does; all later Gets still
+        // see mutations performed by earlier indexed accessors.
+        input.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ArrayObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let array = schema.reserve_gc_local(function).initialize(
+            input.cast_reference::<ArrayObject>(schema, function),
+            function,
+        );
+        schema
+            .struct_type::<ArrayObject>()
+            .field(ArrayObjectSchema::LENGTH)
+            .read(&array, schema, function)
+            .store_i64(bits, function);
+        bits.load(function);
+        function.instruction(&Instruction::I32WrapI64);
+        count.store(function);
+        array.clear(function);
+        function.instruction(&Instruction::Else);
         let length_key = self.emit_function_string_key("length", function)?;
         self.emit_object_read_with_throw_routing(
             input,
@@ -426,9 +453,6 @@ impl FunctionBuilder<'_> {
         length_key.clear(function);
         self.emit_bind_metadata_abrupt_exit(&pending, result, exit, function);
         length_value.copy_from(pending.value(), function);
-        let base = self.runtime_helper_base.ok_or_else(|| {
-            EmitError::unsupported("compiler invariant: conversion helper catalog is absent")
-        })?;
         schema
             .call_helper(
                 ValueToNumberArguments::new(&length_value, self.current_environment()),
@@ -470,6 +494,8 @@ impl FunctionBuilder<'_> {
         count.store(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         element.set_undefined(function);
         let empty = schema.reserve_gc_local(function).initialize(
             schema
@@ -497,6 +523,9 @@ impl FunctionBuilder<'_> {
         self.emit_branch_to_target(done, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        let stored = self.emit_array_own_indexed_data_reference(input, index, function);
+        stored.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
         index.load(function);
         function.instruction(&Instruction::F64ConvertI32U);
         function.instruction(&Instruction::I64ReinterpretF64);
@@ -516,19 +545,27 @@ impl FunctionBuilder<'_> {
         )?;
         key.clear(function);
         self.emit_bind_metadata_abrupt_exit(&pending, result, exit, function);
-        let stored = schema.reserve_gc_local(function).initialize(
+        stored.replace(
             schema
                 .struct_type::<StoredValue>()
-                .from_value(pending.value(), function),
+                .from_value(pending.value(), function)
+                .nullable(),
+            function,
+        );
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        let present = schema.reserve_gc_local(function).initialize(
+            stored.load(schema, function).require_non_null(function),
             function,
         );
         schema.array_type::<ValueArray>().write(
             &list,
             index,
-            GcOperand::reference(&stored, schema),
+            GcOperand::reference(&present, schema),
             schema,
             function,
         );
+        present.clear(function);
         stored.clear(function);
         index.load(function);
         function.instruction(&Instruction::I32Const(1));

@@ -26,6 +26,25 @@ Seed nine again matches the oracle; seed ten still times out. The unchanged
 twenty-case workload measures 5.330369186 seconds. See the
 [measured comparison](docs/rust-rewrite/native-measured-iteration-20261012.json).
 All 475 tooling controls, ten source guards and formatting checks pass.
+The Array argument/range follow-up passes 2,552 selected controls, fails two
+and ignores none, with no prior passing native ID regression. It eliminates no
+failure: seed nine times out again, seed ten is unrun, and the original twenty-case
+workload measures 5.111949005 seconds. The
+[exact comparison](docs/rust-rewrite/native-array-argument-context-20261012.json)
+keeps those case-level limits visible. The next source repair tries checked
+graph-free cached scripts before repeated lowering and removes primitive String
+length boxing and concrete ordinary data-descriptor snapshots. Its frozen focus
+passes 3,422 controls, fails two and ignores none; all five added IDs pass.
+The original twenty-case failure is eliminated. The mutation deadline remains
+red; a miscounted new Date trace assertion is corrected and passes a separate
+test-only follow-up, preserving fresh-Realm checks and the exact cache budget.
+Full 874 Engine, 2,175 IR, 334 AOT, 16 worker and six Reflect/Get controls pass.
+The [exact record](docs/rust-rewrite/native-parsed-cache-simple-get-20261012.json)
+retains both source maps and the first failed assertion. All-feature/all-target
+types and formatting pass. The b98881601 Linux/macOS Intl capture
+and byte/identity/pin/native-count comparison also
+[pass in CI](https://github.com/mewhhaha/porffor/actions/runs/38214267461).
+This is public verdict and artifact metadata, without local archive inspection.
 Full default suites,
 current pinned acceptance, sustained campaigns, publication and task cleanup
 remain open. Refresh native evidence with the complete runner in

@@ -28,6 +28,7 @@ pub(crate) use accessor_descriptor::{
 mod allocation;
 mod arguments_properties;
 mod array_own_data_read;
+mod array_own_indexed_data;
 mod define_property;
 mod descriptor_object;
 mod has_property;
@@ -35,6 +36,7 @@ mod header_projection;
 mod module_namespace;
 mod object_literal_property;
 mod runtime_helpers;
+mod simple_own_data_read;
 mod sparse_array_index;
 
 pub(crate) use descriptor_object::{
@@ -1684,6 +1686,10 @@ impl<'a> FunctionBuilder<'a> {
         let lookup = schema.reserve_value_local(function);
         let pending = schema.reserve_completion(function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
+        let string_length =
+            self.emit_primitive_string_length_read(target, key, result, function)?;
+        string_length.load(function);
+        self.emit_branch_if_to_target(exit, function);
         self.emit_value_to_object_locals(target, &pending, function)?;
         self.emit_object_operation_abrupt_exit(&pending, result, exit, function);
         lookup.copy_from(pending.value(), function);
@@ -1716,6 +1722,7 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
+        schema.release_i32_local(string_length, function);
         pending.clear(function);
         lookup.clear(function);
         Ok(())
@@ -1731,6 +1738,9 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let exit = self.open_frame(ControlFrameKind::Block, function);
+        let ordinary = self.emit_ordinary_own_data_read(target, key, result, function)?;
+        ordinary.load(function);
+        self.emit_branch_if_to_target(exit, function);
         let handled = self.emit_array_own_data_read(target, key, result, function)?;
         handled.load(function);
         self.emit_branch_if_to_target(exit, function);
@@ -1820,6 +1830,7 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         schema.release_i32_local(handled, function);
+        schema.release_i32_local(ordinary, function);
         Ok(())
     }
 

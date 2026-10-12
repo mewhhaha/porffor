@@ -34,11 +34,14 @@ impl ScriptLowerer<'_> {
                 .get(context_key)
                 .or_else(|| self.exact_context_callback_observations.get(context_key));
         }
-        let mut function_observations = self.exact_context_function_observations.iter().filter_map(
-            |((observed_function_id, _), signature)| {
-                (observed_function_id == function_id).then_some(signature)
-            },
-        );
+        // Tuple ordering groups every context for this function contiguously.
+        // Empty String is the least context ID, so the range retains exactly
+        // the old equality filter without scanning unrelated function owners.
+        let mut function_observations = self
+            .exact_context_function_observations
+            .range((function_id.clone(), String::new())..)
+            .take_while(|((observed_function_id, _), _)| observed_function_id == function_id)
+            .map(|(_, signature)| signature);
         if let (Some(exact), None) = (function_observations.next(), function_observations.next()) {
             // A unique but uncovered function context blocks callback fallback,
             // exactly as before. Observe cardinality without cloning shapes.
@@ -46,9 +49,11 @@ impl ScriptLowerer<'_> {
                 .exact_signature_covers_aggregate_inputs(function_id, exact)
                 .then_some(exact);
         }
-        let mut callback_observations = self.exact_context_callback_observations.iter().filter_map(
-            |((callback_id, _), signature)| (callback_id == function_id).then_some(signature),
-        );
+        let mut callback_observations = self
+            .exact_context_callback_observations
+            .range((function_id.clone(), String::new())..)
+            .take_while(|((callback_id, _), _)| callback_id == function_id)
+            .map(|(_, signature)| signature);
         if let (Some(exact), None) = (callback_observations.next(), callback_observations.next()) {
             self.exact_signature_covers_aggregate_inputs(function_id, exact)
                 .then_some(exact)

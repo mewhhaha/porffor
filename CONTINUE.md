@@ -1,3 +1,59 @@
+## Parsed cache and simple own-Get repair — 2026-10-12
+
+The frozen parsed-cache/simple-Get focus completes 3,424 native controls:
+3,422 pass, two fail, none ignored. All 3,419 previous selected IDs remain;
+one original failure is eliminated and one remains. All five added IDs pass.
+The twenty-case gate and both exact timing gates pass unchanged. Mutation seed
+nine still times out at 5,000 ms, with seed ten unexecuted. A new Date trace
+assertion introduces the other failure by counting the fixture's two budget
+compilations alongside its two cold executions. Root corrects that assertion
+to check each actual cache attempt: cold executions lower once and hits never
+lower, while retaining the fresh-Realm results and exact private cache budget.
+The separate Date-only native follow-up passes; its all-feature/all-target
+types and formatting pass. This is a test-only source correction after the
+frozen focus, not a single-source full-suite pass. The
+[exact record](docs/rust-rewrite/native-parsed-cache-simple-get-20261012.json)
+preserves the first failure, both source maps, the comparisons and late cold
+diagnostics (seed nine 5.489 seconds, seed ten 6.051 seconds). Diagnostics do not
+pass the original campaign. Full 874 Engine, 2,175 IR, 334 AOT, 16 worker and
+six Reflect/Get controls pass. Full/default/current-pin/task acceptance remains.
+
+The Array argument/range follow-up completes all ten selected scopes on frozen
+source: 2,552 pass, two fail, none are ignored. All 2,553 previous selected native
+IDs remain without a failure on a prior passing native ID; the added control
+passes. The campaign separately regresses seed nine to its original 5,000 ms
+timeout and does not execute seed ten. The twenty-case gate measures 5.111949005
+seconds against five. No failure is eliminated by this attempt. The
+[exact record](docs/rust-rewrite/native-array-argument-context-20261012.json)
+retains both comparison levels and explicitly diagnostic fresh-cache phase
+measurements: seed nine 5.384 seconds and seed ten 5.690 seconds, with unchanged
+request bodies and internal deadlines. Late diagnostic completion is not native
+acceptance. Full 2,175 IR and 334 AOT controls, affected Reflect/Realm/resizable
+controls and all 16 worker controls pass.
+
+Root promotes one coherent follow-up after both preceding runs are terminal.
+Ambient compilation now retains an actual admitted loader through parsing,
+graph discovery and finite-source catalog closure. A parsed Script can try the
+exact graph-free cache key before lowering: only prior fully prepared graph-free
+artifacts can match; discovered dependencies own a final graph digest or reject.
+Cache misses lower the retained source once; graph-backed and embedded authority
+paths preserve complete preparation. Source/options/role/Intl/compiler bindings,
+artifact validation, invalid-artifact eviction and fresh execution Realms remain.
+A cache control covers dependency edits/rejections and another covers parse and
+prelude rejection; the real cached-Date Realm control now requires cold-only
+lowering. Simple own-Get avoids primitive String length boxing and concrete
+OrdinaryObject data-descriptor snapshots. Coerced keys, fresh descriptors, whole
+values, accessors, inheritance, receivers, proxies and exotics retain their
+existing owners. Added strict/sloppy controls cover these boundaries and GC.
+All-feature/all-target types, formatting, the module-boundary guard and nine
+other source guards pass. Two guards initially fail only because the shell lacks
+the Rust toolchain PATH; their activated retries pass and retain the first logs.
+Fresh native acceptance above eliminates the twenty-case failure; the mutation
+deadline remains red and complete broad acceptance is still pending.
+Preserve deadlines, corpus bodies/order/bounds, exact native IDs and
+both mutation seeds; finish full/default/current-pin/task acceptance before
+removing this handoff or tasks.
+
 ## Full native successor and measured iteration batch — 2026-10-12
 
 The c235e0f4f complete frozen successor executes all 106 scopes and all ignored
