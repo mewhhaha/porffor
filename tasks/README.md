@@ -1,5 +1,22 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Complete native checkpoint — 2026-10-12
+
+Frozen 032d2f5c7 completes all 106 scopes: 8,959 pass, one fails, zero ignored.
+Ten baseline failures are eliminated with no regression on a prior passing
+native ID. Full CLI, documentation, fake publication and original performance
+controls pass. Exact mutation seed nine still times out after an earlier match;
+seed ten is pending. See the
+[complete comparison](../docs/rust-rewrite/native-workspace-032d2f5c7-20261012.json).
+The subsequent 16 MiB initial-heap configuration and two deterministic GC/root
+controls pass all-feature/all-target types and all eight affected scopes: 1,578
+pass, zero fail or ignored. Every 1,576 prior selected ID remains, one native
+failure is eliminated and no prior passing ID regresses. Original native mutation
+seeds and performance gates pass. The actual fresh-cache CLI restores seed nine
+but seed ten still times out at 5,000 ms; its acceptance remains open.
+Default/release/pinned/stress/publication and
+full task acceptance remain open; retain CONTINUE.md and this folder.
+
 ## Current acceptance boundary — 2026-10-12
 
 The complete c235e0f4f successor executes all 106 native/documentation scopes:

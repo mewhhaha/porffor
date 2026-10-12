@@ -1,3 +1,38 @@
+## Complete native verification and heap repair — 2026-10-12
+
+The clean 032d2f5c7 checkpoint completes all 106 all-feature scopes with ignored
+controls enabled: 8,959 pass, one fails, none are ignored. All 8,950 baseline IDs
+remain; ten earlier native failures are eliminated and no previous passing native
+ID regresses. All ten added IDs pass. Full CLI 855, all documentation, complete
+fake publication and all three original performance controls pass. Exact mutation
+seed nine still regresses from a selected-dimension match to a 5,000 ms timeout
+on identical request bytes; seed ten is pending. The
+[source-bound comparison](docs/rust-rewrite/native-workspace-032d2f5c7-20261012.json)
+preserves both levels, the full source map and current Linux/macOS CI metadata.
+Artifact archives were not inspected locally. Default/release/current-pin,
+sustained stress, canonical publication and task closure remain required.
+
+After this frozen run is terminal, root profiles both unchanged canonical mutation
+seeds with fresh private caches and the original internal 5,000 ms. The diagnostic
+parent permits late completion; sampling establishes no campaign pass. Copying
+GC consumes 19.28% and 19.79% of sampled self CPU, native compiler symbols 24.20%
+and 24.79%, and SHA-256 9.83% and 9.80%. Engine's admitted Minimal Intl reuse is
+already cheap, so it is not changed. Root raises the shared configuration's
+initial GC heap from zero to 16 MiB within the unchanged 1 GiB Store cap, bumps
+the native configuration schema to three, and adds deterministic controls for
+128 rounds of dead cycles under a fixed 64 KiB heap and pending Promise reaction
+roots/release. All-feature/all-target types and formatting pass. The frozen affected run now
+passes all eight complete scopes and 1,578 native controls, including full Engine
+874, builtins 493, GC entries 162, weak facility 11, both original mutation seeds
+and all three original performance gates. Exact comparison retains every 1,576
+prior selected ID: one failure eliminated, none remaining, no prior passing ID
+regression, two new controls pass. The actual fresh-cache CLI separately restores
+seed nine but still times out at seed ten under the original 5,000 ms. Cold CLI
+diagnostics measure execution at 177/189 ms and whole children at 5.201/5.159
+seconds; late completion is not campaign acceptance. Fix the remaining measured
+startup cost, then finish fresh broad/default/release/pinned/task acceptance
+before deleting this handoff and tasks.
+
 ## Parsed cache and simple own-Get repair — 2026-10-12
 
 The frozen parsed-cache/simple-Get focus completes 3,424 native controls:

@@ -4,7 +4,7 @@
 use crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY;
 use wasmtime::{Config, OptLevel, RegallocAlgorithm, WasmBacktraceDetails};
 
-pub(crate) const CONFIGURATION_SCHEMA: u32 = 2;
+pub(crate) const CONFIGURATION_SCHEMA: u32 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum WasmNativeCompilationMode {
@@ -30,6 +30,13 @@ const _: () = assert!(WASM_MAX_STACK_SIZE > 0 && WASM_MAX_STACK_SIZE < ENGINE_WO
 /// Existing per-store cap and linear-memory reservation; embedding changes neither.
 pub(crate) const WASM_STORE_MEMORY_CAP_BYTES: usize = 1024 * 1024 * 1024;
 const WASM_LINEAR_MEMORY_GUARD_BYTES: u64 = 32 * 1024 * 1024;
+// The copying collector divides this space into two semi-spaces. Start with
+// enough room for ordinary bootstrap and short-lived argument/descriptor
+// records, rather than repeatedly copying their live graph while growing from
+// zero. Pages remain committed on demand; the existing Store limit and the
+// collector's normal growth and forced-collection paths still apply.
+const WASM_GC_HEAP_INITIAL_BYTES: usize = 16 * 1024 * 1024;
+const _: () = assert!(WASM_GC_HEAP_INITIAL_BYTES < WASM_STORE_MEMORY_CAP_BYTES);
 
 pub(crate) fn base_config(
     mode: WasmNativeCompilationMode,
@@ -42,6 +49,7 @@ pub(crate) fn base_config(
         WasmNativeCompilationMode::SizeOptimized => OptLevel::SpeedAndSize,
     });
     config.cranelift_regalloc_algorithm(RegallocAlgorithm::SinglePass);
+    config.gc_heap_initial_size(WASM_GC_HEAP_INITIAL_BYTES as u64);
     config.max_wasm_stack(WASM_MAX_STACK_SIZE);
     config.async_stack_size(ENGINE_WORKER_STACK_SIZE);
     // Shared memories cannot relocate. Their reservation covers the existing

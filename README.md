@@ -1,5 +1,31 @@
 # Lila
 
+## Complete workspace verification — 2026-10-12
+
+The frozen 032d2f5c7 all-feature run completes all 106 scopes with all ignored
+controls executed: **8,959 pass, one fails, zero ignored**. Ten of the eleven
+earlier native failures are eliminated; no previously passing native ID fails.
+All 855 CLI tests, all docs, full fake publication and the three unchanged perf
+controls pass. The remaining mutation campaign still times out on seed nine,
+which passed earlier; seed ten is pending. The
+[exact evidence](docs/rust-rewrite/native-workspace-032d2f5c7-20261012.json)
+keeps this seed-level regression separate from native-ID progress.
+Linux/macOS Intl byte/identity/pin/native-count comparison for this commit
+[passes in CI](https://github.com/mewhhaha/porffor/actions/runs/38224694853).
+Only public verdict and artifact metadata were retrieved.
+
+A fresh cold profile identifies copying GC at about 19–20% of sampled CPU. The
+next source batch starts each GC heap at 16 MiB within its existing Store cap
+and adds fixed-heap cycle and pending-Promise root controls. All eight affected
+scopes now pass: **1,578 pass, zero fail or ignored**. Every 1,576 prior selected
+ID remains; the remaining native failure is eliminated with no prior passing
+ID regression, and both new controls pass. Original native mutation and timing
+gates pass unchanged. The separate actual fresh-cache CLI restores seed nine
+but seed ten still times out at 5,000 ms. Diagnostic execution is 177/189 ms;
+late whole-worker completion proves no CLI campaign pass. All-feature/all-target
+types pass. Fresh full/default/release/current-pin/stress/publication acceptance
+and task cleanup remain open. The original pinned publication below is unchanged.
+
 ## Complete workspace successor — 2026-10-12
 
 The frozen all-feature successor includes all ignored controls and all 106

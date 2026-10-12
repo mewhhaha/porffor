@@ -1,5 +1,21 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Full native checkpoint and GC startup source — 2026-10-12
+
+All three original performance controls pass in the frozen 032d2f5c7 full run.
+The mutation campaign remains red at seed nine under 5,000 ms; seed ten is pending.
+A diagnostic cold profile attributes about 19–20% of self CPU to copying GC.
+The next source batch uses a 16 MiB initial heap within the unchanged Store cap
+and adds fixed-heap cycle and pending-reaction root controls. All-feature/all-target
+types and all eight affected runtime scopes pass: 1,578 native passes, zero
+failures or ignores. The original native mutation seeds and all three performance
+gates pass; one native failure is eliminated with no prior passing selected ID
+regression. The actual fresh-cache CLI restores seed nine but seed ten still
+times out at the original 5,000 ms. Diagnostic child execution is 177/189 ms,
+but whole children are 5.201/5.159 seconds; late completion confers no campaign
+pass. Original budgets, inputs and remaining task gates remain intact.
+See [the complete evidence](../docs/rust-rewrite/native-workspace-032d2f5c7-20261012.json).
+
 ## Runtime image metadata boundary — 2026-10-11
 
 A non-inline leaf crate exposes Cargo's immutable linked runtime data. Source and

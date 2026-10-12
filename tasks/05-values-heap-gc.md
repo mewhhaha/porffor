@@ -1,5 +1,20 @@
 # T05 — Value representation, heap, GC and weak reachability
 
+## Deterministic root and bounded-cycle source — 2026-10-12
+
+The frozen 032d2f5c7 full workspace result passes every existing GC scope; the
+sole native failure is the separate original mutation campaign timeout. The
+next batch adds 128 rounds of cyclic/ephemeron reclamation under a fixed 64 KiB
+heap, with a surviving strong-cycle witness, and strict/sloppy pending Promise
+reaction roots followed by settlement/release. Product startup uses a 16 MiB
+initial heap within the unchanged Store limit; explicit collection remains.
+All-feature/all-target Rust types pass. Frozen runtime acceptance passes all
+1,578 controls across eight complete affected scopes, including full Engine 874,
+builtins 493, GC entries 162 and weak facility 11. The new pending-reaction
+root/release and repeated bounded-cycle controls pass; no prior passing selected
+ID regresses. Remaining T05 root-class/sustained-stress and full/default/release
+acceptance gates are still required.
+
 ## JavaScript weak integration — 2026-10-11 focused checkpoint
 
 The sixteen routes, actual GC brands, kept-root job boundaries and finalization

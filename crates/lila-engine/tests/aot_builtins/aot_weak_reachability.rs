@@ -158,3 +158,46 @@ fn unregister_after_target_collection_prevents_cleanup() {
         vec![HostOutputEvent::PrintLine("unregister:ok".into())]
     );
 }
+
+#[test]
+fn pending_reaction_closures_keep_cycles_until_settlement_and_release_them_afterward() {
+    for directive in ["", "\"use strict\";\n"] {
+        let events = run(&format!(
+            r#"{directive}
+                let weak, settle;
+                (function() {{
+                    const target = {{marker: 41, text: 'x\ud800\udfff'}};
+                    target.self = target;
+                    weak = new WeakRef(target);
+                    const pending = new Promise(function(resolve) {{ settle = resolve; }});
+                    pending.then(function(value) {{
+                        gc();
+                        if (value !== 19 || target.marker !== 41 || target.self !== target ||
+                            target.text.length !== 3 || target.text.charCodeAt(1) !== 0xd800 ||
+                            target.text.charCodeAt(2) !== 0xdfff) throw 'reaction roots';
+                        print('reaction:ok');
+                    }});
+                }})();
+                Promise.resolve().then(function() {{
+                    gc();
+                    const target = weak.deref();
+                    if (target === undefined || target.marker !== 41 || target.self !== target)
+                        throw 'pending reaction lost its cycle';
+                    settle(19);
+                    settle = undefined;
+                }}).then(function() {{
+                    gc();
+                    if (weak.deref() !== undefined) throw 'settled reaction retained its cycle';
+                    print('released:ok');
+                }});
+            "#
+        ));
+        assert_eq!(
+            events,
+            vec![
+                HostOutputEvent::PrintLine("reaction:ok".into()),
+                HostOutputEvent::PrintLine("released:ok".into()),
+            ]
+        );
+    }
+}

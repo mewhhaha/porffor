@@ -153,3 +153,116 @@ fn a_value_to_key_cycle_cannot_activate_its_own_ephemeron() {
     assert!(weak_key.upgrade(&mut store).unwrap().is_none());
     assert!(weak_value.upgrade(&mut store).unwrap().is_none());
 }
+
+#[test]
+fn repeated_strong_and_ephemeron_cycles_are_reclaimed_under_a_fixed_heap_cap() {
+    use wasmtime::{StoreLimits, StoreLimitsBuilder};
+
+    const HEAP_CAP: usize = 64 * 1024;
+    const ROUNDS: usize = 128;
+    const CYCLES_PER_ROUND: usize = 32;
+
+    fn allocate(
+        mut store: impl AsContextMut<Data = StoreLimits>,
+        pre: &StructRefPre,
+        marker: i32,
+    ) -> Rooted<AnyRef> {
+        StructRef::new(&mut store, pre, &[Val::AnyRef(None), Val::I32(marker)])
+            .unwrap()
+            .to_anyref()
+    }
+
+    fn connect(
+        mut store: impl AsContextMut<Data = StoreLimits>,
+        from: Rooted<AnyRef>,
+        to: Option<Rooted<AnyRef>>,
+    ) {
+        from.as_struct(&store)
+            .unwrap()
+            .unwrap()
+            .set_field(&mut store, 0, Val::AnyRef(to))
+            .unwrap();
+    }
+
+    let mut config = Config::new();
+    config
+        .wasm_gc(true)
+        .wasm_function_references(true)
+        .collector(Collector::Copying)
+        .gc_heap_initial_size(HEAP_CAP as u64);
+    let engine = Engine::new(&config).unwrap();
+    let ty = StructType::new(
+        &engine,
+        [
+            FieldType::new(Mutability::Var, StorageType::ValType(ValType::EQREF)),
+            FieldType::new(Mutability::Const, StorageType::ValType(ValType::I32)),
+        ],
+    )
+    .unwrap();
+    let mut store = Store::new(
+        &engine,
+        StoreLimitsBuilder::new().memory_size(HEAP_CAP).build(),
+    );
+    store.limiter(|limits| limits);
+    let pre = StructRefPre::new(&mut store, ty);
+    let owner = allocate(&mut store, &pre, 1);
+    let live = {
+        let mut roots = RootScope::new(&mut store);
+        let a = allocate(&mut roots, &pre, 10);
+        let b = allocate(&mut roots, &pre, 20);
+        connect(&mut roots, a, Some(b));
+        connect(&mut roots, b, Some(a));
+        connect(&mut roots, owner, Some(a));
+        WeakAnyRef::new(&mut roots, &owner, &a).unwrap()
+    };
+
+    // More than one heap's worth of cyclic records must be reclaimed. The
+    // live owner/cycle supplies the opposite witness across every movement.
+    for round in 0..ROUNDS {
+        let dead = {
+            let mut roots = RootScope::new(&mut store);
+            (0..CYCLES_PER_ROUND)
+                .map(|index| {
+                    let a = allocate(&mut roots, &pre, index as i32);
+                    let b = allocate(&mut roots, &pre, -(index as i32));
+                    connect(&mut roots, a, Some(b));
+                    connect(&mut roots, b, Some(a));
+                    let entry = GcEphemeron::new(&mut roots, &owner, &a, Some(&b)).unwrap();
+                    let weak = WeakAnyRef::new(&mut roots, &owner, &a).unwrap();
+                    (entry, weak)
+                })
+                .collect::<Vec<_>>()
+        };
+        store.gc(None).unwrap();
+        assert!(store.gc_heap_capacity() <= HEAP_CAP, "round {round}");
+        for (entry, weak) in dead {
+            assert!(!entry.is_live(&mut store).unwrap(), "round {round}");
+            assert!(weak.upgrade(&mut store).unwrap().is_none(), "round {round}");
+            entry.remove(&mut store).unwrap();
+            weak.remove(&mut store).unwrap();
+        }
+        let mut roots = RootScope::new(&mut store);
+        let a = live.upgrade(&mut roots).unwrap().unwrap();
+        let structure = a.as_struct(&roots).unwrap().unwrap();
+        assert_eq!(structure.field(&mut roots, 1).unwrap().unwrap_i32(), 10);
+        let b = *structure
+            .field(&mut roots, 0)
+            .unwrap()
+            .unwrap_anyref()
+            .unwrap();
+        let back = *b
+            .as_struct(&roots)
+            .unwrap()
+            .unwrap()
+            .field(&mut roots, 0)
+            .unwrap()
+            .unwrap_anyref()
+            .unwrap();
+        assert!(Rooted::ref_eq(&roots, &a, &back).unwrap());
+    }
+    connect(&mut store, owner, None);
+    store.gc(None).unwrap();
+    assert!(live.upgrade(&mut store).unwrap().is_none());
+    assert!(store.gc_heap_capacity() <= HEAP_CAP);
+    live.remove(&mut store).unwrap();
+}
