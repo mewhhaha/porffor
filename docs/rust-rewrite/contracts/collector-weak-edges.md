@@ -12,12 +12,29 @@ The copyable handles do not deregister on drop. Entry deletion explicitly calls
 
 The registry belongs to the Store and stays outside the strong-root census.
 Strong tracing runs first. A conditional value is marked only after its owner
-and key are independently live. Newly marked values join the ordinary worklist;
-complete ephemeron passes repeat until no additional object is marked. Weak
+and key are independently live. Before the space flip, the collector sorts two
+dependency records per conditional edge and reserves all marking and retirement
+storage. The first copy of an owner or key satisfies its independent gate;
+each edge enters the ready queue once when both gates are satisfied. Newly
+marked values join the ordinary worklist. The collector alternates that worklist
+and the ready queue until both are empty, including when a boxed value exposes
+the next key through a strong field. These raw indices are never roots. Weak
 updates then forward surviving references, clear dead targets and retire dead
 owners or keys. ExternRef sweeping follows this fixed point and update phase.
-Dropping an in-progress copying collection finishes every phase after the space
-flip, including conditional marking and weak updates.
+Dropping an in-progress copying collection finishes the worklist, conditional
+marking, weak updates and sweeping phases. Root processing retains the upstream
+error-path assumption that valid roots can be forwarded successfully.
+
+`GcWeakHeapEpoch` and `GcWeakKeyFingerprint` provide opaque, non-rooting lookup
+tokens for the copying collector. A token binds the Store identity, a checked
+monotonic collection epoch and the current heap index. Every copying cycle
+advances the epoch before movement, including cycles without weak entries.
+Other collectors reject tokens unless they explicitly provide this capability.
+Foreign Stores, non-heap keys and uninitialized heaps produce errors.
+The product's WeakMap and WeakSet resources use these tokens for hash lookup,
+retain the collector's identity check on hits, and transactionally rebuild from
+surviving handles once per epoch. Tokens never replace collector handles or
+retain keys and values strongly.
 
 An upgrade reads its slot and creates a Wasmtime root under one `AutoAssertNoGc`
 guard. JavaScript's separate keep-during-job rule must retain successful
@@ -47,6 +64,9 @@ The native collector controls in
 force actual collections and cover increment-boundary scans, dead targets, moving identity, reverse
 ephemeron chains, dead owners with live keys, value/key cycles, stale and foreign
 handles, explicit kept roots, ExternRef sweeping and null conditional values.
+Additional controls cover long boxed chains in both insertion orders, duplicate
+edges with equal owner and key, non-rooting token invalidation across movements
+and Stores, and emitted collection lookup after movement, deletion and churn.
 The vendored unit control drops actual collections at thirteen increment
 boundaries and checks both surviving and subsequently dead references. These
 controls are separate from complete pinned weak-tree and full-suite acceptance.

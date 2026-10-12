@@ -91,6 +91,12 @@ pub unsafe trait GcHeap: 'static + Send + Sync {
         false
     }
 
+    /// Whether heap indices cannot be reused within the weak registry epoch.
+    /// A moving collector must advance the epoch before any movement or reuse.
+    fn supports_weak_key_fingerprints(&self) -> bool {
+        false
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     // Life Cycle GC Heap Methods
 

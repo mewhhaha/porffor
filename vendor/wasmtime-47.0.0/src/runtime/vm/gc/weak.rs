@@ -29,9 +29,22 @@ pub(crate) struct WeakGcSlot {
 pub(crate) struct WeakGcRegistry {
     pub(crate) slots: Vec<WeakGcSlot>,
     free: Vec<u32>,
+    pub(crate) epoch: u64,
 }
 
 impl WeakGcRegistry {
+    pub(crate) fn advance_epoch(&mut self) -> Result<()> {
+        let next = self
+            .epoch
+            .checked_add(1)
+            .ok_or_else(|| format_err!("weak heap epoch exhausted"))?;
+        // Weak update may retire every occupied slot; it must not allocate
+        // while the copying heap is in a half-collected state.
+        self.free.try_reserve(self.slots.len() - self.free.len())?;
+        self.epoch = next;
+        Ok(())
+    }
+
     pub(crate) fn insert(&mut self, edge: WeakGcEdge) -> Result<WeakGcSlotId> {
         let index = match self.free.pop() {
             Some(index) => index,

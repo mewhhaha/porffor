@@ -3,12 +3,13 @@
 Run from the repository root under limited_verification.py --cloud. Cargo stays
 serial; up to four native targets use one CPU and one test thread each. Original
 worker/campaign deadlines, publication, performance and rustdoc scopes remain
-idle-exclusive. --partition-cli inventories and executes every qualified CLI
+idle-exclusive. Explicitly isolated test roots use their own Cargo cohort while
+retaining every selected target. --partition-cli inventories and executes every qualified CLI
 test exactly once across disjoint processes.
 """
 import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
 from pathlib import Path
-root=Path.cwd();parser=argparse.ArgumentParser();parser.add_argument('--packages',nargs='*');parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
+root=Path.cwd();parser=argparse.ArgumentParser();parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -31,6 +32,9 @@ packages.sort(key=lambda p: (priority.index(p['name']) if p['name'] in priority 
 if args.packages:
     assert set(args.packages)<={p['name'] for p in packages}
     packages=[p for p in packages if p['name'] in args.packages]
+isolated_packages=sorted(set(args.isolate_test_package))
+assert set(isolated_packages)<={p['name'] for p in packages}, 'Isolated test packages must belong to the selected workspace'
+assert not isolated_packages or not args.reuse_library_build_from, 'Broad historical library carry cannot cross an isolated Cargo graph'
 cases=[];disabled_targets=[]
 for p in packages:
     enabled=set(p['features']) if args.all_features else set()
@@ -70,13 +74,14 @@ if args.only_targets:
     assert requested <= known, requested-known
     cases=[c for c in cases if c['package']+':'+c['target'] in requested]
 
-result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages]}
+result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages}
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
     assert previous['head']==result['head'] and previous['source_unchanged']
     assert previous['all_features']==args.all_features and previous['include_ignored']==args.include_ignored
     assert previous['selected_workspace_packages']==result['selected_workspace_packages']
+    assert previous.get('isolated_test_packages',[])==isolated_packages
     previous_source=json.loads((args.retry_from.parent/'source-start.json').read_text())
     assert previous_source==source
     rejected={(c['package'],c['target'],c['kind']):c for c in previous['cases'] if c.get('state') is None or (args.retry_interrupted and c.get('state') in ('interrupted','storage-deferred'))}
@@ -128,13 +133,15 @@ available=sorted(os.sched_getaffinity(0))
 assert 1 <= args.test_processes <= min(4 if args.strip_test_debug else 2,len(available))
 assert not args.strip_test_debug or args.shared_runtime_linker
 slots=available[:args.test_processes]
-result['artifact_selection_policy']='Exact Cargo package identity, target name, kind and test profile; every selector uses one stable workspace feature graph; same-name package targets and the library cohort build once.'
+result['artifact_selection_policy']='Exact Cargo package identity, target name, kind and test profile; normal selectors exclude explicitly isolated test roots; each isolated package has its own exact Cargo cohort; all native IDs execute once.'
 result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'test_threads_per_process':1,'cargo_jobs':1,'strip_test_debug':args.strip_test_debug,
- 'compilation_policy':'all inherited parent CPUs when no native target is active; a single free native CPU otherwise'}
+ 'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
 active={}
 sys.path.insert(0,str(root/'scripts'))
-from workspace_test_artifacts import package_selection, selector_key, test_artifacts
+from workspace_test_artifacts import doc_cohorts, package_selection, selector_key, test_artifacts
+from workspace_build_cpus import expand_build_tree
+def group_key(case):return selector_key(case,isolated_packages)
 artifact_cohorts={}
 build_groups={}
 result['build_groups']=build_groups
@@ -192,7 +199,32 @@ def build_with_completed_cache_retirement(command, stdout, stderr, case):
     # rustc receives the shared incremental root, not its opaque child cache.
     # Do not guess an active unit's child or delete caches during Cargo.
     case['completed_unit_cache_retirement']=[]
-    return subprocess.run(command,stdout=stdout,stderr=stderr,env=build_env).returncode
+    run=subprocess.Popen(command,stdout=stdout,stderr=stderr,env=build_env)
+    started=time.monotonic();next_check=started;idle_budget_released=False
+    events=case.setdefault('idle_build_cpu_events',[])
+    while run.poll() is None:
+        now=time.monotonic()
+        if not idle_budget_released and now >= next_check:
+            next_check=now+1
+            # Do not call complete() while Cargo owns .cargo-lock: native ELF
+            # retirement remains after the build. poll() only observes exit.
+            if all(entry['run'].poll() is not None for entry in active.values()):
+                try:
+                    program=(Path('/proc')/str(run.pid)/'cmdline').read_bytes().split(b'\0')[0]
+                except FileNotFoundError:
+                    program=b''
+                # Wait until taskset/limited_verification have exec'd Cargo;
+                # otherwise the launcher could reapply its serial restriction.
+                if Path(os.fsdecode(program)).name!='cargo':
+                    time.sleep(.1)
+                    continue
+                changes=expand_build_tree(run.pid,available);idle_budget_released=True
+                if changes:
+                    events.append({'elapsed_seconds':round(now-started,3),
+                        'native_wrappers_exited':True,'changes':changes})
+                    print('IDLE BUILD CPU RELEASE',run.pid,len(changes),'task masks',available,flush=True)
+        time.sleep(.1)
+    return run.returncode
 
 def seal_build_logs(case, paths):
     archives=[]
@@ -274,57 +306,99 @@ def split_doc_packages(text):
         rows[name]=text[start.start():end]
     return rows
 
+def admit_build_space(case, label, *, cached_native=False):
+    # Existing validated ELFs need no link reserve. Any actual relink, including
+    # the static-to-shared fallback, must obtain the reserve before unlinking.
+    free_bytes=shutil.disk_usage(root/'target').free
+    case['build_start_free_disk_bytes']=free_bytes
+    build_reserve=0 if cached_native else 2*1024**3
+    case['build_space_policy']='No link admitted: use the exact source-bound validated existing native artifact' if cached_native else 'Reserve two GiB before an actual Cargo/rustdoc build'
+    if not cached_native and free_bytes < 4*1024**3:
+        with (root/'target/debug/.cargo-lock').open('a+b') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            removed=[]
+            for cache in (root/'target/debug/incremental').iterdir():
+                if cache.is_dir():
+                    removed.append({'path':str(cache.relative_to(root)),'allocated_bytes':sum(p.stat().st_blocks*512 for p in cache.rglob('*') if p.is_file())});shutil.rmtree(cache)
+            case['inactive_incremental_prune']=removed
+        free_bytes=shutil.disk_usage(root/'target').free
+    last_drain_at=None
+    while free_bytes < build_reserve and active:
+        now=time.monotonic()
+        if last_drain_at is None or now-last_drain_at >= 20:
+            print('STORAGE DRAIN',label,free_bytes,flush=True)
+            last_drain_at=now
+        reap()
+        forward_progress()
+        time.sleep(.1)
+        free_bytes=shutil.disk_usage(root/'target').free
+    if free_bytes < build_reserve:
+        case.update(state='storage-deferred',build_start_free_disk_bytes=free_bytes,reason='insufficient disk for raw link output; no Cargo process admitted; active native scopes drained normally')
+        save();print('STORAGE DEFERRED',label,free_bytes,flush=True)
+        return False
+    return True
+
 def run_doc_cohort():
     assert not active, 'Documentation remains idle-exclusive'
-    selected=[c for c in cases if c['kind']=='doc']
-    assert selected and all(c.get('state') is None for c in selected)
-    expected={c['package'].replace('-','_') for c in full_inventory if c['kind']=='doc'}
-    flags=['--all-features'] if args.all_features else []
-    base=['cargo','test','--locked','--offline',*package_selection(args.packages),*flags,'--doc','--no-fail-fast']
-    prefix=['python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--']
-    command_inventory=prefix+base+['--','--list']
-    inventory_path=out/'workspace-doc-cohort.inventory.log'
-    started=time.monotonic()
-    with inventory_path.open('w') as stream:
-        inventory=subprocess.run(command_inventory,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
-    inventory_rows=split_doc_packages(inventory_path.read_text())
-    assert inventory.returncode==0 and set(inventory_rows)==expected, (inventory.returncode,set(inventory_rows),expected)
-    command=prefix+base+['--','--test-threads=1']+(['--include-ignored'] if args.include_ignored else [])
-    label='workspace-'+out.name+'-workspace-doc-cohort'
-    log_path=out/'workspace-doc-cohort.execution.log'
-    watched=['bash','scripts/run-watched.sh','--label',label,'--stall','2400','--poll','1','--',*command]
-    with log_path.open('w') as stream:
-        executed=subprocess.run(watched,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
-    watch=root/'target/watched'/(label+'.log')
-    assert watch.is_file(), watch
-    execution_rows=split_doc_packages(watch.read_text())
-    assert set(execution_rows)==expected, (set(execution_rows),expected)
-    cohort={'inventory_command':command_inventory,'command':command,'exit_code':executed.returncode,
-        'inventory_log':str(inventory_path.relative_to(root)), 'inventory_sha256':hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
-        'transcript_log':str(watch.relative_to(root)), 'transcript_sha256':hashlib.sha256(watch.read_bytes()).hexdigest(),
-        'policy':'One complete workspace documentation cohort on the same all-feature package graph; native rustdoc controls stay serial and idle-exclusive. Completed siblings are recorded separately and never replace prior verdicts.'}
-    build_groups['doc:*']=cohort
-    for case in selected:
-        package=case['package'].replace('-','_')
-        label='cohort-'+case['package']+'-doc'
-        inventory_piece=out/(label+'.inventory.log')
-        inventory_piece.write_text(inventory_rows[package])
-        transcript=out/(label+'.native.log')
-        transcript.write_text(execution_rows[package])
-        outcomes=[dict(zip(['passed','failed','ignored'],map(int,row))) for row in re.findall(r'^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored;',execution_rows[package],re.M)]
-        count=len(re.findall(r'^.+: test$',inventory_rows[package],re.M))
-        matches=len(outcomes)==1 and sum(sum(row.values()) for row in outcomes)==count and all(row['ignored']==0 and row['failed']==0 for row in outcomes)
-        case.update(state='passed' if matches else 'failed',build_exit=inventory.returncode,
-            exit_code=0 if matches else 1,cohort_exit_code=executed.returncode,inventory_matches=matches,inventoried_tests=count,
-            inventoried_benchmarks=len(re.findall(r'^.+: benchmark$',inventory_rows[package],re.M)),
-            outcomes=outcomes,transcript_log=str(transcript.relative_to(root)),transcript_sha256=hashlib.sha256(transcript.read_bytes()).hexdigest(),
-            inventory_command=command_inventory,command=command,build_group='doc:*',seconds=round(time.monotonic()-started,3),
-            test_policy='complete workspace docs, one libtest thread per rustdoc; idle-exclusive; cohort wall time is shared')
-        print('END',label,case['state'],outcomes,flush=True)
-    cohort['completed_siblings']=[{'package':name,'inventory_count':len(re.findall(r'^.+: test$',inventory_rows[name],re.M)),
-        'transcript_sha256':hashlib.sha256(execution_rows[name].encode()).hexdigest()} for name in sorted(expected-{c['package'].replace('-','_') for c in selected})]
-    save()
-    assert result['source_unchanged'], 'Source changed during documentation cohort'
+    pending=[c for c in cases if c['kind']=='doc' and c.get('state') is None]
+    assert pending
+    for group, selection, package_names in doc_cohorts(full_inventory,args.packages,isolated_packages):
+        selected=[c for c in pending if c['package'] in package_names]
+        if not selected:continue
+        expected={name.replace('-','_') for name in package_names}
+        cohort_label='workspace-doc-cohort'+('' if group=='doc:*' else '-'+selected[0]['package'])
+        admission=selected[0]
+        if not admit_build_space(admission,cohort_label):
+            for case in selected[1:]:
+                case.update(state='storage-deferred',build_start_free_disk_bytes=admission['build_start_free_disk_bytes'],build_space_policy=admission['build_space_policy'],reason=admission['reason'])
+            save()
+            continue
+        flags=['--all-features'] if args.all_features else []
+        base=['cargo','test','--locked','--offline',*selection,*flags,'--doc','--no-fail-fast']
+        prefix=['python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--']
+        command_inventory=prefix+base+['--','--list']
+        inventory_path=out/(cohort_label+'.inventory.log')
+        started=time.monotonic()
+        with inventory_path.open('w') as stream:
+            inventory=subprocess.run(command_inventory,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
+        inventory_rows=split_doc_packages(inventory_path.read_text())
+        assert inventory.returncode==0 and set(inventory_rows)==expected, (inventory.returncode,set(inventory_rows),expected)
+        command=prefix+base+['--','--test-threads=1']+(['--include-ignored'] if args.include_ignored else [])
+        label='workspace-'+out.name+'-'+cohort_label
+        log_path=out/(cohort_label+'.execution.log')
+        watched=['bash','scripts/run-watched.sh','--label',label,'--stall','2400','--poll','1','--',*command]
+        with log_path.open('w') as stream:
+            executed=subprocess.run(watched,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
+        watch=root/'target/watched'/(label+'.log')
+        assert watch.is_file(), watch
+        execution_rows=split_doc_packages(watch.read_text())
+        assert set(execution_rows)==expected, (set(execution_rows),expected)
+        cohort={'inventory_command':command_inventory,'command':command,'exit_code':executed.returncode,
+            'inventory_log':str(inventory_path.relative_to(root)), 'inventory_sha256':hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
+            'transcript_log':str(watch.relative_to(root)), 'transcript_sha256':hashlib.sha256(watch.read_bytes()).hexdigest(),
+            'policy':'One complete documentation cohort on the exact selected Cargo graph; explicitly isolated test roots remain separate. Rustdoc controls stay serial and idle-exclusive. Completed siblings never replace prior verdicts.'}
+        build_groups[group]=cohort
+        for case in selected:
+            package=case['package'].replace('-','_')
+            label='cohort-'+case['package']+'-doc'
+            inventory_piece=out/(label+'.inventory.log')
+            inventory_piece.write_text(inventory_rows[package])
+            transcript=out/(label+'.native.log')
+            transcript.write_text(execution_rows[package])
+            outcomes=[dict(zip(['passed','failed','ignored'],map(int,row))) for row in re.findall(r'^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored;',execution_rows[package],re.M)]
+            count=len(re.findall(r'^.+: test$',inventory_rows[package],re.M))
+            matches=len(outcomes)==1 and sum(sum(row.values()) for row in outcomes)==count and all(row['ignored']==0 and row['failed']==0 for row in outcomes)
+            case.update(state='passed' if matches else 'failed',build_exit=inventory.returncode,
+                exit_code=0 if matches else 1,cohort_exit_code=executed.returncode,inventory_matches=matches,inventoried_tests=count,
+                inventoried_benchmarks=len(re.findall(r'^.+: benchmark$',inventory_rows[package],re.M)),
+                outcomes=outcomes,inventory_log=str(inventory_piece.relative_to(root)),inventory_sha256=hashlib.sha256(inventory_piece.read_bytes()).hexdigest(),transcript_log=str(transcript.relative_to(root)),transcript_sha256=hashlib.sha256(transcript.read_bytes()).hexdigest(),
+                inventory_command=command_inventory,command=command,build_group=group,seconds=round(time.monotonic()-started,3),
+                test_policy='complete Cargo documentation cohort, one libtest thread per rustdoc; idle-exclusive; cohort wall time is shared')
+            print('END',label,case['state'],outcomes,flush=True)
+        cohort['completed_siblings']=[{'package':name,'inventory_count':len(re.findall(r'^.+: test$',inventory_rows[name],re.M)),
+            'transcript_sha256':hashlib.sha256(execution_rows[name].encode()).hexdigest()} for name in sorted(expected-{c['package'].replace('-','_') for c in selected})]
+        save()
+        assert result['source_unchanged'], 'Source changed during documentation cohort'
 
 save()
 for i,case in enumerate(cases):
@@ -347,33 +421,10 @@ for i,case in enumerate(cases):
     watch_label=f'workspace-{out.name}-{label}'
     print('START',label,flush=True)
     flags=['--all-features'] if args.all_features else []
-    selection=['-p',case['package']] if case['kind']=='doc' else package_selection(args.packages)
+    selection=['-p',case['package']] if case['kind']=='doc' or case['package'] in isolated_packages else package_selection(args.packages,isolated_packages)
     base=['cargo','test','--locked','--offline',*selection,*flags,*case['selector']]
-    # Raw link output exists before optional DWARF stripping. Fail admission
-    # before Cargo if there is insufficient temporary space for that link.
-    free_bytes=shutil.disk_usage(root/'target').free
-    case['build_start_free_disk_bytes']=free_bytes
-    cached_native=case['kind']!='doc' and selector_key(case) in artifact_cohorts
-    build_reserve=0 if cached_native else 2*1024**3
-    case['build_space_policy']='No link admitted: use the exact source-bound validated existing native artifact' if cached_native else 'Reserve two GiB before an actual Cargo/rustdoc build'
-    if not cached_native and free_bytes < 4*1024**3:
-        with (root/'target/debug/.cargo-lock').open('a+b') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX)
-            removed=[]
-            for cache in (root/'target/debug/incremental').iterdir():
-                if cache.is_dir():
-                    removed.append({'path':str(cache.relative_to(root)),'allocated_bytes':sum(p.stat().st_blocks*512 for p in cache.rglob('*') if p.is_file())});shutil.rmtree(cache)
-            case['inactive_incremental_prune']=removed
-        free_bytes=shutil.disk_usage(root/'target').free
-    while free_bytes < build_reserve and active:
-        print('STORAGE DRAIN',label,free_bytes,flush=True)
-        reap()
-        forward_progress()
-        time.sleep(.1)
-        free_bytes=shutil.disk_usage(root/'target').free
-    if free_bytes < build_reserve:
-        case.update(state='storage-deferred',build_start_free_disk_bytes=free_bytes,reason='insufficient disk for raw link output; no Cargo process admitted; active native scopes drained normally')
-        save();print('STORAGE DEFERRED',label,free_bytes,flush=True);continue
+    cached_native=case['kind']!='doc' and group_key(case) in artifact_cohorts
+    if not admit_build_space(case,label,cached_native=cached_native):continue
     cpu=next(cpu for cpu in slots if cpu not in active)
     start=time.monotonic();case.update(state='building',started_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()));save()
     buildlog=out/(label+'.build.jsonl');errlog=out/(label+'.build.stderr')
@@ -391,7 +442,7 @@ for i,case in enumerate(cases):
         case['inventoried_benchmarks']=len(re.findall(r'^.+: benchmark$',inventory.stdout,re.M))
         command=base+['--','--test-threads=1']+(['--include-ignored'] if args.include_ignored else [])
     else:
-        group=selector_key(case)
+        group=group_key(case)
         group_name=':'.join(group)
         reused_group=group in artifact_cohorts
         cohort_base=base
@@ -425,14 +476,14 @@ for i,case in enumerate(cases):
                     result['stopped_after_build_failure']=label
                     break
                 continue
-            expected=[(package_ids[c['package']],c['target'],c['kind']) for c in full_inventory if selector_key(c)==group]
+            expected=[(package_ids[c['package']],c['target'],c['kind']) for c in full_inventory if group_key(c)==group]
             messages=[json.loads(line) for line in buildlog.read_text().splitlines()]
             artifact_cohorts[group]=test_artifacts(messages,expected)
             executable=artifact_cohorts[group][(package_ids[case['package']],case['target'],case['kind'])]
             build_groups[group_name]={'command':command_build,'executables':[{'package_id':key[0],'target':key[1],'kind':key[2],'path':str(path.relative_to(root))} for key,path in artifact_cohorts[group].items()],
-                'policy':'One stable workspace feature graph and one build per selector; every selected exact package executable is independently inventoried and executed.',
+                'policy':'One build per exact selector cohort; explicitly isolated test roots do not widen the normal graph; every selected package executable is independently inventoried and executed.',
                 'completed_unit_cache_retirement':case['completed_unit_cache_retirement']}
-            wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if selector_key(c)==group}
+            wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if group_key(c)==group}
             retired_siblings=[]
             for key,path in artifact_cohorts[group].items():
                 if key not in wanted:
@@ -449,11 +500,14 @@ for i,case in enumerate(cases):
             if 'liblila_runtime_images_' not in dynamic:
                 symbols=subprocess.check_output(['nm','-g','--defined-only',str(executable)],text=True)
                 if re.search(r'\bLILA_RUNTIME_(PACKAGE|NATIVE|MANIFEST)$',symbols,re.M):
+                    if not admit_build_space(case,label+'-shared-relink'):
+                        seal_build_logs(case,[buildlog,errlog])
+                        continue
                     case['static_executable_relinked']=True
                     executable.unlink()
                     with buildlog.open('a') as stdout,errlog.open('a') as stderr:
-                        rebuilt=subprocess.run(command_build,stdout=stdout,stderr=stderr,env=build_env)
-                    assert rebuilt.returncode==0,(case,errlog.read_text()[-4000:])
+                        rebuilt=build_with_completed_cache_retirement(command_build,stdout,stderr,case)
+                    assert rebuilt==0,(case,errlog.read_text()[-4000:])
                     dynamic=subprocess.check_output(['readelf','-d',str(executable)],text=True)
                     assert 'liblila_runtime_images_' in dynamic,case
         case['executable_sha256']=hashlib.sha256(executable.read_bytes()).hexdigest()

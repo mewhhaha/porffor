@@ -45,5 +45,6 @@ fn marker(mut store: impl AsContextMut<Data = ()>, reference: Rooted<AnyRef>) ->
         .unwrap_i32()
 }
 
+mod indexed_reachability;
 mod lifecycle;
 mod reachability;

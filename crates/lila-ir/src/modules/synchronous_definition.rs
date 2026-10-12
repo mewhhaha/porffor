@@ -140,7 +140,10 @@ impl ModuleExecutionDefinitions {
                     analysis.function_declaration_ids[&function_declaration_key(function)].clone(),
                     function.name().sym(),
                 ),
-                _ => panic!(
+                Declaration::GeneratorDeclaration(_)
+                | Declaration::AsyncGeneratorDeclaration(_)
+                | Declaration::ClassDeclaration(_)
+                | Declaration::Lexical(_) => panic!(
                     "the compiled import prelude contains only private function declarations"
                 ),
             };

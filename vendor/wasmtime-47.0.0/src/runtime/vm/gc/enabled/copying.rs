@@ -10,6 +10,9 @@
 //!
 //! This collector does not require any read or write barriers.
 
+mod marking;
+use marking::EphemeronMarking;
+
 use super::VMArrayRef;
 use super::trace_infos::TraceInfos;
 use crate::runtime::vm::{
@@ -514,7 +517,7 @@ impl CopyingHeap {
 
     /// Get-or-create the location of this idle-space ref in the new active
     /// semi-space.
-    fn forward(&mut self, from_ref: &VMGcRef) -> Result<VMGcRef> {
+    fn forward(&mut self, from_ref: &VMGcRef, marking: &mut EphemeronMarking) -> Result<VMGcRef> {
         debug_assert!(!from_ref.is_i31());
         debug_assert!(self.is_in_idle_space(from_ref.heap_index()?.get()));
 
@@ -524,12 +527,12 @@ impl CopyingHeap {
         {
             return Ok(to_ref);
         }
-        self.copy(from_ref)
+        self.copy(from_ref, marking)
     }
 
     /// Copy this idle-space ref into the new active semi-space and return its
     /// new location.
-    fn copy(&mut self, from_ref: &VMGcRef) -> Result<VMGcRef> {
+    fn copy(&mut self, from_ref: &VMGcRef, marking: &mut EphemeronMarking) -> Result<VMGcRef> {
         debug_assert!(!from_ref.is_i31());
         let from_index = from_ref.heap_index()?.get();
         debug_assert!(self.is_in_idle_space(from_index));
@@ -590,6 +593,7 @@ survived collection, since the active space is the same size as the idle space",
         }
 
         self.worklist_insert(&to_ref)?;
+        marking.copied(from_ref);
         Ok(to_ref)
     }
 
@@ -601,6 +605,7 @@ survived collection, since the active space is the same size as the idle space",
         gc_ref: &VMGcRef,
         trace_infos: &mut TraceInfos,
         trace_state: &mut GcStoreTraceState<'_>,
+        marking: &mut EphemeronMarking,
     ) -> Result<()> {
         debug_assert!(!gc_ref.is_i31());
         let index = gc_ref.heap_index()?.get();
@@ -614,7 +619,7 @@ survived collection, since the active space is the same size as the idle space",
                 let mut remaining = gc_ref_bitmap;
                 while remaining != 0 {
                     let slot = remaining.trailing_zeros();
-                    self.scan_field(object_start, HEADER_SIZE + slot * 4)?;
+                    self.scan_field(object_start, HEADER_SIZE + slot * 4, marking)?;
                     remaining &= remaining - 1;
                 }
             }
@@ -631,7 +636,7 @@ survived collection, since the active space is the same size as the idle space",
                             Some(i) => i,
                             None => bail_bug!("array element offset overflow"),
                         };
-                        self.scan_field(object_start, elem_offset)?;
+                        self.scan_field(object_start, elem_offset, marking)?;
                     }
                 }
             }
@@ -643,7 +648,7 @@ survived collection, since the active space is the same size as the idle space",
                 match trace_infos.trace_info(&ty, trace_state) {
                     TraceInfo::Struct { gc_ref_offsets } => {
                         for &offset in gc_ref_offsets {
-                            self.scan_field(object_start, offset)?;
+                            self.scan_field(object_start, offset, marking)?;
                         }
                     }
                     TraceInfo::Array { .. } => {
@@ -656,7 +661,12 @@ survived collection, since the active space is the same size as the idle space",
     }
 
     #[inline]
-    fn scan_field(&mut self, object_start: usize, offset: u32) -> Result<()> {
+    fn scan_field(
+        &mut self,
+        object_start: usize,
+        offset: u32,
+        marking: &mut EphemeronMarking,
+    ) -> Result<()> {
         let offset = usize::try_from(offset)?;
         let field_start = match object_start.checked_add(offset) {
             Some(start) => start,
@@ -677,7 +687,7 @@ survived collection, since the active space is the same size as the idle space",
             && !child.is_i31()
         {
             debug_assert!(self.is_in_idle_space(child.heap_index()?.get()));
-            let new_ref = self.forward(&child)?;
+            let new_ref = self.forward(&child, marking)?;
             debug_assert!(self.is_in_active_space(new_ref.heap_index()?.get()));
             // Write the new reference back.
             let new_raw = new_ref.as_raw_u32().to_le_bytes();
@@ -690,6 +700,10 @@ survived collection, since the active space is the same size as the idle space",
 
 unsafe impl GcHeap for CopyingHeap {
     fn supports_weak_refs(&self) -> bool {
+        true
+    }
+
+    fn supports_weak_key_fingerprints(&self) -> bool {
         true
     }
 
@@ -976,6 +990,7 @@ unsafe impl GcHeap for CopyingHeap {
             heap: self,
             phase: CopyingCollectionPhase::ProcessRoots,
             weak_cursor: 0,
+            marking: EphemeronMarking::default(),
         })
     }
 
@@ -1041,6 +1056,7 @@ struct CopyingCollection<'a, 'b> {
     heap: &'a mut CopyingHeap,
     phase: CopyingCollectionPhase,
     weak_cursor: usize,
+    marking: EphemeronMarking,
 }
 
 enum CopyingCollectionPhase {
@@ -1064,7 +1080,7 @@ impl CopyingCollection<'_, '_> {
             }
             let old_index = gc_ref.heap_index()?.get();
             debug_assert!(self.heap.is_in_idle_space(old_index));
-            let new_ref = self.heap.forward(&gc_ref)?;
+            let new_ref = self.heap.forward(&gc_ref, &mut self.marking)?;
             root.set(new_ref);
         }
         log::trace!("End processing GC roots");
@@ -1084,6 +1100,10 @@ impl CopyingCollection<'_, '_> {
                 || self.heap.idle_space_end <= self.heap.active_space_start
         );
 
+        // Complete every allocation and the checked cache epoch change before
+        // moving any object. Collection-local indices do not retain referents.
+        self.marking = EphemeronMarking::new(self.trace_state.weak_gc)?;
+        self.trace_state.weak_gc.advance_epoch()?;
         self.heap.flip();
         self.heap.initialize_worklist();
 
@@ -1109,8 +1129,12 @@ impl CopyingCollection<'_, '_> {
             match self.heap.worklist_pop()? {
                 Some(gc_ref) => {
                     debug_assert!(self.heap.is_in_active_space(gc_ref.heap_index()?.get()));
-                    self.heap
-                        .scan(&gc_ref, &mut trace_infos, self.trace_state)?;
+                    self.heap.scan(
+                        &gc_ref,
+                        &mut trace_infos,
+                        self.trace_state,
+                        &mut self.marking,
+                    )?;
                     count += 1;
                 }
                 None => break false,

@@ -1,0 +1,120 @@
+# Verification costs and useful crate boundaries — 2026-10-12
+
+These are observed timings on this cloud machine (four-CPU inherited quota,
+32-GiB inherited memory cap, serial Cargo, one CPU/thread per native process).
+They are not controlled before/after speedup claims. Original cases, fixtures,
+pins and deadlines remain acceptance requirements.
+
+| Check | Observed wall time | Scope |
+| --- | ---: | --- |
+| Matching debug CLI build | 19.740 s | 391 artifact records; three new leaf units |
+| Warm complete type check | 69 s | All workspace features and targets |
+| Complete type check after IR edit | 458.508 s | Same complete scope; IR/build dependencies rebuilt |
+| Original structural preflight | 0.202 s | Build, inventory and execute three unchanged source-only controls |
+| Tooling tests | 149.145 s | 479 Python methods on the prior source |
+| Current tooling tests | 146.957 s | All 491 Python methods |
+| Focused GC native build | 492.836 s | Two Cargo-selected native test executables |
+| Focused GC native execution | 10.591 s | 25 controls, including four new controls |
+| Compiled corpus | 40.883 s | All fourteen entries |
+| Debug nightly campaign | 2,236.618 s | All 704 cases; every prior passing ID retained |
+| Debug robustness campaign | 1,024.212 s | Original nineteen targets × 64 inputs |
+| Initial native documentation cohort | 475.344 s | All thirteen packages; count this shared time once |
+
+Raw source-bound results are retained under `target/weak-index-*20261012`.
+The [portable checkpoint](weak-index-repair-20261012.json) preserves exact
+comparisons and the native failure, separate from the passing campaigns.
+The complete native attempt is still incomplete: 44 scopes executed 4,526
+IDs, with 4,525 passes and one structural regression; 62 scopes remain
+unstarted or storage-deferred. Do not infer a full native or release pass.
+
+## Immediate iteration work
+
+Keep Cargo feature/profile graphs stable and reuse only artifacts Cargo actually
+selects as fresh. A prior all-feature CLI build took 567.09 seconds and rebuilt
+ten units, including Boa, AOT and the runtime image; Wasmtime/Cranelift were
+already fresh. The later 19.740-second build reused those dependencies.
+
+The native runner previously bypassed package isolation for its documentation
+cohort. Its repaired cohorts keep normal roots separate from each isolated root,
+retain every selected package, record per-package inventory hashes and preserve
+idle execution. Cached native ELFs require no link reserve; real builds and
+fallback static-to-shared relinks require the original two-GiB disk reserve.
+Storage waiting polls as before but prints at most once per twenty seconds.
+
+A live Cargo/rustc sample showed one-CPU affinity and about 99% CPU while no
+native test remained, despite the four-CPU quota. The blocking build call kept
+the launch-time restriction after the tests had exited. The runner now polls
+the build and expands only its descendant task masks to the inherited budget
+after all native wrappers exit. Cargo remains serial; native masks and deadlines
+remain unchanged. Native cleanup still waits until Cargo releases its lock.
+The first external monitor arrived after Cargo completed and made zero changes;
+it establishes no measured speedup. Fresh run receipts record actual changes.
+The live child/thread/grandchild probe passes on the frozen helper; its parent
+mask stays unchanged. The [tooling checkpoint](verification-runner-20261012.json)
+records that probe, all thirteen guards, current tooling, types and nine Intl
+freshness checks. The 458.508-second check follows an IR source edit and rebuilds
+IR build dependencies, unlike the earlier warm 69-second check. Neither timing
+is a controlled comparison of the new scheduling policy.
+
+## Repeated process costs
+
+The nightly campaign records 768 replay attempts for 704 seeds (the metamorphic
+grammar also executes transformed inputs), implying 1,536 backend worker
+launches. Robustness launches 1,216 workers. Each worker captures compiler
+identity by hashing its loaded executable once; the current debug CLI is
+500,027,960 bytes. Together those requests scan about 1.38 TB of executable
+bytes. This is derived scan volume, not measured disk I/O: the page cache may
+satisfy those reads. Current campaign receipts do not attribute elapsed time to
+hashing, runtime admission/deserialization, input compilation or execution.
+
+The real runtime R is already source/target/configuration-bound and precompiled.
+The native test linker shares its verified immutable data through a DSO.
+Process-local Module objects still require admission and deserialization in a
+fresh worker. A bounded persistent differential/robustness worker could amortize
+identity capture and immutable runtime loading. The existing opt-in Test262
+server gives a model: at most 64 supervised requests, original per-request
+deadlines, exact request/journal/provenance checks, and a fresh Engine, Realm,
+Store, GC state and native-agent ownership each time. Timeout or protocol failure
+must retire the group; no JS state or verdict may carry to another case.
+Measure this on identical requests before claiming a gain.
+
+## Crate split with a useful dependency cut
+
+IR is roughly 7.94 MB of Rust source and AOT roughly 12.22 MB. Engine is roughly
+1.94 MB, much of its largest file being inline unit tests. IR, Intl and AOT
+already use optimization level two in dev/test; frontend, Engine and CLI use
+zero; Wasmtime/Cranelift and other external dependencies use two. Release uses
+its normal optimized profile without LTO or one-codegen-unit rebuild costs.
+
+The best candidate is a stable IR contract crate containing the typed IR,
+closed builtin/name/protocol domains and other emitter inputs, while the existing
+IR crate owns frontend analysis and lowering. AOT would depend on the contract.
+Lowering-only changes could then rebuild lowering and orchestration while
+reusing AOT. Contract changes must still invalidate their consumers.
+
+There is a production edge to remove first: AOT's runtime-artifact builder
+currently parses and lowers the runtime bootstrap. Move that orchestration to
+Engine or a small runtime-builder crate, which depends on both lowering and
+AOT; provide AOT the prepared runtime artifact. Adding a types crate while
+leaving this call inside AOT would retain the expensive dependency edge.
+
+```mermaid
+flowchart LR
+    Contract[Stable IR contracts] --> Lowering[Analysis and lowering]
+    Contract --> AOT[Wasm emitter]
+    Lowering --> Builder[Compiler and runtime orchestration]
+    AOT --> Builder
+    Builder --> Engine[Engine and CLI]
+```
+
+A second candidate separates Intl data/layout/wire contracts from provider
+algorithms so provider edits stop invalidating the emitter. Collator data already
+has a data-only crate, and other data producers already have narrow declared
+inputs; another data-only split alone has less certain benefit. Splitting the
+emitter by builtin family is less attractive because its planning, local,
+GC-root and control-frame state is private and shared.
+
+Prototype the dependency cut and measure a real lowering-only edit through
+normal Cargo. Rust libraries remain compiler/profile/feature/dependency-specific;
+do not treat an old `.rlib` as a universal precompiled ABI or force freshness.
+Compiler/host ABI identities and every full-suite acceptance gate remain intact.

@@ -1,5 +1,27 @@
 # Lila
 
+## Weak collection repair and verification — 2026-10-12
+
+Both original 99,999-link WeakMap script modes now pass within their unchanged
+60-second deadlines, taking about 18.2 seconds each. All **704 nightly** and
+**1,216 robustness** IDs remain passing with no missing IDs or regressions.
+The compiled corpus passes **14/14**, and all 25 focused GC controls pass.
+Collector marking uses owner/key dependency gates; native collection lookup
+uses non-rooting Store/collection-epoch identities.
+
+The complete native attempt remains incomplete: **4,525 pass, one fails, zero
+ignored** across 44 executed scopes, with 62 scopes unstarted or storage-deferred.
+The failure exposes a catch-all declaration panic from the earlier import-prelude
+repair. Exhaustive matching is restored; its three original source controls,
+all-feature/all-target types, all 491 Python tests and thirteen guard commands pass.
+Verification now isolates doc cohorts, checks relink space and releases idle
+compilation CPU restrictions. The live process check passes; throughput savings
+and a fresh complete native sweep remain to be measured. See the
+[tooling checkpoint](docs/rust-rewrite/verification-runner-20261012.json),
+[collector checkpoint](docs/rust-rewrite/weak-index-repair-20261012.json)
+and [measured costs and crate boundaries](docs/rust-rewrite/verification-costs-20261012.md).
+Default, optimized, full-pin, performance, publication and task closure remain open.
+
 ## Generator and iterator repair — 2026-10-12
 
 The frozen debug CLI passes all **704 nightly campaign cases**, eliminating
@@ -19,7 +41,9 @@ Additional emitted GC controls cover cyclic churn and escaped foreign-Realm
 closures. On both this compiler and the retained earlier compiler, the original
 99,999-link WeakMap fixture still times out in both script modes at 60,000 ms:
 two pre-existing failures, zero regressions on those IDs. Its lookup and
-conditional-marking costs need repair. Full native/default/optimized, current-pin,
+conditional-marking repairs are written and awaiting fresh verification. The
+collector uses first-copy owner/key dependencies; native collection lookups use
+non-rooting Store/collection-epoch tokens. Full native/default/optimized, current-pin,
 performance, stress, publication and task closure remain open.
 
 ## Async loop and cold module repair — 2026-10-12

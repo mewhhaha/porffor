@@ -58,5 +58,77 @@ class WorkspaceTestArtifactTests(unittest.TestCase):
                             artifacts.selector_key({"kind": "test", "target": "lila"}))
 
 
+    def test_excluded_test_roots_are_absent_from_normal_cargo_selection(self):
+        self.assertEqual(artifacts.package_selection(excluded=["lila-intl"]),
+                         ["--workspace", "--exclude", "lila-intl"])
+        self.assertEqual(artifacts.package_selection(
+            ["lila-cli", "lila-intl", "lila-test262"], excluded=["lila-intl"]),
+            ["-p", "lila-cli", "-p", "lila-test262"])
+
+    def test_exclusion_cannot_implicitly_select_the_default_package(self):
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            artifacts.package_selection(["lila-intl"], excluded=["lila-intl"])
+
+    def test_isolated_library_and_named_targets_cannot_widen_normal_cohorts(self):
+        for kind in ["lib", "test"]:
+            normal = {"package": "lila-cli", "kind": kind, "target": "native_contract"}
+            isolated = {"package": "lila-intl", "kind": kind, "target": "native_contract"}
+            sibling = {"package": "lila-test262", "kind": kind, "target": "native_contract"}
+            self.assertNotEqual(artifacts.selector_key(normal, ["lila-intl"]),
+                                artifacts.selector_key(isolated, ["lila-intl"]))
+            self.assertEqual(artifacts.selector_key(normal, ["lila-intl"]),
+                             artifacts.selector_key(sibling, ["lila-intl"]))
+
+    def test_distinct_isolated_packages_keep_distinct_cargo_cohorts(self):
+        cases = [{"package": p, "kind": "test", "target": "same"}
+                 for p in ["lila-intl", "lila-cli"]]
+        self.assertNotEqual(*[artifacts.selector_key(c, ["lila-intl", "lila-cli"])
+                              for c in cases])
+
+    def test_docs_default_to_one_complete_workspace_cohort(self):
+        docs = [{"package": p, "kind": "doc"} for p in ["lila-cli", "lila-intl"]]
+        self.assertEqual(artifacts.doc_cohorts(docs),
+                         [("doc:*", ["--workspace"], {"lila-cli", "lila-intl"})])
+
+    def test_docs_keep_intl_test_data_out_of_normal_roots(self):
+        docs = [{"package": p, "kind": "doc"} for p in ["lila-cli", "lila-intl"]]
+        self.assertEqual(artifacts.doc_cohorts(docs, isolated_packages=["lila-intl"]), [
+            ("doc:*", ["--workspace", "--exclude", "lila-intl"], {"lila-cli"}),
+            ("doc:lila-intl::*", ["-p", "lila-intl"], {"lila-intl"})])
+
+    def test_docs_subset_and_all_isolated_selection_remain_exact(self):
+        docs = [{"package": p, "kind": "doc"} for p in ["lila-intl", "lila-cli"]]
+        self.assertEqual(artifacts.doc_cohorts(
+            docs, ["lila-intl", "lila-cli"], ["lila-intl", "lila-cli"]), [
+            ("doc:lila-cli::*", ["-p", "lila-cli"], {"lila-cli"}),
+            ("doc:lila-intl::*", ["-p", "lila-intl"], {"lila-intl"})])
+        self.assertEqual(artifacts.doc_cohorts(docs, ["lila-intl", "lila-cli"], ["lila-intl"])[0],
+                         ("doc:*", ["-p", "lila-cli"], {"lila-cli"}))
+
+    def test_docs_without_doctests_remain_in_cargo_selection(self):
+        inventory = [{"package": "normal", "kind": "doc"},
+                     {"package": "no-doc", "kind": "lib"},
+                     {"package": "isolated-no-doc", "kind": "lib"}]
+        self.assertEqual(artifacts.doc_cohorts(
+            inventory, ["normal", "no-doc", "isolated-no-doc"], ["isolated-no-doc"]),
+            [("doc:*", ["-p", "normal", "-p", "no-doc"], {"normal"})])
+
+    def test_docs_empty_inventory_never_selects_implicit_default_root(self):
+        self.assertEqual(artifacts.doc_cohorts([], ["lila-intl"], ["lila-intl"]), [])
+
+    def test_docs_duplicate_package_inventory_fails_closed(self):
+        docs = [{"package": "lila-cli", "kind": "doc"}] * 2
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            artifacts.doc_cohorts(docs)
+
+    def test_doc_cohort_union_covers_every_package_exactly_once(self):
+        names = {"a", "b", "c", "d"}
+        inventory = [{"package": p, "kind": "doc"} for p in sorted(names)]
+        for isolated in [[], ["b"], ["a", "c"], sorted(names)]:
+            groups = artifacts.doc_cohorts(inventory, isolated_packages=isolated)
+            covered = [p for _, _, docs in groups for p in docs]
+            self.assertEqual(set(covered), names)
+            self.assertEqual(len(covered), len(names))
+
 if __name__ == "__main__":
     unittest.main()

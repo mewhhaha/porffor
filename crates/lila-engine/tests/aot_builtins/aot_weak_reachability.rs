@@ -318,3 +318,49 @@ fn escaped_closure_roots_foreign_cycles_until_release_in_a_later_job() {
         );
     }
 }
+
+#[test]
+fn weak_collection_indexes_preserve_key_identity_after_movement_and_dead_key_churn() {
+    let source = r#"
+        const map = new WeakMap(), set = new WeakSet();
+        const object = {}, symbol = Symbol('local'), fn = function() {}, proxy = new Proxy({}, {});
+        const equalShape = {}, keys = [object, symbol, fn, proxy, equalShape];
+        const values = keys.map(function(key, index) { return {key, index}; });
+        for (let i = 0; i < keys.length; i++) { map.set(keys[i], values[i]); set.add(keys[i]); }
+        for (let round = 0; round < 32; round++) {
+            (function() {
+                for (let i = 0; i < 256; i++) { const dead = {}; map.set(dead, {round, i}); set.add(dead); }
+            })();
+            gc();
+            for (let i = 0; i < keys.length; i++) {
+                if (!map.has(keys[i]) || map.get(keys[i]) !== values[i] || !set.has(keys[i])) throw 'moved key identity';
+            }
+            const old = values[round % keys.length], key = keys[round % keys.length];
+            if (!map.delete(key) || map.delete(key) || map.has(key) || map.get(key) !== undefined) throw 'map deletion';
+            if (!set.delete(key) || set.delete(key) || set.has(key)) throw 'set deletion';
+            map.set(key, old); set.add(key);
+        }
+        const watches = (function() {
+            const a = {}, b = {}, c = {};
+            map.set(a, b); map.set(b, a); set.add(c);
+            return [new WeakRef(a), new WeakRef(b), new WeakRef(c)];
+        })();
+        Promise.resolve().then(function() {
+            gc();
+            for (const weak of watches) if (weak.deref() !== undefined) throw 'index retained dead key';
+            for (let i = 0; i < keys.length; i++) if (map.get(keys[i]) !== values[i] || !set.has(keys[i])) throw 'job key identity';
+            print('weak-index:ok');
+        });
+    "#;
+    for strict in [false, true] {
+        let source = if strict {
+            format!("'use strict';{source}")
+        } else {
+            source.into()
+        };
+        assert_eq!(
+            run(&source),
+            vec![HostOutputEvent::PrintLine("weak-index:ok".into())]
+        );
+    }
+}

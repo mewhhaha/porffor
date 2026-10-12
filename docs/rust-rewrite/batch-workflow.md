@@ -15,11 +15,23 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
 
 Use the available Rust toolchain activation path on other hosts. Omit
 `--all-features` for the independent default-feature suite and its oracle-refusal
-controls. The same selected workspace package graph is used for every Cargo
-selector. Every qualified native ID is inventoried; the CLI partitioner checks
+controls. By default, every Cargo selector uses the selected workspace package
+graph. `--isolate-test-package lila-intl` explicitly gives that package its own
+test cohort and excludes its test root from the other native cohorts. This
+prevents its test-only ICU `compiled_data` feature from widening those cohorts;
+normal transitive dependencies remain present. It changes neither selected
+targets nor native IDs. Retry receipts must retain the same isolation setting;
+historical broad library carry cannot cross these separate graphs. Documentation
+uses a complete normal cohort plus each isolated package's own cohort, sealing
+every selected package inventory and retaining completed siblings separately.
+Build-time savings require actual Cargo measurements; helper checks alone do
+not establish a gain. Every qualified native ID is inventoried; the CLI partitioner checks
 four disjoint exact native lists before any body runs and retains each original
 transcript. Each native process has one CPU and one test thread. Cargo stays
-serial. Original-budget campaigns, workers, corpora, performance, publication
+serial. When every active native wrapper exits during a build, the build process
+tree can use the quota-bound parent CPU set; only compilation masks expand,
+and Cargo-lock-dependent native cleanup waits until the build finishes.
+Original-budget campaigns, workers, corpora, performance, publication
 and documentation drain other native work first. Documentation collects every
 package outcome with `--no-fail-fast`; a failing package remains failed.
 
@@ -30,6 +42,9 @@ incomplete coverage, never passes. A continuation may select only previously
 unexecuted scopes from the identical source; preserved pass/fail outcomes cannot
 be replaced. Compare exact IDs before and after repairs, recording failures on
 new IDs separately from regressions on previously passing tests.
+
+See [measured costs and proposed crate boundaries](verification-costs-20261012.md)
+for the current timing frame and the dependency cuts that could reduce rebuilds.
 
 ## Opt-in iteration tooling — 2026-10-11
 

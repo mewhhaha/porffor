@@ -15,34 +15,24 @@ impl CopyingHeap {
 
 impl CopyingCollection<'_, '_> {
     pub(super) fn process_ephemerons_increment(&mut self) -> Result<GcProgress> {
-        let end =
-            (self.weak_cursor + OBJECTS_PER_INCREMENT).min(self.trace_state.weak_gc.slots.len());
-        while self.weak_cursor < end {
-            let index = self.weak_cursor;
-            self.weak_cursor += 1;
-            let candidate = match self.trace_state.weak_gc.slots[index].edge.as_ref() {
-                Some(WeakGcEdge::Ephemeron {
-                    owner,
-                    key: Some(key),
-                    value: Some(value),
-                }) => Some((
-                    owner.unchecked_copy(),
-                    key.unchecked_copy(),
-                    value.unchecked_copy(),
-                )),
-                Some(WeakGcEdge::Ephemeron { .. } | WeakGcEdge::Target { .. }) | None => None,
+        for _ in 0..OBJECTS_PER_INCREMENT {
+            let Some(index) = self.marking.pop() else {
+                break;
             };
-            let Some((owner, key, value)) = candidate else {
-                continue;
+            let Some(WeakGcEdge::Ephemeron {
+                owner,
+                key: Some(key),
+                value: Some(value),
+            }) = self.trace_state.weak_gc.slots[index].edge.as_ref()
+            else {
+                unreachable!("conditional edges are stable until weak update");
             };
-            if self.heap.weak_forwarded(&owner)?.is_none()
-                || self.heap.weak_forwarded(&key)?.is_none()
-            {
-                continue;
-            }
+            debug_assert!(self.heap.weak_forwarded(owner)?.is_some());
+            debug_assert!(self.heap.weak_forwarded(key)?.is_some());
+            let value = value.unchecked_copy();
             let forwarded = match self.heap.weak_forwarded(&value)? {
                 Some(forwarded) => forwarded,
-                None => self.heap.forward(&value)?,
+                None => self.heap.forward(&value, &mut self.marking)?,
             };
             let Some(WeakGcEdge::Ephemeron { value, .. }) =
                 self.trace_state.weak_gc.slots[index].edge.as_mut()
@@ -51,11 +41,12 @@ impl CopyingCollection<'_, '_> {
             };
             *value = Some(forwarded);
         }
-        if self.weak_cursor == self.trace_state.weak_gc.slots.len() {
+        if self.marking.is_empty() {
             self.weak_cursor = 0;
             self.phase = if self.heap.worklist_ptr < self.heap.bump_ptr() {
-                // Scanning new values can make additional keys or owners live.
-                // The next drained worklist returns here for a complete pass.
+                // Stored value cells expose their strong children through the
+                // normal worklist; newly copied owners/keys queue only their
+                // dependent edges instead of rescanning the whole registry.
                 CopyingCollectionPhase::ProcessWorklist
             } else {
                 CopyingCollectionPhase::UpdateWeak

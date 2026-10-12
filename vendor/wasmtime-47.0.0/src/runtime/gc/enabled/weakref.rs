@@ -220,3 +220,83 @@ impl GcEphemeron {
         Ok(())
     }
 }
+
+/// A copying-heap identity epoch, scoped to one Store. Every copying cycle
+/// invalidates it before any object moves, including cycles without weak edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GcWeakHeapEpoch {
+    store: StoreId,
+    collection: u64,
+}
+
+impl GcWeakHeapEpoch {
+    fn checked(store: &mut AutoAssertNoGc<'_>) -> Result<Self> {
+        let id = store.id();
+        let gc = store
+            .optional_gc_store_mut()
+            .ok_or_else(|| format_err!("weak heap epoch requires an initialized GC heap"))?;
+        ensure!(
+            gc.gc_heap.supports_weak_key_fingerprints(),
+            "selected collector has no epoch-scoped weak key identity"
+        );
+        Ok(Self {
+            store: id,
+            collection: gc.weak_gc.epoch,
+        })
+    }
+
+    /// Current collector identity epoch. This token retains no GC object.
+    pub fn current(mut store: impl AsContextMut) -> Result<Self> {
+        let mut guard = AutoAssertNoGc::new(store.as_context_mut().0);
+        Self::checked(&mut guard)
+    }
+}
+
+/// An opaque, non-rooting lookup token for a heap object in one collection
+/// epoch. It must never be used as a permanent or cross-Store object identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GcWeakKeyFingerprint {
+    epoch: GcWeakHeapEpoch,
+    index: u32,
+}
+
+impl GcWeakKeyFingerprint {
+    /// Capture the object's current token without retaining it strongly.
+    pub fn new(mut store: impl AsContextMut, key: &AnyRef) -> Result<Self> {
+        let mut guard = AutoAssertNoGc::new(store.as_context_mut().0);
+        let key = heap_reference(&guard, key)?;
+        Ok(Self {
+            epoch: GcWeakHeapEpoch::checked(&mut guard)?,
+            index: key.as_raw_u32(),
+        })
+    }
+
+    /// The token is valid only while this exact heap epoch remains current.
+    pub fn epoch(self) -> GcWeakHeapEpoch {
+        self.epoch
+    }
+}
+
+impl GcEphemeron {
+    /// Current non-rooting token for a surviving key; retired handles return
+    /// None. No weak key is upgraded or exposed as an unrooted reference.
+    pub fn key_fingerprint(
+        &self,
+        mut store: impl AsContextMut,
+    ) -> Result<Option<GcWeakKeyFingerprint>> {
+        let mut guard = AutoAssertNoGc::new(store.as_context_mut().0);
+        self.handle.check(&guard)?;
+        let epoch = GcWeakHeapEpoch::checked(&mut guard)?;
+        let gc = guard.unwrap_gc_store();
+        if !gc.weak_gc.contains(self.handle.slot) {
+            return Ok(None);
+        }
+        match gc.weak_gc.get(self.handle.slot)? {
+            WeakGcEdge::Ephemeron { key, .. } => Ok(key.as_ref().map(|key| GcWeakKeyFingerprint {
+                epoch,
+                index: key.as_raw_u32(),
+            })),
+            WeakGcEdge::Target { .. } => unreachable!("typed ephemeron handle cannot name target"),
+        }
+    }
+}

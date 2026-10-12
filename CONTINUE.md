@@ -1,3 +1,59 @@
+## Weak collection checkpoint and next coherent verification — 2026-10-12
+
+The original two 99,999-link WeakMap modes now pass at their original 60,000 ms,
+in 18.196/18.160 seconds. All 704 nightly and 1,216 robustness IDs retain their
+original requests/order/deadlines and pass with zero regressions. Corpus14/14,
+25/25 focused GC controls, one original vendor cancellation test (thirteen cut points),
+all-feature/all-target types, 479 Python methods and all thirteen guards pass
+on the recorded frozen source. The immutable portable record is
+[weak-index-repair-20261012.json](docs/rust-rewrite/weak-index-repair-20261012.json).
+
+The full native attempt and continuation are terminal but incomplete: 44 of 106
+scopes execute 4,526 IDs: 4,525 PASS, one FAIL, zero IGNORE. Four new controls pass,
+4,521 prior passes are retained, one prior-passing structural check regresses,
+and no observed ID is missing. 62 scopes are unstarted or storage-deferred.
+Raw receipts are preserved under
+target/weak-index-full-native-all-20261012 and
+target/weak-index-full-native-parallel-env-20261012; the exact partial composite
+is target/weak-index-full-native-partial-20261012. Do not retry the red ID on the
+old source or call these partial runs a complete workspace pass.
+
+The newly found catch-all panic is from 672's private import-prelude registration,
+not collector logic. Root now spells every Declaration variant and retains the
+original structural guard. The runner's next source batch honors isolation in
+docs, records each doc inventory hash, reserves disk before fallback relinks,
+throttles storage logs and expands a serial Cargo build to the inherited CPU
+budget once every native wrapper exits. Five CPU ownership and eighteen exact
+cohort controls pass. The frozen batch now passes the original three structural
+controls, all 491 Python tests, thirteen guard commands, nine Intl freshness
+checks and every all-feature/all-target type. The live child/thread/grandchild
+CPU expansion passes within the four-CPU budget. The type check takes 458.508
+seconds after this IR edit; the prior warm check took 69 seconds. These are
+different runs, not a controlled scheduling speedup. See
+[verification-runner-20261012.json](docs/rust-rewrite/verification-runner-20261012.json).
+Fresh complete native and optimized acceptance remain required.
+
+1. Push the verified collector, exhaustive-match and tooling batch. Run complete native
+   all-feature/default/ignored/docs and compare exact prior IDs, preserving the
+   old structural failure and every unexecuted scope explicitly.
+2. Measure the actual build CPU events and separate process startup/image hashing
+   from compiler work. The [cost record](docs/rust-rewrite/verification-costs-20261012.md)
+   proposes an IR contract/lowering dependency cut plus moving runtime construction
+   out of AOT, and bounded differential worker reuse with fresh per-case JS state.
+   These are proposals, not implemented crate splits or measured speedups.
+3. Finish optimized corpus/determinism/sustained campaigns, idle performance,
+   historical/current-pin stress, real shard/resume, two complete optimized
+   families, verified publication and every remaining task gate. Push verified
+   batches continuously to main. Delete this handoff and tasks only when complete.
+
+The inactive global memo cache was copied and SHA-checked before relocation to
+/tmp/lila-shared-compile-cache-20261012; its original public path is a symlink.
+No current CLI, native runtime image, Cargo fingerprint, fixture or result was
+changed. The relocation receipt is target/weak-index-cache-relocation-20261012;
+current workspace free space is about 3 GB and /tmp about 1.7 GB. Retain current
+runtime-image OUTs 829f43c256a8d0f7 and 3b1acde22ee9c14f, all used test DSOs and
+the actual CLI.
+
 ## Accepted generator/oracle batch and next measured repair — 2026-10-12
 
 The frozen compiler/oracle repair passes all 704 debug nightly campaign cases:
@@ -26,17 +82,17 @@ The next measured repair is WeakMap lookup and collector marking. Both exact
 original 99,999-link pinned modes time out at 60,000 ms on the retained clean
 672 compiler and this repair compiler: two pre-existing failures, no regression.
 The host Vec lookup is quadratic; boxed StoredValue cells also make repeated
-whole-registry ephemeron passes quadratic. Root has ignored, uncompiled drafts
-under target/future-verification-drivers-20261012/weak-index-draft. Promote both
-cost repairs together, retaining actual owner/key weakness and all old controls.
-The planned index is non-rooting and Store/collection-epoch scoped; the planned
-collector queue is activated by first-copy notifications for both owner and key.
-All reservations precede heap movement. Draft review is not execution acceptance.
+whole-registry ephemeron passes quadratic. Both repairs are now written in
+maintained source, retaining actual owner/key weakness and all old controls.
+The index is non-rooting and Store/collection-epoch scoped; the collector queue
+is activated by first-copy notifications for both owner and key. All reservations
+precede heap movement. Fresh types, native controls, original stress cases and
+retained passing-ID checks remain required; source review is not acceptance.
 
 Actual Cargo fingerprints also prove that Intl's test-only compiled_data feature
 widens the workspace library-test graph compared with the CLI build graph.
-An ignored opt-in test-package-isolation draft keeps exact native inventories
-while separating those roots; helper checks alone establish no build-speed gain.
+The opt-in test-package-isolation tooling keeps exact native inventories while
+separating those roots; helper checks alone establish no build-speed gain.
 Do not force Cargo freshness or inherit passing verdicts. Protect retained
 passing library hardlinks before any build can overwrite their canonical paths.
 

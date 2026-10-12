@@ -23,7 +23,7 @@
       "ianaCountry": "IS"
     }
   ],
-  "providerDataSha256": "285dd0477dbbf00976e8258da469c778dd715d2e726b08531f405d7119aa8859",
+  "providerDataSha256": "26b04e1391eb2a707cd9c0e390a3c99fca18f2446974ae4254d45431480f9e7b",
   "recipe": {
     "domain": "lila-intl-named-time-zones-v1",
     "iana": "2026a",
@@ -103,8 +103,8 @@
       },
       {
         "path": "Cargo.toml",
-        "bytes": 3712,
-        "sha256": "0cf42106879086f3971eafd2c5dca08d75a7a240e04d649ca1f924124546feb5"
+        "bytes": 3662,
+        "sha256": "ce85157471954006f333e922400067257f40fe2df1aebc716c2746f95b8380eb"
       },
       {
         "path": "Cargo.lock",
@@ -546,7 +546,7 @@
     {
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
       "bytes": 565,
-      "sha256": "337c221f3ca4386623fcd9c7f1c74213cf5fb4383997cbecad27db326eb1c020"
+      "sha256": "1c5466b3d88ce269985154b9d825ae196913839f8d16d56b2a9fe59c89bd12d8"
     }
   ]
 }

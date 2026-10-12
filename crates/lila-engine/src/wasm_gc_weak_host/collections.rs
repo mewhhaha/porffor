@@ -1,47 +1,9 @@
 use super::*;
 
-struct WeakMapResource(Mutex<Vec<GcEphemeron>>);
-struct WeakSetResource(Mutex<Vec<GcEphemeron>>);
+use super::collection_index::Entries;
 
-fn find(
-    caller: &mut WasmtimeCaller<'_, WasmHostState>,
-    entries: &mut Vec<GcEphemeron>,
-    key: &Rooted<AnyRef>,
-) -> wasmtime::Result<Option<usize>> {
-    let mut index = 0;
-    while index < entries.len() {
-        if !entries[index].is_live(&mut *caller)? {
-            entries.swap_remove(index);
-        } else if entries[index].matches_key(&mut *caller, key)? {
-            return Ok(Some(index));
-        } else {
-            index += 1;
-        }
-    }
-    Ok(None)
-}
-
-fn insert(
-    caller: &mut WasmtimeCaller<'_, WasmHostState>,
-    entries: &mut Vec<GcEphemeron>,
-    owner: &Rooted<AnyRef>,
-    key: &Rooted<AnyRef>,
-    value: Option<&Rooted<AnyRef>>,
-) -> wasmtime::Result<()> {
-    if let Some(index) = find(caller, entries, key)? {
-        return entries[index].set_value(&mut *caller, value.map(|v| &**v));
-    }
-    // Reserve before registering a conditional edge: allocation failure cannot
-    // leave a value-retaining slot without an entry that can delete it.
-    entries.try_reserve(1).map_err(wasmtime::Error::new)?;
-    entries.push(GcEphemeron::new(
-        &mut *caller,
-        owner,
-        key,
-        value.map(|v| &**v),
-    )?);
-    Ok(())
-}
+struct WeakMapResource(Mutex<Entries>);
+struct WeakSetResource(Mutex<Entries>);
 
 pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), EngineError> {
     let row = GcHostImport::WeakMapAllocate;
@@ -52,7 +14,7 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
             |mut caller: WasmtimeCaller<'_, WasmHostState>| -> wasmtime::Result<Rooted<ExternRef>> {
                 ExternRef::new(
                     &mut caller,
-                    Arc::new(WeakMapResource(Mutex::new(Vec::new()))),
+                    Arc::new(WeakMapResource(Mutex::new(Entries::default()))),
                 )
             },
         )
@@ -65,7 +27,7 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
             |mut caller: WasmtimeCaller<'_, WasmHostState>| -> wasmtime::Result<Rooted<ExternRef>> {
                 ExternRef::new(
                     &mut caller,
-                    Arc::new(WeakSetResource(Mutex::new(Vec::new()))),
+                    Arc::new(WeakSetResource(Mutex::new(Entries::default()))),
                 )
             },
         )
@@ -83,9 +45,8 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
              -> wasmtime::Result<()> {
                 let resource = resource::<WeakMapResource>(&caller, native)?;
                 let mut entries = resource.0.lock().unwrap_or_else(|e| e.into_inner());
-                insert(
+                entries.insert(
                     &mut caller,
-                    &mut entries,
                     &required(owner)?,
                     &required(key)?,
                     Some(&required(value)?),
@@ -105,13 +66,7 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
              -> wasmtime::Result<()> {
                 let resource = resource::<WeakSetResource>(&caller, native)?;
                 let mut entries = resource.0.lock().unwrap_or_else(|e| e.into_inner());
-                insert(
-                    &mut caller,
-                    &mut entries,
-                    &required(owner)?,
-                    &required(key)?,
-                    None,
-                )
+                entries.insert(&mut caller, &required(owner)?, &required(key)?, None)
             },
         )
         .map_err(bind_error)?;
@@ -126,10 +81,10 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
              -> wasmtime::Result<Option<Rooted<EqRef>>> {
                 let resource = resource::<WeakMapResource>(&caller, native)?;
                 let mut entries = resource.0.lock().unwrap_or_else(|e| e.into_inner());
-                let Some(index) = find(&mut caller, &mut entries, &required(key)?)? else {
+                let Some(index) = entries.find(&mut caller, &required(key)?)? else {
                     return Ok(None);
                 };
-                entries[index]
+                entries.entries[&index]
                     .value(&mut caller)?
                     .map(|v| v.as_eqref(&mut caller))
                     .transpose()
@@ -151,11 +106,10 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
                       -> wasmtime::Result<i32> {
                     let resource = resource::<WeakMapResource>(&caller, native)?;
                     let mut entries = resource.0.lock().unwrap_or_else(|e| e.into_inner());
-                    let found = find(&mut caller, &mut entries, &required(key)?)?;
+                    let found = entries.find(&mut caller, &required(key)?)?;
                     if delete {
                         if let Some(index) = found {
-                            entries[index].remove(&mut caller)?;
-                            entries.swap_remove(index);
+                            entries.remove(&mut caller, index)?;
                         }
                     }
                     Ok(i32::from(found.is_some()))
@@ -177,11 +131,10 @@ pub(super) fn link(linker: &mut WasmtimeLinker<WasmHostState>) -> Result<(), Eng
                       -> wasmtime::Result<i32> {
                     let resource = resource::<WeakSetResource>(&caller, native)?;
                     let mut entries = resource.0.lock().unwrap_or_else(|e| e.into_inner());
-                    let found = find(&mut caller, &mut entries, &required(key)?)?;
+                    let found = entries.find(&mut caller, &required(key)?)?;
                     if delete {
                         if let Some(index) = found {
-                            entries[index].remove(&mut caller)?;
-                            entries.swap_remove(index);
+                            entries.remove(&mut caller, index)?;
                         }
                     }
                     Ok(i32::from(found.is_some()))

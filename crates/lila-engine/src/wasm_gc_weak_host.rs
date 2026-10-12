@@ -3,6 +3,7 @@ use super::*;
 use lila_aot_wasm::GcHostImport;
 use wasmtime::{AnyRef, EqRef, ExternRef, GcEphemeron, OwnedRooted, Rooted, WeakAnyRef};
 
+mod collection_index;
 mod collections;
 mod finalization;
 mod references;
