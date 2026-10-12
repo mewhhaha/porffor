@@ -1,4 +1,6 @@
 use super::*;
+mod binding_inference;
+pub(crate) use binding_inference::{BindingInferenceRecipe, OwnerBindingInference};
 mod direct_eval_capture;
 mod environment_binding;
 mod eval_environment;
@@ -242,6 +244,7 @@ impl AnalysisAllocationState {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Analysis<'a> {
+    pub(crate) binding_inference: OwnerBindingInference<'a>,
     pub(crate) template_source: Option<TemplateSourceIr>,
     pub(crate) script_instantiation: ScriptInstantiation,
     pub(crate) allocations: AnalysisAllocationState,
@@ -582,7 +585,13 @@ impl<'a> AnalysisBuilder<'a> {
                 .cloned()
                 .collect::<BTreeSet<_>>(),
         );
+        let binding_inference = OwnerBindingInference::collect(
+            script.statements().statements(),
+            &self.function_plans,
+            interner,
+        );
         Analysis {
+            binding_inference,
             template_source: self.template_source,
             script_instantiation: self.script_instantiation,
             allocations: AnalysisAllocationState {

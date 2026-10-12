@@ -145,3 +145,48 @@ execution about 1.85 and 2.57 seconds. A standalone trace of the unchanged
 twenty fixtures/order measures 4.812 seconds after warmup; this diagnostic does
 not replace the actual failing performance gate. Optimizations must create a
 repeatable margin under the original limits, followed by fresh native checks.
+
+## Complete successor and next measured batch
+
+The frozen c235e0f4f successor completes all 106 scopes with 8,952 passes, two
+failures and zero ignores. Exact comparison preserves all 8,950 baseline IDs,
+eliminates nine original failures and finds no failure on a previously passing
+native ID; all four added IDs pass. The mutation campaign's finer case scope
+regresses seed nine from a selected-dimension match to a five-second timeout;
+seed ten remains unexecuted. The twenty-case control measures 5.096707977
+seconds against five seconds. Both remain red. The [complete manifest](native-workspace-successor-20261012.json)
+binds actual full transcripts, source and both comparison scopes. Fresh AOT and
+Engine library transcripts resolve the earlier focused-log re-verification
+requirement without reconstructing those lost logs.
+
+Linux/macOS Intl capture and their actual byte/identity/pin/native-count
+comparison pass for this revision in [CI](https://github.com/mewhhaha/porffor/actions/runs/38202805367).
+Public terminal job HTML and all three artifact metadata identities were verified
+locally. Artifact ZIPs were not retrieved; there is no local receipt-byte audit.
+
+Measured cold diagnostics identify IR lookup/signature copies, P compilation
+and Array-heavy reflection as costly. Instrumented successor seed ten takes
+7.729 seconds, with 539 ms lowering and 2.907 seconds execution; UTF-16
+extraction accounts for 1,240 ms and identity searches for 736 ms. These counters
+change input and add overhead; they are diagnosis, never five-second acceptance.
+The root-written next batch indexes immutable AST recipes rather than inferred
+facts, borrows exact signatures and clones only each selected parameter's facts.
+Current context/fixpoint/effect phases remain unchanged; native IR unit builds
+compare against the previous independent algorithms. Shared ObjectRead returns
+proven concrete Array own data and length without a public-descriptor roundtrip.
+Key conversion, own accessors, inherited holes, Proxy traps and arbitrary throws
+retain their existing paths. A strict/sloppy control checks receiver/key/mutation
+and abrupt semantics. The scheduler skips barriers for already completed doc
+rows while actual documentation stays idle-exclusive. All-feature/all-target Rust type verification passes; native verification
+of this batch completes 2,564 controls: 2,562 pass, two fail, zero ignored.
+All 2,563 prior selected IDs remain; no previously passing ID regresses and the
+added Array control passes. All 2,175 IR controls pass against the prior lookup
+algorithms. Seed nine's case-level regression is eliminated; seed ten retains
+the original 5,000 ms timeout. The twenty-case measurement is 5.330369186 seconds.
+The [focused source-bound manifest](native-measured-iteration-20261012.json)
+preserves these results. Fresh cold diagnosis of unchanged seed ten measures
+5.787 seconds, including 540 ms lowering, 892 ms raw runtime admission and
+1.328 seconds execution. This is diagnosis, not original-budget acceptance.
+The tracked September backlog provides 5,365 historical IDs for exact replay;
+all are retained, including two whose file is absent from the current pin.
+The original raw aggregate and current compiler-bound replay remain unavailable.

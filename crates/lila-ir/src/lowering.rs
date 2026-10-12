@@ -87,6 +87,7 @@ mod labelled_statement;
 mod lexical_declaration;
 mod module_graph;
 mod signature_evidence;
+mod signature_lookup;
 mod var_declaration;
 pub use module_graph::{
     lower_complete_module_catalog, lower_module_graph, lower_module_graph_with_host_surface_policy,
@@ -15023,13 +15024,48 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn infer_owner_var_binding_info(&self, owner_id: &str, name: &str) -> Option<ValueInfo> {
-        if owner_id == SCRIPT_OWNER_ID {
-            return self.infer_var_binding_info_from_items(self.analysis.script_items, name);
+        let result = self
+            .analysis
+            .binding_inference
+            .recipes(owner_id, name)
+            .find_map(|recipe| match recipe {
+                crate::analysis::BindingInferenceRecipe::Initializer(initializer) => initializer
+                    .map(|expression| self.static_initializer_value_info(expression))
+                    .unwrap_or_else(|| Some(ValueInfo::undefined())),
+                crate::analysis::BindingInferenceRecipe::Class(class) => {
+                    Some(self.infer_class_declaration_binding_info(class))
+                }
+                crate::analysis::BindingInferenceRecipe::ForInKey => {
+                    let kinds = KindSet::from_kind(ValueKind::String)
+                        .union(KindSet::from_kind(ValueKind::Undefined));
+                    Some(ValueInfo {
+                        kind: kinds.as_value_kind(),
+                        possible_kinds: kinds,
+                        heap_shape: None,
+                        function_targets: FunctionTargetKnowledge::none(),
+                    })
+                }
+            });
+        // Native IR controls also evaluate the previous independent whole-AST
+        // lookup in this exact current context. No result/fixpoint is cached.
+        #[cfg(test)]
+        {
+            let expected = if owner_id == SCRIPT_OWNER_ID {
+                self.infer_var_binding_info_from_items(self.analysis.script_items, name)
+            } else {
+                self.analysis.function_plans.get(owner_id).and_then(|plan| {
+                    self.infer_var_binding_info_from_items(plan.body.statements(), name)
+                })
+            };
+            assert_eq!(
+                result, expected,
+                "indexed declaration lookup for {owner_id}/{name}"
+            );
         }
-        let plan = self.analysis.function_plans.get(owner_id)?;
-        self.infer_var_binding_info_from_items(plan.body.statements(), name)
+        result
     }
 
+    #[cfg(test)]
     fn infer_var_binding_info_from_items(
         &self,
         items: &[StatementListItem],
@@ -15061,6 +15097,7 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
+    #[cfg(test)]
     fn infer_var_binding_info_from_statement(
         &self,
         statement: &Statement,
@@ -15161,6 +15198,7 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
+    #[cfg(test)]
     fn infer_var_binding_info_from_declaration(
         &self,
         declaration: &VarDeclaration,
@@ -15181,6 +15219,7 @@ impl<'a> ScriptLowerer<'a> {
         None
     }
 
+    #[cfg(test)]
     fn infer_lexical_binding_info_from_declaration(
         &self,
         declaration: &LexicalDeclaration,

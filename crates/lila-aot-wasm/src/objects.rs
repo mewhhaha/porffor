@@ -27,6 +27,7 @@ pub(crate) use accessor_descriptor::{
 };
 mod allocation;
 mod arguments_properties;
+mod array_own_data_read;
 mod define_property;
 mod descriptor_object;
 mod has_property;
@@ -1729,6 +1730,10 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        let handled = self.emit_array_own_data_read(target, key, result, function)?;
+        handled.load(function);
+        self.emit_branch_if_to_target(exit, function);
         let descriptor = self.emit_proxy_target_own_descriptor(target, key, function)?;
         let value = schema.reserve_value_local(function);
         descriptor.emit_found_i32(schema, function);
@@ -1812,6 +1817,9 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::End);
         value.clear(function);
         descriptor.clear(function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(handled, function);
         Ok(())
     }
 

@@ -79,6 +79,31 @@ class IdentityTests(unittest.TestCase):
                 self.assertIn(relative, result.stderr)
                 path.unlink()
 
+    def test_frozen_native_doctest_retains_exact_checkout_path(self):
+        path = self.root / "docs/rust-rewrite/native-comparison.json"
+        path.write_text(
+            '{"eliminated": [\n'
+            f'  "/workspace/{RETIRED_NAME}/crates/lila-intl-data/src/generated/mod.rs - baked::provider (line 5)"\n'
+            ']}\n', encoding="utf-8",
+        )
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_native_receipt_exception_does_not_admit_product_drift(self):
+        for relative, contents in (
+            ("docs/rust-rewrite/native-comparison.json", f'{{"message": "{RETIRED_NAME} runtime"}}\n'),
+            ("docs/rust-rewrite/native-comparison.json", f'  "/workspace/{RETIRED_NAME}/crates/{RETIRED_NAME}-cli/src/main.rs - main (line 5)"\n'),
+            ("crates/lila-cli/src/receipt.json", f'  "/workspace/{RETIRED_NAME}/crates/lila-cli/src/main.rs - main (line 5)"\n'),
+        ):
+            with self.subTest(path=relative, contents=contents):
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(contents, encoding="utf-8")
+                result = self.audit()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(relative, result.stderr)
+                path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -72,6 +72,27 @@ a[999999]=token;var d=Object.getOwnPropertyDescriptor(a,'999999');assert(d.value
 "#,
     );
 }
+
+#[test]
+fn whole_array_reads_preserve_key_effects_receivers_and_later_mutations() {
+    assert_sparse(
+        r#"
+var token={},symbol=Symbol('key'),receiver={mark:token},a=[token,7n],coercions=0;
+a[symbol]=symbol;a['-0']='minus';a['01']='leading';a['4294967295']=8n;
+var key={};key[Symbol.toPrimitive]=function(hint){assert(hint==='string','property key hint');coercions++;return '0';};
+assert(Reflect.get(a,key,receiver)===token && coercions===1,'one key coercion and whole data value');
+assert(Reflect.get(a,symbol,receiver)===symbol && a['-0']==='minus' && a['01']==='leading' && a['4294967295']===8n && a.length===2,'symbols and noncanonical indices retain ordinary names');
+Object.defineProperty(a,'1',{get:function(){assert(this===receiver,'own accessor receiver');a[0]=symbol;a.length=2;return this.mark;},configurable:true});
+assert(Reflect.get(a,'1',receiver)===token && a[0]===symbol,'later reads observe accessor mutation');
+var proto=Object.create(Array.prototype);Object.defineProperty(proto,'3',{get:function(){assert(this===receiver,'inherited accessor receiver');throw token;},configurable:true});Object.setPrototypeOf(a,proto);a.length=4;
+var caught=false;try{Reflect.get(a,'3',receiver);}catch(e){caught=e===token;}assert(caught && !Object.prototype.hasOwnProperty.call(a,'3'),'holes retain inherited abrupt identity');
+var seen=[],p=new Proxy(a,{get:function(t,k,r){seen.push(k);return Reflect.get(t,k,r);}});
+assert(Reflect.get(p,'0',receiver)===symbol && Reflect.get(p,'length',receiver)===4 && seen.join(',')==='0,length','proxy reads keep actual trap order');
+delete a[0];assert(a[0]===undefined && a.length===4,'deleted own data does not survive a later read');
+"#,
+    );
+}
+
 #[test]
 fn native_enumerable_and_regexp_results_publish_complete_descriptors() {
     assert_sparse(

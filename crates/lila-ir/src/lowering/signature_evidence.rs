@@ -603,53 +603,6 @@ impl ScriptLowerer<'_> {
         }
     }
 
-    pub(super) fn exact_signature_for_function(
-        &self,
-        function_id: &FunctionId,
-        context_key_override: Option<&ExactCallbackContextKey>,
-    ) -> Option<FunctionSignature> {
-        if self.function_has_untracked_captures(function_id) {
-            return None;
-        }
-        if let Some(context_key) = context_key_override {
-            return self
-                .exact_context_function_observations
-                .get(context_key)
-                .or_else(|| self.exact_context_callback_observations.get(context_key))
-                .cloned()
-                .map(|signature| self.function_signature_with_current_flow_evidence(signature));
-        }
-        let mut function_observations = self
-            .exact_context_function_observations
-            .iter()
-            .filter_map(|((observed_function_id, _), signature)| {
-                (observed_function_id == function_id).then(|| signature.clone())
-            })
-            .collect::<Vec<_>>();
-        if function_observations.len() == 1 {
-            let exact = function_observations.pop().unwrap();
-            if self.exact_signature_covers_aggregate_inputs(function_id, &exact) {
-                return Some(self.function_signature_with_current_flow_evidence(exact));
-            }
-            return None;
-        }
-        let mut callback_observations = self
-            .exact_context_callback_observations
-            .iter()
-            .filter_map(|((callback_id, _), signature)| {
-                (callback_id == function_id).then(|| signature.clone())
-            })
-            .collect::<Vec<_>>();
-        if callback_observations.len() == 1 {
-            let exact = callback_observations.pop().unwrap();
-            self.exact_signature_covers_aggregate_inputs(function_id, &exact)
-                .then_some(exact)
-                .map(|signature| self.function_signature_with_current_flow_evidence(signature))
-        } else {
-            None
-        }
-    }
-
     pub(super) fn function_call_return_info(&self, signature: &FunctionSignature) -> ValueInfo {
         let mut info = signature.return_info();
         let shape_is_available = match &signature.return_shape {
@@ -712,7 +665,7 @@ impl ScriptLowerer<'_> {
             .map(|signature| self.function_signature_with_current_flow_evidence(signature))
     }
 
-    fn function_signature_with_current_flow_evidence(
+    pub(super) fn function_signature_with_current_flow_evidence(
         &self,
         mut signature: FunctionSignature,
     ) -> FunctionSignature {
@@ -729,7 +682,7 @@ impl ScriptLowerer<'_> {
         signature
     }
 
-    fn exact_signature_covers_aggregate_inputs(
+    pub(super) fn exact_signature_covers_aggregate_inputs(
         &self,
         function_id: &FunctionId,
         exact: &FunctionSignature,

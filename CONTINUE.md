@@ -1,3 +1,52 @@
+## Full native successor and measured iteration batch — 2026-10-12
+
+The c235e0f4f complete frozen successor executes all 106 scopes and all ignored
+controls: 8,952 pass, two fail, zero ignored. All 8,950 prior native IDs remain;
+nine original failures are eliminated, two remain, and no prior passing native
+ID regresses. All four added IDs pass. The failed mutation campaign separately
+regresses seed nine from a verified selected-dimension match to a 5,000 ms worker
+failure; seed ten is unexecuted. The original twenty-case performance workload
+measures 5.096707977 seconds against five seconds. The complete source-bound
+[manifest](docs/rust-rewrite/native-workspace-successor-20261012.json) preserves
+both native-ID and campaign-case evidence. Fresh full native unit transcripts
+also satisfy the re-verification requirement from the earlier label collision.
+Linux/macOS Intl capture and byte/identity/pin/native-count comparison pass in
+[CI](https://github.com/mewhhaha/porffor/actions/runs/38202805367); public job and
+artifact metadata are retained, without claiming local receipt ZIP inspection.
+
+After sealing that full run, root promoted a coherent measured iteration batch:
+immutable source-order declaration recipes shared across Analysis clones,
+borrowed exact-signature selection and per-parameter fact cloning, concrete
+Array own-data/length Get inside the existing shared kernel, and no redundant
+barrier for completed documentation-cohort rows. Facts are reevaluated in their
+current flow; previous independent IR algorithms remain cfg(test) equality
+oracles. The new Array control covers key effects, receivers, mutation,
+inherited abrupt completion and Proxy order. All-feature/all-target Rust type
+checks pass. The focused native run completes 2,564 IDs: 2,562 pass, two fail,
+none are ignored. All 2,563 previous selected IDs remain without regression on
+a prior passing ID; the added control passes. All 2,175 IR controls pass with
+previous-algorithm comparisons. Seed nine again matches the oracle, eliminating
+its case-level regression; seed ten still times out. The original twenty-case
+workload measures 5.330369186 seconds. The
+[focused manifest](docs/rust-rewrite/native-measured-iteration-20261012.json)
+retains both native and campaign-case comparisons. Cold seed-ten phase diagnosis
+is not acceptance: 5.787 seconds total, 540 ms lowering, 892 ms raw R admission
+and 1.328 seconds execution, down from the earlier diagnostic's 2.570 seconds.
+The tracked September backlog supplies all 5,365 old execution IDs despite the
+absent raw aggregate. An exact replay input retains every ID; two reference a
+file absent from the current pin and must be reported explicitly. No current
+membership or passing verdict follows from extracting this historical listing.
+Final formatting, ten source guards and all 475 tooling controls pass. The
+module-size guard requires a pure extraction into private signature_lookup.rs;
+its all-target IR type check passes after sibling visibility is made explicit.
+The native focus predates that extraction; complete fresh native acceptance is
+still required. Exact recorded rustdoc checkout-path IDs retain their spelling
+under a narrowly tested documentary identity allowance, with product drift
+still rejected.
+Original deadlines, bodies, order and traversal bounds remain intact. Require
+both unchanged mutation seeds, the original timing controls and full/default/
+pinned/task acceptance before deleting this handoff or the task folder.
+
 ## Complete native baseline and current repair batch — 2026-10-12
 
 The frozen cd8aa4a32 baseline completes all 106 workspace scopes with all features

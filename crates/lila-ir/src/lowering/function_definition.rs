@@ -481,18 +481,12 @@ impl<'a> ScriptLowerer<'a> {
         for (index, parameter) in parameters.as_ref().iter().enumerate() {
             let binding = parameter.variable().binding();
             let name = binding_parameter_storage_name(self.interner, binding, index);
-            let context_signature = lowerer
-                .exact_signature_for_function(&function.id, context_key_override.as_ref())
-                .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
-            let param_info = context_signature
-                .as_ref()
-                .and_then(|signature| signature.params.get(params.len()).cloned())
-                .map(|signature| ValueInfo {
-                    kind: signature.possible_kinds.as_value_kind(),
-                    possible_kinds: signature.possible_kinds,
-                    heap_shape: signature.heap_shape,
-                    function_targets: signature.function_targets,
-                })
+            let param_info = lowerer
+                .function_parameter_info_for_current_flow(
+                    &function.id,
+                    context_key_override.as_ref(),
+                    params.len(),
+                )
                 .unwrap_or_else(|| {
                     if parameter.is_rest_param() {
                         ValueInfo {

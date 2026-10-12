@@ -329,8 +329,10 @@ def run_doc_cohort():
 save()
 for i,case in enumerate(cases):
     if case['kind']=='doc' and args.continuation_phase in ('barriers','all'):
-        while active:reap(wait=True)
         if case.get('state') is None:
+            # The complete cohort sealed all documentation siblings already.
+            # Only new documentation work needs an idle-exclusive barrier.
+            while active:reap(wait=True)
             print('START workspace-doc-cohort',flush=True)
             run_doc_cohort()
         continue

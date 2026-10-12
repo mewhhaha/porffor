@@ -1,28 +1,36 @@
 # Lila
 
-## Complete workspace baseline — 2026-10-12
+## Complete workspace successor — 2026-10-12
 
-The frozen all-feature workspace baseline includes every ignored control and
-all 106 native/documentation scopes: 8,939 tests pass, 11 fail, none are ignored.
-Against the original 354 controls, seven failures are eliminated, one remains
-and no previously passing test regresses. Exact verdicts and the next correctness
-and performance repairs are recorded in the
-[baseline and repair evidence](docs/rust-rewrite/native-workspace-repairs-20261012.md).
+The frozen all-feature successor includes all ignored controls and all 106
+native/documentation scopes: 8,952 tests pass, two fail, none are ignored.
+All 8,950 baseline IDs remain: nine original failures are eliminated, two remain,
+and no previously passing native ID fails. All four added controls pass.
+Inside the failed mutation campaign, seed nine now times out after passing in
+the baseline, and seed ten is unreached. This case-level timing regression
+requires repair independently of the native test-ID comparison. The twenty-case
+workload measures 5.096707977 seconds against its unchanged five-second limit.
+The [complete evidence](docs/rust-rewrite/native-workspace-successor-20261012.json)
+preserves both levels of comparison.
 
-The focused successor runs 55 controls: 54 pass, one fails, none are ignored.
-Across 53 existing IDs, seven failures are eliminated and no passing ID regresses;
-both added controls pass. Subsequent oracle repairs pass all 12 paired native
-controls, including Bytes, immutable write/descriptor/freeze behavior and
-slice bounds after source resizing. All 473 tooling tests, current types and
-ten source checks pass. The current timing/documentation checkpoint passes
-17 of 19 controls: the provider doctest is repaired; the mutation campaign's
-five-second timeout and the twenty-case five-second limit remain red. Exact
-comparisons record no new failure on a previous passing ID in these final
-focused checkpoints. Full successor/default suites, fresh pinned acceptance,
-publication and task cleanup remain open. Refresh native
-evidence with the complete workspace runner documented in
-[the batch workflow](docs/rust-rewrite/batch-workflow.md). Pinned Test262 status
-continues to use its canonical publisher below.
+Linux/macOS Intl capture and actual byte/identity/pin/native-count comparison
+[pass in CI](https://github.com/mewhhaha/porffor/actions/runs/38202805367).
+The next batch indexes immutable AST lookup recipes, borrows exact signatures,
+reads proven Array own data directly through shared ObjectRead and avoids
+scheduler barriers for completed documentation rows. Current-context facts,
+accessors, holes, proxies, workloads and deadlines retain their existing owners.
+All-feature/all-target Rust type checks pass for this batch. Its focused native
+run passes 2,562 controls, fails two and ignores none: all 2,563 prior selected
+IDs remain, no previous passing ID regresses, and the added control passes.
+Seed nine again matches the oracle; seed ten still times out. The unchanged
+twenty-case workload measures 5.330369186 seconds. See the
+[measured comparison](docs/rust-rewrite/native-measured-iteration-20261012.json).
+All 475 tooling controls, ten source guards and formatting checks pass.
+Full default suites,
+current pinned acceptance, sustained campaigns, publication and task cleanup
+remain open. Refresh native evidence with the complete runner in
+[the batch workflow](docs/rust-rewrite/batch-workflow.md); pinned Test262 counts
+continue to use the canonical publisher below.
 
 ## 2026-10-11 typed-root and static With repair
 

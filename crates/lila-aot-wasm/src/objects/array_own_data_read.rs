@@ -1,0 +1,135 @@
+//! Concrete Array own-data reads stay inside the shared ObjectRead kernel.
+//! They need no public descriptor allocation. All reads that can invoke user
+//! code or consult a prototype retain the ordinary completion-aware path.
+use super::*;
+use crate::gc_types::{ArrayObject, ArrayObjectSchema, GcNullability};
+
+impl FunctionBuilder<'_> {
+    pub(super) fn emit_array_own_data_read(
+        &mut self,
+        target: &ValueLocals,
+        key: &PropertyKeyLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<I32Local, EmitError> {
+        let schema = self.runtime_schema();
+        let handled = schema.reserve_i32_local(function);
+        function.instruction(&Instruction::I32Const(0));
+        handled.store(function);
+        target.reference().load(function);
+        function.instruction(&Instruction::RefTestNonNull(
+            schema
+                .reference_type::<ArrayObject>(GcNullability::NonNullable)
+                .heap_type,
+        ));
+        self.open_frame(ControlFrameKind::If, function);
+        let array = schema.reserve_gc_local(function).initialize(
+            target.cast_reference::<ArrayObject>(schema, function),
+            function,
+        );
+        let header = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ArrayObject>()
+                .field(ArrayObjectSchema::OBJECT)
+                .read(&array, schema, function)
+                .reference(),
+            function,
+        );
+        // Named and Symbol properties keep the same precedence as the full
+        // Array [[GetOwnProperty]] operation. The key is already coerced.
+        let descriptor = self.emit_ordinary_own_descriptor_reference(&header, key, function)?;
+        let value = schema.reserve_value_local(function);
+        descriptor.load(schema, function).is_null(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let name = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference("length", function)?,
+            function,
+        );
+        let length_key = PropertyKeyLocals::from_string(schema, &name, function);
+        self.emit_tagged_payload_same_value_i32(key.value(), length_key.value(), function)?;
+        self.open_frame(ControlFrameKind::If, function);
+        schema
+            .struct_type::<ArrayObject>()
+            .field(ArrayObjectSchema::LENGTH)
+            .read(&array, schema, function)
+            .store_i64(value.scalar(), function);
+        value.scalar().load(function);
+        function.instruction(&Instruction::F64ConvertI64U);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        value.scalar().store(function);
+        value.set_number(value.scalar(), function);
+        result.set_normal(&value, function);
+        function.instruction(&Instruction::I32Const(1));
+        handled.store(function);
+        function.instruction(&Instruction::Else);
+        let index = schema.reserve_i32_local(function);
+        let indexed = schema.reserve_i32_local(function);
+        self.emit_property_key_array_index(key, index, indexed, function)?;
+        indexed.load(function);
+        self.open_frame(ControlFrameKind::If, function);
+        let index64 = schema.reserve_i64_local(function);
+        index.load(function);
+        function.instruction(&Instruction::I64ExtendI32U);
+        index64.store(function);
+        let element = self.emit_array_indexed_descriptor(&array, index64, function);
+        descriptor.replace(element.load(schema, function), function);
+        element.clear(function);
+        schema.release_i64_local(index64, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i32_local(indexed, function);
+        schema.release_i32_local(index, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        length_key.clear(function);
+        name.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        descriptor.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let present = schema.reserve_gc_local(function).initialize(
+            descriptor.load(schema, function).require_non_null(function),
+            function,
+        );
+        let flags = schema.reserve_i64_local(function);
+        schema
+            .struct_type::<PropertyDescriptor>()
+            .field(PropertyDescriptorSchema::FLAGS)
+            .read(&present, schema, function)
+            .store_i64(flags, function);
+        flags.load(function);
+        function.instruction(&Instruction::I64Const(DescriptorMask::ACCESSOR.as_i64()));
+        function.instruction(&Instruction::I64And);
+        function.instruction(&Instruction::I64Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<PropertyDescriptor>()
+                .field(PropertyDescriptorSchema::VALUE)
+                .read(&present, schema, function)
+                .reference(),
+            function,
+        );
+        schema
+            .struct_type::<StoredValue>()
+            .read_into(&stored, &value, schema, function);
+        result.set_normal(&value, function);
+        function.instruction(&Instruction::I32Const(1));
+        handled.store(function);
+        stored.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        schema.release_i64_local(flags, function);
+        present.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        value.clear(function);
+        descriptor.clear(function);
+        header.clear(function);
+        array.clear(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(handled)
+    }
+}

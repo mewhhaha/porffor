@@ -95,6 +95,16 @@ EOF
   matches="$(grep -nEI "$old_word_pattern" "$path" 2>/dev/null \
     | grep -Fv 'https://github.com/mewhhaha/porffor' \
     | grep -Fv 'porffor.dev' || true)"
+  case "$path" in
+    docs/rust-rewrite/native-*.json)
+      # Frozen rustdoc IDs include the actual checkout directory. Retain those
+      # exact comparison keys; this host path is not a product identifier.
+      # Only a complete canonical Rust doctest ID is admitted here. Retired
+      # tokens, other prose and product paths still pass through both audits.
+      matches="$(printf '%s\n' "$matches" | grep -Ev \
+        '^[0-9]+:[[:space:]]*"/workspace/porffor/crates/lila-[^"]+[.]rs - [^"]+ [(]line [0-9]+[)]"[,]?[[:space:]]*$' || true)"
+      ;;
+  esac
   if [ -n "$matches" ]; then
     while IFS= read -r match; do
       [ -n "$match" ] && fail "$path:$match"
