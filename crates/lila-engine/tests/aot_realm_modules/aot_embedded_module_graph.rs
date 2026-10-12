@@ -78,6 +78,64 @@ fn assert_script(graph: Arc<EmbeddedModuleGraph>, output: &str) {
 }
 
 #[test]
+fn multiple_importers_keep_referrer_identity_and_synchronous_attribute_traps() {
+    for directive in ["", "'use strict';\n"] {
+        let source = format!(
+            r#"{directive}
+var events = [], marker = {{}};
+function options(label) {{
+  return {{ get with() {{
+    events.push('with-' + label);
+    return new Proxy({{ z: 'Z', a: 'A' }}, {{
+      ownKeys(target) {{ events.push('keys-' + label); return ['z', Symbol(), 'a']; }},
+      getOwnPropertyDescriptor(target, key) {{ events.push('desc-' + label + '-' + key); return Object.getOwnPropertyDescriptor(target, key); }},
+      get(target, key) {{ events.push('get-' + label + '-' + key); return target[key]; }}
+    }});
+  }} }};
+}}
+Promise.all([import('caller-a'), import('caller-b')]).then(async function(callers) {{
+  var first = callers[0].load(options('a'));
+  if (events.join(',') !== 'with-a,keys-a,desc-a-z,get-a-z,desc-a-a,get-a-a') throw 'late attribute validation';
+  var a = await first;
+  var b = await callers[1].load(options('b'));
+  if (a.value !== 41 || b.value !== 73 || a === b) throw 'lost referrer';
+  var rejected = callers[0].load({{ get with() {{ events.push('abrupt'); throw marker; }} }});
+  if (!(rejected instanceof Promise) || events[events.length - 1] !== 'abrupt') throw 'synchronous throw or late get';
+  try {{ await rejected; throw 'fulfilled'; }} catch (error) {{ if (error !== marker) throw 'lost abrupt value'; }}
+  print('imports:' + a.value + ',' + b.value + ':' + events.join(','));
+}});
+262;
+"#
+        );
+        let module_edge = |referrer: &str, target: &str| EmbeddedModuleResolutionInput {
+            referrer: EmbeddedModuleReferrer::Module(referrer.into()),
+            specifier: "chosen".into(),
+            attributes: vec![("a".into(), "A".into()), ("z".into(), "Z".into())],
+            target: target.into(),
+        };
+        assert_script(
+            graph(
+                EmbeddedModuleGoal::Script,
+                &source,
+                &[
+                    ("a.js", "export function load(options) { return import('chosen', options); }", "lila://a.js"),
+                    ("b.js", "export function load(options) { return import('chosen', options); }", "lila://b.js"),
+                    ("value-a.js", "export const value = 41;", "lila://value-a.js"),
+                    ("value-b.js", "export const value = 73;", "lila://value-b.js"),
+                ],
+                vec![
+                    edge("caller-a", &[], "a.js"),
+                    edge("caller-b", &[], "b.js"),
+                    module_edge("a.js", "value-a.js"),
+                    module_edge("b.js", "value-b.js"),
+                ],
+            ),
+            "imports:41,73:with-a,keys-a,desc-a-z,get-a-z,desc-a-a,get-a-a,with-b,keys-b,desc-b-z,get-b-z,desc-b-a,get-b-a,abrupt",
+        );
+    }
+}
+
+#[test]
 fn computed_exact_attributes_keep_canonical_identity_and_lazy_catalog_bodies() {
     for directive in ["", "'use strict';\n"] {
         let source = format!(

@@ -262,6 +262,21 @@ fn append_import_options_validation(
         }} }} }}"#).replace('\n', " "));
 }
 
+const IMPORT_OPTIONS_HELPER: &str = "$lila$module$importOptions";
+
+/// Validation stays synchronous inside the dispatcher's already-created
+/// intrinsic promise. Sharing it adds no promise or job, and all operations
+/// retain compiler-owned intrinsic authority in this private source region.
+fn import_options_helper_source() -> String {
+    let mut text = format!("function {IMPORT_OPTIONS_HELPER}(options) {{");
+    append_import_options_validation(
+        &mut text,
+        DynamicImportDispatcherExecution::CompiledModuleJobs,
+    );
+    text.push_str(" return [attributeKeys, attributeValues]; }");
+    text
+}
+
 /// Whether one Script's outer source directly requires a host-provided module
 /// graph.
 ///
@@ -473,7 +488,8 @@ impl ModuleGraphIr {
     }
 
     pub(super) fn module_initialization_dispatchers(&self, script_entry: bool) -> String {
-        self.materialized_units()
+        let dispatchers = self
+            .materialized_units()
             .filter(|(id, _, _)| (self.entry_is_script && *id == self.entry) == script_entry)
             .flat_map(|(referrer, _, unit)| {
                 unit.record
@@ -491,7 +507,11 @@ impl ModuleGraphIr {
                     })
             })
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+        if dispatchers.is_empty() {
+            return dispatchers;
+        }
+        format!("{} {dispatchers}", import_options_helper_source())
     }
 
     fn import_dispatchers(&self, execution: DynamicImportDispatcherExecution) -> String {
@@ -540,7 +560,14 @@ impl ModuleGraphIr {
         // Both operands were evaluated at the call site. AsyncFunctionStart
         // creates the intrinsic promise before this synchronous coercion.
         text.push_str(" var key = `${specifier}`;");
-        append_import_options_validation(&mut text, execution);
+        if synchronous {
+            text.push_str(&format!(
+                " var attributes = (0, {IMPORT_OPTIONS_HELPER})(options), \
+                 attributeKeys = attributes[0], attributeValues = attributes[1];"
+            ));
+        } else {
+            append_import_options_validation(&mut text, execution);
+        }
         for component in self.dynamic_components().iter().filter(|component| {
             component.referrer() == referrer && component.request().phase() == phase
         }) {

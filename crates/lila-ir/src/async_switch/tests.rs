@@ -203,6 +203,38 @@ fn an_unowned_branch_or_label_cannot_hide_a_child_await() {
 }
 
 #[test]
+fn a_loop_label_forwards_its_checked_loop_span_but_a_block_label_needs_an_exit_owner() {
+    let loop_statement = StatementIr::AsyncFunctionWhile(
+        crate::AsyncFunctionWhileConditionIr::new(
+            vec![await_at(1)],
+            TypedExpr::undefined(),
+            StatementIr::Empty,
+            1,
+            2,
+        )
+        .unwrap(),
+    );
+    let label = |statement| StatementIr::Labelled {
+        labels: vec!["loop_target".into()],
+        statement: Box::new(statement),
+        async_plan: None,
+    };
+    assert!(
+        AsyncFunctionSwitchCaseIr::new(None, body(vec![label(loop_statement.clone())]), 1, 3,)
+            .is_ok()
+    );
+    assert_eq!(
+        AsyncFunctionSwitchCaseIr::new(
+            None,
+            body(vec![label(StatementIr::Block(body(vec![loop_statement])))]),
+            1,
+            3,
+        ),
+        Err(AsyncSwitchError::MissingChildOwner)
+    );
+}
+
+#[test]
 fn eager_cases_can_be_consumed_only_without_child_continuations() {
     assert!(case(None, 1, 0).into_eager_case().is_ok());
     assert_eq!(

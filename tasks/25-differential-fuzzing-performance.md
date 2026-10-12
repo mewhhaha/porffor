@@ -1,5 +1,24 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Exact-seed developer profile acceptance — 2026-10-12
+
+The coherent profile/loop/module repair passes 1,943 focused native controls,
+including all original mutation and performance gates, with zero failures or
+ignores. All 1,939 prior selected IDs remain; one failure is eliminated, no
+passing ID regresses and four new strict/sloppy ownership/order controls pass.
+The actual CLI matches both original mutation seeds and all 22 standard PR-fast
+seeds on byte-identical requests within the original 5,000 ms deadline. Both
+remaining profile-only failures are eliminated; against the preceding GC CLI,
+four distinct seed failures are eliminated with no passing-case regression.
+All twelve compiled corpus cases and fourteen bounded native robustness cases
+pass. The [repaired-source receipt](../docs/rust-rewrite/async-label-shared-import-20261012.json)
+keeps exact native IDs, actual CLI identities, original limits, source fences
+and the four storage-deferred scopes' unmodified-source continuation receipts.
+The [profile-only receipt](../docs/rust-rewrite/developer-profile-20261012.json)
+retains its earlier failures, expensive first rebuild and disk-full attempt.
+Full debug/optimized sustained tiers, complete native/default/current-pin checks
+and remaining performance/task gates stay open.
+
 ## Full native checkpoint and GC startup source — 2026-10-12
 
 All three original performance controls pass in the frozen 032d2f5c7 full run.

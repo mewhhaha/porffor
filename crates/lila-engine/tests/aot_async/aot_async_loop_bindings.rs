@@ -28,6 +28,72 @@ fn assert_wasm_lines(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn async_nested_labelled_classic_loops_preserve_zero_trip_completion() {
+    for strict in ["", "'use strict';"] {
+        assert_wasm_lines(
+            &format!(
+                r#"{strict}
+const probes = [];
+async function subject() {{
+  await 0;
+  outer: for (let i = 0; i < 0; ++i) {{
+    probes.push(() => i);
+    inner: for (let j = 0; j < 2; ++j) {{
+      try {{ break outer; }}
+      finally {{ return 3; }}
+    }}
+  }}
+  return 0;
+}}
+subject().then(value => print('result:' + value + ':captures:' + probes.length),
+  error => print('rejected:' + error));
+void 0;
+"#
+            ),
+            &["result:0:captures:0"],
+        );
+    }
+}
+
+#[test]
+fn async_nested_loop_labels_preserve_iteration_capture_and_awaited_finally_completions() {
+    for strict in ["", "'use strict';"] {
+        assert_wasm_lines(
+            &format!(
+                r#"{strict}
+async function subject(override) {{
+  const probes = [];
+  const trace = [];
+  outer: for (let i = 0; i < 2; ++i) {{
+    inner: for (let j = 0; j < 2; ++j) {{
+      probes.push(() => i + ':' + j);
+      try {{
+        await 0;
+        if (j === 0) continue inner;
+        break outer;
+      }} finally {{
+        await 0;
+        trace.push('finally-' + i + ':' + j);
+        if (override) return 'override';
+      }}
+    }}
+  }}
+  return probes.map(probe => probe()).join(',') + '/' + trace.join(',');
+}}
+async function check() {{
+  print(await subject(false));
+  print(await subject(true));
+}}
+check().catch(error => print('rejected:' + error));
+void 0;
+"#
+            ),
+            &["0:0,0:1/finally-0:0,finally-0:1", "override"],
+        );
+    }
+}
+
+#[test]
 fn async_for_retains_lexical_index_through_await_update_and_condition() {
     assert_wasm_lines(
         r#"

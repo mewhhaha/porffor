@@ -1,5 +1,28 @@
 # Lila
 
+## Async loop and cold module repair — 2026-10-12
+
+The frozen repair passes **1,943 native controls, zero failures or ignores**.
+All 1,939 prior selected IDs remain: one failure is eliminated, no passing ID
+regresses, and all four new controls pass. All three original performance gates
+pass. The actual CLI matches all 22 standard PR-fast seeds and both original
+mutation seeds on byte-identical requests at the original 5,000 ms deadline.
+Compared with the preceding GC CLI, four distinct seed failures are eliminated
+and no passing case regresses. All twelve compiled corpus cases and fourteen
+bounded native robustness cases pass. See the
+[source-bound comparison](docs/rust-rewrite/async-label-shared-import-20261012.json).
+
+Direct async loop labels now retain their child's checked continuation owner.
+Compiled module dispatchers share synchronous import-options validation while
+keeping each referrer's resolution and evaluation jobs. Strict/sloppy controls
+cover loop completion/capture/finally and attribute traps across two importers.
+IR, Intl and the Wasm emitter use developer optimization level two with
+assertions and overflow checks enabled; the separate
+[profile-only receipt](docs/rust-rewrite/developer-profile-20261012.json)
+retains its earlier two failures and cold rebuild cost. These focused passes
+establish selected-observation agreement. Fresh complete default/all-feature,
+optimized/current-pin/stress/publication and task acceptance remain open.
+
 ## Complete workspace verification — 2026-10-12
 
 The frozen 032d2f5c7 all-feature run completes all 106 scopes with all ignored

@@ -1,3 +1,41 @@
+## Accepted async loop/module batch and next gates — 2026-10-12
+
+The frozen semantic repair passes all seven selected scopes: 1,943 native
+passes, zero failures or ignores. All 1,939 prior selected IDs remain; one old
+failure is eliminated, no passing ID regresses and all four new controls pass.
+Five scopes are complete; async loop bindings and module imports are explicitly
+filtered. The four storage-deferred scopes continue on the exact same source
+with matching inventories and no failed-test retry. All original timing gates
+pass. Types include every all-feature workspace target; eleven source guards
+pass. The actual CLI then matches both original mutation seeds and all 22
+standard PR-fast seeds on byte-identical requests with the original 5,000 ms.
+Both profile-only failures are eliminated; against the preceding GC CLI, four
+distinct seed failures are eliminated and no passing case regresses. All twelve
+compiled corpus cases and fourteen bounded native robustness cases pass. The
+[exact evidence](docs/rust-rewrite/async-label-shared-import-20261012.json)
+preserves source fences, observed compiler identities, native IDs, historical
+failures and separate native/campaign comparisons; do not double-count them.
+
+Direct loop labels now forward a child's checked owner while labelled non-loop
+continuations remain rejected. Compiled import dispatchers share a synchronous
+compiler-private options validator while keeping intrinsic/order/referrer/job
+authority. New strict/sloppy controls cover zero-trip and entered loops,
+captures, awaited finally/overrides and attribute Proxy traps/abrupt identity
+across two importers. Developer optimization level two keeps assertions and
+overflow checks. AOT/IR test ELFs are retained and verified against actual
+passing receipts; restore exact bytes only at canonical Cargo output paths,
+then let normal Cargo decide freshness and run every full inventory anew.
+Match the native wrapper/no-incremental environment and workspace feature graph
+for later CLI builds to avoid repeating normal-library/build-script work.
+
+Next: fresh sustained debug/optimized differential and robustness tiers,
+complete all-feature/default native/ignored/docs, optimized corpus/determinism,
+historical/current-pin release, stress/shard/resume/publication and all remaining
+task gates. The current pinned census is not a pass. Preserve all original
+deadlines, bodies, traversal bounds and denominator IDs; keep unsupported or
+upstream-unresolved cases visible. Delete this handoff and tasks only after
+actual task completion, then verify and push the final tree.
+
 ## Complete native verification and heap repair — 2026-10-12
 
 The clean 032d2f5c7 checkpoint completes all 106 all-feature scopes with ignored

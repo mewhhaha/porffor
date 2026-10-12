@@ -130,16 +130,24 @@ impl ModuleExecutionDefinitions {
             let StatementListItem::Declaration(declaration) = statement else {
                 continue;
             };
-            let Declaration::AsyncFunctionDeclaration(function) = declaration.as_ref() else {
-                panic!("the compiled import prelude contains only async dispatcher declarations");
+            let (function_id, name) = match declaration.as_ref() {
+                Declaration::AsyncFunctionDeclaration(function) => (
+                    analysis.function_declaration_ids[&async_function_declaration_key(function)]
+                        .clone(),
+                    function.name().sym(),
+                ),
+                Declaration::FunctionDeclaration(function) => (
+                    analysis.function_declaration_ids[&function_declaration_key(function)].clone(),
+                    function.name().sym(),
+                ),
+                _ => panic!(
+                    "the compiled import prelude contains only private function declarations"
+                ),
             };
-            let function_id = analysis.function_declaration_ids
-                [&async_function_declaration_key(function)]
-                .clone();
-            analysis.module_execution.private_dispatchers.insert(
-                function_id,
-                interner.resolve_expect(function.name().sym()).to_string(),
-            );
+            analysis
+                .module_execution
+                .private_dispatchers
+                .insert(function_id, interner.resolve_expect(name).to_string());
         }
         // Private storage can share a physical activation with user source,
         // but source eval must never resolve the compiler's helper names. Keep

@@ -452,10 +452,22 @@ fn span(statement: &StatementIr) -> Result<Option<(u32, u32)>, AsyncSwitchError>
                 Some((plan.entry_state(), plan.exit_state()))
             }
             None => {
-                if span(statement)?.is_some() {
+                let child_span = span(statement)?;
+                // A directly labelled loop owns its back edge and completion
+                // exit. The label adds a target name, not a second region.
+                // Other labelled statements still need their own checked exit.
+                if child_span.is_some()
+                    && !matches!(
+                        statement.as_ref(),
+                        StatementIr::AsyncGeneratorLoop(_)
+                            | StatementIr::AsyncFunctionWhile(_)
+                            | StatementIr::AsyncGeneratorForIn(_)
+                            | StatementIr::AsyncGeneratorForOf(_)
+                    )
+                {
                     return Err(AsyncSwitchError::MissingChildOwner);
                 }
-                None
+                child_span
             }
         },
         StatementIr::SyncDisposableScope {

@@ -66,17 +66,17 @@ incremental = true
 [profile.test.package."*"]
 opt-level = 2
 
-# Package overrides win over the wildcard dependency setting above. Keep the frontend at opt-level 0 for quick edits. IR
-# analysis runs at opt-level 1 because fixed-budget cases repeatedly walk
-# ordinary function plans and exact-context propagation. The Intl admission and
-# Wasm emitter run at opt-level 1: their cold per-case work dominates fixed
-# execution budgets and large suites, while higher optimization taxes rebuilds.
+# Package overrides win over the wildcard dependency setting above. IR
+# analysis, Intl admission and the Wasm emitter run at opt-level 2 because
+# their cold per-case work dominates fixed execution budgets and large suites.
+# Keep the frontend and embedding layers unoptimized for cheap local edits;
+# release-like dependency optimization preserves all ordinary admission checks.
 [profile.dev.package.lila-front]
 opt-level = 0
 [profile.dev.package.lila-ir]
-opt-level = 1
+opt-level = 2
 [profile.dev.package.lila-intl]
-opt-level = 1
+opt-level = 2
 [profile.dev.package.lila-runtime]
 opt-level = 0
 [profile.dev.package.lila-runtime-image]
@@ -84,7 +84,7 @@ opt-level = 0
 [profile.dev.package.lila-spec-exec]
 opt-level = 0
 [profile.dev.package.lila-aot-wasm]
-opt-level = 1
+opt-level = 2
 [profile.dev.package.lila-backend-c]
 opt-level = 0
 [profile.dev.package.lila-backend-native]
@@ -99,9 +99,9 @@ opt-level = 0
 [profile.test.package.lila-front]
 opt-level = 0
 [profile.test.package.lila-ir]
-opt-level = 1
+opt-level = 2
 [profile.test.package.lila-intl]
-opt-level = 1
+opt-level = 2
 [profile.test.package.lila-runtime]
 opt-level = 0
 [profile.test.package.lila-runtime-image]
@@ -109,7 +109,7 @@ opt-level = 0
 [profile.test.package.lila-spec-exec]
 opt-level = 0
 [profile.test.package.lila-aot-wasm]
-opt-level = 1
+opt-level = 2
 [profile.test.package.lila-backend-c]
 opt-level = 0
 [profile.test.package.lila-backend-native]
