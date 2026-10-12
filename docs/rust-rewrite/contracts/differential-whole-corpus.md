@@ -1,7 +1,7 @@
 # Whole-corpus differential replay
 
 `lila differential replay-corpus --output-dir PATH --oracle spec-exec`
-replays every entry in the compiled twelve-entry corpus through the existing
+replays every entry in the compiled fourteen-entry corpus through the existing
 selected worker protocol. The library owner is
 `crates/lila-test262/src/differential/corpus.rs`; the private CLI route consumes
 that owner. Default product builds refuse the unlinked oracle before creating
@@ -65,11 +65,14 @@ serial worker defaults. A missing scope/capability fails; there is no uncapped
 fallback. Later controls cannot prevent the earlier replay artifacts from being
 retained. Cancellation or job timeout never yields a successful aggregate.
 
-Source controls cover the actual twelve-entry inventory and worker provenance,
+Source controls cover the actual fourteen-entry inventory and worker provenance,
 native admission limits, malformed/shared-failure/unsupported cases, duplicate
 IDs, both worker admission errors, worker failures across the entire inventory,
-output reuse and default-build refusal. These controls and the workflow are
-freshly authored source after staging loss, not executed acceptance evidence.
+output reuse and default-build refusal. The 2026-10-12 complete native checkpoint
+executes these controls. Its separate idle experiment executes three complete
+corpus rounds for each of three debug images, verifying repeated byte determinism
+per image and retaining the actual controller/worker provenance. Optimized
+acceptance and supported-host workflow artifacts remain separate requirements.
 
 The separate [performance-reporting contract](performance-reporting.md) records
 the fixed twenty-fixture workload and three opt-in timing gates on an identified

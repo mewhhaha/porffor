@@ -9,14 +9,22 @@ The compiled corpus passes **14/14**, and all 25 focused GC controls pass.
 Collector marking uses owner/key dependency gates; native collection lookup
 uses non-rooting Store/collection-epoch identities.
 
-The complete native attempt remains incomplete: **4,525 pass, one fails, zero
-ignored** across 44 executed scopes, with 62 scopes unstarted or storage-deferred.
-The failure exposes a catch-all declaration panic from the earlier import-prelude
-repair. Exhaustive matching is restored; its three original source controls,
-all-feature/all-target types, all 491 Python tests and thirteen guard commands pass.
-Verification now isolates doc cohorts, checks relink space and releases idle
-compilation CPU restrictions. The live process check passes; throughput savings
-and a fresh complete native sweep remain to be measured. See the
+The frozen `f54ef2ae9` all-feature native run now completes **all 106 scopes:
+8,974 pass, zero fail, zero ignored**, including every ignored control and docs.
+All 8,959 prior passing IDs remain passing; the remaining mutation failure is
+eliminated and all fourteen added IDs pass, with no missing IDs or regressions.
+The separate earlier structural regression is also eliminated while retaining
+all 4,525 passing IDs from that partial run. Original red evidence remains intact.
+
+A controlled idle experiment reduces whole-corpus time from **40.15 to 32.30
+seconds (19.6%)** with a shared, stripped private worker. All nine complete
+fourteen-case replays pass; repeated reports are byte-identical for each image.
+The opt-in [worker staging tool](scripts/stage-verification-worker.py) verifies
+the shared arrays, allocated ELF sections, actual loaded-image identities and
+byte-for-byte restoration of ordinary Cargo output. Fresh and cached debug
+staging and ordinary-controller/private-worker replay pass; optimized staging
+remains unverified. See the
+[complete native and worker checkpoint](docs/rust-rewrite/native-worker-checkpoint-20261012.json),
 [tooling checkpoint](docs/rust-rewrite/verification-runner-20261012.json),
 [collector checkpoint](docs/rust-rewrite/weak-index-repair-20261012.json)
 and [measured costs and crate boundaries](docs/rust-rewrite/verification-costs-20261012.md).

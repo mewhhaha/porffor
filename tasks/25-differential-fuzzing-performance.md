@@ -882,7 +882,7 @@ CI artifacts must retain minimized failures, random seeds and comparison reports
 cargo test --workspace --quiet
 cargo test -p lila-ir fuzz_regressions --quiet
 cargo test -p lila-aot-wasm fuzz_regressions --quiet
-cargo test -p lila-test262 snapshot_determinism --quiet
+cargo test --locked -p lila-test262 --test snapshot_use_structure -- --test-threads=1
 cargo test -p lila-test262 --features spec-exec-oracle differential::generated_arithmetic::tests::committed_generated_arithmetic_case_replays_through_both_backends -- --exact
 cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-arithmetic.json --grammar integer-arithmetic-v1 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
 cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-bitwise.json --grammar integer-bitwise-v2 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
@@ -890,5 +890,12 @@ cargo run -p lila-cli --features spec-exec-oracle -- differential replay /tmp/li
 cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v2/t25-foundation-primitive-number.json --oracle spec-exec
 cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v3/t25-foundation-primitive-number-and-print.json --oracle spec-exec
 ```
+
+The snapshot ownership controls above do not establish byte determinism. The old
+`snapshot_determinism` selector matched no tests. Repeat complete corpus replay
+into fresh output/cache directories with the same actual compiler and compare
+aggregate, input and report bytes. Three rounds for each of three debug worker
+images pass this check in the 2026-10-12 native/worker checkpoint; optimized
+repeated replay remains required.
 
 The exact CLI may differ, but equivalent seed/replay/reduce commands, CI jobs and artifact retention are required before closing this task.

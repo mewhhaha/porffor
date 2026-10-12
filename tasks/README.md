@@ -1,5 +1,18 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Complete all-feature native successor — 2026-10-12
+
+Frozen `f54ef2ae9` completes all 106 native/documentation scopes with every
+ignored control executed: 8,974 pass, zero fail, zero ignored. All 8,959 prior
+passes remain; the remaining mutation failure is eliminated, all fourteen added
+IDs pass and no ID is missing or regresses. The earlier partial structural
+regression is separately eliminated with all 4,525 prior passes retained.
+Both original 99,999-link WeakMap modes now pass within their unchanged deadlines.
+The [exact checkpoint](../docs/rust-rewrite/native-worker-checkpoint-20261012.json)
+also records nine passing complete corpus replays and a measured 19.6% improvement
+from smaller reusable private workers. Default, optimized, current-pin, performance,
+host, publication and task acceptance remain open; retain the handoff and tasks.
+
 ## Sustained debug failure elimination — 2026-10-12
 
 The generator/oracle repair completes all 704 nightly debug cases and all 1,216

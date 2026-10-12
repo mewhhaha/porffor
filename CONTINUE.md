@@ -1,3 +1,44 @@
+## Complete all-feature native and measured worker checkpoint — 2026-10-12
+
+Frozen clean `f54ef2ae9` completes all 106 all-feature native/documentation
+scopes, including all ignored controls: 8,974 PASS, zero FAIL, zero IGNORE.
+Nine storage-deferred scopes complete in separate identical-source continuations;
+the composite preserves every original outcome and exact inventory/transcript
+hash. Against the complete 032 baseline, all 8,959 prior passes remain, the
+remaining mutation failure is eliminated, fourteen new IDs pass and no ID is
+missing or regresses. Separately, all 4,525 passes from the earlier red partial
+remain and its structural regression is eliminated. Keep both original red owners.
+See [the portable checkpoint](docs/rust-rewrite/native-worker-checkpoint-20261012.json).
+
+Seven balanced compiler-identity samples per image and three balanced complete
+corpus rounds per image run on this idle cloud machine, with fresh caches and
+unchanged fourteen inputs/order/deadlines. Original, stripped and shared/stripped
+medians are 40.149, 34.655 and 32.300 seconds; shared/stripped saves 19.6%.
+Each image's repeated aggregate, inputs and reports are byte-identical. Between
+images, every semantic report field agrees while actual worker image hashes
+remain distinct. No broader semantic-equivalence or full-pin claim follows.
+
+The new opt-in `scripts/stage-verification-worker.py` stages a private worker
+without changing Rust sources, profiles or ordinary Cargo products. Exact shared
+arrays, allocated ELF sections, Cargo-selected artifacts and loaded-image
+identities are checked. Fresh/cached debug links and normal-controller/private-
+worker complete replay pass. The first auxiliary staging attempt incorrectly
+expected a string source revision; preserve its red receipt alongside the
+separately corrected structured-identity check. Release mode is implemented but
+not executed. Minimal R is precompiled; Conformance R is not. Wasmtime's compiled
+module cache already shares across executable identities; raw R cache does not.
+
+Next run the complete independent default-feature native/ignored/docs suite,
+then optimized corpus repeated-byte determinism, nightly 704 and robustness
+1,216 campaigns, idle performance, historical/current-pin stress, real shard/
+resume, two complete optimized families, verified publication and all task gates.
+The old T25 `snapshot_determinism` selector matches zero tests; use the complete
+repeated corpus byte comparison and retain the actual `snapshot_use_structure`
+controls separately. Supported-host artifact retrieval currently returns 403.
+Keep fixtures, pins, inventories, original deadlines and passing IDs. Push
+verified batches continuously to main. Delete this file and tasks only after
+genuine completion. Crate splits and Conformance-R precompilation remain proposals.
+
 ## Weak collection checkpoint and next coherent verification — 2026-10-12
 
 The original two 99,999-link WeakMap modes now pass at their original 60,000 ms,

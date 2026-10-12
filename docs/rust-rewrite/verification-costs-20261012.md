@@ -2,7 +2,8 @@
 
 These are observed timings on this cloud machine (four-CPU inherited quota,
 32-GiB inherited memory cap, serial Cargo, one CPU/thread per native process).
-They are not controlled before/after speedup claims. Original cases, fixtures,
+The historical timings below are not controlled before/after speedup claims;
+the separate worker experiment below is a controlled comparison. Original cases, fixtures,
 pins and deadlines remain acceptance requirements.
 
 | Check | Observed wall time | Scope |
@@ -23,9 +24,30 @@ pins and deadlines remain acceptance requirements.
 Raw source-bound results are retained under `target/weak-index-*20261012`.
 The [portable checkpoint](weak-index-repair-20261012.json) preserves exact
 comparisons and the native failure, separate from the passing campaigns.
-The complete native attempt is still incomplete: 44 scopes executed 4,526
+That earlier complete native attempt was incomplete: 44 scopes executed 4,526
 IDs, with 4,525 passes and one structural regression; 62 scopes remain
-unstarted or storage-deferred. Do not infer a full native or release pass.
+unstarted or storage-deferred. Its red evidence remains unchanged. The subsequent
+clean `f54ef2ae9` run completes all 106 all-feature scopes with 8,974 passes,
+zero failures and zero ignores, retaining all prior passing IDs. Independent
+default-feature and optimized acceptance remain required. See the
+[complete comparison and worker experiment](native-worker-checkpoint-20261012.json).
+
+| Complete-run component | Observed wall time | Scope |
+| --- | ---: | --- |
+| Engine library | 603.554 s | 874 controls |
+| Engine builtins | 543.257 s | 496 controls |
+| Engine GC entries | 240.662 s | 162 controls |
+| Engine generators | 433.036 s | 167 controls |
+| Engine Intl | 1,811.754 s | 290 controls; selected runtime projections dominate |
+| CLI | 942.564 s | All 855 controls in four exact partitions |
+| Isolated Intl library | 147.760 s | 634 controls |
+| Normal documentation cohort | 459.614 s | Twelve packages, seven doc controls |
+| Isolated Intl documentation | 3 s | Four doc controls |
+
+The main run took 6,128 seconds and deferred nine scopes for storage. Identical-
+source native continuations took 627 seconds, followed by three seconds for
+isolated docs. These observations identify expensive components; they do not
+establish a controlled scheduling improvement.
 
 ## Immediate iteration work
 
@@ -67,16 +89,63 @@ bytes. This is derived scan volume, not measured disk I/O: the page cache may
 satisfy those reads. Current campaign receipts do not attribute elapsed time to
 hashing, runtime admission/deserialization, input compilation or execution.
 
-The real runtime R is already source/target/configuration-bound and precompiled.
+Minimal runtime R is already source/target/configuration-bound and precompiled;
+Conformance R is not precompiled.
 The native test linker shares its verified immutable data through a DSO.
-Process-local Module objects still require admission and deserialization in a
-fresh worker. A bounded persistent differential/robustness worker could amortize
+Wasmtime's native Module cache already shares across executable images, binding
+Wasm bytes and engine/compiler configuration. The raw runtime-artifact cache
+still binds the full compiler image; removing that identity requires a complete
+target/feature/build/source key. Fresh processes still require admission and
+deserialization. A bounded persistent differential/robustness worker could amortize
 identity capture and immutable runtime loading. The existing opt-in Test262
 server gives a model: at most 64 supervised requests, original per-request
 deadlines, exact request/journal/provenance checks, and a fresh Engine, Realm,
 Store, GC state and native-agent ownership each time. Timeout or protocol failure
 must retire the group; no JS state or verdict may carry to another case.
 Measure this on identical requests before claiming a gain.
+
+## Measured reusable private workers
+
+On an idle machine, seven balanced startup/identity samples and three balanced
+complete fourteen-case corpus rounds per image use the same frozen source,
+unchanged requests/deadlines and fresh caches/output directories. Identity time
+includes whole process startup and hashing the actual loaded image.
+
+| Debug image | Executable bytes | Median startup/identity | Median full corpus |
+| --- | ---: | ---: | ---: |
+| Ordinary | 500,028,352 | 0.401613 s | 40.149327 s |
+| Stripped private copy | 281,586,664 | 0.208624 s | 34.655253 s |
+| Shared and stripped private copy | 161,621,512 | 0.124126 s | 32.299623 s |
+
+All nine complete replays pass fourteen cases. Repeated aggregate/input/report
+bytes agree for each image; between images every semantic field agrees while
+actual worker hashes remain distinct. The shared/stripped full corpus is 19.6%
+faster. The ordinary size above belongs to this experiment; the earlier campaign
+image was 500,027,960 bytes. Identical file-backed images already share physical
+pages; these measurements establish image/hash/link-size gains, not a measured
+memory-working-set reduction.
+
+The reusable opt-in tool performs only a private leaf link, verifies the three
+shared arrays and all allocated ELF sections, restores ordinary Cargo output
+byte-for-byte, and records actual compiler identities. Fresh debug private link
+takes 1.715 seconds; warm Cargo selection takes 0.375 seconds. Ordinary-controller/
+private-worker complete replay also passes. Example:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+  python3 -B scripts/stage-verification-worker.py \
+  --oracle --share-runtime-images --output target/verification-worker-FRESH
+python3 -B scripts/limited_verification.py --cloud -- \
+  target/debug/lila --jobs 1 differential replay-corpus --oracle spec-exec \
+  --worker-bin target/verification-worker-FRESH/lila-worker \
+  --output-dir target/corpus-FRESH
+```
+
+`--profile release` selects optimized Cargo output, but optimized staging has
+not yet been executed. Oracle enablement remains an explicit developer option.
+Custom Intl projections alter emitted code and interned string offsets, so
+precompiling arbitrary Conformance-R projections requires a real code/data seam;
+it is not a data-file substitution. Crate splitting below remains a proposal.
 
 ## Crate split with a useful dependency cut
 
