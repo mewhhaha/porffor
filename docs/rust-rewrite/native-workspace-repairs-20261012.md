@@ -45,6 +45,15 @@ is 60.178 versus 80.063 seconds; loading is 0.0618 versus 0.0365 seconds. These
 measurements establish size/load behavior, not JavaScript execution speed or
 campaign acceptance. Fresh actual producer and native measurements are required.
 
+The 2026-10-13 runner dispatches independent whole scopes before idle barriers,
+including the partitioned CLI. Original inventory order, object/index ownership,
+labels and continuation membership remain unchanged; only dispatch order changes.
+This prevents an early CLI drain from leaving later independent targets unopened
+while long Intl/RegExp scopes run. Four focused ownership/order controls pass;
+there is no controlled before/after native scheduling timing yet. The complete
+[default checkpoint](native-default-checkpoint-20261013.json) records 8,881 passes
+across 105 frozen-source scopes with zero failures or ignores.
+
 `scripts/run_workspace_tests.py` preserves one Cargo feature graph, seals actual
 artifact selection and checks every complete native inventory. The optional
 CLI partitioner preflights disjoint exact inventories before executing any body,

@@ -1,5 +1,16 @@
 # Verification costs and useful crate boundaries — 2026-10-12
 
+The independent default-feature run completes on 2026-10-13 with 8,881 passes,
+zero failures and zero ignores across all 105 scopes. Its full CLI inventory is
+848, distinct from the all-feature 855 below. During its parallel continuation,
+the runner reaches the isolated CLI and drains Intl/RegExp before opening later
+independent work. The Python-only repair dispatches independent targets first
+while preserving receipt order/indices and all idle barriers. Four focused queue
+controls pass; no controlled full-sweep scheduling speedup is claimed. Eight
+reversible SHA-verified debug-library archives reclaim about 5.74 GB net before
+the separate optimized graph. See the
+[default checkpoint](native-default-checkpoint-20261013.json).
+
 These are observed timings on this cloud machine (four-CPU inherited quota,
 32-GiB inherited memory cap, serial Cargo, one CPU/thread per native process).
 The historical timings below are not controlled before/after speedup claims;
@@ -29,7 +40,7 @@ IDs, with 4,525 passes and one structural regression; 62 scopes remain
 unstarted or storage-deferred. Its red evidence remains unchanged. The subsequent
 clean `f54ef2ae9` run completes all 106 all-feature scopes with 8,974 passes,
 zero failures and zero ignores, retaining all prior passing IDs. Independent
-default-feature and optimized acceptance remain required. See the
+optimized acceptance remains required. See the
 [complete comparison and worker experiment](native-worker-checkpoint-20261012.json).
 
 | Complete-run component | Observed wall time | Scope |

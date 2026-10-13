@@ -1,5 +1,28 @@
 # Lila
 
+## Complete default native verification — 2026-10-13
+
+Frozen `9908850ce` completes **all 105 default-feature native/documentation
+scopes: 8,881 pass, zero fail, zero ignored**, including every ignored control,
+the complete 848-test CLI inventory, fake publication and original performance
+gates. Storage-deferred whole scopes finish on identical source in separate
+receipts; no executed outcome is replaced. Against the older complete Engine
+subset, 3,181 passing IDs remain green and 69 added IDs pass. Three old IDs stay
+visibly replaced by two weak-support contract changes and removal of a task-prose
+dependency; no retained ID regresses. See the
+[exact default checkpoint](docs/rust-rewrite/native-default-checkpoint-20261013.json).
+
+The runner now dispatches independent targets before idle-only barriers while
+preserving original inventory indices, objects, selectors and continuation
+membership. This addresses a queue that left later work blocked behind the
+isolated CLI while Intl/RegExp were active; no controlled scheduling speedup is
+claimed. All 495 Python methods and fifteen formatting/source checks pass;
+see the [tooling receipt](docs/rust-rewrite/native-default-tooling-20261013.json).
+SHA-verified reversible debug-library archives make room for the optimized
+graph. Optimized acceptance, full-pin conformance, supported-host
+evidence, canonical publication and task closure remain open. Older dated
+checkpoints below describe their own source states.
+
 ## Weak collection repair and verification — 2026-10-12
 
 Both original 99,999-link WeakMap script modes now pass within their unchanged
@@ -28,7 +51,7 @@ remains unverified. See the
 [tooling checkpoint](docs/rust-rewrite/verification-runner-20261012.json),
 [collector checkpoint](docs/rust-rewrite/weak-index-repair-20261012.json)
 and [measured costs and crate boundaries](docs/rust-rewrite/verification-costs-20261012.md).
-Default, optimized, full-pin, performance, publication and task closure remain open.
+Optimized, full-pin, performance, publication and task closure remain open.
 
 ## Generator and iterator repair — 2026-10-12
 

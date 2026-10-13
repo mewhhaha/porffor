@@ -1,5 +1,16 @@
 # T05 — Value representation, heap, GC and weak reachability
 
+## Current weak/native evidence — 2026-10-13
+
+Real weak collection/finalization support and the original two 99,999-link
+WeakMap modes are accepted on the later compiler. Complete all-feature/default
+native inventories pass 8,974/8,881 IDs, including ignored controls and docs.
+See the [default checkpoint](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
+and [weak repair](../docs/rust-rewrite/weak-index-repair-20261012.json).
+Earlier unavailable or timeout statements below are historical source states.
+Full task-owned pinned/resource acceptance still requires its exact final owners;
+native acceptance alone does not close T05.
+
 ## Emitted lifecycle controls and measured weak stress — 2026-10-12
 
 The frozen generator/oracle batch passes ten selected native scopes, including

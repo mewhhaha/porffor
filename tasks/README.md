@@ -1,5 +1,26 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Complete default native acceptance — 2026-10-13
+
+Frozen `9908850ce` completes all 105 default native/ignored/documentation scopes:
+8,881 pass, zero fail, zero ignored, including all 848 CLI IDs, fake publication
+and original performance controls. Exact older Engine-subset comparison retains
+3,181 passing IDs, adds 69 passing IDs and records three intentional contract
+replacements explicitly, with no regression. The
+[checkpoint](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
+preserves every raw phase owner and reversible library archive.
+
+The runner dispatches independent scopes before idle-only barriers without
+changing inventory/continuation ownership. Four focused queue controls and all
+495 Python methods/fifteen formatting/source checks pass; the
+[tooling receipt](../docs/rust-rewrite/native-default-tooling-20261013.json)
+records exact logs. Native scheduling speedup is unmeasured. All-feature/default native acceptance
+is complete. Optimized corpus/campaign/performance, current-pin/shard/resume,
+supported-host receipts, canonical publication and individual task gates remain
+open. Weak collections are implemented and both original deep WeakMap modes
+pass; earlier unavailable/red statements below describe historical sources.
+Keep CONTINUE.md and this folder until genuine task completion.
+
 ## Complete all-feature native successor — 2026-10-12
 
 Frozen `f54ef2ae9` completes all 106 native/documentation scopes with every
@@ -10,7 +31,7 @@ regression is separately eliminated with all 4,525 prior passes retained.
 Both original 99,999-link WeakMap modes now pass within their unchanged deadlines.
 The [exact checkpoint](../docs/rust-rewrite/native-worker-checkpoint-20261012.json)
 also records nine passing complete corpus replays and a measured 19.6% improvement
-from smaller reusable private workers. Default, optimized, current-pin, performance,
+from smaller reusable private workers. Optimized, current-pin, performance,
 host, publication and task acceptance remain open; retain the handoff and tasks.
 
 ## Sustained debug failure elimination — 2026-10-12

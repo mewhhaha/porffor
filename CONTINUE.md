@@ -1,3 +1,41 @@
+## Complete default native and queue checkpoint — 2026-10-13
+
+Frozen clean `9908850ce` completes all 105 default-feature native/ignored/docs
+scopes: 8,881 PASS, zero FAIL, zero IGNORE. This includes all 848 default CLI
+IDs, default oracle-refusal controls, full fake publication and original timing
+gates. The four immutable phase receipts seal one complete inventory; no failed
+outcome is replaced. The older thirteen-scope default Engine subset retains
+3,181 passing IDs, adds 69 passing IDs and has zero regressions. Three old IDs
+remain visibly absent with source-proven replacements: required weak support,
+real weak constructors, and contract ownership independent of temporary tasks.
+See [the portable checkpoint](docs/rust-rewrite/native-default-checkpoint-20261013.json).
+
+The Python-only scheduler now starts independent scopes before idle barriers,
+retaining original case objects/indices, stable inventory order, exact flags,
+continuation membership and all existing drain/isolation rules. Four focused
+controls and all 495 Python methods/fifteen formatting/source checks pass. The
+[tooling receipt](docs/rust-rewrite/native-default-tooling-20261013.json) records
+the frozen checks; publication guards precede the next push. No Rust source or
+profile changed and no native scheduling speedup is claimed. Eight
+SHA-verified cache archives park 7,006,674,944 allocated debug-library bytes in
+1,264,826,265 archive bytes, leaving about 8 GB for a distinct release graph.
+Keep every raw receipt, runtime OUT/DSO, product/private/staged executable and
+Cargo fingerprint; absent library outputs can rebuild normally. Restore only
+exact source/environment/cache generation and never overwrite newer output.
+
+Next build one feature-enabled release graph for CLI/test262 bins, then execute
+three fresh complete corpus byte-determinism rounds, nightly 704 and robustness
+1,216 with each driver's own cloud flag, optimized private-worker acceptance and
+idle performance. Switch once to default release for current-pin stress, actual
+shard/resume, two complete unfiltered families and verified publication. Resolve
+every task's exact acceptance owner before deletion. T22's Apia contextual-window
+semantic gap remains real; supported Linux/macOS artifact retrieval lacks actual
+receipts after 403. Historical aa552 backlog input is not the current pin
+`2e0a56762801e275a9fdf96dc49d90ba0cddcf63`. Retain this handoff/tasks until actual
+completion and push verified batches continuously to main. Older dated sections
+below are historical source-bound checkpoints, superseded where later evidence
+explicitly resolves their failures.
+
 ## Complete all-feature native and measured worker checkpoint — 2026-10-12
 
 Frozen clean `f54ef2ae9` completes all 106 all-feature native/documentation

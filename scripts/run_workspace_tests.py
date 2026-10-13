@@ -9,6 +9,7 @@ test exactly once across disjoint processes.
 """
 import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
 from pathlib import Path
+from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli
 root=Path.cwd();parser=argparse.ArgumentParser();parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
@@ -64,8 +65,6 @@ def order(case):
     key=(case['package'],case['target'],case['kind'])
     return first.index(key) if key in first else len(first)
 cases.sort(key=order)
-def is_barrier(case):
-    return case['kind']=='doc' or (case['package']=='lila-cli' and case['target'] in ('perf','fake_suite_publication','differential_corpus','differential_robustness','differential_scenario_pair','differential_worker')) or (case['package']=='lila-test262' and case['target'] in ('differential_worker_execution','differential_generated_campaign','differential_corpus','differential_robustness','differential_rooted_snapshot_execution'))
 full_inventory=list(cases)
 assert set(native_filters) <= {c['package']+':'+c['target'] for c in full_inventory}
 if args.only_targets:
@@ -401,7 +400,7 @@ def run_doc_cohort():
         assert result['source_unchanged'], 'Source changed during documentation cohort'
 
 save()
-for i,case in enumerate(cases):
+for i,case in execution_order(cases,args.partition_cli):
     if case['kind']=='doc' and args.continuation_phase in ('barriers','all'):
         if case.get('state') is None:
             # The complete cohort sealed all documentation siblings already.
@@ -411,7 +410,7 @@ for i,case in enumerate(cases):
             run_doc_cohort()
         continue
     reap()
-    partitioned=args.partition_cli and case['package']=='lila-cli' and case['target']=='cli' and case['kind']=='test'
+    partitioned=is_partitioned_cli(case,args.partition_cli)
     barrier=is_barrier(case) or partitioned
     if barrier:
         while active:reap(wait=True)

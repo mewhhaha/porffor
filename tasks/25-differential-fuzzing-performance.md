@@ -1,5 +1,17 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Complete native boundary — 2026-10-13
+
+All-feature/default native/ignored/docs acceptance is complete: 8,974/8,881
+passes and zero failures or ignores. WeakMap stress failures described below
+were subsequently repaired at their unchanged deadlines. The
+[default checkpoint](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
+preserves exact historical comparisons and cache parking. The Python-only queue
+repair preserves inventory/continuation ownership and passes four focused checks.
+Optimized repeated-corpus bytes, nightly 704, robustness 1,216, private-worker
+release acceptance and idle calibrated performance remain required. Minimal R
+is precompiled; Conformance R and further crate splits remain proposals.
+
 ## Exact debug sustained acceptance — 2026-10-12
 
 The frozen generator/oracle CLI passes all 704 nightly generated cases at the

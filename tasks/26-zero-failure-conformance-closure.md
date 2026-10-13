@@ -1,5 +1,17 @@
 # T26 — Zero-failure conformance closure and release gate
 
+## Current acceptance boundary — 2026-10-13
+
+Complete all-feature/default native inventories now pass 8,974/8,881 IDs with
+zero failures or ignores. Real weak support and both original deep WeakMap modes
+are accepted; older weak-unavailable blockers below are superseded. The
+[default checkpoint](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
+does not establish optimized/current-pin/two-family or independent-host closure.
+T22's contextual Temporal rounding gap remains explicit, dynamic-source
+unsupported IDs stay in the denominator, and actual supported-host receipts are
+missing after 403 retrieval. Finish the unchanged optimized, shard/resume,
+publication and every task-owned gate before declaring T26 or deleting tasks.
+
 ## Literal release boundary — 2026-10-08
 
 T26 remains blocked. The complete tooling sweep passes, but the frozen workspace

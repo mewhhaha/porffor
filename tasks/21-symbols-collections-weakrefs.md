@@ -1,5 +1,16 @@
 # T21 — Symbols, collections, weak collections and weak references
 
+## Current weak/native evidence — 2026-10-13
+
+Weak collections, WeakRef and finalization jobs now use real product support.
+Both original deep WeakMap modes pass unchanged deadlines, and complete
+all-feature/default native inventories pass 8,974/8,881 IDs. The
+[default comparison](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
+keeps the old weak-unavailable controls visibly replaced by supported behavior.
+Earlier unavailable/red paragraphs below describe their own source states.
+Complete task-owned pinned acceptance remains open; do not infer T21 closure
+from shared native evidence.
+
 ## JavaScript weak integration — 2026-10-11 focused checkpoint
 
 The sixteen routes, actual GC brands, kept-root job boundaries and finalization
