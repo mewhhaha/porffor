@@ -570,9 +570,12 @@ fn strict_block_bindings_do_not_leak_to_sibling_functions() {
 
 #[test]
 fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() {
-    for source in [
-        "function owner(f) { { function f() {} } return f; }",
-        "function owner() { { function arguments() {} } return arguments; }",
+    for (source, expected_copies) in [
+        ("function owner(f) { { function f() {} } return f; }", 0),
+        (
+            "function owner() { { function arguments() {} } return arguments; }",
+            1,
+        ),
     ] {
         let program = lower_script(source);
         assert!(
@@ -581,11 +584,89 @@ fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() 
             program.diagnostics
         );
         let script = program.script.as_ref().expect("script IR should exist");
-        assert!(script
+        let copies = script
             .functions
             .iter()
-            .all(|function| collect_annex_b_copies(&function.body).is_empty()));
+            .flat_map(|function| collect_annex_b_copies(&function.body))
+            .collect::<Vec<_>>();
+        assert_eq!(copies.len(), expected_copies, "{source}");
+        if expected_copies != 0 {
+            assert_eq!(
+                copies[0].2,
+                AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+                    name: "arguments".into(),
+                }
+            );
+            let owner = script
+                .functions
+                .iter()
+                .find(|function| function.name == "owner")
+                .unwrap();
+            assert!(!owner
+                .owned_env_bindings
+                .iter()
+                .any(|binding| binding.name == "arguments"));
+        }
     }
+}
+
+#[test]
+fn annex_b_arguments_formals_block_copy_and_parameter_expressions_keep_late_creation() {
+    let program =
+        lower_script("function owner(arguments) { { function arguments() {} } return arguments; }");
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().unwrap();
+    assert!(script
+        .functions
+        .iter()
+        .all(|function| collect_annex_b_copies(&function.body).is_empty()));
+
+    let program = lower_script(
+        "function owner(read = () => arguments) { const later = () => arguments; { function arguments() {} } return [read(), later()]; }",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().unwrap();
+    let owner = script
+        .functions
+        .iter()
+        .find(|function| function.name == "owner")
+        .unwrap();
+    let copies = collect_annex_b_copies(&owner.body);
+    assert_eq!(copies.len(), 1);
+    assert_eq!(
+        copies[0].2,
+        AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+            name: "arguments".into()
+        }
+    );
+    let body = owner
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Block(body)
+                if body
+                    .lexical_environment
+                    .as_ref()
+                    .is_some_and(|environment| {
+                        matches!(
+                            environment.initialization,
+                            LexicalEnvironmentInitializationIr::FunctionBody { .. }
+                        )
+                    }) =>
+            {
+                Some(body)
+            }
+            _ => None,
+        })
+        .expect("parameter expressions require a separate body environment");
+    assert!(!body
+        .lexical_environment
+        .as_ref()
+        .unwrap()
+        .bindings
+        .iter()
+        .any(|binding| binding.name == "arguments"));
 }
 
 #[test]

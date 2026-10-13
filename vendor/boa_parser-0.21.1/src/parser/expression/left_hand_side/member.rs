@@ -137,6 +137,14 @@ where
                     }
                 } else {
                     let lhs_inner = self.parse(cursor, interner)?;
+                    if let Some(next) = cursor.peek(0, interner)?
+                        && next.kind() == &TokenKind::Punctuator(Punctuator::Optional)
+                    {
+                        return Err(Error::general(
+                            "optional chain is not a constructor target",
+                            next.span().start(),
+                        ));
+                    }
                     let (args, args_span) = match cursor.peek(0, interner)? {
                         Some(next)
                             if next.kind() == &TokenKind::Punctuator(Punctuator::OpenParen) =>

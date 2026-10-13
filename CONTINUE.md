@@ -113,148 +113,58 @@ above remains bound to the actual afba compiler, without inventing a new build.
 
 ## Next work
 
-Canonical is now clean/frozen at aee6bc109927c580393d59c0cf6e532e30efd4b3.
-Its acceptance session35166 runs target/exact-list-acceptance-aee6bc109-20261013.
-The complete508 Python sweep passes in168.701s, keeping all508 prior IDs.
-Shared no-run41 succeeds in383.130s and captures the actual native-graph private
-CLI in the same build. Independent ordinary product build succeeds in132.091s;
-private copy0.096s. The six inventory guards, both resumed-timing focus controls
-and allthree CLI exact-list controls pass. The full40 eligible native scopes
-are running; keep this source/HEAD and all actual images frozen through native,
-actual36-ID per-ID/batch/interrupted-resume proof and historical5365 replay.
-The older1bb full owner closes2104pass/three failures in2532.910s: lost resume
-times plus two inventory guards exposing one omitted target registration.
-Raw red evidence remains. No new expected-failure/skip entries were added.
+The exact-list acceptance owner is complete: all2108 affected native tests and
+all508 canonical Python controls pass. Actual36-ID per-ID/batch/interruption/
+resume preserves34Success and both missing modes. These results belong to
+actual compiler aee6bc109, not a later publication or prepared-source commit.
+Main58e357322 publishes the sealed checkpoint and staging tool. Historical
+all5365 replay is now running under
+`target/historical-native-replay-aee6bc109-20261013-owner/receipt.json`;
+coverage and literal conformance remain unverified until its actual completion.
+Keep canonicalAE and original4e sources, HEADs, workers and DSOs immutable.
 
-The source-only next checkout prepares public --from-native-build-owner staging
-and six admission guards. An actual helper invocation from that tooling checkout
-against the frozen canonical project stages the exact aee worker in0.800s,
-zero Cargo, keeping ordinary output unchanged. Proof and exact helper bytes:
-target/native-cli-staging-tool-aee6bc109-20261013. Strict source equality is kept;
-after a new project HEAD, the older build owner intentionally rejects.
-The prepared36-ID proof now observes adapter descendants and start ticks before
-termination, so unreadable executable links cannot supply an empty retirement
-claim. Historical driver replay-historical-native-aee6bc109-20261013.py retains
-every5365 ID and distinguishes verified coverage from literal conformance.
-Both missing DurationFormat modes remain explicit; additional actual errors
-must remain in the denominator too. Neither replay has executed yet.
+Root has prepared the coherent historical repair batch in porffor-next:
 
-Closed unfingerprinted debug cache retirement keeps canonical debug CLI/worker,
-all release images and raw owners, reclaiming1254572032 allocated bytes. A failed
-zero-mutation zombie preflight is retained separately. The completed red1bb
-execution cache is then retired with every raw failure/transcript preserved,
-reclaiming478126080bytes. Allthree full owners remain active; afba latest8920
-has8916Success/noBug/Crash/timeout and the samefour unsupported dynamic-eval IDs.
+- Sloppy plain/escaped `let:` follows ordinary label grammar; strict labels still
+  reject. The three original let-label Bug executions are retained.
+- Logical assignment name inference uses original identifier syntax, preserving
+  empty names for grouped targets. Optional constructor syntax rejects `new
+  object?.Constructor()` while preserving parenthesized targets and optional
+  access after a completed construction.
+- Source arrows with potential direct eval retain lexical this/new.target/home
+  object/derived initialization cells even when only eval text observes them.
+  Paired original Bug/Crash modes and escaped/nested/shadowed controls remain.
+- Class heritage/computed-name references carry scoped lexical strictness and
+  restore the enclosing mode, including nested classes and direct eval.
+- Annex B arguments copying separates parameter collisions from implicit
+  arguments. Named variable-environment assignment occurs at declaration
+  evaluation; parameter-expression and body closures retain their own chains.
+  Existing independent declarations remain static. The old IR control keeps
+  both inputs and its ID with the corrected normative expectation.
+- RegExp substitution collects completed pieces, checks accumulated i64 length
+  against the existing string extent, then copies once and publishes. Named
+  capture Gets/conversions/reentry remain ordered. Oversized replacement must
+  become catchable RangeError rather than GC trap; general remaining-memory
+  allocation failures are not claimed solved.
 
-Previous closed1bb verification:
-Complete canonical Python sweep passes508/508; four Locale producer checks pass.
-Full NumberFormat regeneration reproduces1082 locales/payload
-d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254.
-First1bb no-run fails at a disk-exhausted link after1076s; continued same-source
-no-run succeeds with41 artifacts in330.577s. Closed unfingerprinted debug/build
-is retired under target/completed-debug-build-retirement-20261013, freeing
-3329159168 allocated bytes. Raw owners/debug-deps/active images stay preserved.
-Actual1bb worker staging succeeds and restores ordinary output byte-for-byte.
-Narrower ordinary Cargo graph recompiles for554.873s; private link2.375s,
-restoration0.374s. Align staging/verification features before assuming crate
-splits improve iteration. Do not compile the sparse next checkout.
+Contracts and paired frontend/native controls accompany the batch. Formatting
+and diff checks pass; this is prepared source with no new native acceptance.
+A frontend-only verification may run early to resolve parser/IR foundation risk
+without building Engine/runtime or changing active actual compiler images. Use
+one coherent canonical shared native build after the all5365 frozen owner closes;
+do not compile the Engine/runtime graph in the next checkout. Run focus, all
+complete affected inventories and original historical IDs with exact prior-pass
+retention before claiming bug elimination or publishing an accepted checkpoint.
 
-Native owner target/exact-list-native-1bb1471cd-20261013-continued runs onCPU3.
-Failed build/controller owners stay separate; controller preflights execute no
-tests. Harness416 passes, retaining412 older IDs plusfour new. Verdict-structure3
-passes. One new CLI resume control finds known1778ms/978ms times become0 after
-completed resume. Prepared next-checkout repair uses optional timing, restores
-available failure/top-ten times, excludes unknown times from slowest lists,
-and adds13case no-rerun control with a known off-top-ten failure and unknown
-success/failure. Keep exact CLI snapshot equality. Root writes; Luna reviews
-read-only. Finish current broad inventory, integrate the coherent repair,
-then one shared build/focus/full checkpoint before pushing.
-The CLI scope also finds two existing hygiene failures because its closed
-TestTarget enum omitted test262_execution_list. Root adds that target to all
-three exhaustive mappings in the same repair batch. Do not add expected-failure
-or skip entries. Run the six known_failures controls before costly CLI cases.
-The next untracked build driver captures the actual non-test CLI produced by
-the same native Cargo graph through an isolated private linker. It stages that
-worker without another private Cargo graph and separately builds/verifies the
-ordinary product used by every CLI control. Actual graph/worker/DSO/source
-identities stay distinct; this optimization is prepared, not yet executed.
+Remaining historical resource/caller findings stay explicit: catchable recursion
+needs an actual stack-usage bound, the huge generated Unicode table needs generic
+compact emission/body splitting, Unicode-surrogate RegExp matching needs repair,
+and optional sloppy caller/arguments extension policy needs coherent controls.
+Do not silently drop pending staging IDs or dynamic-source limitations.
 
-Prepared actual replay verifies36 IDs: Promise.try30, both Syriac and
-Changes_When_Casefolded modes, plus two missing modes of one absent DurationFormat
-constructor-option-read-order.js file. Native snapshot pin is content tree
-6a4268a9354a545d41c3b62efebc478ed8c521f4; upstream metadata2e0a567 is distinct.
-Actual parity/timing, real interruption/resume and all5365 replay remain pending.
-Oldb486 full owner now has a sloppy Changes_When_Casefolded timeout/Crash;
-currentafba partial6969 has zero Bug/Crash/timeout and four unchanged dynamic-eval
-limitations. Incomplete coverage supplies no repair verdict.
-
-The exact-cohort/optimized-host batch is integrated locally at 9025805af; not
-yet pushed or native-accepted. It adds checked native `run-list`, complete
-`list-all`, and optional replay worker reuse with native snapshot resume.
-Missing files/modes keep actual per-ID native errors in the full denominator.
-All17 focused replay Python controls pass. The release host build-override is
-opt-level1. Actual same-source producers preserve all three bundle files:
-cold718.569s ->86.311s, warm38.358/39.485s ->3.904/2.893s; first host graph944.635s.
-See [the producer checkpoint](docs/rust-rewrite/host-producer-optimization-checkpoint-20261013.json).
-One failed zero-stencil-hit prediction is preserved; an initially empty cache
-still has1015 within-run duplicate hits/1142 unique misses, not inherited reuse.
-
-Generated Intl identities/provenance were refreshed for the new root Cargo
-profile with unchanged data. Dependency order is named-time-zones ->DateTime
-authority ->all four Locale profiles (calendar/hour-cycles/text/week), not just
-calendar. Actual canonical sweep at a4c has506 Success/two stale provenance
-failures, with exact IDs/logs retained in target/exact-list-python-a4c6209db-20261013.
-The in-progress no-run was cancelled at804s before native execution; completed
-shared dependencies remain available. Hour/text/week were then regenerated from
-the final DateTime owner; every full Locale producer check now passes. The Week
-control now compares regenerated outputs with checked-in bytes as well as itself,
-so stale checked metadata cannot pass its determinism-only check. Run the complete
-canonical508 sweep before the corrected frozen shared-graph build. Preserve the
-failed Python and cancelled build owners; do not relabel either as acceptance.
-The sparse next-checkout sweep has six provenance failures/six missing-source
-errors and cannot supply a canonical verdict.
-The source-only full NumberFormat regeneration check is running separately;
-it launches no Cargo and changes no tracked outputs.
-
-Thirteen closed passing afba native ELFs are reversibly parked under
-target/completed-string-native-parking-20261013 with verified342,408,691-byte
-archive and all original transcripts/IDs retained. Retired debug archives
-cannot restore their old outputs; current Cargo may regenerate them. Preserve
-all original archive/member manifests. Five older closed compiled-output archives
-and three closed passing execution caches were retired with SHA receipts under
-target/completed-exact-list-archive-reclamation-corrected-20261013, reclaiming
-1,168,605,184 allocated bytes. Those older ELFs/cache are no longer directly
-restorable; ordinary Cargo may regenerate them. The afba archive remains.
-Preserve
-all active full caches/workers/DSOs. Next: one same shared-graph no-run for
-affected CLI/harness/Intl, execute fresh complete inventories/focus, stage a new
-actual worker, prove exact-list/per-ID outcome parity and real interruption/
-resume, then replay all5,365 historical IDs and push only verified progress.
-
-String is pushed to main at 5a5234814 and all five publication guards pass.
-The latest actual staged worker's two fresh full pinned families are running,
-preserving the independent older full owners. Complete compiler-bound historical
-replay, publisher/backlog, full-manifest shard/thread and interruption/resume
-owners and task-specific acceptance. Existing passing predecessors cannot
-supply an unexecuted latest-source verdict.
-
-The next iteration hill is the opt-level0 host producer. Evaluate a release
-build-override experiment only with actual package/features/configuration,
-artifact/admission parity, phase timing and net compile/storage cost. Do not
-assume the opt-level3 product units can substitute: their feature sets differ.
-Batch code/tests/docs before one compile. Explicitly set shared CARGO_TARGET_DIR
-and retain the same package graph/wrapper when adding a scope. Inventory actual
-targets before executing selectors.
-
-Cloud budget is inherited 32GiB/four quota CPUs. Use limited-verification --cloud;
-CPU2/3 native work needs --cloud-cpus auto. Keep Cargo/libtest and case workers
-serial with original limits. Activation/shared target already exist. Check disk;
-retire only closed regenerable cache/output data with manifests, retaining raw
-owners and current workers/DSOs. Record archive retirement honestly. Retain the
-accepted runtime producer transcript before any later build overwrites it.
-Closed replay/focus execution caches and eight old compressed debug-library
-archives were retired with SHA/member manifests. Raw owners, active caches,
-workers/DSOs remain. Retired archives cannot restore their old debug artifacts.
+Closed execution/cache retirement preserved all images, DSOs, transcripts and
+nonpass IDs: debug unfingerprinted1254572032bytes; closed1bb execution478126080;
+closedAE native/parity1086394368. Active full/history caches remain untouched.
 
 ## Remaining acceptance
 

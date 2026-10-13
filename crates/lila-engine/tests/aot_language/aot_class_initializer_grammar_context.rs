@@ -39,6 +39,56 @@ fn assert_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn class_evaluation_references_are_strict_inside_a_sloppy_activation() {
+    assert_trace(
+        r#"
+function check(operation) {
+  try { operation(); } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    print('strict');
+    return;
+  }
+  throw 'class evaluation suppressed a strict reference error';
+}
+check(function () { class C { [Object.preventExtensions({}).key = 1]() {} } });
+check(function () { return class { [Object.preventExtensions({}).key = 1]() {} }; });
+check(function () { class C extends (Object.preventExtensions({}).key = 1) {} });
+check(function () { return class extends (Object.preventExtensions({}).key = 1) {}; });
+check(function () { return class { [eval('Object.preventExtensions({}).key = 1')]() {} }; });
+"#,
+        &["strict", "strict", "strict", "strict", "strict"],
+    );
+}
+
+#[test]
+fn class_evaluation_restores_the_enclosing_reference_strictness() {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let source = r#"
+var object = Object.preventExtensions({});
+class Outer { [class Inner { method() {} }]() {} }
+object.key = 1;
+function sloppy() {
+  var value = class { [class {}]() {} };
+  object.key = 2;
+  return object.key === undefined;
+}
+sloppy() && object.key === undefined;
+"#;
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            source,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("sloppy references after class evaluation still execute");
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
+#[test]
 fn async_class_field_initializers_read_the_outer_await_binding_at_initialization() {
     assert_trace(
         r#"

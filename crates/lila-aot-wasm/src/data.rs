@@ -2380,7 +2380,8 @@ impl StringPool {
                         self.intern_string(storage_name);
                     }
                     AnnexBFunctionCopyTargetIr::ScriptGlobal { name }
-                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { name } => {
+                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { name }
+                    | AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment { name } => {
                         self.intern_string(name);
                     }
                 }

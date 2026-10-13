@@ -7843,7 +7843,8 @@ pub(crate) fn collect_hoisted_vars_statement(
             let name = match target {
                 AnnexBFunctionCopyTargetIr::OwnerBinding { storage_name } => storage_name,
                 AnnexBFunctionCopyTargetIr::ScriptGlobal { name } => name,
-                AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. } => return,
+                AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. }
+                | AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment { .. } => return,
             };
             names.insert(name.clone());
         }

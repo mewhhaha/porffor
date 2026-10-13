@@ -54,6 +54,76 @@ if (!delete inferred.name || Object.hasOwn(inferred, 'name')) throw 'delete name
 }
 
 #[test]
+fn logical_assignment_names_depend_on_the_original_identifier_syntax() {
+    let body = r#"
+var plainNullish;
+plainNullish ??= function () {};
+checkName(plainNullish, 'plainNullish');
+var plainOr = false;
+plainOr ||= () => {};
+checkName(plainOr, 'plainOr');
+var plainAnd = true;
+plainAnd &&= class {};
+checkName(plainAnd, 'plainAnd');
+var groupedNullish;
+(groupedNullish) ??= function () {};
+checkName(groupedNullish, '');
+var groupedOr = false;
+((groupedOr)) ||= () => {};
+checkName(groupedOr, '');
+var groupedAnd = true;
+(groupedAnd) &&= class {};
+checkName(groupedAnd, '');
+var explicit;
+explicit ??= function original() {};
+checkName(explicit, 'original');
+var object = {};
+object.member ??= function () {};
+checkName(object.member, '');
+object['other'] ||= () => {};
+checkName(object.other, '');
+var effects = 0;
+var retained = function existing() {};
+retained ??= (effects++, function () {});
+retained ||= (effects++, function () {});
+var skipped = false;
+skipped &&= (effects++, function () {});
+checkName(retained, 'existing');
+if (effects !== 0 || skipped !== false) throw 'logical assignment evaluated skipped RHS';
+"#;
+    for directive in ["", "'use strict';"] {
+        assert_function_names(&format!("(function () {{ {directive}\n{body}\n}})();"));
+    }
+}
+
+#[test]
+fn logical_assignment_names_preserve_async_generator_and_with_reference_routes() {
+    assert_function_names(
+        r#"
+var plainAsync;
+plainAsync ??= async function () {};
+checkName(plainAsync, 'plainAsync');
+var groupedAsync;
+(groupedAsync) ??= async function () {};
+checkName(groupedAsync, '');
+var plainGenerator = false;
+plainGenerator ||= function* () {};
+checkName(plainGenerator, 'plainGenerator');
+var groupedGenerator = false;
+(groupedGenerator) ||= function* () {};
+checkName(groupedGenerator, '');
+var scope = { bare: undefined, grouped: undefined };
+with (scope) {
+  bare ??= function () {};
+  (grouped) ??= function () {};
+}
+checkName(scope.bare, 'bare');
+checkName(scope.grouped, '');
+"#,
+    );
+}
+
+#[test]
 fn object_methods_and_accessors_name_every_symbol_description() {
     assert_function_names(
         r#"

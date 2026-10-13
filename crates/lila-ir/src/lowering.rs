@@ -1137,6 +1137,7 @@ pub(crate) struct ScriptLowerer<'a> {
     analysis: &'a Analysis<'a>,
     source_text: &'a str,
     current_owner_id: String,
+    lexical_strictness: Option<Strictness>,
     host_surface_policy: HostSurfacePolicy,
     scopes: Vec<BTreeMap<String, BindingInfo>>,
     direct_lexical_scopes: Vec<bool>,
@@ -1583,6 +1584,7 @@ impl<'a> ScriptLowerer<'a> {
             analysis,
             source_text,
             current_owner_id,
+            lexical_strictness: None,
             host_surface_policy,
             scopes: vec![BTreeMap::new()],
             direct_lexical_scopes: vec![false],
@@ -2884,6 +2886,14 @@ impl<'a> ScriptLowerer<'a> {
             .map(|plan| plan.source_name.clone())
             .collect::<BTreeSet<_>>();
         for name in names {
+            if self.current_owner_id != SCRIPT_OWNER_ID
+                && name == "arguments"
+                && !self.analysis.owner_plans[&self.current_owner_id]
+                    .root_bindings
+                    .contains(&name)
+            {
+                continue;
+            }
             self.hoist_var_name(name);
         }
     }
@@ -5392,6 +5402,9 @@ impl<'a> ScriptLowerer<'a> {
     /// invisible, which is how strict mode went unenforced for unresolvable
     /// references without any test noticing.
     fn reference_strictness(&self) -> Strictness {
+        if let Some(strictness) = self.lexical_strictness {
+            return strictness;
+        }
         match self.analysis.owner_plans.get(&self.current_owner_id) {
             Some(owner) if owner.strict => Strictness::Strict,
             Some(_) => Strictness::Sloppy,
@@ -6844,6 +6857,9 @@ impl<'a> ScriptLowerer<'a> {
             );
         }
         let has_name_binding = name_binding.is_some();
+        // Class heritage and computed element names are strict code even when
+        // their evaluation stays in the enclosing sloppy function activation.
+        let enclosing_strictness = self.lexical_strictness.replace(Strictness::Strict);
         let lowered = self.lower_class_common_in_name_scope(
             class_name.into_label(),
             class_source,
@@ -6854,6 +6870,7 @@ impl<'a> ScriptLowerer<'a> {
             name_binding,
             name_inference,
         );
+        self.lexical_strictness = enclosing_strictness;
         if has_name_binding {
             self.pop_scope();
         }

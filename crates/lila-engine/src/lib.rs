@@ -20365,6 +20365,85 @@ let regexp = /(a)/g[Symbol.replace]("aaa abc", function(match, capture, position
     }
 
     #[test]
+    fn wasm_backend_regexp_substitution_checks_wide_length_before_allocating_result() {
+        let source = r#"
+let text = 'a'.repeat(1 << 20);
+let replacement = '$1'.repeat(1 << 15);
+let caught = false;
+try {
+  text.replace(/(.+)/g, replacement);
+} catch (error) {
+  caught = error instanceof RangeError;
+}
+let normal = 'aba'.replace(/(a)/g, '$1$1');
+caught && normal === 'aabaa';
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("oversized substitution is a catchable JavaScript completion");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
+    fn wasm_backend_regexp_substitution_keeps_named_capture_effects_and_utf16_units() {
+        let source = r#"
+let trace = [];
+let count = 0;
+let groups = {
+  get name() {
+    trace.push('get');
+    return {
+      toString() {
+        trace.push('convert');
+        if ('z'.replace(/(z)/, '$1') !== 'z') throw 'reentrant replacement failed';
+        return ++count === 1 ? '\uD800' : '\uDC00';
+      }
+    };
+  }
+};
+let result = ['a', 'x'];
+result.index = 0;
+result.groups = groups;
+let matcher = { global: false, exec() { return result; } };
+let value = RegExp.prototype[Symbol.replace].call(matcher, 'a', '$<name>$<name>$1$$');
+let sentinel = {};
+let reads = 0;
+let converts = 0;
+result.groups = {
+  get name() {
+    if (++reads === 2) throw sentinel;
+    return { toString() { converts++; return 'first'; } };
+  }
+};
+let abrupt = false;
+try { RegExp.prototype[Symbol.replace].call(matcher, 'a', '$<name>$<name>'); }
+catch (error) { abrupt = error === sentinel; }
+value === '\uD800\uDC00x$' && trace.join(',') === 'get,convert,get,convert'
+  && abrupt && reads === 2 && converts === 1;
+"#;
+        let outcome = engine()
+            .run_script(
+                source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("substitution publishes only completed pieces without repeating user effects");
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+
+    #[test]
     fn wasm_backend_string_split_orders_and_catches_limit_coercion() {
         let source = "var order = []; var separator = { toString: function() { order.push('separator'); throw 'separator'; } }; var limit = { valueOf: function() { order.push('limit'); throw 'limit'; } }; var caught = 'none'; try { 'x y'.split(separator, limit); } catch (error) { caught = error; } var pieces = new String('one two three').split(/ /, 2); caught + '|' + order.join(',') + '|' + pieces.join(',');";
         let outcome = engine()

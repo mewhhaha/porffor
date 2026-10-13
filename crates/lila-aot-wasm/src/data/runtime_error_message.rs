@@ -1215,6 +1215,7 @@ runtime_error_message_catalog! {
     PRIVATE_FIELD_ACCESS_ON_WRONG_OBJECT => "private field access on wrong object",
     REPEAT_COUNT_MUST_BE_NON_NEGATIVE_AND_FINITE => "repeat count must be non-negative and finite",
     REPEAT_RESULT_WOULD_EXCEED_MAXIMUM_STRING_LENGTH => "repeat result would exceed maximum string length",
+    REPLACEMENT_RESULT_WOULD_EXCEED_MAXIMUM_STRING_LENGTH => "replacement result would exceed maximum string length",
     RIGHT_HAND_SIDE_OF_IN_IS_NOT_AN_OBJECT => "right-hand side of `in` is not an object",
     RIGHT_HAND_SIDE_OF_PRIVATE_IN_IS_NOT_AN_OBJECT => "right-hand side of private in is not an object",
     SMALLESTUNIT_MUST_BE_SMALLER_THAN_LARGESTUNIT => "smallestUnit must be smaller than largestUnit",

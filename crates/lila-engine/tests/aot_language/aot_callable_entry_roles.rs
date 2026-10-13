@@ -50,3 +50,74 @@ fn prepared_realm_scripts_publish_the_right_callable_family_and_context() {
         "prepared-callable-entry-roles:ok",
     );
 }
+
+fn assert_sloppy_arguments(source: &str) {
+    lila_engine::configure_compilation_jobs(1).expect("bounded compiler jobs");
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            source,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("Annex B arguments binding executes through real Wasm");
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
+#[test]
+fn annex_b_arguments_copy_updates_the_existing_binding_only_when_selected() {
+    assert_sloppy_arguments(
+        r#"
+function selected(value) {
+  var before = arguments;
+  var read = () => arguments;
+  if (typeof before !== 'object' || before[0] !== 17) throw 'arguments missing at entry';
+  if (false) { function arguments() {} }
+  if (read() !== before) throw 'unselected declaration replaced arguments';
+  { function arguments() { return 19; } }
+  return typeof arguments === 'function' && read() === arguments && arguments() === 19;
+}
+function parameter(arguments) {
+  { function arguments() {} }
+  return arguments === 23;
+}
+function lexical() {
+  let arguments = 29;
+  { function arguments() {} }
+  return arguments === 29;
+}
+selected(17) && parameter(23) && lexical();
+"#,
+    );
+}
+
+#[test]
+fn annex_b_arguments_late_body_binding_preserves_parameter_and_arrow_environments() {
+    assert_sloppy_arguments(
+        r#"
+function defaults(read = () => arguments, alter = () => arguments = 31) {
+  let before = read();
+  let later = () => arguments;
+  if (later() !== before || typeof before !== 'object') throw 'body binding created at entry';
+  { function arguments() { return 37; } }
+  let body = arguments;
+  return later() === body && read() === before && body() === 37
+    && alter() === 31 && read() === 31 && later() === body;
+}
+function enclosing(value) {
+  let before = arguments;
+  let arrow = () => {
+    let read = () => arguments;
+    if (read() !== before) throw 'arrow created own arguments at entry';
+    { function arguments() { return 41; } }
+    return read() === arguments && arguments() === 41;
+  };
+  return arrow() && arguments === before && before[0] === value;
+}
+defaults() && enclosing(43);
+"#,
+    );
+}

@@ -5749,6 +5749,116 @@ mod tests {
     }
 
     #[test]
+    fn parser_accepts_sloppy_let_and_static_labels_with_decoded_identifiers() {
+        for source in [
+            "let: 42;",
+            r"l\u0065t: 42;",
+            "if (true) let: 42;",
+            r"if (true) l\u0065t: 42;",
+            "let: { break let; }",
+            r"l\u0065t: { break let; }",
+            r"let: { break l\u0065t; }",
+            "let: while (false) { continue let; }",
+            r"l\u0065t: while (false) { continue let; }",
+            r"let: while (false) { continue l\u0065t; }",
+            "static: { break static; }",
+            r"st\u0061tic: { break static; }",
+            r"static: { break st\u0061tic; }",
+            "function outer() { let: { break let; } }",
+        ] {
+            parse(source, ParseOptions::script())
+                .unwrap_or_else(|err| panic!("sloppy label should parse: {source:?}: {err:?}"));
+        }
+    }
+
+    #[test]
+    fn parser_rejects_let_and_static_labels_in_every_strict_context() {
+        for label in ["let", r"l\u0065t", "static", r"st\u0061tic"] {
+            let body = format!("{label}: 42;");
+            for source in [
+                format!("'use strict'; {body}"),
+                format!("'use strict'\n{body}"),
+                format!("function outer() {{ 'use strict'; {body} }}"),
+                format!("function outer() {{ 'use strict'\n{body} }}"),
+                format!("class C {{ method() {{ {body} }} }}"),
+            ] {
+                let err = parse(&source, ParseOptions::script())
+                    .expect_err("strict reserved word must not become a label");
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            }
+            let err = parse(&body, ParseOptions::module())
+                .expect_err("module labels must obey strict reserved-word rules");
+            assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+        }
+    }
+
+    #[test]
+    fn parser_let_label_lookahead_preserves_declaration_and_expression_routes() {
+        for source in [
+            "let value = 42; value;",
+            "let [value] = [42]; value;",
+            "let { value } = { value: 42 }; value;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).expect("lexical declarations must retain their parse route");
+            }
+        }
+        for source in [
+            "let = 42;",
+            r"l\u0065t = 42;",
+            "static = 42;",
+            r"st\u0061tic = 42;",
+        ] {
+            parse(source, ParseOptions::script())
+                .expect("sloppy identifier assignment must retain its expression route");
+            parse(source, ParseOptions::module())
+                .expect_err("strict reserved identifier assignment must still fail");
+        }
+        let err = parse(r"let: { l\u0065t: 42; }", ParseOptions::script())
+            .expect_err("decoded duplicate labels must still be rejected");
+        assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+    }
+
+    #[test]
+    fn parser_rejects_unparenthesized_optional_constructor_targets() {
+        for source in [
+            "new object?.Constructor();",
+            "new object?.['Constructor']();",
+            "new object.Constructor?.();",
+            "new Constructor?.();",
+            "new object?.Constructor;",
+            "new new Constructor()?.property;",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                let err = parse(source, options)
+                    .expect_err("optional chain cannot be an unparenthesized constructor target");
+                assert_eq!(err.diagnostic().error_type(), Some("SyntaxError"));
+            }
+        }
+    }
+
+    #[test]
+    fn parser_preserves_optional_chains_with_constructor_parenthesis_boundaries() {
+        for source in [
+            "new (object?.Constructor)();",
+            "new (object?.['Constructor'])();",
+            "new (object?.Constructor);",
+            "(new Constructor)?.property;",
+            "new Constructor()?.property;",
+            "new Constructor(object?.property);",
+            "new (object?.factory())();",
+        ] {
+            for options in [ParseOptions::script(), ParseOptions::module()] {
+                parse(source, options).unwrap_or_else(|err| {
+                    panic!(
+                        "constructor/optional parenthesis boundary must parse: {source}: {err:?}"
+                    )
+                });
+            }
+        }
+    }
+
+    #[test]
     fn parser_duplicate_lexical_declaration_reports_early_phase() {
         let err = parse("let x; let x;", ParseOptions::script())
             .expect_err("duplicate lexical declaration should fail");

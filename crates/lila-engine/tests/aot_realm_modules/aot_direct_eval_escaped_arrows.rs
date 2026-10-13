@@ -85,3 +85,66 @@ arrow.call({marker: 99}) === 23 && ordinary.call(receiver) === receiver;
 "#,
     );
 }
+
+#[test]
+fn source_arrows_capture_context_observed_only_by_direct_eval() {
+    for directive in ["", "'use strict';"] {
+        let shadowed = if directive.is_empty() {
+            "function shadowed(eval) { return () => eval('new.target'); }\n\
+             var ordinary = shadowed(function (value) { return value; });\n\
+             if (ordinary() !== 'new.target') throw 'shadowed eval became direct eval';"
+        } else {
+            ""
+        };
+        run_boolean(&format!(
+            r#"
+{directive}
+function Capture() {{
+  return () => () => [eval('this'), eval('new.target'), eval('eval("new.target")'),
+    eval('arguments'), eval('eval("arguments")')];
+}}
+var receiver = {{ marker: 31 }};
+var called = Capture.call(receiver, 47)().call({{}});
+var constructed = new Capture(53);
+var built = constructed().call({{}});
+class Base {{ read() {{ return this.marker; }} }}
+class Derived extends Base {{
+  constructor() {{ super(); this.marker = 37; }}
+  capture() {{ return () => () => eval('super.read()'); }}
+}}
+var original = new Derived();
+var superRead = original.capture()();
+{shadowed}
+called[0] === receiver && called[1] === undefined && called[2] === undefined
+  && called[3] === called[4] && called[3][0] === 47 && called[3].length === 1
+  && built[1] === Capture && built[2] === Capture && built[0] !== receiver
+  && built[3] === built[4] && built[3][0] === 53 && built[3].length === 1
+  && superRead.call({{ marker: 99 }}) === 37;
+"#,
+        ));
+    }
+}
+
+#[test]
+fn source_arrows_direct_eval_share_derived_constructor_initialization_cells() {
+    run_boolean(
+        r#"
+class Base { constructor() { this.base = 41; } }
+class Derived extends Base {
+  field = 43;
+  constructor() {
+    let read = () => eval('this');
+    let initialize = () => () => eval('super()');
+    let before = false;
+    try { read(); } catch (error) { before = error instanceof ReferenceError; }
+    initialize()();
+    if (!before || read() !== this) throw 'derived eval lost this cell';
+    if ((() => eval('new.target'))() !== Derived) throw 'derived eval lost new.target';
+    this.read = read;
+  }
+}
+var value = new Derived();
+value.read.call({}) === value && value.base === 41 && value.field === 43;
+"#,
+    );
+}

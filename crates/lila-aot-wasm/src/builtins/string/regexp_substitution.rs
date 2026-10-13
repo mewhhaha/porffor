@@ -1,11 +1,97 @@
 use super::*;
 use crate::functions::ArgumentListConstruction;
+use crate::gc_types::{CodeUnitArray, StringConstruction, StringValueSchema};
 
 enum LiteralSubstitution {
     Dollar,
     Matched,
     Prefix,
     Suffix,
+}
+
+/// Only completed strings enter this list. User capture Gets and conversions
+/// happen once before append; final publication only copies their UTF-16 units.
+struct SubstitutionPieces(ArgumentListConstruction);
+
+impl SubstitutionPieces {
+    fn new(s: &RuntimeSchema, f: &mut Function) -> Self {
+        Self(ArgumentListConstruction::new(s, f))
+    }
+
+    fn append(&self, string: &GcLocal<StringValue>, s: &RuntimeSchema, f: &mut Function) {
+        let value = s.reserve_value_local(f);
+        value.set_reference(string, s, f);
+        self.0.append(&value, s, f);
+        value.clear(f);
+    }
+
+    fn publish(
+        self,
+        b: &mut FunctionBuilder<'_>,
+        total: I64Local,
+        f: &mut Function,
+    ) -> GcLocal<StringValue> {
+        let s = b.runtime_schema();
+        let pieces = self.0.finish(b, f);
+        let length = s.reserve_i32_local(f);
+        total.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        length.store(f);
+        let construction = StringConstruction::allocate(s, s.reserve_gc_local(f), length, f);
+        let index = s.reserve_i32_local(f);
+        let count = s.reserve_i32_local(f);
+        let destination = s.reserve_i32_local(f);
+        let piece_length = s.reserve_i32_local(f);
+        let value = s.reserve_value_local(f);
+        index.set_constant(0, f);
+        destination.set_constant(0, f);
+        s.array_type::<ValueArray>().length(&pieces, s, f);
+        count.store(f);
+        let done = b.open_frame(ControlFrameKind::Block, f);
+        let next = b.open_frame(ControlFrameKind::Loop, f);
+        index.load(f);
+        count.load(f);
+        f.instruction(&Instruction::I32GeU);
+        b.emit_branch_if_to_target(done, f);
+        b.emit_argument_vector_entry_to_value(&pieces, index, &value, f);
+        let string = s
+            .reserve_gc_local(f)
+            .initialize(value.cast_reference::<StringValue>(s, f), f);
+        let units = s.reserve_gc_local(f).initialize(
+            s.struct_type::<StringValue>()
+                .field(StringValueSchema::CODE_UNITS)
+                .read(&string, s, f)
+                .reference(),
+            f,
+        );
+        s.array_type::<CodeUnitArray>().length(&units, s, f);
+        piece_length.store(f);
+        construction.copy_units_from(destination, &units, piece_length, s, f);
+        destination.load(f);
+        piece_length.load(f);
+        f.instruction(&Instruction::I32Add);
+        destination.store(f);
+        units.clear(f);
+        string.clear(f);
+        index.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
+        index.store(f);
+        b.emit_branch_to_target(next, f);
+        b.pop_control(ControlFrameKind::Loop);
+        f.instruction(&Instruction::End);
+        b.pop_control(ControlFrameKind::Block);
+        f.instruction(&Instruction::End);
+        let result = s
+            .reserve_gc_local(f)
+            .initialize(construction.publish(s, f), f);
+        pieces.clear(f);
+        value.clear(f);
+        for local in [length, index, count, destination, piece_length] {
+            s.release_i32_local(local, f);
+        }
+        result
+    }
 }
 
 /// The only append operations admit completed Strings or undefined. Raw
@@ -116,6 +202,8 @@ impl FunctionBuilder<'_> {
         let candidate = s.reserve_i64_local(f);
         let scan = s.reserve_i64_local(f);
         let name_start = s.reserve_i64_local(f);
+        let total_length = s.reserve_i64_local(f);
+        let piece_length = s.reserve_i64_local(f);
         let unit = s.reserve_i32_local(f);
         let next_unit = s.reserve_i32_local(f);
         let digit = s.reserve_i32_local(f);
@@ -145,9 +233,8 @@ impl FunctionBuilder<'_> {
         end.store(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        let accumulated = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_native_string_static("", f), f);
+        total_length.set_constant(0, f);
+        let pieces = SubstitutionPieces::new(s, f);
         let done = self.open_frame(ControlFrameKind::Block, f);
         let next = self.open_frame(ControlFrameKind::Loop, f);
         index.load(f);
@@ -371,7 +458,22 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &piece, f), f);
+        self.emit_native_gc_string_length(&piece, piece_length, f);
+        total_length.load(f);
+        piece_length.load(f);
+        f.instruction(&Instruction::I64Add);
+        total_length.store(f);
+        total_length.load(f);
+        f.instruction(&Instruction::I64Const(u32::MAX as i64));
+        f.instruction(&Instruction::I64GtU);
+        self.emit_native_string_error_if(
+            RuntimeErrorMessage::REPLACEMENT_RESULT_WOULD_EXCEED_MAXIMUM_STRING_LENGTH,
+            NativeErrorKind::RangeError,
+            output,
+            exit,
+            f,
+        )?;
+        pieces.append(&piece, s, f);
         piece.clear(f);
         index.load(f);
         consumed.load(f);
@@ -382,12 +484,15 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         f.instruction(&Instruction::End);
+        let accumulated = pieces.publish(self, total_length, f);
         pending.clear(f);
         value.clear(f);
         for local in [ordinal, found, digit, next_unit, unit] {
             s.release_i32_local(local, f);
         }
         for local in [
+            total_length,
+            piece_length,
             name_start,
             scan,
             candidate,

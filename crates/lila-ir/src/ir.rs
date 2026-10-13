@@ -4091,6 +4091,7 @@ pub enum AnnexBFunctionCopyTargetIr {
     OwnerBinding { storage_name: String },
     ScriptGlobal { name: String },
     DirectEvalVariable { name: String },
+    FunctionVariableEnvironment { name: String },
 }
 
 impl StatementIr {
@@ -5088,7 +5089,8 @@ impl IrSummaryCounts {
                         self.track_storage(storage_name)
                     }
                     AnnexBFunctionCopyTargetIr::ScriptGlobal { .. }
-                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. } => {}
+                    | AnnexBFunctionCopyTargetIr::DirectEvalVariable { .. }
+                    | AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment { .. } => {}
                 }
                 if let Some(binding) = admission {
                     self.track_storage(&binding.name);

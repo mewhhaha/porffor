@@ -169,7 +169,16 @@ impl ScriptLowerer<'_> {
             heap_shape: source.heap_shape,
             function_targets: source.function_targets,
         };
-        self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
+        let late_function_variable = self.current_owner_id != SCRIPT_OWNER_ID
+            && plan.source_name == "arguments"
+            && !self.analysis.owner_plans[&self.current_owner_id]
+                .root_bindings
+                .contains(&plan.source_name);
+        if late_function_variable {
+            self.invalidate_unknown_user_code_effects();
+        } else {
+            self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
+        }
         if self.current_owner_id == SCRIPT_OWNER_ID && self.script_variables_are_global() {
             self.set_global_property_value_info_with_source(
                 plan.source_name.clone(),
@@ -182,7 +191,11 @@ impl ScriptLowerer<'_> {
             admission,
             source_name: plan.source_name.clone(),
             block_storage_name: plan.block_storage_name,
-            target: if self.borrows_direct_eval_variable_environment() {
+            target: if late_function_variable {
+                AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+                    name: plan.source_name,
+                }
+            } else if self.borrows_direct_eval_variable_environment() {
                 AnnexBFunctionCopyTargetIr::DirectEvalVariable {
                     name: plan.source_name,
                 }

@@ -118,6 +118,26 @@ pub(super) fn contains_direct_eval_call(script: &Script) -> bool {
     script.visit_with(&mut DirectEvalCalls).is_break()
 }
 
+/// Annex B can create an `arguments` variable binding when a block declaration
+/// executes, rather than during entry. Its references need live named-record
+/// resolution even when the source never calls eval.
+pub(super) fn contains_annex_b_arguments_candidate(script: &Script) -> bool {
+    struct ArgumentsDeclarations;
+    impl<'ast> Visitor<'ast> for ArgumentsDeclarations {
+        type BreakTy = ();
+        fn visit_function_declaration(
+            &mut self,
+            declaration: &'ast boa_ast::function::FunctionDeclaration,
+        ) -> ControlFlow<Self::BreakTy> {
+            if declaration.name().sym() == Sym::ARGUMENTS {
+                return ControlFlow::Break(());
+            }
+            declaration.visit_with(self)
+        }
+    }
+    script.visit_with(&mut ArgumentsDeclarations).is_break()
+}
+
 pub(super) fn source_identifiers(script: &Script, interner: &Interner) -> BTreeSet<String> {
     struct SourceIdentifiers<'a> {
         interner: &'a Interner,

@@ -438,7 +438,8 @@ impl<'a> AnalysisBuilder<'a> {
                         PreparedScriptKind::IndirectEval | PreparedScriptKind::ShadowRealmEvaluate
                     )
                 ))
-            || eval_environment::contains_direct_eval_call(script);
+            || eval_environment::contains_direct_eval_call(script)
+            || eval_environment::contains_annex_b_arguments_candidate(script);
         self.source_identifiers = eval_environment::source_identifiers(script, interner);
         let direct_context = match &self.script_instantiation {
             ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(context)) => {
@@ -471,7 +472,6 @@ impl<'a> AnalysisBuilder<'a> {
             script.statements().statements(),
             script.strict(),
             &[],
-            false,
             interner,
         );
         let script_root_functions = self.collect_root_functions(
@@ -504,7 +504,6 @@ impl<'a> AnalysisBuilder<'a> {
                 self.collect_independent_owner_binding_names(
                     interner,
                     &[],
-                    false,
                     script.statements().statements(),
                     &script_root_functions,
                 ),
@@ -965,7 +964,6 @@ impl<'a> AnalysisBuilder<'a> {
         items: &'a [StatementListItem],
         owner_strict: bool,
         parameters: &[FormalParameter],
-        has_arguments_binding: bool,
         interner: &Interner,
     ) {
         if owner_strict {
@@ -981,9 +979,6 @@ impl<'a> AnalysisBuilder<'a> {
             let mut names = Vec::new();
             collect_binding_names(interner, parameter.variable().binding(), &mut names);
             blocked_parameter_names.extend(names);
-        }
-        if has_arguments_binding {
-            blocked_parameter_names.insert("arguments".to_string());
         }
         let eligible_keys = candidates
             .into_iter()
@@ -1083,7 +1078,15 @@ impl<'a> AnalysisBuilder<'a> {
                     && plan.source_name == name
                     && plan.copy_to_variable_environment
             });
-            if has_variable_environment_copy {
+            // FDI's Annex B insertion excludes `arguments` from new var
+            // creation, but still performs its evaluation-time assignment.
+            // Without an independent declaration, keep that name absent from
+            // static function/body cells and resolve it through named records.
+            let creates_static_binding = has_variable_environment_copy
+                && (owner_id == SCRIPT_OWNER_ID
+                    || name != "arguments"
+                    || independent_owner_binding_names.contains(&name));
+            if creates_static_binding {
                 bindings.insert(name);
             } else if !independent_owner_binding_names.contains(&name) {
                 bindings.remove(&name);
@@ -1095,7 +1098,6 @@ impl<'a> AnalysisBuilder<'a> {
         &self,
         interner: &Interner,
         parameters: &[FormalParameter],
-        has_arguments_binding: bool,
         items: &'a [StatementListItem],
         root_functions: &[PendingFunction<'a>],
     ) -> BTreeSet<String> {
@@ -1112,10 +1114,6 @@ impl<'a> AnalysisBuilder<'a> {
             );
             names.extend(parameter_names);
         }
-        if has_arguments_binding {
-            names.insert("arguments".to_string());
-        }
-
         self.collect_independent_owner_bindings_from_items(interner, items, true, &mut names);
         names
     }
@@ -1586,7 +1584,6 @@ impl<'a> AnalysisBuilder<'a> {
             function.body.statements(),
             function.strict,
             function.parameters.as_ref(),
-            function.protocol.flavor() == FunctionFlavor::Ordinary,
             interner,
         );
         let root_functions = self.collect_root_functions(
@@ -1638,7 +1635,6 @@ impl<'a> AnalysisBuilder<'a> {
                 self.collect_independent_owner_binding_names(
                     interner,
                     function.parameters.as_ref(),
-                    function.protocol.flavor() == FunctionFlavor::Ordinary,
                     function.body.statements(),
                     &root_functions,
                 ),
@@ -5936,6 +5932,11 @@ impl<'a> AnalysisBuilder<'a> {
                 }
             },
             Expression::Call(call) => {
+                if matches!(call.function().flatten(), Expression::Identifier(identifier)
+                    if identifier.sym() == boa_interner::Sym::EVAL)
+                {
+                    self.record_arrow_direct_eval_context_refs(owner_id, capture_aliases, refs);
+                }
                 self.scan_expression(
                     owner_id,
                     call.function(),
@@ -6543,6 +6544,50 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
         }
+    }
+
+    fn record_arrow_direct_eval_context_refs(
+        &self,
+        owner_id: &str,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        let Some(owner) = self.owner_plans.get(owner_id) else {
+            return;
+        };
+        if owner.flavor != FunctionFlavor::Arrow {
+            return;
+        }
+        // A potential direct eval can observe lexical context without this,
+        // new.target or super appearing in the arrow's own syntax. Capture the
+        // same context as those expressions; the runtime intrinsic check still
+        // distinguishes a shadowed eval from the actual direct-eval operation.
+        self.record_ref(
+            owner_id,
+            LEXICAL_THIS_NAME.to_string(),
+            capture_aliases,
+            refs,
+        );
+        let mut lexical_owner = owner;
+        while lexical_owner.flavor == FunctionFlavor::Arrow {
+            let parent = lexical_owner
+                .parent_owner_id
+                .as_deref()
+                .expect("an arrow has a lexical owner");
+            lexical_owner = &self.owner_plans[parent];
+        }
+        if lexical_owner
+            .root_bindings
+            .contains(LEXICAL_NEW_TARGET_NAME)
+        {
+            self.record_ref(
+                owner_id,
+                LEXICAL_NEW_TARGET_NAME.to_string(),
+                capture_aliases,
+                refs,
+            );
+        }
+        self.record_lexical_super_property_refs(owner_id, capture_aliases, refs);
     }
 
     fn record_lexical_super_property_refs(

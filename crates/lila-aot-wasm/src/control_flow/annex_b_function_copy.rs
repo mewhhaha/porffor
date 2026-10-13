@@ -53,6 +53,22 @@ impl FunctionBuilder<'_> {
                 )?;
                 variable_environment.clear(function);
             }
+            AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment { name } => {
+                let variable_environment = self.emit_eval_variable_environment_to_local(function);
+                let key = schema.reserve_gc_local(function).initialize(
+                    self.emit_interned_string_reference(name, function)?,
+                    function,
+                );
+                self.emit_set_named_environment_binding(
+                    &variable_environment,
+                    &key,
+                    Strictness::Sloppy,
+                    &value,
+                    function,
+                )?;
+                key.clear(function);
+                variable_environment.clear(function);
+            }
             AnnexBFunctionCopyTargetIr::ScriptGlobal { name } => {
                 let target = self.lookup_owner_binding(name).ok_or_else(|| {
                     EmitError::unsupported(format!(

@@ -21,6 +21,13 @@ native process tree retires, and same-image resume retains every original
 result. Available case times survive; unrecorded times stay absent. The
 full5,365-ID historical replay remains a separate pending owner.
 
+That replay has identified parser, arrow-eval context, class strictness, Annex B
+arguments and oversized replacement failures. A prepared repair batch includes
+paired controls and [normative contracts](docs/rust-rewrite/contracts/arrow-eval-and-class-reference-context.md).
+Its replacement construction collects completed pieces and copies them once.
+These source changes await native verification; the accepted counts above
+remain bound to their actual compiler.
+
 The host producer's adopted opt-level1 keeps the product at opt-level3. Earlier
 same-source producers reproduce allthree bundle files byte-for-byte: cold
 718.569s versus86.311s; warm38.358/39.485s versus3.904/2.893s. The actual repaired
