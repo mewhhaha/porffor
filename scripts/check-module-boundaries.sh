@@ -3287,7 +3287,7 @@ require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engin
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
 require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity)?' 1 'canonical complete raw layout admission'
-require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(bytes, policy, mode, || {' 1 'embedded R uses the shared bounded retention owner'
+require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(source, policy, mode, || {' 1 'typed embedded R uses the shared bounded retention owner'
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
 check_raw_line_budget "$engine_embedded_build" 140
