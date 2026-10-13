@@ -27,3 +27,13 @@ source patch nor the earlier family checkpoints close full pinned acceptance.
 The fourteen stateful object-to-source constructor executions and four BMP eval
 executions retain their explicit unsupported ownership under T13. Their source
 values require further analysis; this patch supplies no verdict for them.
+
+The first linked-native focused run passed forward-var and both Iterator
+controls, but the constructor mutation control had an invalid expectation.
+`AsyncFunction.prototype.constructor` is non-writable and configurable under
+`sec-async-function-prototype-properties-constructor` in the pinned standard.
+Sloppy assignment correctly left it unchanged. The corrected control checks
+that descriptor and uses DefineProperty for replacement/restoration; the old
+failed native owner and trace remain at
+`target/constructor-iterator-focus-linked-36d111e86-20261013/receipt.json`.
+This failed test establishes no product regression.

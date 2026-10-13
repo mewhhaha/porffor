@@ -93,11 +93,14 @@ var generatorCreated = GeneratorConstructor('a', ' /* a */ b, c /* b */ //', '/*
 print(asyncCreated.toString() === 'async function anonymous(a, /* a */ b, c /* b */ //\n) {\n/* c */ ; /* d */ //\n}');
 print(generatorCreated.toString() === 'async function* anonymous(a, /* a */ b, c /* b */ //\n) {\n/* c */ ; /* d */ //\n}');
 var asyncPrototype = Object.getPrototypeOf(asyncSource);
-var original = asyncPrototype.constructor;
-asyncPrototype.constructor = function (body) { print(body); return 31; };
+var descriptor = Object.getOwnPropertyDescriptor(asyncPrototype, 'constructor');
+print(descriptor.writable === false && descriptor.configurable === true);
+Object.defineProperty(asyncPrototype, 'constructor', {
+  value: function (body) { print(body); return 31; }
+});
 var ChangedConstructor = asyncSource.constructor;
 print(ChangedConstructor('return 9;'));
-asyncPrototype.constructor = original;
+Object.defineProperty(asyncPrototype, 'constructor', descriptor);
 Object.defineProperty(generatorSource, 'constructor', {
   get: function () {
     print('get');
@@ -110,7 +113,16 @@ print(OwnConstructor('return 8;'));
     for prefix in ["", "'use strict';"] {
         assert_function_trace(
             &format!("{prefix}{source}"),
-            &["true", "true", "return 9;", "31", "get", "return 8;", "32"],
+            &[
+                "true",
+                "true",
+                "true",
+                "return 9;",
+                "31",
+                "get",
+                "return 8;",
+                "32",
+            ],
         );
     }
 }
