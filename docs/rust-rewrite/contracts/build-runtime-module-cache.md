@@ -57,6 +57,17 @@ edits. Missing dependency input rejects fingerprinting.
 Existing complete embedded-manifest/raw-package parity and compatibility
 controls remain. Source fingerprint controls include both new helper files.
 
-Implementation and controls are prepared; compilation, actual native parity,
-full affected scopes and controlled core timing remain pending. No speedup or
-conformance verdict follows from this source contract.
+Actual `781feba52` verifies all 23 focused controls, all 4,825 tests in the eleven
+complete optimized native scopes and all 27 structure controls. All 4,846 earlier
+IDs remain passing and six controls are added. The staged CLI retains all 30
+Promise.try IDs, four earlier repaired RegExp/ArrayBuffer IDs and both Syriac
+witness IDs. Two direct actual-Cargo-producer replays preserve the package,
+native image and manifest byte-for-byte and each records one module-cache hit.
+Native compilation is 1.986/2.032 seconds after the 676.217-second module miss;
+whole warm producers are 41.410/42.037 seconds. Fresh emission/admission,
+packaging and relinking remain separate costs. The actual Cargo custom-build
+profile is opt-level0; its release target does not prove producer optimization.
+These observations have concurrent full-suite cloud load, not an idle or
+general build-speedup claim. See the
+[source-bound checkpoint](../native-runtime-cache-checkpoint-20261013.json).
+Full pinned conformance and task acceptance remain pending.

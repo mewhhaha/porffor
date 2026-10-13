@@ -1,5 +1,16 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Verified bounded native runtime reuse — 2026-10-13
+
+Actual `781feba52` passes 4,852 complete optimized native/structure controls,
+retains all 4,846 earlier IDs and adds six cache/fingerprint controls. Both actual
+warm producers preserve all three bundle files byte-for-byte; native compilation
+is 1.986/2.032s after the 676.217s miss, whole producer 41.410/42.037s under concurrent
+cloud load. All 30 Promise.try, four prior repaired IDs and two Syriac witness IDs
+remain passing. See [the checkpoint](../docs/rust-rewrite/native-runtime-cache-checkpoint-20261013.json).
+Full pinned conformance, next String-buffer acceptance and all remaining task
+gates stay open. Keep CONTINUE.md/tasks until actual completion.
+
 ## Verified Promise.try and retained constructor/Iterator repairs — 2026-10-13
 
 Actual `604a6f9aa` passes all 30 original Promise.try executions, removes four

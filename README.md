@@ -1,15 +1,32 @@
 # Lila
 
-## Runtime image cache reuse prepared — 2026-10-13
+## Verified runtime-image cache reuse — 2026-10-13
 
-Native builds now have a prepared path through Wasmtime's bounded module cache,
-retaining fresh core admission and complete current compiler binding. Build and
-product cache versions distinguish changed native compiler dependencies; function
-stencils share the same dependency identity and existing budget. Cross-target or
-unavailable-cache builds retain direct precompilation. Cold/warm byte parity,
-code/config/dependency invalidation and complete affected verification are next.
-No speedup or latest-source conformance result is claimed yet. See
-[the admission contract](docs/rust-rewrite/contracts/build-runtime-module-cache.md).
+Actual `781feba52` passes **4,825 tests in eleven complete optimized native
+scopes**, retaining all **4,821 previous passes** and adding four Engine controls.
+The complete structure scope passes **27 tests**, retains all 25 older IDs and
+adds both dependency-fingerprint controls. Together these are **4,852 pass,
+zero fail/ignored**, with all 4,846 previous IDs retained and six additions.
+All 23 focused controls pass; the staged CLI retains all 30 Promise.try IDs,
+all four earlier RegExp/ArrayBuffer fixes and both Syriac witness modes.
+
+Wasmtime's bounded module cache reuses exact native R after fresh raw emission
+and admission. Both warm producer replays preserve all three bundle files
+byte-for-byte: native compilation takes **1.986/2.032 seconds**, compared with
+**676.217 seconds** on the original module miss. Whole warm producers take
+**41.410/42.037 seconds**. These are concurrent-cloud component observations;
+the original no-run build takes 1,284.782 seconds. Remaining emission, packaging
+and relinking costs are separate. Native dependency/configuration/raw-Wasm
+invalidation and distinct bounded stencil generations pass. Cross-target or
+unavailable-cache builds retain direct precompilation.
+
+See [the exact checkpoint](docs/rust-rewrite/native-runtime-cache-checkpoint-20261013.json)
+and [the admission contract](docs/rust-rewrite/contracts/build-runtime-module-cache.md).
+Refresh the original CLI retention with
+`target/native-cache-worker-781feba52-20261013/lila-worker --jobs 1 test262 run built-ins/Promise/try/ --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`.
+Full current-pin conformance and task closure remain pending. The next prepared
+batch addresses quadratic String character construction; current Syriac modes
+take 31.912/34.974 seconds under unchanged 60-second limits.
 
 ## Verified Promise.try repair — 2026-10-13
 

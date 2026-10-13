@@ -7,11 +7,30 @@ unsupported/missing-input ID and previous passing ID.
 
 ## Latest accepted compiler
 
-604a6f9aafb92df7c8bb1ec04002aa8f29397039 completes all 4,821 affected optimized
+781feba5254ae7a4084300534facd9a7d958df58 verifies bounded native R reuse and
+native dependency invalidation. All eleven complete optimized native scopes
+pass 4,825, retain all 4,821 earlier IDs and add four Engine controls. Full structure
+passes 27, retains 25 and adds two fingerprint controls: total 4,852 / 0 fail / 0 ignored,
+all 4,846 prior IDs retained, six added. All 23 focus controls pass. Actual staged
+CLI retains Promise.try 30, four earlier repaired IDs and both Syriac modes.
+See [the cache checkpoint](docs/rust-rewrite/native-runtime-cache-checkpoint-20261013.json).
+
+Two sealed Cargo-producer replays preserve all three bundle files byte-for-byte.
+Native phase falls from 676.217s to 1.986/2.032s; total warm producers 41.410/42.037s.
+No-run build 1,284.782s; full eleven-scope schedule 1,317.767s. These are concurrent
+cloud observations, not idle/general build timing. Producer Cargo profile is 0;
+do not infer optimization from the release target. Raw owners are
+target/native-cache-{native-build-source,native,native-schedule,structure,
+focus-owned,worker,cli}-781feba52-20261013 and
+target/native-core-warm-artifact-781feba52-20261013. Setup failures and their
+successful fresh successors remain separate.
+
+The preceding accepted semantic compiler,
+604a6f9aafb92df7c8bb1ec04002aa8f29397039, completes all 4,821 affected optimized
 native tests, retaining all 4,817 previous passes and adding four paired
 Promise.try controls. Both corrected older controls retain every input.
 
-Promise.try30 has 30 Success: four Bugs eliminated, all 26 original passes
+Promise.try 30 has 30 Success: four Bugs eliminated, all 26 original passes
 retained. Iterator1308 keeps all 1,308 Success. Function893 keeps 891 Success
 and the same two NotImplemented records/native exit 1. All four earlier
 RegExp/ArrayBuffer Bug IDs and both original Promise CLI realm witnesses pass.
@@ -54,20 +73,24 @@ all active workers and their DSOs immutable.
 
 ## Next work
 
-Finish publication checks and push this accepted checkpoint. The isolated next
-checkout contains a root-authored runtime-image cache extension awaiting
-compilation. Wasmtime precompile_module bypasses module caching; native
-Module::new(...).serialize() permits exact-R reuse across Lila edits. Preserve
-fresh typed R admission, complete current compiler/package/manifest binding,
-cross-target direct precompile, bounded caches and temporary build mappings.
+Publish the cache checkpoint, then integrate prepared commits 66e4395ee and
+a68e0ad71 from the isolated next checkout into the canonical repair checkout.
+They replace repeated String.fromCharCode/fromCodePoint concatenation with one
+private rooted UTF-16 buffer, preserve ordered coercion/abort/Realm behavior,
+and add six paired semantic controls. Source review/fmt pass; native compilation
+and acceptance are pending. Current exact Syriac witness modes take 31.912 and
+34.974s. Replay those same IDs/input bytes/limits on the new worker and retain
+all 34 fromCharCode / 22 fromCodePoint IDs and earlier native passes.
 
-Before verification, close the discovered native dependency-invalidation gap:
-vendor module caches use package47.0.0 without source/lockfile identity.
-Distinguish changed Wasmtime/Cranelift inputs. A builder-only custom module
-version rejects loading into product Engines. Verify real cold/warm parity,
-code/config/dependency invalidation and all affected scopes. Finish the coherent
-batch before compiling once on canonical repair paths; never compile the next
-checkout into the shared Cargo graph.
+The same batch times fingerprints, fresh R emission/admission, native setup,
+manifest publication and object packaging to locate the remaining warm cost.
+It binds actual custom-build producers through the existing workspace artifact
+helper (Cargo executable is null; filenames owns the producer). All 38 relevant
+Python methods pass under target/string-next-tooling-a68e0ad71-20261013.
+Finish the coherent source/tests/docs before one canonical build. Never compile
+the next checkout into a separate/shared Cargo graph. Explicitly set shared
+CARGO_TARGET_DIR and retain the same package graph/wrapper environment when
+adding an omitted scope. Inventory actual targets before executing selectors.
 
 Cloud budget is inherited 32GiB/four quota CPUs. Use limited-verification --cloud;
 CPU2/3 native work needs --cloud-cpus auto. Keep Cargo/libtest and case workers
@@ -75,6 +98,9 @@ serial with original limits. Activation/shared target already exist. Check disk;
 retire only closed regenerable cache/output data with manifests, retaining raw
 owners and current workers/DSOs. Record archive retirement honestly. Retain the
 accepted runtime producer transcript before any later build overwrites it.
+Closed replay/focus execution caches and eight old compressed debug-library
+archives were retired with SHA/member manifests. Raw owners, active caches,
+workers/DSOs remain. Retired archives cannot restore their old debug artifacts.
 
 ## Remaining acceptance
 
