@@ -15,8 +15,10 @@ and 81 CLI unit tests. The maximum shares the existing GC backing extent and is
 admitted after prototype/current-backing/object creation. See
 [the exact owners and comparisons](docs/rust-rewrite/arraybuffer-checkpoint-20261013.json)
 and [the repair contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
-The original full baseline and remaining task gates continue; these verified
-families do not close full pinned conformance.
+Two fresh, unfiltered full-suite families now run on this verified compiler;
+their owner is `target/full-pin-repaired-b486503d2-20261013/receipt.json` in the
+original frozen checkout. The original full baseline and remaining task gates
+also continue; these verified families do not close full pinned conformance.
 
 ## Verified RegExp repair and runtime cache identity — 2026-10-13
 
@@ -37,8 +39,8 @@ identity, and corrects compiler stage labels. Fresh idle performance comparison
 remains pending, so no speedup is claimed. See
 [the exact inventories and raw owners](docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json)
 and [the repair contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
-The unchanged baseline has also exposed two ArrayBuffer maximum-capacity failures;
-that separate repair and full task acceptance remain open.
+The unchanged baseline also exposed two ArrayBuffer maximum-capacity failures;
+the verified repair above eliminates both. Full task acceptance remains open.
 
 ## Default optimized measurements — 2026-10-13
 

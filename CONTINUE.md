@@ -1,3 +1,27 @@
+## Two fresh repaired full-suite families running — 2026-10-13
+
+The verified ArrayBuffer checkpoint is pushed to main as `b7297ec58`. Its actual
+`b486503d2` compiler now runs two fresh, unfiltered complete current-pin families:
+`/workspace/porffor/target/full-pin-repaired-b486503d2-20261013/receipt.json`.
+The frozen original baseline continues independently at
+`/workspace/porffor/target/full-pin-optimized-4e01400fc-20261013/receipt.json`.
+Neither owner is complete yet; preserve all nonpassing outcomes and the full
+denominator, and collect the second family even when the first is red.
+
+The baseline uses CPU 0 and the repaired worker CPU 1, with one job/worker,
+60000ms deadlines and fresh Engine/Realm/Store state. The repaired run uses
+256/256/64 MiB function/module/program disk caches and the unchanged two-entry,
+256 MiB retained-module cache. Its driver verifies immutable worker/runtime
+hashes, actual compiler identity, pins, and completed native/replay owners.
+The original `4e01400fc` checkout owns unchanged runner/suite inputs; it is not
+the repaired compiler revision. Keep that checkout and both staged workers/DSOs
+frozen. The repair checkout may continue independently on CPUs 2–3.
+
+Inspect new failures from per-node `failures` records, excluding aggregate-matrix
+snapshots when counting. Newly encountered Function/AsyncFunction constructor
+limitations need classification against T13's finite prepared-source contract;
+do not assume every unsupported result requires a bundled parser.
+
 ## Verified ArrayBuffer batch and retained RegExp fixes — 2026-10-13
 
 Clean `b486503d2` passes all 442 original ArrayBuffer IDs at unchanged 60000ms
@@ -24,8 +48,8 @@ and exact original config survives sparse reapply. A native build-space prefligh
 also rejected before Cargo; reclaiming the completed replay's generated cache
 provides space. All failed preflight logs remain and actual verdicts are unchanged.
 
-The RegExp/cache batch is already pushed as `3aae33ef6`; push this verified batch
-with its updated evidence after publication checks. The original checkout, full
+The RegExp/cache and ArrayBuffer batches are pushed as `3aae33ef6` and `b7297ec58`
+with their verified evidence and publication checks. The original checkout, full
 worker and shared runtime remain frozen at `4e01400fc`. Continue both complete
 families, remaining failures, historical5365 replay, actual shard/resume, supported
 hosts, idle measurements and task-specific acceptance. Four BMP dynamic-eval

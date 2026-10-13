@@ -7,7 +7,10 @@ and eliminates both maximum-capacity Bugs. All 1,789 affected native tests pass,
 retain all 1,788 prior IDs and add one ordering control: zero regressions or
 missing IDs. Both earlier RegExp fixes remain Success on this worker. See
 [the exact checkpoint](../docs/rust-rewrite/arraybuffer-checkpoint-20261013.json).
-Full frozen baseline, idle measurements and all remaining task gates continue.
+Two fresh unfiltered full-suite families run on the actual `b486503d2` compiler:
+`/workspace/porffor/target/full-pin-repaired-b486503d2-20261013/receipt.json`.
+The independent frozen baseline, idle measurements and all remaining task gates
+continue. Preserve both workers/runtime images and the original checkout.
 Keep CONTINUE.md/tasks until actual completion.
 
 ## Verified pinned-family repair — 2026-10-13
@@ -22,7 +25,8 @@ idle performance comparisons remain pending. See
 
 The original full baseline remains frozen at `4e01400fc` and continues collecting
 all executions. Its ArrayBuffer node exposes two maximum-capacity Bugs among 442
-IDs; fix and compare those next. All remaining full-suite and task gates stay
+IDs; the verified batch above eliminates both and retains every old pass.
+All remaining full-suite and task gates stay
 open. Preserve CONTINUE.md and this folder until actual completion.
 
 ## Default optimized acceptance — 2026-10-13
