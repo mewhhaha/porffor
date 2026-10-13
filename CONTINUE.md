@@ -1,26 +1,46 @@
-## Constructor and Iterator checkpoint; candidate-retention repair next
+## Verified constructor/Iterator batch; Promise.try ordering next
 
-Actual `9ddc57a2c` completes all 4,489 affected native IDs, preserving all 4,485
-previous passes. Complete original Iterator1308 replay has 1,308 Success,
-eliminates 112 Bugs and retains all 1,196 previous passes. Function893 has
-879 Success/14 NotImplemented: ten limitations removed, all 869 prior passes
-retained. Raw complete owners:
-`target/constructor-iterator-native-9ddc57a2c-20261013/receipt.json` and
-`target/constructor-iterator-replay-9ddc57a2c-20261013/receipt.json`.
+Actual `4a3968e5e` completes all 4,497 affected optimized native IDs, retaining
+all 4,489 previous passes and adding four IR/four Engine controls. Iterator1308
+has 1,308 Success: all 112 original Bugs eliminated, all 1,196 original passes
+and all 1,308 preceding-checkpoint passes retained. Function893 has
+891 Success/2 NotImplemented: twelve more limitations removed, all 879 preceding
+passes retained; the combined constructor batches remove 22 original limitations.
+The exact 256-body regression reproducer and all four previous RegExp/ArrayBuffer
+Bug IDs pass on this worker. See [the portable checkpoint](docs/rust-rewrite/constructor-iterator-checkpoint-20261013.json).
 
-A separate actual-worker probe catches a 256-body regression that blocks
-publishing that batch. Preserve its failed owner at
-`target/source-candidate-retention-regression-9ddc57a2c-20261013/receipt.json`.
-The next coherent patch preserves all primary candidates/tuples ahead of
-supplemental hints, and adds bounded body-IdentifierReference hints for unknown
-object-to-parameter conversions. Four IR/four native controls are written.
-Compile once, run those controls and original constructor/Iterator controls,
-compare complete original families plus all prior pass IDs, retain ArrayBuffer/
-RegExp fixes, finish affected native scopes/publication guards, then push.
-Expected new removals are ten more constructor IDs; four unused-formal T4 IDs
-and four BMP eval IDs remain explicitly unsupported. No new runtime verdict
-is claimed until those actual owners finish. See the
-[discovery and admission contract](docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
+Raw owners are `target/constructor-retention-native-4a3968e5e-20261013/receipt.json`,
+`target/constructor-retention-replay-4a3968e5e-20261013/receipt.json` and
+`target/constructor-retention-adjudication-4a3968e5e-20261013/receipt.json`.
+The original prediction guard is deliberately preserved red: it predicted ten
+removed Function IDs, but call T4 references a1/a2/a3 and supplies two more valid
+passes. The separate comparison verifies all actual execution IDs, unchanged
+inputs/pins, native exit 1 and the two unchanged remaining failure records.
+Neither receipt claims full conformance. Preserve the earlier failed 9dd regression
+owner and the separate exact-source repair owner. Two apply T4 and four BMP eval
+IDs remain unsupported; no unused names are guessed. See the
+[discovery contract](docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
+
+The shared two-CPU queue takes 2,249.613 seconds (37.49 minutes), with whole
+families/native scopes assigned to free lanes. The optimized no-run build takes
+1,330.592 seconds; R precompile takes 219.878 seconds with 2,157 stencil hits/zero
+misses. Raw R emission/check precedes that timer. This is concurrent-load evidence,
+not a controlled idle speedup. The completed CLI cache archive is discarded at
+`target/completed-cli-cache-archive-reclamation-20261013/receipt.json`, reclaiming
+620,584,960 allocated bytes. Its original receipts/file manifests remain, but that
+generated cache archive is no longer restorable; caches can be regenerated.
+
+The unchanged frozen baseline next exposes four Promise.try Bugs: both modes of
+`built-ins/Promise/try/avoids-wrap.js` and `avoids-wrap-for-subclass.js`, owner
+`target/full-pin-optimized-4e01400fc-20261013/families/closure-2631633-1791860241099423743-0/first/closure-first-built-ins_Promise_try-12108905760811851745.json`.
+The Promise emitter is unchanged across the accepted constructor batch. Pinned
+`sec-promise.try` requires callback Call before capability construction and
+PromiseResolve on normal completion, preserving matching-Promise identity.
+Prepare this coherent repair, correct the two older normative-order controls,
+retain every earlier control/input, and verify the complete Promise.try family
+plus affected native scopes before accepting/pushing it. Continue both full runs,
+historical5365, actual shard/resume, supported hosts and every task-owned gate.
+Keep CONTINUE.md/tasks until actual completion.
 
 The older checkpoint below retains its own source and pending status.
 

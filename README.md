@@ -1,22 +1,37 @@
 # Lila
 
-## Constructor and Iterator verification — 2026-10-13
+## Verified constructor and Iterator repair — 2026-10-13
 
-Actual `9ddc57a2c` passes all **1,308 original Iterator executions**: both
-`includes` and `join` now execute through Wasm, all **112 Bugs are eliminated**,
-and every **1,196 earlier pass** remains. Its complete Function893 replay removes
-ten unsupported executions, retains all 869 earlier passes, and records
-879 Success/14 NotImplemented. All 4,489 affected native tests pass, retaining
-every 4,485 prior pass. See
-[the specification contract](docs/rust-rewrite/contracts/iterator-includes-join.md).
+Actual `4a3968e5e` passes **all 1,308 original Iterator executions**, retaining
+every earlier pass and eliminating all **112 Bugs**. Function893 now has
+**891 Success/2 NotImplemented**: twelve more limitations removed, all 879 prior
+passes retained, and 22 removed across the two constructor batches. All **4,497
+affected optimized native tests** pass, retaining every **4,489 prior pass** and
+adding eight controls. The exact 256-body source that caught the earlier
+candidate-retention regression also passes. Both RegExp and both ArrayBuffer
+fixes remain green on this worker. See [the complete checkpoint](docs/rust-rewrite/constructor-iterator-checkpoint-20261013.json).
 
-A separate 256-body boundary probe finds a candidate-retention regression in
-that batch, so publication awaits its repair. Supplemental hints now preserve
-existing source sets and complete tuples; bounded body-reference hints also
-target ten further stateful constructor limitations. Verification of this next
-batch is pending. See [the discovery and regression owners](docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
-Both unfiltered full-suite runs continue; these family results do not close
-full pinned acceptance.
+Supplemental hints preserve existing source candidates and complete tuples;
+bounded body-reference hints still require live conversions and an exact tuple
+match. Two apply cases with unused parameter names and four BMP eval executions
+remain explicitly unsupported. The original prediction expected ten additional
+Function passes; the call T4 body references all three names and supplies two
+more valid passes. Its failed prediction receipt and the separate verified
+comparison both remain. See [the discovery contract](docs/rust-rewrite/prepared-constructor-discovery-20261013.md)
+and [Iterator rules](docs/rust-rewrite/contracts/iterator-includes-join.md).
+
+The shared two-CPU verification queue completes in **37.49 minutes** under
+concurrent full-suite load. The build takes 22.18 minutes; Wasmtime R precompile
+takes 219.878 seconds with 2,157 stencil hits and zero misses. These are observed
+durations, with different source/cache warmth from the preceding checkpoint;
+no controlled speedup is claimed. Raw R emission precedes that precompile timer.
+
+Refresh the affected pinned families with the admitted worker and original bounds:
+`target/constructor-retention-worker-4a3968e5e-20261013/lila-worker --jobs 1 test262 run built-ins/Function/ --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`
+and the same command for `built-ins/Iterator/`, using the pinned suite root and
+a fresh snapshot directory. Full unfiltered runs continue. The frozen baseline
+now also exposes four Promise.try identity failures; their coherent repair is
+next. These family results do not close full pinned acceptance or task acceptance.
 
 ## Verified ArrayBuffer capacity repair — 2026-10-13
 

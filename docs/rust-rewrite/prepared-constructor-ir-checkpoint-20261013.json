@@ -13,22 +13,22 @@
   },
   "driver_sha256": "2e578f0ff63023840cb30199899e435905bcad9db426d4db743bba5524cd8e53",
   "baseline": {
-    "path": "/workspace/porffor/target/workspace-default-9908850ce-complete-20261012/receipt.json",
+    "path": "<baseline-checkout>/target/workspace-default-9908850ce-complete-20261012/receipt.json",
     "sha256": "c213bd04952e7016ec9f810fd1a3110fb895ac60dd1ad14e39ed41dc9bfae125"
   },
   "protected_active_images": {
-    "/workspace/porffor/target/optimized-default-private-worker-743c810c7-20261013/lila-worker": "8e3d8018e803f0c154eb326af80094d146189adeccba9cc450866b19919a4ebc",
-    "/workspace/porffor/target/shared-test-runtime-images/liblila_runtime_images_239f37f42e67832069719aa04f3d5833ceb53a865e30a11095c5696ca867b588.so": "41c5dd96f802a228b8d346bf0dc5f335aac33ab1f310db57592b8e3e8c51be14",
-    "/workspace/porffor/target/arraybuffer-worker-b486503d2-20261013/lila-worker": "285b61675f1eaddab95c89cfe64e08b2d79d825cf8c9e483b28dbd40bfdf5dd5",
-    "/workspace/porffor/target/shared-test-runtime-images/liblila_runtime_images_2ac175abb56c69ecfc136f0629e6d26d75b4627ed2be9a79879ad6495b274ef0.so": "2cf8d278b5845a1432d6925b0389a3ad3510ff30f44ca68c9d56893b3478b968"
+    "<baseline-checkout>/target/optimized-default-private-worker-743c810c7-20261013/lila-worker": "8e3d8018e803f0c154eb326af80094d146189adeccba9cc450866b19919a4ebc",
+    "<baseline-checkout>/target/shared-test-runtime-images/liblila_runtime_images_239f37f42e67832069719aa04f3d5833ceb53a865e30a11095c5696ca867b588.so": "41c5dd96f802a228b8d346bf0dc5f335aac33ab1f310db57592b8e3e8c51be14",
+    "<baseline-checkout>/target/arraybuffer-worker-b486503d2-20261013/lila-worker": "285b61675f1eaddab95c89cfe64e08b2d79d825cf8c9e483b28dbd40bfdf5dd5",
+    "<baseline-checkout>/target/shared-test-runtime-images/liblila_runtime_images_2ac175abb56c69ecfc136f0629e6d26d75b4627ed2be9a79879ad6495b274ef0.so": "2cf8d278b5845a1432d6925b0389a3ad3510ff30f44ca68c9d56893b3478b968"
   },
   "scopes": [
     {
       "scope": "lila_ir",
       "artifact": {
         "reason": "compiler-artifact",
-        "package_id": "path+file:///workspace/porffor-repairs/crates/lila-ir#0.1.0",
-        "manifest_path": "/workspace/porffor-repairs/crates/lila-ir/Cargo.toml",
+        "package_id": "path+file://<repair-checkout>/crates/lila-ir#0.1.0",
+        "manifest_path": "<repair-checkout>/crates/lila-ir/Cargo.toml",
         "target": {
           "kind": [
             "lib"
@@ -37,7 +37,7 @@
             "lib"
           ],
           "name": "lila_ir",
-          "src_path": "/workspace/porffor-repairs/crates/lila-ir/src/lib.rs",
+          "src_path": "<repair-checkout>/crates/lila-ir/src/lib.rs",
           "edition": "2021",
           "doc": true,
           "doctest": true,
@@ -52,40 +52,42 @@
         },
         "features": [],
         "filenames": [
-          "/workspace/porffor/target/release/deps/lila_ir-70b12bc9f5a84f30"
+          "<baseline-checkout>/target/release/deps/lila_ir-70b12bc9f5a84f30"
         ],
-        "executable": "/workspace/porffor/target/release/deps/lila_ir-70b12bc9f5a84f30",
+        "executable": "<baseline-checkout>/target/release/deps/lila_ir-70b12bc9f5a84f30",
         "fresh": false
       },
       "executable_sha256": "1adca7f1ca437b80cfe3ecf98781bd2eab5717b8f385d56af193b79c63fda22b",
       "cpu": 2,
       "inventory": {
         "command": [
-          "/workspace/porffor/target/release/deps/lila_ir-70b12bc9f5a84f30",
+          "<baseline-checkout>/target/release/deps/lila_ir-70b12bc9f5a84f30",
           "--list"
         ],
         "exit_code": 0,
         "seconds": 1.00120857602451,
-        "stdout": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir-inventory.stdout",
+        "stdout": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir-inventory.stdout",
         "stdout_sha256": "c96375803b55ec08500d99480558ccf8d9e9e1ce866a837f3856d79b967aa7c4",
-        "stderr": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir-inventory.stderr",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "stderr": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir-inventory.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_command_argv_sha256": "e333b40a09991be5fea917059205e05835b517469f52b38cbf187f1c00d73045"
       },
       "native": {
         "command": [
           "taskset",
           "-c",
           "2",
-          "/workspace/porffor/target/release/deps/lila_ir-70b12bc9f5a84f30",
+          "<baseline-checkout>/target/release/deps/lila_ir-70b12bc9f5a84f30",
           "--test-threads=1",
           "--include-ignored"
         ],
         "exit_code": 0,
         "seconds": 69.01187421602663,
-        "stdout": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir-native.stdout",
+        "stdout": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir-native.stdout",
         "stdout_sha256": "1486eaf91e79384f461ee47dc50d6c5d444ddbc0f1966ec4bc94876e8bfcaaf8",
-        "stderr": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir-native.stderr",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "stderr": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir-native.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_command_argv_sha256": "20cbbc89a600976544e2dff3bb11c18fc1d77073d38c29caf25b4634e98fecc6"
       },
       "inventory_ids": [
         "analysis::eval_environment::mixed_for_in_tests::mixed_for_in_foreign_resource_and_unsupported_head_domains_do_not_mint_whole_owners",
@@ -4611,8 +4613,8 @@
       "scope": "lila_ir_integration",
       "artifact": {
         "reason": "compiler-artifact",
-        "package_id": "path+file:///workspace/porffor-repairs/crates/lila-ir#0.1.0",
-        "manifest_path": "/workspace/porffor-repairs/crates/lila-ir/Cargo.toml",
+        "package_id": "path+file://<repair-checkout>/crates/lila-ir#0.1.0",
+        "manifest_path": "<repair-checkout>/crates/lila-ir/Cargo.toml",
         "target": {
           "kind": [
             "test"
@@ -4621,7 +4623,7 @@
             "bin"
           ],
           "name": "lila_ir_integration",
-          "src_path": "/workspace/porffor-repairs/crates/lila-ir/tests/integration.rs",
+          "src_path": "<repair-checkout>/crates/lila-ir/tests/integration.rs",
           "edition": "2021",
           "doc": false,
           "doctest": false,
@@ -4636,40 +4638,42 @@
         },
         "features": [],
         "filenames": [
-          "/workspace/porffor/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe"
+          "<baseline-checkout>/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe"
         ],
-        "executable": "/workspace/porffor/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
+        "executable": "<baseline-checkout>/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
         "fresh": false
       },
       "executable_sha256": "91ee21de8933209dd5a27653f8c50813e76526390e5bf46e91ead39a778d3c19",
       "cpu": 3,
       "inventory": {
         "command": [
-          "/workspace/porffor/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
+          "<baseline-checkout>/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
           "--list"
         ],
         "exit_code": 0,
         "seconds": 0.0035535410279408097,
-        "stdout": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-inventory.stdout",
+        "stdout": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-inventory.stdout",
         "stdout_sha256": "37a2bb8e9b2a49447c2f42c10084fd92ad36fa2726a6651efcef93441ff3ce45",
-        "stderr": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-inventory.stderr",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "stderr": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-inventory.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_command_argv_sha256": "4f3ae239f2b261d6c77deed9de7935b11d91302e3da45b9a7109f48cff9e28ce"
       },
       "native": {
         "command": [
           "taskset",
           "-c",
           "3",
-          "/workspace/porffor/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
+          "<baseline-checkout>/target/release/deps/lila_ir_integration-db91fb28cd3cfdfe",
           "--test-threads=1",
           "--include-ignored"
         ],
         "exit_code": 0,
         "seconds": 42.0143810120062,
-        "stdout": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-native.stdout",
+        "stdout": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-native.stdout",
         "stdout_sha256": "c3171654af1b251b8aac87d0d5db2be88e25b0465b21584396d7f73100fce8c7",
-        "stderr": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-native.stderr",
-        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "stderr": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/lila_ir_integration-native.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "original_command_argv_sha256": "26569d3556bf6653ee81edac0975cfb520cc04b296d10b8f3bc6a0d6ecb6883c"
       },
       "inventory_ids": [
         "ir_cases::annex_b_direct_function_collection_structure::annex_b_collection_contract_names_the_existing_behavioral_witnesses",
@@ -6739,13 +6743,15 @@
     ],
     "exit_code": 0,
     "seconds": 506.18984329199884,
-    "stdout": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/build.stdout",
+    "stdout": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/build.stdout",
     "stdout_sha256": "cd9cfeeae33547c61529b809a6ce527c4ec496adaeb49ae72bdac1232f4b1d59",
-    "stderr": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/build.stderr",
-    "stderr_sha256": "ef766d0a497889b13d684c65af069f71cfd683f773e8b90cd37ef00e1a7706eb"
+    "stderr": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/build.stderr",
+    "stderr_sha256": "ef766d0a497889b13d684c65af069f71cfd683f773e8b90cd37ef00e1a7706eb",
+    "original_command_argv_sha256": "d3ccbe2aba6fef4feadad1515a02dc2ec1082e21fc41399b7bf99597199f7294"
   },
   "raw_owner": {
-    "path": "/workspace/porffor/target/constructor-ir-c457c82a5-20261013/receipt.json",
+    "path": "<baseline-checkout>/target/constructor-ir-c457c82a5-20261013/receipt.json",
     "sha256": "a7cbab99169feb7aa15d9bb3ce7feeeeef704bbc36e5e19d31decdf8f43229a3"
-  }
+  },
+  "path_projection": "Display-only checkout paths use explicit placeholders. Original command argv SHA256 uses UTF8 compact JSON. Exact IDs, source fingerprints, input/artifact/transcript hashes and raw owners remain unchanged; original command argv remains in the immutable raw owners."
 }

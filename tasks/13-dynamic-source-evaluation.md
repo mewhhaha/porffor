@@ -2,15 +2,17 @@
 
 ## Finite constructor discovery — 2026-10-13
 
-Actual `9ddc57a2c` completes Function893 at 879 Success/14 NotImplemented,
-removing ten limitations and retaining every 869 earlier pass. All 4,489 affected
-native IDs pass, retaining all 4,485 prior passes. A separate actual-worker
-256-body probe exposes a new candidate-retention regression, so that batch is
-not published yet. The next coherent patch prioritizes original candidates and
-complete tuples over supplemental hints, plus bounded body-reference hints
-aimed at ten more stateful conversion IDs. Four IR/four native controls are
-authored; actual focused/native/pinned acceptance is pending. Four unused-formal
-T4 and four BMP eval executions remain owned, with no spelling-based guessing.
+Actual `4a3968e5e` completes Function893 at 891 Success/2 NotImplemented,
+removing twelve further limitations and retaining every 879 preceding pass.
+The two batches remove 22 original limitations. All 4,497 affected native IDs
+pass, retaining all 4,489 prior passes and adding four IR/four Engine controls.
+The exact previously failing 256-body source also passes on this worker.
+Original candidates/tuples retain priority over supplemental hints; added body
+references require exact live tuple matching. Two apply T4 unused-formal and
+four BMP eval executions remain owned, with no spelling-based guessing.
+The original ten-removal prediction remains red; call T4 references all three
+names, producing two additional valid passes checked by a separate exact-ID
+comparison. See [the complete checkpoint](../docs/rust-rewrite/constructor-iterator-checkpoint-20261013.json).
 The paragraphs below retain their earlier-source scope.
 
 Hoisting retains optional undefined source hints before unknown calls invalidate

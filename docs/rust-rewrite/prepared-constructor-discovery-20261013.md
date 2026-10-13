@@ -40,7 +40,7 @@ Its first nested Cartesian probe is unsupported on both workers; the corrected
 conditional 16-by-16 probe passes both. Neither is reported as a second measured
 regression. The 256-body regression prevents accepting/pushing that source batch.
 
-The next source batch tags additive hints as `SupplementalText`. Primary
+The verified `4a3968e5e` repair tags additive hints as `SupplementalText`. Primary
 candidates retain their original all-or-none 256-value limit. Supplemental
 values fill spare slots; concatenation preserves the tag, and an overflowing
 expanded complete tuple product falls back to every original primary tuple.
@@ -62,13 +62,24 @@ all existing tuples still retain their ordinary admission.
 Actual ToString order, exceptions, call/apply forwarding and exact converted
 tuple matching remain the only execution authority.
 
-This targets ten of the fourteen remaining executions: A2_T4/T5/T6 and call/apply
-T3, each in both modes. The four T4 call/apply executions reference only the last
-formal in their body; unused parameter names are not inferred from spelling or
-test shape. They remain unsupported without a broader principled analysis.
+Actual replay removes twelve of the fourteen remaining executions: A2_T4/T5/T6,
+call T3/T4 and apply T3, each in both modes. The initial prediction mistakenly
+grouped both T4 bodies as last-formal-only. Call T4 is
+`this.shifted=a3+a2+a1.length;`: all three IdentifierReferences supply the exact
+live parameter tuple, and its assertion checks the executed result `"24"`.
+Apply T4 is `this.shifted=a3;`, so its two unused parameter names are not inferred
+from spelling or test shape. Those two executions retain unchanged unsupported
+details. The original prediction/comparison owner stays red and unchanged; a
+separate post-run comparison verifies the complete original inventory, every
+earlier pass, all twelve eliminated IDs and the two remaining failure records.
 Four IR and four native controls cover all source grammars, both candidate
 boundaries, eager request exclusion, live conversions, abrupt order, forwarding
-and unmatched-source refusal. This next batch still needs actual verification.
+and unmatched-source refusal. All eight focused controls and 4,497 complete
+affected native IDs pass, retaining every 4,489 earlier pass. The exact saved
+256-body source passes on the immutable successor worker. Complete original
+families are Function891/893 with two explicit NotImplemented and Iterator1308/1308
+Success; all four previous RegExp/ArrayBuffer Bug IDs remain green. See the
+[complete checkpoint](constructor-iterator-checkpoint-20261013.json).
 
 The first linked-native focused run passed forward-var and both Iterator
 controls, but the constructor mutation control had an invalid expectation.
