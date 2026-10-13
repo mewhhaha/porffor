@@ -38,6 +38,27 @@ pub(super) fn bounded_candidates(
 }
 
 impl ScriptLowerer<'_> {
+    pub(super) fn register_finite_undefined_var_source_candidate(&mut self, name: &str) {
+        let Some(binding) = self.lookup_binding(name) else {
+            return;
+        };
+        // Install this hint during hoisting so forward references inside each
+        // fresh child lowerer see it before calls invalidate their flow facts.
+        // Redeclarations write nothing; runtime values and conversions stay live.
+        let previous = self
+            .function_source_binding_candidates
+            .remove(&binding.storage_name)
+            .unwrap_or_default();
+        self.function_source_binding_candidates.insert(
+            binding.storage_name,
+            bounded_candidates(
+                previous
+                    .into_iter()
+                    .chain([FiniteSourceValue::Text("undefined".to_string())]),
+            ),
+        );
+    }
+
     pub(super) fn finite_binding_source_candidates(
         &self,
         name: &str,
@@ -213,6 +234,34 @@ impl ScriptLowerer<'_> {
                                 if matches!(access.field(), PropertyAccessField::Expr(_)) =>
                             {
                                 elements
+                            }
+                            FiniteSourceValue::Function(function_id)
+                                if name.as_deref() == Some("constructor") =>
+                            {
+                                // A possible inherited constructor supplies
+                                // source hints only. Own properties, prototype
+                                // mutations and the resolved callable stay live.
+                                self.analysis
+                                    .function_plans
+                                    .get(&function_id)
+                                    .map(|plan| {
+                                        let kind = match plan.protocol.source_execution_kind() {
+                                            FunctionExecutionKind::Ordinary => {
+                                                DynamicFunctionKind::Ordinary
+                                            }
+                                            FunctionExecutionKind::Generator => {
+                                                DynamicFunctionKind::Generator
+                                            }
+                                            FunctionExecutionKind::Async => {
+                                                DynamicFunctionKind::Async
+                                            }
+                                            FunctionExecutionKind::AsyncGenerator => {
+                                                DynamicFunctionKind::AsyncGenerator
+                                            }
+                                        };
+                                        vec![FiniteSourceValue::FunctionConstructor(kind)]
+                                    })
+                                    .unwrap_or_default()
                             }
                             FiniteSourceValue::Text(_)
                             | FiniteSourceValue::Function(_)

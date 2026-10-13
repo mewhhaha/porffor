@@ -5180,7 +5180,10 @@ impl<'a> ScriptLowerer<'a> {
         let mut names = Vec::new();
         collect_binding_names(self.interner, variable.binding(), &mut names);
         for name in names {
-            self.hoist_var_name(name);
+            self.hoist_var_name(name.clone());
+            if variable.init().is_none() {
+                self.register_finite_undefined_var_source_candidate(&name);
+            }
         }
     }
 

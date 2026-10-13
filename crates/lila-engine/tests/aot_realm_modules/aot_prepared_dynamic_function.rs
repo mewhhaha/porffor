@@ -33,6 +33,89 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn forward_var_sources_keep_live_values_and_redeclaration_effects() {
+    let source = r#"
+eval(null);
+try { var empty = new Function(body); } catch (error) { throw error; }
+print(empty());
+var body;
+var parameters = 'a,b,c';
+try { var emptyParameters = new Function(parameters, laterBody); }
+catch (error) { throw error; }
+print(emptyParameters());
+var laterBody;
+var numericBody = 'return 1.1;';
+try { var numeric = new Function(laterParameters, numericBody); }
+catch (error) { throw error; }
+print(numeric());
+var laterParameters;
+body = 'return 17;';
+var body;
+print(Function(body)());
+body = { toString: function () { print('convert'); return 'return 17;'; } };
+var body;
+print(Function(body)());
+function withParameter(body) { var body; return Function(body)(); }
+print(withParameter('return 17;'));
+function withLocal() {
+  try { var result = Function(localBody)(); } catch (error) { throw error; }
+  var localBody;
+  return result;
+}
+print(withLocal());
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "undefined",
+                "undefined",
+                "1.1",
+                "17",
+                "convert",
+                "17",
+                "17",
+                "undefined",
+            ],
+        );
+    }
+}
+
+#[test]
+fn declared_constructor_aliases_keep_source_comments_and_live_property_reads() {
+    let source = r#"
+async function asyncSource() {}
+async function* generatorSource() {}
+var AsyncConstructor = asyncSource.constructor;
+var GeneratorConstructor = generatorSource.constructor;
+var asyncCreated = AsyncConstructor('a', ' /* a */ b, c /* b */ //', '/* c */ ; /* d */ //');
+var generatorCreated = GeneratorConstructor('a', ' /* a */ b, c /* b */ //', '/* c */ ; /* d */ //');
+print(asyncCreated.toString() === 'async function anonymous(a, /* a */ b, c /* b */ //\n) {\n/* c */ ; /* d */ //\n}');
+print(generatorCreated.toString() === 'async function* anonymous(a, /* a */ b, c /* b */ //\n) {\n/* c */ ; /* d */ //\n}');
+var asyncPrototype = Object.getPrototypeOf(asyncSource);
+var original = asyncPrototype.constructor;
+asyncPrototype.constructor = function (body) { print(body); return 31; };
+var ChangedConstructor = asyncSource.constructor;
+print(ChangedConstructor('return 9;'));
+asyncPrototype.constructor = original;
+Object.defineProperty(generatorSource, 'constructor', {
+  get: function () {
+    print('get');
+    return function (body) { print(body); return 32; };
+  }
+});
+var OwnConstructor = generatorSource.constructor;
+print(OwnConstructor('return 8;'));
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &["true", "true", "return 9;", "31", "get", "return 8;", "32"],
+        );
+    }
+}
+
+#[test]
 fn constructor_parameter_patterns_bind_in_local_foreign_and_resumable_functions() {
     assert_function_trace(
         r#"

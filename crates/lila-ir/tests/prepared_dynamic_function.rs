@@ -2,6 +2,72 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower, DynamicFunctionKind, PreparedDynamicFunctionOutcome};
 
 #[test]
+fn forward_var_declarations_retain_undefined_source_candidates_after_calls() {
+    for (source, arguments) in [
+        ("try { new Function(body); } catch (error) {} var body;", vec!["undefined"]),
+        ("var parameters = 'a,b,c'; try { new Function(parameters, body); } catch (error) {} var body;", vec!["a,b,c", "undefined"]),
+        ("var body = 'return 1.1;'; try { new Function(parameters, body); } catch (error) {} var parameters;", vec!["undefined", "return 1.1;"]),
+    ] {
+        for prefix in ["", "'use strict';"] {
+          for source in [
+            format!("{prefix} eval(null); {source}"),
+            format!("{prefix} function create() {{ eval(null); {source} }} create();"),
+          ] {
+            let parsed = parse(
+                source,
+                ParseOptions::script(),
+            )
+            .unwrap();
+            let program = lower(&parsed);
+            assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+            assert!(program.script.unwrap().prepared_dynamic_functions.iter().any(|prepared| {
+                prepared.kind == DynamicFunctionKind::Ordinary
+                    && prepared.arguments == arguments
+                    && matches!(prepared.outcome, PreparedDynamicFunctionOutcome::Compiled { .. })
+            }), "missing forward var candidate {arguments:?}");
+          }
+        }
+    }
+}
+
+#[test]
+fn declared_function_constructor_properties_retain_each_source_grammar() {
+    for (declaration, kind) in [
+        ("function f() {}", DynamicFunctionKind::Ordinary),
+        ("function* f() {}", DynamicFunctionKind::Generator),
+        ("async function f() {}", DynamicFunctionKind::Async),
+        (
+            "async function* f() {}",
+            DynamicFunctionKind::AsyncGenerator,
+        ),
+    ] {
+        let parsed = parse(
+            format!("{declaration} var Constructor = f.constructor; Constructor('a', ' /* a */ b, c /* b */ //', '/* c */ ; /* d */ //');"),
+            ParseOptions::script(),
+        ).unwrap();
+        let program = lower(&parsed);
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        assert!(
+            program
+                .script
+                .unwrap()
+                .prepared_dynamic_functions
+                .iter()
+                .any(|prepared| {
+                    prepared.kind == kind
+                        && prepared.arguments
+                            == ["a", " /* a */ b, c /* b */ //", "/* c */ ; /* d */ //"]
+                        && matches!(
+                            prepared.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )
+                }),
+            "missing declared constructor candidate for {kind:?}"
+        );
+    }
+}
+
+#[test]
 fn final_binding_patterns_prepare_compiled_function_units_for_each_constructor_kind() {
     for (constructor, kind) in [
         ("Function", DynamicFunctionKind::Ordinary),
