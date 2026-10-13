@@ -18,8 +18,20 @@ parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--profile', choices=('debug', 'release'), default='debug')
 parser.add_argument('--oracle', action='store_true', help='Explicitly enable the developer spec-exec oracle')
 parser.add_argument('--share-runtime-images', action='store_true', help='Relink only the private CLI leaf against verified immutable Linux runtime images')
+parser.add_argument('--from-native-build-owner', type=Path,
+                    help='Copy a source-bound private CLI already captured by a complete native build; run no Cargo')
 args = parser.parse_args()
 out = args.output.resolve()
+if args.from_native_build_owner:
+    import native_verification_worker
+    target = Path(os.environ.get('CARGO_TARGET_DIR', root / 'target')).resolve()
+    try:
+        staged = native_verification_worker.stage(root, target, out, args.from_native_build_owner,
+                    profile=args.profile, oracle=args.oracle, share_runtime_images=args.share_runtime_images)
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
+        parser.error(str(error))
+    print('staged captured native-graph worker:', staged['worker']['path'])
+    sys.exit(0)
 assert root / 'target' in out.parents, 'Evidence and worker must live under target/'
 assert not out.exists(), 'Use a fresh output directory'
 assert not os.environ.get('CARGO_TARGET_DIR'), 'This tool selects the ordinary workspace target directory'

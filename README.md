@@ -19,6 +19,10 @@ native acceptance and actual historical replay remain pending.
 The broad CLI run also catches the new test target missing from its closed
 inventory enum. Registration is included in the same repair batch; existing
 hygiene controls remain unchanged and run first in the next checkpoint.
+Captured private native CLI staging can now reuse a source-bound build owner.
+All six admission controls pass; the actual `aee6bc109` image stages in **0.800s**
+with zero Cargo invocations and the ordinary product checksum preserved.
+See [the staging workflow](docs/rust-rewrite/batch-workflow.md).
 
 Same-source opt-level1 host producers preserve all three package/native/manifest
 files byte-for-byte. Whole cold producer time is **718.569s versus 86.311s**;

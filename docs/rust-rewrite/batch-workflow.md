@@ -1,5 +1,29 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Reuse a captured native CLI — 2026-10-13
+
+For a producer that explicitly captures a private non-test CLI in its owned
+native build, staging can reuse that image without invoking another Cargo graph:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud -- \
+  python3 -B scripts/stage-verification-worker.py --profile release \
+  --share-runtime-images --from-native-build-owner target/BUILD_OWNER/receipt.json \
+  --output target/verification-worker-fresh
+```
+
+The complete build owner must contain `native_cli_worker` with its actual Cargo
+artifact, executable/compiler identity, graph and shared-image identity. Ordinary
+no-run receipts without that capture reject. The clean project source must still
+match the exact owner commit; changing HEAD requires a new build owner. The mode
+honors an explicitly shared `CARGO_TARGET_DIR`, uses a fresh output directory,
+and rejects changed executable/runtime bytes or mismatched profile/oracle features.
+It copies and executes the captured CLI's identity command and seals the actual
+worker receipt. It does not rebuild or replace the ordinary product, execute
+native tests, or make a default-feature claim about a widened native test graph.
+Verify the ordinary product on its own graph. The six admission controls use
+fixture bytes; actual native staging has a separate executable-bound owner.
+
 ## Complete native workspace runner — 2026-10-12
 
 Run from the repository root after writing the whole batch:

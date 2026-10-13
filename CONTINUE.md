@@ -100,6 +100,39 @@ above remains bound to the actual afba compiler, without inventing a new build.
 
 ## Next work
 
+Canonical is now clean/frozen at aee6bc109927c580393d59c0cf6e532e30efd4b3.
+Its acceptance session35166 runs target/exact-list-acceptance-aee6bc109-20261013.
+The complete508 Python sweep passes in168.701s, keeping all508 prior IDs.
+Shared no-run41 succeeds in383.130s and captures the actual native-graph private
+CLI in the same build. Independent ordinary product build succeeds in132.091s;
+private copy0.096s. The six inventory guards, both resumed-timing focus controls
+and allthree CLI exact-list controls pass. The full40 eligible native scopes
+are running; keep this source/HEAD and all actual images frozen through native,
+actual36-ID per-ID/batch/interrupted-resume proof and historical5365 replay.
+The older1bb full owner closes2104pass/three failures in2532.910s: lost resume
+times plus two inventory guards exposing one omitted target registration.
+Raw red evidence remains. No new expected-failure/skip entries were added.
+
+The source-only next checkout prepares public --from-native-build-owner staging
+and six admission guards. An actual helper invocation from that tooling checkout
+against the frozen canonical project stages the exact aee worker in0.800s,
+zero Cargo, keeping ordinary output unchanged. Proof and exact helper bytes:
+target/native-cli-staging-tool-aee6bc109-20261013. Strict source equality is kept;
+after a new project HEAD, the older build owner intentionally rejects.
+The prepared36-ID proof now observes adapter descendants and start ticks before
+termination, so unreadable executable links cannot supply an empty retirement
+claim. Historical driver replay-historical-native-aee6bc109-20261013.py retains
+every5365 ID and distinguishes verified coverage from literal conformance.
+Both missing DurationFormat modes remain explicit; additional actual errors
+must remain in the denominator too. Neither replay has executed yet.
+
+Closed unfingerprinted debug cache retirement keeps canonical debug CLI/worker,
+all release images and raw owners, reclaiming1254572032 allocated bytes. A failed
+zero-mutation zombie preflight is retained separately. The completed red1bb
+execution cache is then retired with every raw failure/transcript preserved,
+reclaiming478126080bytes. Allthree full owners remain active; afba latest8920
+has8916Success/noBug/Crash/timeout and the samefour unsupported dynamic-eval IDs.
+
 Canonical source is frozen at1bb1471cd4b4af02217bca92ef9e57a2cf58252d.
 Complete canonical Python sweep passes508/508; four Locale producer checks pass.
 Full NumberFormat regeneration reproduces1082 locales/payload
