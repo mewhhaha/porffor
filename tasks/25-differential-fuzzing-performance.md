@@ -1,5 +1,28 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Optimized corpus and sustained acceptance — 2026-10-13
+
+Frozen clean `b165ef789` passes all 704 nightly and 1,216 robustness cases
+on the actual optimized shared/stripped worker. Exact prior passing IDs,
+original request bytes, grammar/target order and 5,000/300,000 ms bounds remain:
+zero missing IDs and zero regressions. Three complete fourteen-entry corpus
+rounds per ordinary/private image repeat every aggregate/input/report byte
+and retain all historical semantic observations. These observations do not
+establish broader semantic equivalence or pinned conformance. See the
+[optimized checkpoint](../docs/rust-rewrite/optimized-worker-checkpoint-20261013.json).
+
+Release staging validates the exact shared arrays, loaded-image identities,
+allocated sections and byte-for-byte ordinary output restoration. The worker
+shrinks from 499,663,192 to 131,047,560 bytes; private link takes 1.821 seconds
+and the warm ordinary build 0.502 seconds. Consecutive corpus medians are
+32.208/21.201 seconds, nightly 1,219.103 seconds and robustness 467.494 seconds.
+These timings are separate from the earlier controlled debug experiment.
+Idle default optimized whole-CLI/compiler/runtime measurements, real calibrated
+subsystem policies, full-pin timing debt and the remaining T25/T26 gates stay
+open. The first release graph costs 1,967 seconds, including 552.237 seconds
+of runtime precompilation. Minimal R is precompiled; Conformance R and further
+crate cuts remain proposals. Earlier dated notes below retain their own owners.
+
 ## Complete native boundary — 2026-10-13
 
 All-feature/default native/ignored/docs acceptance is complete: 8,974/8,881

@@ -1,5 +1,32 @@
 # Verification costs and useful crate boundaries — 2026-10-12
 
+The 2026-10-13 optimized checkpoint completes three fresh full corpus rounds
+per ordinary/private image, all 704 nightly and all 1,216 robustness cases.
+Exact prior passing IDs, request bytes/order and original deadlines remain,
+with zero missing IDs or regressions. See the
+[portable optimized record](optimized-worker-checkpoint-20261013.json).
+
+| Optimized owner | Observed wall time | Scope |
+| --- | ---: | --- |
+| First release graph | 1,967 s | Actual CLI and selected differential-worker binaries; 474 artifacts |
+| Embedded runtime precompile | 552.237 s | One CPU; 1,013 function-cache hits and 1,140 misses |
+| Warm ordinary build | 0.502 s | Unchanged release graph |
+| Private shared-worker link | 1.821 s | Ordinary output restored byte-for-byte |
+| Ordinary corpus median | 32.208 s | Three complete fresh fourteen-entry rounds |
+| Shared/stripped corpus median | 21.201 s | Three complete fresh fourteen-entry rounds |
+| Optimized nightly | 1,219.103 s | All 704 cases, original 5,000 ms requests |
+| Optimized robustness | 467.494 s | All 1,216 seeds, original 300,000 ms bounds |
+
+The private release worker is 131,047,560 bytes; ordinary is 499,663,192.
+Both images repeat all aggregate/input/report bytes exactly within their three
+rounds and retain every historical semantic observation. These consecutive
+unbalanced timings are observations, not a controlled speedup claim. The
+earlier balanced debug experiment below establishes its separate 19.6% gain.
+The first dependency build and serial runtime precompilation are substantial
+costs; retaining the release graph makes an unchanged build half a second.
+Idle default optimized performance and full current-pin/task acceptance remain
+separate. No memory-working-set reduction is inferred from executable size.
+
 The independent default-feature run completes on 2026-10-13 with 8,881 passes,
 zero failures and zero ignores across all 105 scopes. Its full CLI inventory is
 848, distinct from the all-feature 855 below. During its parallel continuation,
@@ -152,8 +179,9 @@ python3 -B scripts/limited_verification.py --cloud -- \
   --output-dir target/corpus-FRESH
 ```
 
-`--profile release` selects optimized Cargo output, but optimized staging has
-not yet been executed. Oracle enablement remains an explicit developer option.
+`--profile release` selects optimized Cargo output. Optimized staging and
+ordinary-controller/private-worker replay now pass in the 2026-10-13 checkpoint
+above. Oracle enablement remains an explicit developer option.
 Custom Intl projections alter emitted code and interned string offsets, so
 precompiling arbitrary Conformance-R projections requires a real code/data seam;
 it is not a data-file substitution. Crate splitting below remains a proposal.

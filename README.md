@@ -1,5 +1,26 @@
 # Lila
 
+## Optimized verification workers — 2026-10-13
+
+Frozen `b165ef789` passes all **704 optimized nightly cases** and **1,216
+robustness cases**, retaining every prior passing ID on byte-identical requests
+and original deadlines: zero missing IDs and zero regressions. The shared,
+stripped release worker is **131 MB**, compared with the ordinary **500 MB**
+image. Its private link takes 1.82 seconds; the unchanged ordinary build takes
+0.50 seconds and is restored byte-for-byte after staging.
+
+Three fresh complete corpus rounds per image pass all fourteen entries, repeat
+aggregate/input/report bytes exactly and retain every historical semantic
+observation. Ordinary/shared-worker medians are **32.21/21.20 seconds**; nightly
+and robustness take **20.32/7.79 minutes**. These are consecutive observations,
+separate from the earlier controlled debug experiment. The first release build
+takes 32.78 minutes, including 552 seconds of runtime precompilation. Minimal R
+is already precompiled; Conformance R is not. See the
+[source-bound optimized checkpoint](docs/rust-rewrite/optimized-worker-checkpoint-20261013.json).
+Default optimized performance, current-pin conformance, supported-host evidence,
+canonical publication and individual task closure remain open. Older dated
+checkpoints below describe their own source states.
+
 ## Complete default native verification — 2026-10-13
 
 Frozen `9908850ce` completes **all 105 default-feature native/documentation

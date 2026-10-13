@@ -1,3 +1,34 @@
+## Optimized sustained and private-worker acceptance — 2026-10-13
+
+Frozen clean `b165ef789` passes optimized nightly 704/704 and robustness
+1,216/1,216. Exact comparison retains all prior passing IDs and request bytes,
+original 5,000/300,000 ms bounds, all eleven grammars/nineteen targets, with zero
+missing IDs or regressions. Three fresh full corpus rounds each for ordinary
+and shared/stripped release images repeat all aggregate/input/report bytes and
+historical semantic observations. Medians are 32.208/21.201 seconds; these
+consecutive runs are observations, not a controlled speedup claim. The worker
+is 131,047,560 bytes versus ordinary 499,663,192; private link 1.821 seconds,
+warm ordinary build 0.502 seconds, ordinary output restored byte-for-byte.
+Nightly/robustness take 1,219.103/467.494 seconds. The first optimized graph
+takes 1,967 seconds; runtime precompilation alone takes 552.237 seconds with
+1,013 function-cache hits/1,140 misses. The
+[portable checkpoint](docs/rust-rewrite/optimized-worker-checkpoint-20261013.json)
+retains exact raw owners and comparisons. The live progress monitor briefly
+counted unfinished robustness slots; completed-only counting fixes that
+auxiliary observation. No native/campaign failure or raw verdict was changed.
+
+Next switch once to the default optimized CLI, retaining the completed oracle
+worker and every raw receipt. Run idle seven-sample whole-CLI/compiler/runtime
+profiles, actual optimized stress, historical/current-pin checks, real
+shard/resume, two fresh unfiltered families and verified publication. Bound
+worker reuse must preserve fresh Engine/Realm/Store/GC state and whole-session
+retirement on timeout; differential reuse is only a proposal. Minimal R is
+precompiled; Conformance R and crate dependency cuts remain proposals. Resolve
+all task-specific evidence owners, including T22's under-specified negative
+Apia window and missing supported-host receipts. Keep this file/tasks until
+genuine completion and push verified batches continuously to main. The older
+sections below describe their frozen historical sources.
+
 ## Complete default native and queue checkpoint — 2026-10-13
 
 Frozen clean `9908850ce` completes all 105 default-feature native/ignored/docs

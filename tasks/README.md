@@ -1,5 +1,21 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Optimized sustained acceptance — 2026-10-13
+
+The frozen `b165ef789` optimized private worker passes all 704 nightly and
+1,216 robustness cases. Exact prior passing IDs and original request bytes/
+deadlines remain, with zero missing IDs or regressions. Three full ordinary
+and three full private-worker corpus rounds repeat exact bytes and historical
+semantic observations. The shared/stripped release worker is 131 MB; private
+link 1.82 seconds, warm ordinary build 0.50 seconds, with ordinary output
+restored byte-for-byte. Observed corpus medians are 32.21/21.20 seconds and
+nightly/robustness times 20.32/7.79 minutes. See the
+[optimized checkpoint](../docs/rust-rewrite/optimized-worker-checkpoint-20261013.json).
+Idle default optimized profiles/calibrated budgets, current-pin/shard/resume,
+supported hosts, publication and individual task gates remain open. These
+new owners supersede the earlier optimized-unexecuted notes below; retain
+CONTINUE.md and this folder until actual completion.
+
 ## Complete default native acceptance — 2026-10-13
 
 Frozen `9908850ce` completes all 105 default native/ignored/documentation scopes:
