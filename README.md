@@ -1,12 +1,34 @@
 # Lila
 
-## String character-construction repair prepared — 2026-10-13
+## Verified String character construction — 2026-10-13
 
-The next batch replaces repeated prefix concatenation in `String.fromCharCode`
-and `String.fromCodePoint` with rooted private UTF-16 construction. Six paired
-controls cover ordering, thrown conversions, GC/reentrancy, defining Realms and
-large exact results. Actual compilation, retention and timing remain pending;
-see [the buffer contract](docs/rust-rewrite/contracts/string-character-constructor-buffer.md).
+Actual `afba1a07a` passes **5,455 tests in fifteen complete optimized native
+scopes**, retaining all **5,449 previous passes** and adding six paired String
+controls: zero failures or ignores. All 29 focused controls pass. Both actual
+old and current workers pass all **34 fromCharCode and 22 fromCodePoint IDs**
+with the same input bytes, pin and limits. The two unchanged Syriac RegExp modes
+also pass; observed times fall from **31.912/34.974 seconds to 14.638/14.829
+seconds** under concurrent cloud load and the original 60-second deadline.
+
+`String.fromCharCode` and `String.fromCodePoint` now write into one private rooted
+UTF-16 construction instead of repeatedly copying the accumulated prefix.
+Ordered coercion, exact abrupt values, GC/reentrancy, defining Realms and large
+exact results are retained. See [the contract](docs/rust-rewrite/contracts/string-character-constructor-buffer.md)
+and [exact checkpoint](docs/rust-rewrite/string-character-buffer-checkpoint-20261013.json).
+
+The twelve-target no-run build takes 930.408 seconds; the three-scope addon takes
+39.027 seconds and the complete native schedule 1,322.204 seconds. Actual runtime
+producer phases are fingerprints 6.521s, fresh emission/admission 24.990s,
+native compilation 237.061s, manifest publication 4.308s and packaging 1.230s.
+Changed runtime Wasm correctly misses the module cache; compatible stencils
+record 2,155 hits/two misses. The Cargo producer is opt-level 0, a remaining
+optimization opportunity. These are concurrent observations, not idle build
+measurements. Full pinned conformance and task closure remain pending.
+
+Refresh with
+`target/string-buffer-worker-afba1a07a-20261013/lila-worker --jobs 1 test262 run built-ins/String/fromCharCode/ --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`
+and the same command for `built-ins/String/fromCodePoint/`, using fresh snapshot
+directories and the original bounded cache/worker policy.
 
 ## Verified runtime-image cache reuse — 2026-10-13
 
@@ -32,9 +54,8 @@ See [the exact checkpoint](docs/rust-rewrite/native-runtime-cache-checkpoint-202
 and [the admission contract](docs/rust-rewrite/contracts/build-runtime-module-cache.md).
 Refresh the original CLI retention with
 `target/native-cache-worker-781feba52-20261013/lila-worker --jobs 1 test262 run built-ins/Promise/try/ --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`.
-Full current-pin conformance and task closure remain pending. The next prepared
-batch addresses quadratic String character construction; current Syriac modes
-take 31.912/34.974 seconds under unchanged 60-second limits.
+Full current-pin conformance and task closure remain pending. The accepted
+String successor above improves both unchanged Syriac witness modes.
 
 ## Verified Promise.try repair — 2026-10-13
 

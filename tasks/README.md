@@ -1,5 +1,17 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Verified String construction and retained native passes — 2026-10-13
+
+Actual `afba1a07a` completes fifteen optimized native scopes: 5,455 pass,
+zero fail/ignored, all 5,449 earlier IDs retained and six new String controls.
+All 29 focused controls and all 56 pinned character-constructor IDs pass;
+the prior worker also executes and passes the same 56 original IDs. Both
+unchanged Syriac modes pass in 14.638/14.829s versus 31.912/34.974s in the earlier
+concurrent-cloud observation. See [the checkpoint](../docs/rust-rewrite/string-character-buffer-checkpoint-20261013.json).
+Producer phase timers and exact Cargo artifact binding pass all 38 relevant
+tooling controls. Full pinned families, task-specific gates and supported-host
+receipts remain pending. Keep CONTINUE.md/tasks until actual completion.
+
 ## Verified bounded native runtime reuse — 2026-10-13
 
 Actual `781feba52` passes 4,852 complete optimized native/structure controls,
@@ -8,7 +20,7 @@ warm producers preserve all three bundle files byte-for-byte; native compilation
 is 1.986/2.032s after the 676.217s miss, whole producer 41.410/42.037s under concurrent
 cloud load. All 30 Promise.try, four prior repaired IDs and two Syriac witness IDs
 remain passing. See [the checkpoint](../docs/rust-rewrite/native-runtime-cache-checkpoint-20261013.json).
-Full pinned conformance, next String-buffer acceptance and all remaining task
+Full pinned conformance and all remaining task
 gates stay open. Keep CONTINUE.md/tasks until actual completion.
 
 ## Verified Promise.try and retained constructor/Iterator repairs — 2026-10-13

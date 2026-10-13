@@ -35,8 +35,15 @@ because their pinned harness constructs large code-point complements in
 10,000-argument chunks. Measure the actual original case with unchanged limits
 before claiming a speedup.
 
-This batch is prepared in the next source checkout. Compilation, native
-retention, pinned family replay and before/after timing are pending.
+Actual `afba1a07a` passes fifteen complete optimized native scopes: 5,455 pass,
+zero failures or ignores, all 5,449 prior IDs retained and six added controls.
+All 29 focused controls pass. Both old and current workers pass the same 34
+fromCharCode and 22 fromCodePoint execution IDs. Both unchanged Syriac modes
+pass at 14.638/14.829 seconds, compared with the prior 31.912/34.974 seconds,
+under concurrent cloud load and unchanged 60-second limits. The
+[source-bound checkpoint](../string-character-buffer-checkpoint-20261013.json)
+retains original bytes, pins, commands, worker/DSO identities and exact ID sets.
+Full pinned String/task-wide closure remains pending.
 
 The same verification batch adds producer phase timings for compiler
 fingerprints, fresh runtime emission/admission, native-engine/cache setup,
@@ -44,3 +51,12 @@ manifest publication and object packaging. The prior warm producer spent about
 42 seconds overall and about two seconds in native compilation; these timers
 identify the remaining work without inferring its cost from source inspection.
 They change build diagnostics only, preserving artifact and cache admission.
+
+The actual producer records 6.521s fingerprints, 24.990s fresh emission/admission,
+237.061s native compilation, 4.308s manifest publication and 1.230s packaging.
+Its Cargo custom-build artifact has opt-level 0. Changed runtime Wasm requires
+the observed module miss; the unchanged native dependency identity retains
+2,155 compatible function stencils, with two misses. The full producer transcript
+is retained before later Cargo builds can overwrite it. The workspace artifact
+helper binds the successful exact package/target and single filenames member;
+all 38 relevant Python controls pass on the accepted source.

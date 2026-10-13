@@ -1,5 +1,20 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Measured character-construction and producer phases — 2026-10-13
+
+Actual `afba1a07a` retains all 5,449 previous native IDs and adds six passing
+String controls across fifteen complete scopes. Both unchanged Syriac witness
+modes pass in 14.638/14.829s versus the earlier 31.912/34.974s, with identical
+inputs, pin and 60-second limits. Actual producer phases are fingerprints
+6.521s, fresh emission/admission 24.990s, native compilation 237.061s,
+manifest publication 4.308s and packaging 1.230s. Changed runtime Wasm correctly
+misses module reuse; function stencils have 2,155 hits/two misses. Cargo's actual
+custom-build producer is opt-level 0; host build optimization remains a measured
+candidate, requiring byte/admission parity and net build-cost evidence before
+adoption. These concurrent-cloud observations do not establish idle profiles,
+calibrated subsystem policies or a new sustained-campaign verdict. See
+[the exact checkpoint](../docs/rust-rewrite/string-character-buffer-checkpoint-20261013.json).
+
 ## Verified immutable runtime digest — 2026-10-13
 
 Clean `a4b69645d` passes all 1,434 affected native cases, retaining all 1,433 prior

@@ -7,6 +7,25 @@ unsupported/missing-input ID and previous passing ID.
 
 ## Latest accepted compiler
 
+afba1a07a8c653f1d5fba4b4dfc8f26f380a40cc completes private rooted UTF-16 String
+construction and producer timing/Cargo-artifact tooling. All fifteen complete
+optimized native scopes pass 5,455 / 0 fail / 0 ignored, retain all 5,449 previous
+IDs and add six String controls. All 29 focus controls and 38 tooling methods
+pass. Both actual old/current CLI workers pass the same 34 fromCharCode and 22
+fromCodePoint IDs. Both original Syriac modes pass at 14.638/14.829s versus the
+earlier 31.912/34.974s, with unchanged bytes/pins/60-second bounds. See
+[the String checkpoint](docs/rust-rewrite/string-character-buffer-checkpoint-20261013.json).
+
+Actual build 930.408s, three-scope addon 39.027s, native schedule 1,322.204s.
+Producer phases: fingerprints6.521s, fresh emission/admission24.990s,
+native237.061s, manifest4.308s, packaging1.230s. Changed R correctly misses module
+reuse; stencil2,155 hits/two misses. Actual custom-build profile is opt-level0.
+The complete producer output is preserved by the export owner before another
+build. These concurrent observations are not idle timings. Raw owners:
+target/string-buffer-{native-build,extra-build,focus,native,native-schedule,
+worker,cli,checkpoint-export}-afba1a07a-20261013. The prepared next-checkout
+commits are integrated and accepted; do not rebuild that separate checkout.
+
 781feba5254ae7a4084300534facd9a7d958df58 verifies bounded native R reuse and
 native dependency invalidation. All eleven complete optimized native scopes
 pass 4,825, retain all 4,821 earlier IDs and add four Engine controls. Full structure
@@ -73,24 +92,20 @@ all active workers and their DSOs immutable.
 
 ## Next work
 
-Publish the cache checkpoint, then integrate prepared commits 66e4395ee and
-a68e0ad71 from the isolated next checkout into the canonical repair checkout.
-They replace repeated String.fromCharCode/fromCodePoint concatenation with one
-private rooted UTF-16 buffer, preserve ordered coercion/abort/Realm behavior,
-and add six paired semantic controls. Source review/fmt pass; native compilation
-and acceptance are pending. Current exact Syriac witness modes take 31.912 and
-34.974s. Replay those same IDs/input bytes/limits on the new worker and retain
-all 34 fromCharCode / 22 fromCodePoint IDs and earlier native passes.
+Finish String publication guards and push the coherent accepted batch. Start
+the latest actual staged worker's two fresh full pinned families, preserving
+the independent older full owners. Complete current compiler-bound historical
+replay, publisher/backlog, full-manifest shard/thread and interruption/resume
+owners and task-specific acceptance. Existing passing predecessors cannot
+supply an unexecuted latest-source verdict.
 
-The same batch times fingerprints, fresh R emission/admission, native setup,
-manifest publication and object packaging to locate the remaining warm cost.
-It binds actual custom-build producers through the existing workspace artifact
-helper (Cargo executable is null; filenames owns the producer). All 38 relevant
-Python methods pass under target/string-next-tooling-a68e0ad71-20261013.
-Finish the coherent source/tests/docs before one canonical build. Never compile
-the next checkout into a separate/shared Cargo graph. Explicitly set shared
-CARGO_TARGET_DIR and retain the same package graph/wrapper environment when
-adding an omitted scope. Inventory actual targets before executing selectors.
+The next iteration hill is the opt-level0 host producer. Evaluate a release
+build-override experiment only with actual package/features/configuration,
+artifact/admission parity, phase timing and net compile/storage cost. Do not
+assume the opt-level3 product units can substitute: their feature sets differ.
+Batch code/tests/docs before one compile. Explicitly set shared CARGO_TARGET_DIR
+and retain the same package graph/wrapper when adding a scope. Inventory actual
+targets before executing selectors.
 
 Cloud budget is inherited 32GiB/four quota CPUs. Use limited-verification --cloud;
 CPU2/3 native work needs --cloud-cpus auto. Keep Cargo/libtest and case workers

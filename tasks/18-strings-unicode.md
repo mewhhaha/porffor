@@ -1,5 +1,19 @@
 # T18 — Strings, Unicode and the complete String API
 
+## Verified private character construction — 2026-10-13
+
+Actual `afba1a07a` replaces repeated prefix copies with private rooted UTF-16
+construction while preserving live ordered coercion, abrupt values, defining
+Realms and GC/reentrancy. Fifteen complete native scopes pass 5,455 controls,
+retain all 5,449 prior IDs and add six paired String controls; all 29 focused
+controls pass. Old/current actual workers retain all 34 fromCharCode and 22
+fromCodePoint executions under unchanged inputs/pins/limits. Both original
+Syriac modes remain passing and take 14.638/14.829s versus 31.912/34.974s in
+the earlier concurrent-cloud observation. See [the exact checkpoint](../docs/rust-rewrite/string-character-buffer-checkpoint-20261013.json).
+Full pinned String, task-wide resource/performance and T26 acceptance remain
+open; these completed results supersede only the older pending native claims
+within their exact scopes.
+
 ## Unicode inventory and native checkpoint — 2026-10-08
 
 Normalization inventory construction avoids temporary strings and vectors for
