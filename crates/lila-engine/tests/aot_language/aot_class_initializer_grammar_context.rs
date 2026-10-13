@@ -89,6 +89,58 @@ sloppy() && object.key === undefined;
 }
 
 #[test]
+fn callables_created_by_class_evaluation_have_strict_arguments_and_function_metadata() {
+    assert_trace(
+        r#"
+function throws(operation) {
+  try { operation(); } catch (error) { return error instanceof TypeError; }
+  return false;
+}
+function heritage() {
+  return class extends (function () { arguments.callee; })() {};
+}
+function computed() {
+  return class { [(function () { arguments.callee; })()]() {} };
+}
+if (!throws(heritage) || !throws(computed)) throw 'class expression function remained sloppy';
+let keyFunction;
+class C {
+  [(keyFunction = function keyFunction() { return arguments.callee; }, 'method')]() {}
+}
+if (Object.hasOwn(keyFunction, 'caller') || !throws(() => keyFunction.caller)
+    || !throws(() => keyFunction())) throw 'class callable metadata lost strictness';
+print('strict-callables');
+"#,
+        &["strict-callables"],
+    );
+}
+
+#[test]
+fn callables_after_class_evaluation_preserve_sloppy_arguments_behavior() {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let source = r#"
+function owner() {
+  class C { [(function () { return 'method'; })()]() {} }
+  let after = function after() { return arguments.callee === after; };
+  return after() && Object.hasOwn(after, 'caller');
+}
+owner();
+"#;
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            source,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("class expression scan strictness must restore the enclosing owner");
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
+#[test]
 fn async_class_field_initializers_read_the_outer_await_binding_at_initialization() {
     assert_trace(
         r#"

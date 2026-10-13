@@ -3,6 +3,8 @@
 use super::*;
 use lila_ir::RegExpProgram;
 
+mod candidate;
+
 impl<'a> FunctionBuilder<'a> {
     fn emit_validated_regexp_program(
         &self,
@@ -199,92 +201,6 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         Ok(())
-    }
-
-    /// The program half: the literal `(source, flags)` pairs the compiler
-    /// already turned into validated programs. Status `SyntaxError` is a
-    /// literal pair the compiler rejected; a miss is a null program with
-    /// `Compiled`, which sends the runtime to its own compiler.
-    pub(crate) fn compile_regexp_program_candidate_hook(&mut self) -> Result<Function, EmitError> {
-        use crate::data::RuntimeRegExpCandidateProgram;
-        use crate::runtime_helpers::{
-            HelperParameters, RegExpCompilerStatus, RegExpProgramCandidateParameters,
-        };
-        let mut function = self.begin_helper_body(RuntimeHelperId::RegExpProgramCandidate);
-        let parameters = self.helper_parameters::<RegExpProgramCandidateParameters>(&mut function);
-        self.push_scope();
-        let schema = self.runtime_schema();
-        let program = schema
-            .reserve_gc_local::<crate::gc_types::RegExpProgram, Nullable>(&mut function)
-            .initialize_null(schema, &mut function);
-        let status = schema.reserve_i32_local(&mut function);
-        status.set_constant(
-            RegExpCompilerStatus::Compiled.abi_word() as i32,
-            &mut function,
-        );
-        let strings = self.strings;
-        let done = self.open_frame(ControlFrameKind::Block, &mut function);
-        for candidate in strings.runtime_regexp_candidates() {
-            let candidate_source = schema
-                .reserve_gc_local::<StringValue, NonNullable>(&mut function)
-                .initialize(
-                    self.emit_interned_string_reference(candidate.source, &mut function)?,
-                    &mut function,
-                );
-            let candidate_flags = schema
-                .reserve_gc_local::<StringValue, NonNullable>(&mut function)
-                .initialize(
-                    self.emit_interned_string_reference(candidate.flags, &mut function)?,
-                    &mut function,
-                );
-            self.emit_string_payload_equality_i32(
-                &parameters.source,
-                &candidate_source,
-                &mut function,
-            );
-            self.emit_string_payload_equality_i32(
-                &parameters.flags,
-                &candidate_flags,
-                &mut function,
-            );
-            function.instruction(&Instruction::I32And);
-            candidate_flags.clear(&mut function);
-            candidate_source.clear(&mut function);
-            self.open_frame(ControlFrameKind::If, &mut function);
-            match candidate.program {
-                RuntimeRegExpCandidateProgram::Program(validated) => {
-                    program.replace(
-                        self.emit_validated_regexp_program(validated, &mut function)
-                            .nullable(),
-                        &mut function,
-                    );
-                    self.emit_branch_to_target(done, &mut function);
-                }
-                RuntimeRegExpCandidateProgram::Rejected => {
-                    status.set_constant(
-                        RegExpCompilerStatus::SyntaxError.abi_word() as i32,
-                        &mut function,
-                    );
-                    self.emit_branch_to_target(done, &mut function);
-                }
-                RuntimeRegExpCandidateProgram::Unsupported => {}
-            }
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-        }
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
-        self.pop_scope();
-        parameters.release(&mut function);
-        // Result order: program, status, cursor, detail.
-        program.load(schema, &mut function);
-        status.load(&mut function);
-        function.instruction(&Instruction::I64Const(0));
-        function.instruction(&Instruction::I64Const(0));
-        program.clear(&mut function);
-        schema.release_i32_local(status, &mut function);
-        function.instruction(&Instruction::End);
-        Ok(self.finish_function(function))
     }
 
     fn emit_gc_string_contains_ascii_byte_i32(

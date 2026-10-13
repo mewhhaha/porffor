@@ -1,4 +1,7 @@
-use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
+use lila_engine::{
+    CompileOptions, Engine, ExecutionBackend, HostOutputEvent, ObservedCompletion, ObservedJsValue,
+    PromiseRejectionPolicy, RealmBuilder, RunOptions,
+};
 
 fn assert_wasm_true(source: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
@@ -92,4 +95,102 @@ try { [].concat(args); ok = false; } catch (error) { ok = ok && error === marker
 ok && calls === 1;
 "#,
     );
+}
+
+#[test]
+fn arguments_binding_precedes_globals_and_var_hoisting_keeps_its_initial_value() {
+    assert_wasm_true(
+        r#"
+var arguments = 'outer';
+function own(value) { return arguments[0] === value && arguments !== 'outer'; }
+function hoisted(value) {
+  return typeof arguments === 'object' && arguments[0] === value;
+  var arguments = 'unreachable';
+}
+function parameter(arguments) { return arguments === 47; }
+function local() { let arguments = 53; return arguments === 53; }
+own(41) && hoisted(43) && parameter(47) && local();
+"#,
+    );
+}
+
+#[test]
+fn arguments_reassignment_and_destructuring_share_one_live_closure_binding() {
+    assert_wasm_true(
+        r#"
+function shared(value) {
+  var read = () => arguments;
+  var original = arguments;
+  [arguments] = [59];
+  if (read() !== 59 || arguments !== 59 || original[0] !== value) return false;
+  ({ replacement: arguments } = { replacement: 61 });
+  if (read() !== 61) return false;
+  var object = { arguments: 67 };
+  with (object) { arguments = 71; }
+  if (object.arguments !== 71 || read() !== 61) return false;
+  arguments = 73;
+  return read;
+}
+var escaped = shared(57);
+escaped() === 73;
+"#,
+    );
+}
+
+#[test]
+fn async_arguments_targets_keep_the_binding_across_await_and_resumption() {
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let observed = Engine::new(RealmBuilder::new().build())
+        .observe_script(
+            r#"
+var ordinaryDone = false;
+var generatorDone = false;
+async function ordinary() {
+  var read = () => arguments;
+  for await ([arguments = 79] of [[]]) {
+    if (arguments !== 79 || read() !== 79) throw 'async destructuring wrote another binding';
+  }
+  ordinaryDone = true;
+}
+async function* generator() {
+  var read = () => arguments;
+  for await ([arguments] of [[83]]) {
+    yield await 0;
+    if (arguments !== 83 || read() !== 83) throw 'generator resumed with old arguments';
+  }
+  generatorDone = true;
+}
+ordinary().then(() => {
+  if (!ordinaryDone) throw 'async arguments job missing';
+  print('ordinary');
+});
+var iterator = generator();
+iterator.next().then(() => iterator.next()).then(() => {
+  if (!generatorDone) throw 'generator arguments job missing';
+  print('generator');
+});
+true;
+"#,
+            CompileOptions {
+                promise_rejection_policy: PromiseRejectionPolicy::FailRun,
+                ..CompileOptions::default()
+            },
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("async arguments targets run through Wasm and drain all jobs");
+    assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
+    assert_eq!(
+        observed.completion,
+        ObservedCompletion::Normal(ObservedJsValue::Boolean(true))
+    );
+    assert_eq!(observed.output_events.len(), 2);
+    for marker in ["ordinary", "generator"] {
+        assert!(observed
+            .output_events
+            .contains(&HostOutputEvent::PrintLine(marker.into())));
+    }
 }

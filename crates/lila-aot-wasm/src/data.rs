@@ -138,32 +138,10 @@ impl RegExpProgramStaticKey {
     }
 }
 
-/// Word index of `source`'s interned payload in a runtime RegExp program table
-/// record.
-///
-/// # Why these are constants and not literals on each side
-///
-/// The record is written here by [`StringPool::append_runtime_regexp_program_table`]
-/// and read in `expressions.rs` by `emit_runtime_regexp_program_slots`. Those
-/// were the only two places that knew the layout, and each spelled it out
-/// independently: the writer as the *order* of an array literal, the reader as
-/// bare `16`/`24`/…/`64` offsets and a `72` stride. Nothing connected them, so
-/// adding, reordering or resizing a word compiled cleanly on both sides and
-/// produced garbage program slots at run time — the same silent wrong-answer
-/// class this table exists to remove.
-///
-/// Naming the words once fixes that in three ways, and all three are compile
-/// errors rather than test failures:
-///
-/// * the writer builds a `[u64; RUNTIME_REGEXP_RECORD_WORDS]` and assigns
-///   **through these indices**, so a word with no index cannot be written and an
-///   index with no word is an out-of-bounds `const` evaluation;
-/// * [`RUNTIME_REGEXP_RECORD_SIZE`] is derived from the word count rather than
-///   typed as `72`, so the reader's stride cannot fall behind the writer's row;
-/// * the reader's offsets come from [`runtime_regexp_record_offset`] applied to
-///   the same indices, so a reordering moves both sides at once.
+/// Word index of a source's pooled GC-string ordinal in a candidate record.
+/// Writer and reader share word indices, byte offsets and derived row stride.
 pub(crate) const RUNTIME_REGEXP_RECORD_SOURCE_WORD: usize = 0;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' interned payload.
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' pooled GC-string ordinal.
 pub(crate) const RUNTIME_REGEXP_RECORD_FLAGS_WORD: usize = 1;
 /// The immutable descriptor's packed allocation pointer/byte length.
 pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD: usize = 2;
@@ -184,6 +162,34 @@ pub(crate) const RUNTIME_REGEXP_RECORD_SIZE: u64 = (RUNTIME_REGEXP_RECORD_WORDS 
 /// Byte offset of a record word, for the emitter's `i64.load` memargs.
 pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
     (word * 8) as u64
+}
+
+/// Only the complete static-table writer creates these checked bounds.
+#[derive(Clone, Copy)]
+pub(crate) struct RuntimeRegExpProgramTable {
+    address: u32,
+    count: u32,
+}
+
+impl RuntimeRegExpProgramTable {
+    pub(crate) const fn count(self) -> u32 {
+        self.count
+    }
+    pub(crate) fn emit_start(self, function: &mut Function) {
+        function.instruction(&Instruction::I32Const(self.address as i32));
+    }
+    pub(crate) fn load_word(
+        self,
+        pointer: crate::gc_types::I32Local,
+        word: usize,
+        function: &mut Function,
+    ) {
+        assert!(word < RUNTIME_REGEXP_RECORD_WORDS);
+        pointer.load(function);
+        function.instruction(&Instruction::I64Load(FunctionBuilder::memarg64(
+            runtime_regexp_record_offset(word),
+        )));
+    }
 }
 
 /// The closed outcome word in a four-word static candidate-cache record.
@@ -234,6 +240,9 @@ pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_UNSUPPORTED: u64 = 2;
 mod runtime_regexp_entry_kind;
 pub(crate) use runtime_regexp_entry_kind::RuntimeRegExpEntryKind;
 
+#[cfg(test)]
+mod runtime_regexp_table_tests;
+
 /// What the AOT-built runtime RegExp program table says about one
 /// `(source, flags)` pair.
 ///
@@ -259,17 +268,6 @@ pub(crate) use runtime_regexp_entry_kind::RuntimeRegExpEntryKind;
 /// row. `Option<RegExpProgramRef>` would not do it — `unwrap_or`, `if let` and
 /// `continue` are all one keystroke away, and `continue` is exactly what was
 /// written here.
-pub(crate) enum RuntimeRegExpCandidateProgram<'a> {
-    Program(&'a ValidatedRegExpProgram),
-    Rejected,
-    Unsupported,
-}
-pub(crate) struct RuntimeRegExpCandidate<'a> {
-    pub(crate) source: &'a str,
-    pub(crate) flags: &'a str,
-    pub(crate) program: RuntimeRegExpCandidateProgram<'a>,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum RuntimeRegExpEntry {
     /// `RegExpProgram::compile` accepted the pair; this is its static data.
@@ -395,8 +393,7 @@ pub(crate) struct StringPool {
     temporal_east_asian_year_image: Option<TemporalEastAsianYearImage>,
     runtime_regexp_programs: Vec<(String, String, RuntimeRegExpEntry)>,
     needs_runtime_regexp_programs: bool,
-    pub(crate) runtime_regexp_program_table_ptr: u32,
-    pub(crate) runtime_regexp_program_count: u32,
+    runtime_regexp_program_table: Option<RuntimeRegExpProgramTable>,
     pub(crate) uses_heap: bool,
     pub(crate) lowercase_mapping_table_ptr: u32,
     pub(crate) lowercase_mapping_count: u32,
@@ -4130,8 +4127,20 @@ impl StringPool {
         }
         let padding = (8 - self.bytes.len() % 8) % 8;
         self.bytes.resize(self.bytes.len() + padding, 0);
-        self.runtime_regexp_program_table_ptr = STATIC_DATA_OFFSET + self.bytes.len() as u32;
-        self.runtime_regexp_program_count = self.runtime_regexp_programs.len() as u32;
+        let address = STATIC_DATA_OFFSET
+            .checked_add(
+                u32::try_from(self.bytes.len()).expect("candidate table address fits Wasm memory"),
+            )
+            .expect("candidate table address fits Wasm memory");
+        let count =
+            u32::try_from(self.runtime_regexp_programs.len()).expect("candidate count fits u32");
+        let extent = count
+            .checked_mul(RUNTIME_REGEXP_RECORD_SIZE as u32)
+            .expect("candidate extent fits u32");
+        address
+            .checked_add(extent)
+            .expect("candidate table fits Wasm memory");
+        self.runtime_regexp_program_table = Some(RuntimeRegExpProgramTable { address, count });
         for (source, flags, entry) in &self.runtime_regexp_programs {
             // Assigned through the shared word indices rather than as a
             // positional array literal, so the writer's layout and the
@@ -4139,8 +4148,16 @@ impl StringPool {
             // agreeing transcriptions. A non-`Program` row leaves the program
             // handle zeroed, as does a total miss in the object's slot.
             let mut record = [0u64; RUNTIME_REGEXP_RECORD_WORDS];
-            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = self.payload(source) as u64;
-            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = self.payload(flags) as u64;
+            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = u64::from(
+                self.pooled_string_index(source)
+                    .expect("candidate source is interned")
+                    .ordinal(),
+            );
+            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = u64::from(
+                self.pooled_string_index(flags)
+                    .expect("candidate flags are interned")
+                    .ordinal(),
+            );
             // Exhaustive on purpose. This is the site the `continue` used to
             // hide behind: a new entry kind must be given a record encoding
             // here, or this stops compiling.
@@ -4456,34 +4473,8 @@ impl StringPool {
         self.payload(value)
     }
 
-    pub(crate) fn runtime_regexp_candidates(
-        &self,
-    ) -> impl Iterator<Item = RuntimeRegExpCandidate<'_>> {
-        self.runtime_regexp_programs
-            .iter()
-            .map(|(source, flags, entry)| {
-                let program = match entry {
-                    RuntimeRegExpEntry::Program(reference) => {
-                        let validated = self
-                            .regexp_programs
-                            .iter()
-                            .find_map(|(program, candidate)| {
-                                (candidate.payload == reference.payload).then_some(&program.0)
-                            })
-                            .expect(
-                                "native runtime candidate belongs to its validated program catalog",
-                            );
-                        RuntimeRegExpCandidateProgram::Program(validated)
-                    }
-                    RuntimeRegExpEntry::Rejected => RuntimeRegExpCandidateProgram::Rejected,
-                    RuntimeRegExpEntry::Unsupported => RuntimeRegExpCandidateProgram::Unsupported,
-                };
-                RuntimeRegExpCandidate {
-                    source,
-                    flags,
-                    program,
-                }
-            })
+    pub(crate) const fn runtime_regexp_table(&self) -> Option<RuntimeRegExpProgramTable> {
+        self.runtime_regexp_program_table
     }
 
     pub(crate) fn regexp_program(&self, program: &RegExpProgram) -> RegExpProgramRef {

@@ -230,3 +230,45 @@ fn class_field_named_evaluation_owns_original_static_private_and_cached_keys() {
         assert_eq!(class.name_inference, expected);
     }
 }
+
+#[test]
+fn callable_metadata_inherits_class_expression_strictness_without_changing_its_owner() {
+    let parsed = parse(
+        r#"function factory() {
+            var before = function before() {};
+            class C extends (function heritage() { return Object; })() {
+                [(function key() { return 'method'; })()]() {}
+                [(function nestedKey() { return () => 'nested'; })()]() {}
+            }
+            var after = function after() {};
+            return C;
+        }"#,
+        ParseOptions::script(),
+    )
+    .expect("class expression callable fixture parses");
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("script IR");
+    for name in ["heritage", "key", "nestedKey"] {
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .expect("class expression callable is planned");
+        assert!(
+            function.strict,
+            "class expression callable {name} must be strict"
+        );
+    }
+    for name in ["factory", "before", "after"] {
+        let function = script
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .expect("enclosing callable is planned");
+        assert!(
+            !function.strict,
+            "class strictness must not leak into {name}"
+        );
+    }
+}

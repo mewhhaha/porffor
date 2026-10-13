@@ -156,11 +156,11 @@ impl<'a> FunctionBuilder<'a> {
             } else {
                 self.allocate_local_binding(lila_ir::BindingMode::Var, &mut function)
             };
+            self.initialize_function_var_binding(&name, storage, &mut function)?;
             self.binding_scopes
                 .last_mut()
                 .expect("binding scope stack must exist")
                 .insert(name, storage);
-            self.initialize_binding_undefined(storage, &mut function);
         }
         self.completion.value().set_undefined(&mut function);
         if let Some(frame) = &frame {

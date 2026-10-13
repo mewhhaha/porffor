@@ -22,7 +22,9 @@ result. Available case times survive; unrecorded times stay absent. The
 full5,365-ID historical replay remains a separate pending owner.
 
 That replay has identified parser, arrow-eval context, class strictness, Annex B
-arguments and oversized replacement failures. A prepared repair batch includes
+arguments and oversized replacement failures. The prepared repair batch also
+repairs source arguments binding resolution and replaces the finite RegExp
+candidate helper with a compact table loop. It includes
 paired controls and [normative contracts](docs/rust-rewrite/contracts/arrow-eval-and-class-reference-context.md).
 Its replacement construction collects completed pieces and copies them once.
 These source changes await native verification; the accepted counts above

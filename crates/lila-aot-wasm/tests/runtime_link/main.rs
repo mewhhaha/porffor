@@ -10,6 +10,7 @@ mod linked_bodies;
 
 mod host_import_function_indices_structure;
 mod pooled_string_data;
+mod regexp_candidate_body;
 mod rooted_snapshot_exports;
 mod runtime_error_active_handler_structure;
 mod runtime_import_reachability;

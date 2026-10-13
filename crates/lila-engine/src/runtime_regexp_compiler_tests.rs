@@ -3,6 +3,48 @@ use lila_ir::{RegExpProgram, RegExpProgramWord, ValidatedRegExpProgram, REGEXP_M
 
 use wasmtime::{ArrayRef, ArrayRefPre, Rooted, StructRef, StructRefPre};
 
+#[test]
+fn finite_regexp_candidates_match_many_sources_flags_and_runtime_misses() {
+    configure_compilation_jobs(1).unwrap();
+    let values = (0..256)
+        .map(|index| format!("'candidate_{index:04}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let source = format!(
+        r#"
+var values = [{values}];
+for (var index of [0, 127, 255]) {{
+  for (var flags of ['', 'g', 'i']) {{
+    var pattern = new RegExp(values[index], flags);
+    var text = flags === 'i' ? values[index].toUpperCase() : values[index];
+    if (pattern.exec(text)[0] !== text) throw 'candidate source/flags selected another row';
+  }}
+}}
+var unicode = new RegExp('Ā\u0000𝄞', 'u');
+var surrogate = new RegExp('\uD800', '');
+var rejected = false;
+try {{ new RegExp('['); }} catch (error) {{ rejected = error instanceof SyntaxError; }}
+var unseen = String.fromCharCode(120, 121, 122) + '+';
+var fallback = new RegExp(unseen);
+unicode.test('Ā\u0000𝄞') && surrogate.test('\uD800') && rejected &&
+new RegExp('').test('') && new RegExp('a').test('a') && fallback.exec('xyzz')[0] === 'xyzz';
+"#
+    );
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            &source,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("finite candidate lookup and compiler fallback execute through Wasm");
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+}
+
 /// R already exports every helper at its declared index. Discover that index
 /// from the physical runtime's name section without rewriting its cache identity.
 fn runtime_export(bytes: &[u8], helper: &str) -> String {

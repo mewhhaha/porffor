@@ -5,6 +5,8 @@
 mod compile;
 #[path = "manifest.rs"]
 mod manifest;
+#[path = "publication.rs"]
+mod publication;
 use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
 use compile::RuntimeImageCompiler;
 use sha2::{Digest, Sha256};
@@ -27,7 +29,7 @@ pub(crate) fn write_bundle(
         println!(
             "cargo:warning=embedded runtime unavailable for {target}; preserving normal runtime compilation"
         );
-        publish(out, &[], &[], &[]);
+        publication::publish(out, &[], &[], &[]);
         return;
     }
     let source =
@@ -124,7 +126,7 @@ pub(crate) fn write_bundle(
                 };
                 let encoded = manifest.encode();
                 assert_eq!(manifest::Manifest::decode(&encoded), Some(manifest));
-                publish(out, runtime.package_bytes(), &native, &encoded);
+                publication::publish(out, runtime.package_bytes(), &native, &encoded);
                 println!(
                     "build runtime manifest publication: {:?}",
                     started.elapsed()
@@ -134,16 +136,4 @@ pub(crate) fn write_bundle(
             .join()
             .expect("build runtime compiler thread completes");
     });
-}
-
-fn publish(out: &Path, package: &[u8], native: &[u8], manifest: &[u8]) {
-    // Cargo admits this build script only after all three writes succeed; the
-    // final manifest binds both complete immutable include_bytes inputs.
-    for (name, bytes) in [
-        ("lila-runtime-package.bin", package),
-        ("lila-runtime-native.bin", native),
-        ("lila-runtime-manifest.bin", manifest),
-    ] {
-        std::fs::write(out.join(name), bytes).expect("build runtime output writes completely");
-    }
 }

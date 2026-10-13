@@ -391,6 +391,7 @@ pub(crate) struct AnalysisBuilder<'a> {
     next_private_environment_id: u32,
     environment_cursor_stack: Vec<EnvironmentCursor>,
     private_environment_stack: Vec<PrivateEnvironmentId>,
+    lexical_strictness: Option<Strictness>,
 }
 
 impl<'a> AnalysisBuilder<'a> {
@@ -439,7 +440,8 @@ impl<'a> AnalysisBuilder<'a> {
                     )
                 ))
             || eval_environment::contains_direct_eval_call(script)
-            || eval_environment::contains_annex_b_arguments_candidate(script);
+            || eval_environment::contains_annex_b_arguments_candidate(script)
+            || eval_environment::contains_arguments_reference(script);
         self.source_identifiers = eval_environment::source_identifiers(script, interner);
         let direct_context = match &self.script_instantiation {
             ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(context)) => {
@@ -3136,6 +3138,14 @@ impl<'a> AnalysisBuilder<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn scan_is_strict(&self, owner_id: &str) -> bool {
+        self.lexical_strictness == Some(Strictness::Strict)
+            || self
+                .owner_plans
+                .get(owner_id)
+                .is_some_and(|owner| owner.strict)
+    }
+
     fn scan_class_definition(
         &mut self,
         owner_id: &str,
@@ -3168,6 +3178,7 @@ impl<'a> AnalysisBuilder<'a> {
             self.environment_cursor_stack.push(cursor.clone());
         }
 
+        let enclosing_strictness = self.lexical_strictness.replace(Strictness::Strict);
         if let Some(heritage) = heritage {
             self.scan_expression(
                 owner_id,
@@ -3257,6 +3268,7 @@ impl<'a> AnalysisBuilder<'a> {
                 .expect("class definition must restore its lexical environment cursor");
             debug_assert_eq!(cursor, expected_cursor);
         }
+        self.lexical_strictness = enclosing_strictness;
     }
 
     fn collect_non_root_function_declaration(
@@ -3286,11 +3298,7 @@ impl<'a> AnalysisBuilder<'a> {
                 function_source_slice(function, source_text),
             ),
             protocol: FunctionProtocolIr::OrdinaryCallAndConstruct,
-            strict: self
-                .owner_plans
-                .get(owner_id)
-                .is_some_and(|owner| owner.strict)
-                || function.body().strict(),
+            strict: self.scan_is_strict(owner_id) || function.body().strict(),
             self_binding_name: None,
             parameters: function.parameters(),
             body: function.body(),
@@ -3327,11 +3335,7 @@ impl<'a> AnalysisBuilder<'a> {
                 generator_declaration_source_slice(function, source_text),
             ),
             protocol: FunctionProtocolIr::Generator,
-            strict: self
-                .owner_plans
-                .get(owner_id)
-                .is_some_and(|owner| owner.strict)
-                || function.body().strict(),
+            strict: self.scan_is_strict(owner_id) || function.body().strict(),
             self_binding_name: None,
             parameters: function.parameters(),
             body: function.body(),
@@ -3368,11 +3372,7 @@ impl<'a> AnalysisBuilder<'a> {
                 async_function_declaration_source_slice(function, source_text),
             ),
             protocol: FunctionProtocolIr::Async,
-            strict: self
-                .owner_plans
-                .get(owner_id)
-                .is_some_and(|owner| owner.strict)
-                || function.body().strict(),
+            strict: self.scan_is_strict(owner_id) || function.body().strict(),
             self_binding_name: None,
             parameters: function.parameters(),
             body: function.body(),
@@ -3409,11 +3409,7 @@ impl<'a> AnalysisBuilder<'a> {
                 async_generator_declaration_source_slice(function, source_text),
             ),
             protocol: FunctionProtocolIr::AsyncGenerator,
-            strict: self
-                .owner_plans
-                .get(owner_id)
-                .is_some_and(|owner| owner.strict)
-                || function.body().strict(),
+            strict: self.scan_is_strict(owner_id) || function.body().strict(),
             self_binding_name: None,
             parameters: function.parameters(),
             body: function.body(),
@@ -5773,10 +5769,7 @@ impl<'a> AnalysisBuilder<'a> {
                                         ),
                                     protocol: object_method_protocol(method.kind())
                                         .function_protocol(),
-                                    strict: self
-                                        .owner_plans
-                                        .get(owner_id)
-                                        .is_some_and(|owner| owner.strict)
+                                    strict: self.scan_is_strict(owner_id)
                                         || method.body().strict(),
                                     self_binding_name: None,
                                     parameters: method.parameters(),
@@ -6029,10 +6022,7 @@ impl<'a> AnalysisBuilder<'a> {
                             function_expression_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::OrdinaryCallAndConstruct,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name,
                         parameters: function.parameters(),
@@ -6066,10 +6056,7 @@ impl<'a> AnalysisBuilder<'a> {
                             async_function_expression_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::Async,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name,
                         parameters: function.parameters(),
@@ -6103,10 +6090,7 @@ impl<'a> AnalysisBuilder<'a> {
                             async_generator_expression_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::AsyncGenerator,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name,
                         parameters: function.parameters(),
@@ -6142,10 +6126,7 @@ impl<'a> AnalysisBuilder<'a> {
                             generator_expression_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::Generator,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name,
                         parameters: function.parameters(),
@@ -6177,10 +6158,7 @@ impl<'a> AnalysisBuilder<'a> {
                             arrow_function_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::Arrow,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name: None,
                         parameters: function.parameters(),
@@ -6212,10 +6190,7 @@ impl<'a> AnalysisBuilder<'a> {
                             async_arrow_function_source_slice(function, source_text),
                         ),
                         protocol: FunctionProtocolIr::AsyncArrow,
-                        strict: self
-                            .owner_plans
-                            .get(owner_id)
-                            .is_some_and(|owner| owner.strict)
+                        strict: self.scan_is_strict(owner_id)
                             || function.body().strict(),
                         self_binding_name: None,
                         parameters: function.parameters(),

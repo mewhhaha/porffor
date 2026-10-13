@@ -29,9 +29,7 @@ impl ProvidedHooks {
                     .any(|script| !matches!(script.kind, PreparedScriptKind::DirectEval(_))),
                 ProgramHook::RealmModuleImport => functions.module_graph().is_some(),
                 ProgramHook::ModuleBodyReaction => functions.module_execution_record_count() > 0,
-                ProgramHook::RegExpProgramCandidate => {
-                    strings.runtime_regexp_candidates().next().is_some()
-                }
+                ProgramHook::RegExpProgramCandidate => strings.runtime_regexp_table().is_some(),
             };
             if has_data {
                 provided |= 1 << hook as u32;

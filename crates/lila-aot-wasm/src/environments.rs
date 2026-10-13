@@ -611,6 +611,29 @@ impl<'a> FunctionBuilder<'a> {
         environment.clear(function);
     }
 
+    /// FunctionDeclarationInstantiation reuses the initialized arguments value
+    /// for a source `var arguments`; other newly created var cells start empty.
+    pub(crate) fn initialize_function_var_binding(
+        &mut self,
+        name: &str,
+        storage: BindingStorage,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        if name == "arguments" && self.function_arguments_protocol.present().is_some() {
+            let arguments = self
+                .lookup_binding(LEXICAL_ARGUMENTS_NAME)
+                .expect("bound arguments protocol owns its initialized binding");
+            let schema = self.runtime_schema();
+            let value = schema.reserve_value_local(function);
+            self.read_binding_to_locals(arguments, &value, function)?;
+            self.write_binding_from_locals(storage, &value, function);
+            value.clear(function);
+        } else {
+            self.initialize_binding_undefined(storage, function);
+        }
+        Ok(())
+    }
+
     pub(crate) fn initialize_binding_undefined(
         &mut self,
         storage: BindingStorage,

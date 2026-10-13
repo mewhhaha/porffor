@@ -34,6 +34,20 @@ retain the strictness at creation; called ordinary functions keep their own
 strictness. Paired native controls cover class declaration/expression keys and
 heritage, direct eval in a key, and sloppy references after nested classes.
 
+Class evaluation must also make every function created by heritage/computed-name
+expressions strict. Analysis now uses a scoped strict scan context for its
+callable metadata producers, retaining the enclosing activation's own mode.
+`sloppy-script:language/statements/class/strict-mode/arguments-callee.js` remains
+in the historical cohort; its observed Bug exposes the previously
+sloppy arguments object of a function created in class heritage. IR and native
+controls cover function metadata/arguments poison plus callables before/after
+class evaluation, preserving the strictness restoration boundary.
+
+Actual prepared `8cb35ae74` passes all177 frontend lib controls, retaining all172
+prior IDs and adding five parser controls. Its IR test/type graph passes after
+restoring three missing tracked sparse fixtures. These are frontend/type
+verdicts; none establishes JavaScript/Wasm acceptance for these repairs.
+
 These are prepared repairs. The complete affected inventories and the unchanged
 original failing executions must pass through the actual next compiler before
 an acceptance claim. Original crashes, nonpasses and all prior passing IDs stay

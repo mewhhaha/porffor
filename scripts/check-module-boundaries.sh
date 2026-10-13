@@ -3235,6 +3235,7 @@ engine_native_config="crates/lila-engine/src/wasmtime_config.rs"
 engine_embedded_runtime="crates/lila-engine/src/embedded_runtime.rs"
 engine_embedded_build="crates/lila-engine/src/embedded_runtime/build.rs"
 engine_embedded_compile="crates/lila-engine/src/embedded_runtime/compile.rs"
+engine_embedded_publication="crates/lila-engine/src/embedded_runtime/publication.rs"
 engine_native_stencils="crates/lila-engine/src/cache/native.rs"
 runtime_image_build="crates/lila-runtime-image/build.rs"
 runtime_image_source="crates/lila-runtime-image/src/lib.rs"
@@ -3291,6 +3292,10 @@ require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_mod
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
 check_raw_line_budget "$engine_embedded_build" 140
+require_file "$engine_embedded_publication"
+require_fixed_string_count "$engine_embedded_build" 'publication::publish(out,' 2 'publish unsupported-target and complete native bundles through one owner'
+require_fixed_string_count "$engine_embedded_publication" 'std::fs::write(out.join(name), bytes)' 1 'one complete bundle writer'
+check_raw_line_budget "$engine_embedded_publication" 40
 check_raw_line_budget "$engine_embedded_compile" 100
 check_raw_line_budget "$engine_native_stencils" 120
 check_raw_line_budget "$runtime_image_build" 80
@@ -6061,7 +6066,7 @@ check_raw_line_budget "$wasm_expressions" 1980
 wasm_regexp_expressions="crates/lila-aot-wasm/src/expressions/regexp_program.rs"
 require_file "$wasm_regexp_expressions"
 require_exact_line_count "$wasm_expressions" 'mod regexp_program;' 1 'private RegExp expression compiler owner'
-for regexp_expression_entry in emit_validated_regexp_program emit_regexp_program_slots emit_runtime_regexp_program_slots emit_regexp_compiler_failures compile_regexp_program_candidate_hook emit_gc_string_contains_ascii_byte_i32 emit_regexp_program_with_compatible_flags compile_regexp_literal_to_value; do
+for regexp_expression_entry in emit_validated_regexp_program emit_regexp_program_slots emit_runtime_regexp_program_slots emit_regexp_compiler_failures emit_gc_string_contains_ascii_byte_i32 emit_regexp_program_with_compatible_flags compile_regexp_literal_to_value; do
   require_fixed_string_count "$wasm_regexp_expressions" "fn ${regexp_expression_entry}(" 1 'RegExp expression algorithm owner'
   require_fixed_string_count "$wasm_expressions" "fn ${regexp_expression_entry}(" 0 'no parent RegExp expression algorithm copy'
 done
@@ -6069,6 +6074,16 @@ require_fixed_string_count "$wasm_regexp_expressions" 'pub(super) fn compile_reg
 require_fixed_string_count "$wasm_expressions" 'self.compile_regexp_literal_to_value(' 1 'RegExp expression dispatch consumes its private owner'
 check_no_inline_legacy_includes "$wasm_regexp_expressions"
 check_raw_line_budget "$wasm_regexp_expressions" 510
+wasm_regexp_candidate="crates/lila-aot-wasm/src/expressions/regexp_program/candidate.rs"
+require_file "$wasm_regexp_candidate"
+require_exact_line_count "$wasm_regexp_expressions" 'mod candidate;' 1 'private finite RegExp candidate owner'
+for regexp_candidate_entry in compile_regexp_program_candidate_hook emit_static_regexp_program_payload; do
+  require_fixed_string_count "$wasm_regexp_candidate" "fn ${regexp_candidate_entry}(" 1 'finite RegExp candidate algorithm owner'
+  require_fixed_string_count "$wasm_regexp_expressions" "fn ${regexp_candidate_entry}(" 0 'no parent finite RegExp candidate algorithm copy'
+done
+require_fixed_string_count crates/lila-aot-wasm/src/program_hooks.rs 'self.compile_regexp_program_candidate_hook()' 1 'actual RegExp candidate hook dispatch'
+check_no_inline_legacy_includes "$wasm_regexp_candidate"
+check_raw_line_budget "$wasm_regexp_candidate" 300
 
 # T02 gives T09's private-element environment, storage and access lifecycle one
 # private backend owner. Keep the complete family together: widening only some

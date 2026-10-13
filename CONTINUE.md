@@ -36,8 +36,8 @@ reuse; stencil2,155 hits/two misses. Actual custom-build profile is opt-level0.
 The complete producer output is preserved by the export owner before another
 build. These concurrent observations are not idle timings. Raw owners:
 target/string-buffer-{native-build,extra-build,focus,native,native-schedule,
-worker,cli,checkpoint-export}-afba1a07a-20261013. The prepared next-checkout
-commits are integrated and accepted; do not rebuild that separate checkout.
+worker,cli,checkpoint-export}-afba1a07a-20261013. Those earlier String commits are integrated and accepted. The existing next
+checkout now owns the separate prepared historical repair batch.
 
 781feba5254ae7a4084300534facd9a7d958df58 verifies bounded native R reuse and
 native dependency invalidation. All eleven complete optimized native scopes
@@ -87,7 +87,7 @@ passes there; this latest worker retains all eight related native controls.
 Two apply-T4 and four BMP dynamic-eval modes remain explicitly unsupported.
 Do not invent unused names, source-shape exceptions, a bundled parser or VM.
 
-## Preserve active full owners
+## Preserve interrupted full owners
 
 Original checkout remains clean at 4e01400fc91a2752fa362bf8882ad136e653089e:
 
@@ -96,14 +96,14 @@ Original checkout remains clean at 4e01400fc91a2752fa362bf8882ad136e653089e:
 - CPU1: target/full-pin-repaired-b486503d2-20261013/receipt.json; actual b486
   worker SHA 285b61675f1eaddab95c89cfe64e08b2d79d825cf8c9e483b28dbd40bfdf5dd5.
 
-Both collect two fresh unfiltered current-pin families, jobs/threads1,
+Both started two fresh unfiltered current-pin families, jobs/threads1,
 60000ms, reuse64 and fresh Engine/Realm/Store. Neither is complete. Collect the
 second family even when first is red. Their older failures are their own source
 results, not regressions of the latest compiler. Inspect node failures and
 completed IDs, excluding aggregate snapshots. Keep original source/HEAD,
 all active workers and their DSOs immutable.
 
-The current accepted afba worker now runs its own two fresh full matrices on
+The earlier accepted afba worker started its own two fresh full matrices on
 CPU2: target/full-pin-string-afba1a07a-20261013/receipt.json. Worker SHA
 660d75fd99b6fb80e3f2a6f28c6d2d52d5ca29ad007e42ff5dd6d766b13c8262.
 The original checkout owns unchanged suite/scripts; the actual compiler is the
@@ -118,10 +118,19 @@ all508 canonical Python controls pass. Actual36-ID per-ID/batch/interruption/
 resume preserves34Success and both missing modes. These results belong to
 actual compiler aee6bc109, not a later publication or prepared-source commit.
 Main58e357322 publishes the sealed checkpoint and staging tool. Historical
-all5365 replay is now running under
-`target/historical-native-replay-aee6bc109-20261013-owner/receipt.json`;
+all5365 replay was interrupted after saving 1490 native executions, including
+1151 Success,96 Bug,236 NotImplemented,7 Crash and no timeout. Its original
+incomplete owner remains preserved. Same-image/input native checkpoint resume
+is running under
+`target/historical-native-replay-aee6bc109-20261013-resume-owner/receipt.json`;
 coverage and literal conformance remain unverified until its actual completion.
 Keep canonicalAE and original4e sources, HEADs, workers and DSOs immutable.
+
+The three older full owners above are stopped, incomplete and unpassed; their
+recorded native controllers are zombies and their old execution sessions are
+unavailable. Preserve their raw snapshots, logs, images and source identity.
+Do not count partial families as completed closure. Their generated inactive
+caches may be retired with owned manifests to make room for new verification.
 
 Root has prepared the coherent historical repair batch in porffor-next:
 
@@ -134,27 +143,46 @@ Root has prepared the coherent historical repair batch in porffor-next:
 - Source arrows with potential direct eval retain lexical this/new.target/home
   object/derived initialization cells even when only eval text observes them.
   Paired original Bug/Crash modes and escaped/nested/shadowed controls remain.
-- Class heritage/computed-name references carry scoped lexical strictness and
-  restore the enclosing mode, including nested classes and direct eval.
+- Class heritage/computed-name references and created callable metadata carry
+  scoped lexical strictness and restore the enclosing mode, including nested
+  classes and direct eval.
 - Annex B arguments copying separates parameter collisions from implicit
   arguments. Named variable-environment assignment occurs at declaration
   evaluation; parameter-expression and body closures retain their own chains.
   Existing independent declarations remain static. The old IR control keeps
   both inputs and its ID with the corrected normative expectation.
+- Source arguments reads/writes/destructuring and captured closures share the
+  existing live named environment. A simple source var arguments starts with
+  the initialized ArgumentsObject; formal/body environment ordering remains.
+- The finite RegExp candidate helper emits one row loop over the complete static
+  table with pooled GC-string ordinals. Descriptor publication copies the exact
+  validated active-memory span. The actual old compiler's isolated Intl probe
+  measures this helper at27330651bytes against7654321; no conformance result is
+  replaced by the diagnostic. Encoded-size and native semantics controls cover
+  table growth, every closed row outcome, Unicode, flags and computed misses.
 - RegExp substitution collects completed pieces, checks accumulated i64 length
   against the existing string extent, then copies once and publishes. Named
   capture Gets/conversions/reentry remain ordered. Oversized replacement must
   become catchable RangeError rather than GC trap; general remaining-memory
   allocation failures are not claimed solved.
 
-Contracts and paired frontend/native controls accompany the batch. Formatting
-and diff checks pass; this is prepared source with no new native acceptance.
-A frontend-only verification may run early to resolve parser/IR foundation risk
-without building Engine/runtime or changing active actual compiler images. Use
-one coherent canonical shared native build after the all5365 frozen owner closes;
-do not compile the Engine/runtime graph in the next checkout. Run focus, all
-complete affected inventories and original historical IDs with exact prior-pass
-retention before claiming bug elimination or publishing an accepted checkpoint.
+Contracts and paired frontend/native controls accompany the batch. Actual
+prepared8cb35ae74 passes all177 frontend controls, retaining all172 old IDs; its
+complete IR test/type graph checks after three tracked sparse fixtures were
+restored. These are frontend/type verdicts, not JavaScript/Wasm acceptance.
+
+The later source batch adds strict callable metadata, live arguments bindings,
+compact RegExp candidate emission and private runtime-bundle publication.
+Cheap formatting/diff/module guards precede its type check. There is no new
+Engine/runtime/native verdict yet. Use one coherent shared native build from
+this existing source checkout. This is now feasible alongside CPU3 historical
+resume because the three older full owners have stopped and actual old workers
+use immutable copies/content-addressed DSOs. Archive completed owned Cargo
+leaves before their generic output paths can be overwritten. Keep canonicalAE,
+original4e and all frozen workers/DSOs unchanged until their owners close.
+Run focus, every complete affected inventory and original historical IDs with
+exact prior-pass retention before claiming bug elimination or publishing an
+accepted checkpoint. Do not relabel a prepared compiler as accepted AE.
 
 Remaining historical resource/caller findings stay explicit: catchable recursion
 needs an actual stack-usage bound, the huge generated Unicode table needs generic
