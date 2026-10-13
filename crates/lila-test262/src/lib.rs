@@ -1080,7 +1080,9 @@ pub enum TestStatus {
 pub struct TestResult {
     pub test_id: TestExecutionId,
     pub status: TestStatus,
-    pub duration_ms: u128,
+    /// Observed case wall time, or retained timing from an admitted snapshot.
+    /// Successful resumed IDs omitted from its top ten have no recorded time.
+    pub duration_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4037,21 +4039,26 @@ fn execute_cases(
 
     let mut completed = BTreeMap::new();
     if let Some(snapshot) = previous {
+        let recorded_durations: BTreeMap<_, _> = snapshot.slowest_tests.into_iter().collect();
         for failure in snapshot.failures {
+            let duration_ms = failure
+                .duration_ms
+                .or_else(|| recorded_durations.get(&failure.test_id).copied());
             completed.insert(
                 failure.test_id.clone(),
                 TestResult {
                     test_id: failure.test_id.clone(),
                     status: TestStatus::Failed(failure),
-                    duration_ms: 0,
+                    duration_ms,
                 },
             );
         }
         for test_id in snapshot.completed_test_ids {
+            let duration_ms = recorded_durations.get(&test_id).copied();
             completed.entry(test_id.clone()).or_insert(TestResult {
                 test_id,
                 status: TestStatus::Passed,
-                duration_ms: 0,
+                duration_ms,
             });
         }
     }
@@ -4240,7 +4247,7 @@ fn execute_cases(
                                     status: TestStatus::Failed(quarantined_case_failure(
                                         test_id, strikes,
                                     )),
-                                    duration_ms: 0,
+                                    duration_ms: None,
                                 }
                             }
                         };
@@ -4673,7 +4680,7 @@ fn result_from_single_case_snapshot(
         return Ok(TestResult {
             test_id: case.execution_id.clone(),
             status: TestStatus::Passed,
-            duration_ms,
+            duration_ms: Some(duration_ms),
         });
     }
 
@@ -4681,7 +4688,7 @@ fn result_from_single_case_snapshot(
         return Ok(TestResult {
             test_id: case.execution_id.clone(),
             status: TestStatus::Failed(snapshot.failures[0].clone()),
-            duration_ms,
+            duration_ms: Some(duration_ms),
         });
     }
 
@@ -4785,7 +4792,7 @@ fn run_one_case_in_reused_process(
                     FailureKind::Runtime,
                     format!("timeout exceeded after {duration_ms}ms"),
                 )),
-                duration_ms,
+                duration_ms: Some(duration_ms),
             });
         };
         // Retire timed-out, faulty and exhausted workers before reading files.
@@ -4900,7 +4907,7 @@ fn run_one_case_in_child_process(
                         budget.elapsed_ms()
                     ),
                 )),
-                duration_ms: budget.elapsed_ms(),
+                duration_ms: Some(budget.elapsed_ms()),
             });
         }
         let mut child = match case_process::CaseProcess::spawn(&mut child, budget) {
@@ -4916,7 +4923,7 @@ fn run_one_case_in_child_process(
                             budget.elapsed_ms()
                         ),
                     )),
-                    duration_ms: budget.elapsed_ms(),
+                    duration_ms: Some(budget.elapsed_ms()),
                 });
             }
             Err(error) => {
@@ -4947,7 +4954,7 @@ fn run_one_case_in_child_process(
                     FailureKind::Runtime,
                     format!("timeout exceeded after {}ms", duration_ms),
                 )),
-                duration_ms,
+                duration_ms: Some(duration_ms),
             });
         }
 
@@ -5050,7 +5057,7 @@ fn run_case_entry_with_dispatch(
                         FailureKind::HostHarness,
                         detail,
                     )),
-                    duration_ms: config.timeout_ms.into(),
+                    duration_ms: None,
                 },
             );
         }
@@ -5063,7 +5070,7 @@ fn run_case_entry_with_dispatch(
                         FailureKind::HostHarness,
                         detail,
                     )),
-                    duration_ms: config.timeout_ms.into(),
+                    duration_ms: None,
                 });
         }
         CaseExecutionDispatch::Worker => {}
@@ -5090,7 +5097,7 @@ fn run_case_entry_with_dispatch(
                 detail,
             )
         }),
-        duration_ms: config.timeout_ms.into(),
+        duration_ms: None,
     })
 }
 
@@ -5505,7 +5512,7 @@ fn run_one_case_with_wasm_aot_execution(
                 FailureKind::Runtime,
                 format!("timeout exceeded after {}ms", duration_ms),
             )),
-            duration_ms,
+            duration_ms: Some(duration_ms),
         };
     }
 
@@ -5513,12 +5520,12 @@ fn run_one_case_with_wasm_aot_execution(
         Ok(()) => TestResult {
             test_id: case.execution_id.clone(),
             status: TestStatus::Passed,
-            duration_ms,
+            duration_ms: Some(duration_ms),
         },
         Err(failure) => TestResult {
             test_id: case.execution_id.clone(),
             status: TestStatus::Failed(failure),
-            duration_ms,
+            duration_ms: Some(duration_ms),
         },
     }
 }
@@ -5650,7 +5657,11 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
     let mut completed_test_ids = Vec::new();
     let mut slowest = results
         .iter()
-        .map(|result| (result.test_id.clone(), result.duration_ms))
+        .filter_map(|result| {
+            result
+                .duration_ms
+                .map(|time| (result.test_id.clone(), time))
+        })
         .collect::<Vec<_>>();
     slowest.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
     slowest.truncate(10);
@@ -5671,7 +5682,7 @@ fn summarize_results(results: &[TestResult]) -> RunSummary {
                     timeouts.push(failure.test_id.clone());
                 }
                 let mut failure = failure.clone();
-                failure.duration_ms = Some(result.duration_ms);
+                failure.duration_ms = result.duration_ms.or(failure.duration_ms);
                 failures.push(failure);
             }
         }
@@ -11728,7 +11739,7 @@ if ($262.getGlobal('__lilaHostAccessorSentinel') !== 13) {
             result.status
         );
         assert!(
-            result.duration_ms > 1,
+            result.duration_ms.is_some_and(|time| time > 1),
             "test must exercise the wall-time boundary"
         );
     }
@@ -24694,7 +24705,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .map(|case| TestResult {
                 test_id: case.execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 1,
+                duration_ms: Some(1),
             })
             .collect::<Vec<_>>();
         let mut snapshot = snapshot_from_summary(
@@ -24759,6 +24770,91 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
+    fn resume_preserves_recorded_timings_without_inventing_omitted_case_durations() {
+        let config = fixture_config();
+        fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
+        let cases: Vec<_> = (1..=13)
+            .map(|index| {
+                let mut case = synthetic_case(&format!("resume/timing-{index:02}.js"));
+                case.original_source = Arc::from("throw new Error('completed case reran');");
+                case
+            })
+            .collect();
+        let manifest = attempt_journal_manifest(&config, "resume-recorded-timing", &cases);
+        let run = RunConfig {
+            resume: true,
+            snapshot_name: "resume-recorded-timing".into(),
+            execution_backend: ExecutionBackend::WasmAot,
+            ..RunConfig::default()
+        };
+        let original: Vec<_> = cases
+            .iter()
+            .enumerate()
+            .map(|(index, case)| TestResult {
+                test_id: case.execution_id.clone(),
+                status: if index < 11 {
+                    TestStatus::Passed
+                } else {
+                    TestStatus::Failed(classify_failure(
+                        case.execution_id.clone(),
+                        FailureKind::Runtime,
+                        "original retained failure",
+                    ))
+                },
+                duration_ms: match index {
+                    0..=10 => Some((index + 1) as u128),
+                    11 => Some(1),
+                    _ => None,
+                },
+            })
+            .collect();
+        let before = summarize_results(&original);
+        assert_eq!(before.slowest_tests.len(), 10);
+        assert!(!before
+            .slowest_tests
+            .iter()
+            .any(|(id, _)| id == &cases[11].execution_id));
+        write_resume_case_checkpoint(
+            &config,
+            &manifest,
+            &original,
+            &run,
+            &CheckpointRunIdentity::full(),
+        )
+        .expect("checkpoint should write");
+        let restored = execute_cases(
+            &config,
+            &manifest,
+            &fixture_preludes(),
+            &cases,
+            &run,
+            &CheckpointRunIdentity::full(),
+            ResumeCheckpointLoadPolicy::RequireExact,
+        )
+        .expect("completed cases should restore without executing their throwing sources");
+        assert_eq!(restored.len(), 13);
+        for (index, case) in cases.iter().enumerate() {
+            let result = restored
+                .iter()
+                .find(|result| result.test_id == case.execution_id)
+                .unwrap();
+            let expected = match index {
+                0 => None,
+                1..=10 => Some((index + 1) as u128),
+                11 => Some(1),
+                _ => None,
+            };
+            assert_eq!(result.duration_ms, expected, "{}", case.execution_id);
+        }
+        let after = summarize_results(&restored);
+        assert_eq!(after.completed_test_ids, before.completed_test_ids);
+        assert_eq!(after.counts_per_outcome, before.counts_per_outcome);
+        assert_eq!(after.failures, before.failures);
+        assert_eq!(after.slowest_tests, before.slowest_tests);
+        fs::remove_dir_all(&config.snapshot_dir).expect("temp snapshots should clean up");
+    }
+
+    #[test]
     fn execute_cases_resume_reuses_same_backend_case_checkpoint_snapshot() {
         let config = fixture_config();
         fs::create_dir_all(&config.snapshot_dir).expect("snapshot dir should exist");
@@ -24806,7 +24902,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &[TestResult {
                 test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 7,
+                duration_ms: Some(7),
             }],
             &run_config,
             &CheckpointRunIdentity::full(),
@@ -24828,7 +24924,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .iter()
             .find(|result| result.test_id == cases[0].execution_id)
             .expect("first case should exist");
-        assert_eq!(first.duration_ms, 0);
+        assert_eq!(first.duration_ms, Some(7));
 
         let resumed_snapshot = load_previous_snapshot(
             &config,
@@ -24877,7 +24973,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &[TestResult {
                 test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 7,
+                duration_ms: Some(7),
             }],
             &spec_run,
             &CheckpointRunIdentity::full(),
@@ -24937,7 +25033,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &[TestResult {
                 test_id: cases[0].execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 7,
+                duration_ms: Some(7),
             }],
             &run_config,
             &CheckpointRunIdentity::full(),
@@ -25049,7 +25145,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .map(|case| TestResult {
                 test_id: case.execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 1,
+                duration_ms: Some(1),
             })
             .collect::<Vec<_>>();
         write_resume_case_checkpoint(
@@ -25128,7 +25224,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .map(|case| TestResult {
                 test_id: case.execution_id.clone(),
                 status: TestStatus::Passed,
-                duration_ms: 1,
+                duration_ms: Some(1),
             })
             .collect::<Vec<_>>();
         let mut terminal = snapshot_from_summary(
@@ -25378,7 +25474,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let result = TestResult {
             test_id: requested.execution_id.clone(),
             status: TestStatus::Failed(failure),
-            duration_ms: 1,
+            duration_ms: Some(1),
         };
         let snapshot = snapshot_from_summary(
             &manifest,
@@ -26467,7 +26563,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             &summarize_results(&[TestResult {
                 test_id: case.execution_id.clone(),
                 status: TestStatus::Failed(expected_failure.clone()),
-                duration_ms: 7,
+                duration_ms: Some(7),
             }]),
             ExecutionBackend::SpecExec,
         )
@@ -29225,7 +29321,7 @@ assert.sameValue(bytes[3], 0);
         let result = TestResult {
             test_id: case.execution_id.clone(),
             status: TestStatus::Passed,
-            duration_ms: 1,
+            duration_ms: Some(1),
         };
         let mut file = snapshot_to_file(
             &snapshot_from_summary(

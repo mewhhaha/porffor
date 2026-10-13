@@ -138,7 +138,7 @@ impl Fixture {
                 TestResult {
                     test_id: id.clone(),
                     status,
-                    duration_ms,
+                    duration_ms: Some(duration_ms),
                 }
             })
             .collect::<Vec<_>>();

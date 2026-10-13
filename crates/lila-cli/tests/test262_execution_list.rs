@@ -124,6 +124,8 @@ fn execution_list_keeps_actual_failure_and_resume_red_without_repeating_cases() 
         before["failures"][0]["test_id"],
         "raw-script:language/list/failure.js"
     );
+    assert!(before["failures"][0]["duration_ms"].as_u64().is_some());
+    assert_eq!(before["slowest_tests"].as_array().unwrap().len(), 2);
     let resumed = run(&root, &["--resume"]);
     assert_eq!(resumed.status.code(), Some(1));
     assert_eq!(

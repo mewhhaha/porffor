@@ -1,5 +1,18 @@
 # T01 — Reproducible baseline and generated failure backlog
 
+## Actual resume-timing repair prepared — 2026-10-13
+
+Actual `1bb1471cd` passes all508 canonical Python checks and compiles all41
+affected native targets. The complete harness416 retains all412 older passes
+and addsfour exact-list controls. Native CLI snapshot equality exposes lost
+case times during completed resume; IDs/verdicts remain correct. The coherent
+repair restores only recorded failure/top-ten times and keeps other prior times
+unavailable. A13case no-rerun control includes omitted success, known failure
+outside the top ten and unknown failure. Native acceptance, actual36-ID
+per-ID/batch parity, interrupted native resume and all5365 historical IDs remain
+pending. Both absent IDs are the strict/sloppy modes of one missing DurationFormat
+file and remain explicit errors in the full denominator.
+
 ## Exact native replay batch authored — 2026-10-13
 
 The checked `TestExecutionList` and CLI `run-list` retain exact modes and original

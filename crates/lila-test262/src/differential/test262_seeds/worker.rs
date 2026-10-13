@@ -231,17 +231,18 @@ fn execute(seed: Test262ReplaySeed, backend: ExecutionBackend) -> Test262ReplayR
         if suite_digest(&config.suite_root)? != seed.wire.suite_sha256 {
             return Err(invalid("suite dependencies changed during Test262 replay"));
         }
+        let duration_ms = original
+            .duration_ms
+            .ok_or_else(|| invalid("executed Test262 replay has no measured duration"))?;
         Ok(match original.status {
-            crate::TestStatus::Passed => Test262ReplayResult::Passed {
-                duration_ms: original.duration_ms,
-            },
+            crate::TestStatus::Passed => Test262ReplayResult::Passed { duration_ms },
             crate::TestStatus::Failed(failure) => Test262ReplayResult::Failed {
                 kind: failure.kind,
                 outcome: failure.outcome,
                 origin: failure.origin,
                 detail: failure.detail,
                 detail_hash: failure.detail_hash,
-                duration_ms: original.duration_ms,
+                duration_ms,
             },
         })
     };

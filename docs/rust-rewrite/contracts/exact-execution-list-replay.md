@@ -39,6 +39,19 @@ outside the invocation. Interrupted native runs retain their original checkpoint
 and resume the same selected cohort. Tooling controls use fake CLIs and do not
 replace actual native/pinned execution acceptance.
 
-This coherent batch is authored. Python admission/resume controls pass; native
-compilation, full affected CLI/harness scopes, real interruption/resume,
-historical 5,365-ID replay and before/after timing remain pending.
+Canonical tooling passes all508 methods and all41 affected native targets
+compile at1bb1471cd. Actual CLI resume equality exposes existing timing loss:
+completed IDs and verdicts survive but available case times are rewritten as0.
+The coherent repair represents case time as optional observed/retained evidence,
+restores recorded failure/top-ten times and excludes unrecorded successes from
+slowest lists. Unknown time does not become a zero measurement. Original failures,
+counts, IDs, image, pins and ordering remain exact. Resumed attempts never combine
+node wall times. Fresh differential execution requires a measured duration.
+
+The API change is explicit: TestResult.duration_ms is Option<u128>. Existing
+schema8 failure/slowest fields require no wire change. A13case regression preserves
+all original IDs without rerunning throwing sources, keeps a known failure outside
+the top ten and leaves unknown success/failure times absent. The actual CLI keeps
+its complete snapshot-equality control. The repair is prepared; full current
+native acceptance, real interruption/resume, all5,365 historical IDs and actual
+per-ID/batch timing remain pending.

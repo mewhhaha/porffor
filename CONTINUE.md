@@ -100,6 +100,39 @@ above remains bound to the actual afba compiler, without inventing a new build.
 
 ## Next work
 
+Canonical source is frozen at1bb1471cd4b4af02217bca92ef9e57a2cf58252d.
+Complete canonical Python sweep passes508/508; four Locale producer checks pass.
+Full NumberFormat regeneration reproduces1082 locales/payload
+d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254.
+First1bb no-run fails at a disk-exhausted link after1076s; continued same-source
+no-run succeeds with41 artifacts in330.577s. Closed unfingerprinted debug/build
+is retired under target/completed-debug-build-retirement-20261013, freeing
+3329159168 allocated bytes. Raw owners/debug-deps/active images stay preserved.
+Actual1bb worker staging succeeds and restores ordinary output byte-for-byte.
+Narrower ordinary Cargo graph recompiles for554.873s; private link2.375s,
+restoration0.374s. Align staging/verification features before assuming crate
+splits improve iteration. Do not compile the sparse next checkout.
+
+Native owner target/exact-list-native-1bb1471cd-20261013-continued runs onCPU3.
+Failed build/controller owners stay separate; controller preflights execute no
+tests. Harness416 passes, retaining412 older IDs plusfour new. Verdict-structure3
+passes. One new CLI resume control finds known1778ms/978ms times become0 after
+completed resume. Prepared next-checkout repair uses optional timing, restores
+available failure/top-ten times, excludes unknown times from slowest lists,
+and adds13case no-rerun control with a known off-top-ten failure and unknown
+success/failure. Keep exact CLI snapshot equality. Root writes; Luna reviews
+read-only. Finish current broad inventory, integrate the coherent repair,
+then one shared build/focus/full checkpoint before pushing.
+
+Prepared actual replay verifies36 IDs: Promise.try30, both Syriac and
+Changes_When_Casefolded modes, plus two missing modes of one absent DurationFormat
+constructor-option-read-order.js file. Native snapshot pin is content tree
+6a4268a9354a545d41c3b62efebc478ed8c521f4; upstream metadata2e0a567 is distinct.
+Actual parity/timing, real interruption/resume and all5365 replay remain pending.
+Oldb486 full owner now has a sloppy Changes_When_Casefolded timeout/Crash;
+currentafba partial6969 has zero Bug/Crash/timeout and four unchanged dynamic-eval
+limitations. Incomplete coverage supplies no repair verdict.
+
 The exact-cohort/optimized-host batch is integrated locally at 9025805af; not
 yet pushed or native-accepted. It adds checked native `run-list`, complete
 `list-all`, and optional replay worker reuse with native snapshot resume.

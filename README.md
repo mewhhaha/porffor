@@ -11,7 +11,11 @@ before/after iteration timing remain pending.
 The complete canonical Python sweep exposed stale hour-cycle/text provenance
 after the DateTime refresh. All four Locale identities are now refreshed from
 that final owner; the Week control also checks the actual checked-in bytes.
-A corrected complete tooling sweep and native acceptance remain pending.
+The corrected canonical sweep passes all **508 checks** at `1bb1471cd`.
+All **41 affected native targets** compile. Actual execution exposed one resume
+bug: completed snapshots retain verdicts but rewrite known case times to zero.
+The prepared repair retains available times and leaves unrecorded times absent;
+native acceptance and actual historical replay remain pending.
 
 Same-source opt-level1 host producers preserve all three package/native/manifest
 files byte-for-byte. Whole cold producer time is **718.569s versus 86.311s**;
