@@ -123,6 +123,15 @@ and adds13case no-rerun control with a known off-top-ten failure and unknown
 success/failure. Keep exact CLI snapshot equality. Root writes; Luna reviews
 read-only. Finish current broad inventory, integrate the coherent repair,
 then one shared build/focus/full checkpoint before pushing.
+The CLI scope also finds two existing hygiene failures because its closed
+TestTarget enum omitted test262_execution_list. Root adds that target to all
+three exhaustive mappings in the same repair batch. Do not add expected-failure
+or skip entries. Run the six known_failures controls before costly CLI cases.
+The next untracked build driver captures the actual non-test CLI produced by
+the same native Cargo graph through an isolated private linker. It stages that
+worker without another private Cargo graph and separately builds/verifies the
+ordinary product used by every CLI control. Actual graph/worker/DSO/source
+identities stay distinct; this optimization is prepared, not yet executed.
 
 Prepared actual replay verifies36 IDs: Promise.try30, both Syriac and
 Changes_When_Casefolded modes, plus two missing modes of one absent DurationFormat

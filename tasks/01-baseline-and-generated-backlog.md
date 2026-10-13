@@ -12,6 +12,9 @@ outside the top ten and unknown failure. Native acceptance, actual36-ID
 per-ID/batch parity, interrupted native resume and all5365 historical IDs remain
 pending. Both absent IDs are the strict/sloppy modes of one missing DurationFormat
 file and remain explicit errors in the full denominator.
+The same broad native run exposes two existing CLI inventory hygiene failures:
+the new target was absent from TestTarget. Its variant and exhaustive mappings
+are now prepared; existing hygiene guards run before expensive CLI verification.
 
 ## Exact native replay batch authored — 2026-10-13
 

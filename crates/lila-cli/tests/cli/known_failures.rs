@@ -410,6 +410,8 @@ pub(crate) enum TestTarget {
     ProductArtifactExecution,
     /// `tests/test262_case_deadline.rs`.
     Test262CaseDeadline,
+    /// `tests/test262_execution_list.rs`.
+    Test262ExecutionList,
     /// `tests/test262_verdict_command_structure.rs`.
     Test262VerdictCommandStructure,
 }
@@ -430,6 +432,7 @@ impl TestTarget {
             TestTarget::Perf => "perf",
             TestTarget::ProductArtifactExecution => "product_artifact_execution",
             TestTarget::Test262CaseDeadline => "test262_case_deadline",
+            TestTarget::Test262ExecutionList => "test262_execution_list",
             TestTarget::Test262VerdictCommandStructure => "test262_verdict_command_structure",
         }
     }
@@ -454,6 +457,7 @@ impl TestTarget {
             "perf" => Some(TestTarget::Perf),
             "product_artifact_execution" => Some(TestTarget::ProductArtifactExecution),
             "test262_case_deadline" => Some(TestTarget::Test262CaseDeadline),
+            "test262_execution_list" => Some(TestTarget::Test262ExecutionList),
             "test262_verdict_command_structure" => Some(TestTarget::Test262VerdictCommandStructure),
             _ => None,
         }
@@ -484,6 +488,7 @@ impl FromStr for TestTarget {
             "perf" => Ok(TestTarget::Perf),
             "product_artifact_execution" => Ok(TestTarget::ProductArtifactExecution),
             "test262_case_deadline" => Ok(TestTarget::Test262CaseDeadline),
+            "test262_execution_list" => Ok(TestTarget::Test262ExecutionList),
             "test262_verdict_command_structure" => Ok(TestTarget::Test262VerdictCommandStructure),
             other => Err(LedgerError::UnknownTarget(other.to_string())),
         }
