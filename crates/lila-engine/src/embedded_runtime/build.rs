@@ -5,7 +5,7 @@
 mod compile;
 #[path = "manifest.rs"]
 mod manifest;
-use crate::wasmtime_config::{CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE, base_config};
+use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
 use compile::RuntimeImageCompiler;
 use sha2::{Digest, Sha256};
 use std::path::Path;

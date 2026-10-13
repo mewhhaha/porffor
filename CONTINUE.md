@@ -90,11 +90,19 @@ results, not regressions of the latest compiler. Inspect node failures and
 completed IDs, excluding aggregate snapshots. Keep original source/HEAD,
 all active workers and their DSOs immutable.
 
+The current accepted afba worker now runs its own two fresh full matrices on
+CPU2: target/full-pin-string-afba1a07a-20261013/receipt.json. Worker SHA
+660d75fd99b6fb80e3f2a6f28c6d2d52d5ca29ad007e42ff5dd6d766b13c8262.
+The original checkout owns unchanged suite/scripts; the actual compiler is the
+separately source-bound afba worker. Preserve its DSO and original source/HEAD.
+The later import-order correction is formatting only; all native/CLI evidence
+above remains bound to the actual afba compiler, without inventing a new build.
+
 ## Next work
 
-Finish String publication guards and push the coherent accepted batch. Start
-the latest actual staged worker's two fresh full pinned families, preserving
-the independent older full owners. Complete current compiler-bound historical
+String is pushed to main at 5a5234814 and all five publication guards pass.
+The latest actual staged worker's two fresh full pinned families are running,
+preserving the independent older full owners. Complete compiler-bound historical
 replay, publisher/backlog, full-manifest shard/thread and interruption/resume
 owners and task-specific acceptance. Existing passing predecessors cannot
 supply an unexecuted latest-source verdict.
