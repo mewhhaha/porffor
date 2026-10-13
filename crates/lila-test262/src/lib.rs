@@ -2253,6 +2253,14 @@ impl ConformanceRunner {
         run_full(&self.config, run_config)
     }
 
+    pub fn run_execution_list(
+        &self,
+        run_config: RunConfig,
+        executions: TestExecutionList,
+    ) -> Result<RunSummary, String> {
+        run_execution_list(&self.config, run_config, executions)
+    }
+
     pub fn run_top_level_matrix(
         &self,
         run_config: RunConfig,
@@ -2858,6 +2866,80 @@ pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSum
         passed: summary.passed,
         failures: summary.failures,
     })
+}
+
+/// A nonempty set of exact mode/path identities, never a prefix or skip list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestExecutionList {
+    requested: BTreeSet<TestExecutionId>,
+}
+
+impl TestExecutionList {
+    pub fn parse(source: &str) -> Result<Self, String> {
+        let mut requested = BTreeSet::new();
+        for (index, line) in source.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let id = TestExecutionId::parse_wire_key(line)
+                .map_err(|error| format!("execution list line {}: {error}", index + 1))?;
+            if !requested.insert(id) {
+                return Err(format!("execution list line {} repeats {line}", index + 1));
+            }
+        }
+        if requested.is_empty() {
+            return Err("execution list must contain at least one exact identity".into());
+        }
+        Ok(Self { requested })
+    }
+
+    fn into_manifest(self, discovered: &SuiteManifest) -> Result<SuiteManifest, String> {
+        let discovered_ids = discovered
+            .cases
+            .iter()
+            .map(|case| &case.execution_id)
+            .collect::<BTreeSet<_>>();
+        let missing = self
+            .requested
+            .iter()
+            .filter(|id| !discovered_ids.contains(id))
+            .map(TestExecutionId::wire_key)
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(format!(
+                "execution list identities absent from the selected suite: {}",
+                missing.join(", ")
+            ));
+        }
+        let cases = discovered
+            .cases
+            .iter()
+            .filter(|case| self.requested.contains(&case.execution_id))
+            .cloned()
+            .collect();
+        manifest_for_selected_cases(discovered, cases, "execution-list")
+    }
+}
+
+/// Execute an exact cohort through the normal supervised runner and snapshots.
+pub fn run_execution_list(
+    config: &SuiteConfig,
+    run_config: RunConfig,
+    executions: TestExecutionList,
+) -> Result<RunSummary, String> {
+    if run_config.filter.is_some()
+        || run_config.shard_index != 0
+        || run_config.shard_count != 1
+        || run_config.max_matrix_nodes.is_some()
+    {
+        return Err(
+            "execution-list runs cannot also select a filter, shard or matrix ceiling".into(),
+        );
+    }
+    let discovered = discover_suite(config, None)?;
+    let manifest = executions.into_manifest(&discovered)?;
+    run_full_with_manifest(config, run_config, manifest)
 }
 
 fn manifest_for_selected_cases(
@@ -10112,6 +10194,104 @@ function $DONE(error) {
             let err = discover_suite(&config, Some(unknown))
                 .expect_err("a well-formed execution selector must resolve exactly once");
             assert!(err.contains("resolved to 0 cases"), "{unknown}: {err}");
+        }
+    }
+
+    #[test]
+    fn execution_lists_reject_empty_duplicate_and_nonidentity_inputs() {
+        for source in [
+            "",
+            "# no executions\n",
+            "built-ins/Array/",
+            "unknown-mode:case.js",
+            "strict-script:",
+            "strict-script:case.js\nstrict-script:case.js",
+        ] {
+            assert!(TestExecutionList::parse(source).is_err(), "{source}");
+        }
+        let list = TestExecutionList::parse(
+            "# exact modes\nsloppy-script:case.js\nstrict-script:case.js\nraw-script:raw.js\nmodule:module.js\nraw-module:raw-module.js\n",
+        ).unwrap();
+        assert_eq!(list.requested.len(), 5);
+    }
+
+    #[test]
+    fn execution_list_manifest_keeps_exact_modes_pins_and_canonical_order() {
+        let discovered = discover_suite(&fixture_config(), None).unwrap();
+        let sloppy = "sloppy-script:language/fail/parse-negative.js";
+        let strict = "strict-script:language/fail/parse-negative.js";
+        let first = TestExecutionList::parse(&format!("{strict}\n{sloppy}"))
+            .unwrap()
+            .into_manifest(&discovered)
+            .unwrap();
+        let reversed = TestExecutionList::parse(&format!("{sloppy}\n{strict}"))
+            .unwrap()
+            .into_manifest(&discovered)
+            .unwrap();
+        let only_strict = TestExecutionList::parse(strict)
+            .unwrap()
+            .into_manifest(&discovered)
+            .unwrap();
+        assert_eq!(
+            first
+                .cases
+                .iter()
+                .map(|case| case.execution_id.wire_key())
+                .collect::<Vec<_>>(),
+            [sloppy, strict]
+        );
+        assert_eq!(first.manifest_hash, reversed.manifest_hash);
+        assert_ne!(first.manifest_hash, only_strict.manifest_hash);
+        assert_ne!(first.manifest_hash, discovered.manifest_hash);
+        assert_eq!(first.pinned_revisions, discovered.pinned_revisions);
+        assert_ne!(
+            snapshot_paths_for_name(&fixture_config(), "cohort", first.manifest_hash).json_path,
+            snapshot_paths_for_name(&fixture_config(), "cohort", only_strict.manifest_hash)
+                .json_path
+        );
+    }
+
+    #[test]
+    fn execution_lists_reject_missing_files_and_missing_modes_without_partial_selection() {
+        let discovered = discover_suite(&fixture_config(), None).unwrap();
+        for absent in [
+            "sloppy-script:language/absent.js",
+            "raw-script:language/fail/parse-negative.js",
+        ] {
+            let source = format!("strict-script:language/fail/parse-negative.js\n{absent}");
+            let error = TestExecutionList::parse(&source)
+                .unwrap()
+                .into_manifest(&discovered)
+                .unwrap_err();
+            assert!(error.contains(absent), "{error}");
+        }
+    }
+
+    #[test]
+    fn execution_list_runs_reject_overlapping_filter_shard_and_matrix_selections() {
+        for config in [
+            RunConfig {
+                filter: Some("language".into()),
+                ..RunConfig::default()
+            },
+            RunConfig {
+                shard_count: 2,
+                ..RunConfig::default()
+            },
+            RunConfig {
+                shard_index: 1,
+                ..RunConfig::default()
+            },
+            RunConfig {
+                max_matrix_nodes: Some(1),
+                ..RunConfig::default()
+            },
+        ] {
+            let list =
+                TestExecutionList::parse("strict-script:language/fail/parse-negative.js").unwrap();
+            assert!(run_execution_list(&fixture_config(), config, list)
+                .unwrap_err()
+                .contains("cannot also select"));
         }
     }
 

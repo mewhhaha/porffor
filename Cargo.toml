@@ -56,6 +56,13 @@ incremental = true
 [profile.release]
 debug = "line-tables-only"
 
+# The runtime-image producer emits/adopts R in Rust before native compilation.
+# Its separate host graph previously defaulted to opt0 even in release builds.
+# Same-source opt1 preserves exact package/native/manifest bytes and cuts warm
+# producer work from38–39s to2.9–3.9s; see the source-bound host checkpoint.
+[profile.release.build-override]
+opt-level = 1
+
 [profile.dev.package."*"]
 opt-level = 2
 

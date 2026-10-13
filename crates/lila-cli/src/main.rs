@@ -23,13 +23,13 @@ use lila_test262::{
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-mod differential_corpus;
 mod differential_campaign;
-mod differential_test262;
-mod differential_scenario_pair;
+mod differential_corpus;
 mod differential_robustness;
-mod intl_data;
+mod differential_scenario_pair;
+mod differential_test262;
 mod fake_suite_publication;
+mod intl_data;
 mod performance;
 use fake_suite_publication::VerifiedFakeSuiteCounts;
 
@@ -252,7 +252,11 @@ Commands:
                                         gate two fresh full pinned Wasm-AOT runs
   test262 sync [--suite-root PATH]
   test262 list [filter] [--suite-root PATH]
+  test262 list-all [filter] [--suite-root PATH]
+                                        print the complete discovered ID inventory
   test262 run [filter] [options]
+  test262 run-list <execution-list> [options]
+                                        exact mode:path cohort; normal supervision
   test262 shard <index>/<total> [filter] [options]
   test262 report [filter] [options]
   test262 report-all [options]
@@ -1099,8 +1103,12 @@ fn take_global_intl_profile(
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--intl-manifest" {
-            if manifest.is_some() { return Err("--intl-manifest may only be specified once".into()); }
-            let value = args.get(index + 1).filter(|value| !value.is_empty() && !value.starts_with("--"))
+            if manifest.is_some() {
+                return Err("--intl-manifest may only be specified once".into());
+            }
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.is_empty() && !value.starts_with("--"))
                 .ok_or_else(|| "--intl-manifest needs a path".to_owned())?;
             manifest = Some(PathBuf::from(value));
             args.drain(index..=index + 1);
@@ -1156,18 +1164,33 @@ fn take_global_intl_profile(
         args.drain(index..=index + 1);
     }
     if let Some(path) = manifest {
-        if profile.is_some() || list_locales.is_some() || relative_time_locales.is_some()
-            || display_names_locales.is_some() || duration_locales.is_some() || number_locales.is_some()
-            || date_time_locales.is_some() || collator_locales.is_some() || segmenter_locales.is_some() {
-            return Err("--intl-manifest cannot be combined with --intl-profile or component locale flags".into());
+        if profile.is_some()
+            || list_locales.is_some()
+            || relative_time_locales.is_some()
+            || display_names_locales.is_some()
+            || duration_locales.is_some()
+            || number_locales.is_some()
+            || date_time_locales.is_some()
+            || collator_locales.is_some()
+            || segmenter_locales.is_some()
+        {
+            return Err(
+                "--intl-manifest cannot be combined with --intl-profile or component locale flags"
+                    .into(),
+            );
         }
         use std::io::Read as _;
-        let file = std::fs::File::open(&path).map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
-        let mut bytes = Vec::new();
-        file.take(CustomIntlProfile::MANIFEST_MAX_BYTES as u64 + 1).read_to_end(&mut bytes)
+        let file = std::fs::File::open(&path)
             .map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
-        if bytes.len() > CustomIntlProfile::MANIFEST_MAX_BYTES { return Err("--intl-manifest exceeds 256 KiB".into()); }
-        let json = std::str::from_utf8(&bytes).map_err(|error| format!("--intl-manifest must be UTF-8: {error}"))?;
+        let mut bytes = Vec::new();
+        file.take(CustomIntlProfile::MANIFEST_MAX_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
+        if bytes.len() > CustomIntlProfile::MANIFEST_MAX_BYTES {
+            return Err("--intl-manifest exceeds 256 KiB".into());
+        }
+        let json = std::str::from_utf8(&bytes)
+            .map_err(|error| format!("--intl-manifest must be UTF-8: {error}"))?;
         let selection = CustomIntlProfile::from_manifest_json(json)
             .map_err(|error| format!("invalid --intl-manifest {}: {error}", path.display()))?;
         return Ok(Some(IntlCompilationProfile::CustomProjection(selection)));
@@ -3003,6 +3026,7 @@ fn is_identifier_continue(ch: char) -> bool {
 
 enum Test262VerdictCommand {
     Run,
+    RunList,
     Shard,
 }
 
@@ -3010,6 +3034,7 @@ impl Test262VerdictCommand {
     const fn as_str(self) -> &'static str {
         match self {
             Self::Run => "run",
+            Self::RunList => "run-list",
             Self::Shard => "shard",
         }
     }
@@ -3056,7 +3081,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
     }
 
     let subcommand = args[0].clone();
-    let parsed = parse_test262_args(&args[1..])?;
+    let mut parsed = parse_test262_args(&args[1..])?;
     if parsed.matrix_node.is_some() && !matches!(subcommand.as_str(), "run" | "report") {
         return Err("--matrix-node is only valid with test262 run or report".to_string());
     }
@@ -3068,6 +3093,18 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
     {
         return Err("--matrix-node cannot be combined with a shard selector".to_string());
     }
+    let execution_list = if subcommand == "run-list" {
+        let path = parsed
+            .filter
+            .take()
+            .ok_or("test262 run-list requires an execution-list file")?;
+        parsed.run_config.filter = None;
+        let source = std::fs::read_to_string(&path)
+            .map_err(|error| format!("cannot read execution list {path}: {error}"))?;
+        Some(lila_test262::TestExecutionList::parse(&source)?)
+    } else {
+        None
+    };
     let runner = ConformanceRunner::with_config(parsed.config);
     let execution_backend = parsed.run_config.execution_backend;
 
@@ -3086,21 +3123,36 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("local harness: {}", runner.config().local_harness);
             Ok(())
         }
-        "list" => {
+        "list" | "list-all" => {
             let manifest = runner.discover_suite(parsed.filter.as_deref())?;
             println!("count: {}", manifest.cases.len());
-            for case in manifest.cases.iter().take(50) {
+            let limit = if subcommand == "list-all" {
+                manifest.cases.len()
+            } else {
+                50
+            };
+            for case in manifest.cases.iter().take(limit) {
                 println!("{}", case.execution_id().wire_key());
             }
-            if manifest.cases.len() > 50 {
+            if manifest.cases.len() > limit {
                 println!("... {} more", manifest.cases.len() - 50);
             }
             Ok(())
         }
-        "run" => {
-            let summary = match parsed.matrix_node.as_deref() {
-                Some(node_selector) => runner.run_matrix_node(node_selector, parsed.run_config)?,
-                None => runner.run_full(parsed.run_config)?,
+        "run" | "run-list" => {
+            let verdict_command = if execution_list.is_some() {
+                Test262VerdictCommand::RunList
+            } else {
+                Test262VerdictCommand::Run
+            };
+            let summary = match execution_list {
+                Some(executions) => runner.run_execution_list(parsed.run_config, executions)?,
+                None => match parsed.matrix_node.as_deref() {
+                    Some(node_selector) => {
+                        runner.run_matrix_node(node_selector, parsed.run_config)?
+                    }
+                    None => runner.run_full(parsed.run_config)?,
+                },
             };
             println!("execution_backend: {}", execution_backend.as_str());
             println!("total: {}", summary.total);
@@ -3127,7 +3179,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                     failure.detail
                 );
             }
-            require_passing_test262_verdict(Test262VerdictCommand::Run, summary.verdict()?)
+            require_passing_test262_verdict(verdict_command, summary.verdict()?)
         }
         "report" => {
             let summary = match parsed.matrix_node.as_deref() {
@@ -3805,12 +3857,25 @@ mod tests {
 
     #[test]
     fn manifest_profile_rejects_ambiguous_flags_before_opening_any_input() {
-        for extra in [vec!["--intl-profile", "custom:x"], vec!["--intl-list-locales", "fr"],
-            vec!["--intl-manifest", "another-missing.json"]] {
-            let mut args = vec!["run", "missing-source.js", "--intl-manifest", "missing-manifest.json"]
-                .into_iter().chain(extra).map(str::to_owned).collect();
+        for extra in [
+            vec!["--intl-profile", "custom:x"],
+            vec!["--intl-list-locales", "fr"],
+            vec!["--intl-manifest", "another-missing.json"],
+        ] {
+            let mut args = vec![
+                "run",
+                "missing-source.js",
+                "--intl-manifest",
+                "missing-manifest.json",
+            ]
+            .into_iter()
+            .chain(extra)
+            .map(str::to_owned)
+            .collect();
             let error = take_global_intl_profile(&mut args).unwrap_err();
-            assert!(error.contains("cannot be combined") || error.contains("only be specified once"));
+            assert!(
+                error.contains("cannot be combined") || error.contains("only be specified once")
+            );
             assert!(!error.contains("cannot read"));
         }
         assert!(take_global_intl_profile(&mut vec!["--intl-manifest".into()]).is_err());
@@ -3872,12 +3937,7 @@ mod tests {
             assert_eq!(take_global_intl_profile(&mut args).unwrap(), Some(expected));
             assert_eq!(args, vec!["build", "wasm", "case.js"]);
         }
-        for label in [
-            "custom:",
-            "custom:a/b",
-            "custom:-start",
-            "unknown",
-        ] {
+        for label in ["custom:", "custom:a/b", "custom:-start", "unknown"] {
             let mut args = vec!["--intl-profile".into(), label.into()];
             let error = take_global_intl_profile(&mut args).unwrap_err();
             assert!(
@@ -5367,7 +5427,17 @@ mod tests {
     fn process_reuse_is_explicit_and_keeps_the_worker_count_and_timeout() {
         let default = parse_test262_args(&[]).unwrap();
         assert!(!default.config.reuse_case_workers);
-        let parsed = parse_test262_args(&["--reuse-case-workers", "--threads", "1", "--timeout-ms", "5000"].map(str::to_string)).unwrap();
+        let parsed = parse_test262_args(
+            &[
+                "--reuse-case-workers",
+                "--threads",
+                "1",
+                "--timeout-ms",
+                "5000",
+            ]
+            .map(str::to_string),
+        )
+        .unwrap();
         assert!(parsed.config.reuse_case_workers);
         assert_eq!(parsed.config.worker_count, 1);
         assert_eq!(parsed.config.timeout_ms, 5000);

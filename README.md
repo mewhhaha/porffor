@@ -1,5 +1,21 @@
 # Lila
 
+## Exact replay and optimized host producer prepared — 2026-10-13
+
+The coherent next batch adds native `test262 run-list` and complete `list-all`
+discovery so exact replay can use existing bounded workers. Native snapshots
+own outcomes; absent files/modes stay explicit errors in the original denominator.
+See [the exact-list contract](docs/rust-rewrite/contracts/exact-execution-list-replay.md).
+Python admission/resume controls pass; native compilation, real replay and
+before/after iteration timing remain pending.
+
+Same-source opt-level1 host producers preserve all three package/native/manifest
+files byte-for-byte. Whole cold producer time is **718.569s versus 86.311s**;
+warm probes are **38.358/39.485s versus 3.904/2.893s** under concurrent cloud load.
+The initial optimized host graph costs 944.635s. These component measurements
+support the prepared release build-override; canonical adoption and native/CLI
+acceptance remain pending. See [the actual producer checkpoint](docs/rust-rewrite/host-producer-optimization-checkpoint-20261013.json).
+
 ## Verified String character construction — 2026-10-13
 
 Actual `afba1a07a` passes **5,455 tests in fifteen complete optimized native

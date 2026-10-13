@@ -59,7 +59,7 @@ fn test262_verdict_command_is_the_exact_private_no_capability_domain() {
     assert_eq!(
         CLI_SOURCE
             .matches(
-                "fn is_identifier_continue(ch: char) -> bool {\n    is_identifier_start(ch) || ch.is_ascii_digit()\n}\n\nenum Test262VerdictCommand {\n    Run,\n    Shard,\n}\n\nimpl Test262VerdictCommand {"
+                "fn is_identifier_continue(ch: char) -> bool {\n    is_identifier_start(ch) || ch.is_ascii_digit()\n}\n\nenum Test262VerdictCommand {\n    Run,\n    RunList,\n    Shard,\n}\n\nimpl Test262VerdictCommand {"
             )
             .count(),
         1,
@@ -74,13 +74,13 @@ fn test262_verdict_command_is_the_exact_private_no_capability_domain() {
     .map(str::trim)
     .filter(|line| !line.is_empty())
     .collect::<Vec<_>>();
-    assert_eq!(variants, ["Run,", "Shard,"]);
+    assert_eq!(variants, ["Run,", "RunList,", "Shard,"]);
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "Test262VerdictCommand"),
-        6,
-        "the declaration, impl, typed consumer, two command arms and internal worker must own every mention"
+        7,
+        "the declaration, impl, typed consumer, run/list selection, shard and internal worker must own every mention"
     );
 }
 
@@ -93,10 +93,11 @@ fn test262_verdict_command_has_one_exact_exhaustive_spelling_projection() {
     );
     assert_eq!(
         normalized(implementation),
-        "constfnas_str(self)->&'staticstr{matchself{Self::Run=>\"run\",Self::Shard=>\"shard\",}}}"
+        "constfnas_str(self)->&'staticstr{matchself{Self::Run=>\"run\",Self::RunList=>\"run-list\",Self::Shard=>\"shard\",}}}"
     );
     assert_eq!(implementation.matches("match self {").count(), 1);
     assert_eq!(implementation.matches("Self::Run =>").count(), 1);
+    assert_eq!(implementation.matches("Self::RunList =>").count(), 1);
     assert_eq!(implementation.matches("Self::Shard =>").count(), 1);
     for forbidden in ["_ =>", "==", "!=", "matches!", "Default"] {
         assert!(!implementation.contains(forbidden), "found `{forbidden}`");
@@ -146,8 +147,13 @@ fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_produc
         "the definition, exact run/shard arms and internal worker must own every invocation"
     );
     assert_eq!(
-        count_in_rust_sources(&source_root, "Test262VerdictCommand::Run"),
+        count_in_rust_sources(&source_root, "Test262VerdictCommand::Run")
+            - count_in_rust_sources(&source_root, "Test262VerdictCommand::RunList"),
         2
+    );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "Test262VerdictCommand::RunList"),
+        1
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "Test262VerdictCommand::Shard"),
@@ -172,9 +178,17 @@ fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_produc
     assert!(normalized(worker).ends_with(
         "returnrequire_passing_test262_verdict(Test262VerdictCommand::Run,summary.verdict()?);}",
     ));
-    for (start, end, variant) in [
-        ("        \"run\" => {", "        \"report\" => {", "Run"),
-        ("        \"shard\" => {", "        _ => Err(", "Shard"),
+    for (start, end, argument) in [
+        (
+            "        \"run\" | \"run-list\" => {",
+            "        \"report\" => {",
+            "verdict_command",
+        ),
+        (
+            "        \"shard\" => {",
+            "        _ => Err(",
+            "Test262VerdictCommand::Shard",
+        ),
     ] {
         let command_arm = bounded(command_dispatch, start, end);
         assert_before(command_arm, "let summary =", "summary.verdict()?");
@@ -187,7 +201,15 @@ fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_produc
         );
         let normalized_arm = normalized(command_arm);
         assert!(normalized_arm.ends_with(&format!(
-            "require_passing_test262_verdict(Test262VerdictCommand::{variant},summary.verdict()?)}}"
+            "require_passing_test262_verdict({argument},summary.verdict()?)}}"
         )));
     }
+    let run_arm = bounded(
+        command_dispatch,
+        "        \"run\" | \"run-list\" => {",
+        "        \"report\" => {",
+    );
+    assert_before(run_arm, "let verdict_command =", "let summary =");
+    assert!(run_arm.contains("Test262VerdictCommand::RunList"));
+    assert!(run_arm.contains("runner.run_execution_list(parsed.run_config, executions)?"));
 }

@@ -13,6 +13,8 @@ import stat
 import subprocess
 import time
 
+import test262_execution_batches as batches
+
 
 OUTCOMES = ("Success", "NotImplemented", "Crash", "Bug")
 EXECUTION_MODES = ("sloppy-script", "strict-script", "raw-script", "module", "raw-module")
@@ -103,6 +105,12 @@ def run_replay(options):
                 or manifest["binary"] != str(options.binary)
                 or manifest["execution_list"] != str(frozen_execution_list)):
             raise ValueError("resume paths differ from the recorded run")
+        expected_mode = "native-execution-list-v1" if options.reuse_case_workers else "one-cli-per-id"
+        if manifest.get("replay_mode", "one-cli-per-id") != expected_mode:
+            raise ValueError("resume replay mode differs from the recorded run")
+        snapshots = {}
+        if options.reuse_case_workers:
+            batches.validate_resume(options, manifest, executions)
         execution_set = set(executions)
         for result_path in sorted(options.output_dir.glob("*.json")):
             if not re.fullmatch(r"[a-f0-9]{64}", result_path.stem):
@@ -111,11 +119,15 @@ def run_replay(options):
             execution = result["execution_id"]
             if (execution not in execution_set
                     or hashlib.sha256(execution.encode()).hexdigest() != result_path.stem
-                    or result["transcript"] != result_path.with_suffix(".log").name):
+                    or (not options.reuse_case_workers
+                        and result["transcript"] != result_path.with_suffix(".log").name)):
                 raise ValueError(f"saved result has inconsistent execution identity: {result_path}")
-            outcome = native_outcome(result_path.with_suffix(".log").read_text(), result["exit_code"])
-            if result.get("outcome") != outcome or "infrastructure_error" in result:
-                raise ValueError(f"saved result disagrees with its native transcript: {result_path}")
+            if options.reuse_case_workers:
+                batches.verify_saved_result(result, manifest, options, snapshots)
+            else:
+                outcome = native_outcome(result_path.with_suffix(".log").read_text(), result["exit_code"])
+                if result.get("outcome") != outcome or "infrastructure_error" in result:
+                    raise ValueError(f"saved result disagrees with its native transcript: {result_path}")
             results.append(result)
         print(f"Resuming {len(results)}/{len(executions)} verified completed executions", flush=True)
     else:
@@ -136,18 +148,27 @@ def run_replay(options):
                     "binary_sha256": binary_digest.hexdigest(),
                     "execution_list_sha256": hashlib.sha256(execution_list_bytes).hexdigest(),
                     "execution_list": str(frozen_execution_list),
-                    "execution_list_source": str(options.execution_list.resolve())}
+                    "execution_list_source": str(options.execution_list.resolve()),
+                    "replay_mode": "native-execution-list-v1" if options.reuse_case_workers else "one-cli-per-id"}
         write_checkpoint(manifest_path, manifest)
+        if options.reuse_case_workers:
+            batches.prepare(options, manifest, executions, write_checkpoint)
     completed_executions = {result["execution_id"] for result in results}
-    with ThreadPoolExecutor(max_workers=options.workers) as pool:
-        futures = [pool.submit(replay, execution, options) for execution in executions
-                   if execution not in completed_executions]
-        for future in as_completed(futures):
-            result = future.result()
-            results.append(result)
-            print(f"{len(results)}/{len(executions)} {result.get('outcome', 'InfrastructureError')} "
-                  f"{result['execution_id']}", flush=True)
+    if options.reuse_case_workers:
+        batches.replay(options, manifest, executions, results, replay, write_checkpoint)
+    else:
+        with ThreadPoolExecutor(max_workers=options.workers) as pool:
+            futures = [pool.submit(replay, execution, options) for execution in executions
+                       if execution not in completed_executions]
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                print(f"{len(results)}/{len(executions)} {result.get('outcome', 'InfrastructureError')} "
+                      f"{result['execution_id']}", flush=True)
     results.sort(key=lambda result: result["execution_id"])
+    if (len(results) != len(executions)
+            or {result["execution_id"] for result in results} != set(executions)):
+        raise ValueError("replay results do not retain the complete requested execution set")
     summary = {**manifest, "total": len(results),
                "outcomes": {outcome: sum(r.get("outcome") == outcome for r in results)
                             for outcome in OUTCOMES}, "results": results}
@@ -166,6 +187,8 @@ def main():
     parser.add_argument("--workers", type=int, choices=range(1, 65), default=2)
     parser.add_argument("--resume", action="store_true",
                         help="verify saved inputs/results and run only unfinished executions")
+    parser.add_argument("--reuse-case-workers", action="store_true",
+                        help="use native run-list with bounded worker reuse and native snapshot resume")
     options = parser.parse_args()
     if options.resume:
         options.output_dir = options.output_dir.resolve(strict=True)
