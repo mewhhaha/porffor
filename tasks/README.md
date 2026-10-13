@@ -1,14 +1,19 @@
 # Lila Rust AOT + Test262 execution plan
 
-## Pinned-baseline repair candidate — 2026-10-13
+## Verified pinned-family repair — 2026-10-13
 
-The active full baseline at `4e01400fc` has found a shared Unicode RegExp
-syntax defect in two execution modes. The isolated candidate fixes runtime
-parser admission, adds computed constructor/recompile controls, preserves native
-cache identities while memoizing immutable R digests, and corrects profiler
-labels. Native acceptance and fresh measurements are pending; the original run
-and all task gates remain open. See
-[the repair contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Clean `a4b69645d` passes all 1,434 affected optimized native tests and retains all
+1,433 prior passing IDs, adding one computed-brace control. The full 124-ID Annex B
+RegExp replay retains 118 earlier passes, eliminates both Unicode Bugs and keeps
+four dynamic-eval limitations unchanged. Zero regressions or missing IDs.
+Runtime digest/cache invariants and corrected stage labels are verified; fresh
+idle performance comparisons remain pending. See
+[the exact checkpoint](../docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json).
+
+The original full baseline remains frozen at `4e01400fc` and continues collecting
+all executions. Its ArrayBuffer node exposes two maximum-capacity Bugs among 442
+IDs; fix and compare those next. All remaining full-suite and task gates stay
+open. Preserve CONTINUE.md and this folder until actual completion.
 
 ## Default optimized acceptance — 2026-10-13
 
@@ -20,7 +25,8 @@ the unchanged 60-second limits. No prior pass regresses or disappears.
 All three fresh idle reports pass: original gate medians 28.46 ms/692.37 ms/
 1.368 s; compile and runtime each complete twenty original fixtures with seven
 samples. Preparation includes Spec IR and owns 90.3% of compiler stage time;
-its emitted scope label still needs correction. Default shared worker is 101 MB
+its frozen scope label is corrected by `a4b69645d`, with original raw records
+retained. Default shared worker is 101 MB
 versus ordinary 425 MB, with a 1.79-second private link and exact ordinary
 restoration. See [the complete retained record](../docs/rust-rewrite/default-optimized-performance-20261013.json).
 Calibrated subsystem policies, current-pin/shard/resume, supported-host receipts,

@@ -1,9 +1,16 @@
 # Unicode RegExp admission and immutable runtime identity — 2026-10-13
 
-Status: coherent candidate written in an isolated checkout; native verification,
-exact pinned before/after comparison and idle performance measurement pending.
+Status: verified on clean `a4b69645d`. All five affected optimized native scopes
+pass: 1,434 PASS, all 1,433 earlier passes retained, one new control, zero failures,
+ignores, missing IDs or regressions. The complete 124-ID Annex B RegExp replay
+eliminates both Unicode Bugs, retains all 118 earlier Success IDs and preserves
+four explicit dynamic-eval limitations. Native family verdict remains red for
+those limitations; the exact before/after comparison passes. See
+[the portable checkpoint](regexp-runtime-checkpoint-20261013.json).
+
 The baseline checkout remains frozen at `4e01400fc` with its original optimized
-worker and two complete unfiltered families still running.
+worker; two complete unfiltered families continue. New idle performance comparison
+and full/task-wide closure remain pending.
 
 ## Runtime syntax rule
 

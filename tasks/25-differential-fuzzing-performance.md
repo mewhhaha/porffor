@@ -1,16 +1,22 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-## Immutable runtime digest candidate — 2026-10-13
+## Verified immutable runtime digest — 2026-10-13
 
-The module cache previously rehashed the full immutable R bytes on each lookup.
-The candidate private runtime-artifact constructor computes its raw SHA-256 once
-for emitted and fully admitted cached bytes; borrowed module-source variants
-keep those bytes and identity together. The native cache key remains execution
-mode plus SHA-256 of actual Wasm, distinct from the layout-prefixed runtime key.
-Admission, bypass and eviction contracts remain unchanged. Compiler profile
-metadata now assigns Spec IR construction to preparation, where it executes.
-Native controls and fresh idle performance comparisons are pending; no speedup
-is yet claimed. See [the contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Clean `a4b69645d` passes all 1,434 affected native cases, retaining all 1,433 prior
+passes and adding one RegExp control. Runtime cache round trips cover emitted,
+decoded, Minimal and Custom bytes; corruption, wrong-ABI, native-mode separation
+and bypass-retention controls pass. The private constructor owns both immutable
+bytes and their raw SHA; native keys remain mode plus the same actual-byte SHA,
+distinct from the layout-prefixed runtime key. Compiler labels now correctly put
+Spec IR construction in preparation, without moving timer boundaries.
+
+No new idle speedup comparison is available. Under concurrent full-baseline load,
+CLI build takes 895 seconds, R precompilation 207.473 seconds with 2152 function
+cache hits/one miss, and private link 2.066 seconds. The private worker is
+101,353,096 bytes and ordinary output restores byte-for-byte. The native build
+and runtime test cache environments stay separate to avoid cache-directory-only
+R regeneration. See [the checkpoint](../docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json).
+Fresh idle profiles and calibrated subsystem/task-wide acceptance remain pending.
 
 ## Default optimized measurements and host acceptance — 2026-10-13
 
@@ -23,8 +29,9 @@ complete all twenty byte-identical fixtures and 140 measured samples.
 
 Preparation owns 90.3% of measured compiler stage time and includes parsing,
 admission and Spec IR construction. Raw scope metadata and SDK comments
-misattribute Spec IR to lower; retain the raw evidence and repair this label
-before using it for subsystem policy. Runtime measured module-cache outcomes
+misattribute Spec IR to lower in that frozen build. `a4b69645d` corrects the new
+labels while retaining the historical raw evidence; new idle measurements remain
+required before subsystem policy calibration. Runtime measured module-cache outcomes
 are 140 hits; unavailable GC counters remain explicit. Default private release
 worker is 101,359,416 bytes versus ordinary 424,668,048; link 1.794 s and ordinary
 output restored exactly. See

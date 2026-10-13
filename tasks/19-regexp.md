@@ -1,15 +1,19 @@
 # T19 — Complete ECMAScript RegExp semantics
 
-## Unicode unmatched brace repair candidate — 2026-10-13
+## Verified Unicode unmatched brace repair — 2026-10-13
 
-The full current-pin baseline rejects both modes of
-`annexB/built-ins/RegExp/prototype/compile/pattern-string-invalid-u.js`: the
-runtime atom parser allowed failed braced-quantifier probes to become literals
-under Unicode flags. The candidate gates that Annex B fallback to legacy mode.
-Computed-source controls cover `u`/`v` constructors and recompile, failed receiver
-transactions, valid bounds, escaped braces and the original numeric-backreference
-rejection. Native and pinned before/after verification remain required. See
-[the contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Clean `a4b69645d` passes all 142 RegExp integration tests, retaining all 141 prior
+passes and adding the computed-source constructor/recompile control. The full
+124-ID current-pin Annex B RegExp replay eliminates both modes of
+`prototype/compile/pattern-string-invalid-u.js`, retains all 118 original passes,
+and preserves four dynamic-eval limitations. Zero missing IDs or regressions;
+original 60000ms limits and pinned inputs remain.
+
+Both `u`/`v` modes reject malformed braces, legacy literal behavior remains,
+failed recompile preserves receiver slots/matcher, and valid bounds/escaped braces
+continue working. See [the exact checkpoint](../docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json)
+and [the contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Full pinned RegExp/Test262 and task-wide acceptance remain open.
 
 ## Folding inventory and native checkpoint — 2026-10-08
 

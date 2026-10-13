@@ -1,22 +1,46 @@
-## Isolated repair batch while full baseline runs — 2026-10-13
+## Verified repair batch and next failures — 2026-10-13
 
-The original checkout remains frozen at `4e01400fc`; its full two-family owner
-is `target/full-pin-optimized-4e01400fc-20261013/receipt.json`. Do not edit that
-checkout or replace the original native worker while the run is active. This
-repair branch fixes Unicode unmatched-opening-brace admission, memoizes the
-actual runtime-byte digest inside the private artifact constructor, and corrects
-compiler stage metadata. These changes are authored and not yet natively
-verified. Preserve old failures and compare the same exact pinned execution IDs
-and previous passing cases after building the whole batch.
+Clean `a4b69645d` completes all five affected optimized native scopes: 1,434 PASS,
+zero FAIL/IGNORE. Exact comparison retains all 1,433 prior passes and adds one
+computed-brace control, with zero missing IDs or regressions. Counts are
+334/873/142/4/81 for AOT/Engine/RegExp/runtime-cache/CLI. Full 124-ID Annex B RegExp
+replay retains all 118 old Success IDs, eliminates both old Bugs, and preserves
+four explicit dynamic-eval NotImplemented results and their details. Native
+verdict remains red for those limitations; the comparison itself passes. Original
+60000ms bounds, input bytes and pins remain. See
+[the portable checkpoint](docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json).
 
-The completed baseline prefix exposes both modes of
-`annexB/built-ins/RegExp/prototype/compile/pattern-string-invalid-u.js` as Bugs.
-Four leading/trailing RegExp escape cases remain explicit dynamic-eval
-NotImplemented results. This prefix is not the full denominator or a final
-failure count. Continue collecting the original complete run. See
-[the repair and verification contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
-Keep CONTINUE.md/tasks until actual task completion and publish verified changes
-to main. Isolated source avoids invalidating the long-running baseline.
+The first native comparison preflight failed after a successful 259-second Cargo
+build: libtest displayed ` - should panic` annotations, and old shared-link records
+used different schemas. No native test started in that attempt. The corrected
+reader normalizes the annotation, selects links by actual executable SHA and
+reuses the successful build; the original logs and receipt remain unchanged.
+All 1,434 actual native tests then complete. Source and baseline images stay fixed.
+
+The original checkout remains frozen at `4e01400fc`; its full two-family owner is
+`target/full-pin-optimized-4e01400fc-20261013/receipt.json`. Keep its source, private
+worker and shared runtime unchanged until completion. This repair is verified
+in the isolated checkout. Compiler stage labels now reflect Spec IR construction
+in preparation. Runtime digest/cache correctness passes; new idle performance
+measurements remain pending. The build took 895 seconds under concurrent baseline
+load; R precompilation took 207.473 seconds with 2152 function-cache hits/one miss.
+These are observations, not an idle speedup comparison.
+
+Next fix both modes of `built-ins/ArrayBuffer/options-maxbytelength-allocation-limit.js`.
+The completed original ArrayBuffer node has 442 IDs, 440 Success and two Bugs.
+The pinned `AllocateArrayBuffer` algorithm checks that the requested resizable
+maximum can form a Data Block after object/current-backing creation. Current
+emission checks concrete length but stores an unrepresentable maximum. Reuse
+the target's existing `i32::MAX - 7` backing extent, preserve prototype and
+conversion ordering, add observable constructor controls, then compare all 442
+original IDs and full affected native scopes. Authority is pinned ECMA262
+`5345883164f463e87f8b40aca4956157ecba8783`, local spec SHA
+`5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d`.
+
+Continue full families, historical5365 replay, actual shard/resume, supported-host
+and task-specific acceptance. Preserve raw owners and current workers/DSOs;
+completed task caches are disposable after receipt closure. Keep CONTINUE.md/tasks
+until actual completion and push verified batches to main.
 
 ## Default optimized acceptance and next gates — 2026-10-13
 
@@ -30,9 +54,9 @@ Fresh one-CPU idle reports complete all three gates, all twenty original compile
 and runtime fixtures, and seven measured samples per fixture. Median warm exact/
 chunk/cold exact are 28.463 ms/692.374 ms/1.367675 s, all original budgets pass.
 Compiler prepare owns 90.3% of stage time and already constructs Spec IR; the
-current emitted scope string and SDK comments incorrectly put that construction
-in lower. Preserve raw metadata and repair its labels in a coherent follow-up;
-do not interpret this as parser-only cost. All 140 measured runtime module-cache
+frozen build's emitted scope string and SDK comments incorrectly put that
+construction in lower. `a4b69645d` corrects the labels while preserving raw
+metadata; do not interpret this historical span as parser-only cost. All 140 measured runtime module-cache
 outcomes are hits. GC counters unavailable from Wasmtime remain unavailable.
 
 The worker is 101,359,416 bytes versus ordinary 424,668,048. Private link takes

@@ -1,16 +1,26 @@
 # Lila
 
-## RegExp Unicode validation and runtime cache identity — 2026-10-13
+## Verified RegExp repair and runtime cache identity — 2026-10-13
 
-The full pinned baseline on frozen `4e01400fc` exposes two executions of
-`RegExp.prototype.compile` accepting an unmatched opening brace with Unicode
-flags. The candidate repair rejects that grammar in both `u` and `v` modes,
-retains Annex B literal behavior without Unicode flags, and adds computed-source
-constructor/recompile controls with receiver-state checks. The same batch stores
-the exact immutable runtime-byte digest once and corrects compiler profile stage
-labels. These changes are prepared in an isolated checkout; native verification
-and before/after measurement remain required. The original full run continues
-on unchanged source. See [the repair contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Clean `a4b69645d` passes **1,434 affected optimized native tests**, retaining all
+**1,433 prior passing IDs** and adding the computed-brace regression: zero
+failures, ignores, regressions or missing IDs. Scope counts are 334 AOT unit,
+873 Engine unit, 142 RegExp integration, four runtime-cache and 81 CLI unit tests.
+
+The complete 124-execution current-pin Annex B RegExp family now has **120
+Success, four NotImplemented, zero Bug and zero Crash**. Both original Unicode
+recompile bugs are eliminated and all 118 earlier passes remain. The four
+dynamic-eval limitations and their details are unchanged; original inputs,
+pins and 60-second limits are retained. This is a family comparison, while the
+full frozen `4e01400fc` run continues collecting its complete denominator.
+
+The same batch verifies immutable runtime-byte digest ownership and native cache
+identity, and corrects compiler stage labels. Fresh idle performance comparison
+remains pending, so no speedup is claimed. See
+[the exact inventories and raw owners](docs/rust-rewrite/regexp-runtime-checkpoint-20261013.json)
+and [the repair contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+The unchanged baseline has also exposed two ArrayBuffer maximum-capacity failures;
+that separate repair and full task acceptance remain open.
 
 ## Default optimized measurements — 2026-10-13
 
@@ -24,7 +34,8 @@ Fresh idle seven-sample reports pass the original budgets: warm exact median
 and runtime profiles each complete all twenty original fixtures and 140 measured
 samples. Preparation accounts for 90.3% of compiler stage time and includes
 parsing, admission and Spec IR construction; the raw scope label incorrectly
-places Spec IR in the later stage and remains a tracked metadata correction.
+places Spec IR in the later stage. The `a4b69645d` repair corrects new labels
+while retaining this historical report.
 
 The default shared/stripped release worker is **101,359,416 bytes** versus the
 ordinary **424,668,048-byte** CLI. Its private link takes 1.79 seconds and restores
