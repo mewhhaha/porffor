@@ -1,19 +1,40 @@
-## ArrayBuffer capacity candidate — 2026-10-13
+## Verified ArrayBuffer batch and retained RegExp fixes — 2026-10-13
 
-The verified RegExp/cache batch and its exact checkpoint are pushed to main as
-`3aae33ef6`. The next coherent candidate adds maximum-capacity admission after
-prototype/current-backing/object creation, sharing the existing GC extent bound
-with concrete allocation. A computed Engine fixture checks strict/sloppy ordering,
-foreign exception identity, boundary acceptance and transfer/resize data.
-Code and documentation are authored; native/pinned verification remains pending.
-See [the contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+Clean `b486503d2` passes all 442 original ArrayBuffer IDs at unchanged 60000ms
+limits: 442 Success, zero Bug/Crash/NotImplemented/timeout. Both old maximum-capacity
+Bugs are eliminated; all 440 old Success IDs remain, with zero missing IDs or
+regressions. Both Unicode RegExp IDs fixed by the previous batch remain Success
+on this actual worker. The two batches therefore eliminate all four Bugs exposed
+so far by the unchanged baseline in their exact replay cohorts.
 
-Build once, verify the complete affected native scopes, then replay all 442 IDs
-from the original completed ArrayBuffer node with unchanged 60000ms limits.
-Require two Bugs eliminated, all 440 prior Success IDs retained, and zero missing
-IDs/new failures. Preserve the original full baseline at `4e01400fc` and its
-worker/runtime while both unfiltered families continue. Push only verified
-results and retain CONTINUE.md/tasks until actual completion.
+All five complete affected optimized native scopes pass: 1,789 PASS, zero FAIL/
+IGNORE. Counts are 334/874/496/4/81 for AOT/Engine/builtins/runtime-cache/CLI.
+All 1,788 previous passing IDs remain and one strict/sloppy constructor-ordering
+control is added. Existing real allocation-failure/resize/transfer controls pass.
+See [the complete checkpoint](docs/rust-rewrite/arraybuffer-checkpoint-20261013.json).
+Native build and execution are separate owners; actual selected artifact hashes
+are verified before execution, and no build-only receipt claims test verdicts.
+
+The CLI build takes 530.204 seconds under concurrent baseline load; R precompile
+215.357 seconds with 2135 function-cache hits/18 misses. Private link takes
+2.026 seconds and restores ordinary bytes exactly. These are observations, not
+idle speedup claims. Sparse checkout initially removed the ignored Cargo config;
+its preflight caught that before Cargo ran. `.cargo` is now included explicitly,
+and exact original config survives sparse reapply. A native build-space preflight
+also rejected before Cargo; reclaiming the completed replay's generated cache
+provides space. All failed preflight logs remain and actual verdicts are unchanged.
+
+The RegExp/cache batch is already pushed as `3aae33ef6`; push this verified batch
+with its updated evidence after publication checks. The original checkout, full
+worker and shared runtime remain frozen at `4e01400fc`. Continue both complete
+families, remaining failures, historical5365 replay, actual shard/resume, supported
+hosts, idle measurements and task-specific acceptance. Four BMP dynamic-eval
+executions remain explicit unsupported: each generates roughly 65,000 runtime source
+strings outside the finite prepared registry. Keep their denominator and verdicts;
+no path/source-shape exception or bundled parser/VM is permitted.
+
+Preserve raw owners and worker/runtime images. Completed task-generated caches
+are disposable after receipt closure. Keep CONTINUE.md/tasks until actual completion.
 
 ## Verified repair batch and next failures — 2026-10-13
 
@@ -43,16 +64,13 @@ measurements remain pending. The build took 895 seconds under concurrent baselin
 load; R precompilation took 207.473 seconds with 2152 function-cache hits/one miss.
 These are observations, not an idle speedup comparison.
 
-Next fix both modes of `built-ins/ArrayBuffer/options-maxbytelength-allocation-limit.js`.
-The completed original ArrayBuffer node has 442 IDs, 440 Success and two Bugs.
-The pinned `AllocateArrayBuffer` algorithm checks that the requested resizable
-maximum can form a Data Block after object/current-backing creation. Current
-emission checks concrete length but stores an unrepresentable maximum. Reuse
-the target's existing `i32::MAX - 7` backing extent, preserve prototype and
-conversion ordering, add observable constructor controls, then compare all 442
-original IDs and full affected native scopes. Authority is pinned ECMA262
-`5345883164f463e87f8b40aca4956157ecba8783`, local spec SHA
-`5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d`.
+The next failures found at that checkpoint were both modes of
+`built-ins/ArrayBuffer/options-maxbytelength-allocation-limit.js`: 442 original
+IDs, 440 Success and two Bugs. The `b486503d2` batch above closes that entire
+family and preserves the RegExp fixes. Its maximum-capacity admission follows
+pinned `AllocateArrayBuffer` ordering and the existing backing representation.
+The full source remains pinned to ECMA262
+`5345883164f463e87f8b40aca4956157ecba8783`.
 
 Continue full families, historical5365 replay, actual shard/resume, supported-host
 and task-specific acceptance. Preserve raw owners and current workers/DSOs;

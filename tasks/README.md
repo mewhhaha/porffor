@@ -1,5 +1,15 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Verified ArrayBuffer capacity — 2026-10-13
+
+Clean `b486503d2` passes all 442 pinned ArrayBuffer IDs, retains all 440 old passes
+and eliminates both maximum-capacity Bugs. All 1,789 affected native tests pass,
+retain all 1,788 prior IDs and add one ordering control: zero regressions or
+missing IDs. Both earlier RegExp fixes remain Success on this worker. See
+[the exact checkpoint](../docs/rust-rewrite/arraybuffer-checkpoint-20261013.json).
+Full frozen baseline, idle measurements and all remaining task gates continue.
+Keep CONTINUE.md/tasks until actual completion.
+
 ## Verified pinned-family repair — 2026-10-13
 
 Clean `a4b69645d` passes all 1,434 affected optimized native tests and retains all

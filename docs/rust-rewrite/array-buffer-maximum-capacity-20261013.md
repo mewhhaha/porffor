@@ -1,8 +1,13 @@
 # ArrayBuffer maximum-capacity admission — 2026-10-13
 
-Status: repair authored after the verified `a4b69645d` RegExp/cache batch.
-Native and pinned before/after acceptance are pending. The original complete
-baseline remains frozen at `4e01400fc`.
+Status: verified on clean `b486503d2`. All 442 pinned ArrayBuffer IDs pass;
+440 original Success IDs remain and both Bugs are eliminated. All five affected
+native scopes pass 1,789 tests, retain all 1,788 prior passes and add one control,
+with zero failures, ignores, regressions or missing IDs. Both earlier RegExp fixes
+remain Success on the new worker. See
+[the exact checkpoint](arraybuffer-checkpoint-20261013.json).
+The original complete baseline remains frozen at `4e01400fc`; full-suite and
+task-wide acceptance continue.
 
 The completed pinned ArrayBuffer node contains 442 execution IDs: 440 Success
 and two Bugs, both modes of `options-maxbytelength-allocation-limit.js`.
@@ -33,8 +38,8 @@ sloppy modes use the real Wasm backend and original 30000ms native deadline.
 Existing actual allocation-failure and transactional resize/transfer controls
 remain required.
 
-Acceptance requires a coherent default optimized build, full affected native
-scopes, and all 442 original pinned IDs at unchanged 60000ms bounds. Compare
+The coherent default optimized build, full affected native scopes and all 442
+original pinned IDs pass at unchanged 60000ms bounds. Compare
 every prior Success and failure, retain all raw owners, and report actual
 eliminated Bugs, regressions and missing IDs. Full-suite/task completion remains
 a separate gate.

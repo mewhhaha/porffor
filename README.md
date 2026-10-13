@@ -1,13 +1,22 @@
 # Lila
 
-## ArrayBuffer capacity repair candidate — 2026-10-13
+## Verified ArrayBuffer capacity repair — 2026-10-13
 
-The unchanged full baseline exposes two ArrayBuffer executions accepting an
-unrepresentable resizable maximum. The next isolated repair checks that maximum
-against the existing GC backing extent after prototype/current-backing creation,
-with constructor-order and transfer controls. Native acceptance and exact
-comparison of all 442 original ArrayBuffer IDs are pending. See
-[the repair contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+Clean `b486503d2` passes **all 442 pinned ArrayBuffer executions**: both original
+maximum-capacity Bugs are eliminated and all 440 earlier Success IDs remain.
+There are zero regressions, missing IDs, timeouts, Bugs, Crashes or unsupported
+results in this family; original inputs, pins and 60-second limits are retained.
+Both RegExp bugs eliminated in the prior batch remain Success on this worker.
+
+All **1,789 affected optimized native tests** pass, retaining every **1,788 prior
+passing ID** and adding one strict/sloppy constructor-ordering control. Scope
+counts are 334 AOT unit, 874 Engine unit, 496 builtins integration, four runtime-cache
+and 81 CLI unit tests. The maximum shares the existing GC backing extent and is
+admitted after prototype/current-backing/object creation. See
+[the exact owners and comparisons](docs/rust-rewrite/arraybuffer-checkpoint-20261013.json)
+and [the repair contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+The original full baseline and remaining task gates continue; these verified
+families do not close full pinned conformance.
 
 ## Verified RegExp repair and runtime cache identity — 2026-10-13
 
