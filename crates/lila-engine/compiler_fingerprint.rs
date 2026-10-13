@@ -11,6 +11,19 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) const FINGERPRINT_SCHEME: &str = "lila-program-cache-compiler-v3";
+pub(crate) const NATIVE_FINGERPRINT_SCHEME: &str = "lila-native-compiler-v1";
+
+// Native codegen dependencies have a separate identity from Lila's complete
+// program compiler. Cargo.lock binds registry dependencies; all vendored source
+// binds patched dependencies. Feature/profile manifests also invalidate it.
+// This does not replace or narrow COMPILER_INPUTS or raw R admission.
+pub(crate) const NATIVE_COMPILER_INPUTS: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "vendor",
+    "crates/lila-engine/Cargo.toml",
+    "crates/lila-runtime-image/Cargo.toml",
+];
 
 pub(crate) const COMPILER_INPUTS: &[&str] = &[
     "Cargo.toml",
@@ -29,15 +42,23 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
 ];
 
 pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {
+    fingerprint_inputs(workspace, FINGERPRINT_SCHEME, COMPILER_INPUTS)
+}
+
+pub(crate) fn native_fingerprint(workspace: &Path) -> io::Result<String> {
+    fingerprint_inputs(workspace, NATIVE_FINGERPRINT_SCHEME, NATIVE_COMPILER_INPUTS)
+}
+
+fn fingerprint_inputs(workspace: &Path, scheme: &str, inputs: &[&str]) -> io::Result<String> {
     let mut files = Vec::new();
-    for input in COMPILER_INPUTS {
+    for input in inputs {
         collect_files(&workspace.join(input), &mut files)?;
     }
     files.sort();
     files.dedup();
 
     let mut digest = Sha256::new();
-    digest.update(FINGERPRINT_SCHEME.as_bytes());
+    digest.update(scheme.as_bytes());
     for path in files {
         let relative = path.strip_prefix(workspace).map_err(io::Error::other)?;
         let label = relative

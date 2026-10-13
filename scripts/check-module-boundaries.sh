@@ -3234,11 +3234,13 @@ require_fixed_string_count \
 engine_native_config="crates/lila-engine/src/wasmtime_config.rs"
 engine_embedded_runtime="crates/lila-engine/src/embedded_runtime.rs"
 engine_embedded_build="crates/lila-engine/src/embedded_runtime/build.rs"
+engine_embedded_compile="crates/lila-engine/src/embedded_runtime/compile.rs"
+engine_native_stencils="crates/lila-engine/src/cache/native.rs"
 runtime_image_build="crates/lila-runtime-image/build.rs"
 runtime_image_source="crates/lila-runtime-image/src/lib.rs"
 runtime_image_objects="crates/lila-runtime-image/build/objects.rs"
 wasm_build_package="crates/lila-aot-wasm/src/runtime_artifact/build_package.rs"
-for native_owner in "$engine_native_config" "$engine_embedded_runtime" "$engine_embedded_build" "$runtime_image_build" "$runtime_image_source" "$runtime_image_objects" crates/lila-runtime-image/Cargo.toml "$wasm_build_package"; do
+for native_owner in "$engine_native_config" "$engine_embedded_runtime" "$engine_embedded_build" "$engine_embedded_compile" "$engine_native_stencils" "$runtime_image_build" "$runtime_image_source" "$runtime_image_objects" crates/lila-runtime-image/Cargo.toml "$wasm_build_package"; do
   require_file "$native_owner"
 done
 require_exact_line_count crates/lila-engine/src/lib.rs 'mod wasmtime_config;' 1 'shared native configuration owner'
@@ -3268,7 +3270,19 @@ require_fixed_string_count "$engine_native_config" 'config.cranelift_regalloc_al
 require_fixed_string_count "$engine_embedded_runtime" 'manifest.modes != manifest::COMPILATION_MODES' 1 'native authority checks both image and execution modes'
 require_fixed_string_count "$engine_embedded_build" '.target(target)' 1 'explicit Cargo target without host ISA inference'
 require_fixed_string_count "$engine_embedded_build" 'config.parallel_compilation(false);' 1 'serial native build compilation'
-require_fixed_string_count "$engine_embedded_build" '.precompile_module(runtime.wasm())' 1 'precompile only the checked raw owner'
+require_fixed_string_count "$engine_embedded_build" '.compile(&runtime)' 1 'compile only the freshly checked raw owner'
+require_fixed_string_count "$engine_embedded_build" 'let module_cache = if host == target {' 1 'native module cache is unavailable to cross-target builds'
+require_fixed_string_count "$engine_embedded_build" 'crate::cache::module_cache()' 1 'reuse the existing bounded module cache owner'
+require_fixed_string_count "$engine_embedded_compile" 'self.compile_wasm(runtime.wasm())' 1 'typed runtime admission reaches the native compiler'
+require_fixed_string_count "$engine_embedded_compile" 'Module::new(&self.engine, wasm)?.serialize()' 1 'Wasmtime owns exact-Wasm native cache admission'
+require_fixed_string_count "$engine_embedded_compile" 'self.engine.precompile_module(wasm)' 1 'cross-target and cache-unavailable compilation remains direct'
+require_fixed_string_count "$engine_embedded_compile" 'Module::deserialize(' 0 'no custom native cache deserialization'
+require_fixed_string_count crates/lila-engine/build.rs 'cargo:rustc-env=LILA_NATIVE_COMPILER_FINGERPRINT=' 1 'product native dependency identity is compiled in'
+require_fixed_string_count "$runtime_image_build" 'compiler_fingerprint::native_fingerprint(&workspace)' 1 'build native dependency identity uses the same census'
+require_fixed_string_count "$engine_native_config" 'ModuleVersionStrategy::Custom(' 1 'build and product serialization share the source-bound native version'
+require_fixed_string_count "$engine_embedded_compile" 'configure_native_version(&mut config, native_identity);' 1 'build compiler always binds its actual native dependency identity'
+require_fixed_string_count "$engine_embedded_build" 'crate::cache::NativeFunctionCache::new(' 1 'build stencils bind native dependencies'
+require_fixed_string_count crates/lila-engine/src/lib.rs 'cache::NativeFunctionCache::new(' 1 'product stencils bind native dependencies'
 require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, native())' 1 'native load accepts only immutable embedded bytes'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
@@ -3277,6 +3291,8 @@ require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_mod
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
 check_raw_line_budget "$engine_embedded_build" 140
+check_raw_line_budget "$engine_embedded_compile" 100
+check_raw_line_budget "$engine_native_stencils" 120
 check_raw_line_budget "$runtime_image_build" 80
 check_raw_line_budget "$runtime_image_source" 60
 check_raw_line_budget "$runtime_image_objects" 120

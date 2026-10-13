@@ -1,7 +1,9 @@
 #[path = "../../compiler_fingerprint.rs"]
 mod compiler_fingerprint;
 
-use compiler_fingerprint::{fingerprint, COMPILER_INPUTS};
+use compiler_fingerprint::{
+    fingerprint, native_fingerprint, COMPILER_INPUTS, NATIVE_COMPILER_INPUTS,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +26,11 @@ impl Workspace {
                 workspace.write(input, "fixture");
             } else {
                 fs::create_dir_all(workspace.0.join(input)).unwrap();
+            }
+        }
+        for input in NATIVE_COMPILER_INPUTS {
+            if Path::new(input).extension().is_some() && !workspace.0.join(input).exists() {
+                workspace.write(input, "fixture");
             }
         }
         workspace
@@ -58,6 +65,9 @@ fn every_previously_omitted_compiler_input_invalidates_the_cache() {
         "crates/lila-engine/src/wasmtime_policy.rs",
         "crates/lila-engine/src/wasmtime_config.rs",
         "crates/lila-engine/src/embedded_runtime/build.rs",
+        "crates/lila-engine/src/embedded_runtime/compile.rs",
+        "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
+        "crates/lila-engine/src/cache/native.rs",
         "crates/lila-engine/src/embedded_runtime/manifest.rs",
         "crates/lila-aot-wasm/src/runtime_artifact/build_package.rs",
         "vendor/boa_parser-0.21.1/src/lib.rs",
@@ -71,6 +81,37 @@ fn every_previously_omitted_compiler_input_invalidates_the_cache() {
         workspace.write(input, "after");
         assert_ne!(before, workspace.digest(), "untracked input: {input}");
     }
+}
+
+#[test]
+fn native_dependency_identity_invalidates_for_lockfile_features_profiles_and_patches() {
+    for input in [
+        "Cargo.lock",
+        "Cargo.toml",
+        "crates/lila-engine/Cargo.toml",
+        "crates/lila-runtime-image/Cargo.toml",
+        "vendor/wasmtime-47.0.0/src/compile/code_builder.rs",
+        "vendor/wasmtime-internal-cache-47.0.0/src/lib.rs",
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(input, "before");
+        let before = native_fingerprint(&workspace.0).unwrap();
+        workspace.write(input, "after");
+        assert_ne!(before, native_fingerprint(&workspace.0).unwrap(), "{input}");
+    }
+}
+
+#[test]
+fn native_dependency_identity_preserves_lila_source_invalidation_without_native_cache_churn() {
+    let workspace = Workspace::new();
+    workspace.write("crates/lila-ir/src/source.rs", "before");
+    let native_before = native_fingerprint(&workspace.0).unwrap();
+    let compiler_before = workspace.digest();
+    workspace.write("crates/lila-ir/src/source.rs", "after");
+    assert_eq!(native_before, native_fingerprint(&workspace.0).unwrap());
+    assert_ne!(compiler_before, workspace.digest());
+    fs::remove_file(workspace.0.join("Cargo.lock")).unwrap();
+    assert!(native_fingerprint(&workspace.0).is_err());
 }
 
 #[test]

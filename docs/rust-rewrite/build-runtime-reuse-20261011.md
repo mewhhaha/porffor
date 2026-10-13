@@ -1,5 +1,11 @@
 # Cargo runtime reuse — 2026-10-11
 
+The [prepared native-module extension](contracts/build-runtime-module-cache.md)
+deliberately supersedes the every-build precompile requirement below. It keeps
+fresh raw admission and complete current-source publication, using Wasmtime's
+bounded module cache only on native builds. Its actual verification and timing
+are pending; the following measurements belong to the earlier producer.
+
 Cargo's native-runtime producer now shares the existing bounded Cranelift
 function-cache owner. It still regenerates and admits the current raw runtime,
 calls Wasmtime `precompile_module` on those exact bytes, and publishes a package

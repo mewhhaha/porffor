@@ -3,6 +3,9 @@
 //! Raw package bytes still pass AOT's complete admission. No native constructor
 //! accepts a caller slice/path/cache blob, and no Module is retained here.
 
+#[cfg(test)]
+#[path = "embedded_runtime/compile.rs"]
+mod build_compile;
 mod manifest;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
 use lila_aot_wasm::{RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactInputs};
@@ -70,11 +73,14 @@ impl EmbeddedNativeRuntime {
             return None;
         }
         // SAFETY: native() is exclusively the immutable Cargo output of
-        // lila-runtime-image build.rs, whose sole producer calls pinned Wasmtime's
-        // precompile_module on RuntimeBuildArtifact::wasm(). That owner first
-        // round-trips the exact raw R through full identity/layout validation.
+        // lila-runtime-image build.rs, whose sole producer compiles the freshly
+        // admitted RuntimeBuildArtifact::wasm() with pinned Wasmtime. Native-host
+        // builds use Wasmtime's exact-Wasm compilation cache and serialize the
+        // resulting temporary Module; cross-target/cache-unavailable builds use
+        // precompile_module. That owner first round-trips the exact raw R through
+        // full identity/layout validation. Wasmtime owns cache compatibility.
         // The admitted manifest binds source, target, config, native bytes and
-        // this actual RuntimeArtifact key. No external native bytes can reach
+        // this actual RuntimeArtifact key. No caller-supplied native bytes reach
         // this call. deserialize owns its copied mapping in the supplied
         // execution Engine. The admitted modes explicitly allow optimized R
         // with Fast P; no separate build Engine survives or reaches the cache.

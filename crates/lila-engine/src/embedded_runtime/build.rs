@@ -1,19 +1,23 @@
-//! Cargo-only producer: native bytes come directly from Wasmtime precompilation
-//! of the checked typed owner's exact raw R, never from a native cache file.
+//! Cargo-only producer: fresh checked raw R, current-source package/manifest,
+//! and exact-Wasm native compilation through Wasmtime's bounded cache.
 
+#[path = "compile.rs"]
+mod compile;
 #[path = "manifest.rs"]
 mod manifest;
 use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
-use crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY;
+use compile::RuntimeImageCompiler;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
-use wasmtime::{Engine, WasmBacktraceDetails};
+use wasmtime::WasmBacktraceDetails;
 
 pub(crate) fn write_bundle(
     out: &Path,
     compiler_source: &str,
+    native_identity: &str,
     target: &str,
+    host: &str,
     target_arch: &str,
     endian: &str,
 ) {
@@ -33,6 +37,7 @@ pub(crate) fn write_bundle(
             .spawn_scoped(scope, || {
                 let selection =
                     lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal);
+                println!("build runtime native dependency identity: {native_identity}");
                 let runtime = lila_aot_wasm::build_runtime_artifact(&selection, &source)
                     .expect("the compiler emits and admits its exact build runtime");
                 // R is immutable build output. Optimize it once without moving
@@ -51,14 +56,16 @@ pub(crate) fn write_bundle(
                     .target(target)
                     .expect("supported target has a native compiler");
                 config.parallel_compilation(false);
-                // Cranelift keys stencils by function, ISA and compiler flags.
-                // Reuse that existing bounded store across source fingerprints;
-                // the current raw R still goes through Wasmtime precompilation,
-                // and the package below always binds the current full source.
+                // Cranelift's bounded function store also warms module misses.
+                // Both native caches remain independent of the full current
+                // source identity in the freshly published package/manifest.
                 let function_cache = crate::cache::FunctionCache::new(
                     crate::cache::function_cache_directory(),
                     crate::cache::function_cache_limit_bytes(),
                 )
+                .and_then(|cache| {
+                    crate::cache::NativeFunctionCache::new(Arc::new(cache), native_identity)
+                })
                 .map(Arc::new)
                 .map_err(|error| {
                     println!("cargo:warning=build runtime function cache unavailable: {error}");
@@ -69,16 +76,29 @@ pub(crate) fn write_bundle(
                         .enable_incremental_compilation(cache.clone())
                         .expect("Cranelift supports the shared function cache");
                 }
-                let engine = Engine::new(&config)
-                    .expect("build runtime has the product Wasmtime configuration");
-                PRODUCT_WASMTIME_POLICY
-                    .verify_engine(&engine)
-                    .expect("build engine has every required product capability");
+                // Module::new requires a native-host mapping. Cross-target
+                // builds preserve precompile_module and never open this cache.
+                let module_cache = if host == target {
+                    crate::cache::module_cache()
+                        .map_err(|error| {
+                            println!(
+                                "cargo:warning=build runtime module cache unavailable: {error}"
+                            );
+                        })
+                        .ok()
+                } else {
+                    None
+                };
+                let compiler = RuntimeImageCompiler::new(config, module_cache, native_identity)
+                    .expect("build engine has the required product configuration and capabilities");
                 let started = std::time::Instant::now();
-                let native = engine
-                    .precompile_module(runtime.wasm())
+                let native = compiler
+                    .compile(&runtime)
                     .expect("exact checked runtime precompiles for the Cargo target");
-                println!("build runtime precompile: {:?}", started.elapsed());
+                println!("build runtime native compilation: {:?}", started.elapsed());
+                if let Some((hits, misses)) = compiler.module_cache_counters() {
+                    println!("build runtime module cache: {hits} hits, {misses} misses");
+                }
                 if let Some(cache) = function_cache {
                     let (hits, misses) = cache.counters();
                     println!("build runtime function cache: {hits} hits, {misses} misses");

@@ -2,9 +2,9 @@
 //! product Engine. Runtime adapters add cache/pool/diagnostic policy only.
 
 use crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY;
-use wasmtime::{Config, OptLevel, RegallocAlgorithm, WasmBacktraceDetails};
+use wasmtime::{Config, ModuleVersionStrategy, OptLevel, RegallocAlgorithm, WasmBacktraceDetails};
 
-pub(crate) const CONFIGURATION_SCHEMA: u32 = 3;
+pub(crate) const CONFIGURATION_SCHEMA: u32 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum WasmNativeCompilationMode {
@@ -62,5 +62,24 @@ pub(crate) fn base_config(
     PRODUCT_WASMTIME_POLICY.configure(&mut config);
     // Every product profile retains the existing execution-time epoch checks.
     config.epoch_interruption(true);
+    // Engine's Cargo build supplies this identity. The runtime-image build
+    // script computes and installs the same version explicitly before compiling.
+    if let Some(identity) = option_env!("LILA_NATIVE_COMPILER_FINGERPRINT") {
+        configure_native_version(&mut config, identity);
+    }
     config
+}
+
+pub(crate) fn configure_native_version(config: &mut Config, identity: &str) {
+    assert!(
+        identity.len() == 64
+            && identity
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    );
+    config
+        .module_version(ModuleVersionStrategy::Custom(format!(
+            "lila-native-v1-{identity}"
+        )))
+        .expect("canonical native compiler identity fits Wasmtime's version bound");
 }

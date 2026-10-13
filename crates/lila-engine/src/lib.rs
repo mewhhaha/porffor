@@ -385,14 +385,20 @@ fn wasmtime_module_cache() -> Option<wasmtime::Cache> {
         .clone()
 }
 
-fn cranelift_function_cache() -> Option<Arc<cache::FunctionCache>> {
-    static CACHE: OnceLock<Option<Arc<cache::FunctionCache>>> = OnceLock::new();
+fn cranelift_function_cache() -> Option<Arc<cache::NativeFunctionCache>> {
+    static CACHE: OnceLock<Option<Arc<cache::NativeFunctionCache>>> = OnceLock::new();
     CACHE
         .get_or_init(|| {
             match cache::FunctionCache::new(
                 cache::function_cache_directory(),
                 cache::function_cache_limit_bytes(),
-            ) {
+            )
+            .and_then(|cache| {
+                cache::NativeFunctionCache::new(
+                    Arc::new(cache),
+                    env!("LILA_NATIVE_COMPILER_FINGERPRINT"),
+                )
+            }) {
                 Ok(cache) => Some(Arc::new(cache)),
                 Err(err) => {
                     if std::env::var_os("LILA_WASM_TRACE").is_some() {

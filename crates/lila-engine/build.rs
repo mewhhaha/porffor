@@ -15,6 +15,9 @@ fn main() {
     let fingerprint = compiler_fingerprint::fingerprint(&workspace)
         .unwrap_or_else(|error| panic!("failed to fingerprint Lila compiler inputs: {error}"));
     println!("cargo:rustc-env=LILA_COMPILER_FINGERPRINT={fingerprint}");
+    let native_fingerprint = compiler_fingerprint::native_fingerprint(&workspace)
+        .expect("native compiler dependency inputs are fully fingerprinted");
+    println!("cargo:rustc-env=LILA_NATIVE_COMPILER_FINGERPRINT={native_fingerprint}");
     let target = std::env::var("TARGET").expect("Cargo target triple");
     println!("cargo:rustc-env=LILA_RUNTIME_BUILD_TARGET={target}");
     println!(

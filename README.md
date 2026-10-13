@@ -1,5 +1,16 @@
 # Lila
 
+## Runtime image cache reuse prepared — 2026-10-13
+
+Native builds now have a prepared path through Wasmtime's bounded module cache,
+retaining fresh core admission and complete current compiler binding. Build and
+product cache versions distinguish changed native compiler dependencies; function
+stencils share the same dependency identity and existing budget. Cross-target or
+unavailable-cache builds retain direct precompilation. Cold/warm byte parity,
+code/config/dependency invalidation and complete affected verification are next.
+No speedup or latest-source conformance result is claimed yet. See
+[the admission contract](docs/rust-rewrite/contracts/build-runtime-module-cache.md).
+
 ## Verified Promise.try repair — 2026-10-13
 
 Actual `604a6f9aa` passes **30/30 Promise.try executions**, eliminates all four

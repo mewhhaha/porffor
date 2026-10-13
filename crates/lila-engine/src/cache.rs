@@ -10,6 +10,10 @@ use std::time::SystemTime;
 
 use wasmtime::{Cache, CacheConfig, CacheStore};
 
+#[path = "cache/native.rs"]
+mod native;
+pub(crate) use native::NativeFunctionCache;
+
 pub(crate) const DEFAULT_CACHE_LIMIT_BYTES: u64 = 1024 * 1024 * 1024;
 pub(crate) const CACHE_PRUNE_PERCENT: u64 = 70;
 
