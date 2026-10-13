@@ -11107,6 +11107,25 @@ const shared = new BigInt64Array(new SharedArrayBuffer(16), 8);
     }
 
     #[test]
+    fn wasm_backend_array_buffer_maximum_capacity_preserves_constructor_effects() {
+        let source = include_str!("testdata/arraybuffer-maximum-capacity.js");
+        for directive in ["", "\"use strict\";\n"] {
+            let outcome = engine()
+                .run_script(
+                    &format!("{directive}{source}"),
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("ArrayBuffer maximum admission preserves constructor ordering and backing");
+            assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+        }
+    }
+
+    #[test]
     fn wasm_backend_typed_array_length_reports_backing_store_allocation_failure() {
         let source = r#"
 const huge = 1024 * 1024 * 1024;

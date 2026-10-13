@@ -1,3 +1,20 @@
+## ArrayBuffer capacity candidate — 2026-10-13
+
+The verified RegExp/cache batch and its exact checkpoint are pushed to main as
+`3aae33ef6`. The next coherent candidate adds maximum-capacity admission after
+prototype/current-backing/object creation, sharing the existing GC extent bound
+with concrete allocation. A computed Engine fixture checks strict/sloppy ordering,
+foreign exception identity, boundary acceptance and transfer/resize data.
+Code and documentation are authored; native/pinned verification remains pending.
+See [the contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+
+Build once, verify the complete affected native scopes, then replay all 442 IDs
+from the original completed ArrayBuffer node with unchanged 60000ms limits.
+Require two Bugs eliminated, all 440 prior Success IDs retained, and zero missing
+IDs/new failures. Preserve the original full baseline at `4e01400fc` and its
+worker/runtime while both unfiltered families continue. Push only verified
+results and retain CONTINUE.md/tasks until actual completion.
+
 ## Verified repair batch and next failures — 2026-10-13
 
 Clean `a4b69645d` completes all five affected optimized native scopes: 1,434 PASS,

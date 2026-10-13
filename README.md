@@ -1,5 +1,14 @@
 # Lila
 
+## ArrayBuffer capacity repair candidate — 2026-10-13
+
+The unchanged full baseline exposes two ArrayBuffer executions accepting an
+unrepresentable resizable maximum. The next isolated repair checks that maximum
+against the existing GC backing extent after prototype/current-backing creation,
+with constructor-order and transfer controls. Native acceptance and exact
+comparison of all 442 original ArrayBuffer IDs are pending. See
+[the repair contract](docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+
 ## Verified RegExp repair and runtime cache identity — 2026-10-13
 
 Clean `a4b69645d` passes **1,434 affected optimized native tests**, retaining all

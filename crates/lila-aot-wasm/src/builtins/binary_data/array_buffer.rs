@@ -1,8 +1,12 @@
 use super::*;
 
+// The host GC allocator takes a nonnegative I32 byte-array length. Rounding the
+// backing length up to eight bytes must also remain in that domain.
+const MAX_ARRAY_BUFFER_BACKING_LENGTH: i64 = i32::MAX as i64 - 7;
+
 impl FunctionBuilder<'_> {
     /// Allocation limits belong after prototype selection. The logical maximum
-    /// remains an I64; a current GC ByteArray length is checked before narrowing.
+    /// remains an I64; both extents must fit the same GC ByteArray representation.
     pub(in crate::builtins) fn emit_binary_allocate_array_buffer(
         &mut self,
         prototype: &ValueLocals,
@@ -16,7 +20,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<GcLocal<ArrayBuffer>, EmitError> {
         let s = self.runtime_schema();
         length.load(f);
-        f.instruction(&Instruction::I64Const(i64::from(i32::MAX) - 7));
+        f.instruction(&Instruction::I64Const(MAX_ARRAY_BUFFER_BACKING_LENGTH));
         f.instruction(&Instruction::I64GtU);
         self.open_frame(ControlFrameKind::If, f);
         self.emit_binary_range_error(
@@ -63,6 +67,21 @@ impl FunctionBuilder<'_> {
             self.emit_alloc_plain_object_with_prototype(Some(prototype), f)?,
             f,
         );
+        // AllocateArrayBuffer admits the resizable maximum after creating the
+        // object/current backing. A wide ToIndex result is not enough: growth
+        // to this extent must be representable by the same backing allocator.
+        maximum.load(f);
+        f.instruction(&Instruction::I64Const(MAX_ARRAY_BUFFER_BACKING_LENGTH));
+        f.instruction(&Instruction::I64GtU);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_binary_range_error(
+            RuntimeErrorMessage::ARRAYBUFFER_ALLOCATION_SIZE_IS_TOO_LARGE,
+            output,
+            exit,
+            f,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         let undefined = s.reserve_value_local(f);
         undefined.set_undefined(f);
         let key = s

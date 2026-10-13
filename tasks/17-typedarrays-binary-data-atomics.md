@@ -1,5 +1,16 @@
 # T17 — ArrayBuffer, DataView, TypedArray, SharedArrayBuffer and Atomics
 
+## Maximum-capacity repair candidate — 2026-10-13
+
+The completed original pinned ArrayBuffer node has 442 IDs, 440 Success and two
+maximum-capacity Bugs. The next isolated candidate rejects a resizable maximum
+outside the existing nonnegative-I32/eight-byte-aligned GC backing domain, after
+prototype selection and current backing/object creation. It retains wide ToIndex
+and the earlier current-length-versus-maximum check. Strict/sloppy controls cover
+ordering, original exception identity, the representable boundary and transfer
+data. Native acceptance and all-442-ID comparison remain pending. See
+[the contract](../docs/rust-rewrite/array-buffer-maximum-capacity-20261013.md).
+
 ## NativeHost atomic source — 2026-10-05
 
 Created-Realm DataView and other represented binary intrinsics now come from
