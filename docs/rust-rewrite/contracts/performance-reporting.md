@@ -1,9 +1,12 @@
 # Retained whole-CLI performance reports
 
-Status: source authored, including private statistics, baseline-admission and
-artifact controls. Compilation, control execution and idle-machine timing are
-pending. This does not establish any timing budget, subsystem measurement or
-T25 acceptance.
+The complete default and all-feature native checkpoints execute the report
+controls. The first default optimized idle run on 2026-10-13 exposed a host
+surface mismatch in the twenty-case chunk: its assertion/detachment helpers
+were compiled as product globals and correctly failed as unbound identifiers.
+The raw failed owner is `target/optimized-default-performance-20261013`.
+The correction below requires fresh control and idle execution; the failed
+report remains evidence and cannot supply a baseline or T25 acceptance.
 
 ## Explicit invocation
 
@@ -51,6 +54,11 @@ ignored-test declaration or known-failure ledger row changes.
 Each warm-exact repetition runs wasm_functions.js once for warmup, then measures
 one ordinary in-process CLI Wasm invocation. Each warm-chunk repetition warms
 all twenty fixtures in original order, then measures that ordered serial loop.
+The chunk explicitly selects `HostSurfacePolicy::Test262`, matching the existing
+ignored chunk gate and its conformance helper calls. Both exact gates explicitly
+select `Product`. The closed gate selects invocation authority; it is not an
+ambient host override. Measurement policy v2 and `host_surface: "per-gate"`
+record this distinction and reject the earlier mismatched policy as a baseline.
 Each cold-exact repetition invokes the actual loaded CLI image's cache prune
 outside the timing span, then measures its subprocess run of wasm_host_output.js.
 The reporter verifies that selected image's compiler identity. There is no
@@ -88,7 +96,7 @@ available logical CPU count and physical memory; Linux also records process
 CPU affinity and visible native cgroup2 limits. Linux and macOS have real
 platform readers. Other platforms reject reporting before timing rather than
 inventing hardware data. The caller's machine label, actual compilation jobs,
-default product host surface, working directory, cache paths/limits and relevant runtime/cache
+per-gate host surfaces, working directory, cache paths/limits and relevant runtime/cache
 configuration are retained. Unexposed cgroup limits and unrelated ambient
 process activity remain limits of this evidence, not assertions of isolation.
 

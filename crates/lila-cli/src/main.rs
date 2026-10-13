@@ -356,7 +356,7 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
 
     if command == "performance" {
         if host_surface_policy != HostSurfacePolicy::default() {
-            return Err("performance reporting uses the existing default host surface".into());
+            return Err("performance host surfaces are fixed by the benchmark corpus".into());
         }
         if intl_profile.is_some() {
             return Err("performance reporting uses the corpus's default Intl profile".into());

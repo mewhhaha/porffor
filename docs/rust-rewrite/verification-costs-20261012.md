@@ -1,5 +1,16 @@
 # Verification costs and useful crate boundaries — 2026-10-12
 
+The actual default release build at `793c3c519` finishes in 1,176 seconds with
+390 Cargo artifacts and no oracle engine. Its CLI is 424,666,496 bytes. Runtime
+precompilation takes 199.953 seconds with all 2,153 function-cache entries reused.
+The feature switch rebuilds downstream variants because Serde loses `rc` and
+ICU helpers lose default features. These distinct graphs are not a controlled
+before/after build-speed experiment. Stable feature unification is a concrete
+iteration opportunity. The first idle profiles expose mismatched Product versus
+Test262 corpus authority; keep that red evidence and execute the correction
+before reporting complete metrics. See
+[the retained record](default-optimized-performance-20261013.json).
+
 The 2026-10-13 optimized checkpoint completes three fresh full corpus rounds
 per ordinary/private image, all 704 nightly and all 1,216 robustness cases.
 Exact prior passing IDs, request bytes/order and original deadlines remain,

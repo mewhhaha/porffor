@@ -1,5 +1,14 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Default optimized profiles — 2026-10-13
+
+The first default optimized build passes at clean `793c3c519`. Idle profiles
+expose a benchmark host-surface mismatch; the fixed conformance corpus needs
+explicit Test262 authority, as its original chunk test already uses. The
+correction is authored and needs fresh controls/measurements. Preserve the
+[original failed owner](../docs/rust-rewrite/default-optimized-performance-20261013.json).
+No task closes on this build or partial performance evidence.
+
 ## Optimized sustained acceptance — 2026-10-13
 
 The frozen `b165ef789` optimized private worker passes all 704 nightly and

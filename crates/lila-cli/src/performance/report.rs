@@ -4,7 +4,7 @@ use lila_test262::CompilerProvenance;
 use serde::{Deserialize, Serialize};
 pub(super) const VERSION: u32 = 1;
 pub(super) const POLICY: &str =
-    "existing-cli-gates-v1;serial;warmup-each-sample;nearest-rank-percentiles";
+    "existing-cli-gates-v2;warm-chunk-test262;exact-product;serial;warmup-each-sample;nearest-rank-percentiles";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(super) enum Gate {
@@ -32,6 +32,12 @@ impl Gate {
             Self::WarmExact => vec!["wasm_functions.js"],
             Self::WarmChunk => super::chunk_cases::CASES.to_vec(),
             Self::ColdExact => vec!["wasm_host_output.js"],
+        }
+    }
+    pub fn host_surface(self) -> lila_engine::HostSurfacePolicy {
+        match self {
+            Self::WarmChunk => super::CORPUS_HOST_SURFACE,
+            Self::WarmExact | Self::ColdExact => lila_engine::HostSurfacePolicy::Product,
         }
     }
 }
@@ -220,7 +226,8 @@ pub(super) struct Report {
 }
 impl Report {
     pub fn summaries(&self) -> Result<Vec<GateSummary>, String> {
-        if self.version != VERSION || self.identity.measurement_policy != POLICY {
+        if self.version != VERSION || self.identity.measurement_policy != POLICY
+            || self.identity.configuration.host_surface != "per-gate" {
             return Err("unsupported performance schema or measurement policy".into());
         }
         if !(3..=100).contains(&self.identity.samples_per_gate)
@@ -462,7 +469,7 @@ mod tests {
                     backend: "wasm-aot".into(),
                     fixture_root: "/unit-fixture".into(),
                     working_directory: "/unit-fixture".into(),
-                    host_surface: "product".into(),
+                    host_surface: "per-gate".into(),
                     compilation_jobs: 1,
                     cache_paths_and_limits: Vec::new(),
                     environment: Vec::new(),
@@ -596,6 +603,17 @@ mod tests {
         }
         assert!(report.summaries().is_ok());
         report.samples[0].measured[0].stdout.path = "../outside.log".into();
+        assert!(report.summaries().is_err());
+    }
+    #[test]
+    fn baseline_rejects_a_foreign_host_surface_or_the_old_invocation_policy() {
+        let mut report = model();
+        assert!(report.summaries().is_ok());
+        report.identity.configuration.host_surface = "product".into();
+        assert!(report.summaries().is_err());
+        report.identity.configuration.host_surface = "per-gate".into();
+        report.identity.measurement_policy =
+            "existing-cli-gates-v1;serial;warmup-each-sample;nearest-rank-percentiles".into();
         assert!(report.summaries().is_err());
     }
     #[test]

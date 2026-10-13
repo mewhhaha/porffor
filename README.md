@@ -1,5 +1,17 @@
 # Lila
 
+## Default optimized profiles — 2026-10-13
+
+The default optimized CLI builds successfully in 1,176 seconds without the
+oracle engine. Its 424,666,496-byte image records the actual frozen source and
+SHA-256; runtime precompilation reuses all 2,153 function entries with zero
+misses. The first idle measurements reveal a benchmark host-authority mismatch:
+the fixed conformance corpus needs Test262 helpers. The reporter now selects
+that authority explicitly for the chunk/compiler/runtime profiles and preserves
+Product for exact gates. Fresh corrected verification remains required; the
+[retained build and red profiles](docs/rust-rewrite/default-optimized-performance-20261013.json)
+record the original evidence. Full pinned conformance and task closure remain open.
+
 ## Optimized verification workers — 2026-10-13
 
 Frozen `b165ef789` passes all **704 optimized nightly cases** and **1,216

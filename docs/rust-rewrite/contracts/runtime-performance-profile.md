@@ -1,5 +1,14 @@
 # Product runtime performance observations
 
+The fixed twenty-case conformance corpus explicitly compiles with the Test262
+host surface, matching the original ignored CLI chunk gate. It executes real
+emitted Wasm through the product runtime. Policy v3 records this host authority
+and rejects product-surface profiles as comparable baselines. The first idle
+optimized owner, `target/optimized-default-performance-20261013/runtime`, failed
+at typed-array warmup because policy v2 omitted that authority; its original
+ReferenceError observation and prefix are retained. Corrected native controls
+and fresh complete seven-sample measurements remain required.
+
 Status: invocation-scoped RSS sampling and version-two report admission pass the
 combined workspace type check. Three Engine sampler controls and all 24 CLI
 performance controls pass. Native runtime-profile failure/lifetime controls and

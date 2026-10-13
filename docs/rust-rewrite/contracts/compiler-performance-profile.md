@@ -1,8 +1,17 @@
 # Compiler stage and artifact profiles
 
-Native Rust dev/test builds optimize `lila-intl` and `lila-aot-wasm` at level 1
+The fixed twenty-source corpus uses `HostSurfacePolicy::Test262`, as its
+original CLI chunk gate does. Compiler-stage policy v2 records that authority
+in `configuration.host_surface` and rejects product-surface reports as
+comparable baselines. Parsing, lowering, emitted Wasm and Wasmtime validation
+remain the product compiler path. The 2026-10-13 first optimized profile
+completed all twenty sources with seven measured samples each under the older
+product authority; those retained bytes do not establish corrected-corpus
+acceptance. Fresh corrected controls and measurements remain required.
+
+Native Rust dev/test builds optimize `lila-intl`, `lila-ir` and `lila-aot-wasm` at level 2
 to reduce cold data-admission and emission work within existing case budgets.
-Frontend/IR builds retain level 0. This changes Rust compilation settings;
+Frontend builds retain level 0. This changes Rust compilation settings;
 product Wasmtime profiles, validation, case budgets and measurements retain
 their existing contracts. The optional Boa oracle emits only its Rust library.
 Raw runtime residency retains at most two completed profiles and 256 MiB of raw

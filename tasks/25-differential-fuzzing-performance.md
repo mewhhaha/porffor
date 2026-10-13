@@ -1,5 +1,19 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## First default optimized profiles and host correction — 2026-10-13
+
+The default release build passes on clean `793c3c519`; its actual CLI image is
+424,666,496 bytes and excludes the oracle engine. First idle seven-sample
+compiler-stage measurements complete all twenty fixtures. Whole-CLI and runtime
+profiles retain failures at typed-array warmup because they selected Product
+for fixtures requiring Test262 helpers. The original chunk timing test already
+uses Test262. The authored correction declares that corpus authority in actual
+invocations, compile options, identities and new measurement policies, while
+exact timing gates stay Product. Original fixtures/order/budgets and failed
+owners remain intact. Native controls and fresh complete corrected profiles
+are required before acceptance; see
+[the retained record](../docs/rust-rewrite/default-optimized-performance-20261013.json).
+
 ## Optimized corpus and sustained acceptance — 2026-10-13
 
 Frozen clean `b165ef789` passes all 704 nightly and 1,216 robustness cases

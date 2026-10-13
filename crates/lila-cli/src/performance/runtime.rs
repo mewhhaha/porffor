@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 mod process_memory;
 use process_memory::{Measurement as ProcessMemoryMeasurement, Summary as ProcessMemorySummary};
 
-const POLICY: &str = "product-runtime-v2;fixed20;serial;compile-once;one-warmup-per-case;fresh-store;retain-native-module-cache;no-forced-gc;process-rss-10ms-plus-endpoints;no-runtime-budget";
+const POLICY: &str = "product-runtime-v3;fixed20-test262-host;serial;compile-once;one-warmup-per-case;fresh-store;retain-native-module-cache;no-forced-gc;process-rss-10ms-plus-endpoints;no-runtime-budget";
 const SCOPE: &str = "emitted-product-wasm;engine-module-store-linker-instantiation-export-execution-completion;total-includes-profile-sampler-retirement;total-excludes-worker-start-store-drop-and-js-compilation;gc-capacity-boundaries;sampled-process-rss-including-other-threads-and-retained-caches";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,6 +186,7 @@ fn summarize_case(case: &Case, fixture: &Fixture, count: usize) -> Result<CaseSu
 impl RuntimeReport {
     fn summaries(&self) -> Result<Vec<CaseSummary>, String> {
         if self.version != 2 || self.measurement_policy != POLICY || self.measurement_scope != SCOPE
+            || self.identity.configuration.host_surface != host_surface_label(CORPUS_HOST_SURFACE)
             || self.runtime_policy != wasm_runtime_profile_policy() || self.completion != Completion::Complete
             || !(3..=100).contains(&self.identity.samples_per_case)
             || self.cases.len() != self.identity.fixtures.len() {
@@ -357,6 +358,7 @@ pub(super) fn command(options: Options) -> Result<PathBuf, String> {
             let compilation = engine.profile_script_compilation(source, CompileOptions {
                 filename: Some(root.join(&name).to_string_lossy().into_owned()),
                 module_loading_policy: lila_engine::ModuleLoadingPolicy::RejectAll,
+                host_surface_policy: CORPUS_HOST_SURFACE,
                 ..CompileOptions::default() }).map_err(|error| format!("{name}: {error}"))?;
             let artifact = compilation.artifact;
             let bytes = artifact.bytes.clone();
@@ -456,7 +458,7 @@ mod tests {
             platform: Platform { os: "test".into(), architecture: "test".into(), kernel: "test".into(), cpu_model: "test".into(),
                 logical_cpus_available: 1, physical_memory: "test".into(), process_cpu_affinity: None, cgroup_limits: vec![], machine_label: options.machine_label },
             configuration: Configuration { backend: "wasm-aot-emitted-runtime".into(), fixture_root: "test".into(), working_directory: "test".into(),
-                host_surface: "product".into(), compilation_jobs: 1, cache_paths_and_limits: vec![], environment: vec![], idle_machine_acknowledged: true },
+                host_surface: "test262".into(), compilation_jobs: 1, cache_paths_and_limits: vec![], environment: vec![], idle_machine_acknowledged: true },
             measurement_policy: POLICY.into(), corpus_sha256: "0".repeat(64), fixtures: vec![fixture], gates: vec![], samples_per_gate: 3 });
         let mut report = RuntimeReport { version: 2, measurement_policy: POLICY.into(), measurement_scope: SCOPE.into(),
             runtime_policy: wasm_runtime_profile_policy(), identity, completion: Completion::Complete,
@@ -467,6 +469,9 @@ mod tests {
         assert_ne!(report.summaries().unwrap(), report.summaries);
         assert!(report.verify_evidence(Path::new("unused/report.json")).is_err());
         report.summaries = original;
+        report.identity.configuration.host_surface = "product".into();
+        assert!(report.summaries().is_err());
+        report.identity.configuration.host_surface = "test262".into();
         report.version = 1;
         assert!(report.summaries().is_err());
         report.version = 2;

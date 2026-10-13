@@ -1,5 +1,6 @@
 //! Explicit reports for existing opt-in whole-CLI timing spans.
 use lila_test262::CompilerProvenance;
+use lila_engine::HostSurfacePolicy;
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
@@ -19,6 +20,15 @@ const MEASUREMENT_SCOPE: &str =
     "whole-cli-invocation-wall-clock;no-subsystem-breakdown;not-conformance";
 const BASELINE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 const LOG_MAX_BYTES: u64 = 64 * 1024 * 1024;
+// The original twenty-case corpus deliberately uses conformance host helpers.
+// Exact CLI gates retain the ordinary product surface.
+const CORPUS_HOST_SURFACE: HostSurfacePolicy = HostSurfacePolicy::Test262;
+const fn host_surface_label(policy: HostSurfacePolicy) -> &'static str {
+    match policy {
+        HostSurfacePolicy::Product => "product",
+        HostSurfacePolicy::Test262 => "test262",
+    }
+}
 #[derive(Debug)]
 struct Options {
     mode: MeasurementMode,
@@ -270,7 +280,7 @@ fn measure(
             } else {
                 require_fixtures(root, &names)?;
                 for (case_index, &name) in names.iter().enumerate() {
-                    let run = invoke(name, root, None)?;
+                    let run = invoke(name, root, None, gate)?;
                     let failed = run.1 != 0;
                     report.samples[index].warmup.push(retain_invocation(
                         output, gate, repetition, "warmup", case_index, name, run,
@@ -297,6 +307,7 @@ fn measure(
                     } else {
                         None
                     },
+                    gate,
                 ) {
                     Ok(run) => {
                         let failed = run.1 != 0;
@@ -338,9 +349,11 @@ fn invoke(
     name: &str,
     root: &Path,
     executable: Option<&Path>,
+    gate: Gate,
 ) -> Result<CapturedInvocation, String> {
     let path = root.join(name);
     let path = path.to_str().ok_or("fixture path must be UTF-8")?;
+    let host = host_surface_label(gate.host_surface());
     let started = Instant::now();
     let (code, stdout, stderr) = match executable {
         Some(image) => {
@@ -348,6 +361,8 @@ fn invoke(
                 .args([
                     "run",
                     path,
+                    "--host-surface",
+                    host,
                     "--jobs",
                     &lila_engine::compilation_jobs().to_string(),
                 ])
@@ -360,7 +375,9 @@ fn invoke(
             )
         }
         None => {
-            let capture = crate::run_cli_capture(["run", "--execution-backend", "wasm", path]);
+            let capture = crate::run_cli_capture([
+                "run", "--execution-backend", "wasm", "--host-surface", host, path,
+            ]);
             (i32::from(capture.exit_code), capture.stdout, capture.stderr)
         }
     };
@@ -564,7 +581,10 @@ fn capture_identity(options: &Options, root: &Path) -> Result<Identity, String> 
                 .map_err(|error| error.to_string())?
                 .to_string_lossy()
                 .into_owned(),
-            host_surface: "product".into(),
+            host_surface: match options.mode {
+                MeasurementMode::WholeCli => "per-gate",
+                MeasurementMode::Compiler | MeasurementMode::Runtime => host_surface_label(CORPUS_HOST_SURFACE),
+            }.into(),
             compilation_jobs: lila_engine::compilation_jobs(),
             cache_paths_and_limits,
             idle_machine_acknowledged: true,
@@ -739,6 +759,24 @@ mod tests {
         let mut duplicate = arguments();
         duplicate.extend(["--samples".into(), "4".into()]);
         assert!(parse(duplicate).is_err());
+    }
+    #[test]
+    fn corpus_host_helpers_are_authorized_only_for_the_chunk_gate() {
+        let root = std::env::temp_dir().join(format!("lila-perf-host-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        write_new(&root.join("host.js"),
+            b"typeof __lilaAssertThrows + ':' + typeof __lilaDetachArrayBuffer;").unwrap();
+        for (gate, expected) in [
+            (Gate::WarmChunk, "string(function:function)"),
+            (Gate::WarmExact, "string(undefined:undefined)"),
+            (Gate::ColdExact, "string(undefined:undefined)"),
+        ] {
+            let (_, code, stdout, stderr) = invoke("host.js", &root, None, gate).unwrap();
+            assert_eq!(code, 0, "{}", String::from_utf8_lossy(&stderr));
+            assert!(String::from_utf8_lossy(&stdout).contains(expected),
+                "{}", String::from_utf8_lossy(&stdout));
+        }
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn actual_cli_rejects_unacknowledged_timing_before_output_creation() {

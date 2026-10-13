@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "date": "2026-10-13",
+  "source_before_repair": {
+    "head": "793c3c519ac19c96a60d70a8eda7fd03a04a6e43",
+    "tracked_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": {}
+  },
+  "default_optimized_build": {
+    "owner": {
+      "path": "target/default-release-20261013/receipt.json",
+      "sha256": "6f1c8dfb92953e9b7f4b99c89cebaf4ea8e879fc5a1a6168ab0cdb2ed8971f49",
+      "bytes": 3296
+    },
+    "passed": true,
+    "oracle": false,
+    "cargo_artifacts": 390,
+    "watched_seconds": 1176,
+    "executables": [
+      {
+        "path": "/workspace/porffor/target/release/lila",
+        "sha256": "6990658a10e5334ad06904c3bc7982a807b05d156a9e6e7aa20592b2da2f0586",
+        "bytes": 424666496,
+        "identity": {
+          "source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+          "source_fingerprint": "767cc735540f91378ac1a6e74e20ee73d277d72ab6ec6ac205c514d01132454a",
+          "source_revision": {
+            "kind": "git-commit",
+            "commit": "793c3c519ac19c96a60d70a8eda7fd03a04a6e43"
+          },
+          "executable_sha256": "6990658a10e5334ad06904c3bc7982a807b05d156a9e6e7aa20592b2da2f0586"
+        }
+      }
+    ],
+    "runtime_precompile_seconds": 199.953103207,
+    "runtime_function_cache_hits": 2153,
+    "runtime_function_cache_misses": 0
+  },
+  "first_idle_profiles": {
+    "owner": {
+      "path": "target/optimized-default-performance-20261013/receipt.json",
+      "sha256": "f3f70b05aa30cd614cbee8cd28bd1574b709fff3bd98ac30bc9b2024289b549b",
+      "bytes": 33842
+    },
+    "passed": false,
+    "source_unchanged": true,
+    "steps": [
+      {
+        "label": "report",
+        "exit_code": 1,
+        "seconds": 12.183151934004854,
+        "command": [
+          "/workspace/porffor/target/release/lila",
+          "--jobs",
+          "1",
+          "performance",
+          "report",
+          "--output-dir",
+          "/workspace/porffor/target/optimized-default-performance-20261013/report",
+          "--samples",
+          "7",
+          "--machine-label",
+          "cloud-x86_64-4cpu-quota-32gib-one-request-cpu-20261013",
+          "--idle-machine"
+        ]
+      },
+      {
+        "label": "compile",
+        "exit_code": 0,
+        "seconds": 30.90068268496543,
+        "command": [
+          "/workspace/porffor/target/release/lila",
+          "--jobs",
+          "1",
+          "performance",
+          "compile",
+          "--output-dir",
+          "/workspace/porffor/target/optimized-default-performance-20261013/compile",
+          "--samples",
+          "7",
+          "--machine-label",
+          "cloud-x86_64-4cpu-quota-32gib-one-request-cpu-20261013",
+          "--idle-machine"
+        ]
+      },
+      {
+        "label": "runtime",
+        "exit_code": 1,
+        "seconds": 12.420722299953923,
+        "command": [
+          "/workspace/porffor/target/release/lila",
+          "--jobs",
+          "1",
+          "performance",
+          "runtime",
+          "--output-dir",
+          "/workspace/porffor/target/optimized-default-performance-20261013/runtime",
+          "--samples",
+          "7",
+          "--machine-label",
+          "cloud-x86_64-4cpu-quota-32gib-one-request-cpu-20261013",
+          "--idle-machine"
+        ]
+      }
+    ],
+    "reports": [
+      {
+        "mode": "report",
+        "owner": {
+          "path": "target/optimized-default-performance-20261013/report/report.json",
+          "sha256": "794d097cc35f1ac180abbf5c91c38b7bf247aa827f7d488cdbff1bed725f0182",
+          "bytes": 23425
+        },
+        "completion": {
+          "state": "failed",
+          "reason": "warm-chunk warmup failed for wasm_typedarray_accessors.js"
+        },
+        "host_surface": "product",
+        "samples": 7
+      },
+      {
+        "mode": "compile",
+        "owner": {
+          "path": "target/optimized-default-performance-20261013/compile/report.json",
+          "sha256": "1a55ca7614e17bbe38dbe9f2e67aaeebf9d8abe0e60e464e3c37c7651599eaf3",
+          "bytes": 186707
+        },
+        "completion": {
+          "state": "complete"
+        },
+        "host_surface": "product",
+        "samples": 7
+      },
+      {
+        "mode": "runtime",
+        "owner": {
+          "path": "target/optimized-default-performance-20261013/runtime/report.json",
+          "sha256": "2d349d07610b001481fd2dee940bafd1b195b92b540655a59d8366703de8a44f",
+          "bytes": 148677
+        },
+        "completion": {
+          "state": "failed",
+          "reason": "benchmark threw an ECMAScript object; retained observations/12-warmup.json: Object"
+        },
+        "host_surface": "product",
+        "samples": 7
+      }
+    ],
+    "failure": "Fixed conformance corpus calls Test262-only assertion and detachment globals, while the original performance reporter/compiler/runtime configuration selected Product. CLI warm-chunk warmup has an unbound-identifier ReferenceError; runtime case12 has the corresponding Throw. Product policy correctly denies these names. Original ignored CLI chunk gate and integration fixture harness explicitly select Test262. No optimizer or typed-array semantic regression is established by this evidence."
+  },
+  "repair": {
+    "status": "authored, not yet executed",
+    "policy": "Fixed twenty-case corpus explicitly compiles/runs under Test262; exact CLI gates remain Product. Retain exact corpus bytes/order, original1/5/5-second budgets, fresh outputs and all failed owners. Versioned measurement policies reject prior mismatched authority as a comparable baseline. Product CLI/SDK defaults stay Product."
+  },
+  "acceptance": {
+    "full_pin_verified": false,
+    "all_tasks_complete": false,
+    "temporal_apia_authority_resolved": false,
+    "supported_host_receipts_complete": false
+  }
+}

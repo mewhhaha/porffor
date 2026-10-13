@@ -4,7 +4,7 @@ use lila_engine::{CompileOptions, Engine, RealmBuilder, ScriptCompilationProfile
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-const PROFILE_POLICY: &str = "product-compiler-stages-v1;serial;one-warmup-per-case;no-program-cache;wasmtime-product-validation";
+const PROFILE_POLICY: &str = "product-compiler-stages-v2;fixed20-test262-host;serial;one-warmup-per-case;no-program-cache;wasmtime-product-validation";
 pub(super) const ARTIFACT_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const SCOPE: &str = "prepare-includes-parse-and-dependency-admission;lower-includes-spec-ir;emit-includes-wasm-and-metadata;validation-excludes-engine-setup;no-js-execution-or-runtime-memory-metrics";
 
@@ -85,6 +85,7 @@ pub(super) fn footprint(value: WasmArtifactFootprint) -> serde_json::Value {
 impl CompilerReport {
     fn summaries(&self) -> Result<Vec<CaseSummary>, String> {
         if self.version != 1 || self.measurement_policy != PROFILE_POLICY || self.measurement_scope != SCOPE
+            || self.identity.configuration.host_surface != host_surface_label(CORPUS_HOST_SURFACE)
             || self.completion != Completion::Complete || !(3..=100).contains(&self.identity.samples_per_case)
             || self.cases.len() != self.identity.fixtures.len() {
             return Err("compiler profile is incomplete or has a foreign measurement contract".into());
@@ -173,7 +174,8 @@ fn persist_profile(output: &Path, report: &CompilerReport) -> Result<(), String>
 fn measure(engine: &Engine, source: &str, name: &str, output: &Path) -> Result<Measurement, String> {
     let ScriptCompilationProfile { preparation, lowering, emission, validation, artifact, footprint: facts } = engine
         .profile_script_compilation(source, CompileOptions { filename: Some(name.into()),
-            module_loading_policy: lila_engine::ModuleLoadingPolicy::RejectAll, ..CompileOptions::default() })
+            module_loading_policy: lila_engine::ModuleLoadingPolicy::RejectAll,
+            host_surface_policy: CORPUS_HOST_SURFACE, ..CompileOptions::default() })
         .map_err(|error| format!("{name}: {error}"))?;
     let mut stage_ns = [0; 4];
     for (result, span) in stage_ns.iter_mut().zip([preparation, lowering, emission, validation]) {

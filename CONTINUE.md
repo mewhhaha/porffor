@@ -1,3 +1,27 @@
+## Default optimized build and profile host repair — 2026-10-13
+
+Clean `793c3c519` builds default release successfully in 1,176 seconds, 390
+Cargo artifacts, no oracle engine. CLI is 424,666,496 bytes, SHA-256
+`6990658a10e5334ad06904c3bc7982a807b05d156a9e6e7aa20592b2da2f0586`.
+Runtime precompile takes 199.953 seconds with 2,153 function-cache hits/zero misses.
+The original seven-sample idle owner completes compiler profiles for all twenty
+fixtures, but CLI/runtime fail at `wasm_typedarray_accessors.js`: a Product
+invocation correctly denies its Test262 assertion/detachment helpers. Preserve
+`target/optimized-default-performance-20261013` and its raw ReferenceError/Throw
+evidence. This establishes a benchmark configuration bug, not an optimized
+typed-array semantic regression. The authored repair aligns the fixed corpus
+with the original ignored chunk gate's explicit Test262 authority; exact gates
+remain Product. New policies reject old mismatched baselines. Build and native
+controls, fresh idle profiles and exact retained-pass comparison are next.
+See [the portable record](docs/rust-rewrite/default-optimized-performance-20261013.json).
+
+Four additional SHA-verified 512-MiB debug-cache chunks and an archive of four
+receipt-bound completed prototype copies reclaim space without changing any
+raw verdict, runtime OUT/DSO, current executable, fingerprint or fixture.
+Keep every archive/receipt. Finish optimized stress, current-pin/full-family,
+shard/resume, publication and all task-specific gates before deleting this file
+or tasks. Push verified batches to main continuously.
+
 ## Optimized sustained and private-worker acceptance — 2026-10-13
 
 Frozen clean `b165ef789` passes optimized nightly 704/704 and robustness
