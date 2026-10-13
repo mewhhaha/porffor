@@ -113,12 +113,18 @@ still has1015 within-run duplicate hits/1142 unique misses, not inherited reuse.
 
 Generated Intl identities/provenance were refreshed for the new root Cargo
 profile with unchanged data. Dependency order is named-time-zones ->DateTime
-authority ->Locale calendar; the other profile/query identities are refreshed
-from their actual producers. Focused generator/identity/replay105 controls had
-one stale DateTime predecessor after named-zone refresh; corrected calendar10
-now passes. Workspace formatting passes. The sparse next-checkout508 sweep
-cannot supply a verdict: it has six provenance failures and six missing-source
-errors. Run the complete canonical tooling sweep after finishing the batch.
+authority ->all four Locale profiles (calendar/hour-cycles/text/week), not just
+calendar. Actual canonical sweep at a4c has506 Success/two stale provenance
+failures, with exact IDs/logs retained in target/exact-list-python-a4c6209db-20261013.
+The in-progress no-run was cancelled at804s before native execution; completed
+shared dependencies remain available. Hour/text/week were then regenerated from
+the final DateTime owner; every full Locale producer check now passes. The Week
+control now compares regenerated outputs with checked-in bytes as well as itself,
+so stale checked metadata cannot pass its determinism-only check. Run the complete
+canonical508 sweep before the corrected frozen shared-graph build. Preserve the
+failed Python and cancelled build owners; do not relabel either as acceptance.
+The sparse next-checkout sweep has six provenance failures/six missing-source
+errors and cannot supply a canonical verdict.
 The source-only full NumberFormat regeneration check is running separately;
 it launches no Cargo and changes no tracked outputs.
 
@@ -126,6 +132,12 @@ Thirteen closed passing afba native ELFs are reversibly parked under
 target/completed-string-native-parking-20261013 with verified342,408,691-byte
 archive and all original transcripts/IDs retained. Retired debug archives
 cannot restore their old outputs; current Cargo may regenerate them. Preserve
+all original archive/member manifests. Five older closed compiled-output archives
+and three closed passing execution caches were retired with SHA receipts under
+target/completed-exact-list-archive-reclamation-corrected-20261013, reclaiming
+1,168,605,184 allocated bytes. Those older ELFs/cache are no longer directly
+restorable; ordinary Cargo may regenerate them. The afba archive remains.
+Preserve
 all active full caches/workers/DSOs. Next: one same shared-graph no-run for
 affected CLI/harness/Intl, execute fresh complete inventories/focus, stage a new
 actual worker, prove exact-list/per-ID outcome parity and real interruption/

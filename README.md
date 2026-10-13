@@ -8,6 +8,10 @@ own outcomes; absent files/modes stay explicit errors in the original denominato
 See [the exact-list contract](docs/rust-rewrite/contracts/exact-execution-list-replay.md).
 Python admission/resume controls pass; native compilation, real replay and
 before/after iteration timing remain pending.
+The complete canonical Python sweep exposed stale hour-cycle/text provenance
+after the DateTime refresh. All four Locale identities are now refreshed from
+that final owner; the Week control also checks the actual checked-in bytes.
+A corrected complete tooling sweep and native acceptance remain pending.
 
 Same-source opt-level1 host producers preserve all three package/native/manifest
 files byte-for-byte. Whole cold producer time is **718.569s versus 86.311s**;

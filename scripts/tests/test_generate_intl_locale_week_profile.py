@@ -81,8 +81,11 @@ class LocaleWeekGeneration(unittest.TestCase):
             gen.extract(modified)
 
     def test_profile_bytes_reproduce_and_have_only_two_week_info_fields(self):
-        first = gen.outputs(PRIMARY_ROOT)
-        self.assertEqual(first, gen.outputs(PRIMARY_ROOT))
+        native_root = SCRIPT.parents[1]
+        first = gen.outputs(PRIMARY_ROOT, native_root)
+        self.assertEqual(first, gen.outputs(PRIMARY_ROOT, native_root))
+        for path, data in first.items():
+            self.assertEqual((native_root / path).read_bytes(), data, str(path))
         profile = json.loads(first[gen.DEST / 'profile.json'])
         for row in profile['regions']:
             self.assertEqual(set(row), {'region', 'first_day', 'weekend_mask'})
