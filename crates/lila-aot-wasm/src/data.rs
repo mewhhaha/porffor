@@ -165,7 +165,7 @@ pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
 }
 
 /// Only the complete static-table writer creates these checked bounds.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RuntimeRegExpProgramTable {
     address: u32,
     count: u32,

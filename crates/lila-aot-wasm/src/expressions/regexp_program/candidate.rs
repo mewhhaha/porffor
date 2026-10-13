@@ -1,6 +1,7 @@
 //! Finite compiler-owned RegExp candidate lookup and descriptor publication.
 
 use super::*;
+use crate::gc_types::I64Local;
 
 impl FunctionBuilder<'_> {
     /// The program half: the literal `(source, flags)` pairs the compiler
