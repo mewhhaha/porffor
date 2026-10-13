@@ -5,6 +5,19 @@ code; Luna agents do read-only chores/exploration. Finish actual task acceptance
 and the full suite before deleting this file or tasks. Retain every failure,
 unsupported/missing-input ID and previous passing ID.
 
+## Actual accepted exact replay checkpoint
+
+Compiler `aee6bc109927c580393d59c0cf6e532e30efd4b3` passes all2108 affected optimized native
+tests and all508 canonical Python checks. Every prior native ID/pass is retained;
+allthree earlier native failures are fixed. Actual36-ID per-ID/batch/real
+interrupt/resume keeps34Success and both missing modes explicitly red. All
+raw owners and actual compiler/image identities are sealed in
+[the portable checkpoint](docs/rust-rewrite/exact-replay-checkpoint-20261013.json). Canonical remains frozen at this compiler
+for the all5365 historical driver. Publication uses this source-only checkout;
+do not change canonical HEAD while its replay is active. The new public staging
+helper is source-only tooling, independently verified against the actual captured
+image; it does not relabel the compiled source as the publication commit.
+
 ## Latest accepted compiler
 
 afba1a07a8c653f1d5fba4b4dfc8f26f380a40cc completes private rooted UTF-16 String
@@ -133,7 +146,7 @@ execution cache is then retired with every raw failure/transcript preserved,
 reclaiming478126080bytes. Allthree full owners remain active; afba latest8920
 has8916Success/noBug/Crash/timeout and the samefour unsupported dynamic-eval IDs.
 
-Canonical source is frozen at1bb1471cd4b4af02217bca92ef9e57a2cf58252d.
+Previous closed1bb verification:
 Complete canonical Python sweep passes508/508; four Locale producer checks pass.
 Full NumberFormat regeneration reproduces1082 locales/payload
 d6e02ff9770f2a8a06a3be507eb5906878ed04994f1c416fbf1f8437b8815254.

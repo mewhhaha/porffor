@@ -1,35 +1,35 @@
 # Lila
 
-## Exact replay and optimized host producer prepared — 2026-10-13
+## Exact replay native checkpoint — 2026-10-13
 
-The coherent next batch adds native `test262 run-list` and complete `list-all`
-discovery so exact replay can use existing bounded workers. Native snapshots
-own outcomes; absent files/modes stay explicit errors in the original denominator.
-See [the exact-list contract](docs/rust-rewrite/contracts/exact-execution-list-replay.md).
-Python admission/resume controls pass; native compilation, real replay and
-before/after iteration timing remain pending.
-The complete canonical Python sweep exposed stale hour-cycle/text provenance
-after the DateTime refresh. All four Locale identities are now refreshed from
-that final owner; the Week control also checks the actual checked-in bytes.
-The corrected canonical sweep passes all **508 checks** at `1bb1471cd`.
-All **41 affected native targets** compile. Actual execution exposed one resume
-bug: completed snapshots retain verdicts but rewrite known case times to zero.
-The prepared repair retains available times and leaves unrecorded times absent;
-native acceptance and actual historical replay remain pending.
-The broad CLI run also catches the new test target missing from its closed
-inventory enum. Registration is included in the same repair batch; existing
-hygiene controls remain unchanged and run first in the next checkpoint.
-Captured private native CLI staging can now reuse a source-bound build owner.
-All six admission controls pass; the actual `aee6bc109` image stages in **0.800s**
-with zero Cargo invocations and the ordinary product checksum preserved.
+Actual compiler `aee6bc109` passes all **2,108 affected
+optimized native tests** across forty complete CLI/Test262/Intl scopes. Every
+one of the 2,107 previous IDs remains present;
+all 2,104 earlier passes remain green, all three
+observed failures are repaired, and one recorded-timing regression is added.
+The complete canonical Python sweep retains all508 passes. The original red
+native run and exact failure IDs remain in the
+[checkpoint](docs/rust-rewrite/exact-replay-checkpoint-20261013.json). The three idle-only performance controls remain a separate
+gate; this checkpoint does not establish whole-current-workspace, oracle,
+independent-host or full pinned conformance closure.
+
+Native `test262 run-list` and complete `list-all` feed optional exact replay
+worker reuse. Actual per-ID and native-batch runs preserve the same36 identities:
+34 Success and both missing DurationFormat modes as explicit infrastructure
+errors. Real interruption retains an owned partial checkpoint, the observed
+native process tree retires, and same-image resume retains every original
+result. Available case times survive; unrecorded times stay absent. The
+full5,365-ID historical replay remains a separate pending owner.
+
+The host producer's adopted opt-level1 keeps the product at opt-level3. Earlier
+same-source producers reproduce allthree bundle files byte-for-byte: cold
+718.569s versus86.311s; warm38.358/39.485s versus3.904/2.893s. The actual repaired
+shared no-run takes383.130s for41 artifacts. Its captured private CLI stages
+by copy in0.096s; independent ordinary-product build takes132.091s. The reusable
+source-bound staging helper passes six admission controls and stages the actual
+image in0.800s with zero Cargo invocations and ordinary output unchanged.
+These observations are under concurrent cloud load, not idle speedup claims.
 See [the staging workflow](docs/rust-rewrite/batch-workflow.md).
-
-Same-source opt-level1 host producers preserve all three package/native/manifest
-files byte-for-byte. Whole cold producer time is **718.569s versus 86.311s**;
-warm probes are **38.358/39.485s versus 3.904/2.893s** under concurrent cloud load.
-The initial optimized host graph costs 944.635s. These component measurements
-support the prepared release build-override; canonical adoption and native/CLI
-acceptance remain pending. See [the actual producer checkpoint](docs/rust-rewrite/host-producer-optimization-checkpoint-20261013.json).
 
 ## Verified String character construction — 2026-10-13
 

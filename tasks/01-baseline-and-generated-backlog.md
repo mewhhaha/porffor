@@ -1,5 +1,16 @@
 # T01 — Reproducible baseline and generated failure backlog
 
+## Actual exact replay checkpoint — 2026-10-13
+
+Compiler `aee6bc109` passes all2108 affected optimized native
+tests, retains every2107 prior execution ID and
+all2104 earlier passes, repairs allthree observed
+failures and addsone timing-retention control. Actual per-ID/batch/partial-resume
+comparison keeps all36 IDs,34 Success and both missing modes explicitly red.
+All508 canonical Python checks pass. See
+[the complete checkpoint](../docs/rust-rewrite/exact-replay-checkpoint-20261013.json).
+Historical5365 and full current-pin/two-family/task closure remain open.
+
 ## Actual resume-timing repair prepared — 2026-10-13
 
 Actual `1bb1471cd` passes all508 canonical Python checks and compiles all41

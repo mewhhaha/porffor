@@ -52,6 +52,8 @@ The API change is explicit: TestResult.duration_ms is Option<u128>. Existing
 schema8 failure/slowest fields require no wire change. A13case regression preserves
 all original IDs without rerunning throwing sources, keeps a known failure outside
 the top ten and leaves unknown success/failure times absent. The actual CLI keeps
-its complete snapshot-equality control. The repair is prepared; full current
-native acceptance, real interruption/resume, all5,365 historical IDs and actual
-per-ID/batch timing remain pending.
+its complete snapshot-equality control. The actual `aee6bc109` checkpoint passes all2108 affected
+native tests and the real36-ID per-ID/batch/interruption/resume comparison.
+Both absent modes remain infrastructure errors; every original ID/outcome is
+retained. All5,365 historical IDs and the full pinned closure remain separate
+acceptance gates. See [the checkpoint](../exact-replay-checkpoint-20261013.json).
