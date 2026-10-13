@@ -1,6 +1,6 @@
 # T14 — Promise jobs, async functions and async iteration
 
-## Promise.try callback order and identity — 2026-10-13 source batch
+## Verified Promise.try callback order and identity — 2026-10-13
 
 The complete original 30-ID family exposes four Bugs from eagerly constructing
 a capability before Call and wrapping matching-Promise callback results.
@@ -10,10 +10,14 @@ The coherent source repair shares settlement emission without an observable
 resolve lookup. Two existing native controls retain their IDs and all inputs,
 with corrected normative expectations; four strict/sloppy controls cover live
 ordering, identity, non-constructor Object receivers, borrowed Realms and abrupt
-construction/settlement. Compile once, run focused controls, complete original
-family/affected native inventories, retain prior fixes, then publish verified
-evidence. No runtime verdict or task closure follows from this source batch.
-See [the normative contract](../docs/rust-rewrite/contracts/promise-try-order-identity.md).
+construction/settlement. Actual `604a6f9aa` completes the original family at
+30/30 Success, eliminates all four Bugs and retains all 26 earlier passes.
+All 4,821 affected native IDs pass, retaining all 4,817 previous passes and
+adding four controls. Complete Iterator1308 and Function893 retain every pass
+and the same two Function limitations; earlier RegExp/ArrayBuffer fixes and
+both unchanged CLI realm witnesses pass. No full pinned or task closure is
+claimed. See [the complete checkpoint](../docs/rust-rewrite/promise-try-checkpoint-20261013.json)
+and [the normative contract](../docs/rust-rewrite/contracts/promise-try-order-identity.md).
 
 ## Async disposal and thenable-job Realm repair — 2026-10-11
 

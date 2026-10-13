@@ -1,15 +1,17 @@
 # Lila Rust AOT + Test262 execution plan
 
-## Constructor and Iterator batch — runtime verification pending
+## Verified Promise.try and retained constructor/Iterator repairs — 2026-10-13
 
-Complete `c457c82a5` optimized IR scopes pass 2,178/2,178 tests and retain all
-2,176 prior passing IDs. The ten original finite constructor limitations still
-need worker replay. Iterator includes/join implementation and native controls
-address two missing methods behind 112 newly observed baseline Bugs; their
-acceptance is pending. Both full families, task gates and explicit unsupported
-outcomes remain open. See
-[the IR checkpoint](../docs/rust-rewrite/prepared-constructor-ir-checkpoint-20261013.json)
-and [the Iterator contract](../docs/rust-rewrite/contracts/iterator-includes-join.md).
+Actual `604a6f9aa` passes all 30 original Promise.try executions, removes four
+Bugs and retains every original pass. All 4,821 affected optimized native tests
+pass, retaining all 4,817 prior IDs and adding four controls. Complete Iterator
+and Function families retain 1,308/1,308 and 891/893 Success respectively, with
+the same two explicit Function limitations. The constructor batches remove
+22 original limitations; Iterator eliminates all 112 original Bugs. All earlier
+RegExp/ArrayBuffer fixes and both unchanged Promise CLI realm witnesses pass.
+See [the complete current checkpoint](../docs/rust-rewrite/promise-try-checkpoint-20261013.json).
+Full pinned families, task-specific gates and explicit unsupported accounting
+remain open. Keep CONTINUE.md/tasks until actual completion.
 
 ## Verified ArrayBuffer capacity — 2026-10-13
 

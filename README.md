@@ -1,15 +1,30 @@
 # Lila
 
-## Promise.try repair prepared — 2026-10-13
+## Verified Promise.try repair — 2026-10-13
 
-The frozen baseline's complete 30-ID Promise.try family has 26 Success and four
-identity Bugs. A coherent source repair now calls the callback before capability
-construction and uses PromiseResolve on normal completion, retaining matching
-Promise identity and live constructor effects. Two older native expectations are
-corrected against the pinned standard with all inputs retained; four strict/sloppy
-controls cover ordering, identity, borrowed Realms and abrupt completions.
-Actual optimized/native/pinned verification is next. The accepted constructor
-checkpoint below retains its own source scope. See [the normative contract](docs/rust-rewrite/contracts/promise-try-order-identity.md).
+Actual `604a6f9aa` passes **30/30 Promise.try executions**, eliminates all four
+identity Bugs and retains all 26 original passes. Callback invocation now precedes
+capability construction; normal completion preserves matching-Promise identity
+and observes the live constructor in the pinned order. All **4,821 affected
+optimized native tests** pass, retaining all **4,817 prior IDs** and adding four
+strict/sloppy controls. Both corrected older controls retain every original input.
+See [the exact checkpoint](docs/rust-rewrite/promise-try-checkpoint-20261013.json)
+and [the normative contract](docs/rust-rewrite/contracts/promise-try-order-identity.md).
+
+Complete retained families have **1,308/1,308 Iterator Success** and
+**891 Function Success/two unchanged NotImplemented**. The four earlier RegExp/
+ArrayBuffer fixes and both original borrowed-Promise CLI realm witnesses also
+pass. There are zero prior-pass regressions or missing IDs. The two Function
+limitations retain their actual exit 1; full pinned conformance and task closure
+remain pending.
+
+The full two-CPU acceptance queue takes **45.04 minutes** under concurrent
+full-suite load. Its optimized build takes 23.46 minutes; R precompile takes
+630.741 seconds with 1,507 stencil hits/650 misses. These are observations, not
+idle speedup measurements. Refresh with the admitted worker, unchanged pin and
+original bounds:
+`target/promise-try-worker-604a6f9aa-20261013/lila-worker --jobs 1 test262 run built-ins/Promise/try/ --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`,
+using the pinned suite root and a fresh snapshot directory.
 
 ## Verified constructor and Iterator repair — 2026-10-13
 
@@ -40,9 +55,9 @@ no controlled speedup is claimed. Raw R emission precedes that precompile timer.
 Refresh the affected pinned families with the admitted worker and original bounds:
 `target/constructor-retention-worker-4a3968e5e-20261013/lila-worker --jobs 1 test262 run built-ins/Function/ --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --reuse-case-workers`
 and the same command for `built-ins/Iterator/`, using the pinned suite root and
-a fresh snapshot directory. Full unfiltered runs continue. The frozen baseline
-now also exposes four Promise.try identity failures; their coherent repair is
-next. These family results do not close full pinned acceptance or task acceptance.
+a fresh snapshot directory. Full unfiltered runs continue. The accepted
+Promise.try successor above eliminates the four subsequent identity failures.
+These family results do not close full pinned acceptance or task acceptance.
 
 ## Verified ArrayBuffer capacity repair — 2026-10-13
 

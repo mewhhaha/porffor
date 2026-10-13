@@ -37,8 +37,11 @@ controls cover identity and observable resolve exclusion, both settlement paths,
 live constructor Get and borrowed Realm errors, differing constructors, and
 construction/settlement throws.
 
-This source batch needs one optimized build, focused controls, the complete
-original Promise.try family, retained original family pass IDs, affected native
-inventories and prior constructor/Iterator/RegExp/ArrayBuffer fixes. Authorship
-does not establish native or pinned acceptance. Full suites and task closure
-remain separate gates.
+Actual `604a6f9aa` completes the original family at 30/30 Success, retaining all
+26 earlier passes and removing all four Bugs. Fourteen focused controls and all
+4,821 complete affected optimized native IDs pass, with every 4,817 previous ID
+retained and four new controls. Complete Iterator1308 and Function893 retain
+every earlier pass and the same two Function limitations. The four earlier
+RegExp/ArrayBuffer fixes and both original Promise CLI realm witnesses pass.
+See the [source-bound checkpoint](../promise-try-checkpoint-20261013.json).
+Full suites and task closure remain separate gates.
