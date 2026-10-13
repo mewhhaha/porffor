@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 const PROFILE_POLICY: &str = "product-compiler-stages-v2;fixed20-test262-host;serial;one-warmup-per-case;no-program-cache;wasmtime-product-validation";
 pub(super) const ARTIFACT_MAX_BYTES: u64 = 512 * 1024 * 1024;
-const SCOPE: &str = "prepare-includes-parse-and-dependency-admission;lower-includes-spec-ir;emit-includes-wasm-and-metadata;validation-excludes-engine-setup;no-js-execution-or-runtime-memory-metrics";
+const SCOPE: &str = "prepare-includes-parse-dependency-admission-and-spec-ir;lower-includes-coded-diagnostic-admission-and-unit-construction;emit-includes-wasm-and-metadata;validation-excludes-engine-setup;no-js-execution-or-runtime-memory-metrics";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

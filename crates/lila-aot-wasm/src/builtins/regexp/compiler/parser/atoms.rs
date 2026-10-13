@@ -29,6 +29,10 @@ impl FunctionBuilder<'_> {
         self.emit_regexp_parser_braced_bounds(compiler, &bounds, function);
         copy(function, matched, bounds.matched);
         eq(function, matched, 1);
+        // A failed braced-quantifier probe is a literal only in Annex B's
+        // legacy grammar. Neither Unicode grammar admits a bare opening brace.
+        character_mode.emit_is_unicode(function);
+        function.instruction(&Instruction::I32Or);
         function.instruction(&Instruction::If(BlockType::Empty));
         self.emit_regexp_compile_failure(
             compiler,

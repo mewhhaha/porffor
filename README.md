@@ -1,5 +1,17 @@
 # Lila
 
+## RegExp Unicode validation and runtime cache identity — 2026-10-13
+
+The full pinned baseline on frozen `4e01400fc` exposes two executions of
+`RegExp.prototype.compile` accepting an unmatched opening brace with Unicode
+flags. The candidate repair rejects that grammar in both `u` and `v` modes,
+retains Annex B literal behavior without Unicode flags, and adds computed-source
+constructor/recompile controls with receiver-state checks. The same batch stores
+the exact immutable runtime-byte digest once and corrects compiler profile stage
+labels. These changes are prepared in an isolated checkout; native verification
+and before/after measurement remain required. The original full run continues
+on unchanged source. See [the repair contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+
 ## Default optimized measurements — 2026-10-13
 
 Frozen `743c810c7` passes **all 932 affected optimized CLI tests**, retaining

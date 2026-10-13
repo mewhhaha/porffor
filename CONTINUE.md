@@ -1,3 +1,23 @@
+## Isolated repair batch while full baseline runs — 2026-10-13
+
+The original checkout remains frozen at `4e01400fc`; its full two-family owner
+is `target/full-pin-optimized-4e01400fc-20261013/receipt.json`. Do not edit that
+checkout or replace the original native worker while the run is active. This
+repair branch fixes Unicode unmatched-opening-brace admission, memoizes the
+actual runtime-byte digest inside the private artifact constructor, and corrects
+compiler stage metadata. These changes are authored and not yet natively
+verified. Preserve old failures and compare the same exact pinned execution IDs
+and previous passing cases after building the whole batch.
+
+The completed baseline prefix exposes both modes of
+`annexB/built-ins/RegExp/prototype/compile/pattern-string-invalid-u.js` as Bugs.
+Four leading/trailing RegExp escape cases remain explicit dynamic-eval
+NotImplemented results. This prefix is not the full denominator or a final
+failure count. Continue collecting the original complete run. See
+[the repair and verification contract](docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+Keep CONTINUE.md/tasks until actual task completion and publish verified changes
+to main. Isolated source avoids invalidating the long-running baseline.
+
 ## Default optimized acceptance and next gates — 2026-10-13
 
 Clean `743c810c7` passes the actual default release build, private shared worker,

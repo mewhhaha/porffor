@@ -186,16 +186,32 @@ pub(crate) struct EmittedModule {
 pub struct RuntimeArtifact {
     key: RuntimeArtifactKey,
     bytes: Arc<[u8]>,
+    wasm_sha256: [u8; 32],
     layout: RuntimeLayout,
 }
 
 impl RuntimeArtifact {
+    fn new(bytes: Arc<[u8]>, layout: RuntimeLayout) -> Self {
+        Self {
+            key: runtime_key(&bytes),
+            wasm_sha256: Sha256::digest(&bytes).into(),
+            bytes,
+            layout,
+        }
+    }
+
     pub fn key(&self) -> RuntimeArtifactKey {
         self.key
     }
 
     pub fn bytes(&self) -> &Arc<[u8]> {
         &self.bytes
+    }
+
+    /// SHA-256 of the exact immutable Wasm bytes, without the layout-key prefix.
+    /// Computed once when emitted or fully admitted runtime bytes are owned.
+    pub fn wasm_sha256(&self) -> [u8; 32] {
+        self.wasm_sha256
     }
 
     pub(crate) fn layout(&self) -> &RuntimeLayout {
@@ -283,11 +299,7 @@ fn emit_runtime_artifact(
         .runtime_layout
         .ok_or_else(|| EmitError::unsupported("the runtime module must describe its layout"))?;
     let bytes: Arc<[u8]> = Arc::from(module.artifact.bytes);
-    Ok(Arc::new(RuntimeArtifact {
-        key: runtime_key(&bytes),
-        bytes,
-        layout,
-    }))
+    Ok(Arc::new(RuntimeArtifact::new(bytes, layout)))
 }
 
 fn runtime_key(bytes: &[u8]) -> RuntimeArtifactKey {

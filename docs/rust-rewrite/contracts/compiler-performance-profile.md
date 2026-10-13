@@ -30,9 +30,11 @@ The SDK's `Engine::profile_script_compilation` calls the actual product
 preparation, lowering and Wasm emission methods. Preparation includes parsing,
 syntax errors, dependency/prelude admission and actual Spec IR construction
 through the prepared source catalog. The later lowering span admits coded
-early/resolution diagnostics and constructs the compilation unit. Raw scope
-strings and SDK comments currently put Spec IR in lower incorrectly; these
-labels need a coherent repair, and the retained measurements stay unchanged. Validation uses Wasmtime with the original
+early/resolution diagnostics and constructs the compilation unit. Historical `743c810c7` scope strings and SDK comments put Spec IR in lower
+incorrectly. The candidate metadata and SDK comments now name the actual spans;
+baseline admission rejects the old scope string. Retained historical
+measurements stay unchanged. The correction requires native verification and
+fresh profiles before claiming a new accepted measurement owner. Validation uses Wasmtime with the original
 product capability policy. Worker startup, runtime engine setup and artifact
 inventory analysis are outside those four spans. The compiler profile does not
 read the program artifact cache or execute JavaScript. It requires the product

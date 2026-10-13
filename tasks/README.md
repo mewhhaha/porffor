@@ -1,5 +1,15 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Pinned-baseline repair candidate — 2026-10-13
+
+The active full baseline at `4e01400fc` has found a shared Unicode RegExp
+syntax defect in two execution modes. The isolated candidate fixes runtime
+parser admission, adds computed constructor/recompile controls, preserves native
+cache identities while memoizing immutable R digests, and corrects profiler
+labels. Native acceptance and fresh measurements are pending; the original run
+and all task gates remain open. See
+[the repair contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+
 ## Default optimized acceptance — 2026-10-13
 
 Frozen `743c810c7` passes all 932 affected optimized native tests (81 library,

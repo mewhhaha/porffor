@@ -1,5 +1,16 @@
 # T19 — Complete ECMAScript RegExp semantics
 
+## Unicode unmatched brace repair candidate — 2026-10-13
+
+The full current-pin baseline rejects both modes of
+`annexB/built-ins/RegExp/prototype/compile/pattern-string-invalid-u.js`: the
+runtime atom parser allowed failed braced-quantifier probes to become literals
+under Unicode flags. The candidate gates that Annex B fallback to legacy mode.
+Computed-source controls cover `u`/`v` constructors and recompile, failed receiver
+transactions, valid bounds, escaped braces and the original numeric-backreference
+rejection. Native and pinned before/after verification remain required. See
+[the contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+
 ## Folding inventory and native checkpoint — 2026-10-08
 
 Unicode folding enumerates the pinned regress mapping ranges directly; legacy

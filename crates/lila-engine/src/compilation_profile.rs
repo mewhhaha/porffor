@@ -86,9 +86,9 @@ impl WasmArtifactFootprint {
 
 #[derive(Debug)]
 pub struct ScriptCompilationProfile {
-    /// Parsing, early syntax errors and the actual dependency/prelude admission.
+    /// Parsing, early syntax errors, dependency/prelude admission and spec IR construction.
     pub preparation: Duration,
-    /// Original spec IR lowering and its coded early/resolution errors.
+    /// Admission of coded early/resolution errors and compilation-unit construction.
     pub lowering: Duration,
     /// Original Wasm lowering/emission and artifact metadata publication.
     pub emission: Duration,

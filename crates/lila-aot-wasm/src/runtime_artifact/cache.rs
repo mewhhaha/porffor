@@ -15,7 +15,7 @@ use wasmparser::{
     ValidPayload, Validator, WasmFeatures,
 };
 
-use super::{runtime_key, RuntimeArtifact, RuntimeLayout, LAYOUT_VERSION};
+use super::{RuntimeArtifact, RuntimeLayout, LAYOUT_VERSION};
 use crate::data::PoolBoundary;
 use crate::heap::STATIC_DATA_OFFSET;
 use crate::module::HOST_IMPORT_MODULE;
@@ -223,11 +223,7 @@ pub(super) fn decode_payload(
     }
     let pool = PoolBoundary::from_runtime_cache(static_len, code_unit_len, strings)?;
     let layout = decode_layout(payload, pool, identity)?;
-    Some(RuntimeArtifact {
-        key: runtime_key(payload),
-        bytes: Arc::from(payload),
-        layout,
-    })
+    Some(RuntimeArtifact::new(Arc::from(payload), layout))
 }
 
 fn decode_layout(

@@ -265,7 +265,8 @@ pub(super) fn compile_modules(
 ) -> Result<WasmModules, EngineError> {
     let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
     let module_for_execution =
-        |label: &str, bytes: &[u8], runtime: Option<&RuntimeArtifact>| -> Result<_, EngineError> {
+        |label: &str, source: WasmModuleSource<'_>| -> Result<_, EngineError> {
+            let bytes = source.bytes();
             let started = std::time::Instant::now();
             if trace {
                 eprintln!(
@@ -278,8 +279,8 @@ pub(super) fn compile_modules(
             } else {
                 memory_cache_policy
             };
-            let result = if let Some(runtime) = runtime {
-                wasm_module_for_execution_with_factory(bytes, policy, mode, || {
+            let result = if let WasmModuleSource::Runtime(runtime) = source {
+                wasm_module_for_execution_with_factory(source, policy, mode, || {
                     if let Some(module) = embedded_runtime::load_native(engine, runtime, mode) {
                         return Ok(module);
                     }
@@ -299,11 +300,12 @@ pub(super) fn compile_modules(
     let runtime = program
         .runtime
         .map(|runtime| {
-            module_for_execution("runtime", runtime.bytes(), Some(runtime))
+            module_for_execution("runtime", WasmModuleSource::Runtime(runtime))
                 .map(|(module, _)| module)
         })
         .transpose()?;
-    let (module, memory_cache_outcome) = module_for_execution("program", program.bytes, None)?;
+    let (module, memory_cache_outcome) =
+        module_for_execution("program", WasmModuleSource::Program(program.bytes))?;
     Ok(WasmModules {
         program: module,
         runtime,

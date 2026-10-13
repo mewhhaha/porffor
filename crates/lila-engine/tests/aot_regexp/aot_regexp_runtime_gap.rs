@@ -127,6 +127,13 @@ fn computed_braced_unicode_escapes_use_real_matching_and_syntax_routes() {
 }
 
 #[test]
+fn computed_braces_reject_unicode_syntax_and_preserve_legacy_and_receiver_state() {
+    assert_normal(include_str!(
+        "../fixtures/regexp_runtime_gap/computed_unmatched_braces.js"
+    ));
+}
+
+#[test]
 fn computed_unicode_named_references_use_completed_names_and_real_matching() {
     assert_normal(include_str!(
         "../fixtures/regexp_runtime_gap/computed_named_unicode_references.js"

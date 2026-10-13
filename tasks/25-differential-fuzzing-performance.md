@@ -1,5 +1,17 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
+## Immutable runtime digest candidate — 2026-10-13
+
+The module cache previously rehashed the full immutable R bytes on each lookup.
+The candidate private runtime-artifact constructor computes its raw SHA-256 once
+for emitted and fully admitted cached bytes; borrowed module-source variants
+keep those bytes and identity together. The native cache key remains execution
+mode plus SHA-256 of actual Wasm, distinct from the layout-prefixed runtime key.
+Admission, bypass and eviction contracts remain unchanged. Compiler profile
+metadata now assigns Spec IR construction to preparation, where it executes.
+Native controls and fresh idle performance comparisons are pending; no speedup
+is yet claimed. See [the contract](../docs/rust-rewrite/regexp-unicode-admission-20261013.md).
+
 ## Default optimized measurements and host acceptance — 2026-10-13
 
 Clean `743c810c7` passes all 932 affected optimized native cases, retaining all

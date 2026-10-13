@@ -1178,13 +1178,31 @@ fn largest_wasm_code_body_size(bytes: &[u8]) -> Option<usize> {
     Some(largest_code_body_bytes)
 }
 
+#[derive(Clone, Copy)]
+enum WasmModuleSource<'a> {
+    Program(&'a [u8]),
+    Runtime(&'a lila_aot_wasm::RuntimeArtifact),
+}
+
+impl<'a> WasmModuleSource<'a> {
+    fn bytes(self) -> &'a [u8] {
+        match self {
+            Self::Program(bytes) => bytes,
+            Self::Runtime(runtime) => runtime.bytes(),
+        }
+    }
+}
+
 fn wasm_module_memory_cache_key(
-    bytes: &[u8],
+    source: WasmModuleSource<'_>,
     native_compilation_mode: WasmNativeCompilationMode,
 ) -> WasmModuleMemoryCacheKey {
     WasmModuleMemoryCacheKey {
         native_compilation_mode,
-        wasm_sha256: Sha256::digest(bytes).into(),
+        wasm_sha256: match source {
+            WasmModuleSource::Program(bytes) => Sha256::digest(bytes).into(),
+            WasmModuleSource::Runtime(runtime) => runtime.wasm_sha256(),
+        },
     }
 }
 
@@ -1217,11 +1235,11 @@ fn compile_wasm_module(
 }
 
 fn memory_cached_wasm_module(
-    bytes: &[u8],
+    source: WasmModuleSource<'_>,
     native_compilation_mode: WasmNativeCompilationMode,
     create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
-    let key = wasm_module_memory_cache_key(bytes, native_compilation_mode);
+    let key = wasm_module_memory_cache_key(source, native_compilation_mode);
     let modules = memory_wasm_modules();
     {
         let mut modules = modules
@@ -1247,7 +1265,7 @@ fn wasm_module_for_execution(
     native_compilation_mode: WasmNativeCompilationMode,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     wasm_module_for_execution_with_factory(
-        bytes,
+        WasmModuleSource::Program(bytes),
         memory_cache_policy,
         native_compilation_mode,
         || compile_wasm_module(engine, bytes),
@@ -1255,14 +1273,14 @@ fn wasm_module_for_execution(
 }
 
 fn wasm_module_for_execution_with_factory(
-    bytes: &[u8],
+    source: WasmModuleSource<'_>,
     memory_cache_policy: WasmModuleMemoryCachePolicy,
     native_compilation_mode: WasmNativeCompilationMode,
     create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
     match memory_cache_policy {
         WasmModuleMemoryCachePolicy::Retain => {
-            memory_cached_wasm_module(bytes, native_compilation_mode, create)
+            memory_cached_wasm_module(source, native_compilation_mode, create)
         }
         WasmModuleMemoryCachePolicy::BypassRetention => {
             Ok((create()?, WasmModuleMemoryCacheOutcome::Bypassed))
@@ -6053,9 +6071,10 @@ report;
     #[test]
     fn module_memory_cache_separates_native_compilation_modes() {
         let wasm = wasm_module_with_code_body_size(2);
-        let fast_key = wasm_module_memory_cache_key(&wasm, WasmNativeCompilationMode::Fast);
+        let source = WasmModuleSource::Program(&wasm);
+        let fast_key = wasm_module_memory_cache_key(source, WasmNativeCompilationMode::Fast);
         let size_optimized_key =
-            wasm_module_memory_cache_key(&wasm, WasmNativeCompilationMode::SizeOptimized);
+            wasm_module_memory_cache_key(source, WasmNativeCompilationMode::SizeOptimized);
 
         assert_eq!(fast_key.wasm_sha256, size_optimized_key.wasm_sha256);
         assert_ne!(fast_key, size_optimized_key);

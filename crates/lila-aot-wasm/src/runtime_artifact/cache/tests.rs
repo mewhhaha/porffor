@@ -168,16 +168,15 @@ fn fixture(defect: Defect) -> Arc<RuntimeArtifact> {
         .into(),
     });
     let bytes: Arc<[u8]> = Arc::from(module.finish());
-    Arc::new(RuntimeArtifact {
-        key: runtime_key(&bytes),
+    Arc::new(RuntimeArtifact::new(
         bytes,
-        layout: RuntimeLayout::new(
+        RuntimeLayout::new(
             1,
             vec![0],
             vec![global_type],
             PoolBoundary::from_runtime_cache(2, 4, 2).unwrap(),
         ),
-    })
+    ))
 }
 
 #[test]
@@ -190,6 +189,10 @@ fn runtime_cache_round_trip_reconstructs_the_encoded_types_and_pool() {
     assert_eq!(restored.bytes, runtime.bytes);
     assert_eq!(restored.key, runtime.key);
     assert_eq!(restored.layout, runtime.layout);
+    let raw_digest: [u8; 32] = Sha256::digest(&runtime.bytes).into();
+    assert_eq!(runtime.wasm_sha256(), raw_digest);
+    assert_eq!(restored.wasm_sha256(), raw_digest);
+    assert_ne!(restored.wasm_sha256(), *restored.key().as_bytes());
 }
 
 #[test]
@@ -308,6 +311,10 @@ fn runtime_cache_round_trips_real_minimal_and_selected_custom_runtimes_without_e
                 assert_eq!(first.bytes, second.bytes);
                 assert_eq!(first.key, second.key);
                 assert_eq!(first.layout, second.layout);
+                let raw_digest: [u8; 32] = Sha256::digest(&emitted.bytes).into();
+                assert_eq!(emitted.wasm_sha256(), raw_digest);
+                assert_eq!(first.wasm_sha256(), raw_digest);
+                assert_eq!(second.wasm_sha256(), raw_digest);
             }
         })
         .unwrap()

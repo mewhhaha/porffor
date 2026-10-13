@@ -71,19 +71,18 @@ impl RuntimeResidency {
 mod tests {
     use super::*;
     use crate::data::PoolBoundary;
-    use crate::runtime_artifact::{RuntimeArtifactKey, RuntimeLayout};
+    use crate::runtime_artifact::RuntimeLayout;
 
     fn initialize(slot: &RuntimeSlot, id: u8, bytes: usize) -> Arc<RuntimeArtifact> {
-        let runtime = Arc::new(RuntimeArtifact {
-            key: RuntimeArtifactKey([id; 32]),
-            bytes: Arc::from(vec![id; bytes]),
-            layout: RuntimeLayout::new(
+        let runtime = Arc::new(RuntimeArtifact::new(
+            Arc::from(vec![id; bytes]),
+            RuntimeLayout::new(
                 0,
                 vec![],
                 vec![],
                 PoolBoundary::from_runtime_cache(0, 0, 1).unwrap(),
             ),
-        });
+        ));
         slot.set(Ok(Arc::clone(&runtime))).unwrap();
         runtime
     }

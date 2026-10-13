@@ -17,6 +17,16 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
         embedded_runtime::inputs(Some(&runtime_cache)),
     )
     .unwrap();
+    for mode in [
+        WasmNativeCompilationMode::Fast,
+        WasmNativeCompilationMode::SizeOptimized,
+    ] {
+        assert_eq!(
+            wasm_module_memory_cache_key(WasmModuleSource::Runtime(&runtime), mode),
+            wasm_module_memory_cache_key(WasmModuleSource::Program(runtime.bytes()), mode),
+            "retained runtime digests must preserve the actual-byte cache identity"
+        );
+    }
     let program = b"\0asm\x01\0\0\0";
     let entry = encode_cache_entry(WasmProgramRef::new(program, Some(&runtime)));
     let (decoded, linked) = decode_cache_entry(&entry, &profile, &cache).unwrap();
