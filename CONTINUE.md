@@ -100,6 +100,37 @@ above remains bound to the actual afba compiler, without inventing a new build.
 
 ## Next work
 
+The exact-cohort/optimized-host batch is integrated locally at 9025805af; not
+yet pushed or native-accepted. It adds checked native `run-list`, complete
+`list-all`, and optional replay worker reuse with native snapshot resume.
+Missing files/modes keep actual per-ID native errors in the full denominator.
+All17 focused replay Python controls pass. The release host build-override is
+opt-level1. Actual same-source producers preserve all three bundle files:
+cold718.569s ->86.311s, warm38.358/39.485s ->3.904/2.893s; first host graph944.635s.
+See [the producer checkpoint](docs/rust-rewrite/host-producer-optimization-checkpoint-20261013.json).
+One failed zero-stencil-hit prediction is preserved; an initially empty cache
+still has1015 within-run duplicate hits/1142 unique misses, not inherited reuse.
+
+Generated Intl identities/provenance were refreshed for the new root Cargo
+profile with unchanged data. Dependency order is named-time-zones ->DateTime
+authority ->Locale calendar; the other profile/query identities are refreshed
+from their actual producers. Focused generator/identity/replay105 controls had
+one stale DateTime predecessor after named-zone refresh; corrected calendar10
+now passes. Workspace formatting passes. The sparse next-checkout508 sweep
+cannot supply a verdict: it has six provenance failures and six missing-source
+errors. Run the complete canonical tooling sweep after finishing the batch.
+The source-only full NumberFormat regeneration check is running separately;
+it launches no Cargo and changes no tracked outputs.
+
+Thirteen closed passing afba native ELFs are reversibly parked under
+target/completed-string-native-parking-20261013 with verified342,408,691-byte
+archive and all original transcripts/IDs retained. Retired debug archives
+cannot restore their old outputs; current Cargo may regenerate them. Preserve
+all active full caches/workers/DSOs. Next: one same shared-graph no-run for
+affected CLI/harness/Intl, execute fresh complete inventories/focus, stage a new
+actual worker, prove exact-list/per-ID outcome parity and real interruption/
+resume, then replay all5,365 historical IDs and push only verified progress.
+
 String is pushed to main at 5a5234814 and all five publication guards pass.
 The latest actual staged worker's two fresh full pinned families are running,
 preserving the independent older full owners. Complete compiler-bound historical

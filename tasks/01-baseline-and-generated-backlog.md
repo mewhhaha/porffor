@@ -1,5 +1,17 @@
 # T01 — Reproducible baseline and generated failure backlog
 
+## Exact native replay batch authored — 2026-10-13
+
+The checked `TestExecutionList` and CLI `run-list` retain exact modes and original
+discovered case order through the existing supervised native runner. Complete
+`list-all` supplies the actual inventory; the optional replay batch keeps absent
+file/mode errors in the original denominator. Native snapshots own outcomes and
+resume; input/image/fixture/partition/evidence mutations reject. All17 focused
+Python controls pass, including missing modes and interrupted native-checkpoint
+handling. These fake-CLI tooling controls do not establish product execution.
+Complete current CLI/harness acceptance, real interruption/resume and all5,365
+historical execution IDs remain pending. See [the contract](../docs/rust-rewrite/contracts/exact-execution-list-replay.md).
+
 ## Current evidence boundary — 2026-10-08
 
 The frozen workspace run executes the deterministic backlog, injected-regression,

@@ -54,9 +54,9 @@
         "sha256": "eda64286c216d68d3da46101c2b3c7c8eff08ba99fe955e6cb4bd89f060433b9"
       },
       {
-        "bytes": 3662,
+        "bytes": 4028,
         "path": "Cargo.toml",
-        "sha256": "ce85157471954006f333e922400067257f40fe2df1aebc716c2746f95b8380eb"
+        "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
       },
       {
         "bytes": 80880,
@@ -270,7 +270,7 @@
       }
     ]
   },
-  "kernel_sha256": "33bd9c86af6f472dcb93f1408f536854a187af76ff9f8d7bc236b59ac9cc72cc",
+  "kernel_sha256": "7cf871c3b6546d9f828a3c85cf6ced9c83467f78fec7294e9c071222fbba8b44",
   "kernel_source_closure": "explicit production module inventory; missing/added production modules reject",
   "minimalDays_exposed": false,
   "primary_manifest_path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",

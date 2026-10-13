@@ -40,9 +40,9 @@
         "sha256": "eda64286c216d68d3da46101c2b3c7c8eff08ba99fe955e6cb4bd89f060433b9"
       },
       {
-        "bytes": 3662,
+        "bytes": 4028,
         "path": "Cargo.toml",
-        "sha256": "ce85157471954006f333e922400067257f40fe2df1aebc716c2746f95b8380eb"
+        "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
       },
       {
         "bytes": 80880,
@@ -251,7 +251,7 @@
       }
     ]
   },
-  "kernel_sha256": "029702fabab4cebeafa8dea874a84be34ad29fc84ee6f9c8319dca3b02187eaf",
+  "kernel_sha256": "727db6108f7c3879155cccf9876b25ba50d211ab10a6363c2fd4b99ce011db12",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",
