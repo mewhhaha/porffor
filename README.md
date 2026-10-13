@@ -1,5 +1,13 @@
 # Lila
 
+## String character-construction repair prepared — 2026-10-13
+
+The next batch replaces repeated prefix concatenation in `String.fromCharCode`
+and `String.fromCodePoint` with rooted private UTF-16 construction. Six paired
+controls cover ordering, thrown conversions, GC/reentrancy, defining Realms and
+large exact results. Actual compilation, retention and timing remain pending;
+see [the buffer contract](docs/rust-rewrite/contracts/string-character-constructor-buffer.md).
+
 ## Verified runtime-image cache reuse — 2026-10-13
 
 Actual `781feba52` passes **4,825 tests in eleven complete optimized native

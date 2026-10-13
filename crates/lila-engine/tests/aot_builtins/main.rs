@@ -62,6 +62,7 @@ mod aot_proxy_target_descriptors;
 mod aot_reflect_completed_descriptors;
 mod aot_set_algebra_copy_phases;
 mod aot_shared_array_buffer_subclass;
+mod aot_string_character_constructors;
 mod aot_string_concat_method_lookup;
 mod aot_string_constructor;
 mod aot_string_invocation_family;

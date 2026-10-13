@@ -136,21 +136,23 @@ impl FunctionBuilder<'_> {
             f,
         );
         let count = s.reserve_i32_local(f);
+        let capacity = s.reserve_i32_local(f);
         let index = s.reserve_i32_local(f);
         let length = s.reserve_i32_local(f);
         let ordinal = s.reserve_i32_local(f);
         let unit = s.reserve_i32_local(f);
         let code = s.reserve_i64_local(f);
+        let extent = s.reserve_i64_local(f);
         let argument = s.reserve_value_local(f);
         let pending = s.reserve_completion(f);
         let output = s.reserve_completion(f);
-        let accumulated = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_native_string_static("", f), f);
         s.array_type::<ValueArray>().length(&arguments, s, f);
         count.store(f);
-        f.instruction(&Instruction::I32Const(0));
-        index.store(f);
+        count.load(f);
+        capacity.store(f);
+        let construction = StringConstruction::allocate(s, s.reserve_gc_local(f), capacity, f);
+        index.set_constant(0, f);
+        ordinal.set_constant(0, f);
         output.initialize(f);
         let exit = self.open_frame(ControlFrameKind::Block, f);
         let done = self.open_frame(ControlFrameKind::Block, f);
@@ -196,11 +198,47 @@ impl FunctionBuilder<'_> {
                 f.instruction(&Instruction::I32Const(1));
                 f.instruction(&Instruction::I32Add);
                 length.store(f);
+                // Grow only when supplementary units use the initial one-unit
+                // per-argument capacity. Count in I64 before narrowing so BMP
+                // inputs do not inherit an artificial half-extent limit.
+                ordinal.load(f);
+                f.instruction(&Instruction::I64ExtendI32U);
+                length.load(f);
+                f.instruction(&Instruction::I64ExtendI32U);
+                f.instruction(&Instruction::I64Add);
+                extent.store(f);
+                extent.load(f);
+                f.instruction(&Instruction::I64Const(i32::MAX as i64));
+                f.instruction(&Instruction::I64GtU);
+                self.open_frame(ControlFrameKind::If, f);
+                f.instruction(&Instruction::Unreachable);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                extent.load(f);
+                capacity.load(f);
+                f.instruction(&Instruction::I64ExtendI32U);
+                f.instruction(&Instruction::I64GtU);
+                self.open_frame(ControlFrameKind::If, f);
+                capacity.load(f);
+                f.instruction(&Instruction::I64ExtendI32U);
+                f.instruction(&Instruction::I64Const(2));
+                f.instruction(&Instruction::I64Mul);
+                extent.store(f);
+                extent.load(f);
+                f.instruction(&Instruction::I64Const(i32::MAX as i64));
+                f.instruction(&Instruction::I64GtU);
+                self.open_frame(ControlFrameKind::If, f);
+                extent.set_constant(i32::MAX as i64, f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
+                extent.load(f);
+                f.instruction(&Instruction::I32WrapI64);
+                capacity.store(f);
+                construction.grow(capacity, ordinal, s, f);
+                self.pop_control(ControlFrameKind::If);
+                f.instruction(&Instruction::End);
             }
         }
-        let construction = StringConstruction::allocate(s, s.reserve_gc_local(f), length, f);
-        f.instruction(&Instruction::I32Const(0));
-        ordinal.store(f);
         length.load(f);
         f.instruction(&Instruction::I32Const(2));
         f.instruction(&Instruction::I32Eq);
@@ -215,7 +253,9 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32WrapI64);
         unit.store(f);
         construction.write(ordinal, unit, s, f);
+        ordinal.load(f);
         f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
         ordinal.store(f);
         code.load(f);
         f.instruction(&Instruction::I64Const(0x10000));
@@ -234,11 +274,10 @@ impl FunctionBuilder<'_> {
         construction.write(ordinal, unit, s, f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        let part = s
-            .reserve_gc_local(f)
-            .initialize(construction.publish(s, f), f);
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &part, f), f);
-        part.clear(f);
+        ordinal.load(f);
+        f.instruction(&Instruction::I32Const(1));
+        f.instruction(&Instruction::I32Add);
+        ordinal.store(f);
         argument.set_undefined(f);
         index.load(f);
         f.instruction(&Instruction::I32Const(1));
@@ -249,20 +288,39 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::Block);
         f.instruction(&Instruction::End);
-        self.emit_native_string_normal_reference(&accumulated, &output, f);
         self.pop_control(ControlFrameKind::Block);
         f.instruction(&Instruction::End);
+        // Consume the unpublished buffer after both normal and abrupt exits so
+        // its root is always cleared. An abrupt path never exposes its prefix.
+        let string = s.reserve_gc_local(f).initialize(
+            match operation {
+                StringCharacterConstructor::FromCharCode => construction.publish(s, f),
+                StringCharacterConstructor::FromCodePoint => {
+                    construction.publish_prefix(ordinal, s, f)
+                }
+            },
+            f,
+        );
+        output.kind().load(f);
+        f.instruction(&Instruction::I32Const(CompletionKind::Normal.code() as i32));
+        f.instruction(&Instruction::I32Eq);
+        self.open_frame(ControlFrameKind::If, f);
+        self.emit_native_string_normal_reference(&string, &output, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         self.completion().copy_from(&output, f);
-        accumulated.clear(f);
+        string.clear(f);
         output.clear(f);
         pending.clear(f);
         argument.clear(f);
         s.release_i64_local(code, f);
+        s.release_i64_local(extent, f);
         s.release_i32_local(unit, f);
         s.release_i32_local(ordinal, f);
         s.release_i32_local(length, f);
         s.release_i32_local(index, f);
         s.release_i32_local(count, f);
+        s.release_i32_local(capacity, f);
         arguments.clear(f);
         Ok(())
     }
