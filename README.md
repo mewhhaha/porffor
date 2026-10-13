@@ -1,5 +1,16 @@
 # Lila
 
+## Promise.try repair prepared — 2026-10-13
+
+The frozen baseline's complete 30-ID Promise.try family has 26 Success and four
+identity Bugs. A coherent source repair now calls the callback before capability
+construction and uses PromiseResolve on normal completion, retaining matching
+Promise identity and live constructor effects. Two older native expectations are
+corrected against the pinned standard with all inputs retained; four strict/sloppy
+controls cover ordering, identity, borrowed Realms and abrupt completions.
+Actual optimized/native/pinned verification is next. The accepted constructor
+checkpoint below retains its own source scope. See [the normative contract](docs/rust-rewrite/contracts/promise-try-order-identity.md).
+
 ## Verified constructor and Iterator repair — 2026-10-13
 
 Actual `4a3968e5e` passes **all 1,308 original Iterator executions**, retaining

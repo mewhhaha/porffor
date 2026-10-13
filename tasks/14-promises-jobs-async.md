@@ -1,5 +1,20 @@
 # T14 — Promise jobs, async functions and async iteration
 
+## Promise.try callback order and identity — 2026-10-13 source batch
+
+The complete original 30-ID family exposes four Bugs from eagerly constructing
+a capability before Call and wrapping matching-Promise callback results.
+Pinned `sec-promise.try` calls the callback first, rejects abrupt completion
+through a later capability, and uses PromiseResolve on normal completion.
+The coherent source repair shares settlement emission without an observable
+resolve lookup. Two existing native controls retain their IDs and all inputs,
+with corrected normative expectations; four strict/sloppy controls cover live
+ordering, identity, non-constructor Object receivers, borrowed Realms and abrupt
+construction/settlement. Compile once, run focused controls, complete original
+family/affected native inventories, retain prior fixes, then publish verified
+evidence. No runtime verdict or task closure follows from this source batch.
+See [the normative contract](../docs/rust-rewrite/contracts/promise-try-order-identity.md).
+
 ## Async disposal and thenable-job Realm repair — 2026-10-11
 
 Resolving-function materialization now requires an explicit typed Realm

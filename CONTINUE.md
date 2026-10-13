@@ -1,5 +1,13 @@
 ## Verified constructor/Iterator batch; Promise.try ordering next
 
+The root-authored Promise.try source repair is now complete: shared live-value
+settlement emission, delayed capability creation, matching-Promise identity,
+two corrected existing controls with every input retained, and four new
+strict/sloppy controls. Its [normative contract](docs/rust-rewrite/contracts/promise-try-order-identity.md)
+records the complete original 30-ID red family. Build and verify this batch once
+on the canonical repair paths; actual pinned/native verdicts remain pending.
+Keep the original full-run checkout and staged workers/DSOs immutable.
+
 Actual `4a3968e5e` completes all 4,497 affected optimized native IDs, retaining
 all 4,489 previous passes and adding four IR/four Engine controls. Iterator1308
 has 1,308 Success: all 112 original Bugs eliminated, all 1,196 original passes

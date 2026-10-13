@@ -54,6 +54,7 @@ mod aot_primitive_call_evaluation;
 mod aot_primitive_property_reads;
 mod aot_promise_combinator_intrinsics;
 mod aot_promise_rejection_policy;
+mod aot_promise_try;
 mod aot_proto_getter_receiver;
 mod aot_proxy_get_own_property;
 mod aot_proxy_own_keys;

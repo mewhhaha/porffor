@@ -686,6 +686,7 @@ runtime_error_message_catalog! {
     PROMISE_RACE_ITERATOR_NEXT_METHOD_IS_NOT_CALLABLE => "Promise.race iterator next method is not callable",
     PROMISE_RACE_ITERATOR_NEXT_RESULT_MUST_BE_AN_OBJECT => "Promise.race iterator next result must be an object",
     PROMISE_RESOLVE_RECEIVER_IS_NOT_AN_OBJECT => "Promise.resolve receiver is not an object",
+    PROMISE_TRY_RECEIVER_IS_NOT_AN_OBJECT => "Promise.try receiver is not an object",
     PROPERTY_DESCRIPTOR_CANNOT_BE_BOTH_ACCESSOR_AND_DATA => "Property descriptor cannot be both accessor and data",
     PROPERTY_DESCRIPTOR_GETTER_SETTER_MUST_BE_CALLABLE_OR_UNDEFINED => "Property descriptor getter/setter must be callable or undefined",
     PROXY_APPLY_TRAP_IS_NOT_CALLABLE => "Proxy apply trap is not callable",

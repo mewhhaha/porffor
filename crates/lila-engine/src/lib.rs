@@ -32916,7 +32916,7 @@ try {
             let returnedPromise = {};
             let sentinel = {};
             let constructorCalls = 0;
-            let callbackSawConstructor = false;
+            let callbackPrecededConstructor = false;
             let resolvedValue;
             let resolveThis;
             let rejectCalls = 0;
@@ -32930,11 +32930,12 @@ try {
                 return returnedPromise;
             }
             let result = Promise.try.call(Capability, function () {
-                callbackSawConstructor = constructorCalls === 1;
+                callbackPrecededConstructor = constructorCalls === 0;
                 return sentinel;
             });
             result === returnedPromise
-                && callbackSawConstructor
+                && callbackPrecededConstructor
+                && constructorCalls === 1
                 && resolvedValue === sentinel
                 && resolveThis === undefined
                 && rejectCalls === 0;
@@ -32967,7 +32968,9 @@ try {
                     allThrow = allThrow && error instanceof TypeError;
                 }
             }
-            allThrow && callbackCalls === 0;
+            // Only primitive receivers fail before Call. Both object receivers
+            // reach the callback, then fail constructor validation.
+            allThrow && callbackCalls === 2;
         "#;
         let outcome = engine()
             .run_script(

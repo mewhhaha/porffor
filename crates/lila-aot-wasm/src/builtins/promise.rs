@@ -3554,6 +3554,22 @@ impl<'a> FunctionBuilder<'a> {
         );
         let value = schema.reserve_value_local(function);
         self.emit_builtin_arg_to_value(0, &value, function);
+        self.emit_promise_settle_value(settlement, &constructor, &value, function)?;
+        value.clear(function);
+        constructor.clear(function);
+        Ok(())
+    }
+
+    /// PromiseResolve and the rejecting static operation use their live
+    /// constructor/value operands without reading an observable resolve method.
+    fn emit_promise_settle_value(
+        &mut self,
+        settlement: PromiseSettlement,
+        constructor: &ValueLocals,
+        value: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         let pending = schema.reserve_completion(function);
         pending.initialize(function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
@@ -3583,17 +3599,17 @@ impl<'a> FunctionBuilder<'a> {
             );
             let key = PropertyKeyLocals::from_string(schema, &name, function);
             self.emit_object_read_with_throw_routing(
-                &value,
-                &value,
+                value,
+                value,
                 &key,
                 &pending,
                 AccessorThrowRouting::LeaveInCompletion,
                 function,
             )?;
             self.emit_promise_abrupt_exit(&pending, exit, function);
-            self.emit_tagged_payload_same_value_i32(&constructor, pending.value(), function)?;
+            self.emit_tagged_payload_same_value_i32(constructor, pending.value(), function)?;
             self.open_frame(ControlFrameKind::If, function);
-            self.completion().set_normal(&value, function);
+            self.completion().set_normal(value, function);
             self.emit_branch_to_target(exit, function);
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
@@ -3604,8 +3620,8 @@ impl<'a> FunctionBuilder<'a> {
         }
         let context =
             self.emit_current_function_promise_internal_function_materialization_context(function);
-        let capability = self.emit_new_promise_capability(&context, &constructor, function)?;
-        self.emit_call_promise_capability(&capability, settlement, &value, &pending, function)?;
+        let capability = self.emit_new_promise_capability(&context, constructor, function)?;
+        self.emit_call_promise_capability(&capability, settlement, value, &pending, function)?;
         self.emit_promise_abrupt_exit(&pending, exit, function);
         let promise = schema.reserve_value_local(function);
         self.emit_read_promise_capability_promise(&capability, &promise, function);
@@ -3616,8 +3632,6 @@ impl<'a> FunctionBuilder<'a> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         pending.clear(function);
-        value.clear(function);
-        constructor.clear(function);
         Ok(())
     }
 
@@ -3660,15 +3674,26 @@ impl<'a> FunctionBuilder<'a> {
                 .this_value(),
             function,
         );
-        let context =
-            self.emit_current_function_promise_internal_function_materialization_context(function);
-        let capability = self.emit_new_promise_capability(&context, &constructor, function)?;
         let callback = schema.reserve_value_local(function);
         self.emit_builtin_arg_to_value(0, &callback, function);
         let undefined = schema.reserve_value_local(function);
         undefined.set_undefined(function);
         let pending = schema.reserve_completion(function);
         pending.initialize(function);
+        // sec-promise.try: only the receiver's Object check precedes Call.
+        // Constructor validation and capability effects follow the callback.
+        self.emit_is_heap_object_like_tag_i32(constructor.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_current_function_realm_type_error(
+            RuntimeErrorMessage::PROMISE_TRY_RECEIVER_IS_NOT_AN_OBJECT,
+            &pending,
+            function,
+        )?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw(function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         self.emit_is_callable_i32(&callback, function)?;
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
@@ -3682,41 +3707,28 @@ impl<'a> FunctionBuilder<'a> {
         arguments.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        let settled = schema.reserve_completion(function);
-        settled.initialize(function);
         pending.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_call_promise_capability(
-            &capability,
+        self.emit_promise_settle_value(
             PromiseSettlement::Reject,
+            &constructor,
             pending.value(),
-            &settled,
             function,
         )?;
         function.instruction(&Instruction::Else);
-        self.emit_call_promise_capability(
-            &capability,
+        self.emit_promise_settle_value(
             PromiseSettlement::Fulfill,
+            &constructor,
             pending.value(),
-            &settled,
             function,
         )?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.completion().copy_from(&settled, function);
-        self.emit_propagate_current_throw_if_needed(function);
-        let promise = schema.reserve_value_local(function);
-        self.emit_read_promise_capability_promise(&capability, &promise, function);
-        self.completion().set_normal(&promise, function);
-        promise.clear(function);
-        settled.clear(function);
         pending.clear(function);
         undefined.clear(function);
         callback.clear(function);
-        capability.clear(function);
-        self.release_promise_internal_function_materialization_context(context, function);
         constructor.clear(function);
         Ok(())
     }
