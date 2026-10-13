@@ -1,5 +1,26 @@
 # Verification costs and useful crate boundaries — 2026-10-12
 
+The corrected default release checkpoint at `743c810c7` passes all 932 affected
+native CLI cases, retaining every one of the 930 previous passing IDs. Both
+original WeakMap stress modes pass in 9.172/8.777 seconds at their unchanged
+60,000 ms bounds. The default private worker is 101,359,416 bytes versus ordinary
+424,668,048. Private link takes 1.794 s; ordinary restoration takes 0.364 s and
+reproduces the original SHA exactly. CLI-only release rebuild takes 124 s.
+
+Idle one-CPU seven-sample whole-CLI medians are 28.463 ms warm exact, 692.374 ms
+for the original twenty-case chunk and 1.367675 s cold exact. No sample exceeds
+the original 1/5/5-second limits. Compile/runtime each complete twenty original
+fixtures and 140 measured samples. Compiler stage means are 180.712 ms prepare,
+0.084 ms lower, 16.092 ms emission and 3.308 ms validation. Preparation owns
+90.3% of their total and includes parsing, admission and Spec IR construction.
+The raw scope string incorrectly attributes Spec IR to lower; that later span
+actually measures coded-diagnostic admission and unit construction. Keep raw
+evidence and repair authoritative labels before calibrating subsystem policies.
+Runtime module stage averages 24.685 ms, execution 2.522 ms; all140 measured
+module-memory-cache outcomes are hits. These are corpus observations, not full
+pinned-suite measurements or a safe source-analysis caching proof. See
+[the complete owners and exact comparisons](default-optimized-performance-20261013.json).
+
 The actual default release build at `793c3c519` finishes in 1,176 seconds with
 390 Cargo artifacts and no oracle engine. Its CLI is 424,666,496 bytes. Runtime
 precompilation takes 199.953 seconds with all 2,153 function-cache entries reused.
@@ -7,8 +28,8 @@ The feature switch rebuilds downstream variants because Serde loses `rc` and
 ICU helpers lose default features. These distinct graphs are not a controlled
 before/after build-speed experiment. Stable feature unification is a concrete
 iteration opportunity. The first idle profiles expose mismatched Product versus
-Test262 corpus authority; keep that red evidence and execute the correction
-before reporting complete metrics. See
+Test262 corpus authority; keep that red evidence alongside the corrected
+complete profiles above. See
 [the retained record](default-optimized-performance-20261013.json).
 
 The 2026-10-13 optimized checkpoint completes three fresh full corpus rounds
@@ -35,7 +56,7 @@ unbalanced timings are observations, not a controlled speedup claim. The
 earlier balanced debug experiment below establishes its separate 19.6% gain.
 The first dependency build and serial runtime precompilation are substantial
 costs; retaining the release graph makes an unchanged build half a second.
-Idle default optimized performance and full current-pin/task acceptance remain
+Calibrated subsystem policies and full current-pin/task acceptance remain
 separate. No memory-working-set reduction is inferred from executable size.
 
 The independent default-feature run completes on 2026-10-13 with 8,881 passes,

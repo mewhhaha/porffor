@@ -7,7 +7,8 @@ comparable baselines. Parsing, lowering, emitted Wasm and Wasmtime validation
 remain the product compiler path. The 2026-10-13 first optimized profile
 completed all twenty sources with seven measured samples each under the older
 product authority; those retained bytes do not establish corrected-corpus
-acceptance. Fresh corrected controls and measurements remain required.
+acceptance. Corrected `743c810c7` controls and all twenty seven-sample profiles
+now pass; see the [retained checkpoint](../default-optimized-performance-20261013.json).
 
 Native Rust dev/test builds optimize `lila-intl`, `lila-ir` and `lila-aot-wasm` at level 2
 to reduce cold data-admission and emission work within existing case budgets.
@@ -27,8 +28,11 @@ The original whole-CLI timing gates remain a separate `performance report`.
 
 The SDK's `Engine::profile_script_compilation` calls the actual product
 preparation, lowering and Wasm emission methods. Preparation includes parsing,
-syntax errors and dependency/prelude admission; lowering includes spec IR and
-coded early/resolution rejection. Validation uses Wasmtime with the original
+syntax errors, dependency/prelude admission and actual Spec IR construction
+through the prepared source catalog. The later lowering span admits coded
+early/resolution diagnostics and constructs the compilation unit. Raw scope
+strings and SDK comments currently put Spec IR in lower incorrectly; these
+labels need a coherent repair, and the retained measurements stay unchanged. Validation uses Wasmtime with the original
 product capability policy. Worker startup, runtime engine setup and artifact
 inventory analysis are outside those four spans. The compiler profile does not
 read the program artifact cache or execute JavaScript. It requires the product
@@ -62,6 +66,7 @@ the exact workload and optional baseline JSON.
 SDK controls compare the profiled bytes with the original compile/emit path and
 reject malformed retained Wasm and parse failures. Report controls cover missing
 samples/warmup, changed artifacts, stage distributions and incompatible CLI
-options. These controls are authored and unrun. Idle-machine timing, runtime
-throughput, peak memory/GC metrics, subsystem budgets and full T25 acceptance
-remain separate work; no measured result or conformance claim is made here.
+options. Native controls and fresh seven-sample fixed-corpus profiles now pass.
+Preparation owns 90.3% of measured stage time, including Spec IR construction.
+Peak GC metrics unavailable from Wasmtime, calibrated subsystem budgets and
+full T25/pinned acceptance remain separate work.

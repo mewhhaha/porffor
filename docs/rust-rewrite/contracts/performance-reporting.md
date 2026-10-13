@@ -5,8 +5,11 @@ controls. The first default optimized idle run on 2026-10-13 exposed a host
 surface mismatch in the twenty-case chunk: its assertion/detachment helpers
 were compiled as product globals and correctly failed as unbound identifiers.
 The raw failed owner is `target/optimized-default-performance-20261013`.
-The correction below requires fresh control and idle execution; the failed
-report remains evidence and cannot supply a baseline or T25 acceptance.
+The corrected `743c810c7` optimized CLI passes all932 affected controls and fresh
+seven-sample idle reports. Original exact/chunk/cold medians are 28.463 ms/
+692.374 ms/1.367675 s with zero over-budget samples. The failed report remains
+evidence and cannot supply a baseline. See the
+[retained checkpoint](../default-optimized-performance-20261013.json).
 
 ## Explicit invocation
 
@@ -76,11 +79,11 @@ claim they ran. Their limits remain one second for warm exact and five seconds
 for the chunk and cold exact. The command exits red if any measured repetition
 exceeds its gate's existing limit, retaining all completed evidence.
 
-The separate [runtime profile](runtime-performance-profile.md) now has authored
-source for actual emitted-Wasm execution spans and real Store GC capacity
+The separate [runtime profile](runtime-performance-profile.md) measures for actual emitted-Wasm execution spans and real Store GC capacity
 snapshots. It uses the same fixed corpus and identity readers. Allocation,
 collection, pause and peak-memory fields explicitly remain unavailable where
-the pinned runtime provides no observation. Its controls and timings are unrun;
+the pinned runtime provides no observation. Its controls and fresh fixed-corpus
+timings now pass in the checkpoint above;
 this whole-CLI command and its three budgets retain their original spans.
 
 ## Identity and comparison admission

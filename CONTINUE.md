@@ -1,26 +1,38 @@
-## Default optimized build and profile host repair — 2026-10-13
+## Default optimized acceptance and next gates — 2026-10-13
 
-Clean `793c3c519` builds default release successfully in 1,176 seconds, 390
-Cargo artifacts, no oracle engine. CLI is 424,666,496 bytes, SHA-256
-`6990658a10e5334ad06904c3bc7982a807b05d156a9e6e7aa20592b2da2f0586`.
-Runtime precompile takes 199.953 seconds with 2,153 function-cache hits/zero misses.
-The original seven-sample idle owner completes compiler profiles for all twenty
-fixtures, but CLI/runtime fail at `wasm_typedarray_accessors.js`: a Product
-invocation correctly denies its Test262 assertion/detachment helpers. Preserve
-`target/optimized-default-performance-20261013` and its raw ReferenceError/Throw
-evidence. This establishes a benchmark configuration bug, not an optimized
-typed-array semantic regression. The authored repair aligns the fixed corpus
-with the original ignored chunk gate's explicit Test262 authority; exact gates
-remain Product. New policies reject old mismatched baselines. Build and native
-controls, fresh idle profiles and exact retained-pass comparison are next.
-See [the portable record](docs/rust-rewrite/default-optimized-performance-20261013.json).
+Clean `743c810c7` passes the actual default release build, private shared worker,
+all 932 affected CLI/library/ignored-performance tests and both original deep
+WeakMap execution IDs at 60,000 ms. Exact comparison retains all 930 prior
+native passes, adds two passing host controls, and retains both stress passes:
+zero missing IDs or regressions. Native scope counts are 81/848/3.
 
-Four additional SHA-verified 512-MiB debug-cache chunks and an archive of four
-receipt-bound completed prototype copies reclaim space without changing any
-raw verdict, runtime OUT/DSO, current executable, fingerprint or fixture.
-Keep every archive/receipt. Finish optimized stress, current-pin/full-family,
-shard/resume, publication and all task-specific gates before deleting this file
-or tasks. Push verified batches to main continuously.
+Fresh one-CPU idle reports complete all three gates, all twenty original compile
+and runtime fixtures, and seven measured samples per fixture. Median warm exact/
+chunk/cold exact are 28.463 ms/692.374 ms/1.367675 s, all original budgets pass.
+Compiler prepare owns 90.3% of stage time and already constructs Spec IR; the
+current emitted scope string and SDK comments incorrectly put that construction
+in lower. Preserve raw metadata and repair its labels in a coherent follow-up;
+do not interpret this as parser-only cost. All 140 measured runtime module-cache
+outcomes are hits. GC counters unavailable from Wasmtime remain unavailable.
+
+The worker is 101,359,416 bytes versus ordinary 424,668,048. Private link takes
+1.794 s, ordinary restore 0.364 s, and CLI-only release rebuild 124 s. First
+default graph cost 1,176 s, runtime precompile 199.953 s with 2,153 hits/zero
+misses. Different build work is not a controlled speedup. See
+[the portable owners and exact comparisons](docs/rust-rewrite/default-optimized-performance-20261013.json).
+The first failed host-mismatch reports and the source guard's failed absolute
+checkout-path observation remain intact; portable display paths are normalized
+without modifying any raw receipt. A scratch stress preflight initially assumed
+a nonexistent `passed` field in the staging schema; no stress test ran there.
+The corrected driver validates actual stage exits and runs both fresh modes.
+
+Next run current-pin complete families, historical5365 replay and real shard/
+resume ownership; publish only verified complete results. Keep every raw owner,
+reversible cache archive, runtime OUT/DSO and current worker. Minimal R is
+precompiled; Conformance R, differential session reuse and useful crate cuts
+remain proposals. Full task acceptance, T22's negative Apia authority and
+supported-host receipts remain unresolved. Delete this file/tasks only after
+real completion and push verified batches continuously to main.
 
 ## Optimized sustained and private-worker acceptance — 2026-10-13
 

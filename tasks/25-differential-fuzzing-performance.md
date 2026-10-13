@@ -1,18 +1,28 @@
 # T25 — Differential testing, fuzzing and performance discipline
 
-## First default optimized profiles and host correction — 2026-10-13
+## Default optimized measurements and host acceptance — 2026-10-13
 
-The default release build passes on clean `793c3c519`; its actual CLI image is
-424,666,496 bytes and excludes the oracle engine. First idle seven-sample
-compiler-stage measurements complete all twenty fixtures. Whole-CLI and runtime
-profiles retain failures at typed-array warmup because they selected Product
-for fixtures requiring Test262 helpers. The original chunk timing test already
-uses Test262. The authored correction declares that corpus authority in actual
-invocations, compile options, identities and new measurement policies, while
-exact timing gates stay Product. Original fixtures/order/budgets and failed
-owners remain intact. Native controls and fresh complete corrected profiles
-are required before acceptance; see
-[the retained record](../docs/rust-rewrite/default-optimized-performance-20261013.json).
+Clean `743c810c7` passes all 932 affected optimized native cases, retaining all
+930 prior passes and adding two meaningful host-boundary controls. Both original
+WeakMap stress IDs remain Success at 60,000 ms. All three fresh seven-sample
+idle profiles complete; original exact/chunk/cold medians are 28.463 ms/
+692.374 ms/1.367675 s with zero over-budget samples. Compile and runtime each
+complete all twenty byte-identical fixtures and 140 measured samples.
+
+Preparation owns 90.3% of measured compiler stage time and includes parsing,
+admission and Spec IR construction. Raw scope metadata and SDK comments
+misattribute Spec IR to lower; retain the raw evidence and repair this label
+before using it for subsystem policy. Runtime measured module-cache outcomes
+are 140 hits; unavailable GC counters remain explicit. Default private release
+worker is 101,359,416 bytes versus ordinary 424,668,048; link 1.794 s and ordinary
+output restored exactly. See
+[the source-bound owners and exact comparisons](../docs/rust-rewrite/default-optimized-performance-20261013.json).
+
+The first Product-authority profiles remain failed evidence. The correction
+explicitly authorizes Test262 for the fixed conformance corpus and preserves
+Product exact gates; versioned admission rejects old mismatched baselines.
+All affected controls and corrected profiles now pass. Calibrated subsystem
+policies, full-pin timing debt and complete T25/T26 acceptance remain open.
 
 ## Optimized corpus and sustained acceptance — 2026-10-13
 
@@ -31,8 +41,8 @@ shrinks from 499,663,192 to 131,047,560 bytes; private link takes 1.821 seconds
 and the warm ordinary build 0.502 seconds. Consecutive corpus medians are
 32.208/21.201 seconds, nightly 1,219.103 seconds and robustness 467.494 seconds.
 These timings are separate from the earlier controlled debug experiment.
-Idle default optimized whole-CLI/compiler/runtime measurements, real calibrated
-subsystem policies, full-pin timing debt and the remaining T25/T26 gates stay
+Real calibrated subsystem policies, full-pin timing debt and the remaining
+T25/T26 gates stay
 open. The first release graph costs 1,967 seconds, including 552.237 seconds
 of runtime precompilation. Minimal R is precompiled; Conformance R and further
 crate cuts remain proposals. Earlier dated notes below retain their own owners.
@@ -45,8 +55,9 @@ were subsequently repaired at their unchanged deadlines. The
 [default checkpoint](../docs/rust-rewrite/native-default-checkpoint-20261013.json)
 preserves exact historical comparisons and cache parking. The Python-only queue
 repair preserves inventory/continuation ownership and passes four focused checks.
-Optimized repeated-corpus bytes, nightly 704, robustness 1,216, private-worker
-release acceptance and idle calibrated performance remain required. Minimal R
+Repeated optimized corpus, nightly704, robustness1,216 and private-worker
+release acceptance now pass in the newer checkpoints above. Calibrated
+performance policies and full task acceptance remain required. Minimal R
 is precompiled; Conformance R and further crate splits remain proposals.
 
 ## Exact debug sustained acceptance — 2026-10-12

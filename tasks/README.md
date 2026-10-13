@@ -1,13 +1,21 @@
 # Lila Rust AOT + Test262 execution plan
 
-## Default optimized profiles — 2026-10-13
+## Default optimized acceptance — 2026-10-13
 
-The first default optimized build passes at clean `793c3c519`. Idle profiles
-expose a benchmark host-surface mismatch; the fixed conformance corpus needs
-explicit Test262 authority, as its original chunk test already uses. The
-correction is authored and needs fresh controls/measurements. Preserve the
-[original failed owner](../docs/rust-rewrite/default-optimized-performance-20261013.json).
-No task closes on this build or partial performance evidence.
+Frozen `743c810c7` passes all 932 affected optimized native tests (81 library,
+848 CLI, three original ignored timing gates), retaining all 930 prior passing
+IDs and adding two host controls. Both original deep WeakMap modes pass under
+the unchanged 60-second limits. No prior pass regresses or disappears.
+
+All three fresh idle reports pass: original gate medians 28.46 ms/692.37 ms/
+1.368 s; compile and runtime each complete twenty original fixtures with seven
+samples. Preparation includes Spec IR and owns 90.3% of compiler stage time;
+its emitted scope label still needs correction. Default shared worker is 101 MB
+versus ordinary 425 MB, with a 1.79-second private link and exact ordinary
+restoration. See [the complete retained record](../docs/rust-rewrite/default-optimized-performance-20261013.json).
+Calibrated subsystem policies, current-pin/shard/resume, supported-host receipts,
+publication and individual task acceptance remain open. Preserve CONTINUE.md
+and this folder until genuine completion.
 
 ## Optimized sustained acceptance — 2026-10-13
 
@@ -20,7 +28,7 @@ link 1.82 seconds, warm ordinary build 0.50 seconds, with ordinary output
 restored byte-for-byte. Observed corpus medians are 32.21/21.20 seconds and
 nightly/robustness times 20.32/7.79 minutes. See the
 [optimized checkpoint](../docs/rust-rewrite/optimized-worker-checkpoint-20261013.json).
-Idle default optimized profiles/calibrated budgets, current-pin/shard/resume,
+Calibrated subsystem budgets, current-pin/shard/resume,
 supported hosts, publication and individual task gates remain open. These
 new owners supersede the earlier optimized-unexecuted notes below; retain
 CONTINUE.md and this folder until actual completion.

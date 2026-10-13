@@ -6,14 +6,15 @@ emitted Wasm through the product runtime. Policy v3 records this host authority
 and rejects product-surface profiles as comparable baselines. The first idle
 optimized owner, `target/optimized-default-performance-20261013/runtime`, failed
 at typed-array warmup because policy v2 omitted that authority; its original
-ReferenceError observation and prefix are retained. Corrected native controls
-and fresh complete seven-sample measurements remain required.
+ReferenceError observation and prefix are retained. Corrected `743c810c7` native
+controls and all twenty seven-sample profiles now pass. All140 measured module
+cache outcomes are hits; mean module/execution spans are 24.685/2.522 ms. See
+[the retained owners](../default-optimized-performance-20261013.json).
 
-Status: invocation-scoped RSS sampling and version-two report admission pass the
-combined workspace type check. Three Engine sampler controls and all 24 CLI
-performance controls pass. Native runtime-profile failure/lifetime controls and
-benchmarks remain pending. No status refresh ran for this slice; these results
-do not establish calibrated T25 budgets or sustained acceptance.
+Status: complete all-feature/default native checkpoints cover the sampler and
+runtime-profile controls. The corrected optimized CLI controls and fixed-corpus
+idle benchmarks pass. No full-pin status refresh is claimed here; these results
+do not establish calibrated T25 budgets or complete task acceptance.
 
 After the coherent source batch is verified, the opt-in command is:
 

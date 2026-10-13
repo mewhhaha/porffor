@@ -1,16 +1,29 @@
 # Lila
 
-## Default optimized profiles — 2026-10-13
+## Default optimized measurements — 2026-10-13
 
-The default optimized CLI builds successfully in 1,176 seconds without the
-oracle engine. Its 424,666,496-byte image records the actual frozen source and
-SHA-256; runtime precompilation reuses all 2,153 function entries with zero
-misses. The first idle measurements reveal a benchmark host-authority mismatch:
-the fixed conformance corpus needs Test262 helpers. The reporter now selects
-that authority explicitly for the chunk/compiler/runtime profiles and preserves
-Product for exact gates. Fresh corrected verification remains required; the
-[retained build and red profiles](docs/rust-rewrite/default-optimized-performance-20261013.json)
-record the original evidence. Full pinned conformance and task closure remain open.
+Frozen `743c810c7` passes **all 932 affected optimized CLI tests**, retaining
+all 930 prior passing IDs and adding two host-boundary controls: zero failures,
+ignores, missing IDs or regressions. Both original deep WeakMap modes pass at
+the unchanged 60-second deadline in 9.17/8.78 seconds.
+
+Fresh idle seven-sample reports pass the original budgets: warm exact median
+**28.46 ms**, twenty-case chunk **692.37 ms**, cold exact **1.368 s**. Compiler
+and runtime profiles each complete all twenty original fixtures and 140 measured
+samples. Preparation accounts for 90.3% of compiler stage time and includes
+parsing, admission and Spec IR construction; the raw scope label incorrectly
+places Spec IR in the later stage and remains a tracked metadata correction.
+
+The default shared/stripped release worker is **101,359,416 bytes** versus the
+ordinary **424,668,048-byte** CLI. Its private link takes 1.79 seconds and restores
+ordinary output byte-for-byte. The CLI-only rebuild takes 124 seconds; the first
+default release graph took 1,176 seconds, including 199.953 seconds of runtime
+precompilation with all 2,153 function-cache entries reused. These involve
+different work and do not establish a controlled build-speed comparison. See
+[the retained measurements and exact IDs](docs/rust-rewrite/default-optimized-performance-20261013.json).
+The first failed benchmark owner remains intact; explicit Test262 authority now
+matches its conformance corpus, while exact gates retain Product. Full pinned
+conformance, calibrated subsystem policies and task closure remain open.
 
 ## Optimized verification workers — 2026-10-13
 
@@ -29,7 +42,7 @@ separate from the earlier controlled debug experiment. The first release build
 takes 32.78 minutes, including 552 seconds of runtime precompilation. Minimal R
 is already precompiled; Conformance R is not. See the
 [source-bound optimized checkpoint](docs/rust-rewrite/optimized-worker-checkpoint-20261013.json).
-Default optimized performance, current-pin conformance, supported-host evidence,
+Current-pin conformance, calibrated subsystem policies, supported-host evidence,
 canonical publication and individual task closure remain open. Older dated
 checkpoints below describe their own source states.
 
