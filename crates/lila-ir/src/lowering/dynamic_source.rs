@@ -289,7 +289,10 @@ impl ScriptLowerer<'_> {
                     .into_iter()
                     .filter_map(|candidate| match candidate {
                         FiniteSourceValue::Text(source) => Some(source),
-                        FiniteSourceValue::Function(_)
+                        // Module requests can trigger eager host resolution;
+                        // speculative conversion hints provide no such authority.
+                        FiniteSourceValue::SupplementalText(_)
+                        | FiniteSourceValue::Function(_)
                         | FiniteSourceValue::FunctionConstructor(_)
                         | FiniteSourceValue::Record(_)
                         | FiniteSourceValue::Array(_) => None,
@@ -494,6 +497,7 @@ impl ScriptLowerer<'_> {
                     }
                 }
                 FiniteSourceValue::Text(_)
+                | FiniteSourceValue::SupplementalText(_)
                 | FiniteSourceValue::Record(_)
                 | FiniteSourceValue::Array(_) => {}
             }
@@ -582,8 +586,10 @@ impl ScriptLowerer<'_> {
         } else {
             return;
         };
-        for arguments in self.function_source_argument_candidates(&candidate_arguments) {
-            for kind in kinds {
+        for kind in kinds {
+            for arguments in self
+                .function_source_argument_candidates_with_body_hints(*kind, &candidate_arguments)
+            {
                 self.register_dynamic_function_source(DynamicFunctionSource {
                     admission:
                         crate::prepared_function::DynamicFunctionSourceAdmission::RuntimeCandidate,
@@ -750,9 +756,10 @@ impl ScriptLowerer<'_> {
 
         if let DynamicSourceKind::Function(function_kind) = kind {
             if let Some(arguments) = source_args {
-                for arguments in
-                    self.function_source_argument_candidates(&arguments.iter().collect::<Vec<_>>())
-                {
+                for arguments in self.function_source_argument_candidates_with_body_hints(
+                    function_kind,
+                    &arguments.iter().collect::<Vec<_>>(),
+                ) {
                     self.register_dynamic_function_source(DynamicFunctionSource {
                         admission: crate::prepared_function::DynamicFunctionSourceAdmission::RuntimeCandidate,
                         kind: function_kind,

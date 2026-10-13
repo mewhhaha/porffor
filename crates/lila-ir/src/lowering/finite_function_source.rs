@@ -7,6 +7,8 @@ pub(super) const MAX_SOURCE_CANDIDATES: usize = 256;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum FiniteSourceValue {
     Text(String),
+    // Additive hints may use spare capacity but never displace existing sources.
+    SupplementalText(String),
     Function(FunctionId),
     FunctionConstructor(DynamicFunctionKind),
     Record(BTreeMap<String, Vec<FiniteSourceValue>>),
@@ -16,11 +18,35 @@ pub(super) enum FiniteSourceValue {
 impl FiniteSourceValue {
     pub(super) fn text(&self) -> Option<&str> {
         match self {
-            Self::Text(text) => Some(text),
+            Self::Text(text) | Self::SupplementalText(text) => Some(text),
             Self::Function(_) | Self::FunctionConstructor(_) | Self::Record(_) | Self::Array(_) => {
                 None
             }
         }
+    }
+
+    pub(super) fn primary_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text),
+            Self::SupplementalText(_)
+            | Self::Function(_)
+            | Self::FunctionConstructor(_)
+            | Self::Record(_)
+            | Self::Array(_) => None,
+        }
+    }
+
+    pub(super) fn concatenate_text(&self, right: &Self) -> Option<Self> {
+        let text = format!("{}{}", self.text()?, right.text()?);
+        Some(
+            if matches!(self, Self::SupplementalText(_))
+                || matches!(right, Self::SupplementalText(_))
+            {
+                Self::SupplementalText(text)
+            } else {
+                Self::Text(text)
+            },
+        )
     }
 }
 
@@ -28,10 +54,28 @@ pub(super) fn bounded_candidates(
     candidates: impl IntoIterator<Item = FiniteSourceValue>,
 ) -> Vec<FiniteSourceValue> {
     let mut distinct = BTreeSet::new();
+    let mut supplemental = BTreeSet::new();
     for candidate in candidates {
-        distinct.insert(candidate);
-        if distinct.len() > MAX_SOURCE_CANDIDATES {
-            return Vec::new();
+        match candidate {
+            FiniteSourceValue::SupplementalText(text) => {
+                if supplemental.len() < MAX_SOURCE_CANDIDATES {
+                    supplemental.insert(text);
+                }
+            }
+            candidate => {
+                distinct.insert(candidate);
+                if distinct.len() > MAX_SOURCE_CANDIDATES {
+                    return Vec::new();
+                }
+            }
+        }
+    }
+    for text in supplemental {
+        if distinct.len() == MAX_SOURCE_CANDIDATES {
+            break;
+        }
+        if !distinct.contains(&FiniteSourceValue::Text(text.clone())) {
+            distinct.insert(FiniteSourceValue::SupplementalText(text));
         }
     }
     distinct.into_iter().collect()
@@ -54,7 +98,7 @@ impl ScriptLowerer<'_> {
             bounded_candidates(
                 previous
                     .into_iter()
-                    .chain([FiniteSourceValue::Text("undefined".to_string())]),
+                    .chain([FiniteSourceValue::SupplementalText("undefined".to_string())]),
             ),
         );
     }
@@ -264,6 +308,7 @@ impl ScriptLowerer<'_> {
                                     .unwrap_or_default()
                             }
                             FiniteSourceValue::Text(_)
+                            | FiniteSourceValue::SupplementalText(_)
                             | FiniteSourceValue::Function(_)
                             | FiniteSourceValue::FunctionConstructor(_)
                             | FiniteSourceValue::Array(_) => Vec::new(),
@@ -307,16 +352,11 @@ impl ScriptLowerer<'_> {
                 }
                 let left = self.function_source_value_candidates(binary.lhs());
                 let right = self.function_source_value_candidates(binary.rhs());
-                return bounded_candidates(
-                    left.iter()
-                        .filter_map(FiniteSourceValue::text)
-                        .flat_map(|left| {
-                            right
-                                .iter()
-                                .filter_map(FiniteSourceValue::text)
-                                .map(move |right| FiniteSourceValue::Text(format!("{left}{right}")))
-                        }),
-                );
+                return bounded_candidates(left.iter().flat_map(|left| {
+                    right
+                        .iter()
+                        .filter_map(move |right| left.concatenate_text(right))
+                }));
             }
             _ => {}
         }
@@ -330,12 +370,35 @@ impl ScriptLowerer<'_> {
         &self,
         arguments: &[&Expression],
     ) -> Vec<Vec<String>> {
+        let candidates = arguments
+            .iter()
+            .map(|argument| self.function_source_value_candidates(argument))
+            .collect::<Vec<_>>();
+        let expanded = Self::source_candidate_tuples(&candidates, true);
+        if expanded.is_empty() {
+            // A supplemental hint must not turn a previously fitting complete
+            // Cartesian product into an unsupported call.
+            Self::source_candidate_tuples(&candidates, false)
+        } else {
+            expanded
+        }
+    }
+
+    pub(super) fn source_candidate_tuples(
+        arguments: &[Vec<FiniteSourceValue>],
+        include_supplemental: bool,
+    ) -> Vec<Vec<String>> {
         let mut tuples = vec![Vec::new()];
-        for argument in arguments {
-            let candidates = self.function_source_value_candidates(argument);
+        for candidates in arguments {
             let strings = candidates
                 .iter()
-                .filter_map(FiniteSourceValue::text)
+                .filter_map(|candidate| {
+                    if include_supplemental {
+                        candidate.text()
+                    } else {
+                        candidate.primary_text()
+                    }
+                })
                 .collect::<BTreeSet<_>>();
             if strings.is_empty()
                 || tuples.len().saturating_mul(strings.len()) > MAX_SOURCE_CANDIDATES
@@ -460,6 +523,7 @@ impl ScriptLowerer<'_> {
                 .flat_map(|candidate| match candidate {
                     FiniteSourceValue::Array(elements) => elements,
                     FiniteSourceValue::Text(_)
+                    | FiniteSourceValue::SupplementalText(_)
                     | FiniteSourceValue::Function(_)
                     | FiniteSourceValue::FunctionConstructor(_)
                     | FiniteSourceValue::Record(_) => Vec::new(),

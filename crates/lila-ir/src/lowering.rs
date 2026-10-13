@@ -39,6 +39,7 @@ mod delete_expression;
 mod direct_eval;
 mod dynamic_source;
 mod environment_identifier;
+mod finite_function_body_hints;
 mod finite_function_source;
 mod finite_iterator_source;
 mod for_lexical_environment;

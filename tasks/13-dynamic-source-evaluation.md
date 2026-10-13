@@ -2,6 +2,17 @@
 
 ## Finite constructor discovery — 2026-10-13
 
+Actual `9ddc57a2c` completes Function893 at 879 Success/14 NotImplemented,
+removing ten limitations and retaining every 869 earlier pass. All 4,489 affected
+native IDs pass, retaining all 4,485 prior passes. A separate actual-worker
+256-body probe exposes a new candidate-retention regression, so that batch is
+not published yet. The next coherent patch prioritizes original candidates and
+complete tuples over supplemental hints, plus bounded body-reference hints
+aimed at ten more stateful conversion IDs. Four IR/four native controls are
+authored; actual focused/native/pinned acceptance is pending. Four unused-formal
+T4 and four BMP eval executions remain owned, with no spelling-based guessing.
+The paragraphs below retain their earlier-source scope.
+
 Hoisting retains optional undefined source hints before unknown calls invalidate
 flow facts, including function-local forward vars. Function target protocols
 also supply optional constructor-kind hints through declared `.constructor`

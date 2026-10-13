@@ -57,7 +57,9 @@ impl ScriptLowerer<'_> {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
                 self.finite_binding_source_candidates(&name)
-                    .and_then(|candidates| candidates.iter().find_map(FiniteSourceValue::text))
+                    .and_then(|candidates| {
+                        candidates.iter().find_map(FiniteSourceValue::primary_text)
+                    })
                     .map(str::to_string)
             }
             Expression::Call(call) => {

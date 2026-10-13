@@ -2,6 +2,166 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower, DynamicFunctionKind, PreparedDynamicFunctionOutcome};
 
 #[test]
+fn hoisted_hints_preserve_all_256_existing_body_candidates() {
+    let bodies = (0..256)
+        .map(|index| format!("return {index};"))
+        .collect::<Vec<_>>();
+    let literals = bodies
+        .iter()
+        .map(|body| format!("{body:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for prefix in ["", "'use strict';"] {
+        for use_source in [
+            "var body; Function(body);",
+            "outerBody = body; Function(outerBody);",
+        ] {
+            let parsed = parse(
+                format!("{prefix} var outerBody; [{literals}].forEach(function(body) {{ {use_source} }});"),
+                ParseOptions::script(),
+            ).unwrap();
+            let program = lower(&parsed);
+            assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+            let script = program.script.unwrap();
+            for body in &bodies {
+                assert!(
+                    script.prepared_dynamic_functions.iter().any(|prepared| {
+                        prepared.kind == DynamicFunctionKind::Ordinary
+                            && prepared.arguments == [body.as_str()]
+                            && matches!(
+                                prepared.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )
+                    }),
+                    "lost existing body {body:?} in {use_source}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn supplemental_hints_preserve_all_256_existing_complete_tuples() {
+    let parameters = (0..16).map(|index| format!("p{index}")).collect::<Vec<_>>();
+    let bodies = (0..16)
+        .map(|index| format!("return {index};"))
+        .collect::<Vec<_>>();
+    let choices = |values: &[String]| {
+        let (last, previous) = values.split_last().unwrap();
+        previous
+            .iter()
+            .map(|value| format!("choose() ? {value:?} : "))
+            .collect::<String>()
+            + &format!("{last:?}")
+    };
+    for prefix in ["", "'use strict';"] {
+        let parsed = parse(
+            format!("{prefix} function choose() {{ return false; }} var parameter = {}; var body = {}; var body; Function(parameter, body);",
+                choices(&parameters), choices(&bodies)),
+            ParseOptions::script(),
+        ).unwrap();
+        let program = lower(&parsed);
+        assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+        let script = program.script.unwrap();
+        for parameter in &parameters {
+            for body in &bodies {
+                assert!(
+                    script.prepared_dynamic_functions.iter().any(|prepared| {
+                        prepared.kind == DynamicFunctionKind::Ordinary
+                            && prepared.arguments == [parameter.as_str(), body.as_str()]
+                            && matches!(
+                                prepared.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )
+                    }),
+                    "lost existing tuple {parameter:?}, {body:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn body_references_hint_unknown_record_formals_in_each_source_grammar() {
+    for (constructor, kind, body) in [
+        (
+            "Function",
+            DynamicFunctionKind::Ordinary,
+            "return key1+key2+key3;",
+        ),
+        (
+            "(function*() {}).constructor",
+            DynamicFunctionKind::Generator,
+            "yield key1+key2+key3;",
+        ),
+        (
+            "(async function() {}).constructor",
+            DynamicFunctionKind::Async,
+            "return key1+key2+key3;",
+        ),
+        (
+            "(async function*() {}).constructor",
+            DynamicFunctionKind::AsyncGenerator,
+            "yield key1+key2+key3;",
+        ),
+    ] {
+        for (arguments, expected) in [
+            ("p,p,p", vec!["key1", "key2", "key3", body]),
+            ("p+','+p,p", vec!["key1,key2", "key3", body]),
+            ("p+','+p+','+p", vec!["key1,key2,key3", body]),
+        ] {
+            let parsed = parse(
+                format!("var counter=0; var p={{toString:function(){{return 'key'+(++counter);}}}}; {constructor}({arguments}, {body:?});"),
+                ParseOptions::script(),
+            ).unwrap();
+            let program = lower(&parsed);
+            assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+            assert!(
+                program
+                    .script
+                    .unwrap()
+                    .prepared_dynamic_functions
+                    .iter()
+                    .any(|prepared| {
+                        prepared.kind == kind
+                            && prepared.arguments == expected
+                            && matches!(
+                                prepared.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )
+                    }),
+                "missing {kind:?} body-reference tuple {expected:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn supplemental_source_hints_do_not_create_eager_module_requests() {
+    use lila_ir::{HostSurfacePolicy, LoweringSession, ModuleRequestKeyIr};
+    let parsed = parse(
+        r#"
+var realm = new ShadowRealm();
+function load(source) { var source; realm.importValue(source, 'value'); }
+load('./live.js');
+var counter=0;
+var p={toString:function(){return 'parameter'+(++counter);}};
+Function(p, "return parameter1; new ShadowRealm().importValue('./unrequested.js', 'value');");
+Function(p, counter ? "return parameter1;" : "return parameter1; new ShadowRealm().importValue('./also-unrequested.js', 'value');");
+Function(p, "return parameter1; Function(\"return new ShadowRealm().importValue('./nested-unrequested.js', 'value');\")();");
+"#,
+        ParseOptions::script(),
+    ).unwrap();
+    let session = LoweringSession::default();
+    let program = session.lower_source(&parsed, HostSurfacePolicy::default());
+    assert!(program.diagnostics.is_empty(), "{:?}", program.diagnostics);
+    assert_eq!(
+        session.realm_module_requests(),
+        [ModuleRequestKeyIr::plain("./live.js")]
+    );
+}
+
+#[test]
 fn forward_var_declarations_retain_undefined_source_candidates_after_calls() {
     for (source, arguments) in [
         ("try { new Function(body); } catch (error) {} var body;", vec!["undefined"]),

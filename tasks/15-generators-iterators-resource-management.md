@@ -2,6 +2,14 @@
 
 ## Iterator terminal methods — 2026-10-13 source batch
 
+Actual `9ddc57a2c` completes the entire original Iterator1308 family with
+1,308 Success, eliminates all 112 Bugs, and retains all 1,196 earlier passes.
+The nine complete affected native scopes pass all 4,489 IDs, preserving every
+4,485 prior pass. Raw owners are the constructor-iterator native/replay owners
+of that revision. Publication awaits the separately discovered constructor
+candidate-retention repair and its full batch acceptance; full-suite/task
+closure remains open. The paragraph below retains the source-only status.
+
 The frozen unfiltered baseline exposes 112 failing executions from absent
 Iterator.prototype.includes/join methods. Both now have builtin identities,
 realm-owned prototype installation, IR metadata and native Wasm algorithms.

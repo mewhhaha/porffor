@@ -1,18 +1,22 @@
 # Lila
 
-## Constructor discovery and Iterator methods — verification in progress
+## Constructor and Iterator verification — 2026-10-13
 
-The unfiltered baseline identifies two missing Iterator methods (`includes` and
-`join`) behind 112 failing executions. Their Wasm implementations and effect/
-cleanup controls are written; exact replay and broad native verification are
-pending. See [the specification contract](docs/rust-rewrite/contracts/iterator-includes-join.md).
+Actual `9ddc57a2c` passes all **1,308 original Iterator executions**: both
+`includes` and `join` now execute through Wasm, all **112 Bugs are eliminated**,
+and every **1,196 earlier pass** remains. Its complete Function893 replay removes
+ten unsupported executions, retains all 869 earlier passes, and records
+879 Success/14 NotImplemented. All 4,489 affected native tests pass, retaining
+every 4,485 prior pass. See
+[the specification contract](docs/rust-rewrite/contracts/iterator-includes-join.md).
 
-The preceding `c457c82a5` constructor-discovery checkpoint passes all 2,178 IR
-tests, retaining every 2,176 prior passing ID and adding two controls. This proves
-candidate preparation; execution of the ten original constructor limitations
-and their new runtime controls remains pending. See
-[the exact IR checkpoint](docs/rust-rewrite/prepared-constructor-ir-checkpoint-20261013.json).
-Both full-suite runs continue collecting their complete outcomes independently.
+A separate 256-body boundary probe finds a candidate-retention regression in
+that batch, so publication awaits its repair. Supplemental hints now preserve
+existing source sets and complete tuples; bounded body-reference hints also
+target ten further stateful constructor limitations. Verification of this next
+batch is pending. See [the discovery and regression owners](docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
+Both unfiltered full-suite runs continue; these family results do not close
+full pinned acceptance.
 
 ## Verified ArrayBuffer capacity repair — 2026-10-13
 

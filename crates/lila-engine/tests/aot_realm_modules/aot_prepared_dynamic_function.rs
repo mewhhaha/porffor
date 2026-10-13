@@ -33,6 +33,92 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn body_reference_hints_keep_live_conversions_and_call_forwarding() {
+    let source = r#"
+var counter=0;
+var p={toString:function(){print('key'+(++counter));return 'key'+counter;}};
+var body='return key1+key2+key3;';
+print(Function(p,p,p,body)(1,2,3));
+print(counter);
+counter=0;
+print(Function(p+','+p,p,body)(4,5,6));
+print(counter);
+counter=0;
+print(Function(p+','+p+','+p,body)(7,8,9));
+print(counter);
+var target={};
+counter=0;
+Function(p,'key2,key3','this.value=key1;').call(target,31);
+print(target.value);
+print(counter);
+counter=0;
+Function(p,'key2,key3','this.value=key1;').apply(target,[32]);
+print(target.value);
+print(counter);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "key1", "key2", "key3", "6", "3", "key1", "key2", "key3", "15", "3", "key1",
+                "key2", "key3", "24", "3", "key1", "31", "1", "key1", "32", "1",
+            ],
+        );
+    }
+}
+
+#[test]
+fn body_reference_hints_preserve_abrupt_conversion_order() {
+    let source = r#"
+var counter=0;
+var marker={};
+var p={toString:function(){
+  var name='key'+(++counter);
+  print(name);
+  if(counter===2) throw marker;
+  return name;
+}};
+try { Function(p,p,p,'return key1+key2+key3;'); }
+catch(error) { print(error===marker); }
+print(counter);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(&format!("{prefix}{source}"), &["key1", "key2", "true", "2"]);
+    }
+}
+
+#[test]
+fn body_reference_hints_require_an_exact_runtime_source_tuple() {
+    for prefix in ["", "'use strict';"] {
+        let error = Engine::new(RealmBuilder::new().build()).observe_script(
+            &format!("{prefix} var counter=3; var p={{toString:function(){{return 'key'+(++counter);}}}}; try {{ Function(p,'return key1;'); print('wrong'); }} catch(error) {{ print('caught'); }}"),
+            CompileOptions { host_surface_policy: HostSurfacePolicy::Test262, ..CompileOptions::default() },
+            RunOptions { backend: ExecutionBackend::WasmAot, timeout_ms: Some(30_000), ..RunOptions::default() },
+        ).expect_err("a guessed formal must not admit a different runtime source tuple");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported dynamic-source operation"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn hoisted_hints_retain_execution_at_the_256_body_boundary() {
+    let literals = (0..256)
+        .map(|index| format!("'return {index};'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix} [{literals}].forEach(function(body, index) {{ var body; if (index === 0 || index === 255) print(Function(body)()); }});"),
+            &["0", "255"],
+        );
+    }
+}
+
+#[test]
 fn forward_var_sources_keep_live_values_and_redeclaration_effects() {
     let source = r#"
 eval(null);

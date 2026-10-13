@@ -89,7 +89,8 @@ impl ScriptLowerer<'_> {
                 candidates
                     .into_iter()
                     .filter_map(|candidate| match candidate {
-                        FiniteSourceValue::Text(source) => Some(source),
+                        FiniteSourceValue::Text(source)
+                        | FiniteSourceValue::SupplementalText(source) => Some(source),
                         FiniteSourceValue::Function(_)
                         | FiniteSourceValue::FunctionConstructor(_)
                         | FiniteSourceValue::Record(_)

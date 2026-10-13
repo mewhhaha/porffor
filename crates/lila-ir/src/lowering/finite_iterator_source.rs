@@ -32,6 +32,7 @@ fn property_candidates(candidates: Vec<FiniteSourceValue>, name: &str) -> Vec<Fi
                     properties.remove(name).unwrap_or_default()
                 }
                 FiniteSourceValue::Text(_)
+                | FiniteSourceValue::SupplementalText(_)
                 | FiniteSourceValue::Function(_)
                 | FiniteSourceValue::FunctionConstructor(_)
                 | FiniteSourceValue::Array(_) => Vec::new(),
@@ -163,6 +164,7 @@ impl ScriptLowerer<'_> {
         let array_elements = candidates.iter().flat_map(|candidate| match candidate {
             FiniteSourceValue::Array(elements) => elements.clone(),
             FiniteSourceValue::Text(_)
+            | FiniteSourceValue::SupplementalText(_)
             | FiniteSourceValue::Function(_)
             | FiniteSourceValue::FunctionConstructor(_)
             | FiniteSourceValue::Record(_) => Vec::new(),

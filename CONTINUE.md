@@ -1,4 +1,28 @@
-## Constructor and Iterator batch awaiting native/replay acceptance
+## Constructor and Iterator checkpoint; candidate-retention repair next
+
+Actual `9ddc57a2c` completes all 4,489 affected native IDs, preserving all 4,485
+previous passes. Complete original Iterator1308 replay has 1,308 Success,
+eliminates 112 Bugs and retains all 1,196 previous passes. Function893 has
+879 Success/14 NotImplemented: ten limitations removed, all 869 prior passes
+retained. Raw complete owners:
+`target/constructor-iterator-native-9ddc57a2c-20261013/receipt.json` and
+`target/constructor-iterator-replay-9ddc57a2c-20261013/receipt.json`.
+
+A separate actual-worker probe catches a 256-body regression that blocks
+publishing that batch. Preserve its failed owner at
+`target/source-candidate-retention-regression-9ddc57a2c-20261013/receipt.json`.
+The next coherent patch preserves all primary candidates/tuples ahead of
+supplemental hints, and adds bounded body-IdentifierReference hints for unknown
+object-to-parameter conversions. Four IR/four native controls are written.
+Compile once, run those controls and original constructor/Iterator controls,
+compare complete original families plus all prior pass IDs, retain ArrayBuffer/
+RegExp fixes, finish affected native scopes/publication guards, then push.
+Expected new removals are ten more constructor IDs; four unused-formal T4 IDs
+and four BMP eval IDs remain explicitly unsupported. No new runtime verdict
+is claimed until those actual owners finish. See the
+[discovery and admission contract](docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
+
+The older checkpoint below retains its own source and pending status.
 
 `c457c82a5` passes the complete optimized IR unit/integration scopes: 2,178 PASS,
 zero FAIL/IGNORE, every 2,176 prior passing ID retained and two new controls.
