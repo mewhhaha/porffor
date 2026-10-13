@@ -5,7 +5,7 @@
 mod compile;
 #[path = "manifest.rs"]
 mod manifest;
-use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
+use crate::wasmtime_config::{CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE, base_config};
 use compile::RuntimeImageCompiler;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -24,7 +24,9 @@ pub(crate) fn write_bundle(
     // The current raw Intl admission requires little-endian data. Other targets
     // keep the ordinary runtime path and its capability checks, without a bundle.
     if endian != "little" || !matches!(target_arch, "x86_64" | "aarch64" | "riscv64") {
-        println!("cargo:warning=embedded runtime unavailable for {target}; preserving normal runtime compilation");
+        println!(
+            "cargo:warning=embedded runtime unavailable for {target}; preserving normal runtime compilation"
+        );
         publish(out, &[], &[], &[]);
         return;
     }
@@ -38,8 +40,14 @@ pub(crate) fn write_bundle(
                 let selection =
                     lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal);
                 println!("build runtime native dependency identity: {native_identity}");
+                let started = std::time::Instant::now();
                 let runtime = lila_aot_wasm::build_runtime_artifact(&selection, &source)
                     .expect("the compiler emits and admits its exact build runtime");
+                println!(
+                    "build runtime fresh emission/admission: {:?}",
+                    started.elapsed()
+                );
+                let started = std::time::Instant::now();
                 // R is immutable build output. Optimize it once without moving
                 // ordinary P compilation off its existing Fast setting.
                 let mut config = base_config(
@@ -91,6 +99,7 @@ pub(crate) fn write_bundle(
                 };
                 let compiler = RuntimeImageCompiler::new(config, module_cache, native_identity)
                     .expect("build engine has the required product configuration and capabilities");
+                println!("build runtime native setup: {:?}", started.elapsed());
                 let started = std::time::Instant::now();
                 let native = compiler
                     .compile(&runtime)
@@ -103,6 +112,7 @@ pub(crate) fn write_bundle(
                     let (hits, misses) = cache.counters();
                     println!("build runtime function cache: {hits} hits, {misses} misses");
                 }
+                let started = std::time::Instant::now();
                 let manifest = manifest::Manifest {
                     source,
                     target: target.to_owned(),
@@ -115,6 +125,10 @@ pub(crate) fn write_bundle(
                 let encoded = manifest.encode();
                 assert_eq!(manifest::Manifest::decode(&encoded), Some(manifest));
                 publish(out, runtime.package_bytes(), &native, &encoded);
+                println!(
+                    "build runtime manifest publication: {:?}",
+                    started.elapsed()
+                );
             })
             .expect("bounded build-runtime compiler thread starts")
             .join()

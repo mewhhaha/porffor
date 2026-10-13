@@ -72,3 +72,32 @@ def test_artifacts(messages, expected):
     if missing:
         raise ValueError(f"missing test artifacts: {sorted(missing)}")
     return found
+
+
+def build_script_artifact(messages, package_id, target_name):
+    """Select one exact successful Cargo producer, independently of libtest.
+
+    Cargo's custom-build row has executable=null. Its single filenames member
+    owns the producer; optimization/profile claims must use the actual row.
+    Other packages' build scripts may coexist in the same successful graph.
+    File existence, bytes and hashes are sealed by the caller.
+    """
+    messages = list(messages)
+    finished = [row.get("success") for row in messages
+                if row.get("reason") == "build-finished"]
+    if finished != [True]:
+        raise ValueError("build script requires one successful Cargo finish")
+    selected = [row for row in messages
+                if row.get("reason") == "compiler-artifact"
+                and row.get("package_id") == package_id
+                and row.get("target", {}).get("name") == target_name
+                and row["target"].get("kind") == ["custom-build"]]
+    if len(selected) != 1:
+        raise ValueError("missing or duplicate exact build script artifact")
+    row = selected[0]
+    files = row.get("filenames", [])
+    if (row.get("executable") is not None
+            or row.get("profile", {}).get("test") is not False
+            or len(files) != 1 or not isinstance(files[0], str) or not files[0]):
+        raise ValueError("invalid custom-build producer framing")
+    return Path(files[0])

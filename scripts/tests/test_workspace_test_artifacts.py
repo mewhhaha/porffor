@@ -16,7 +16,58 @@ def message(package, name="differential_corpus", kind="test", *, test=True):
             "profile": {"test": test}, "executable": f"/tmp/{package}/{name}"}
 
 
+def producer(package="runtime-id", name="build-script-build", kind="custom-build"):
+    row = message(package, name, kind, test=False)
+    row.update(executable=None, filenames=[f"/tmp/{package}/producer"])
+    row["profile"]["opt_level"] = "0"
+    return row
+
+
 class WorkspaceTestArtifactTests(unittest.TestCase):
+    def test_custom_build_uses_single_filename_with_null_executable(self):
+        rows = [producer(), producer("unrelated-id"), {"reason": "build-finished", "success": True}]
+        selected = artifacts.build_script_artifact(rows, "runtime-id", "build-script-build")
+        self.assertEqual(selected, Path("/tmp/runtime-id/producer"))
+        self.assertEqual(rows[0]["profile"]["opt_level"], "0")
+
+    def test_custom_build_keeps_exact_package_target_and_kind(self):
+        for row in [producer("other-id"), producer(name="other-name"), producer(kind="bin")]:
+            with self.subTest(row=row), self.assertRaisesRegex(ValueError, "exact"):
+                artifacts.build_script_artifact(
+                    [row, {"reason": "build-finished", "success": True}],
+                    "runtime-id", "build-script-build")
+
+    def test_custom_build_rejects_missing_or_duplicate_cargo_finish(self):
+        for finish in [[], [{"reason": "build-finished", "success": False}],
+                       [{"reason": "build-finished", "success": True}] * 2]:
+            with self.subTest(finish=finish), self.assertRaisesRegex(ValueError, "finish"):
+                artifacts.build_script_artifact([producer(), *finish], "runtime-id", "build-script-build")
+
+    def test_custom_build_rejects_duplicate_and_missing_producers(self):
+        for rows in [[], [producer(), producer()]]:
+            with self.subTest(rows=rows), self.assertRaisesRegex(ValueError, "duplicate"):
+                artifacts.build_script_artifact(
+                    [*rows, {"reason": "build-finished", "success": True}],
+                    "runtime-id", "build-script-build")
+
+    def test_custom_build_rejects_ambiguous_or_invalid_filename_framing(self):
+        for files in [[], ["/tmp/a", "/tmp/b"], [None], [""]]:
+            row = producer()
+            row["filenames"] = files
+            with self.subTest(files=files), self.assertRaisesRegex(ValueError, "framing"):
+                artifacts.build_script_artifact(
+                    [row, {"reason": "build-finished", "success": True}],
+                    "runtime-id", "build-script-build")
+
+    def test_custom_build_cannot_admit_a_test_or_executable_claim(self):
+        for key, value in [("executable", "/tmp/wrong"), ("profile", {"test": True})]:
+            row = producer()
+            row[key] = value
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "framing"):
+                artifacts.build_script_artifact(
+                    [row, {"reason": "build-finished", "success": True}],
+                    "runtime-id", "build-script-build")
+
     def test_same_name_targets_keep_exact_package_identity(self):
         keys = [(package, "differential_corpus", "test") for package in ["cli-id", "test262-id"]]
         found = artifacts.test_artifacts([message("test262-id"), message("cli-id")], keys)

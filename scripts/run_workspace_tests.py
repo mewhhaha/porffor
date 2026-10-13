@@ -138,7 +138,7 @@ result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
 active={}
 sys.path.insert(0,str(root/'scripts'))
-from workspace_test_artifacts import doc_cohorts, package_selection, selector_key, test_artifacts
+from workspace_test_artifacts import build_script_artifact, doc_cohorts, package_selection, selector_key, test_artifacts
 from workspace_build_cpus import expand_build_tree
 def group_key(case):return selector_key(case,isolated_packages)
 artifact_cohorts={}
@@ -482,6 +482,18 @@ for i,case in execution_order(cases,args.partition_cli):
             build_groups[group_name]={'command':command_build,'executables':[{'package_id':key[0],'target':key[1],'kind':key[2],'path':str(path.relative_to(root))} for key,path in artifact_cohorts[group].items()],
                 'policy':'One build per exact selector cohort; explicitly isolated test roots do not widen the normal graph; every selected package executable is independently inventoried and executed.',
                 'completed_unit_cache_retirement':case['completed_unit_cache_retirement']}
+            producers=[]
+            workspace_scripts={(p['id'],t['name']) for p in metadata['packages'] if p['id'] in members
+                               for t in p['targets'] if t['kind']==['custom-build']}
+            seen={(r['package_id'],r['target']['name']) for r in messages
+                  if r.get('reason')=='compiler-artifact' and r['target']['kind']==['custom-build']
+                  and r['package_id'] in members}
+            assert seen<=workspace_scripts, 'Cargo build scripts must match the exact workspace metadata'
+            for package_id,target in sorted(seen):
+                producer=build_script_artifact(messages,package_id,target)
+                producers.append({'package_id':package_id,'target':target,'path':str(producer.relative_to(root)),
+                                  'bytes':producer.stat().st_size,'sha256':hashlib.sha256(producer.read_bytes()).hexdigest()})
+            build_groups[group_name]['build_script_artifacts']=producers
             wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if group_key(c)==group}
             retired_siblings=[]
             for key,path in artifact_cohorts[group].items():

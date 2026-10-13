@@ -37,3 +37,10 @@ before claiming a speedup.
 
 This batch is prepared in the next source checkout. Compilation, native
 retention, pinned family replay and before/after timing are pending.
+
+The same verification batch adds producer phase timings for compiler
+fingerprints, fresh runtime emission/admission, native-engine/cache setup,
+manifest publication and object packaging. The prior warm producer spent about
+42 seconds overall and about two seconds in native compilation; these timers
+identify the remaining work without inferring its cost from source inspection.
+They change build diagnostics only, preserving artifact and cache admission.
