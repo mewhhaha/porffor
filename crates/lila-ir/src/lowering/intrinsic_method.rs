@@ -134,6 +134,8 @@ impl IntrinsicPrototype {
             (Self::Symbol, "valueOf") => B::SymbolPrototypeValueOf,
             (Self::Symbol, "constructor") => B::SymbolConstructor,
             (Self::Iterator, "toArray") => B::IteratorPrototypeToArray,
+            (Self::Iterator, "includes") => B::IteratorPrototypeIncludes,
+            (Self::Iterator, "join") => B::IteratorPrototypeJoin,
             (Self::Iterator, "forEach") => B::IteratorPrototypeForEach,
             (Self::Iterator, "every") => B::IteratorPrototypeEvery,
             (Self::Iterator, "some") => B::IteratorPrototypeSome,

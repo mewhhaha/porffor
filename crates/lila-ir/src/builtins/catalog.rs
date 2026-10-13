@@ -6638,6 +6638,20 @@ standard_builtin_catalog! {
         installer: None,
         native: "get immutable",
     }
+    IteratorPrototypeIncludes {
+        function: FunctionOrdinal(908) => "$builtin.Iterator.prototype.includes",
+        debug: "Iterator.prototype.includes",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "includes",
+    }
+    IteratorPrototypeJoin {
+        function: FunctionOrdinal(909) => "$builtin.Iterator.prototype.join",
+        debug: "Iterator.prototype.join",
+        flags: [SYNCHRONOUS_USER_CODE],
+        installer: None,
+        native: "join",
+    }
 }
 
 // Native metadata supplies both the initial public name and its frozen source

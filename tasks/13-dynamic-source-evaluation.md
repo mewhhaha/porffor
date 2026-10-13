@@ -1,5 +1,17 @@
 # T13 — Dynamic source evaluation: `eval`, `Function` and realm evaluation
 
+## Finite constructor discovery — 2026-10-13
+
+Hoisting retains optional undefined source hints before unknown calls invalidate
+flow facts, including function-local forward vars. Function target protocols
+also supply optional constructor-kind hints through declared `.constructor`
+properties. Live property lookup, coercions and exact converted-source matching
+remain unchanged. Complete `c457c82a5` IR scopes pass 2,178 tests and retain all
+2,176 earlier passing IDs. Actual execution of the ten original finite-source
+limitations and new mutation/conversion controls remains pending. Fourteen
+stateful conversion and four BMP eval limitations stay in the denominator.
+See [the discovery contract](../docs/rust-rewrite/prepared-constructor-discovery-20261013.md).
+
 ## ShadowRealm and retained finite-source parsing — 2026-10-07 dry source
 
 Finite ShadowRealm evaluation now has its own source kind, native entry and

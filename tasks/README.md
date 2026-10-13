@@ -1,5 +1,16 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Constructor and Iterator batch — runtime verification pending
+
+Complete `c457c82a5` optimized IR scopes pass 2,178/2,178 tests and retain all
+2,176 prior passing IDs. The ten original finite constructor limitations still
+need worker replay. Iterator includes/join implementation and native controls
+address two missing methods behind 112 newly observed baseline Bugs; their
+acceptance is pending. Both full families, task gates and explicit unsupported
+outcomes remain open. See
+[the IR checkpoint](../docs/rust-rewrite/prepared-constructor-ir-checkpoint-20261013.json)
+and [the Iterator contract](../docs/rust-rewrite/contracts/iterator-includes-join.md).
+
 ## Verified ArrayBuffer capacity — 2026-10-13
 
 Clean `b486503d2` passes all 442 pinned ArrayBuffer IDs, retains all 440 old passes

@@ -4363,6 +4363,15 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::IteratorPrototypeForEach,
             )),
         );
+        for (name, builtin) in [
+            ("includes", StandardBuiltinId::IteratorPrototypeIncludes),
+            ("join", StandardBuiltinId::IteratorPrototypeJoin),
+        ] {
+            properties.insert(
+                name.to_string(),
+                ObjectShapeProperty::Data(Self::standard_builtin_value_info(builtin)),
+            );
+        }
         properties.insert(
             "every".to_string(),
             ObjectShapeProperty::Data(Self::standard_builtin_value_info(
@@ -5858,6 +5867,22 @@ impl<'a> ScriptLowerer<'a> {
                 KindSet::from_kind(ValueKind::Function),
                 Some(Self::standard_builtin_function_shape(
                     StandardBuiltinId::IteratorPrototypeForEach,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeIncludes => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeIncludes,
+                )),
+                ValueInfo::undefined(),
+            ),
+            StandardBuiltinId::IteratorPrototypeJoin => (
+                ValueKind::Function,
+                KindSet::from_kind(ValueKind::Function),
+                Some(Self::standard_builtin_function_shape(
+                    StandardBuiltinId::IteratorPrototypeJoin,
                 )),
                 ValueInfo::undefined(),
             ),

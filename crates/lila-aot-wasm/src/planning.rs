@@ -3174,6 +3174,8 @@ impl RuntimeBootstrapPlan {
             | StandardBuiltinId::IteratorHelperNext
             | StandardBuiltinId::IteratorHelperReturn
             | StandardBuiltinId::IteratorPrototypeToArray
+            | StandardBuiltinId::IteratorPrototypeIncludes
+            | StandardBuiltinId::IteratorPrototypeJoin
             | StandardBuiltinId::IteratorPrototypeForEach
             | StandardBuiltinId::IteratorPrototypeEvery
             | StandardBuiltinId::IteratorPrototypeSome
@@ -5500,7 +5502,8 @@ pub(crate) fn optimized_call_method_references_function(
             || StandardBuiltinId::TypedArrayPrototypeToString.function_id() == *target;
     }
     if name == "join" {
-        return StandardBuiltinId::ArrayPrototypeJoin.function_id() == *target;
+        return StandardBuiltinId::ArrayPrototypeJoin.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeJoin.function_id() == *target;
     }
     if name == "splice" {
         return StandardBuiltinId::ArrayPrototypeSplice.function_id() == *target;
@@ -5531,6 +5534,7 @@ pub(crate) fn optimized_call_method_references_function(
     if name == "includes" {
         return StandardBuiltinId::ArrayPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::TypedArrayPrototypeIncludes.function_id() == *target
+            || StandardBuiltinId::IteratorPrototypeIncludes.function_id() == *target
             || StandardBuiltinId::StringPrototypeIncludes.function_id() == *target;
     }
     if name == "indexOf" {
@@ -7078,6 +7082,7 @@ pub(crate) fn standard_builtin_length(builtin: StandardBuiltinId) -> u64 {
         StandardBuiltinId::IteratorHelperNext => 0,
         StandardBuiltinId::IteratorHelperReturn => 0,
         StandardBuiltinId::IteratorPrototypeToArray => 0,
+        StandardBuiltinId::IteratorPrototypeIncludes | StandardBuiltinId::IteratorPrototypeJoin => 1,
         StandardBuiltinId::IteratorPrototypeForEach => 1,
         StandardBuiltinId::IteratorPrototypeEvery => 1,
         StandardBuiltinId::IteratorPrototypeSome => 1,

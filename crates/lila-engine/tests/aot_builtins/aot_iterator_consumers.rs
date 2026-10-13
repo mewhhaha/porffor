@@ -30,6 +30,152 @@ fn assert_iterator_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn iterator_includes_retains_skip_validation_equality_and_close_order() {
+    let source = r#"
+print(Iterator.prototype.includes.name + ':' + Iterator.prototype.includes.length);
+print([NaN].values().includes(NaN));
+print([-0].values().includes(0));
+print([1, 2, 1].values().includes(1, 1));
+print([1].values().includes(1, Infinity));
+print([1].values().includes(1, -0));
+var effects = [];
+var token = {};
+var iter = {
+  get next() { effects.push('next'); return function () { return {done: true}; }; },
+  return: function () { effects.push('return'); throw token; }
+};
+for (var skip of [NaN, 1.5, '1', {valueOf: function () { effects.push('coerce'); return 1; }}]) {
+  try { Iterator.prototype.includes.call(iter, 1, skip); }
+  catch (error) { print(error instanceof TypeError); }
+}
+for (var skip of [-1, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+  try { Iterator.prototype.includes.call(iter, 1, skip); }
+  catch (error) { print(error instanceof RangeError); }
+}
+print(effects.join(','));
+effects = [];
+var count = 0;
+iter = {
+  get next() {
+    effects.push('next');
+    return function () {
+      ++count;
+      return {done: count > 3, get value() { effects.push('value'); return count; }};
+    };
+  },
+  return: function () { effects.push('return'); return {}; }
+};
+print(Iterator.prototype.includes.call(iter, 3, 2));
+print(effects.join(','));
+iter.return = function () { throw token; };
+count = 0;
+try { Iterator.prototype.includes.call(iter, 1); }
+catch (error) { print(error === token); }
+effects = [];
+iter = {
+  next: function () { return {get done() { throw token; }}; },
+  return: function () { effects.push('return'); return {}; }
+};
+try { Iterator.prototype.includes.call(iter, 1); }
+catch (error) { print(error === token); }
+print(effects.length);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_iterator_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "includes:1",
+                "true",
+                "true",
+                "true",
+                "false",
+                "true",
+                "true",
+                "true",
+                "true",
+                "true",
+                "true",
+                "true",
+                "true",
+                "return,return,return,return,return,return,return",
+                "true",
+                "next,value,value,value,return",
+                "true",
+                "true",
+                "0",
+            ],
+        );
+    }
+}
+
+#[test]
+fn iterator_join_retains_conversion_order_and_abrupt_close_rules() {
+    let source = r#"
+print(Iterator.prototype.join.name + ':' + Iterator.prototype.join.length);
+print([].values().join());
+print([1, null, undefined, 'x'].values().join());
+print(['\uD800', '\uDC00'].values().join(''));
+var effects = [];
+var token = {};
+var closed = {};
+var iter = {
+  get next() { effects.push('next'); throw token; },
+  return: function () { effects.push('return'); throw closed; }
+};
+try {
+  Iterator.prototype.join.call(iter, {toString: function () { effects.push('separator'); throw token; }});
+} catch (error) { print(error === token); }
+print(effects.join(','));
+effects = [];
+try {
+  Iterator.prototype.join.call(iter, {toString: function () { effects.push('separator'); return '-'; }});
+} catch (error) { print(error === token); }
+print(effects.join(','));
+effects = [];
+var count = 0;
+iter = {
+  get next() {
+    effects.push('next');
+    return function () {
+      return ++count === 1 ? {done: false, value: {toString: function () { effects.push('value'); throw token; }}} : {done: true};
+    };
+  },
+  return: function () { effects.push('return'); throw closed; }
+};
+try { Iterator.prototype.join.call(iter, ':'); }
+catch (error) { print(error === token); }
+print(effects.join(','));
+effects = [];
+iter = {
+  next: function () { return {get done() { throw token; }}; },
+  return: function () { effects.push('return'); return {}; }
+};
+try { Iterator.prototype.join.call(iter); }
+catch (error) { print(error === token); }
+print(effects.length);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_iterator_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "join:1",
+                "",
+                "1,,,x",
+                "𐀀",
+                "true",
+                "separator,return",
+                "true",
+                "separator,next",
+                "true",
+                "next,value,return",
+                "true",
+                "0",
+            ],
+        );
+    }
+}
+
+#[test]
 fn iterator_consumers_supply_undefined_before_callback_this_binding() {
     assert_iterator_trace(
         r#"

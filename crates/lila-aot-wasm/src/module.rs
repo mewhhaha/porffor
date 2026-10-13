@@ -577,6 +577,8 @@ pub(crate) fn standard_builtin_constructor_realm_slot(
         | StandardBuiltinId::IteratorHelperNext
         | StandardBuiltinId::IteratorHelperReturn
         | StandardBuiltinId::IteratorPrototypeToArray
+        | StandardBuiltinId::IteratorPrototypeIncludes
+        | StandardBuiltinId::IteratorPrototypeJoin
         | StandardBuiltinId::IteratorPrototypeForEach
         | StandardBuiltinId::IteratorPrototypeEvery
         | StandardBuiltinId::IteratorPrototypeSome

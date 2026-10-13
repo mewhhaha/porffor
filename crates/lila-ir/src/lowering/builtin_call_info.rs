@@ -1177,6 +1177,10 @@ impl<'a> ScriptLowerer<'a> {
                 StandardBuiltinId::IteratorPrototypeToArray,
             )),
             StandardBuiltinId::IteratorPrototypeForEach => Some(ValueInfo::undefined()),
+            StandardBuiltinId::IteratorPrototypeIncludes => {
+                Some(ValueInfo::new(ValueKind::Boolean))
+            }
+            StandardBuiltinId::IteratorPrototypeJoin => Some(ValueInfo::new(ValueKind::String)),
             StandardBuiltinId::IteratorPrototypeEvery => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::IteratorPrototypeSome => Some(ValueInfo::new(ValueKind::Boolean)),
             StandardBuiltinId::IteratorPrototypeFind => Some(ValueInfo {

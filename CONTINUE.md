@@ -1,3 +1,31 @@
+## Constructor and Iterator batch awaiting native/replay acceptance
+
+`c457c82a5` passes the complete optimized IR unit/integration scopes: 2,178 PASS,
+zero FAIL/IGNORE, every 2,176 prior passing ID retained and two new controls.
+Raw owner: `/workspace/porffor/target/constructor-ir-c457c82a5-20261013/receipt.json`.
+[The portable checkpoint](docs/rust-rewrite/prepared-constructor-ir-checkpoint-20261013.json)
+retains exact IDs, artifact hashes, commands, logs and baseline comparison.
+Forward undefined source hints are installed during hoisting, including nested
+functions. Declared function constructor properties retain their source grammar.
+The ten original Function/AsyncFunction limitations need actual worker replay;
+fourteen stateful source-conversion and four BMP eval limitations remain owned.
+
+The unchanged original prefix also finds 112 Bugs from two absent methods:
+Iterator.prototype.includes and join. Their complete registration/native bodies
+and strict/sloppy effects/close controls are authored in this batch; no runtime
+verdict is claimed yet. See [the normative owners and rules](docs/rust-rewrite/contracts/iterator-includes-join.md).
+Build the coherent batch once, run focused controls, compare complete original
+Function/Iterator cohorts and prior passing IDs, then complete affected native
+scopes and publication checks before pushing.
+
+Disk cache pressure is a real iteration constraint. Inactive debug Cargo
+fingerprints are reversibly parked at
+`/workspace/porffor/target/completed-debug-fingerprint-parking-20261013/receipt.json`:
+717,393,920 allocated bytes become a verified 6,344,788-byte archive in 4.78s.
+Every archived file is SHA-verified; active workers/DSOs, release graph and raw
+verification owners are unchanged. Restore exact bytes if that debug graph is
+needed; completed generated caches remain disposable after their owners close.
+
 ## Two fresh repaired full-suite families running — 2026-10-13
 
 The verified ArrayBuffer checkpoint is pushed to main as `b7297ec58`. Its actual

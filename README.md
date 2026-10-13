@@ -1,5 +1,19 @@
 # Lila
 
+## Constructor discovery and Iterator methods — verification in progress
+
+The unfiltered baseline identifies two missing Iterator methods (`includes` and
+`join`) behind 112 failing executions. Their Wasm implementations and effect/
+cleanup controls are written; exact replay and broad native verification are
+pending. See [the specification contract](docs/rust-rewrite/contracts/iterator-includes-join.md).
+
+The preceding `c457c82a5` constructor-discovery checkpoint passes all 2,178 IR
+tests, retaining every 2,176 prior passing ID and adding two controls. This proves
+candidate preparation; execution of the ten original constructor limitations
+and their new runtime controls remains pending. See
+[the exact IR checkpoint](docs/rust-rewrite/prepared-constructor-ir-checkpoint-20261013.json).
+Both full-suite runs continue collecting their complete outcomes independently.
+
 ## Verified ArrayBuffer capacity repair — 2026-10-13
 
 Clean `b486503d2` passes **all 442 pinned ArrayBuffer executions**: both original

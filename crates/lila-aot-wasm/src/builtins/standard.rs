@@ -806,6 +806,12 @@ impl<'a> FunctionBuilder<'a> {
             StandardBuiltinId::IteratorPrototypeToArray => {
                 self.emit_native_iterator_terminal(IteratorTerminalKind::ToArray, function)?;
             }
+            StandardBuiltinId::IteratorPrototypeIncludes => {
+                self.emit_native_iterator_terminal(IteratorTerminalKind::Includes, function)?;
+            }
+            StandardBuiltinId::IteratorPrototypeJoin => {
+                self.emit_native_iterator_terminal(IteratorTerminalKind::Join, function)?;
+            }
             StandardBuiltinId::IteratorPrototypeSymbolDispose => {
                 self.emit_iterator_prototype_symbol_dispose(function)?;
             }

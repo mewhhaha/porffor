@@ -1,5 +1,15 @@
 # T15 — Generators, iterators, iterator helpers and resource management
 
+## Iterator terminal methods — 2026-10-13 source batch
+
+The frozen unfiltered baseline exposes 112 failing executions from absent
+Iterator.prototype.includes/join methods. Both now have builtin identities,
+realm-owned prototype installation, IR metadata and native Wasm algorithms.
+Strict/sloppy controls cover validation/coercion order, cached next, skipped value
+getters, SameValueZero, UTF-16 and close/error precedence. Complete original family
+replay and broad native acceptance are pending. See
+[the exact normative owners and contract](../docs/rust-rewrite/contracts/iterator-includes-join.md).
+
 ## Iterator chunking proposal — 2026-10-11
 
 The chunks/windows batch passes 24 focused native controls with zero failures

@@ -29,6 +29,8 @@ impl FunctionBuilder<'_> {
         }
         for (name, builtin) in [
             ("toArray", StandardBuiltinId::IteratorPrototypeToArray),
+            ("includes", StandardBuiltinId::IteratorPrototypeIncludes),
+            ("join", StandardBuiltinId::IteratorPrototypeJoin),
             ("forEach", StandardBuiltinId::IteratorPrototypeForEach),
             ("every", StandardBuiltinId::IteratorPrototypeEvery),
             ("some", StandardBuiltinId::IteratorPrototypeSome),

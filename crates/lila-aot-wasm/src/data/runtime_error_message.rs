@@ -496,6 +496,8 @@ runtime_error_message_catalog! {
     ITERATOR_FLATMAP_HELPER_NEXT_RESULT_MUST_BE_OBJECT => "Iterator flatMap helper next result must be object",
     ITERATOR_FLATMAP_HELPER_RETURN_CALLED_ON_INCOMPATIBLE_RECEIVER => "Iterator flatMap helper return called on incompatible receiver",
     ITERATOR_HELPER_CALLED_ON_INCOMPATIBLE_RECEIVER => "Iterator helper called on incompatible receiver",
+    ITERATOR_INCLUDES_SKIP_MUST_BE_INTEGRAL_NUMBER => "Iterator.prototype.includes skippedElements must be an integral Number or infinity",
+    ITERATOR_INCLUDES_SKIP_OUT_OF_RANGE => "Iterator.prototype.includes skippedElements is out of range",
     ITERATOR_MAP_HELPER_IS_ALREADY_RUNNING => "Iterator map helper is already running",
     ITERATOR_MAP_HELPER_NEXT_CALLED_ON_INCOMPATIBLE_RECEIVER => "Iterator map helper next called on incompatible receiver",
     ITERATOR_MAP_HELPER_NEXT_RESULT_MUST_BE_OBJECT => "Iterator map helper next result must be object",

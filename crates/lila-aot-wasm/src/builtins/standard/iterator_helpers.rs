@@ -29,6 +29,8 @@ pub(super) enum LazyIteratorKind {
 #[derive(Clone, Copy)]
 pub(super) enum IteratorTerminalKind {
     ToArray,
+    Includes,
+    Join,
     ForEach,
     Every,
     Some,
