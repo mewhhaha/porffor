@@ -1,5 +1,19 @@
 # Lila
 
+## Partial native checkpoint at source 8429 — 2026-10-14
+
+Compiled source and documentation parent: `8429f18059dce2277c229e44c61b55c0a62d178e`. The two completed default-profile libraries passed **1,314 exact native IDs**: Test262 library 425 passed (54.30s) and Engine library 889 passed (598.36s), with zero failures or ignored outcomes. All **1,309/1,309 prior passing IDs** were retained, with 0 regressions and 5 new controls. The 13 focused catalogue tests are included in this full two-library count.
+
+The sibling workspace Cargo cohort remains **RED**: its AOT libtest link ended with signal 7 (Bus error) during Root-observed storage exhaustion; Cargo recorded `build-finished success:false`, inner build exit 101, outer exit 1 and 1239.532s wall time. Running its already completed sibling artifacts establishes this partial checkpoint, not whole-workspace acceptance.
+
+Current default type checking passed in 362.998s; the original `63c3c67b94669fc60e76cc1b143bfb4f84bbd2a7` type error (exit 101) is preserved. The actual Python tool result reported 514 passed; it has no portable raw transcript. Genuine Intl verification retained 1,398 source inputs, 15 API steps and 44 byte-identical outputs, with 83 affected Python tests passed. These are separate checks.
+
+Whole workspace, full pinned Test262, current-source historical 5,365 replay, ordinary CLI and task closure remain open. The older 0a18 historical replay and all prior counts/history remain unchanged. The next private RegExp patch is unapplied and unverified.
+
+Exact verdicts, added IDs, retention, source/default-profile Cargo artifacts, binaries, inventories, raw transcripts, failed-cohort and type/Intl provenance are in the [portable partial checkpoint](docs/rust-rewrite/joined-source-8429-partial-native-checkpoint-20261014.json).
+
+### Previous checkpoints and measurements
+
 ## Integrated repair batch — 2026-10-14
 
 The strict callable-header, finite Function-constructor, prepared direct-eval
