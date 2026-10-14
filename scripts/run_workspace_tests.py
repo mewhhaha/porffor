@@ -5,14 +5,17 @@ serial; up to four native targets use one CPU and one test thread each. Original
 worker/campaign deadlines, publication, performance and rustdoc scopes remain
 idle-exclusive. Explicitly isolated test roots use their own Cargo cohort while
 retaining every selected target. --partition-cli inventories and executes every qualified CLI
-test exactly once across disjoint processes.
+test exactly once across disjoint processes. --partition-native-target names an
+opt-in complete native scope, such as lila-engine:aot_intl; original native
+watcher allowances and existing timing/campaign barriers remain intact.
 """
 import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
 from pathlib import Path
 root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
-from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
+from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
+from workspace_test_storage import storage_snapshot
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -75,14 +78,16 @@ def order(case):
     return first.index(key) if key in first else len(first)
 cases.sort(key=order)
 full_inventory=list(cases)
+partition_native_targets=validate_partition_native_targets(full_inventory,args.partition_native_target,native_filters,args.include_ignored)
 assert set(native_filters) <= {c['package']+':'+c['target'] for c in full_inventory}
 if args.only_targets:
     requested=set(args.only_targets)
     known={c['package']+':'+c['target'] for c in full_inventory}
     assert requested <= known, requested-known
+    assert set(partition_native_targets) <= requested, 'Explicit native partitions must be selected by --only-targets'
     cases=[c for c in cases if c['package']+':'+c['target'] in requested]
 
-result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages}
+result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets}
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
@@ -92,6 +97,8 @@ if args.retry_from:
     assert previous['all_features']==args.all_features and previous['include_ignored']==args.include_ignored
     assert previous['selected_workspace_packages']==result['selected_workspace_packages']
     assert previous.get('isolated_test_packages',[])==isolated_packages
+    assert previous.get('partition_native_targets',[])==partition_native_targets, 'Retry native partition policy changed'
+    assert previous.get('partition_cli',args.partition_cli)==args.partition_cli, 'Retry CLI partition policy changed'
     previous_source=json.loads((args.retry_from.parent/'source-start.json').read_text())
     assert previous_source==source
     rejected={(c['package'],c['target'],c['kind']):c for c in previous['cases'] if c.get('state') is None or (args.retry_interrupted and c.get('state') in ('interrupted','storage-deferred'))}
@@ -192,10 +199,11 @@ if args.plan_only:
         'build_command':cargo_test_base(case)+([] if case['kind']=='doc' else ['--no-run','--message-format=json-render-diagnostics']),
         'inventory_arguments':['--list'],
         'execution_arguments':['--test-threads=1']+(['--include-ignored'] if args.include_ignored else []),
-        'barrier':is_barrier(case) or is_partitioned_cli(case,args.partition_cli),
+        'barrier':is_barrier(case) or is_partitioned_native(case,args.partition_cli,partition_native_targets),
         'partitioned_cli':is_partitioned_cli(case,args.partition_cli),
+        'partitioned_native':is_partitioned_native(case,args.partition_cli,partition_native_targets),
         'build_group':':'.join(group_key(case)) if case['kind']!='doc' else None}
-        for _,case in execution_order(cases,args.partition_cli)]
+        for _,case in execution_order(cases,args.partition_cli,partition_native_targets)]
     result['documentation_cohort_plan']=[{'group':group,'packages':sorted(names),
         'inventory_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--list'],
         'execution_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--test-threads=1',*(['--include-ignored'] if args.include_ignored else [])]}
@@ -336,6 +344,9 @@ def complete(cpu):
                 assert partition_evidence['inventory_matches'] and partition_evidence['complete_test_count']==case['inventoried_tests']
                 assert partition_evidence['counts']==outcomes[0] and len(outcomes)==1
                 assert partition_evidence['executable_sha256']==case['executable_sha256']
+                assert partition_evidence['qualified_target']==case['package']+':'+case['target']
+                assert partition_evidence['stall_seconds']==native_stall_seconds(case['package'])
+                assert partition_evidence['cpus']==case['test_cpus']
     executable=entry.get('executable')
     if executable is not None:
         assert executable.parent.resolve()==(profile_root/'deps').resolve()
@@ -369,12 +380,35 @@ def split_doc_packages(text):
         rows[name]=text[start.start():end]
     return rows
 
-def admit_build_space(case, label, *, cached_native=False):
+def admit_writable_space(case, label, *, building=False, native_processes=1):
+    def snapshot():
+        return storage_snapshot(cargo_target_dir,out,build_env,
+            native_processes=len(active)+native_processes,building=building)
+    checked=snapshot();last_drain_at=None
+    while not checked['sufficient'] and active:
+        now=time.monotonic()
+        if last_drain_at is None or now-last_drain_at >= 20:
+            print('STORAGE DRAIN',label,json.dumps(checked,sort_keys=True),flush=True)
+            last_drain_at=now
+        reap()
+        forward_progress()
+        time.sleep(.1)
+        checked=snapshot()
+    case.setdefault('storage_preflights',[]).append({'label':label,**checked})
+    if building:
+        case['build_start_free_disk_bytes']=shutil.disk_usage(cargo_target_dir).free
+    if not checked['sufficient']:
+        case.update(state='storage-deferred',reason='insufficient writable filesystem headroom; no new process admitted; active native scopes drained normally; inspect storage_preflights physical paths')
+        save();print('STORAGE DEFERRED',label,json.dumps(checked,sort_keys=True),flush=True)
+        return False
+    return True
+
+def admit_build_space(case, label, *, cached_native=False, native_processes=1):
     # Existing validated ELFs need no link reserve. Any actual relink, including
     # the static-to-shared fallback, must obtain the reserve before unlinking.
+    # Every admission also checks physical temporary/cache/output filesystems.
     free_bytes=shutil.disk_usage(cargo_target_dir).free
     case['build_start_free_disk_bytes']=free_bytes
-    build_reserve=0 if cached_native else 2*1024**3
     case['build_space_policy']='No link admitted: use the exact source-bound validated existing native artifact' if cached_native else 'Reserve two GiB before an actual Cargo/rustdoc build'
     if not cached_native and free_bytes < 4*1024**3:
         profile_root.mkdir(parents=True,exist_ok=True)
@@ -385,22 +419,7 @@ def admit_build_space(case, label, *, cached_native=False):
                 if cache.is_dir():
                     removed.append({'path':evidence_path(cache),'allocated_bytes':sum(p.stat().st_blocks*512 for p in cache.rglob('*') if p.is_file())});shutil.rmtree(cache)
             case['inactive_incremental_prune']=removed
-        free_bytes=shutil.disk_usage(cargo_target_dir).free
-    last_drain_at=None
-    while free_bytes < build_reserve and active:
-        now=time.monotonic()
-        if last_drain_at is None or now-last_drain_at >= 20:
-            print('STORAGE DRAIN',label,free_bytes,flush=True)
-            last_drain_at=now
-        reap()
-        forward_progress()
-        time.sleep(.1)
-        free_bytes=shutil.disk_usage(cargo_target_dir).free
-    if free_bytes < build_reserve:
-        case.update(state='storage-deferred',build_start_free_disk_bytes=free_bytes,reason='insufficient disk for raw link output; no Cargo process admitted; active native scopes drained normally')
-        save();print('STORAGE DEFERRED',label,free_bytes,flush=True)
-        return False
-    return True
+    return admit_writable_space(case,label,building=not cached_native,native_processes=native_processes)
 
 def run_doc_cohort():
     assert not active, 'Documentation remains idle-exclusive'
@@ -414,7 +433,7 @@ def run_doc_cohort():
         admission=selected[0]
         if not admit_build_space(admission,cohort_label):
             for case in selected[1:]:
-                case.update(state='storage-deferred',build_start_free_disk_bytes=admission['build_start_free_disk_bytes'],build_space_policy=admission['build_space_policy'],reason=admission['reason'])
+                case.update(state='storage-deferred',build_start_free_disk_bytes=admission['build_start_free_disk_bytes'],build_space_policy=admission['build_space_policy'],storage_preflights=admission['storage_preflights'],reason=admission['reason'])
             save()
             continue
         flags=['--all-features'] if args.all_features else []
@@ -431,6 +450,11 @@ def run_doc_cohort():
         label='workspace-'+out.name+'-'+cohort_label
         log_path=out/(cohort_label+'.execution.log')
         watched=['bash','scripts/run-watched.sh','--label',label,'--stall','2400','--poll','1','--',*command]
+        if not admit_writable_space(admission,cohort_label+'-execution'):
+            for case in selected[1:]:
+                case.update(state='storage-deferred',storage_preflights=admission['storage_preflights'],reason=admission['reason'])
+            save()
+            continue
         with log_path.open('w') as stream:
             executed=subprocess.run(watched,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
         watch=root/'target/watched'/(label+'.log')
@@ -465,7 +489,7 @@ def run_doc_cohort():
         assert result['source_unchanged'], 'Source changed during documentation cohort'
 
 save()
-for i,case in execution_order(cases,args.partition_cli):
+for i,case in execution_order(cases,args.partition_cli,partition_native_targets):
     if case['kind']=='doc' and args.continuation_phase in ('barriers','all'):
         if case.get('state') is None:
             # The complete cohort sealed all documentation siblings already.
@@ -475,7 +499,7 @@ for i,case in execution_order(cases,args.partition_cli):
             run_doc_cohort()
         continue
     reap()
-    partitioned=is_partitioned_cli(case,args.partition_cli)
+    partitioned=is_partitioned_native(case,args.partition_cli,partition_native_targets)
     barrier=is_barrier(case) or partitioned
     if barrier:
         while active:reap(wait=True)
@@ -486,7 +510,7 @@ for i,case in execution_order(cases,args.partition_cli):
     print('START',label,flush=True)
     base=cargo_test_base(case)
     cached_native=case['kind']!='doc' and group_key(case) in artifact_cohorts
-    if not admit_build_space(case,label,cached_native=cached_native):continue
+    if not admit_build_space(case,label,cached_native=cached_native,native_processes=len(slots) if partitioned else 1):continue
     cpu=next(cpu for cpu in slots if cpu not in active)
     start=time.monotonic();case.update(state='building',started_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()));save()
     buildlog=out/(label+'.build.jsonl');errlog=out/(label+'.build.stderr')
@@ -625,20 +649,24 @@ for i,case in execution_order(cases,args.partition_cli):
         partition_output=out/(label+'-partitions')
         partition_receipt=partition_output/'receipt.json'
         partition_driver=root/'scripts/workspace_test_partitions.py'
-        command=['python3','-B',str(partition_driver),'--executable',str(executable),'--inventory',str(out/(label+'.inventory.log')),'--output',str(partition_output),'--cpus',*map(str,slots),'--include-ignored']
+        command=['python3','-B',str(partition_driver),'--executable',str(executable),'--inventory',str(out/(label+'.inventory.log')),'--output',str(partition_output),'--cpus',*map(str,slots),'--include-ignored','--qualified-target',case['package']+':'+case['target'],'--stall-seconds',str(native_stall_seconds(case['package']))]
         case['partition_driver_sha256']=hashlib.sha256(partition_driver.read_bytes()).hexdigest()
         case['partition_receipt_path']=evidence_path(partition_receipt)
+    # Builds may consume scratch after admission. Recheck before executing even
+    # cached native images; a deferred scope has no fabricated native verdict.
+    if not admit_writable_space(case,label+'-execution',native_processes=len(slots) if partitioned else 1):continue
+    cpu=next(cpu for cpu in slots if cpu not in active)
     log=out/(label+'.run.log');watch=root/'target/watched'/(watch_label+'.log')
     case.update(state='running',command=command,test_cpu=cpu,
       test_policy=('explicitly filtered native control with its matching exact inventory' if case.get('native_filter') else 'complete native executable')+' on one inherited CPU and one libtest thread; independent target concurrency recorded separately');save()
     stream=log.open('w')
     launch=['taskset','-c',str(cpu),'./scripts/run-watched.sh','--label',watch_label,
-      '--stall','3600' if case['package']=='lila-cli' else '900','--poll','1','--',
+      '--stall',str(native_stall_seconds(case['package'])),'--poll','1','--',
       'python3','-B','scripts/limited_verification.py','--cloud','--',*command]
     if partitioned:
-        launch=['./scripts/run-watched.sh','--label',watch_label,'--stall','3600','--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--',*command]
+        launch=['./scripts/run-watched.sh','--label',watch_label,'--stall',str(native_stall_seconds(case['package'])),'--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--',*command]
         case['test_cpus']=slots
-        case['test_policy']='complete logical native CLI target; all exact qualified IDs in disjoint source-bound partitions, each on one inherited CPU and one libtest thread; no other native target active'
+        case['test_policy']='complete logical native target; all exact qualified IDs in disjoint source-bound partitions, each on one inherited CPU and one libtest thread; no other native target active; source-bound partition driver and original native stall allowance retained'
         save()
     run=subprocess.Popen(launch,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
     active[cpu]={'run':run,'stream':stream,'case':case,'start':start,'watch':watch,'log':log,

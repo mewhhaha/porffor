@@ -1,5 +1,30 @@
 # Current continuation — 2026-10-14
 
+## Verification storage and native partitions — 2026-10-14
+
+Workspace verification now checks the physical filesystems used by temporary
+files, compilation caches and outputs, including symlinked cache tiers. It keeps
+the two-GiB build reserve and requires 256 MiB of scratch headroom per active
+and scheduled native process. Insufficient space records a deferred scope.
+
+Use `--partition-native-target lila-engine:aot_intl` to run that complete
+inventory in disjoint serial workers. Partitions remain idle-exclusive, retain
+every qualified ID and use the existing CPU, thread, cache and watcher limits.
+The original 293-test Intl scope passed in 1,222.69 seconds of native execution;
+four-way execution has not been measured. All 28 Python tooling controls pass.
+Refresh them with:
+
+```sh
+python3 -B -m unittest discover -s scripts/tests -p 'test_workspace_test_*.py' -v
+```
+
+The compiler-source f5e3f706 default run and its frontend continuation cover
+all 107 scopes: 9,090 native tests passed and 30 failed after temporary storage
+filled. All 848 CLI tests passed. Complete Engine and async reruns are active;
+whole-workspace acceptance, all-features verification, ordinary CLI replay and
+task closure remain pending. CONTINUE.md and tasks are retained.
+
+
 ## Reduce production rebuilds after test edits — 2026-10-14
 
 The Engine and runtime-image compiler fingerprints now exclude explicit test

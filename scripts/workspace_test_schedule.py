@@ -6,6 +6,38 @@ def is_partitioned_cli(case, enabled):
             and case['target'] == 'cli' and case['kind'] == 'test')
 
 
+def native_stall_seconds(package):
+    """Keep the original whole-target watcher allowance in each child."""
+    return 3600 if package == 'lila-cli' else 900
+
+
+def is_partitioned_native(case, partition_cli, native_targets=()):
+    return (is_partitioned_cli(case, partition_cli)
+            or (case['kind'] in ('lib', 'bin', 'test')
+                and case['package'] + ':' + case['target'] in native_targets))
+
+
+def validate_partition_native_targets(inventory, requested, native_filters,
+                                      include_ignored):
+    """Admit only exact available metadata scopes with complete inventories."""
+    selected = sorted(set(requested))
+    if selected and not include_ignored:
+        raise ValueError('Complete native partitions require --include-ignored')
+    for name in selected:
+        matches = [case for case in inventory
+                   if case['package'] + ':' + case['target'] == name]
+        if len(matches) != 1:
+            raise ValueError(f'Native partition target must name one available '
+                             f'Cargo metadata scope: {name}')
+        if matches[0]['kind'] not in ('lib', 'bin', 'test') or is_barrier(matches[0]):
+            raise ValueError(f'Native partitions exclude documentation, timing '
+                             f'and campaign barriers: {name}')
+        if name in native_filters:
+            raise ValueError(f'Native partitions require an unfiltered whole '
+                             f'target: {name}')
+    return selected
+
+
 def is_barrier(case):
     return (case['kind'] == 'doc'
             or (case['package'] == 'lila-cli' and case['target'] in (
@@ -18,11 +50,12 @@ def is_barrier(case):
                 'differential_rooted_snapshot_execution')))
 
 
-def execution_order(cases, partition_cli):
+def execution_order(cases, partition_cli, native_targets=()):
     """Keep original indices and objects; drain independent work before barriers.
 
     Sorting is stable within both groups. Receipt inventories and continuation
     selection retain their original order; only dispatch order changes.
     """
     return sorted(enumerate(cases), key=lambda indexed: (
-        is_barrier(indexed[1]) or is_partitioned_cli(indexed[1], partition_cli)))
+        is_barrier(indexed[1])
+        or is_partitioned_native(indexed[1], partition_cli, native_targets)))

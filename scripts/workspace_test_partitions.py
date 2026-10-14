@@ -1,4 +1,4 @@
-"""Run every inventoried CLI libtest ID once in disjoint native processes."""
+"""Run every qualified native libtest ID once in disjoint processes."""
 import argparse
 import hashlib
 import json
@@ -9,6 +9,8 @@ import sys
 import time
 from pathlib import Path
 
+from workspace_test_schedule import native_stall_seconds
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--executable', required=True, type=Path)
@@ -17,7 +19,14 @@ parser.add_argument('--output', required=True, type=Path)
 parser.add_argument('--cpus', required=True, nargs='+', type=int)
 parser.add_argument('--include-ignored', action='store_true', required=True)
 parser.add_argument('--inventory-only', action='store_true')
+parser.add_argument('--qualified-target', default='lila-cli:cli')
+parser.add_argument('--stall-seconds', type=int, choices=(900, 3600))
 args = parser.parse_args()
+package, separator, target = args.qualified_target.partition(':')
+assert separator and package and target and ':' not in target, 'An exact package:target is required'
+stock_stall = native_stall_seconds(package)
+assert args.stall_seconds in (None, stock_stall), 'The original native watcher allowance cannot change'
+args.stall_seconds = stock_stall
 root = Path.cwd()
 assert 1 <= len(args.cpus) <= 4
 assert len(set(args.cpus)) == len(args.cpus)
@@ -55,18 +64,6 @@ def outcomes(text):
     return results, counts
 
 
-original = names(args.inventory.read_text())
-assert original and len(original) == len(set(original))
-checked = subprocess.run([str(args.executable.resolve()), '--list'],
-                         capture_output=True, text=True)
-assert checked.returncode == 0
-assert names(checked.stdout) == original, 'The original complete native inventory changed'
-full_inventory = args.output / 'complete.inventory.log'
-full_inventory.write_text(checked.stdout + checked.stderr)
-groups = [[] for _ in args.cpus]
-loads = [0 for _ in args.cpus]
-
-
 def weight(name):
     # Scheduling estimates are never used to select, drop or retry a test.
     if name.startswith('frontend_test262_subset::'):
@@ -78,16 +75,38 @@ def weight(name):
     return 3
 
 
-for name in sorted(original, key=lambda item: (-weight(item), item)):
-    index = min(range(len(groups)), key=lambda group: (loads[group], group))
-    groups[index].append(name)
-    loads[index] += weight(name)
-assert sorted(name for group in groups for name in group) == sorted(original)
-assert all(groups)
+def partition_groups(original, count):
+    assert original and len(original) == len(set(original))
+    assert 1 <= count <= min(4, len(original)), 'Every admitted native partition needs an ID'
+    groups = [[] for _ in range(count)]
+    loads = [0 for _ in range(count)]
+    for name in sorted(original, key=lambda item: (-weight(item), item)):
+        index = min(range(len(groups)), key=lambda group: (loads[group], group))
+        groups[index].append(name)
+        loads[index] += weight(name)
+    assert sorted(name for group in groups for name in group) == sorted(original)
+    assert all(groups)
+    return groups
+
+
+original = names(args.inventory.read_text())
+assert original and len(original) == len(set(original))
+checked = subprocess.run([str(args.executable.resolve()), '--list'],
+                         capture_output=True, text=True)
+assert checked.returncode == 0
+assert names(checked.stdout) == original, 'The original complete native inventory changed'
+full_inventory = args.output / 'complete.inventory.log'
+full_inventory.write_text(checked.stdout + checked.stderr)
+groups = partition_groups(original, len(args.cpus))
 executable_sha = digest(args.executable)
 receipt = {
     'policy': 'Complete logical target: every original qualified ID exactly once in disjoint native libtest processes, each on one inherited CPU and one test thread; original bodies and deadlines unchanged; zero ignored required.',
     'driver_sha256': digest(Path(__file__)),
+    'qualified_target': args.qualified_target, 'stall_seconds': args.stall_seconds,
+    'inherited_retained_modules': {
+        'entries_per_process': os.environ.get('LILA_MODULE_MEMORY_CACHE_ENTRIES'),
+        'image_bytes_per_process': os.environ.get('LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES'),
+        'policy': 'Inherited environment; each child retains the existing limited_verification cloud ceiling. No cache or memory limit changed.'},
     'executable': str(args.executable), 'executable_sha256': executable_sha,
     'original_inventory': str(args.inventory), 'original_inventory_sha256': digest(args.inventory),
     'complete_inventory': str(full_inventory), 'complete_inventory_sha256': digest(full_inventory),
@@ -128,7 +147,7 @@ for row in receipt['partitions']:
     log = args.output / f'partition-{row["index"]}.launcher.log'
     stream = log.open('w')
     launch = ['taskset', '-c', str(row['cpu']), './scripts/run-watched.sh',
-              '--label', label, '--stall', '3600', '--poll', '1', '--',
+              '--label', label, '--stall', str(args.stall_seconds), '--poll', '1', '--',
               'python3', '-B', 'scripts/limited_verification.py', '--cloud', '--', *row['command']]
     row['launch_command'] = launch
     row['transcript_log'] = str(Path('target/watched') / (label + '.log'))
