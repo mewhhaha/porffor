@@ -1,5 +1,41 @@
 # Current continuation — 2026-10-14
 
+## Complete default workspace checkpoint — 2026-10-14
+
+Compiler source `d2f4bc51` passes all 107 default workspace scopes:
+**9,127 passed, zero failed, zero ignored**. Exact retention keeps all
+**9,120/9,120** preceding passes and all 6,399 older passes; all 70
+required controls pass. The complete 848-test CLI inventory is included. The
+single actual native run exits zero in 3616.979 seconds, with unchanged
+source, bodies, deadlines and cache caps. All 538 current Python tooling tests
+also pass.
+
+The [portable default checkpoint](docs/rust-rewrite/default-workspace-d2-native-checkpoint-20261014.json)
+contains exact IDs, actual Cargo/runtime provenance and lossless raw evidence.
+Raw streams retain their original path and exact SHA so an earlier watcher
+filename reused by a later run cannot erase the older evidence. The original
+failed reader and earlier RED native attempts remain separate from this passing
+run. Retired executable bytes are recorded without claiming they remain present.
+
+| Complete native scope | Current four-partition wall time | Previous serial native time |
+| --- | ---: | ---: |
+| Engine, 889 tests | 355.132 s | 611.96 s |
+| Async, 248 tests | 265.105 s | 414.11 s |
+| Intl, 293 tests | 302.276 s | 1,222.69 s |
+
+These are consecutive observations with different source/cache state, rather
+than a controlled benchmark. Python tooling briefly overlapped async. Each native
+process retains one CPU and one test thread; the cloud quota remains four CPUs
+and Cargo stays serial.
+
+The all-features 108-scope run is active. Its retention checks account for the
+four source-gated default-only oracle-refusal tests using this current default
+proof; those IDs are reported separately from all-features executions. The
+normal current CLI replay, historical 5,365-ID retention, full pinned Test262 and
+task closure remain required. CONTINUE.md and tasks remain until those gates pass.
+
+## Earlier checkpoints
+
 ## Verified finite Function subclasses — 2026-10-14
 
 2026-10-14: The source-bound finite Function-subclass focused checkpoint at `d2f4bc51` passed **40 native controls** (33 IR + 7 Engine), including all seven new controls and the unchanged Function/GeneratorFunction subclass fixtures in both modes (14 embedded assertions). Raw native times were 39.50 s and 15.56 s; the closed outer run took 574.67 s including builds. The portable checkpoint preserves the earlier compile-101 and cc35 5-PASS/2-FAIL attempts as separate RED evidence. Full default/all-features workspace verification and ordinary CLI subclass replay remain pending.
