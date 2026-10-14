@@ -1,5 +1,22 @@
 # Current continuation — 2026-10-14
 
+## Genuine ordinary CLI subclass checkpoint — 2026-10-14
+
+The normal default release CLI on compiler `d2f4bc51` completes the unchanged
+45-case replay with **43 Success, 2 NotImplemented, zero Bug, Crash or
+InfrastructureError**. All 29 preceding successes are retained, and all 14
+unchanged pinned Function/GeneratorFunction subclass modes now pass. The two
+GeneratorFunction runtime fixture modes retain their explicit capability
+rejections and the actual replay exit remains 1.
+
+The [portable ordinary CLI checkpoint](docs/rust-rewrite/ordinary-cli-d2-probe45-20261014.json)
+contains the exact execution IDs, unchanged fixtures, actual normal Cargo
+producers, static runtime bundle and lossless raw replay evidence. The distinct
+worker matches the ordinary binary byte-for-byte. The genuine normal Cargo build
+took 627.657 seconds. Worker count, one thread and the 60,000 ms deadline retain
+their existing policy. This diagnostic is separate from full historical and
+pinned Test262 acceptance; CONTINUE.md and tasks remain open.
+
 ## Complete all-features workspace checkpoint — 2026-10-14
 
 Compiler source `d2f4bc51` passes the complete 108-scope all-features
@@ -17,8 +34,8 @@ cache limits are unchanged.
 
 The [portable all-features checkpoint](docs/rust-rewrite/all-features-workspace-d2-native-checkpoint-20261014.json)
 contains exact native IDs, Cargo/runtime provenance, raw transcripts and the
-same-source default proof. The normal current CLI replay, historical 5,365-ID
-retention, full pinned Test262 and task acceptance remain open.
+same-source default proof. The ordinary CLI checkpoint is recorded above.
+Historical 5,365-ID retention, full pinned Test262 and task acceptance remain open.
 
 ## Preserve verification transcripts across runs — 2026-10-14
 
@@ -58,9 +75,9 @@ than a controlled benchmark. Python tooling briefly overlapped async. Each nativ
 process retains one CPU and one test thread; the cloud quota remains four CPUs
 and Cargo stays serial.
 
-The complete all-features checkpoint is recorded above. The normal current CLI
-replay, historical 5,365-ID retention, full pinned Test262 and task closure
-remain required. CONTINUE.md and tasks remain until those gates pass.
+The complete all-features and ordinary CLI checkpoints are recorded above.
+Historical 5,365-ID retention, full pinned Test262 and task closure remain
+required. CONTINUE.md and tasks remain until those gates pass.
 
 ## Earlier checkpoints
 
