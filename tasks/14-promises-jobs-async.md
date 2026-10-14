@@ -1,5 +1,22 @@
 # T14 — Promise jobs, async functions and async iteration
 
+## Current suspension acceptance correction — 2026-10-14
+
+Compiler `d2f4bc51` passes the checked complete async-switch operand control and
+the resumable resource-scope controls in the [complete D2 native checkpoint](../docs/rust-rewrite/default-workspace-d2-native-checkpoint-20261014.json).
+Legal `await using resource = await input` initializers already use the complete
+resource continuation owner before the older eager fallback. The native
+resource fixture verifies one-time acquisition/method reads, captured cells,
+and rejection of a later awaited initializer disposing earlier resources in
+order, in strict and sloppy Wasm-AOT execution. No repair to the old fallback
+is needed for this source domain. Resource BindingPatterns remain syntax errors.
+
+The older blanket statement that switch cases/discriminants are unsupported
+is superseded by the checked switch owners and measured control. A legacy
+Unsupported guard by itself does not prove that a valid source lacks an earlier
+complete route. Whole pinned Promise/async filters, independent hosts and task
+acceptance remain required.
+
 ## Verified Promise.try callback order and identity — 2026-10-13
 
 The complete original 30-ID family exposes four Bugs from eagerly constructing
@@ -384,8 +401,10 @@ eager source body before temporarily removing continuation state. Back edges and
 rejection and captured body environments. Non-loop labelled regions support
 admitted Block/If/Try owners, ordinary awaits and awaited `while` conditions;
 early labelled breaks bypass unentered conditions and advance to the region exit.
-Switch cases/discriminants, implicit disposal/iterator body suspensions and bodies
-without supported continuation owners report Unsupported. Nested functions retain
+Checked complete switch owners now handle admitted discriminant and case
+suspensions. Complete resource scopes stage awaited initializers before
+registration. Shapes without a checked continuation owner retain a typed
+Unsupported result; eager fallback guards do not override the complete routes. Nested functions retain
 independent activations. The actual combined T12/Async/Locale checkpoint passes
 43 stages/1,520 selected Rust tests, fresh CLI and 39 exact pinned files/65 modes,
 then receipt acceptance and 107-path MAIN admission. The separate mandatory broad

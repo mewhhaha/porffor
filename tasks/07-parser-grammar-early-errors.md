@@ -1,5 +1,16 @@
 # T07 — Parser boundary, grammar coverage and early errors
 
+## Current parser acceptance correction — 2026-10-14
+
+The AsyncGeneratorDeclaration `Contains super` classification is implemented
+and verified on compiler `d2f4bc51`. The [complete D2 native checkpoint](../docs/rust-rewrite/default-workspace-d2-native-checkpoint-20261014.json)
+contains all six named front controls for rejection, positive boundaries,
+nested owners, precedence, classifier safety and anonymous default Module
+declarations, plus both IR module/graph diagnostic controls. The older statement
+that this eighth callable-family classification awaits focused verification is
+superseded. The complete default workspace has 9,127 passes and no failures or
+ignored tests. Full pinned grammar/early-error and task-wide closure remain open.
+
 ## Current field-initializer source correction — 2026-10-07 dry source
 
 The current class parser still passed its enclosing `Yield`/`Await` parameters
@@ -52,7 +63,7 @@ original scope and failures. This checkpoint supersedes only the
 unexecuted state of the named selected controls described above.
 
 
-**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, ordinary FunctionExpression/FunctionDeclaration, AsyncFunctionExpression, GeneratorExpression, GeneratorDeclaration, AsyncGeneratorExpression, AsyncFunctionDeclaration and AsyncGeneratorDeclaration `Contains super`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` and seven expression/declaration `Contains super` classifications are focused-verified, the eighth AsyncGeneratorDeclaration classification awaits focused verification, and broader grammar/early-error closure remains
+**Status:** In progress — parse-once boundary plus ObjectLiteral CoverInitializedName, Script top-level `new.target`, top-level `super` and `using`, for-in and switch-clause `using` declarations, the callable-parameter `Contains YieldExpression`/`Contains AwaitExpression` matrix across declarations, expressions, methods and arrows, callable non-simple-parameter `ContainsUseStrict`, ordinary FunctionExpression/FunctionDeclaration, AsyncFunctionExpression, GeneratorExpression, GeneratorDeclaration, AsyncGeneratorExpression, AsyncFunctionDeclaration and AsyncGeneratorDeclaration `Contains super`, duplicate formal/catch-parameter, catch-body conflict, duplicate-class-constructor/private-name, constructor method/private-name, public-static-method `prototype` and class-field literal-name restrictions, class static-block `ContainsAwait`, class static-block/field `ContainsArguments`, strict-mode `with`/delete, duplicate static import-attribute-key, optional-chain tagged-template, for-head/body declaration-conflict, duplicate `ForDeclaration` BoundNames, lexical bound-name `let` and `import.meta` outside Module classification implemented; class field-initializer `SuperCall` and all eight expression/declaration `Contains super` classifications are verified in the complete D2 default workspace checkpoint, and broader grammar/early-error closure remains
 
 **Parallel group:** Core foundations  
 **Depends on:** T01, T02  

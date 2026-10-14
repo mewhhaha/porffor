@@ -1,5 +1,18 @@
 # T15 — Generators, iterators, iterator helpers and resource management
 
+## Current resource-scope acceptance correction — 2026-10-14
+
+The [complete D2 native checkpoint](../docs/rust-rewrite/default-workspace-d2-native-checkpoint-20261014.json) on compiler `d2f4bc51` records
+`aot_resumable_resource_scopes::original_generator_and_async_resource_scopes_stage_initializers_and_keep_one_lifetime`
+and the matching IR resource-proof control as passing. The native fixture
+executes generator and async resource scopes in both Script modes, including
+awaited acquisition and disposal, one-time method reads, captured cells and
+cleanup after a rejected later initializer. The older dated source-only
+switch/disposal proposals retain their historical scope; their unexecuted
+claims do not describe all current continuation owners. This closes the named
+control gap, while full pinned generator/resource filters and task acceptance
+remain open.
+
 ## Iterator terminal methods — 2026-10-13 source batch
 
 Actual `4a3968e5e` completes the entire original Iterator1308 family with
