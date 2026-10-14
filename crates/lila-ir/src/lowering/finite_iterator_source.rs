@@ -97,7 +97,7 @@ impl ScriptLowerer<'_> {
             return;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        let Some(binding) = self.lookup_binding(&name) else {
+        let Some(binding_key) = self.finite_source_binding_key(&name) else {
             return;
         };
         let key = match access.field() {
@@ -115,7 +115,7 @@ impl ScriptLowerer<'_> {
         }
         let properties = self
             .function_source_binding_candidates
-            .entry(binding.storage_name)
+            .entry(binding_key)
             .or_default();
         if let Some(FiniteSourceValue::Record(properties)) = properties
             .iter_mut()
