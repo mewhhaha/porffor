@@ -1,5 +1,15 @@
 # Lila
 
+## Verified finite Function subclasses — 2026-10-14
+
+2026-10-14: The source-bound finite Function-subclass focused checkpoint at `d2f4bc51` passed **40 native controls** (33 IR + 7 Engine), including all seven new controls and the unchanged Function/GeneratorFunction subclass fixtures in both modes (14 embedded assertions). Raw native times were 39.50 s and 15.56 s; the closed outer run took 574.67 s including builds. The portable checkpoint preserves the earlier compile-101 and cc35 5-PASS/2-FAIL attempts as separate RED evidence. Full default/all-features workspace verification and ordinary CLI subclass replay remain pending.
+
+See [the portable focused proof](docs/rust-rewrite/focused-finite-subclass-d2f4bc51-20261014.json) for exact IDs, source,
+producer hashes and lossless raw evidence. The current complete default run is
+active with whole-inventory partitions for Engine, async, Intl and CLI. The
+all-features 108-scope plan passed its inventory checks. Full 5,365-ID retention,
+pinned Test262 and task closure remain open; CONTINUE.md and tasks are retained.
+
 ## Finite synthetic Function subclasses — 2026-10-14
 
 The next source batch prepares bounded, proven Function and GeneratorFunction
