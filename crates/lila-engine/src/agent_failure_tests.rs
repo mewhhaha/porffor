@@ -113,10 +113,24 @@ fn broadcast_waits_for_every_retrieval_without_holding_the_worker_registry() {
     let second = deliveries
         .recv_timeout(Duration::from_secs(5))
         .expect("second recipient queued");
-    assert!(
-        group.workers.try_lock().is_ok(),
-        "recipients never need the registry lock"
-    );
+    // Queuing the second delivery can wake this thread before the broadcaster
+    // has dropped its registry guard. Acquire it through a bounded handshake,
+    // then retain it through retrieval to prove the wait needs no registry lock.
+    let (registry_locked, acquired_registry) = mpsc::channel();
+    let (release_registry, registry_release) = mpsc::channel();
+    let owner = Arc::clone(&group);
+    let registry_thread = std::thread::spawn(move || {
+        let _guard = owner.workers.lock().expect("worker registry lock");
+        registry_locked
+            .send(())
+            .expect("owner observes registry acquisition");
+        registry_release
+            .recv()
+            .expect("owner releases registry after retrieval");
+    });
+    acquired_registry
+        .recv_timeout(Duration::from_secs(5))
+        .expect("broadcast releases registry before waiting for retrieval");
     assert!(matches!(
         result.recv_timeout(Duration::from_millis(30)),
         Err(RecvTimeoutError::Timeout)
@@ -138,6 +152,8 @@ fn broadcast_waits_for_every_retrieval_without_holding_the_worker_registry() {
             .unwrap(),
         2
     );
+    release_registry.send(()).expect("retrieval finished");
+    registry_thread.join().expect("registry observer joins");
     broadcast_thread.join().expect("broadcast owner joins");
     group
         .finish()
