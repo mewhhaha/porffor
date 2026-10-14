@@ -150,6 +150,7 @@ fn load_embedded_module_graph(
             EmbeddedModuleKind::SourceText => ModuleKindIr::SourceText,
             EmbeddedModuleKind::Json => ModuleKindIr::Json,
             EmbeddedModuleKind::Bytes => ModuleKindIr::Bytes,
+            EmbeddedModuleKind::Text => ModuleKindIr::Text,
         };
         let referrer = (
             EmbeddedModuleReferrer::Module(module.identity().to_owned()),
@@ -171,6 +172,9 @@ fn load_embedded_module_graph(
             }
             lila_runtime::EmbeddedModuleContents::Json(text) => {
                 ModuleSourceIr::json(key, text.clone(), url)
+            }
+            lila_runtime::EmbeddedModuleContents::Text(text) => {
+                ModuleSourceIr::text(key, text.clone(), url)
             }
             lila_runtime::EmbeddedModuleContents::Bytes(bytes) => {
                 ModuleSourceIr::bytes(key, bytes.clone(), url)
@@ -226,6 +230,8 @@ pub enum LoadedModuleKind {
     Json(String),
     /// Raw Bytes Module data, without UTF-8 decoding.
     Bytes(Vec<u8>),
+    /// A host-decoded String, exported without parsing a source grammar.
+    Text(String),
 }
 
 /// One loaded module.
@@ -441,7 +447,9 @@ impl HostModuleLoader for FilesystemModuleLoader {
             if attribute.key == "type" && attribute.value == "json");
         let bytes = matches!(request.attributes(), [attribute]
             if attribute.key == "type" && attribute.value == "bytes");
-        if !request.attributes().is_empty() && !json && !bytes {
+        let text = matches!(request.attributes(), [attribute]
+            if attribute.key == "type" && attribute.value == "text");
+        if !request.attributes().is_empty() && !json && !bytes && !text {
             let attribute = &request.attributes()[0];
             return Err(ModuleLoadError::UnsupportedAttribute {
                 key: attribute.key.clone(),
@@ -472,6 +480,7 @@ impl HostModuleLoader for FilesystemModuleLoader {
             });
         }
         if !bytes
+            && !text
             && resolved
                 .extension()
                 .is_some_and(|extension| extension == "json")
@@ -515,6 +524,11 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 LoadedModuleKind::Json(std::fs::read_to_string(&path).map_err(io)?)
             }
             ModuleKindIr::Bytes => LoadedModuleKind::Bytes(std::fs::read(&path).map_err(io)?),
+            ModuleKindIr::Text => {
+                // Match the host source decoding policy: reject malformed UTF-8,
+                // preserve all decoded characters including a leading BOM.
+                LoadedModuleKind::Text(std::fs::read_to_string(&path).map_err(io)?)
+            }
             ModuleKindIr::Script => {
                 return Err(ModuleLoadError::Denied {
                     specifier: locator.as_str().into(),
@@ -799,6 +813,7 @@ fn loaded_module_source(loaded: LoadedModule) -> ModuleSourceIr {
         LoadedModuleKind::Source(text) => ModuleSourceIr::new(loaded.key, text, loaded.meta_url),
         LoadedModuleKind::Json(text) => ModuleSourceIr::json(loaded.key, text, loaded.meta_url),
         LoadedModuleKind::Bytes(bytes) => ModuleSourceIr::bytes(loaded.key, bytes, loaded.meta_url),
+        LoadedModuleKind::Text(text) => ModuleSourceIr::text(loaded.key, text, loaded.meta_url),
     }
 }
 
@@ -1351,3 +1366,93 @@ mod tests {
 #[cfg(test)]
 #[path = "../tests/unit/module_load_confinement.rs"]
 mod confinement_tests;
+
+#[cfg(test)]
+mod text_module_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct Directory(PathBuf);
+    impl Directory {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "lila-text-loader-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn text_host_loading_preserves_decoding_and_mixed_self_record_identity() {
+        let directory = Directory::new();
+        let source = "import raw from './entry.js' with {type:'text'}; export default raw;";
+        let entry_path = directory.0.join("entry.js");
+        std::fs::write(&entry_path, source).unwrap();
+        let root = directory.0.to_str().unwrap();
+        let loader =
+            FilesystemModuleLoader::new(Some(root), Some(entry_path.to_str().unwrap())).unwrap();
+        let graph = load_module_graph(
+            &ModuleEntry::HostLoad {
+                locator: entry_path.to_string_lossy().into_owned(),
+            },
+            &loader,
+        )
+        .unwrap();
+        assert_eq!(graph.modules.len(), 2);
+        assert_eq!(graph.modules[0].key(), graph.modules[1].key());
+        assert_eq!(graph.modules[0].kind(), ModuleKindIr::SourceText);
+        assert_eq!(graph.modules[1].kind(), ModuleKindIr::Text);
+        assert_eq!(graph.modules[1].source_text(), source);
+        assert!(graph.modules[1].module_requests().unwrap().is_empty());
+        assert!(lila_ir::lower_module_graph(&graph).is_wasm_supported());
+        let text = "\u{feff}Ā\0𝄞\n{not JSON}";
+        std::fs::write(directory.0.join("raw.json"), text).unwrap();
+        let referrer = graph.modules[0].key();
+        let request = ModuleRequestKeyIr::try_new(
+            "./raw.json",
+            [lila_ir::ImportAttributeIr {
+                key: "type".into(),
+                value: "text".into(),
+            }],
+        )
+        .unwrap();
+        let key = loader.resolve(Some(referrer), &request).unwrap();
+        let loaded = loader
+            .load(&ModuleRecordKey::new(key.clone(), ModuleKindIr::Text))
+            .unwrap();
+        assert_eq!(loaded.kind, LoadedModuleKind::Text(text.into()));
+        assert_eq!(loaded_module_source(loaded).source_text(), text);
+        std::fs::write(directory.0.join("raw.json"), [0xff, 0x80]).unwrap();
+        assert!(matches!(
+            loader.load(&ModuleRecordKey::new(key, ModuleKindIr::Text)),
+            Err(ModuleLoadError::Io { .. })
+        ));
+        let invalid = ModuleRequestKeyIr::try_new(
+            "./raw.json",
+            [
+                lila_ir::ImportAttributeIr {
+                    key: "type".into(),
+                    value: "text".into(),
+                },
+                lila_ir::ImportAttributeIr {
+                    key: "extra".into(),
+                    value: "no".into(),
+                },
+            ],
+        )
+        .unwrap();
+        assert!(matches!(
+            loader.resolve(Some(referrer), &invalid),
+            Err(ModuleLoadError::UnsupportedAttribute { .. })
+        ));
+    }
+}

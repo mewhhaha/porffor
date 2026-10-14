@@ -140,6 +140,15 @@ impl EmbeddedGraphModuleLoader {
                 context.enter_realm(previous);
                 result?
             }
+            EmbeddedModuleContents::Text(text) => {
+                let previous = context.enter_realm(owner.realm.clone());
+                let module = Module::from_value_as_default(
+                    crate::JsValue::from(js_string!(text.as_str())),
+                    context,
+                );
+                context.enter_realm(previous);
+                module
+            }
             EmbeddedModuleContents::Bytes(bytes) => {
                 let previous = context.enter_realm(owner.realm.clone());
                 let result: JsResult<Module> = (|| {

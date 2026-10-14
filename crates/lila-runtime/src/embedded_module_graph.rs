@@ -39,12 +39,14 @@ pub enum EmbeddedModuleKind {
     SourceText,
     Json,
     Bytes,
+    Text,
 }
 
 #[derive(Debug)]
 pub enum EmbeddedModuleInput {
     SourceText(EmbeddedModuleSourceInput),
     Json(EmbeddedModuleSourceInput),
+    Text(EmbeddedModuleSourceInput),
     Bytes(EmbeddedModuleBytesInput),
 }
 
@@ -60,6 +62,7 @@ pub struct EmbeddedModuleBytesInput {
 pub enum EmbeddedModuleContents {
     SourceText(String),
     Json(String),
+    Text(String),
     Bytes(Vec<u8>),
 }
 
@@ -125,6 +128,7 @@ impl EmbeddedModuleRequest {
         match self.attributes() {
             [(key, value)] if key == "type" && value == "json" => EmbeddedModuleKind::Json,
             [(key, value)] if key == "type" && value == "bytes" => EmbeddedModuleKind::Bytes,
+            [(key, value)] if key == "type" && value == "text" => EmbeddedModuleKind::Text,
             _ => EmbeddedModuleKind::SourceText,
         }
     }
@@ -180,6 +184,7 @@ impl EmbeddedModuleSource {
         match &self.contents {
             EmbeddedModuleContents::SourceText(_) => EmbeddedModuleKind::SourceText,
             EmbeddedModuleContents::Json(_) => EmbeddedModuleKind::Json,
+            EmbeddedModuleContents::Text(_) => EmbeddedModuleKind::Text,
             EmbeddedModuleContents::Bytes(_) => EmbeddedModuleKind::Bytes,
         }
     }
@@ -191,17 +196,17 @@ impl EmbeddedModuleSource {
     }
     pub fn source_text(&self) -> Option<&str> {
         match &self.contents {
-            EmbeddedModuleContents::SourceText(text) | EmbeddedModuleContents::Json(text) => {
-                Some(text)
-            }
+            EmbeddedModuleContents::SourceText(text)
+            | EmbeddedModuleContents::Json(text)
+            | EmbeddedModuleContents::Text(text) => Some(text),
             EmbeddedModuleContents::Bytes(_) => None,
         }
     }
     pub fn payload_bytes(&self) -> &[u8] {
         match &self.contents {
-            EmbeddedModuleContents::SourceText(text) | EmbeddedModuleContents::Json(text) => {
-                text.as_bytes()
-            }
+            EmbeddedModuleContents::SourceText(text)
+            | EmbeddedModuleContents::Json(text)
+            | EmbeddedModuleContents::Text(text) => text.as_bytes(),
             EmbeddedModuleContents::Bytes(bytes) => bytes,
         }
     }
@@ -283,6 +288,11 @@ impl EmbeddedModuleGraph {
                     module.meta_url,
                     EmbeddedModuleContents::Json(module.source),
                 ),
+                EmbeddedModuleInput::Text(module) => (
+                    module.identity,
+                    module.meta_url,
+                    EmbeddedModuleContents::Text(module.source),
+                ),
                 EmbeddedModuleInput::Bytes(module) => (
                     module.identity,
                     module.meta_url,
@@ -363,10 +373,9 @@ impl EmbeddedModuleGraph {
                     },
                 );
             }
-            let declares_data = request
-                .attributes()
-                .iter()
-                .any(|(key, value)| key == "type" && matches!(value.as_str(), "json" | "bytes"));
+            let declares_data = request.attributes().iter().any(|(key, value)| {
+                key == "type" && matches!(value.as_str(), "json" | "bytes" | "text")
+            });
             if request.module_kind() == EmbeddedModuleKind::SourceText && declares_data {
                 return Err(EmbeddedModuleGraphError::RecordKindMismatch {
                     identity: resolution.target,
@@ -623,6 +632,7 @@ fn fingerprint(
             EmbeddedModuleKind::SourceText => 0,
             EmbeddedModuleKind::Json => 1,
             EmbeddedModuleKind::Bytes => 2,
+            EmbeddedModuleKind::Text => 3,
         }]);
         hash_field(&mut hash, &module.identity)?;
         hash_count(&mut hash, module.payload_bytes().len())?;

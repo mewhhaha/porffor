@@ -13,6 +13,7 @@ impl ScriptLowerer<'_> {
             let before_exact_contexts = self.exact_context_function_observations.clone();
             let before_callback_contexts = self.exact_context_callback_observations.clone();
             let before_source_parameters = self.function_source_parameter_candidates.clone();
+            let before_source_bindings = self.function_source_binding_candidates.clone();
             let mut pass = ScriptLowerer::new(
                 self.interner,
                 self.analysis,
@@ -61,6 +62,7 @@ impl ScriptLowerer<'_> {
                 let _ = pass.lower_function(plan, None, None);
             }
 
+            self.merge_function_source_binding_candidates(pass.function_source_binding_candidates);
             self.merge_function_source_parameter_candidates(
                 pass.function_source_parameter_candidates,
             );
@@ -75,6 +77,7 @@ impl ScriptLowerer<'_> {
                 && self.exact_context_function_observations == before_exact_contexts
                 && self.exact_context_callback_observations == before_callback_contexts
                 && self.function_source_parameter_candidates == before_source_parameters
+                && self.function_source_binding_candidates == before_source_bindings
             {
                 break;
             }
@@ -95,6 +98,7 @@ impl ScriptLowerer<'_> {
         for _ in 0..MAX_EXACT_CONTEXT_PASSES {
             let before_signatures = self.function_signatures.clone();
             let before_source_parameters = self.function_source_parameter_candidates.clone();
+            let before_source_bindings = self.function_source_binding_candidates.clone();
             let before_function_observations = self.exact_context_function_observations.clone();
             let before_callback_observations = self.exact_context_callback_observations.clone();
             let before_function_specializations =
@@ -111,6 +115,7 @@ impl ScriptLowerer<'_> {
                 && self.exact_context_function_specializations == before_function_specializations
                 && self.exact_context_callback_specializations == before_callback_specializations
                 && self.function_source_parameter_candidates == before_source_parameters
+                && self.function_source_binding_candidates == before_source_bindings
             {
                 break;
             }
@@ -273,6 +278,7 @@ impl ScriptLowerer<'_> {
             let _ = pass.lower_function(plan, None, Some(key));
         }
 
+        self.merge_function_source_binding_candidates(pass.function_source_binding_candidates);
         self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
         self.merge_exact_context_function_observations(pass.exact_context_function_observations);
         self.merge_context_keyed_callback_observations(pass.exact_context_callback_observations);
@@ -400,6 +406,7 @@ impl ScriptLowerer<'_> {
                 observed_signature,
             );
         }
+        self.merge_function_source_binding_candidates(pass.function_source_binding_candidates);
         self.merge_function_source_parameter_candidates(pass.function_source_parameter_candidates);
         self.merge_exact_context_function_observations(pass.exact_context_function_observations);
         let callback_observations = pass.exact_context_callback_observations;

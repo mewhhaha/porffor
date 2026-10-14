@@ -18,7 +18,9 @@ use lila_engine::{
     EmbeddedModuleGraph, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
     EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
 };
-use lila_ir::{ModuleKey, ModuleRequestKeyIr, ModuleSourceIr};
+use lila_ir::{
+    DynamicImportAttributesIr, DynamicImportSiteIr, ModuleKey, ModuleRequestKeyIr, ModuleSourceIr,
+};
 
 #[cfg(test)]
 mod tests;
@@ -65,8 +67,6 @@ struct ModuleLoadingSyntax {
     /// Any `import(...)`, `import.defer(...)`, `import.source(...)` or
     /// `importValue(` appears.
     loads_modules: bool,
-    /// Some dynamic import specifier is not a plain string literal.
-    computed_specifier: bool,
 }
 
 impl ModuleLoadingSyntax {
@@ -74,7 +74,6 @@ impl ModuleLoadingSyntax {
         let bytes = text.as_bytes();
         let mut syntax = Self {
             loads_modules: text.contains("importValue("),
-            computed_specifier: false,
         };
         let mut from = 0;
         while let Some(found) = text[from..].find("import") {
@@ -101,10 +100,6 @@ impl ModuleLoadingSyntax {
                 continue;
             }
             syntax.loads_modules = true;
-            cursor = skip_whitespace(bytes, cursor + 1);
-            if !literal_specifier_at(bytes, cursor) {
-                syntax.computed_specifier = true;
-            }
         }
         syntax
     }
@@ -115,28 +110,6 @@ fn skip_whitespace(bytes: &[u8], mut cursor: usize) -> usize {
         cursor += 1;
     }
     cursor
-}
-
-/// True for `'...'` or `"..."` followed by `)` or `,`.
-fn literal_specifier_at(bytes: &[u8], start: usize) -> bool {
-    let Some(&quote) = bytes.get(start) else {
-        return false;
-    };
-    if quote != b'\'' && quote != b'"' {
-        return false;
-    }
-    let mut cursor = start + 1;
-    while let Some(&byte) = bytes.get(cursor) {
-        match byte {
-            b'\\' => cursor += 2,
-            _ if byte == quote => {
-                let after = skip_whitespace(bytes, cursor + 1);
-                return matches!(bytes.get(after), Some(b')' | b','));
-            }
-            _ => cursor += 1,
-        }
-    }
-    false
 }
 
 /// A resolution source: the entry, a loaded module, or the Realm base.
@@ -187,6 +160,27 @@ impl Catalog {
             for request in &scan.requests {
                 rows.push((request.specifier().to_owned(), attributes_of(request)));
             }
+            for site in &scan.dynamic_imports {
+                let DynamicImportAttributesIr::Runtime = &site.attributes else {
+                    continue;
+                };
+                let Some(specifier) = &site.static_specifier else {
+                    continue;
+                };
+                // A literal locator and runtime attributes are independent.
+                // Declare the supported exact kinds for this locator without
+                // pretending that options have already been evaluated.
+                for kind in [
+                    EmbeddedModuleKind::Json,
+                    EmbeddedModuleKind::Bytes,
+                    EmbeddedModuleKind::Text,
+                ] {
+                    let request = request_for_kind(specifier, kind);
+                    if site.permits_catalog_key(&request) {
+                        rows.push((specifier.clone(), attributes_of(&request)));
+                    }
+                }
+            }
             for (specifier, attributes) in &rows {
                 if let Some(target) = self.resolve(&base, specifier, attributes) {
                     if let Some(parent) = target.path.parent() {
@@ -194,9 +188,19 @@ impl Catalog {
                     }
                 }
             }
-            if scan.computed_specifier {
+            if scan
+                .dynamic_imports
+                .iter()
+                .any(|site| site.static_specifier.is_none())
+            {
                 for directory in &referenced_dirs {
-                    rows.extend(self.fixture_rows(&base, directory));
+                    for request in self.fixture_rows(&base, directory) {
+                        if scan.dynamic_imports.iter().any(|site| {
+                            site.static_specifier.is_none() && site.permits_catalog_key(&request)
+                        }) {
+                            rows.push((request.specifier().to_owned(), attributes_of(&request)));
+                        }
+                    }
                 }
             }
             for (specifier, attributes) in rows {
@@ -241,7 +245,6 @@ impl Catalog {
     }
 
     fn scan_source(&self, node: &Node, text: &str) -> ScannedSource {
-        let syntax = ModuleLoadingSyntax::scan(text);
         let source = match node {
             Node::Realm => None,
             Node::ScriptEntry => {
@@ -273,13 +276,13 @@ impl Catalog {
                 .map(|request| request.key().clone())
                 .collect(),
             realm_requests: source.realm_module_requests(),
-            computed_specifier: syntax.computed_specifier,
+            dynamic_imports: source.dynamic_import_sites().unwrap_or_default(),
         }
     }
 
     /// Rows naming each `*_FIXTURE*` file of `directory`, as a computed
     /// specifier written relative to `base` would spell them.
-    fn fixture_rows(&self, base: &Path, directory: &Path) -> Vec<(String, Vec<(String, String)>)> {
+    fn fixture_rows(&self, base: &Path, directory: &Path) -> Vec<ModuleRequestKeyIr> {
         let Ok(entries) = fs::read_dir(directory) else {
             return Vec::new();
         };
@@ -296,13 +299,18 @@ impl Catalog {
             let Some(specifier) = relative_specifier(base, &path) else {
                 continue;
             };
-            let attributes = if is_json(&path) {
-                vec![("type".to_owned(), "json".to_owned())]
+            let default_kind = if is_json(&path) {
+                EmbeddedModuleKind::Json
             } else {
-                Vec::new()
+                EmbeddedModuleKind::SourceText
             };
-            rows.push((specifier.clone(), attributes));
-            rows.push((specifier, vec![("type".to_owned(), "bytes".to_owned())]));
+            for kind in [
+                default_kind,
+                EmbeddedModuleKind::Bytes,
+                EmbeddedModuleKind::Text,
+            ] {
+                rows.push(request_for_kind(&specifier, kind));
+            }
         }
         rows.sort();
         rows
@@ -318,7 +326,8 @@ impl Catalog {
     ) -> Option<ModuleTarget> {
         let json = matches!(attributes, [(key, value)] if key == "type" && value == "json");
         let bytes = matches!(attributes, [(key, value)] if key == "type" && value == "bytes");
-        if !attributes.is_empty() && !json && !bytes {
+        let text = matches!(attributes, [(key, value)] if key == "type" && value == "text");
+        if !attributes.is_empty() && !json && !bytes && !text {
             return None;
         }
         let candidate = if Path::new(specifier).is_absolute() {
@@ -332,7 +341,7 @@ impl Catalog {
         let resolved = normalized.canonicalize().unwrap_or(normalized);
         if !resolved.starts_with(&self.root)
             || !resolved.is_file()
-            || (!bytes && is_json(&resolved) != json)
+            || (!bytes && !text && is_json(&resolved) != json)
         {
             return None;
         }
@@ -340,6 +349,8 @@ impl Catalog {
             path: resolved,
             kind: if bytes {
                 EmbeddedModuleKind::Bytes
+            } else if text {
+                EmbeddedModuleKind::Text
             } else if json {
                 EmbeddedModuleKind::Json
             } else {
@@ -353,6 +364,9 @@ impl Catalog {
                 }
                 EmbeddedModuleKind::Json => {
                     EmbeddedModuleContents::Json(fs::read_to_string(&target.path).ok()?)
+                }
+                EmbeddedModuleKind::Text => {
+                    EmbeddedModuleContents::Text(fs::read_to_string(&target.path).ok()?)
                 }
                 EmbeddedModuleKind::Bytes => {
                     EmbeddedModuleContents::Bytes(fs::read(&target.path).ok()?)
@@ -397,6 +411,13 @@ impl Catalog {
                         source: text.clone(),
                     })
                 }
+                EmbeddedModuleContents::Text(text) => {
+                    EmbeddedModuleInput::Text(EmbeddedModuleSourceInput {
+                        identity,
+                        meta_url,
+                        source: text.clone(),
+                    })
+                }
                 EmbeddedModuleContents::Bytes(bytes) => {
                     EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
                         identity,
@@ -430,7 +451,26 @@ impl Catalog {
 struct ScannedSource {
     requests: Vec<ModuleRequestKeyIr>,
     realm_requests: Vec<ModuleRequestKeyIr>,
-    computed_specifier: bool,
+    dynamic_imports: Vec<DynamicImportSiteIr>,
+}
+
+fn request_for_kind(specifier: &str, kind: EmbeddedModuleKind) -> ModuleRequestKeyIr {
+    let type_value = match kind {
+        EmbeddedModuleKind::SourceText => None,
+        EmbeddedModuleKind::Json => Some("json"),
+        EmbeddedModuleKind::Bytes => Some("bytes"),
+        EmbeddedModuleKind::Text => Some("text"),
+    };
+    ModuleRequestKeyIr::try_new(
+        specifier,
+        type_value
+            .into_iter()
+            .map(|value| lila_ir::ImportAttributeIr {
+                key: "type".into(),
+                value: value.into(),
+            }),
+    )
+    .expect("one supported kind attribute has no duplicate key")
 }
 
 fn attributes_of(request: &ModuleRequestKeyIr) -> Vec<(String, String)> {

@@ -1319,3 +1319,76 @@ fn typeof_of_an_unbound_host_global_installs_that_host_builtin() {
         script.host_builtins
     );
 }
+
+#[test]
+fn with_plain_write_does_not_prove_a_global_fallback_exists_after_scope_exit() {
+    for source in [
+        "var o = {foo:1}; with(o) { foo = 42; } foo;",
+        "var o = Object.create({foo:1}); with(o) { foo = 42; } foo;",
+        "var o = {foo:1, [Symbol.unscopables]:{foo:true}}; with(o) { foo = 42; } foo;",
+        "try { with({set foo(value) {throw 1;}}) { foo = 42; } } catch(error) {} foo;",
+    ] {
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let script = program.script.as_ref().unwrap();
+        let StatementIr::Expression(read) = script.body.statements.last().unwrap() else {
+            panic!("source identifier read")
+        };
+        assert!(
+            matches!(&read.expr, ExprIr::GlobalIdentifierRead { name } if name == "foo"),
+            "{source}: {read:?}"
+        );
+        assert_eq!(read.kind, ValueKind::Dynamic);
+    }
+    // A definite ordinary write retains the existing presence/value proof.
+    let program = lower_script("outside = 7; outside;");
+    let StatementIr::Expression(read) = program
+        .script
+        .as_ref()
+        .unwrap()
+        .body
+        .statements
+        .last()
+        .unwrap()
+    else {
+        panic!("ordinary source read")
+    };
+    assert!(matches!(&read.expr, ExprIr::GlobalPropertyRead {name} if name == "outside"));
+    assert_eq!(read.kind, ValueKind::Number);
+}
+
+#[test]
+fn with_plain_write_joins_the_skipped_mutable_declarative_fallback() {
+    let program = lower_script("function local(object) { var fallback = 'kept'; with(object) { fallback = 42; } return fallback; }");
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let function = program
+        .script
+        .as_ref()
+        .unwrap()
+        .functions
+        .iter()
+        .find(|function| function.name == "local")
+        .unwrap();
+    let read = function
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Return(read) => Some(read),
+            _ => None,
+        })
+        .unwrap();
+    assert!(matches!(&read.expr, ExprIr::Identifier(_)), "{read:?}");
+    assert!(
+        read.possible_kinds.contains(ValueKind::String),
+        "the selected Object ER leaves the old String: {read:?}"
+    );
+    assert!(
+        read.possible_kinds.contains(ValueKind::Number),
+        "the unselected Object ER writes the Number: {read:?}"
+    );
+}

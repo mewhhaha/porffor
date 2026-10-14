@@ -232,6 +232,121 @@ fn class_field_named_evaluation_owns_original_static_private_and_cached_keys() {
 }
 
 #[test]
+fn class_field_function_names_use_syntax_and_original_key_slots() {
+    let parsed = parse(
+        r#"function factory(key, existing) {
+            return class Fields {
+                literal = () => {};
+                ['sync'] = () => {};
+                [key] = async () => {};
+                grouped = ((() => {}));
+                anonymous = function () {};
+                generator = function* () {};
+                asyncFunction = async function () {};
+                asyncGenerator = async function* () {};
+                explicit = function Original() {};
+                comma = (0, () => {});
+                reference = existing;
+                #secret = async () => {};
+                static [128] = () => {};
+                static [key] = async () => {};
+                static #secretStatic = function () {};
+            };
+        }"#,
+        ParseOptions::script(),
+    )
+    .expect("field function names parse");
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("script IR");
+    let factory = script
+        .functions
+        .iter()
+        .find(|f| f.name == "factory")
+        .unwrap();
+    let outer = factory
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Return(value) => match &value.expr {
+                ExprIr::ClassDefinition(class) => Some(class),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("factory returns class");
+    let constructor = script
+        .functions
+        .iter()
+        .find(|f| f.id == outer.constructor_function_id)
+        .unwrap();
+    let elements = &constructor
+        .class_instance_element_plan
+        .as_ref()
+        .unwrap()
+        .elements;
+    let expected = [
+        Some(ClassFieldNameIr::Static("literal".into())),
+        Some(ClassFieldNameIr::Computed(0)),
+        Some(ClassFieldNameIr::Computed(1)),
+        Some(ClassFieldNameIr::Static("grouped".into())),
+        Some(ClassFieldNameIr::Static("anonymous".into())),
+        Some(ClassFieldNameIr::Static("generator".into())),
+        Some(ClassFieldNameIr::Static("asyncFunction".into())),
+        Some(ClassFieldNameIr::Static("asyncGenerator".into())),
+        None,
+        None,
+        None,
+        Some(ClassFieldNameIr::Static("#secret".into())),
+    ];
+    assert_eq!(elements.len(), expected.len());
+    let returned = |id: &str| -> &ExprIr {
+        let initializer = script.functions.iter().find(|f| f.id == id).unwrap();
+        let [StatementIr::Return(value)] = initializer.body.statements.as_slice() else {
+            panic!("initializer returns its evaluated value");
+        };
+        &value.expr
+    };
+    for (element, expected) in elements.iter().zip(expected) {
+        let ClassInstanceElementIr::Field(field) = element else {
+            panic!("field expected");
+        };
+        let expression = returned(field.init_function_id.as_deref().unwrap());
+        match expected {
+            Some(expected) => {
+                let ExprIr::ClassFieldNamedFunctionValue { function_id, name } = expression else {
+                    panic!("anonymous function must own field NamedEvaluation: {expression:?}");
+                };
+                assert_eq!(name, &expected);
+                assert!(script.functions.iter().any(|f| &f.id == function_id));
+            }
+            None => assert!(!matches!(
+                expression,
+                ExprIr::ClassFieldNamedFunctionValue { .. }
+            )),
+        }
+    }
+    let expected = [
+        ClassFieldNameIr::Computed(2),
+        ClassFieldNameIr::Computed(3),
+        ClassFieldNameIr::Static("#secretStatic".into()),
+    ];
+    assert_eq!(outer.element_plan.static_elements.len(), expected.len());
+    for (element, expected) in outer.element_plan.static_elements.iter().zip(expected) {
+        let ClassStaticElementIr::Field(field) = element else {
+            panic!("static field expected");
+        };
+        let ExprIr::ClassFieldNamedFunctionValue { name, .. } =
+            returned(field.init_function_id.as_deref().unwrap())
+        else {
+            panic!("anonymous static function must own its field key");
+        };
+        assert_eq!(name, &expected);
+    }
+}
+
+#[test]
 fn callable_metadata_inherits_class_expression_strictness_without_changing_its_owner() {
     let parsed = parse(
         r#"function factory() {

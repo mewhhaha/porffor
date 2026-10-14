@@ -83,7 +83,7 @@ pub(super) fn bounded_candidates(
 
 impl ScriptLowerer<'_> {
     pub(super) fn register_finite_undefined_var_source_candidate(&mut self, name: &str) {
-        let Some(binding) = self.lookup_binding(name) else {
+        let Some(key) = self.finite_source_binding_key(name) else {
             return;
         };
         // Install this hint during hoisting so forward references inside each
@@ -91,10 +91,10 @@ impl ScriptLowerer<'_> {
         // Redeclarations write nothing; runtime values and conversions stay live.
         let previous = self
             .function_source_binding_candidates
-            .remove(&binding.storage_name)
+            .remove(&key)
             .unwrap_or_default();
         self.function_source_binding_candidates.insert(
-            binding.storage_name,
+            key,
             bounded_candidates(
                 previous
                     .into_iter()
@@ -107,16 +107,9 @@ impl ScriptLowerer<'_> {
         &self,
         name: &str,
     ) -> Option<&[FiniteSourceValue]> {
-        let binding = self.lookup_binding(name);
-        let storage_name = match &binding {
-            Some(binding) => binding.storage_name.as_str(),
-            // Nested functions read Script variables through global properties,
-            // but their optional compilation hints still belong to the declaration.
-            None if self.is_script_global_var_name(name) => name,
-            None => return None,
-        };
+        let key = self.finite_source_binding_key(name)?;
         self.function_source_binding_candidates
-            .get(storage_name)
+            .get(&key)
             .map(Vec::as_slice)
     }
 
@@ -194,8 +187,10 @@ impl ScriptLowerer<'_> {
                         StandardBuiltinId::EvalFunction.function_id(),
                     ));
                 }
+                // Identifier source hints belong to the resolved cell. A bare
+                // static-string map cloned from another owner cannot seed it.
                 candidates.extend(
-                    self.static_string_receiver_value(expression)
+                    self.function_source_candidate(expression)
                         .map(FiniteSourceValue::Text),
                 );
                 if !candidates.is_empty() {
@@ -424,18 +419,16 @@ impl ScriptLowerer<'_> {
         name: &str,
         value: &Expression,
     ) {
-        let storage_name = match self.lookup_binding(name) {
-            Some(binding) => binding.storage_name,
-            None if self.is_script_global_var_name(name) => name.to_string(),
-            None => return,
+        let Some(key) = self.finite_source_binding_key(name) else {
+            return;
         };
         let candidates = self.function_source_value_candidates(value);
         let previous = self
             .function_source_binding_candidates
-            .remove(&storage_name)
+            .remove(&key)
             .unwrap_or_default();
         self.function_source_binding_candidates.insert(
-            storage_name,
+            key,
             bounded_candidates(previous.into_iter().chain(candidates)),
         );
     }
@@ -560,10 +553,6 @@ impl ScriptLowerer<'_> {
             return;
         }
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        let binding = self
-            .lookup_binding(&name)
-            .expect("source parameter is already lowered");
-        self.function_source_binding_candidates
-            .insert(binding.storage_name, candidates);
+        self.set_finite_source_binding_candidates(&name, candidates);
     }
 }

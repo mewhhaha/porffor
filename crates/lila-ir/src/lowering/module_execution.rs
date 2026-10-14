@@ -106,6 +106,7 @@ impl ScriptLowerer<'_> {
                 crate::modules::SyntheticModuleValueIr::Json(json) => {
                     ExprIr::JsonModuleValue(Box::new(json.clone()))
                 }
+                crate::modules::SyntheticModuleValueIr::Text(text) => ExprIr::String(text.clone()),
                 crate::modules::SyntheticModuleValueIr::Bytes(bytes) => {
                     ExprIr::BytesModuleValue(Box::new(bytes.clone()))
                 }
@@ -135,6 +136,7 @@ impl ScriptLowerer<'_> {
             ExprIr::ModuleBindingRead(_)
             | ExprIr::JsonModuleValue(_)
             | ExprIr::BytesModuleValue(_) => unknown_runtime_value_info(),
+            ExprIr::String(text) => Self::string_value_info(text),
             ExprIr::ModuleEvaluate(_) | ExprIr::ModuleDeferredImportEvaluate(_) => {
                 ValueInfo::new(ValueKind::Object)
             }

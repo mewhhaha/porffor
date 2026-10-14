@@ -845,7 +845,10 @@ impl<'a> FunctionBuilder<'a> {
                     output.set_undefined(function);
                 }
             },
-            ExprIr::FunctionValue(id) => {
+            ExprIr::FunctionValue(id)
+            | ExprIr::ClassFieldNamedFunctionValue {
+                function_id: id, ..
+            } => {
                 let meta = self.functions.get(id).cloned().ok_or_else(|| {
                     EmitError::unsupported(format!("unknown compiled function `{id}`"))
                 })?;
@@ -862,6 +865,9 @@ impl<'a> FunctionBuilder<'a> {
                     let callable = schema
                         .reserve_gc_local::<crate::gc_types::FunctionObject, NonNullable>(function)
                         .initialize(self.emit_function_value_payload(&meta, function)?, function);
+                    if let ExprIr::ClassFieldNamedFunctionValue { name, .. } = &expr.expr {
+                        self.emit_class_field_function_name(&callable, name, function)?;
+                    }
                     output.set_reference(&callable, schema, function);
                     callable.clear(function);
                 }

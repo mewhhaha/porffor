@@ -34,6 +34,7 @@ impl<'a> ScriptLowerer<'a> {
             | ExprIr::String(_)
             | ExprIr::TemplateObject(_)
             | ExprIr::FunctionValue(_)
+            | ExprIr::ClassFieldNamedFunctionValue { .. }
             | ExprIr::This
             | ExprIr::ExecutionGlobalObject
             | ExprIr::Arguments

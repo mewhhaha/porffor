@@ -31,6 +31,14 @@ using a fresh output directory and the recorded bounded cache policy.
 This checkpoint does not establish latest whole-workspace, ordinary CLI,
 oracle, independent-host or full pinned conformance closure.
 
+The next coherent source batch adds Text module records, declared literal
+imports with runtime attributes, distinct host-load rejections, legacy Date
+space forms, computed field function names and stable Math.atanh reduction.
+It also repairs optional source discovery across captured bindings and facts
+after object-environment writes. Its new controls and unchanged historical
+executions are awaiting native verification; the accepted counts above remain
+bound to their recorded compilers.
+
 ## Exact replay native checkpoint — 2026-10-13
 
 Actual compiler `aee6bc109` passes all **2,108 affected

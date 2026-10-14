@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum DateParseForm {
     Iso,
+    LegacySpaceDateTime,
     Display { weekday: I64Local },
 }
 
@@ -66,7 +67,7 @@ impl DateParseComponents {
         self.local_time.store(function);
     }
 
-    /// Validate the written calendar date before applying the special ISO
+    /// Validate the written calendar date before applying the date-time
     /// end-of-day rollover, then the UTC offset, then TimeClip. In particular,
     /// normalizing 24:00 must not normalize an invalid written calendar date.
     pub(super) fn finish(
@@ -86,7 +87,7 @@ impl DateParseComponents {
         function.instruction(&Instruction::I64Const(0));
         rollover.store(function);
         match form {
-            DateParseForm::Iso => {
+            DateParseForm::Iso | DateParseForm::LegacySpaceDateTime => {
                 self.hour.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);
                 function.instruction(&Instruction::F64Const(Ieee64::from(24.0)));
@@ -156,7 +157,7 @@ impl DateParseComponents {
             cursor.require(function);
         }
         match form {
-            DateParseForm::Iso => {}
+            DateParseForm::Iso | DateParseForm::LegacySpaceDateTime => {}
             DateParseForm::Display { weekday } => {
                 day.load(function);
                 function.instruction(&Instruction::F64ReinterpretI64);

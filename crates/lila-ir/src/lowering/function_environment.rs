@@ -86,7 +86,11 @@ impl ScriptLowerer<'_> {
                 ValueInfo::undefined()
             };
             initializations.push(FunctionBodyBindingInitializationIr { slot: *slot, value });
-            source_bindings.push((name.clone(), info));
+            let source_candidates = parameter_slot
+                .and_then(|_| self.finite_binding_source_candidates(parameter_name))
+                .unwrap_or_default()
+                .to_vec();
+            source_bindings.push((name.clone(), info, source_candidates));
         }
         let mut environment = self
             .lower_runtime_lexical_environment(Some(body_id))
@@ -94,12 +98,16 @@ impl ScriptLowerer<'_> {
         environment.initialization = LexicalEnvironmentInitializationIr::FunctionBody {
             bindings: initializations,
         };
+        self.finite_source_body_scope = Some(self.scopes.len());
         self.push_scope();
-        for (name, info) in source_bindings {
+        for (name, info, source_candidates) in source_bindings {
             self.declare_binding(
                 name.clone(),
-                BindingInfo::initialized(BindingMode::Var, name, info),
+                BindingInfo::initialized(BindingMode::Var, name.clone(), info),
             );
+            if !source_candidates.is_empty() {
+                self.set_finite_source_binding_candidates(&name, source_candidates);
+            }
         }
         Some(environment)
     }

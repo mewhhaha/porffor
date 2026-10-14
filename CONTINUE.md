@@ -26,15 +26,20 @@ measure426/427 bytes for16/512 rows. See
 Do not infer latest whole-workspace, ordinary CLI, oracle or full-pin closure.
 
 Source next owns the verified successor; canonicalAE and original4e remain
-frozen for the independent all5365 historical replay. Next private patches
-cover Text modules, literal runtime import attributes, host-load rejection,
-legacy Date space syntax, computed field names, with-write facts and stable
-Math.atanh. Review/apply the complete batch before another expensive build.
-Finite source candidate propagation across captured binding identities is
-being prepared separately; no runtime parser, shape exceptions or fake names.
+frozen for the independent all5365 historical replay. The next reviewed source
+batch now includes Text modules, literal runtime import attributes, host-load
+rejection, legacy Date space syntax, computed field names, with-write facts,
+stable Math.atanh and finite source propagation keyed by analyzed environment
+and storage identity. All eight private patches applied cleanly; formatting
+and module guards precede actual type/native verification. No native verdict
+for this successor is inferred. Keep runtime conversion and tuple admission
+live; no runtime parser, shape exceptions or fake names.
 Run unchanged repaired-ID retention plus every remaining historical ID.
 Preserve images/DSOs/owners; retire only closed owned caches with manifests
-before building, because both cloud filesystems currently have little room.
+before building. Closed cache retirement reclaimed2494963712allocated bytes;
+reversible SHA-checked native archives reclaimed1630003200workspace bytes.
+All workers, DSOs, results and unresolved IDs remain. The original runtime
+producer's complete bytes are archived before owned generic-path overwrite.
 
 ## Actual accepted exact replay checkpoint
 

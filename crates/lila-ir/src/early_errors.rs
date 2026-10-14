@@ -325,6 +325,7 @@ fn expr_contains_this_before_super(expr: &TypedExpr, state: &mut DerivedConstruc
             }
         }
         ExprIr::FunctionValue(_)
+        | ExprIr::ClassFieldNamedFunctionValue { .. }
         | ExprIr::WellKnownSymbol(_)
         | ExprIr::String(_)
         | ExprIr::TemplateObject(_)

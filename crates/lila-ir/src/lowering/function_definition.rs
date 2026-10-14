@@ -434,6 +434,11 @@ impl<'a> ScriptLowerer<'a> {
                     initialization: Initialization::Initialized,
                 },
             );
+            lowerer.install_finite_source_capture_key(
+                &capture.source_name,
+                capture.environment_id,
+                name,
+            );
         }
 
         if function.protocol.flavor() == FunctionFlavor::Ordinary {

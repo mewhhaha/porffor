@@ -3961,6 +3961,7 @@ fn expr_exposes_global_object(expr: &TypedExpr) -> bool {
         | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
+        | ExprIr::ClassFieldNamedFunctionValue { .. }
         | ExprIr::This
         | ExprIr::Arguments
         | ExprIr::GlobalPropertyRead { .. }
@@ -4831,6 +4832,7 @@ fn collect_expr_global_property_names(expr: &TypedExpr, names: &mut BTreeSet<Str
         | ExprIr::TemplateObject(_)
         | ExprIr::RegExpLiteral { .. }
         | ExprIr::FunctionValue(_)
+        | ExprIr::ClassFieldNamedFunctionValue { .. }
         | ExprIr::This
         | ExprIr::ExecutionGlobalObject
         | ExprIr::Arguments
@@ -5792,7 +5794,8 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             // constructor's bootstrap to initialize RegExp.prototype.
             *target == StandardBuiltinId::RegExpConstructor.function_id()
         }
-        ExprIr::FunctionValue(function_id) => function_id == target,
+        ExprIr::FunctionValue(function_id)
+        | ExprIr::ClassFieldNamedFunctionValue { function_id, .. } => function_id == target,
         ExprIr::ObjectLiteral(properties) => properties
             .iter()
             .any(|property| object_property_references_function(property, target)),

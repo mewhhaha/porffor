@@ -192,6 +192,9 @@ pub(super) fn append_prepared_unit(script: &mut ScriptIr, mut unit: ScriptIr) {
 
 impl ScriptLowerer<'_> {
     pub(super) fn merge_child_compilation_records(&mut self, child: &mut ScriptLowerer<'_>) {
+        self.merge_function_source_binding_candidates(std::mem::take(
+            &mut child.function_source_binding_candidates,
+        ));
         self.merge_function_source_parameter_candidates(std::mem::take(
             &mut child.function_source_parameter_candidates,
         ));

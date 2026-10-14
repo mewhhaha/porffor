@@ -608,3 +608,67 @@ fn constructor_rejects_unowned_and_ambiguous_rows_before_policy_creation() {
         Err(EmbeddedModuleGraphError::InvalidMetaUrl { .. })
     ));
 }
+
+#[test]
+fn text_payload_identity_preserves_exact_strings_and_mixed_self_records() {
+    let make = |text: &str| {
+        EmbeddedModuleGraph::try_new_typed(
+            entry(EmbeddedModuleGoal::Module),
+            vec![EmbeddedModuleInput::Text(EmbeddedModuleSourceInput {
+                identity: "case/entry.js".into(),
+                source: text.into(),
+                meta_url: "lila://metadata/entry.js".into(),
+            })],
+            vec![edge(
+                EmbeddedModuleReferrer::Module("case/entry.js".into()),
+                "./entry.js",
+                vec![("type".into(), "text".into())],
+                "case/entry.js",
+            )],
+        )
+    };
+    let text = "\u{feff}invalid syntax!\0𝄞";
+    let graph = make(text).unwrap();
+    assert_eq!(graph.modules().len(), 2);
+    assert_eq!(graph.dependency_modules().count(), 1);
+    let raw = graph
+        .resolve(
+            &EmbeddedModuleReferrer::Module("case/entry.js".into()),
+            &request("./entry.js", vec![("type".into(), "text".into())]),
+        )
+        .unwrap();
+    assert_eq!(raw.kind(), EmbeddedModuleKind::Text);
+    assert_eq!(raw.source_text(), Some(text));
+    assert_eq!(raw.payload_bytes(), text.as_bytes());
+    assert_ne!(
+        graph.fingerprint(),
+        make("different").unwrap().fingerprint()
+    );
+    assert!(graph
+        .module("case/entry.js", EmbeddedModuleKind::SourceText)
+        .is_some());
+    for attributes in [
+        vec![("type".into(), "json".into())],
+        vec![("type".into(), "bytes".into())],
+        vec![
+            ("type".into(), "text".into()),
+            ("extra".into(), "no".into()),
+        ],
+    ] {
+        assert!(EmbeddedModuleGraph::try_new_typed(
+            entry(EmbeddedModuleGoal::Script),
+            vec![EmbeddedModuleInput::Text(EmbeddedModuleSourceInput {
+                identity: "raw".into(),
+                source: text.into(),
+                meta_url: "lila://raw".into()
+            })],
+            vec![edge(
+                EmbeddedModuleReferrer::Script("case/entry.js".into()),
+                "raw",
+                attributes,
+                "raw"
+            )],
+        )
+        .is_err());
+    }
+}

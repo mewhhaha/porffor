@@ -3784,6 +3784,11 @@ impl StringPool {
                 self.uses_heap = true;
                 self.collect_expr(rhs);
             }
+            ExprIr::ClassFieldNamedFunctionValue { name, .. } => {
+                if let ClassFieldNameIr::Static(name) = name {
+                    self.intern_string(name);
+                }
+            }
             ExprIr::Undefined
             | ExprIr::ArrayHole
             | ExprIr::Null

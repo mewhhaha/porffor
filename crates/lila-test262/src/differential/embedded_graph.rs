@@ -53,6 +53,7 @@ enum ModuleKindWire {
     SourceText,
     Json,
     Bytes,
+    Text,
 }
 impl ModuleKindWire {
     fn is_source_text(&self) -> bool {
@@ -131,6 +132,13 @@ impl ModuleGraphWire {
                             meta_url: module.meta_url,
                         }))
                     }
+                    (ModuleKindWire::Text, Some(source), None) => {
+                        Ok(EmbeddedModuleInput::Text(EmbeddedModuleSourceInput {
+                            identity: module.identity,
+                            source,
+                            meta_url: module.meta_url,
+                        }))
+                    }
                     (ModuleKindWire::Bytes, None, Some(bytes)) => {
                         Ok(EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
                             identity: module.identity,
@@ -187,6 +195,7 @@ impl Serialize for GraphProjection<'_> {
                         EmbeddedModuleKind::SourceText => ModuleKindWire::SourceText,
                         EmbeddedModuleKind::Json => ModuleKindWire::Json,
                         EmbeddedModuleKind::Bytes => ModuleKindWire::Bytes,
+                        EmbeddedModuleKind::Text => ModuleKindWire::Text,
                     },
                     identity: module.identity().into(),
                     source: module.source_text().map(str::to_owned),

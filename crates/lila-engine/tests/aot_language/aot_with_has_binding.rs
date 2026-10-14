@@ -448,3 +448,58 @@ normal && caught && array.length === 1;
 "#,
     );
 }
+
+#[test]
+fn with_plain_assignment_leaves_its_source_identifier_unresolvable_after_scope_exit() {
+    assert_with_binding(
+        r#"
+function assert(value) { if (!value) throw 'with scope exit assertion'; }
+var o = {foo: 1};
+with (o) {
+  foo = 42;
+}
+try {
+  foo;
+  throw new Error();
+}
+catch (e) {
+  assert(e instanceof ReferenceError);
+}
+o.foo === 42 && !('foo' in globalThis) && globalThis.foo === undefined && typeof foo === 'undefined';
+"#,
+    );
+}
+
+#[test]
+fn with_plain_assignment_preserves_inherited_unscopables_and_abrupt_fallback_domains() {
+    assert_with_binding(
+        r#"
+var prototype = {inheritedOnly: 1}, inherited = Object.create(prototype), inheritedMissing = false;
+with (inherited) { inheritedOnly = 42; }
+try { inheritedOnly; } catch (error) { inheritedMissing = error instanceof ReferenceError; }
+var blocked = {blockedOnly: 1, [Symbol.unscopables]: {blockedOnly: true}};
+with (blocked) { blockedOnly = 43; }
+var fallback = blockedOnly === 43 && blocked.blockedOnly === 1;
+delete globalThis.blockedOnly;
+var blockedMissing = false;
+try { blockedOnly; } catch (error) { blockedMissing = error instanceof ReferenceError; }
+var marker = {}, received, rhsCount = 0, setterCount = 0;
+var abrupt = {set abruptOnly(value) {
+  setterCount++;
+  delete globalThis.duringRhs;
+  if (value !== 23) throw 'wrong setter value';
+  throw marker;
+}};
+try { with (abrupt) { abruptOnly = (rhsCount++, globalThis.duringRhs = 23); } } catch (error) { received = error; }
+var abruptMissing = false, deletedRhsMissing = false;
+try { abruptOnly; } catch (error) { abruptMissing = error instanceof ReferenceError; }
+try { duringRhs; } catch (error) { deletedRhsMissing = error instanceof ReferenceError; }
+function local(object) { var kept = 'outer'; with(object) { kept = 47; } return typeof kept === 'string' && kept === 'outer'; }
+var localObject = {kept: 1};
+var localKept = local(localObject);
+inheritedMissing && inherited.inheritedOnly === 42 && prototype.inheritedOnly === 1 &&
+  fallback && blockedMissing && received === marker && rhsCount === 1 && setterCount === 1 &&
+  abruptMissing && deletedRhsMissing && localKept && localObject.kept === 47;
+"#,
+    );
+}

@@ -236,6 +236,33 @@ impl DateParseCursor {
         self.advance(function);
     }
 
+    pub(super) fn at_decimal_digit(&self, builder: &FunctionBuilder<'_>, function: &mut Function) {
+        self.peek(builder, function);
+        self.digit(function);
+    }
+
+    /// Legacy space syntax permits one or two digits, never an empty field.
+    pub(super) fn decimal_one_or_two(
+        &self,
+        builder: &FunctionBuilder<'_>,
+        dest: I64Local,
+        function: &mut Function,
+    ) {
+        function.instruction(&Instruction::I64Const(0));
+        dest.store(function);
+        self.at_decimal_digit(builder, function);
+        self.require(function);
+        self.append_digit(dest, function);
+        self.at_decimal_digit(builder, function);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.append_digit(dest, function);
+        function.instruction(&Instruction::End);
+        dest.load(function);
+        function.instruction(&Instruction::F64ConvertI64S);
+        function.instruction(&Instruction::I64ReinterpretF64);
+        dest.store(function);
+    }
+
     pub(super) fn decimal(
         &self,
         builder: &FunctionBuilder<'_>,

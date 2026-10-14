@@ -12,8 +12,9 @@ locals. Parser result publication applies the shared TimeClip producer.
 Date-only ISO forms use UTC. Date-time forms without a zone use the immutable
 system zone and Date-owned compatible inverse selection. Explicit offsets remain
 independent of that zone. The complete owned local-display grammar preserves
-historical whole-second offsets and rejects malformed suffixes; unrelated
-implementation-defined Date.parse forms are not claimed as new support.
+historical whole-second offsets and rejects malformed suffixes. The narrowly
+defined [legacy space grammar](date-legacy-space-parsing.md) is a separate
+implementation-defined fallback; unrelated date formats remain unsupported.
 
 The raw-layout spelling guard is retired. Existing `aot_date_parsing` and
 `aot_date_system_time_zone` controls cover grammar, calendar validation, negative

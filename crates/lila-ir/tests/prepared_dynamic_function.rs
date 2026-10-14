@@ -590,3 +590,114 @@ fn source_candidate_expansion_is_bounded_without_claiming_runtime_support() {
         .prepared_dynamic_functions
         .is_empty());
 }
+
+#[test]
+fn captured_derived_body_candidates_keep_every_original_strict_rejection() {
+    let source = include_str!(
+        "../../lila-engine/tests/fixtures/finite_capture_sources/escaped_strict_bodies.js"
+    );
+    let bodies = [
+        "l\\u0065t: 42;",
+        "if (1) l\\u0065t: 42;",
+        "l\\u0065t = 42;",
+        "if (1) l\\u0065t = 42;",
+        "st\\u0061tic: 42;",
+        "if (1) st\\u0061tic: 42;",
+        "st\\u0061tic = 42;",
+        "if (1) st\\u0061tic = 42;",
+    ];
+    for prefix in ["", "'use strict';"] {
+        let parsed = parse(format!("{prefix}{source}"), ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        for body in bodies {
+            let plain = prepared
+                .iter()
+                .find(|entry| entry.arguments == [body])
+                .unwrap_or_else(|| panic!("missing original body {body:?}"));
+            assert!(matches!(
+                plain.outcome,
+                PreparedDynamicFunctionOutcome::Compiled { .. }
+            ));
+            for directive in [" 'use strict'; ", " 'use strict' \n "] {
+                let strict = format!("{directive}{body}");
+                let rejected = prepared
+                    .iter()
+                    .find(|entry| entry.arguments == [strict.as_str()])
+                    .unwrap_or_else(|| panic!("missing captured strict body {strict:?}"));
+                assert!(matches!(
+                    rejected.outcome,
+                    PreparedDynamicFunctionOutcome::SyntaxError { .. }
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn captured_source_hints_do_not_seed_unobserved_shadowing_parameters() {
+    for source in [
+        "var source = 'return 997;'; function unobserved(source) { return () => Function(source); }",
+        "function unused() { var source = 'return 997;'; return () => source; } function unobserved(source) { return () => Function(source); }",
+    ] {
+        let parsed = parse(source, ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(!program.script.unwrap().prepared_dynamic_functions.iter()
+            .any(|entry| entry.arguments == ["return 997;"]), "unrelated binding seeded a constructor: {source}");
+    }
+}
+
+#[test]
+fn parameter_and_body_cells_keep_separate_captured_source_candidates() {
+    let source = r#"
+function build(source = 'return 71;', early = () => Function(source)()) {
+  var source = 'return 72;';
+  return [early, () => Function(source)()];
+}
+var reads = build(); reads[0](); reads[1]();
+"#;
+    let parsed = parse(source, ParseOptions::script()).unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let prepared = program.script.unwrap().prepared_dynamic_functions;
+    for body in ["return 71;", "return 72;"] {
+        assert!(
+            prepared.iter().any(|entry| entry.arguments == [body]
+                && matches!(
+                    entry.outcome,
+                    PreparedDynamicFunctionOutcome::Compiled { .. }
+                )),
+            "missing separate cell {body:?}"
+        );
+    }
+}
+
+#[test]
+fn captured_source_hints_retain_the_existing_256_body_boundary() {
+    let bodies = (0..256)
+        .map(|index| format!("return {index};"))
+        .collect::<Vec<_>>();
+    let literals = bodies
+        .iter()
+        .map(|body| format!("{body:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let parsed = parse(format!("[{literals}].forEach(function(body) {{ var captured = body; var read = () => Function(captured); read(); }});"), ParseOptions::script()).unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let prepared = program.script.unwrap().prepared_dynamic_functions;
+    for body in bodies {
+        assert!(
+            prepared
+                .iter()
+                .any(|entry| entry.arguments == [body.as_str()]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )),
+            "lost captured boundary body {body:?}"
+        );
+    }
+}

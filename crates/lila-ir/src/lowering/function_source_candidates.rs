@@ -22,8 +22,16 @@ impl ScriptLowerer<'_> {
         if self.undefined_function_source_candidate(expression) {
             return Some("undefined".to_string());
         }
+        // Identifiers use analyzed finite-source identities. A flow fact keyed
+        // only by storage spelling can belong to a different lowered owner.
+        let static_string = (!matches!(
+            Self::unwrap_parenthesized_expr(expression),
+            Expression::Identifier(_)
+        ))
+        .then(|| self.static_string_receiver_value(expression))
+        .flatten();
         self.aot_source_text(expression)
-            .or_else(|| self.static_string_receiver_value(expression))
+            .or(static_string)
             .or_else(|| self.static_parse_float_input(expression))
             .or_else(|| self.coerced_function_source_candidate(expression))
     }

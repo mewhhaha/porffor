@@ -354,6 +354,10 @@ fn expr_preserves_caller_flow(expr: &TypedExpr) -> bool {
         ExprIr::String(_value) => true,
         ExprIr::WellKnownSymbol(_symbol) => true,
         ExprIr::FunctionValue(_function_id) => true,
+        ExprIr::ClassFieldNamedFunctionValue {
+            function_id: _function_id,
+            name: _name,
+        } => true,
         ExprIr::Identifier(_name) => true,
         ExprIr::Symbol { description } => description
             .as_deref()

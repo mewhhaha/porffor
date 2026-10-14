@@ -95,6 +95,11 @@ fn assemble_sources(
                 id,
                 source.key().clone(),
             )),
+            ModuleParse::Text(text) => Ok(super::record::ModuleRecordIr::text(
+                text,
+                id,
+                source.key().clone(),
+            )),
             ModuleParse::JsonRejected { error, .. } => {
                 Err(vec![super::early::json_parse_failure_diagnostic(error)])
             }

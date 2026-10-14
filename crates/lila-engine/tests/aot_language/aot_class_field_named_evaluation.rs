@@ -162,3 +162,104 @@ assert.sameValue(trace, 'declaration:Declared;static;parenthesized;Original;comm
 "#,
     );
 }
+
+#[test]
+fn anonymous_field_functions_and_arrows_use_string_numeric_and_symbol_names() {
+    assert_names_in_both_modes(
+        r#"
+var described = Symbol('arrow');
+var empty = Symbol('');
+var absent = Symbol();
+class Fields {
+  ['arrowFunc'] = () => this;
+  ['asyncArrowFunc'] = async () => this;
+  [5] = () => this;
+  [6] = async () => this;
+  [described] = ((() => this));
+  [empty] = async () => this;
+  [absent] = () => this;
+  ['ordinary'] = function () {};
+  ['generator'] = function* () {};
+  ['asyncFunction'] = async function () {};
+  ['asyncGenerator'] = async function* () {};
+  #secret = () => this;
+  secret() { return this.#secret; }
+  static ['staticArrow'] = () => this;
+  static [described] = async () => this;
+  static #secretStatic = async () => this;
+  static secret() { return this.#secretStatic; }
+}
+var fields = new Fields();
+checkName(fields.arrowFunc, 'arrowFunc');
+checkName(fields.asyncArrowFunc, 'asyncArrowFunc');
+checkName(fields[5], '5');
+checkName(fields[6], '6');
+checkName(fields[described], '[arrow]');
+checkName(fields[empty], '[]');
+checkName(fields[absent], '');
+checkName(fields.ordinary, 'ordinary');
+checkName(fields.generator, 'generator');
+checkName(fields.asyncFunction, 'asyncFunction');
+checkName(fields.asyncGenerator, 'asyncGenerator');
+checkName(fields.secret(), '#secret');
+checkName(Fields.staticArrow, 'staticArrow');
+checkName(Fields[described], '[arrow]');
+checkName(Fields.secret(), '#secretStatic');
+assert.sameValue(fields.arrowFunc(), fields);
+assert.sameValue(fields[5](), fields);
+assert.sameValue(fields[described](), fields);
+assert.sameValue(Fields.staticArrow(), Fields);
+assert.sameValue(fields.arrowFunc === new Fields().arrowFunc, false);
+// The corresponding computed object route already names arrows correctly.
+var object = {['arrowFunc']: () => {}, [5]: async () => {}};
+checkName(object.arrowFunc, 'arrowFunc'); checkName(object[5], '5');
+"#,
+    );
+}
+
+#[test]
+fn field_function_name_keys_are_cached_and_explicit_or_sequence_values_stay_unnamed() {
+    assert_names_in_both_modes(
+        r#"
+var calls = 0;
+var trace = '';
+var key = { [Symbol.toPrimitive](hint) {
+  calls++; assert.sameValue(hint, 'string'); trace += 'key;'; return 'cached';
+} };
+var shared = function Shared() {};
+class Fields {
+  [key] = () => this;
+  static [key] = async () => this;
+  static { checkName(this.cached, 'cached'); trace += 'static;'; }
+  ['grouped'] = ((async () => this));
+  ['explicit'] = function Original() {};
+  ['explicitClass'] = class OriginalClass {};
+  ['comma'] = (trace += 'comma;', () => this);
+  ['asyncComma'] = (0, async () => this);
+  ['reference'] = shared;
+  ['groupedReference'] = (shared);
+}
+assert.sameValue(trace, 'key;key;static;');
+assert.sameValue(calls, 2);
+key[Symbol.toPrimitive] = function() { throw new Test262Error('repeated key conversion'); };
+var first = new Fields();
+var second = new Fields();
+checkName(first.cached, 'cached'); checkName(second.cached, 'cached');
+checkName(first.grouped, 'grouped');
+checkName(first.explicit, 'Original'); checkName(first.explicitClass, 'OriginalClass');
+checkName(first.comma, ''); checkName(first.asyncComma, '');
+checkName(first.reference, 'Shared'); checkName(first.groupedReference, 'Shared');
+assert.sameValue(first.reference, shared);
+assert.sameValue(first.cached(), first); assert.sameValue(second.cached(), second);
+assert.sameValue(trace, 'key;key;static;comma;comma;');
+assert.sameValue(calls, 2);
+var marker = {};
+var initialized = false;
+var abrupt = { [Symbol.toPrimitive]() { throw marker; } };
+var caught;
+try { class Abrupt { [abrupt] = () => {}; static initialized = (initialized = true); } }
+catch (error) { caught = error; }
+assert.sameValue(caught, marker); assert.sameValue(initialized, false);
+"#,
+    );
+}

@@ -635,7 +635,14 @@ impl ModuleGraphIr {
                     text.push_str(" await void 0;")
                 }
             }
-            text.push_str(" throw new $lila$module$SyntaxError(");
+            text.push_str(match rejection.kind {
+                super::admission::DynamicModuleRejectionKind::Syntax => {
+                    " throw new $lila$module$SyntaxError("
+                }
+                super::admission::DynamicModuleRejectionKind::HostLoad => {
+                    " throw new $lila$module$TypeError("
+                }
+            });
             text.push_str(&js_string_literal(&rejection.message));
             text.push_str("); }");
         }

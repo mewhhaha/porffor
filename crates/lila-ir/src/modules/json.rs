@@ -42,4 +42,5 @@ impl BytesModuleValueIr {
 pub(crate) enum SyntheticModuleValueIr {
     Json(JsonModuleValueIr),
     Bytes(BytesModuleValueIr),
+    Text(String),
 }

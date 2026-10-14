@@ -451,6 +451,14 @@ pub struct DynamicImportSiteIr {
 }
 
 impl DynamicImportSiteIr {
+    /// Whether this retained call site can select a declared host key.
+    /// This preserves exact known attributes and scalar-string eligibility;
+    /// runtime attributes remain unknown until the emitted import evaluates.
+    #[must_use]
+    pub fn permits_catalog_key(&self, key: &ModuleRequestKeyIr) -> bool {
+        self.catalog_occurrence(key).is_some()
+    }
+
     /// Projects one declared host key to this call site's occurrence.
     /// Computed operands can select every declared key they have not ruled out;
     /// phase remains owned by the actual call site, never by host resolution.
@@ -504,6 +512,7 @@ enum ModuleRecordDataIr {
     Script,
     Json(lila_front::ParsedJson),
     Bytes(Vec<u8>),
+    Text(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -589,13 +598,17 @@ impl ModuleRecordIr {
             ModuleRecordDataIr::Script => ModuleKindIr::Script,
             ModuleRecordDataIr::Json(_) => ModuleKindIr::Json,
             ModuleRecordDataIr::Bytes(_) => ModuleKindIr::Bytes,
+            ModuleRecordDataIr::Text(_) => ModuleKindIr::Text,
         }
     }
 
     pub(super) fn json_source(&self) -> Option<&lila_front::ParsedJson> {
         match &self.data {
             ModuleRecordDataIr::Json(source) => Some(source),
-            _ => None,
+            ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::Bytes(_)
+            | ModuleRecordDataIr::Text(_) => None,
         }
     }
 
@@ -604,7 +617,8 @@ impl ModuleRecordIr {
             ModuleRecordDataIr::Bytes(bytes) => Some(bytes),
             ModuleRecordDataIr::SourceText(_)
             | ModuleRecordDataIr::Script
-            | ModuleRecordDataIr::Json(_) => None,
+            | ModuleRecordDataIr::Json(_)
+            | ModuleRecordDataIr::Text(_) => None,
         }
     }
 
@@ -613,7 +627,8 @@ impl ModuleRecordIr {
             ModuleRecordDataIr::SourceText(syntax) => Some(syntax),
             ModuleRecordDataIr::Script
             | ModuleRecordDataIr::Json(_)
-            | ModuleRecordDataIr::Bytes(_) => None,
+            | ModuleRecordDataIr::Bytes(_)
+            | ModuleRecordDataIr::Text(_) => None,
         }
     }
 
@@ -631,6 +646,25 @@ impl ModuleRecordIr {
         Self::synthetic(
             ModuleRecordDataIr::Bytes(bytes.to_vec()),
             bytes.len(),
+            id,
+            key,
+        )
+    }
+
+    pub(super) fn text_source(&self) -> Option<&str> {
+        match &self.data {
+            ModuleRecordDataIr::Text(text) => Some(text),
+            ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::Json(_)
+            | ModuleRecordDataIr::Bytes(_) => None,
+        }
+    }
+
+    pub(super) fn text(text: &str, id: ModuleUnitId, key: ModuleKey) -> Self {
+        Self::synthetic(
+            ModuleRecordDataIr::Text(text.to_owned()),
+            text.len(),
             id,
             key,
         )
@@ -2156,6 +2190,18 @@ fn script_record_with_admission(
         dynamic_import_sites,
         dynamic_import_heads,
         catalog_unrepresentable_requests: BTreeSet::new(),
+    })
+}
+
+pub(super) fn module_dynamic_import_sites(source: &ParsedModule) -> Vec<DynamicImportSiteIr> {
+    source.with_compiler_session(|module, interner| {
+        let mut scan = ModuleBodyScan {
+            interner: Some(interner),
+            text: &source.source_text,
+            ..ModuleBodyScan::default()
+        };
+        let _ = module.visit_with(&mut scan);
+        scan.dynamic_import_sites
     })
 }
 

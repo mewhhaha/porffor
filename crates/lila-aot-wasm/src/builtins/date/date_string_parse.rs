@@ -3,6 +3,7 @@ use super::*;
 mod components;
 mod cursor;
 mod display;
+mod legacy_space;
 
 use components::{DateParseComponents, DateParseForm};
 use cursor::DateParseCursor;
@@ -187,9 +188,16 @@ impl<'a> FunctionBuilder<'a> {
         dest_payload_local: I64Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        // The original immutable GC String remains rooted across both parse attempts.
+        // The original immutable GC String remains rooted across every parse attempt.
         let source = string_payload_local;
         self.emit_date_parse_iso_string(source, dest_payload_local, function)?;
+        dest_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        dest_payload_local.load(function);
+        function.instruction(&Instruction::F64ReinterpretI64);
+        function.instruction(&Instruction::F64Ne);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        self.emit_date_parse_legacy_space_string(source, dest_payload_local, function)?;
         dest_payload_local.load(function);
         function.instruction(&Instruction::F64ReinterpretI64);
         dest_payload_local.load(function);
@@ -199,6 +207,7 @@ impl<'a> FunctionBuilder<'a> {
         // Display syntax starts with a weekday, so it cannot reinterpret an
         // out-of-range ISO expanded year through a permissive fallback.
         self.emit_date_parse_display_string(source, dest_payload_local, function)?;
+        function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         Ok(())
     }

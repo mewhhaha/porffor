@@ -1017,3 +1017,52 @@ fn computed_loaded_imports_reuse_source_discovered_keys_with_their_own_phases() 
             .is_none());
     }
 }
+
+#[test]
+fn dynamic_rejection_kind_preserves_host_loading_before_module_linking() {
+    let sources = script_sources(&[
+        ("entry.js", "import('./host.js'); import('./parse.js'); import('./link.js'); import.source('./host.js');"),
+        ("host.js", "import './ensure.js'; import source source from '<do not resolve>';"),
+        ("ensure.js", "import {missing} from './ensure.js';"),
+        ("parse.js", "invalid syntax!"),
+        ("link.js", "import {missing} from './value.js';"),
+        ("value.js", "export const value = 1;"),
+    ], 0);
+    let graph = admitted(&sources);
+    let rejection = |specifier: &str, phase: ImportPhaseIr| {
+        let matches: Vec<_> = graph
+            .dynamic_rejections
+            .iter()
+            .filter(|rejection| {
+                rejection.request.specifier() == specifier && rejection.request.phase() == phase
+            })
+            .collect();
+        assert_eq!(matches.len(), 1);
+        matches[0]
+    };
+    let host = rejection("./host.js", ImportPhaseIr::Evaluation);
+    assert_eq!(host.kind, DynamicModuleRejectionKind::HostLoad);
+    assert!(host.message.contains("<do not resolve>"), "{:?}", host);
+    assert_eq!(host.stage, DynamicModuleRejectionStage::Dependencies);
+    assert_eq!(
+        rejection("./parse.js", ImportPhaseIr::Evaluation).kind,
+        DynamicModuleRejectionKind::Syntax
+    );
+    assert_eq!(
+        rejection("./link.js", ImportPhaseIr::Evaluation).kind,
+        DynamicModuleRejectionKind::Syntax
+    );
+    // The loaded record has no source representation. Its dependencies must
+    // not change that direct source-phase SyntaxError into a host-load error.
+    let source = rejection("./host.js", ImportPhaseIr::Source);
+    assert_eq!(source.kind, DynamicModuleRejectionKind::Syntax);
+    assert_eq!(source.stage, DynamicModuleRejectionStage::ModuleLoad);
+    assert!(source.message.contains("no source representation"));
+    let dispatcher = format!(
+        "{} {}",
+        graph.module_initialization_dispatchers(true),
+        graph.module_initialization_dispatchers(false)
+    );
+    assert!(dispatcher.contains("$lila$module$TypeError"));
+    assert!(dispatcher.contains("$lila$module$SyntaxError"));
+}

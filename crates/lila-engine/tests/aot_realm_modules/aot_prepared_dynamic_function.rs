@@ -627,3 +627,86 @@ try { Function(boxed); } catch (error) { print(error === sentinel); }
         ],
     );
 }
+
+#[test]
+fn captured_body_hints_admit_the_original_eight_bodies_and_reject_strict_variants() {
+    let source = include_str!("../fixtures/finite_capture_sources/escaped_strict_bodies.js");
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(&format!("{prefix}{source}"), &["16"]);
+    }
+}
+
+#[test]
+fn captured_body_hints_preserve_escaped_shadowed_and_reassigned_cells() {
+    let source = r#"
+var source = 'return 999;';
+function first(source) { var text = source; return () => Function(text)(); }
+function second(source) { var text = 'return 22;'; return () => Function(text)(); }
+var one = first('return 11;');
+var two = second('return 777;');
+print(one()); print(two());
+function block() {
+  var text = 'return 33;';
+  var outside = () => Function(text)();
+  { let text = 'return 44;'; var inside = () => Function(text)(); }
+  return [outside, inside];
+}
+var blocks = block(); print(blocks[0]()); print(blocks[1]());
+function mutable(source) {
+  var text = source;
+  return [() => Function(text)(), () => { text = 'return 56;'; }];
+}
+var changed = mutable('return 55;');
+print(changed[0]()); changed[1](); print(changed[0]());
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &["11", "22", "33", "44", "55", "56"],
+        );
+    }
+}
+
+#[test]
+fn captured_body_hints_preserve_parameter_records_and_recursive_activations() {
+    let source = r#"
+function separate(source = 'return 71;', early = () => Function(source)()) {
+  var source = 'return 72;';
+  return [early, () => Function(source)()];
+}
+var pair = separate(); print(pair[0]()); print(pair[1]());
+function recursive(depth, source) {
+  var text = source;
+  var read = () => Function(text)();
+  if (depth) { var other = recursive(0, 'return 82;'); return [read, other[0]]; }
+  return [read];
+}
+var reads = recursive(1, 'return 81;'); print(reads[0]()); print(reads[1]());
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(&format!("{prefix}{source}"), &["71", "72", "81", "82"]);
+    }
+}
+
+#[test]
+fn captured_body_hints_keep_live_conversion_effects_before_strict_rejection() {
+    let source = r#"
+function reject() {
+  var converted = { toString: function() {
+    print('convert'); return '"use strict"; l\\u0065t: 42;';
+  } };
+  return () => {
+    try { Function(converted); }
+    catch (error) { if (!(error instanceof SyntaxError)) throw error; print('SyntaxError'); return; }
+    throw new Error('missing strict rejection');
+  };
+}
+var run = reject(); run(); run();
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &["convert", "SyntaxError", "convert", "SyntaxError"],
+        );
+    }
+}

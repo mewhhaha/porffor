@@ -362,3 +362,45 @@ fn v4_reports_keep_the_declared_primitive_print_contract_and_own_mismatch_domain
         assert!(signature.contains(":graph-sha256:"));
     }
 }
+
+#[test]
+fn text_wire_roundtrips_exact_strings_and_rejects_binary_payloads() {
+    let raw = "\u{feff}invalid syntax!\0𝄞";
+    let wire = serde_json::json!({
+        "schema_version":4, "id":"text-wire", "observation_contract":"primitive_completion_print_transcript", "timeout_ms":5000,
+        "module_graph": {
+            "entry":{"goal":"module", "identity":"entry.js", "source":"export default 1;", "meta_url":"lila://entry"},
+            "modules":[{"kind":"text", "identity":"entry.js", "source":raw, "meta_url":"lila://entry"}], "resolutions":[]
+        }
+    });
+    let case = decode(&wire.to_string());
+    let roundtrip = decode(&case.to_pretty_json().unwrap());
+    assert_eq!(case, roundtrip);
+    assert_eq!(case_fingerprint(&case), case_fingerprint(&roundtrip));
+    assert_eq!(
+        roundtrip
+            .module_graph()
+            .unwrap()
+            .module("entry.js", lila_engine::EmbeddedModuleKind::Text)
+            .unwrap()
+            .source_text(),
+        Some(raw)
+    );
+    let mut changed = wire.clone();
+    changed["module_graph"]["modules"][0]["source"] = serde_json::json!("different");
+    assert_ne!(
+        case_fingerprint(&case),
+        case_fingerprint(&decode(&changed.to_string()))
+    );
+    for patch in [
+        serde_json::json!({"bytes":[]}),
+        serde_json::json!({"source":null}),
+    ] {
+        let mut invalid = wire.clone();
+        invalid["module_graph"]["modules"][0]
+            .as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        assert!(DifferentialCase::from_json(&invalid.to_string()).is_err());
+    }
+}

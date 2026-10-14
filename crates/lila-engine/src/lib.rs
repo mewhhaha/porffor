@@ -236,8 +236,9 @@ fn wasm_number_pow(base: f64, exponent: f64) -> f64 {
 /// Host implementations of the Math transcendental imports. Each delegates
 /// to the Rust `f64` method, whose IEEE-754 edge behavior (NaN propagation,
 /// signed zeros, infinities, out-of-domain NaN) matches every ECMA-262 Math
-/// special-case row; the Wasm call sites additionally keep their exact
-/// fast-path guards around these calls, so tabled inputs never change value.
+/// special-case row. Atanh uses a stable log1p reduction to avoid cancellation
+/// near the endpoints. The Wasm call sites additionally retain their exact
+/// special-value guards.
 fn wasm_math_acos(value: f64) -> f64 {
     value.acos()
 }
@@ -259,7 +260,19 @@ fn wasm_math_atan(value: f64) -> f64 {
 }
 
 fn wasm_math_atanh(value: f64) -> f64 {
-    value.atanh()
+    let magnitude = value.abs();
+    // Below 2^-28, the cubic correction is smaller than half an ulp.
+    // Returning the input also preserves signed zero and subnormal values.
+    if magnitude < 2.0f64.powi(-28) {
+        return value;
+    }
+    let twice = 2.0 * magnitude;
+    let result = if magnitude < 0.5 {
+        0.5 * (twice + twice * magnitude / (1.0 - magnitude)).ln_1p()
+    } else {
+        0.5 * (twice / (1.0 - magnitude)).ln_1p()
+    };
+    result.copysign(value)
 }
 
 fn wasm_math_cbrt(value: f64) -> f64 {
@@ -6780,6 +6793,51 @@ report;
         assert_eq!(wasm_number_pow(-0.0, -3.0), f64::NEG_INFINITY);
         assert_eq!(wasm_number_pow(-0.0, 3.0).to_bits(), (-0.0f64).to_bits());
         assert!(wasm_number_pow(-4.0, 0.5).is_nan());
+    }
+
+    #[test]
+    fn wasm_backend_atanh_retains_endpoint_accuracy_and_coercion_effects() {
+        configure_compilation_jobs(1).unwrap();
+        for directive in ["", "'use strict';"] {
+            let source = format!(
+                r#"
+{directive}
+var points = [
+  [-0.9999983310699463, -6.998237084679027],
+  [-0.9999978542327881, -6.87257975132917],
+  [0.9928233623504639, 2.8132383539094192],
+  [0.3, 0.3095196042031117],
+  [0.00001, 0.000010000000000333334],
+  [1e-300, 1e-300]
+];
+for (var [input, expected] of points) {{
+  if (Math.abs(Math.atanh(input) - expected) > Math.abs(expected) * Number.EPSILON)
+    throw 'atanh lost endpoint or small-value accuracy';
+}}
+var gets = 0, calls = 0, marker = {{}};
+var value = {{ get valueOf() {{ gets++; return function () {{ calls++; return -0.9999983310699463; }}; }} }};
+if (Math.abs(Math.atanh(value) + 6.998237084679027) > 2e-15 || gets !== 1 || calls !== 1)
+  throw 'atanh conversion was repeated or discarded';
+try {{ Math.atanh({{ valueOf() {{ throw marker; }} }}); throw 'missing abrupt conversion'; }}
+catch (error) {{ if (error !== marker) throw error; }}
+Object.is(Math.atanh(-0), -0) && Math.atanh(1) === Infinity && Math.atanh(-1) === -Infinity &&
+Number.isNaN(Math.atanh(2)) && Number.isNaN(Math.atanh(-2)) && Number.isNaN(Math.atanh(NaN));
+"#
+            );
+            let outcome = Engine::new(RealmBuilder::new().build())
+                .run_script(
+                    &source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect("accurate atanh executes through the ordinary Wasm host import");
+            assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+            assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+        }
     }
 
     #[test]

@@ -2288,6 +2288,13 @@ pub enum ExprIr {
         static_compilation: Option<StaticRegExpCompilation>,
     },
     FunctionValue(FunctionId),
+    /// NamedEvaluation of an anonymous field initializer function. The key is
+    /// the original static/private name or retained computed-key slot; no
+    /// source key expression or user coercion runs during instance creation.
+    ClassFieldNamedFunctionValue {
+        function_id: FunctionId,
+        name: ClassFieldNameIr,
+    },
     /// `import(specifier, options)`.
     ///
     /// Resolved at runtime against the compile-time component registry in
@@ -6559,6 +6566,7 @@ impl IrSummaryCounts {
             | ExprIr::WellKnownSymbol(_)
             | ExprIr::String(_)
             | ExprIr::FunctionValue(_)
+            | ExprIr::ClassFieldNamedFunctionValue { .. }
             | ExprIr::Identifier(_) => {
                 if let ExprIr::Identifier(name) = &expr.expr {
                     let matches = self.tracked_storage.as_deref() == Some(name);

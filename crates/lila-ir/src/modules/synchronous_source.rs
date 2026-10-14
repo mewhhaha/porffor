@@ -146,6 +146,11 @@ pub(super) fn linked_module_execution_source(
                         bytes.to_vec(),
                     ))
                 })
+            })
+            .or_else(|| {
+                unit.record
+                    .text_source()
+                    .map(|text| super::SyntheticModuleValueIr::Text(text.to_owned()))
             });
         let body = if synthetic.is_some() {
             None

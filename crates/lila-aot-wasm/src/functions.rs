@@ -18,6 +18,7 @@ mod bound_function_record;
 mod call_dispatch;
 mod class_captures;
 mod class_definition;
+mod class_field_names;
 mod class_members;
 mod class_private_definitions;
 mod class_scope;

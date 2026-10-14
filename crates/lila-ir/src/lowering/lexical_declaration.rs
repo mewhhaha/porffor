@@ -319,8 +319,7 @@ impl ScriptLowerer<'_> {
                         )
                     });
                     if let Some(candidate) = source_candidate {
-                        self.function_source_binding_candidates
-                            .insert(binding.storage_name.clone(), candidate);
+                        self.set_finite_source_binding_candidates(&name, candidate);
                     }
                     if let Some(value) = static_string_value {
                         self.static_string_bindings.insert(&binding, value);

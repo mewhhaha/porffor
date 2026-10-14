@@ -210,8 +210,8 @@ fn dynamic_load_and_link_errors_reject_without_running_invalid_closures() {
         ("entry.js", r#"
 globalThis.sharedCount = 0;
 globalThis.invalidBody = false;
-const checks = [import('./syntax.js'), import('./missing.js'), import('./export.js')].map(promise => promise.then(() => { throw 'fulfilled invalid graph'; }, error => {
-  if (!(error instanceof SyntaxError)) throw 'wrong rejection type';
+const checks = [[import('./syntax.js'), SyntaxError], [import('./missing.js'), TypeError], [import('./export.js'), SyntaxError]].map(([promise, ErrorType]) => promise.then(() => { throw 'fulfilled invalid graph'; }, error => {
+  if (!(error instanceof ErrorType)) throw 'wrong rejection type';
 }));
 checks.push(import('./valid.js').then(ns => {
   if (ns.value !== 7) throw 'valid shared dependency';
@@ -391,4 +391,35 @@ fn static_deferred_dependency_syntax_fails_during_compile() {
     assert_eq!(diagnostic.code(), Some(EarlyErrorCode::ModuleSyntax));
     assert_eq!(diagnostic.phase(), IrDiagnosticPhase::Resolution);
     assert_eq!(diagnostic.error_type(), Some(NativeErrorKind::SyntaxError));
+}
+
+#[test]
+fn dynamic_host_load_errors_precede_link_errors_and_preserve_source_phase_syntax() {
+    assert_modules(&[
+        ("entry.js", r#"
+const NativeTypeError = TypeError, NativeSyntaxError = SyntaxError;
+globalThis.invalidBody = false;
+globalThis.TypeError = function () { throw 'public TypeError constructor observed'; };
+globalThis.SyntaxError = function () { throw 'public SyntaxError constructor observed'; };
+function rejectWith(promise, ErrorType) { return promise.then(
+  () => { throw 'invalid graph fulfilled'; },
+  error => { if (!(error instanceof ErrorType)) throw 'wrong intrinsic rejection'; }
+); }
+const checks = [
+  rejectWith(import('./host.js'), NativeTypeError),
+  rejectWith(import.source('./host.js'), NativeSyntaxError),
+  rejectWith(import('./parse.js'), NativeSyntaxError),
+  rejectWith(import('./link.js'), NativeSyntaxError)
+];
+Promise.all(checks).then(() => {
+  if (globalThis.invalidBody) throw 'invalid closure evaluated';
+  print('host-load-kind:ok');
+});
+"#),
+        ("host.js", "import './ensure.js'; import source source from '<do not resolve>'; globalThis.invalidBody = true;"),
+        ("ensure.js", "import {missing} from './ensure.js'; globalThis.invalidBody = true;"),
+        ("parse.js", "invalid syntax!"),
+        ("link.js", "import {missing} from './value.js'; globalThis.invalidBody = true;"),
+        ("value.js", "export const value = 1; globalThis.invalidBody = true;"),
+    ], &["host-load-kind:ok"]);
 }

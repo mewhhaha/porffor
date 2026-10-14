@@ -2,15 +2,15 @@ use lila_front::{ParseGoal, ParsedModule, ParsedScript, ParsedSource, SourceUnit
 
 use super::module_key::{ModuleKey, ANONYMOUS_MODULE_KEY};
 use super::record::{
-    loading_requests_with_dynamic_imports, scan_module_loading_requests, scan_module_requests,
-    scan_script_module_requests, script_dynamic_import_sites, ModuleRequestIr, ModuleRequestKeyIr,
-    ModuleUnitId,
+    loading_requests_with_dynamic_imports, module_dynamic_import_sites,
+    scan_module_loading_requests, scan_module_requests, scan_script_module_requests,
+    script_dynamic_import_sites, ModuleRequestIr, ModuleRequestKeyIr, ModuleUnitId,
 };
 
 /// One already-loaded and exactly-once-parsed graph source, plus the key the
 /// host resolved it under.
 ///
-/// Every dependency is a Source Text, JSON, or Bytes Module record. The entry may instead be
+/// Every dependency is a Source Text, JSON, Bytes, or Text Module record. The entry may instead be
 /// Script syntax for [`crate::lower_script_graph`]; the lowerer validates that
 /// placement before graph construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +26,7 @@ pub enum ModuleKindIr {
     SourceText,
     Json,
     Bytes,
+    Text,
     Script,
 }
 
@@ -36,12 +37,14 @@ impl ModuleKindIr {
             Self::Json => 1,
             Self::Script => 2,
             Self::Bytes => 3,
+            Self::Text => 4,
         }
     }
     pub fn requested(request: &ModuleRequestKeyIr) -> Self {
         match request.attributes() {
             [attribute] if attribute.key == "type" && attribute.value == "json" => Self::Json,
             [attribute] if attribute.key == "type" && attribute.value == "bytes" => Self::Bytes,
+            [attribute] if attribute.key == "type" && attribute.value == "text" => Self::Text,
             _ => Self::SourceText,
         }
     }
@@ -49,12 +52,15 @@ impl ModuleKindIr {
     pub fn matches_request(self, request: &ModuleRequestKeyIr) -> bool {
         match self {
             Self::SourceText => !request.attributes().iter().any(|attribute| {
-                attribute.key == "type" && matches!(attribute.value.as_str(), "json" | "bytes")
+                attribute.key == "type"
+                    && matches!(attribute.value.as_str(), "json" | "bytes" | "text")
             }),
             Self::Json => matches!(request.attributes(), [attribute]
                 if attribute.key == "type" && attribute.value == "json"),
             Self::Bytes => matches!(request.attributes(), [attribute]
                 if attribute.key == "type" && attribute.value == "bytes"),
+            Self::Text => matches!(request.attributes(), [attribute]
+                if attribute.key == "type" && attribute.value == "text"),
             Self::Script => false,
         }
     }
@@ -65,6 +71,7 @@ pub(super) enum ModuleParse {
     Module(ParsedModule),
     Json(lila_front::ParsedJson),
     Bytes(Vec<u8>),
+    Text(String),
     JsonRejected {
         source_text: String,
         error: lila_front::JsonParseError,
@@ -90,6 +97,7 @@ impl ModuleSourceIr {
             ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
             | ModuleParse::JsonRejected { .. } => Vec::new(),
         }
     }
@@ -116,6 +124,15 @@ impl ModuleSourceIr {
         }
     }
 
+    /// Retains the host-decoded String for CreateTextModule without a grammar parse.
+    pub fn text(key: ModuleKey, text: String, meta_url: String) -> Self {
+        Self {
+            key,
+            meta_url,
+            parse: ModuleParse::Text(text),
+        }
+    }
+
     pub fn record_key(&self) -> super::ModuleRecordKey {
         super::ModuleRecordKey::new(self.key.clone(), self.kind())
     }
@@ -126,6 +143,7 @@ impl ModuleSourceIr {
             ModuleParse::Bytes(bytes) => bytes,
             ModuleParse::Module(_)
             | ModuleParse::Json(_)
+            | ModuleParse::Text(_)
             | ModuleParse::JsonRejected { .. }
             | ModuleParse::ScriptEntry(_)
             | ModuleParse::Rejected { .. } => self.source_text().as_bytes(),
@@ -138,6 +156,7 @@ impl ModuleSourceIr {
             ModuleParse::Json(_) | ModuleParse::JsonRejected { .. } => ModuleKindIr::Json,
             ModuleParse::ScriptEntry(_) => ModuleKindIr::Script,
             ModuleParse::Bytes(_) => ModuleKindIr::Bytes,
+            ModuleParse::Text(_) => ModuleKindIr::Text,
         }
     }
     /// Parses one loaded module and retains either the typed syntax product or
@@ -207,6 +226,7 @@ impl ModuleSourceIr {
             ModuleParse::Module(source) => &source.source_text,
             ModuleParse::Json(source) => source.source_text(),
             ModuleParse::Bytes(_) => "",
+            ModuleParse::Text(text) => text,
             ModuleParse::JsonRejected { source_text, .. } => source_text,
             ModuleParse::ScriptEntry(source) => &source.source_text,
             ModuleParse::Rejected { source, .. } => &source.source_text,
@@ -224,7 +244,7 @@ impl ModuleSourceIr {
     pub fn module_requests(&self) -> Option<Vec<ModuleRequestKeyIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
-            ModuleParse::Json(_) | ModuleParse::Bytes(_) => Some(Vec::new()),
+            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(scan_script_module_requests(source)),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
@@ -238,11 +258,24 @@ impl ModuleSourceIr {
     pub fn module_loading_requests(&self) -> Option<Vec<ModuleRequestIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_loading_requests(source)),
-            ModuleParse::Json(_) | ModuleParse::Bytes(_) => Some(Vec::new()),
+            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(loading_requests_with_dynamic_imports(
                 Vec::new(),
                 &script_dynamic_import_sites(source),
             )),
+            ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
+        }
+    }
+
+    /// Retained AST metadata for actual import call sites, including literal
+    /// specifiers whose options or attributes require runtime evaluation.
+    /// Synthetic records contain no sites. A rejected grammar returns None.
+    #[must_use]
+    pub fn dynamic_import_sites(&self) -> Option<Vec<super::DynamicImportSiteIr>> {
+        match &self.parse {
+            ModuleParse::Module(source) => Some(module_dynamic_import_sites(source)),
+            ModuleParse::ScriptEntry(source) => Some(script_dynamic_import_sites(source)),
+            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -265,6 +298,7 @@ impl ModuleSourceIr {
             | ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
             | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -276,6 +310,7 @@ impl ModuleSourceIr {
             | ModuleParse::Rejected { .. }
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
             | ModuleParse::JsonRejected { .. } => ParseGoal::Module,
             ModuleParse::ScriptEntry(_) => ParseGoal::Script,
         }

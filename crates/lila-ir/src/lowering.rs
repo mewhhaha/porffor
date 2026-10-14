@@ -42,6 +42,7 @@ mod environment_identifier;
 mod finite_function_body_hints;
 mod finite_function_source;
 mod finite_iterator_source;
+mod finite_source_binding;
 mod for_lexical_environment;
 mod function_source_candidates;
 mod generator_array_pattern;
@@ -69,6 +70,7 @@ mod resumable_switch;
 mod super_construct;
 mod suspended_call;
 use finite_function_source::FiniteSourceValue;
+use finite_source_binding::FiniteSourceBindingKey;
 mod prepared_function;
 mod prepared_script;
 use prepared_function::{
@@ -105,6 +107,7 @@ mod awaited_while_condition;
 use awaited_while_condition::AsyncValueBranchContext;
 mod eager_async_while_body;
 mod module_execution;
+mod named_evaluation;
 mod new_expression;
 mod object_environment_logical;
 mod object_literal;
@@ -1131,7 +1134,9 @@ impl PreparedIdentifierWrite {
 pub(crate) struct ScriptLowerer<'a> {
     dynamic_script_sources: Vec<DynamicScriptSource>,
     dynamic_function_sources: Vec<DynamicFunctionSource>,
-    function_source_binding_candidates: BTreeMap<String, Vec<FiniteSourceValue>>,
+    function_source_binding_candidates: BTreeMap<FiniteSourceBindingKey, Vec<FiniteSourceValue>>,
+    finite_source_capture_keys: BTreeMap<(usize, String), FiniteSourceBindingKey>,
+    finite_source_body_scope: Option<usize>,
     function_source_parameter_candidates: BTreeMap<(FunctionId, usize), Vec<FiniteSourceValue>>,
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
@@ -1790,6 +1795,8 @@ impl<'a> ScriptLowerer<'a> {
             generated_functions: Vec::new(),
             dynamic_function_sources: Vec::new(),
             function_source_binding_candidates: BTreeMap::new(),
+            finite_source_capture_keys: BTreeMap::new(),
+            finite_source_body_scope: None,
             function_source_parameter_candidates: BTreeMap::new(),
             dynamic_script_sources: Vec::new(),
             generated_owned_env_bindings: Vec::new(),
@@ -4010,8 +4017,7 @@ impl<'a> ScriptLowerer<'a> {
             panic!("for-loop lexical binding `{name}` must be declared before installing facts")
         });
         if let Some(candidate) = source_candidate {
-            self.function_source_binding_candidates
-                .insert(binding.storage_name.clone(), candidate);
+            self.set_finite_source_binding_candidates(&name, candidate);
         }
         if let Some(value) = static_string_value {
             self.static_string_bindings.insert(&binding, value);
@@ -7294,6 +7300,11 @@ impl<'a> ScriptLowerer<'a> {
                     initialization: Initialization::Initialized,
                 },
             );
+            lowerer.install_finite_source_capture_key(
+                &binding.source_name,
+                capture_environment_id,
+                &binding.name,
+            );
         }
 
         if let Some(self_binding_name) = self_binding_name.as_ref() {
@@ -7779,6 +7790,11 @@ impl<'a> ScriptLowerer<'a> {
                     initialization: Initialization::Initialized,
                 },
             );
+            lowerer.install_finite_source_capture_key(
+                &binding.source_name,
+                capture_environment_id,
+                &binding.name,
+            );
         }
         lowerer.declare_binding(
             LEXICAL_ARGUMENTS_NAME.to_string(),
@@ -7803,6 +7819,18 @@ impl<'a> ScriptLowerer<'a> {
                     class,
                     ClassNameInferenceIr::FieldInitializer(field_name),
                 )
+            }
+            _ if Self::is_anonymous_field_function_definition(expression) => {
+                let mut lowered = lowerer.lower_expression(expression);
+                if let ExprIr::FunctionValue(function_id) = &lowered.expr {
+                    lowered.expr = ExprIr::ClassFieldNamedFunctionValue {
+                        function_id: function_id.clone(),
+                        name: field_name,
+                    };
+                }
+                // An unsupported source function retains its existing diagnostic
+                // and placeholder; no named callable is minted for that path.
+                lowered
             }
             _ => lowerer.lower_expression(expression),
         };
@@ -10755,15 +10783,57 @@ impl<'a> ScriptLowerer<'a> {
         objects: SelectedWithEnvironmentObjects,
         fallback: LocatedIdentifierReference,
     ) -> PreparedIdentifierWrite {
+        // The located fallback may be skipped when an Object Environment
+        // Record owns the name. Keep a mutable declarative binding's old
+        // value in that normal-completion path rather than treating the
+        // fallback's assignment as a definite write.
+        let fallback_before = match &fallback {
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Initialized(binding),
+                ..
+            } => {
+                if binding.mode == BindingMode::Const
+                    || self.is_unshadowed_script_global_binding(&name)
+                {
+                    None
+                } else {
+                    Some(ValueInfo {
+                        kind: binding.kind,
+                        possible_kinds: binding.possible_kinds,
+                        heap_shape: binding.heap_shape.clone(),
+                        function_targets: binding.function_targets.clone(),
+                    })
+                }
+            }
+            LocatedIdentifierReference::Declarative {
+                resolution: BindingResolution::Uninitialized(_) | BindingResolution::Unresolvable,
+                ..
+            }
+            | LocatedIdentifierReference::Unresolvable => None,
+        };
+        let assigned_info = value.value_info();
         let plan = self.with_environment_reference_plan(name.clone(), objects);
         let bindings = PutValueBindings::allocate(|prefix| self.alloc_temp_binding_name(prefix));
         let mut ignored = None;
         let value = plan.put_value(bindings, value, |bound| {
-            let write =
-                self.lower_located_identifier_assign_value_with_evidence(name, bound, fallback);
+            let write = self.lower_located_identifier_assign_value_with_evidence(
+                name.clone(),
+                bound,
+                fallback,
+            );
             ignored = write.ignored;
             write.value
         });
+        if let Some(before) = fallback_before {
+            let joined = self.merge_value_infos(before, assigned_info);
+            self.set_binding_value_info(&name, joined);
+        }
+        // The selected object's PutValue can invoke a setter after the RHS.
+        // Its effects also erase configurable-global presence manufactured
+        // while constructing a fallback which may never execute. A later
+        // source read must still perform ResolveBinding/GetBindingValue.
+        self.observe_all_planned_source_as_unknown_property_hooks();
+        self.invalidate_unknown_user_code_effects();
         PreparedIdentifierWrite { value, ignored }
     }
 
@@ -14713,6 +14783,8 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn declare_binding(&mut self, name: String, info: BindingInfo) {
+        self.finite_source_capture_keys
+            .remove(&(self.scopes.len() - 1, name.clone()));
         self.scopes
             .last_mut()
             .expect("scope stack must exist")
@@ -16050,6 +16122,12 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn pop_scope(&mut self) {
+        let leaving = self.scopes.len() - 1;
+        self.finite_source_capture_keys
+            .retain(|(index, _), _| *index != leaving);
+        if self.finite_source_body_scope == Some(leaving) {
+            self.finite_source_body_scope = None;
+        }
         let scope = self
             .scopes
             .pop()

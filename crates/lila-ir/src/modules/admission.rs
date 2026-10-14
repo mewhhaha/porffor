@@ -30,11 +30,20 @@ pub(super) enum DynamicModuleRejectionStage {
     Dependencies,
 }
 
+/// Host resolution failures are distinct from Module grammar/link failures.
+/// Timing alone cannot select the rejection constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum DynamicModuleRejectionKind {
+    Syntax,
+    HostLoad,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RejectedDynamicModule {
     pub(super) referrer: ModuleUnitId,
     pub(super) request: ModuleRequestIr,
     pub(super) stage: DynamicModuleRejectionStage,
+    pub(super) kind: DynamicModuleRejectionKind,
     pub(super) message: String,
 }
 
@@ -207,6 +216,11 @@ fn link_admitted_graph(
                 id,
                 source.key().clone(),
             )),
+            ModuleParse::Text(text) => Ok(super::record::ModuleRecordIr::text(
+                text,
+                id,
+                source.key().clone(),
+            )),
             ModuleParse::JsonRejected { error, .. } => {
                 Err(vec![super::early::json_parse_failure_diagnostic(error)])
             }
@@ -348,6 +362,7 @@ fn link_admitted_graph(
                         referrer,
                         request,
                         DynamicModuleRejectionStage::ModuleLoad,
+                        DynamicModuleRejectionKind::Syntax,
                         message,
                     ));
                     continue;
@@ -395,11 +410,28 @@ fn link_admitted_graph(
                         } else {
                             DynamicModuleRejectionStage::Dependencies
                         };
+                        // LoadRequestedModules completes before linking. A
+                        // missing host target must win over a later missing
+                        // export in the same closure, regardless of unit order.
+                        let (kind, diagnostic) = rejection
+                            .diagnostics
+                            .iter()
+                            .find(|diagnostic| {
+                                diagnostic.code() == Some(EarlyErrorCode::ModuleUnresolved)
+                            })
+                            .map_or(
+                                (
+                                    DynamicModuleRejectionKind::Syntax,
+                                    &rejection.diagnostics[0],
+                                ),
+                                |diagnostic| (DynamicModuleRejectionKind::HostLoad, diagnostic),
+                            );
                         rejected_requests.push((
                             referrer,
                             request,
                             stage,
-                            rejection.diagnostics[0].message.clone(),
+                            kind,
+                            diagnostic.message.clone(),
                         ));
                     }
                 }
@@ -412,7 +444,7 @@ fn link_admitted_graph(
         admission,
     )?;
     graph.realm_requests.extend(rejected_realm_requests);
-    for (referrer, request, stage, message) in rejected_requests {
+    for (referrer, request, stage, kind, message) in rejected_requests {
         let referrer = match source_identity(&sources.modules[referrer as usize]) {
             LoadedSourceIdentity::Script(_) => graph.entry,
             LoadedSourceIdentity::Module(key, kind) => {
@@ -428,6 +460,7 @@ fn link_admitted_graph(
                 referrer,
                 request,
                 stage,
+                kind,
                 message,
             });
         }

@@ -55,5 +55,6 @@ mod aot_shadow_realm_prepared_evaluate;
 mod aot_shadow_realm_wrapped_callables;
 mod aot_source_identity;
 mod aot_suppressed_error_constructor_realm;
+mod aot_text_modules;
 mod aot_throw_type_error_realm;
 mod aot_typed_array_constructor_error_realm;
