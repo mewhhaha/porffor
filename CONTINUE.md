@@ -1,5 +1,25 @@
 # Current continuation — 2026-10-14
 
+## Complete all-features workspace checkpoint — 2026-10-14
+
+Compiler source `d2f4bc51` passes the complete 108-scope all-features
+workspace: **9,220 passed, zero failed, zero ignored**. Exact retention keeps
+all 9,116 eligible preceding passing IDs; four default-only oracle-refusal
+controls pass in the same-source default checkpoint and are accounted for
+separately. All 70 required controls pass. The complete 855-test CLI inventory
+and actual differential worker, campaign and corpus checks are included.
+
+Storage preflights deferred 32 scopes in the original process. Its exit 1 and
+original states remain preserved. Two exact same-source continuations pass all
+32 complete scopes, producing the accepted logical union; this does not claim
+that the original process passed. Source, native test bodies, deadlines and
+cache limits are unchanged.
+
+The [portable all-features checkpoint](docs/rust-rewrite/all-features-workspace-d2-native-checkpoint-20261014.json)
+contains exact native IDs, Cargo/runtime provenance, raw transcripts and the
+same-source default proof. The normal current CLI replay, historical 5,365-ID
+retention, full pinned Test262 and task acceptance remain open.
+
 ## Preserve verification transcripts across runs — 2026-10-14
 
 Native partition logs now include the complete resolved run directory identity
@@ -7,9 +27,8 @@ and partition index. Default and all-features runs with identical target
 basenames therefore keep separate transcripts. The old label regression
 reproduces its overwrite; all nine Python partition controls pass with the fix.
 Native test membership, bodies, scheduling, CPUs, threads, deadlines and cache
-limits retain their existing policy. The active D2 run continues on its frozen
-source and preserves its original evidence; the next batch uses the corrected
-labels.
+limits retain their existing policy. The completed D2 runs preserve their frozen-source evidence; the next batch
+uses the corrected labels.
 
 ## Complete default workspace checkpoint — 2026-10-14
 
@@ -39,11 +58,9 @@ than a controlled benchmark. Python tooling briefly overlapped async. Each nativ
 process retains one CPU and one test thread; the cloud quota remains four CPUs
 and Cargo stays serial.
 
-The all-features 108-scope run is active. Its retention checks account for the
-four source-gated default-only oracle-refusal tests using this current default
-proof; those IDs are reported separately from all-features executions. The
-normal current CLI replay, historical 5,365-ID retention, full pinned Test262 and
-task closure remain required. CONTINUE.md and tasks remain until those gates pass.
+The complete all-features checkpoint is recorded above. The normal current CLI
+replay, historical 5,365-ID retention, full pinned Test262 and task closure
+remain required. CONTINUE.md and tasks remain until those gates pass.
 
 ## Earlier checkpoints
 
