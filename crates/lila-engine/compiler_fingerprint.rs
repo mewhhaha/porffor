@@ -41,22 +41,60 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
     "vendor",
 ];
 
+// These exact project paths are outside the product dependency closure: Cargo
+// integration tests, the IR's cfg(test) module tree, and six cfg(test)-only
+// Engine modules. Do not generalize this to every path named "tests": vendored
+// sources and production resources retain conservative coverage.
+const TEST_ONLY_INPUTS: &[&str] = &[
+    "crates/lila-front/tests",
+    "crates/lila-ir/tests",
+    "crates/lila-ir/src/tests",
+    "crates/lila-aot-wasm/tests",
+    "crates/lila-runtime/tests",
+    "crates/lila-intl/tests",
+    "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
+    "crates/lila-engine/src/embedded_runtime/tests.rs",
+    "crates/lila-engine/src/regexp_program_boundary_tests.rs",
+    "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
+    "crates/lila-engine/src/array_present_index_tests.rs",
+    "crates/lila-engine/src/module_async_runtime_tests.rs",
+];
+
 pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {
-    fingerprint_inputs(workspace, FINGERPRINT_SCHEME, COMPILER_INPUTS)
+    let files = input_files(workspace, COMPILER_INPUTS, TEST_ONLY_INPUTS)?;
+    fingerprint_files(workspace, FINGERPRINT_SCHEME, files)
+}
+
+// Cargo recursively watches directory rerun inputs. Descend mixed source/test
+// roots instead of watching their ancestor; keep wholly production subtrees
+// recursive so adding or removing data files still triggers fingerprinting.
+// A new module in a mixed Rust root also edits a watched module declaration.
+pub(crate) fn compiler_rerun_inputs(workspace: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut inputs = Vec::new();
+    for input in COMPILER_INPUTS {
+        collect_rerun_inputs(workspace, &workspace.join(input), &mut inputs)?;
+    }
+    inputs.sort();
+    inputs.dedup();
+    Ok(inputs)
 }
 
 pub(crate) fn native_fingerprint(workspace: &Path) -> io::Result<String> {
-    fingerprint_inputs(workspace, NATIVE_FINGERPRINT_SCHEME, NATIVE_COMPILER_INPUTS)
+    let files = input_files(workspace, NATIVE_COMPILER_INPUTS, &[])?;
+    fingerprint_files(workspace, NATIVE_FINGERPRINT_SCHEME, files)
 }
 
-fn fingerprint_inputs(workspace: &Path, scheme: &str, inputs: &[&str]) -> io::Result<String> {
+fn input_files(workspace: &Path, inputs: &[&str], excluded: &[&str]) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for input in inputs {
-        collect_files(&workspace.join(input), &mut files)?;
+        collect_files(workspace, &workspace.join(input), excluded, &mut files)?;
     }
     files.sort();
     files.dedup();
+    Ok(files)
+}
 
+fn fingerprint_files(workspace: &Path, scheme: &str, files: Vec<PathBuf>) -> io::Result<String> {
     let mut digest = Sha256::new();
     digest.update(scheme.as_bytes());
     for path in files {
@@ -73,7 +111,21 @@ fn fingerprint_inputs(workspace: &Path, scheme: &str, inputs: &[&str]) -> io::Re
     Ok(format!("{:x}", digest.finalize()))
 }
 
-fn collect_files(path: &Path, output: &mut Vec<PathBuf>) -> io::Result<()> {
+fn excluded_input(workspace: &Path, path: &Path, excluded: &[&str]) -> bool {
+    excluded
+        .iter()
+        .any(|input| path.starts_with(workspace.join(input)))
+}
+
+fn collect_files(
+    workspace: &Path,
+    path: &Path,
+    excluded: &[&str],
+    output: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    if excluded_input(workspace, path, excluded) {
+        return Ok(());
+    }
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_file() {
         output.push(path.to_path_buf());
@@ -97,7 +149,46 @@ fn collect_files(path: &Path, output: &mut Vec<PathBuf>) -> io::Result<()> {
         {
             continue;
         }
-        collect_files(&entry.path(), output)?;
+        collect_files(workspace, &entry.path(), excluded, output)?;
+    }
+    Ok(())
+}
+
+fn collect_rerun_inputs(
+    workspace: &Path,
+    path: &Path,
+    output: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    if excluded_input(workspace, path, TEST_ONLY_INPUTS) {
+        return Ok(());
+    }
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_file()
+        || (metadata.is_dir()
+            && !TEST_ONLY_INPUTS
+                .iter()
+                .any(|input| workspace.join(input).starts_with(path)))
+    {
+        output.push(path.to_path_buf());
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "compiler rerun input is not a regular file or directory: {}",
+                path.display()
+            ),
+        ));
+    }
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir()
+            && (entry.file_name() == "target" || entry.file_name() == ".git")
+        {
+            continue;
+        }
+        collect_rerun_inputs(workspace, &entry.path(), output)?;
     }
     Ok(())
 }

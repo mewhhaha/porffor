@@ -2,7 +2,7 @@
 mod compiler_fingerprint;
 
 use compiler_fingerprint::{
-    fingerprint, native_fingerprint, COMPILER_INPUTS, NATIVE_COMPILER_INPUTS,
+    compiler_rerun_inputs, fingerprint, native_fingerprint, COMPILER_INPUTS, NATIVE_COMPILER_INPUTS,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,7 +66,6 @@ fn every_previously_omitted_compiler_input_invalidates_the_cache() {
         "crates/lila-engine/src/wasmtime_config.rs",
         "crates/lila-engine/src/embedded_runtime/build.rs",
         "crates/lila-engine/src/embedded_runtime/compile.rs",
-        "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
         "crates/lila-engine/src/cache/native.rs",
         "crates/lila-engine/src/embedded_runtime/manifest.rs",
         "crates/lila-aot-wasm/src/runtime_artifact/build_package.rs",
@@ -159,4 +158,134 @@ fn missing_required_inputs_fail_closed() {
         fingerprint(&workspace.0).unwrap_err().kind(),
         std::io::ErrorKind::NotFound
     );
+}
+
+#[test]
+fn pure_test_input_lifecycle_preserves_production_identity_and_rerun_inputs() {
+    for input in [
+        "crates/lila-front/tests/fixture.js",
+        "crates/lila-ir/tests/regression.rs",
+        "crates/lila-ir/src/tests/inspection.rs",
+        "crates/lila-aot-wasm/tests/unit/regression.rs",
+        "crates/lila-runtime/tests/regression.rs",
+        "crates/lila-intl/tests/regression.rs",
+        "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
+        "crates/lila-engine/src/embedded_runtime/tests.rs",
+        "crates/lila-engine/src/regexp_program_boundary_tests.rs",
+        "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
+        "crates/lila-engine/src/array_present_index_tests.rs",
+        "crates/lila-engine/src/module_async_runtime_tests.rs",
+    ] {
+        let workspace = Workspace::new();
+        let before = workspace.digest();
+        let native_before = native_fingerprint(&workspace.0).unwrap();
+        let rerun_before = compiler_rerun_inputs(&workspace.0).unwrap();
+        for contents in ["created", "modified"] {
+            workspace.write(input, contents);
+            assert_eq!(before, workspace.digest(), "{input}");
+            assert_eq!(
+                native_before,
+                native_fingerprint(&workspace.0).unwrap(),
+                "{input}"
+            );
+            assert_eq!(
+                rerun_before,
+                compiler_rerun_inputs(&workspace.0).unwrap(),
+                "{input}"
+            );
+        }
+        fs::remove_file(workspace.0.join(input)).unwrap();
+        assert_eq!(before, workspace.digest(), "{input}");
+        assert_eq!(
+            rerun_before,
+            compiler_rerun_inputs(&workspace.0).unwrap(),
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn production_sources_and_manifests_are_watched_and_still_invalidate() {
+    for input in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "crates/lila-ir/Cargo.toml",
+        "crates/lila-ir/src/lib.rs",
+        "crates/lila-engine/src/embedded_runtime/compile.rs",
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(input, "before");
+        let path = workspace.0.join(input);
+        let watched = compiler_rerun_inputs(&workspace.0).unwrap();
+        assert!(
+            watched.iter().any(|watch| path.starts_with(watch)),
+            "{input}"
+        );
+        let before = workspace.digest();
+        workspace.write(input, "after");
+        assert_ne!(before, workspace.digest(), "{input}");
+    }
+}
+
+#[test]
+fn production_resource_subtrees_watch_added_removed_and_renamed_inputs() {
+    let workspace = Workspace::new();
+    workspace.write("crates/lila-intl/data/profile.json", "initial");
+    let data = workspace.0.join("crates/lila-intl/data");
+    let watched = compiler_rerun_inputs(&workspace.0).unwrap();
+    assert!(watched.contains(&data));
+    assert!(!watched.contains(&workspace.0.join("crates/lila-intl")));
+    let before = workspace.digest();
+    let added_path = data.join("added.json");
+    assert!(watched.iter().any(|watch| added_path.starts_with(watch)));
+    workspace.write("crates/lila-intl/data/added.json", "new resource");
+    let added = workspace.digest();
+    assert_ne!(before, added);
+    fs::rename(&added_path, data.join("renamed.json")).unwrap();
+    assert_ne!(added, workspace.digest());
+    fs::remove_file(data.join("renamed.json")).unwrap();
+    assert_eq!(before, workspace.digest());
+    assert_eq!(watched, compiler_rerun_inputs(&workspace.0).unwrap());
+}
+
+#[test]
+fn new_modules_in_mixed_source_roots_rescan_through_watched_declarations() {
+    let workspace = Workspace::new();
+    workspace.write("crates/lila-ir/src/lib.rs", "mod existing;");
+    workspace.write("crates/lila-ir/src/existing.rs", "before");
+    workspace.write("crates/lila-ir/src/tests/inspection.rs", "test only");
+    let watched = compiler_rerun_inputs(&workspace.0).unwrap();
+    let parent = workspace.0.join("crates/lila-ir/src/lib.rs");
+    assert!(watched.contains(&parent));
+    assert!(!watched.contains(&workspace.0.join("crates/lila-ir/src")));
+    let before = workspace.digest();
+    workspace.write("crates/lila-ir/src/lib.rs", "mod existing; mod added;");
+    workspace.write("crates/lila-ir/src/added.rs", "new reachable source");
+    assert_ne!(before, workspace.digest());
+    assert!(compiler_rerun_inputs(&workspace.0)
+        .unwrap()
+        .contains(&workspace.0.join("crates/lila-ir/src/added.rs")));
+}
+
+#[test]
+fn test_like_paths_outside_the_explicit_project_exclusions_stay_conservative() {
+    for input in [
+        "vendor/fixture/tests/embedded.js",
+        "crates/lila-ir/src/testsupport.rs",
+        "crates/lila-ir/src/tests-adjacent/resource.json",
+        "crates/lila-intl/data/tests/resource.json",
+    ] {
+        let workspace = Workspace::new();
+        let before = workspace.digest();
+        workspace.write(input, "production or conservative source input");
+        assert_ne!(before, workspace.digest(), "{input}");
+        let path = workspace.0.join(input);
+        assert!(
+            compiler_rerun_inputs(&workspace.0)
+                .unwrap()
+                .iter()
+                .any(|watch| path.starts_with(watch)),
+            "{input}"
+        );
+    }
 }

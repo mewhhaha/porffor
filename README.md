@@ -1,5 +1,21 @@
 # Lila
 
+## Reduce production rebuilds after test edits — 2026-10-14
+
+The Engine and runtime-image compiler fingerprints now exclude explicit test
+trees and six modules compiled only under `cfg(test)`. The same input policy
+controls Cargo rebuild watches. Production resource directories still detect
+added and removed files; source declarations, manifests, build scripts and
+vendor inputs remain covered. Native compiler identity and cache limits retain
+their existing policy. See [input coverage](docs/rust-rewrite/aot-cache-fingerprint.md).
+
+All 12 standalone fingerprint controls pass, including the five new lifecycle
+and production-invalidation controls. This addresses observed production rebuilds
+after two IR test edits. All Intl outputs reproduce unchanged and the 83
+associated generator checks pass. Current-source Cargo producers and the full
+suites remain pending; no elapsed-time improvement is claimed yet.
+
+
 ## Verified focused repairs — 2026-10-14
 
 The nine failures from the complete default workspace run now pass, including

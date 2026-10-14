@@ -32,8 +32,10 @@ fn main() {
         .join("../..")
         .canonicalize()
         .expect("Lila workspace root should resolve");
-    for input in compiler_fingerprint::COMPILER_INPUTS {
-        println!("cargo:rerun-if-changed={}", workspace.join(input).display());
+    for input in compiler_fingerprint::compiler_rerun_inputs(&workspace)
+        .expect("production compiler rerun inputs should resolve")
+    {
+        println!("cargo:rerun-if-changed={}", input.display());
     }
     let started = std::time::Instant::now();
     let fingerprint = compiler_fingerprint::fingerprint(&workspace)
