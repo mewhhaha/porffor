@@ -29,6 +29,13 @@ callback or finite iterator just like the other constructor kinds. Possible
 grammar hints from analyzed function identities, including named generators
 and aliases of the prototype reader. Local bindings take precedence over
 global metadata; a spelling alone does not establish either new hint.
+Binding and property-shape hints also follow the ordered Object Environment
+chain used by ResolveBinding. If a current or captured `with` object precedes
+the declarative/global fallback, discovery cannot borrow that fallback's source
+values or function targets. A lexical binding declared inside the `with` body
+still precedes the object, including through a closure, and retains its own
+hints. This does not change the existing possible-candidate policy for eval
+environments, the runtime Reference, or the named-member admission boundary.
 If a call already has a primary boxed-conversion text hint, that view takes
 precedence over a new possible prototype record. Omitting the additive record
 in that ambiguous call preserves both the original source and its capacity in

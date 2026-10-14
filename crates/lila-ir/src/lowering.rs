@@ -42,6 +42,7 @@ mod environment_identifier;
 mod finite_function_body_hints;
 mod finite_function_source;
 mod finite_iterator_source;
+mod finite_regexp_source;
 mod finite_source_binding;
 mod for_lexical_environment;
 mod function_source_candidates;

@@ -274,16 +274,16 @@ pub use prepared_script::{
 pub(crate) use prepared_script::{DynamicScriptSource, ScriptInstantiation};
 pub use prepared_source_cache::LoweringSession;
 pub use regexp::{
-    regexp_character_escape, regexp_hex_digit_value, regexp_unicode_property_catalog,
-    CaseFolding as RegExpCaseFolding, RegExpCompileError, RegExpCompileErrorKind,
-    RegExpControlFlow, RegExpFlags, RegExpIdentifierPosition, RegExpInputProgress,
-    RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup, RegExpNatural, RegExpOpcode,
-    RegExpOperandRule, RegExpProgram, RegExpProgramValidationError, RegExpProgramWord,
-    RegExpRepeatBoundWord, RegExpRepeatBounds, RegExpRepeatMaximum, RegExpRepeatMaximumKind,
-    RegExpRepeatStateWord, RegExpScopedModifier, RegExpUnicodeMode,
+    escape_regexp_pattern_utf16, regexp_character_escape, regexp_hex_digit_value,
+    regexp_unicode_property_catalog, CaseFolding as RegExpCaseFolding, RegExpCompileError,
+    RegExpCompileErrorKind, RegExpControlFlow, RegExpFlags, RegExpIdentifierPosition,
+    RegExpInputProgress, RegExpInstruction, RegExpModifierOverride, RegExpNamedGroup,
+    RegExpNatural, RegExpOpcode, RegExpOperandRule, RegExpProgram, RegExpProgramValidationError,
+    RegExpProgramWord, RegExpRepeatBoundWord, RegExpRepeatBounds, RegExpRepeatMaximum,
+    RegExpRepeatMaximumKind, RegExpRepeatStateWord, RegExpScopedModifier, RegExpUnicodeMode,
     RegExpUnicodePropertyCatalogEntry, RegExpUnicodePropertyCatalogValue, ValidatedRegExpProgram,
     REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_BACKREFERENCE_NONEMPTY, REGEXP_CHARACTER_ESCAPES,
-    REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES, REGEXP_INSTRUCTION_WIDTH,
+    REGEXP_DIGIT_RANGES, REGEXP_EMPTY_SOURCE, REGEXP_HEX_DIGIT_RANGES, REGEXP_INSTRUCTION_WIDTH,
     REGEXP_LEGACY_THREE_DIGIT_OCTAL_LAST, REGEXP_MAX_INSTRUCTIONS, REGEXP_MAX_RANGE_ENTRIES,
     REGEXP_NAMED_GROUP_TABLE_MAGIC_VERSION, REGEXP_OPCODE_ACCEPT, REGEXP_OPCODE_ASSERT_END,
     REGEXP_OPCODE_ASSERT_START, REGEXP_OPCODE_CAPTURE_END, REGEXP_OPCODE_CAPTURE_START,
@@ -298,8 +298,8 @@ pub use regexp::{
     REGEXP_OPCODE_WHITESPACE, REGEXP_OPCODE_WORD_BOUNDARY, REGEXP_PROGRAM_HEADER_SIZE,
     REGEXP_PROGRAM_MAGIC_VERSION, REGEXP_RANGE_ENTRY_WIDTH, REGEXP_REPEAT_BOUND_RECORD_SIZE,
     REGEXP_REPEAT_COUNTER_DECIMAL_DIGITS, REGEXP_REPEAT_COUNTER_LIMB_WIDTH,
-    REGEXP_REPEAT_COUNTER_RADIX, REGEXP_REPEAT_STATE_HEADER_SIZE, REGEXP_WHITESPACE_RANGES,
-    REGEXP_WORD_RANGES,
+    REGEXP_REPEAT_COUNTER_RADIX, REGEXP_REPEAT_STATE_HEADER_SIZE, REGEXP_SOURCE_LINE_ESCAPES,
+    REGEXP_SOURCE_SLASH_ESCAPE, REGEXP_WHITESPACE_RANGES, REGEXP_WORD_RANGES,
 };
 pub use robustness::{IrRobustnessError, IrRobustnessInput};
 pub use runtime_semantics::{

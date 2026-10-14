@@ -340,20 +340,28 @@ fn inspect_reports_phase_fourteen_param_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Source parameter defaults are `outer`'s `x = 1` and `f`'s `y = this.x`
-    // (`pick`'s `{ value = 2 }` is a binding-pattern default, not a parameter
-    // default), and `outer`'s `...xs` is the only rest parameter. Both counts
-    // also include `outer`'s exact-context specialization clone, which repeats
-    // its parameter list. `f` has no clone since 5eca93e67: calling `outer`
-    // (whose body invokes a closure) is treated as unknown user code, which
-    // erases `o`'s heap shape before `o.f()`, so that call is no longer an
-    // exact-target call and `f` is never specialized. That moved
-    // `default_params` 4 -> 3; `f` still lowers its default, which
-    // `run_wasm_backend_succeeds_for_supported_param_fixture` observes.
-    assert!(stdout.contains("default_params=3"), "{stdout}");
-    assert!(stdout.contains("rest_params=2"));
-    assert!(stdout.contains("arguments_uses=1"));
-    assert!(stdout.contains("lexical_arguments_captures=1"));
+    // This Script references `arguments`, so its identifiers use the named
+    // runtime environment. Calls retain ResolveBinding/GetValue and do not
+    // prove an exact target for a specialization clone. Count the two source
+    // defaults and single rest parameter in the four emitted functions.
+    assert!(stdout.contains("functions=4"), "{stdout}");
+    assert!(stdout.contains("default_params=2"), "{stdout}");
+    assert!(stdout.contains("rest_params=1"), "{stdout}");
+    // The arrow reads the captured arguments binding through a runtime
+    // Reference, not an ExprIr::Arguments object expression. The read/call
+    // census and capture count keep that execution visible in inspection.
+    assert!(stdout.contains("arguments_uses=0"), "{stdout}");
+    assert!(stdout.contains("lexical_arguments_captures=1"), "{stdout}");
+    assert!(
+        stdout.contains("environment_identifier_reads=4"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("environment_identifier_calls=3"),
+        "{stdout}"
+    );
+    // The parameter default `y = this.x` is executable IR as well.
+    assert!(stdout.contains("this_reads=1"), "{stdout}");
 }
 
 #[test]

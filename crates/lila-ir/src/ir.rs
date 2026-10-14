@@ -4504,11 +4504,6 @@ impl ScriptIr {
             counts.visit_block(body);
         }
         for function in &self.functions {
-            for param in &function.params {
-                if let Some(default_init) = &param.default_init {
-                    counts.visit_expr(default_init);
-                }
-            }
             counts.visit_function(function);
         }
         counts.scalar_exponentiation == Some(true)
@@ -4623,7 +4618,7 @@ impl ProgramIr {
                 }
                 counts.visit_block(&script.body);
                 format!(
-                    "script statements={} result={} strict={} functions={} nested_functions={} function_exprs={} arrow_functions={} named_function_exprs={} closures={} captures={} lexical_this_captures={} lexical_arguments_captures={} default_params={} rest_params={} arguments_uses={} calls={} indirect_calls={} method_calls={} constructs={} classes={} class_exprs={} class_extends={} null_heritage_classes={} class_fields={} private_elements={} static_blocks={} super_uses={} null_heritage_super_uses={} private_in_checks={} throws={} try_catches={} try_finallys={} returns={} lets={} consts={} vars={} global_bindings={} builtin_globals={} boxed_builtin_globals={} global_this_uses={} top_level_this_uses={} global_default_this_calls={} global_property_reads={} global_property_writes={} implicit_globals={} host_globals={} host_builtin_calls={} builtin_ctor_calls={} builtin_static_calls={} error_builtin_calls={} aggregate_errors={} function_proto_calls={} function_proto_applies={} function_proto_binds={} function_proto_to_strings={} bound_functions={} bound_function_constructs={} boxed_builtin_calls={} boxed_builtin_constructs={} boxed_receiver_adaptations={} error_proto_to_strings={} blocks={} ifs={} whiles={} do_whiles={} fors={} switches={} labels={} debuggers={} breaks={} continues={} objects={} object_shorthands={} object_methods={} object_getters={} object_setters={} arrays={} property_reads={} property_writes={} array_lengths={} heap_shapes={} function_values={} this_reads={} new_target_uses={} assigns={} prefix_updates={} postfix_updates={} compound_assigns={} string_concats={} loose_equalities={} coercive_numeric_ops={} coercive_relational_ops={} typeof_uses={} void_uses={} deletes={} identifier_deletes={} global_deletes={} comma_ops={} nullish_ops={} spec_operations={} kind_unions={} heap_to_primitives={} heap_loose_equalities={} heap_coercions={} instanceofs={} in_ops={} prototype_reads={} prototype_writes={}",
+                    "script statements={} result={} strict={} functions={} nested_functions={} function_exprs={} arrow_functions={} named_function_exprs={} closures={} captures={} lexical_this_captures={} lexical_arguments_captures={} environment_identifier_reads={} environment_identifier_calls={} default_params={} rest_params={} arguments_uses={} calls={} indirect_calls={} method_calls={} constructs={} classes={} class_exprs={} class_extends={} null_heritage_classes={} class_fields={} private_elements={} static_blocks={} super_uses={} null_heritage_super_uses={} private_in_checks={} throws={} try_catches={} try_finallys={} returns={} lets={} consts={} vars={} global_bindings={} builtin_globals={} boxed_builtin_globals={} global_this_uses={} top_level_this_uses={} global_default_this_calls={} global_property_reads={} global_property_writes={} implicit_globals={} host_globals={} host_builtin_calls={} builtin_ctor_calls={} builtin_static_calls={} error_builtin_calls={} aggregate_errors={} function_proto_calls={} function_proto_applies={} function_proto_binds={} function_proto_to_strings={} bound_functions={} bound_function_constructs={} boxed_builtin_calls={} boxed_builtin_constructs={} boxed_receiver_adaptations={} error_proto_to_strings={} blocks={} ifs={} whiles={} do_whiles={} fors={} switches={} labels={} debuggers={} breaks={} continues={} objects={} object_shorthands={} object_methods={} object_getters={} object_setters={} arrays={} property_reads={} property_writes={} array_lengths={} heap_shapes={} function_values={} this_reads={} new_target_uses={} assigns={} prefix_updates={} postfix_updates={} compound_assigns={} string_concats={} loose_equalities={} coercive_numeric_ops={} coercive_relational_ops={} typeof_uses={} void_uses={} deletes={} identifier_deletes={} global_deletes={} comma_ops={} nullish_ops={} spec_operations={} kind_unions={} heap_to_primitives={} heap_loose_equalities={} heap_coercions={} instanceofs={} in_ops={} prototype_reads={} prototype_writes={}",
                     counts.statements,
                     script.result_kind().as_str(),
                     script.strict,
@@ -4636,6 +4631,8 @@ impl ProgramIr {
                     counts.captures,
                     counts.lexical_this_captures,
                     counts.lexical_arguments_captures,
+                    counts.environment_identifier_reads,
+                    counts.environment_identifier_calls,
                     counts.default_params,
                     counts.rest_params,
                     counts.arguments_uses,
@@ -4808,6 +4805,8 @@ struct IrSummaryCounts {
     captures: usize,
     lexical_this_captures: usize,
     lexical_arguments_captures: usize,
+    environment_identifier_reads: usize,
+    environment_identifier_calls: usize,
     default_params: usize,
     rest_params: usize,
     arguments_uses: usize,
@@ -5013,8 +5012,9 @@ impl IrSummaryCounts {
             self.lexical_arguments_captures += 1;
         }
         for param in &function.params {
-            if param.default_init.is_some() {
+            if let Some(default_init) = &param.default_init {
                 self.default_params += 1;
+                self.visit_expr(default_init);
             }
             if param.is_rest {
                 self.rest_params += 1;
@@ -5829,8 +5829,10 @@ impl IrSummaryCounts {
             ExprIr::EnvironmentIdentifier(identifier) => {
                 self.track_storage(&identifier.name);
                 match &identifier.operation {
-                    crate::EnvironmentIdentifierOperationIr::Read
-                    | crate::EnvironmentIdentifierOperationIr::Typeof
+                    crate::EnvironmentIdentifierOperationIr::Read => {
+                        self.environment_identifier_reads += 1;
+                    }
+                    crate::EnvironmentIdentifierOperationIr::Typeof
                     | crate::EnvironmentIdentifierOperationIr::CaptureCallReference { .. }
                     | crate::EnvironmentIdentifierOperationIr::CaptureAssignmentReference {
                         ..
@@ -5857,6 +5859,7 @@ impl IrSummaryCounts {
                         self.compound_assignments += 1
                     }
                     crate::EnvironmentIdentifierOperationIr::Call { .. } => {
+                        self.environment_identifier_calls += 1;
                         self.calls += 1;
                         self.indirect_calls += 1;
                     }

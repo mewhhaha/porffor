@@ -137,9 +137,13 @@ impl FunctionBuilder<'_> {
                  `import()` without loading its targets)",
             )
             })?;
-        let meta = self.functions.get(&dispatcher).cloned().ok_or_else(|| {
-            unsupported("prepared Script import dispatcher requires its compiled entry")
-        })?;
+        let meta = self
+            .functions
+            .get(dispatcher.function())
+            .cloned()
+            .ok_or_else(|| {
+                unsupported("prepared Script import dispatcher requires its compiled entry")
+            })?;
         let schema = self.runtime_schema();
         // ImportCall evaluates both operands before creating its promise.
         let argument = schema.reserve_value_local(function);

@@ -596,3 +596,50 @@ fn unproved_eval_imports_keep_typed_capability_rejection_with_catalogued_targets
         assert!(error.ir_diagnostic().is_none(), "{error}");
     }
 }
+
+#[test]
+fn prepared_import_options_keep_live_reentry_abrupt_values_and_private_helper_ownership() {
+    const ENTRY: &str = r#"
+var effects = [], evaluations = 0, inner, marker = { marker: 42 };
+Object.defineProperty(globalThis, '$lila$module$importOptions', {
+  get() { throw 'private validation helper used a global property'; }
+});
+var options = { get with() {
+  effects.push('with');
+  inner = eval('import("./target.js")');
+  return {};
+} };
+var first = eval('import("./target.js", options)');
+options = { get with() { effects.push('throw'); throw marker; } };
+var rejected = eval('import("./target.js", options)');
+if (first === inner || first === rejected ||
+    Promise.resolve(first) !== first || Promise.resolve(rejected) !== rejected ||
+    effects.join(',') !== 'with,throw' || evaluations !== 0) throw 'live options timing';
+effects.push('entry');
+Promise.all([first, inner, rejected.then(function () { throw 'abrupt options fulfilled'; }, x => x)])
+  .then(function (values) {
+    if (values[0] !== values[1] || values[0].value !== 42 ||
+        values[2] !== marker || evaluations !== 1 ||
+        effects.join(',') !== 'with,throw,entry,target') throw 'owned prepared import jobs';
+    print('owned options and canonical import jobs');
+  });
+print('prepared options queued');
+true;
+"#;
+    for directive in ["", "\"use strict\";\n"] {
+        let entry = format!("{directive}{ENTRY}");
+        success(
+            &[
+                ("entry.js", &entry),
+                (
+                    "target.js",
+                    "evaluations++; effects.push('target'); export const value = 42;",
+                ),
+            ],
+            &[
+                "prepared options queued",
+                "owned options and canonical import jobs",
+            ],
+        );
+    }
+}

@@ -106,6 +106,8 @@ mod error_instance_prototype_resolution;
 mod finite_function_constructor;
 #[path = "finite_indirect_eval.rs"]
 mod finite_indirect_eval;
+#[path = "finite_regexp_source.rs"]
+mod finite_regexp_source;
 #[path = "float16_array.rs"]
 mod float16_array;
 #[path = "for_await_identifier_assignment_head_structure.rs"]

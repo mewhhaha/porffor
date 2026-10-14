@@ -27,9 +27,20 @@ fn inspect_reports_phase_twenty_six_function_builtin_ir_shape() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("aggregate_errors=3"));
-    assert!(stdout.contains("function_proto_calls="));
-    assert!(stdout.contains("function_proto_applies="));
+    // `pick` references `arguments`, enabling named runtime environments for
+    // this Script. Its AggregateError/call/apply References perform live lookup
+    // rather than carrying resolved intrinsic identities into lowering.
+    assert!(stdout.contains("aggregate_errors=0"), "{stdout}");
+    assert!(stdout.contains("function_proto_calls=0"), "{stdout}");
+    assert!(stdout.contains("function_proto_applies=0"), "{stdout}");
+    // All source invocations remain present, including the Error constructor
+    // and both AggregateError constructors in the final conjunction.
+    assert!(stdout.contains("calls=13"), "{stdout}");
+    assert!(stdout.contains("constructs=3"), "{stdout}");
+    assert!(
+        stdout.contains("environment_identifier_calls=1"),
+        "{stdout}"
+    );
 }
 
 #[test]

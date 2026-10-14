@@ -134,36 +134,9 @@ impl ScriptLowerer<'_> {
         context: &DirectEvalContextIr,
         arguments: &[Expression],
     ) {
-        let mut sources = BTreeSet::new();
-        for argument in arguments {
-            let (candidates, spread) = match Self::unwrap_parenthesized_expr(argument) {
-                Expression::Spread(spread) => {
-                    (self.finite_spread_source_candidates(spread.target()), true)
-                }
-                argument => (self.function_source_value_candidates(argument), false),
-            };
-            sources.extend(
-                candidates
-                    .into_iter()
-                    .filter_map(|candidate| match candidate {
-                        FiniteSourceValue::Text(source)
-                        | FiniteSourceValue::SupplementalText(source) => Some(source),
-                        FiniteSourceValue::Function(_)
-                        | FiniteSourceValue::FunctionConstructor(_)
-                        | FiniteSourceValue::Record(_)
-                        | FiniteSourceValue::Array(_) => None,
-                    }),
-            );
-            if sources.len() > super::finite_function_source::MAX_SOURCE_CANDIDATES {
-                return;
-            }
-            // A spread can be empty, including after mutation or an overridden
-            // iterator. The next ordinary argument ends the possible source
-            // prefix; all remaining arguments still execute at runtime.
-            if !spread {
-                break;
-            }
-        }
+        let Some(sources) = self.finite_script_argument_text_candidates(arguments) else {
+            return;
+        };
         for source in sources {
             self.register_dynamic_script_source(DynamicScriptSource {
                 admission: PreparedScriptAdmission::RuntimeCandidate,

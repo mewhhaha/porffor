@@ -48,3 +48,5 @@ include!("template_literal.rs");
 include!("resource_disposal.rs");
 
 include!("generator_identifier_reference.rs");
+
+include!("inspection.rs");

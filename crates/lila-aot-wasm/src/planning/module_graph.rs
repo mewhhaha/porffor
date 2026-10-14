@@ -2,9 +2,41 @@
 
 use super::*;
 
+/// Only a source callable with no caller captures can be materialized by
+/// the independent global-environment factory. Construction stays private.
+#[derive(Debug, Clone)]
+pub(crate) struct IndependentScriptImportDispatcher {
+    function: FunctionId,
+}
+
+impl IndependentScriptImportDispatcher {
+    fn new(function: &lila_ir::FunctionIr) -> Result<Self, EmitError> {
+        if !function.captured_bindings.is_empty()
+            || function.captures_private_environment
+            || function.captures_lexical_this
+            || function.captures_lexical_arguments
+            || function.is_named_expression
+            || function.protocol.execution_kind() != FunctionExecutionKind::Async
+            || function.protocol.flavor() != lila_ir::FunctionFlavor::Ordinary
+        {
+            return Err(EmitError::unsupported(
+                "an independent Script import dispatcher requires capture-free async source",
+            ));
+        }
+        Ok(Self {
+            function: function.id.clone(),
+        })
+    }
+
+    pub(crate) fn function(&self) -> &FunctionId {
+        &self.function
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct ModuleGraphPlan {
     graph: lila_ir::ModuleExecutionGraphIr,
+    script_import_dispatchers: BTreeMap<lila_ir::ImportPhaseIr, IndependentScriptImportDispatcher>,
 }
 
 impl ModuleGraphPlan {
@@ -36,8 +68,26 @@ impl ModuleGraphPlan {
                         ));
                     }
                 } else {
+                    let script_import_dispatchers = graph
+                        .script_import_dispatchers()
+                        .iter()
+                        .map(|(phase, id)| {
+                            let function = script
+                                .functions
+                                .iter()
+                                .find(|function| &function.id == id)
+                                .ok_or_else(|| {
+                                    EmitError::unsupported(
+                                    "Script import dispatcher requires its compiled source owner",
+                                )
+                                })?;
+                            IndependentScriptImportDispatcher::new(function)
+                                .map(|dispatcher| (*phase, dispatcher))
+                        })
+                        .collect::<Result<_, _>>()?;
                     plan = Some(Self {
                         graph: (**graph).clone(),
+                        script_import_dispatchers,
                     });
                 }
             }
@@ -49,8 +99,9 @@ impl ModuleGraphPlan {
         &self,
         referrer: u32,
         phase: lila_ir::ImportPhaseIr,
-    ) -> Option<&FunctionId> {
-        self.graph.script_import_dispatcher(referrer, phase)
+    ) -> Option<&IndependentScriptImportDispatcher> {
+        self.graph.script_import_dispatcher(referrer, phase)?;
+        self.script_import_dispatchers.get(&phase)
     }
 
     pub(crate) fn record_count(&self) -> u32 {
@@ -70,5 +121,38 @@ impl ModuleGraphPlan {
         self.graph
             .realm_import_dispatcher()
             .expect("canonical graph owns a Realm dispatcher")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IndependentScriptImportDispatcher;
+
+    #[test]
+    fn independent_script_dispatcher_proof_rejects_a_real_outer_lexical_capture() {
+        let lower = |source: &str| {
+            let parsed = lila_front::parse(source, lila_front::ParseOptions::script()).unwrap();
+            let program = lila_ir::lower(&parsed);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            program
+                .script
+                .unwrap()
+                .functions
+                .into_iter()
+                .find(|function| function.name == "dispatcher")
+                .unwrap()
+        };
+        let independent = lower("async function dispatcher() { return await 1; }");
+        let proof = IndependentScriptImportDispatcher::new(&independent).unwrap();
+        assert_eq!(proof.function(), &independent.id);
+        let captured = lower("let outer = 1; async function dispatcher() { return await outer; }");
+        assert!(
+            !captured.captured_bindings.is_empty(),
+            "the counterexample owns an actual capture"
+        );
+        assert!(
+            IndependentScriptImportDispatcher::new(&captured).is_err(),
+            "a global-source factory cannot satisfy this lexical dependency"
+        );
     }
 }

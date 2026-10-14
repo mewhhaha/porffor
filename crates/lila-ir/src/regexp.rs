@@ -12,6 +12,12 @@ use regress::{
     UnicodeStringProperty,
 };
 
+mod source_escape;
+pub use source_escape::{
+    escape_regexp_pattern_utf16, REGEXP_EMPTY_SOURCE, REGEXP_SOURCE_LINE_ESCAPES,
+    REGEXP_SOURCE_SLASH_ESCAPE,
+};
+
 /// The encoded width of every [`RegExpInstruction`] in bytes.
 pub const REGEXP_INSTRUCTION_WIDTH: usize = 24;
 

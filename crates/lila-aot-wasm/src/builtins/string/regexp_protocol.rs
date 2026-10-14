@@ -933,7 +933,10 @@ impl FunctionBuilder<'_> {
         length.load(f);
         f.instruction(&Instruction::I64Eqz);
         self.open_frame(ControlFrameKind::If, f);
-        accumulated.replace(self.emit_native_string_static("(?:)", f), f);
+        accumulated.replace(
+            self.emit_native_string_static(lila_ir::REGEXP_EMPTY_SOURCE, f),
+            f,
+        );
         f.instruction(&Instruction::Else);
         f.instruction(&Instruction::I64Const(0));
         index.store(f);
@@ -954,14 +957,9 @@ impl FunctionBuilder<'_> {
         let piece = s
             .reserve_gc_local(f)
             .initialize(self.emit_gc_string_slice(&source, index, end, f), f);
-        for (code, replacement) in [
-            (10, "\\n"),
-            (13, "\\r"),
-            (0x2028, "\\u2028"),
-            (0x2029, "\\u2029"),
-        ] {
+        for (code, replacement) in lila_ir::REGEXP_SOURCE_LINE_ESCAPES {
             unit.load(f);
-            f.instruction(&Instruction::I32Const(code));
+            f.instruction(&Instruction::I32Const(i32::from(code)));
             f.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, f);
             piece.replace(self.emit_native_string_static(replacement, f), f);
@@ -975,7 +973,10 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32Eqz);
         f.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, f);
-        piece.replace(self.emit_native_string_static("\\/", f), f);
+        piece.replace(
+            self.emit_native_string_static(lila_ir::REGEXP_SOURCE_SLASH_ESCAPE, f),
+            f,
+        );
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         accumulated.replace(self.emit_concat_gc_strings(&accumulated, &piece, f), f);
@@ -1013,9 +1014,10 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::Else);
         self.emit_native_regexp_receiver_is_executing_prototype(&receiver, f)?;
         self.open_frame(ControlFrameKind::If, f);
-        let empty = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_native_string_static("(?:)", f), f);
+        let empty = s.reserve_gc_local(f).initialize(
+            self.emit_native_string_static(lila_ir::REGEXP_EMPTY_SOURCE, f),
+            f,
+        );
         self.emit_native_string_normal_reference(&empty, &output, f);
         empty.clear(f);
         f.instruction(&Instruction::Else);

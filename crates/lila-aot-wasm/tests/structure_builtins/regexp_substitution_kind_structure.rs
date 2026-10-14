@@ -164,7 +164,7 @@ fn numbered_and_named_captures_require_valid_indices_and_observable_gets() {
     let named = bounded(
         REGEXP_SUBSTITUTION,
         "        next_unit.load(f);\n        f.instruction(&Instruction::I32Const(60))",
-        "        accumulated.replace(",
+        "        self.emit_native_gc_string_length(&piece, piece_length, f);",
     );
     for marker in [
         "named.0.tag().load(f)",
@@ -211,7 +211,29 @@ fn consumed_and_source_updates_follow_the_completed_replacement_piece() {
         )));
     }
     assert!(code.contains("scan.load(f);index.load(f);f.instruction(&Instruction::I64Sub);f.instruction(&Instruction::I64Const(1));f.instruction(&Instruction::I64Add);consumed.store(f)"));
-    assert!(code.contains("accumulated.replace(self.emit_concat_gc_strings(&accumulated,&piece,f),f);piece.clear(f);index.load(f);consumed.load(f);f.instruction(&Instruction::I64Add);index.store(f)"));
+    let completed = bounded(
+        REGEXP_SUBSTITUTION,
+        "        self.emit_native_gc_string_length(&piece, piece_length, f);",
+        "        pending.clear(f);",
+    );
+    assert!(completed
+        .contains("RuntimeErrorMessage::REPLACEMENT_RESULT_WOULD_EXCEED_MAXIMUM_STRING_LENGTH"));
+    assert_before(
+        completed,
+        "Instruction::I64Const(u32::MAX as i64)",
+        "self.emit_native_string_error_if(",
+    );
+    assert_before(
+        completed,
+        "self.emit_native_string_error_if(",
+        "pieces.append(&piece, s, f)",
+    );
+    assert!(without_whitespace(completed).contains("pieces.append(&piece,s,f);piece.clear(f);index.load(f);consumed.load(f);f.instruction(&Instruction::I64Add);index.store(f)"));
+    assert_before(
+        completed,
+        "self.pop_control(ControlFrameKind::Block)",
+        "pieces.publish(self, total_length, f)",
+    );
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "LiteralSubstitution"),

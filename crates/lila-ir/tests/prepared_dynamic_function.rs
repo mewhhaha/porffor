@@ -778,6 +778,89 @@ build('return 91;')();
 }
 
 #[test]
+fn source_call_targets_do_not_cross_current_or_captured_with_references() {
+    let definitions = r#"
+function build(body) { return () => Function(body)(); }
+build('return 91;')();
+"#;
+    for source in [
+        "function local() { with ({ build: function ignored(value) { return value; } }) { return () => build('return 771;'); } } local()();",
+        "with (Object.create({ build: function ignored(value) { return value; } })) { build('return 771;'); }",
+        "function local(build) { with ({ build: function ignored(value) { return value; } }) { build('return 771;'); } } local(function selected(body) { return Function(body); });",
+        "with ({}) { const build = function selected(body) { return Function(body); }; with ({ build: function ignored(value) { return value; } }) { build('return 771;'); } }",
+    ] {
+        let parsed = parse(format!("{definitions}{source}"), ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        assert!(prepared.iter().any(|entry| entry.arguments == ["return 91;"]));
+        assert!(
+            !prepared.iter().any(|entry| entry.arguments == ["return 771;"]),
+            "an intercepted Reference forwarded source to a fallback target: {source}"
+        );
+    }
+}
+
+#[test]
+fn source_property_targets_do_not_borrow_with_shadowed_binding_shapes() {
+    let definitions = r#"
+function build(body) { return () => Function(body)(); }
+var registry = { build: build };
+registry.build('return 81;')();
+"#;
+    for source in [
+        "with ({ registry: { build: function ignored(value) { return value; } } }) { registry.build('return 781;'); }",
+        "function local() { with ({ registry: { build: function ignored(value) { return value; } } }) { return () => registry.build('return 781;'); } } local()();",
+        "function local(registry) { with ({ registry: { build: function ignored(value) { return value; } } }) { registry['build']('return 781;'); } } local({ build: build });",
+    ] {
+        let parsed = parse(format!("{definitions}{source}"), ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        assert!(prepared.iter().any(|entry| entry.arguments == ["return 81;"]));
+        assert!(
+            !prepared.iter().any(|entry| entry.arguments == ["return 781;"]),
+            "a shadowed base borrowed a fallback property's call target: {source}"
+        );
+    }
+}
+
+#[test]
+fn lexical_source_targets_precede_current_and_captured_with_objects() {
+    for call in [
+        "build('return 791;')();",
+        "const invoke = () => build('return 791;')(); invoke();",
+        "const registry = { build: build }; registry.build('return 791;')();",
+    ] {
+        let parsed = parse(
+            format!(
+                "with ({{ build: function ignored(value) {{ return value; }} }}) {{\n\
+                 const build = function selected(body) {{ return Function(body); }}; {call} }}"
+            ),
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(
+            program
+                .script
+                .unwrap()
+                .prepared_dynamic_functions
+                .iter()
+                .any(|entry| {
+                    entry.arguments == ["return 791;"]
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )
+                }),
+            "a nearer lexical Reference lost its source candidate: {call}"
+        );
+    }
+}
+
+#[test]
 fn supplemental_global_call_sources_preserve_all_256_primary_bodies() {
     let bodies = (0..256)
         .map(|index| format!("return {index};"))

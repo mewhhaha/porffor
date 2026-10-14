@@ -474,28 +474,147 @@ const realm = new ShadowRealm();
 
     #[test]
     fn computed_and_unproved_eval_origins_cannot_claim_script_import_edges() {
-        for (source, options) in [
-            (r#"eval('import(specifier)');"#, ParseOptions::script()),
+        for (text, options, expected_gap) in [
+            (
+                r#"eval('import(specifier)');"#,
+                ParseOptions::script(),
+                None,
+            ),
             (
                 r#"(0, eval)('import("./indirect.js")');"#,
                 ParseOptions::script(),
+                Some(crate::DynamicSourceGap::aot_known_source(
+                    crate::DynamicSourceKind::IndirectEval,
+                )),
             ),
             (
                 r#"eval('import("./module-relative.js")');"#,
                 ParseOptions::module(),
+                None,
             ),
         ] {
-            let source = lila_front::parse(source, options).unwrap();
+            let source = lila_front::parse(text, options).unwrap();
             let session = LoweringSession::default();
             let program = session.lower_source(&source, crate::HostSurfacePolicy::default());
-            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-            assert!(session.prepared_script_import_sites().is_empty());
+            // A resolved intrinsic indirect eval keeps its exact unsupported
+            // environment gap; optional runtime candidates may omit that unit.
+            let expected_diagnostics = expected_gap
+                .map(crate::IrDiagnostic::unsupported_dynamic_source)
+                .into_iter()
+                .collect::<Vec<_>>();
+            assert_eq!(program.diagnostics, expected_diagnostics, "{text}");
+            assert_eq!(
+                program.is_wasm_supported(),
+                expected_gap.is_none(),
+                "{text}: {:?}",
+                program.diagnostics
+            );
+            assert!(session.prepared_script_import_sites().is_empty(), "{text}");
             if let Some(script) = program.script {
                 assert!(script.prepared_scripts.iter().all(|prepared| !matches!(
                     prepared.outcome,
                     crate::PreparedScriptOutcome::Executable(_)
                 )));
             }
+        }
+    }
+
+    #[test]
+    fn prepared_script_dispatchers_own_options_helpers_without_caller_captures() {
+        for directive in ["", "'use strict';\n"] {
+            let source = lila_front::parse(
+                &format!("{directive}eval('import(\"./target.js\", options)');"),
+                ParseOptions::script(),
+            )
+            .unwrap();
+            let lila_front::ParsedSource::Script(entry) = &source else {
+                unreachable!()
+            };
+            let session = LoweringSession::default();
+            session.lower_source(&source, crate::HostSurfacePolicy::default());
+            let mut entry = crate::ModuleSourceIr::from_parsed_script(
+                crate::ModuleKey::from_host("/suite/entry.js"),
+                "file:///suite/entry.js".into(),
+                entry.clone(),
+            );
+            assert!(
+                entry.include_prepared_script_import_sites(&session.prepared_script_import_sites())
+            );
+            let graph = crate::ModuleGraphSources {
+                modules: vec![
+                    entry,
+                    crate::ModuleSourceIr::new(
+                        crate::ModuleKey::from_host("/suite/target.js"),
+                        "export const value = 42;".into(),
+                        "file:///suite/target.js".into(),
+                    ),
+                ],
+                entry: 0,
+                resolutions: vec![(0, ModuleRequestKeyIr::plain("./target.js"), 1)],
+                realm_requests: Default::default(),
+            };
+            let program =
+                session.lower_loaded_graph(&graph, crate::HostSurfacePolicy::default(), None);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.as_ref().unwrap();
+            let execution = script
+                .executable_script_bodies()
+                .flat_map(|body| &body.statements)
+                .find_map(|statement| match statement {
+                    crate::StatementIr::Expression(crate::TypedExpr {
+                        expr: crate::ExprIr::ModuleExecutionGraph(graph),
+                        ..
+                    }) => Some(graph),
+                    _ => None,
+                })
+                .expect("canonical Script graph is retained");
+            let id = execution
+                .script_import_dispatcher(0, crate::ImportPhaseIr::Evaluation)
+                .expect("prepared import has a canonical dispatcher");
+            let dispatcher = script
+                .functions
+                .iter()
+                .find(|function| &function.id == id)
+                .unwrap();
+            assert!(
+                dispatcher.captured_bindings.is_empty(),
+                "{:?}",
+                dispatcher.captured_bindings
+            );
+            assert!(!dispatcher.captures_private_environment);
+            assert!(!dispatcher.captures_lexical_this);
+            assert!(!dispatcher.captures_lexical_arguments);
+            assert_eq!(
+                dispatcher.protocol.execution_kind(),
+                crate::FunctionExecutionKind::Async
+            );
+            fn local_callable(statements: &[crate::StatementIr]) -> Option<&crate::FunctionId> {
+                statements.iter().find_map(|statement| match statement {
+                    crate::StatementIr::Lexical {
+                        init:
+                            crate::TypedExpr {
+                                expr: crate::ExprIr::FunctionValue(id),
+                                ..
+                            },
+                        ..
+                    } => Some(id),
+                    crate::StatementIr::Block(block) => local_callable(&block.statements),
+                    crate::StatementIr::LexicalBlock(statements)
+                    | crate::StatementIr::ParameterInitialization { statements, .. } => {
+                        local_callable(statements)
+                    }
+                    _ => None,
+                })
+            }
+            let helper_id = local_callable(&dispatcher.body.statements)
+                .expect("the dispatcher initializes its own validation callable");
+            let helper = script
+                .functions
+                .iter()
+                .find(|function| &function.id == helper_id)
+                .unwrap();
+            assert!(helper.is_nested);
+            assert_eq!(helper.name, "$lila$module$importOptions");
         }
     }
 }

@@ -20,6 +20,28 @@ callee identity and the actual source string remain authoritative.
 
 A missing runtime source tuple stays a typed AOT dynamic-source limitation.
 
+RegExp literals and resolved RegExp constructors with finite pattern inputs
+can contribute supplemental `.source` text views. Semantic UTF-16 escaping
+uses the same empty-source, delimiter and LineTerminator constants as the
+production Wasm getter, preserving backslash parity and lone surrogates.
+These views do not fold construction, property Get, coercion or eval dispatch.
+Getter and constructor replacements remain live; changed or unknown source
+strings still use the existing exact-match rejection boundary. Discovery does
+not use test filenames or enumerate particular fixtures.
+
+Direct and indirect source discovery share the 256-candidate priority policy:
+existing primary sources are admitted first, then supplemental views can use
+spare capacity. A later argument after a possibly empty spread still executes
+normally even when its hint does not fit or its actual value is not selected.
+The RegExp parity, mutation, abrupt completion, unknown-source and full-capacity
+controls are pending coordinated type/native verification. They establish no
+new real-suite count until the exact original executions are replayed.
+
+Prototype and RegExp discovery share one callee-candidate query for each Call
+or New node. A test-only work counter checks ordinary nested callee chains
+without a wall-clock threshold; unknown callees still provide no prepared source.
+The counter and its state are absent from ordinary product builds.
+
 Direct calls pass the lexical and variable environment identities separately.
 A sloppy eval unit owns a fresh lexical record while its var and function
 declarations target the caller's variable record. A strict unit owns its vars.

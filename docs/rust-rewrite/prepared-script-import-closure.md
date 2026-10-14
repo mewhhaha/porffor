@@ -63,3 +63,13 @@ No native acceptance or conformance-count change is established here. The AST
 guard removes the unconditional extra lowering path; its cost and the remaining
 finite-source discovery cost have not been measured. No speedup
 is established before the joined source is compiled and measured.
+
+The canonical Script import dispatcher owns the existing options-validation
+helper in its own activation. Prepared eval creates an independent callable in
+the selected Realm's global environment; it must not capture the original
+Script's private prelude slot. Planning admits such dispatchers through a
+private proof that their compiled source has no lexical, private, this or
+arguments captures. Module dispatchers retain their initializer closures. The
+options helper, validation order, intrinsic async promise and module-job source
+are unchanged. Existing failed witnesses remain intact; capture ownership and
+live/reentrant/abrupt options controls require the next actual verification.

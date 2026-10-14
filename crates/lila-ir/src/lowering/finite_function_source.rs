@@ -110,6 +110,20 @@ pub(super) fn bounded_candidates(
 }
 
 impl ScriptLowerer<'_> {
+    // Optional hints may outlive a cell's value, but cannot cross a different
+    // Reference selected by ResolveBinding. Use the same declarative cutoff
+    // as call lowering: a lexical binding inside with still precedes its
+    // Object Environment, including when both are captured by a closure.
+    fn finite_source_identifier_has_unintercepted_reference(&self, name: &str) -> bool {
+        if self.with_environment_chain.is_empty() {
+            return true;
+        }
+        let reference = self.locate_identifier_reference(name);
+        self.with_environment_chain
+            .select_preceding(reference.declarative_position())
+            .is_none()
+    }
+
     fn finite_function_constructor_kind(&self, function_id: &str) -> Option<DynamicFunctionKind> {
         self.analysis.function_plans.get(function_id).map(|plan| {
             match plan.protocol.source_execution_kind() {
@@ -132,6 +146,9 @@ impl ScriptLowerer<'_> {
             return Vec::new();
         };
         let name_of_binding = self.interner.resolve_expect(identifier.sym()).to_string();
+        if !self.finite_source_identifier_has_unintercepted_reference(&name_of_binding) {
+            return Vec::new();
+        }
         let info = self
             .lookup_binding(&name_of_binding)
             .map(|binding| binding.heap_shape)
@@ -188,6 +205,8 @@ impl ScriptLowerer<'_> {
         &self,
         expression: &Expression,
     ) -> Vec<FiniteSourceValue> {
+        #[cfg(test)]
+        let _discovery_work = super::finite_regexp_source::enter_source_candidate_discovery();
         let expression = Self::unwrap_parenthesized_expr(expression);
         let prototype_source = match expression {
             Expression::Call(call) => match Self::unwrap_parenthesized_expr(call.function()) {
@@ -234,12 +253,22 @@ impl ScriptLowerer<'_> {
             }
             return candidates;
         }
+        // Both prototype and RegExp views need the same callee discovery.
+        // Reusing it avoids duplicate recursive work for nested callee Calls.
+        let callee_candidates = match expression {
+            Expression::Call(call) => self.function_source_value_candidates(call.function()),
+            Expression::New(construct) => {
+                self.function_source_value_candidates(construct.constructor())
+            }
+            _ => Vec::new(),
+        };
         if let Expression::Call(call) = expression {
-            let reads_prototype = self.function_source_value_candidates(call.function())
-                .into_iter().any(|candidate| matches!(candidate,
+            let reads_prototype = callee_candidates.iter().any(|candidate| {
+                matches!(candidate,
                     FiniteSourceValue::Function(function_id)
-                    if matches!(StandardBuiltinId::from_function_id(&function_id),
-                        Some(StandardBuiltinId::ObjectGetPrototypeOf | StandardBuiltinId::ReflectGetPrototypeOf))));
+                    if matches!(StandardBuiltinId::from_function_id(function_id),
+                        Some(StandardBuiltinId::ObjectGetPrototypeOf | StandardBuiltinId::ReflectGetPrototypeOf)))
+            });
             if reads_prototype {
                 let constructors = bounded_candidates(
                     call.args()
@@ -274,6 +303,9 @@ impl ScriptLowerer<'_> {
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                if !self.finite_source_identifier_has_unintercepted_reference(&name) {
+                    return Vec::new();
+                }
                 let mut candidates = self
                     .finite_binding_source_candidates(&name)
                     .unwrap_or_default()
@@ -463,6 +495,17 @@ impl ScriptLowerer<'_> {
                         .iter()
                         .filter_map(move |right| left.concatenate_text(right))
                 }));
+            }
+            Expression::RegExpLiteral(_) | Expression::Call(_) | Expression::New(_) => {
+                let hints = self.finite_regexp_source_candidates(expression, &callee_candidates);
+                if !hints.is_empty() {
+                    return bounded_candidates(
+                        self.function_source_candidate(expression)
+                            .map(FiniteSourceValue::Text)
+                            .into_iter()
+                            .chain(hints),
+                    );
+                }
             }
             _ => {}
         }

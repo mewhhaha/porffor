@@ -557,6 +557,12 @@ impl ModuleGraphIr {
         } else {
             "(specifier, options) { return new Promise(function (resolve, reject) {"
         });
+        if synchronous && self.entry_is_script && referrer == self.entry {
+            // Prepared eval materializes this canonical Script dispatcher in
+            // the selected Realm's global environment. Own its unchanged
+            // validation helper locally rather than capture the Script prelude.
+            text.push_str(&import_options_helper_source());
+        }
         // Both operands were evaluated at the call site. AsyncFunctionStart
         // creates the intrinsic promise before this synchronous coercion.
         text.push_str(" var key = `${specifier}`;");

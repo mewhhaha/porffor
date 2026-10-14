@@ -12,6 +12,7 @@ mod aot_regexp_computed_unicode_sets;
 mod aot_regexp_constructor_and_iterator;
 mod aot_regexp_counted_quantifiers;
 mod aot_regexp_exact_bound_admission;
+mod aot_regexp_finite_source;
 mod aot_regexp_forward_whitespace;
 mod aot_regexp_instance_property_facts;
 mod aot_regexp_iv_class_strings;

@@ -336,6 +336,16 @@ impl ScriptLowerer<'_> {
         Some(sources)
     }
 
+    pub(super) fn finite_script_argument_text_candidates(
+        &self,
+        arguments: &[Expression],
+    ) -> Option<BTreeSet<String>> {
+        self.finite_first_argument_text_candidates(
+            &arguments.iter().collect::<Vec<_>>(),
+            FirstArgumentTextPurpose::ScriptCompilation,
+        )
+    }
+
     fn register_realm_import_source_candidates(&self, arguments: &[&Expression]) {
         if let Some(sources) = self.finite_first_argument_text_candidates(
             arguments,

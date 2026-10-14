@@ -1,5 +1,27 @@
 # Lila
 
+## Workspace corrections and finite RegExp source — 2026-10-14
+
+The complete default workspace inventory on source `8429f1805` finished with
+9,083 passing and nine failing native tests across 107 targets. Exact retention
+found one previously passing IR test regressed by source discovery through a
+`with` environment. The seven storage-deferred targets subsequently passed;
+the original failed run and its continuation remain separate evidence.
+
+The next source batch repairs that reference lookup and prepared Script import
+dispatchers that captured a private helper. It also adds finite RegExp `.source`
+discovery using the runtime's UTF-16 escaping rules, keeps dynamic source gaps
+explicit, and fixes inspection of expressions in default parameters. Inspection
+now reports typed environment identifier reads and calls, including live named
+bindings. Structural controls follow the typed replacement-piece collector.
+
+All 15 Intl generator APIs reproduce their 44 outputs without changes; the
+83 affected Python checks, formatting and module boundaries pass. These
+corrections have not yet passed Rust compilation or native verification. The nine original failures remain open until their exact
+IDs pass on this source. Full workspace, ordinary CLI, Test262 retention and
+task acceptance remain required; CONTINUE.md and tasks are retained.
+
+
 ## Open workspace failures at source 8429 — 2026-10-14
 
 Compiled source `8429f18059dce2277c229e44c61b55c0a62d178e`; documentation parent `2766245aeba5942cbeeb58661732ac2e7e60700a`. The full **107-target workspace run remains active and incomplete**. Four closed RED native scopes own **2,784 passed / 7 failed / 0 ignored** outcomes:
