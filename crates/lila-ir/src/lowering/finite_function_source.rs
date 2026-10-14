@@ -184,10 +184,46 @@ impl ScriptLowerer<'_> {
             // Those source tuples need separate discovery; do not guess forwarding.
             return Vec::new();
         }
+        let mut candidates = heritage
+            .map(|expression| self.function_source_value_candidates(expression))
+            .unwrap_or_default();
+        if candidates.is_empty() {
+            if let Some(Expression::Identifier(identifier)) =
+                heritage.map(Self::unwrap_parenthesized_expr)
+            {
+                let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                // A preceding with can intercept the global Function Reference.
+                // Its intrinsic fallback is still a possible grammar, not a
+                // borrowed declarative-cell hint or a resolved heritage value.
+                // Class evaluation retains HasBinding/GetValue and live super.
+                if name == "Function"
+                    && !self.finite_source_identifier_has_unintercepted_reference(&name)
+                    && self.lookup_binding(&name).is_none()
+                    && self
+                        .lookup_global_property_info(&name)
+                        .is_some_and(|property| {
+                            property
+                                .value_info
+                                .function_targets
+                                .known_targets()
+                                .iter()
+                                .any(|target| {
+                                    dynamic_source_kind_for_function_id(target)
+                                        == Some(DynamicSourceKind::Function(
+                                            DynamicFunctionKind::Ordinary,
+                                        ))
+                                })
+                        })
+                {
+                    candidates.push(FiniteSourceValue::FunctionConstructor(
+                        DynamicFunctionKind::Ordinary,
+                    ));
+                }
+            }
+        }
         bounded_candidates(
-            heritage
+            candidates
                 .into_iter()
-                .flat_map(|expression| self.function_source_value_candidates(expression))
                 .filter_map(|candidate| match candidate {
                     FiniteSourceValue::FunctionConstructor(kind) => {
                         Some(FiniteSourceValue::FunctionConstructor(kind))
@@ -501,6 +537,18 @@ impl ScriptLowerer<'_> {
                     candidates.extend(
                         self.finite_source_property_function_candidates(access.target(), name),
                     );
+                }
+                if candidates.is_empty()
+                    && name.as_deref() == Some("Function")
+                    && self.function_source_candidate(expression).is_none()
+                {
+                    // Like a directly called `.Function`, an otherwise unknown
+                    // property can supply a possible grammar, including another
+                    // realm's intrinsic. Its Get, identity, arguments and realm
+                    // remain live; do not displace an existing finite value view.
+                    candidates.push(FiniteSourceValue::FunctionConstructor(
+                        DynamicFunctionKind::Ordinary,
+                    ));
                 }
                 let evaluator = match name.as_deref() {
                     Some("eval") => Some(StandardBuiltinId::EvalFunction.function_id()),
