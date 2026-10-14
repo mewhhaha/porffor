@@ -481,7 +481,8 @@ fn pinned_import_usage_from_eval_preserves_both_original_modes() {
             &files,
             &format!("{directive}{STA}\n{ASSERT}\n{DONE}\n{SOURCE}"),
             &["Test262:AsyncTestComplete"],
-            ObservedJsValue::Undefined,
+            // The final .then($DONE, $DONE) expression completes with its Promise.
+            ObservedJsValue::Object,
         );
     }
 }

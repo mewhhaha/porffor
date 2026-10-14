@@ -1,5 +1,25 @@
 # Lila
 
+## Verified focused repairs — 2026-10-14
+
+The nine failures from the complete default workspace run now pass, including
+the previously passing `with` lookup regression. All 23 new controls pass. The
+focused logical union contains 2,294 passing tests and no failures or ignores;
+this is not a complete workspace result. The original failed receipts remain
+recorded alongside the successful correction runs.
+
+Whole-workspace release type checking passed on compiler source `2f10f5a07`.
+Native verification then corrected three test expectations without changing
+product source or pinned fixtures: two controls now assert the actual spec GetV
+nodes, and the eval-import fixture asserts its final Promise object completion.
+The corrected checks retain live lookup, arguments, async output, source modes
+and original deadlines. See [exact focused evidence](docs/rust-rewrite/focused-workspace-repairs-20261014.json).
+
+The complete default and all-features suites, ordinary CLI replay, full Test262
+passing retention and task acceptance remain pending. CONTINUE.md and tasks
+remain until those acceptance requirements are met.
+
+
 ## Workspace corrections and finite RegExp source — 2026-10-14
 
 The complete default workspace inventory on source `8429f1805` finished with

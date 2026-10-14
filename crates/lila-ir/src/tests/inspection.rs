@@ -11,10 +11,16 @@ fn inspection_visits_executable_parameter_default_expressions() {
         .find(|function| function.name == "f")
         .unwrap();
     let default = function.params[0].default_init.as_ref().unwrap();
-    let ExprIr::PropertyRead { target, .. } = &default.expr else {
-        panic!("parameter default retains its property Get: {default:?}")
+    let ExprIr::SpecOperation {
+        operation: SpecOperationIr::GetV,
+        operands,
+    } = &default.expr
+    else {
+        panic!("parameter default retains its spec GetV: {default:?}")
     };
-    assert!(matches!(target.expr, ExprIr::This));
+    assert_eq!(operands.len(), 2);
+    assert!(matches!(operands[0].expr, ExprIr::This));
+    assert!(matches!(&operands[1].expr, ExprIr::String(key) if key == "x"));
     let summary = program.ir_summary();
     assert!(
         summary
@@ -31,7 +37,7 @@ fn inspection_visits_executable_parameter_default_expressions() {
     assert!(
         summary
             .split_whitespace()
-            .any(|field| field == "property_reads=1"),
+            .any(|field| field == "spec_operations=1"),
         "{summary}"
     );
 }
