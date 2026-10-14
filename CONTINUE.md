@@ -1,5 +1,24 @@
 # Current continuation — 2026-10-14
 
+## Open workspace failures at source 8429 — 2026-10-14
+
+Compiled source `8429f18059dce2277c229e44c61b55c0a62d178e`; documentation parent `2766245aeba5942cbeeb58661732ac2e7e60700a`. The full **107-target workspace run remains active and incomplete**. Four closed RED native scopes own **2,784 passed / 7 failed / 0 ignored** outcomes:
+
+| Closed scope | Passed | Failed |
+| --- | ---: | ---: |
+| lila_ir | 1,512 | 1 |
+| lila_ir_integration | 706 | 1 |
+| structure_builtins | 164 | 2 |
+| aot_realm_modules | 402 | 3 |
+
+One previously passing 0a18 IR integration ID now fails: `ir_cases::prepared_dynamic_function::global_source_target_discovery_does_not_cross_shadowed_or_dynamic_references`. The other owned failures are one new negative control with a wrong contract, two stale AOT structure assertions and three new direct-eval import null traps, as classified in Root's review. Private repair packets remain unapplied and uncompiled; the module repair is still in preparation. No fix is verified.
+
+This records failure ownership, not workspace acceptance or complete passing retention. Whole workspace, full pinned Test262, ordinary CLI, current-source historical 5,365 replay and task closure remain open. Earlier partial passes, historical replay counts and all prior owners remain unchanged.
+
+Exact IDs/verdicts, byte-identical packed raw inventories/transcripts, actual Cargo artifacts and source guards are in the [portable failure checkpoint](docs/rust-rewrite/workspace8429-open-failures-20261014.json). The moving workspace owner is not sealed as closed.
+
+### Previous checkpoints and measurements
+
 ## Partial native checkpoint at source 8429 — 2026-10-14
 
 Compiled source and documentation parent: `8429f18059dce2277c229e44c61b55c0a62d178e`. The two completed default-profile libraries passed **1,314 exact native IDs**: Test262 library 425 passed (54.30s) and Engine library 889 passed (598.36s), with zero failures or ignored outcomes. All **1,309/1,309 prior passing IDs** were retained, with 0 regressions and 5 new controls. The 13 focused catalogue tests are included in this full two-library count.
