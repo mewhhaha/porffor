@@ -1,5 +1,24 @@
 # Lila
 
+## Ordinary CLI repair checkpoint — 2026-10-14
+
+The genuine default release CLI on compiler `f5e3f706` completed the
+unchanged 45-case diagnostic replay: **29 Success, 16 NotImplemented, zero Bug,
+Crash or InfrastructureError**. The actual replay exit remains 1. The original
+21-case projection has 19 successes and 2 explicit dynamic-source gaps.
+
+All 10 RegExp source modes, 2 hashbang Function modes and 2 eval-import modes
+pass; the latter groups overlap the original projection. All 14 subclass modes
+remain NotImplemented and are the next repair batch. Fixtures, modes, one worker,
+one thread and the 60,000 ms deadline are unchanged. The worker is a distinct,
+byte-identical copy of the ordinary Cargo binary and uses its static runtime
+bundle. The normal build and identity checks completed in 287.397 seconds.
+
+See [the exact CLI checkpoint](docs/rust-rewrite/ordinary-cli-f5-probe45-20261014.json) for every ID, prior transition,
+reason, selected Cargo producers and embedded raw replay evidence. Full historical
+and pinned Test262 retention, all-features verification and task closure remain
+open. CONTINUE.md and tasks are retained.
+
 ## Complete default workspace — 2026-10-14
 
 Compiler source `f5e3f706` passes all 107 default workspace scopes: **9,120
@@ -17,7 +36,7 @@ by their observed hashes without claiming that they remain present or archived.
 See [the portable native checkpoint](docs/rust-rewrite/default-workspace-f5-native-checkpoint-20261014.json)
 for exact IDs, raw inventories/transcripts, actual Cargo and runtime-image
 provenance, full passing retention and original failure evidence. The normal
-CLI build and 45-case diagnostic replay are now active. All-features, full
+CLI build and 45-case diagnostic replay are closed in the checkpoint above. All-features, full
 historical and pinned Test262 verification, and individual task closure remain
 pending. CONTINUE.md and tasks are retained.
 
