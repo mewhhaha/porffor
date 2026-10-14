@@ -852,10 +852,56 @@ fn finite_for_of_identifier_hints_keep_the_original_256_candidate_budget() {
                 "source discovery must retain the actual generic iterator"
             );
             if count == 257 {
+                // The actual750c diagnostic retains the older optional
+                // "undefined" var-hoist tuple only. It admits none of these
+                //257 real iteration strings; table emptiness is not the limit.
                 assert!(
-                    script.prepared_dynamic_functions.is_empty(),
-                    "overflow must keep the unsupported live-tuple boundary: {head}"
+                    script.prepared_dynamic_functions.len() <= 256,
+                    "source tuple admission must retain the original256 cap: {head}"
                 );
+                let unmatched = bodies
+                    .iter()
+                    .filter(|body| {
+                        !script
+                            .prepared_dynamic_functions
+                            .iter()
+                            .any(|entry| entry.arguments == [body.as_str()])
+                    })
+                    .collect::<Vec<_>>();
+                assert!(!unmatched.is_empty(),
+                    "at least one of the exact257 tuples must retain unmatched runtime dispatch: {head}");
+                fn live_constructor_call(statement: &lila_ir::StatementIr) -> bool {
+                    match statement {
+                        lila_ir::StatementIr::Block(block) => {
+                            block.statements.iter().any(live_constructor_call)
+                        }
+                        lila_ir::StatementIr::LexicalBlock(statements) => {
+                            statements.iter().any(live_constructor_call)
+                        }
+                        lila_ir::StatementIr::Expression(expression) => match &expression.expr {
+                            lila_ir::ExprIr::CallNamed { args, .. }
+                            | lila_ir::ExprIr::CallIndirect { args, .. } => {
+                                args.len() == 1 && args[0].kind == lila_ir::ValueKind::Dynamic
+                            }
+                            _ => false,
+                        },
+                        _ => false,
+                    }
+                }
+                let loop_body = script
+                    .body
+                    .statements
+                    .iter()
+                    .find_map(|statement| {
+                        if let lila_ir::StatementIr::ForOfIterator { body, .. } = statement {
+                            Some(body.as_ref())
+                        } else {
+                            None
+                        }
+                    })
+                    .expect("the exact original generic iterator body");
+                assert!(live_constructor_call(loop_body),
+                    "the original live constructor operand must select an exact runtime tuple: {head}");
             } else {
                 for body in &bodies {
                     assert!(

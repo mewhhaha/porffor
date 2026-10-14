@@ -16,6 +16,7 @@ struct ModuleShape {
     runtime_imports: BTreeMap<String, TypeRef>,
     exports: BTreeMap<String, (ExternalKind, u32)>,
     reference_calls: BTreeSet<u32>,
+    global_reference_calls: Vec<(u32, u32)>,
 }
 
 fn shape(bytes: &[u8]) -> ModuleShape {
@@ -63,12 +64,20 @@ fn shape(bytes: &[u8]) -> ModuleShape {
                 }
             }
             Payload::CodeSectionEntry(body) => {
+                let mut previous = None;
                 for operator in body.get_operators_reader().unwrap() {
+                    let operator = operator.unwrap();
                     if let Operator::CallRef { type_index }
-                    | Operator::ReturnCallRef { type_index } = operator.unwrap()
+                    | Operator::ReturnCallRef { type_index } = &operator
                     {
-                        shape.reference_calls.insert(type_index);
+                        shape.reference_calls.insert(*type_index);
+                        if let Some(Operator::GlobalGet { global_index }) = previous {
+                            shape
+                                .global_reference_calls
+                                .push((global_index, *type_index));
+                        }
                     }
+                    previous = Some(operator);
                 }
             }
             _ => {}
@@ -118,7 +127,8 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
             let hook_types = core
                 .globals
                 .iter()
-                .filter_map(|global| {
+                .enumerate()
+                .filter_map(|(global_index, global)| {
                     let ValType::Ref(reference) = global.content_type else {
                         return None;
                     };
@@ -132,19 +142,25 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                         &core_types[index as usize].composite_type.inner,
                         CompositeInnerType::Func(_)
                     )
-                    .then_some(index)
+                    .then_some((global_index as u32, index))
                 })
-                .collect::<BTreeSet<_>>();
-            assert!(
-                !hook_types.is_empty(),
-                "R's typed program hook globals remain present"
+                .collect::<BTreeMap<_, _>>();
+            assert_eq!(
+                hook_types.len(),
+                5,
+                "all five typed hook globals remain present"
             );
             assert!(
-                hook_types
-                    .iter()
-                    .all(|index| core.reference_calls.contains(index)),
-                "every actual R hook call_ref uses its corresponding global's core function ABI"
+                !core.global_reference_calls.is_empty(),
+                "R actually calls its typed program hooks"
             );
+            for &(global_index, type_index) in &core.global_reference_calls {
+                assert_eq!(
+                    hook_types.get(&global_index),
+                    Some(&type_index),
+                    "the actual GlobalGet operand and call_ref use the same core hook ABI"
+                );
+            }
             assert!(
                 module_bodies(runtime.bytes())
                     .iter()

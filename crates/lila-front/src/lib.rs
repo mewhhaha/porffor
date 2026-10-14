@@ -3379,38 +3379,61 @@ mod tests {
             .split_once("#[cfg(test)]\nmod tests {")
             .map(|(product, _)| product)
             .expect("the product/test boundary remains explicit");
+        // Host UTF-8 and prepared UTF-16 source retain independent input
+        // routes. Both retain Boa's collected source; eval shares one grammar
+        // operation after selecting its input representation.
         let parser_new = ["Parser", "::new("].concat();
         let parse_script = [".parse_", "script("].concat();
+        let parse_owned_script = [".parse_", "script_with_source("].concat();
         let parse_module = [".parse_", "module("].concat();
+        let parse_owned_module = [".parse_", "module_with_source("].concat();
         let classifier = ["classify_parse_", "failure(&err)"].concat();
-        assert_eq!(front_product.matches(parser_new.as_str()).count(), 2);
-        assert_eq!(front_product.matches(parse_script.as_str()).count(), 1);
-        assert_eq!(front_product.matches(parse_module.as_str()).count(), 1);
+        assert_eq!(front_product.matches(parser_new.as_str()).count(), 3);
+        assert_eq!(front_product.matches(parse_script.as_str()).count(), 0);
+        assert_eq!(front_product.matches(parse_module.as_str()).count(), 0);
+        assert_eq!(
+            front_product.matches(parse_owned_script.as_str()).count(),
+            2
+        );
+        assert_eq!(
+            front_product.matches(parse_owned_module.as_str()).count(),
+            1
+        );
         assert_eq!(front_product.matches(classifier.as_str()).count(), 1);
 
         let front_source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         assert_eq!(
             count_in_rust_sources(&front_source_root, parser_new.as_str()),
-            11,
-            "every direct Boa parser construction, including test-only probes, requires review"
+            15,
+            "all nine product parser constructions and six test-only probes require review"
         );
-        for method in ["formal_parameters", "function_body", "eval"] {
+        for (method, routes) in [("formal_parameters", 2), ("function_body", 2), ("eval", 1)] {
             let parse_goal = [".parse_", method, "("].concat();
             assert_eq!(
                 count_in_rust_sources(&front_source_root, &parse_goal),
-                1,
-                "each independently prepared dynamic-source grammar has one parser route"
+                routes,
+                "isolated Function fragments have UTF-8/UTF-16 input routes; eval shares its goal"
             );
         }
         assert_eq!(
             count_in_rust_sources(&front_source_root, parse_script.as_str()),
-            7,
-            "every direct Script parse, including test-only probes, requires review"
+            6,
+            "only the six test-only Script probes discard collected source"
+        );
+        assert_eq!(
+            count_in_rust_sources(&front_source_root, parse_owned_script.as_str()),
+            2,
+            "host and prepared Script routes retain exact parser source ownership"
         );
         assert_eq!(
             count_in_rust_sources(&front_source_root, parse_module.as_str()),
+            0,
+            "no Module parse may discard collected source"
+        );
+        assert_eq!(
+            count_in_rust_sources(&front_source_root, parse_owned_module.as_str()),
             1,
-            "only the product Module route may invoke Boa directly"
+            "only the UTF-8 host Module route invokes Boa directly"
         );
 
         fn product_dependency_section(header: &str) -> bool {

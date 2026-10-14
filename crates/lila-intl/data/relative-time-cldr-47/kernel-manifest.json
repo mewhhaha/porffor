@@ -1,19 +1,19 @@
 {
   "files": [
     {
-      "bytes": 3285,
+      "bytes": 4028,
       "path": "Cargo.toml",
-      "sha256": "fb3d85038902b7b45c830db88c197351784474c7ab14ffe51d2dd5015cda5cf6"
+      "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
     },
     {
-      "bytes": 81131,
+      "bytes": 81246,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "bea751a236bc9bedaba685aae1ec9e0d995097bb938c8a5f780eb34d9efffd9d"
+      "sha256": "a5838481fb8d8f50a42870721ff495035be780a5b99c46820467f294ccaa819c"
     },
     {
-      "bytes": 79795,
+      "bytes": 81528,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "b4652df569602fcf258aa33f76f49bc71ad27867ceda02c05db009489a8ae8f6"
+      "sha256": "201937c9adf792271b59f8f1ccd9b5545a8d7dae1810177b7aab8a975cf7c169"
     },
     {
       "bytes": 33803,
@@ -626,9 +626,9 @@
       "sha256": "283d5b4a6eee84d4cda0800269b88d87154a7a985d4d2f4966a98bc64efac67d"
     },
     {
-      "bytes": 54634,
+      "bytes": 56700,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "99bf54d27b902b74183b938119a948d5e747f5981f5eb0e7d96c0664a5cddcba"
+      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
     },
     {
       "bytes": 21454,
@@ -749,7 +749,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "69645d33687ad6721e509829cac30a6f9e507630ccb8983ff10b3b94acc4a3e5",
+  "provider_data_sha256": "96cf59982cef31d962c96dc0a43f5493176efe5eb367dbe0ead069e2d1fb275c",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

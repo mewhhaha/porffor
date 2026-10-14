@@ -404,3 +404,142 @@ fn original_legacy_arguments_property_bodies_keep_both_execution_ids() {
         assert_reflection_script(&source, label);
     }
 }
+
+#[test]
+fn with_lookup_abrupt_edges_restore_each_actual_source_activation() {
+    assert_reflection_script(
+        r#"
+function outer(failAt) {
+  var reads=0, token={}, scope={}, privateArguments;
+  function selectedGetter() {
+    if(selectedGetter.caller!==inner || inner.caller!==outer) throw 'actual getter/source caller';
+    if(++reads===failAt) throw token;
+    return 17;
+  }
+  Object.defineProperty(scope,'selected',{get:selectedGetter});
+  function inner(scope, selected) {
+    if(inner.caller!==outer || inner.arguments[0]!==scope) throw 'entry activation';
+    with(scope) { selected; selected; selected; selected; }
+    return inner.arguments;
+  }
+  try {
+    privateArguments=inner(scope,0);
+    if(failAt!==0 || privateArguments[0]!==scope || privateArguments[1]!==0 || reads!==4) throw 'normal exit';
+  } catch(error) {
+    if(error!==token || failAt===0 || reads!==failAt) throw 'throw completion';
+  }
+  if(inner.caller!==null || inner.arguments!==null || selectedGetter.caller!==null
+      || selectedGetter.arguments!==null || outer.arguments[0]!==failAt) throw 'restored inactive activations';
+}
+outer(0); outer(1); outer(3); outer(4);
+print('legacy-reflection-ok');
+"#,
+        "With lookup source completion epilogue",
+    );
+}
+
+#[test]
+fn shared_source_epilogue_keeps_caught_throws_live_and_finally_completions_whole() {
+    assert_reflection_script(
+        r#"
+var marker={}, returned={}, reads=0, scope={};
+function selectedGetter() {
+  if(selectedGetter.caller!==inner || inner.caller!==outer) throw 'live getter owner';
+  reads++;
+  throw marker;
+}
+Object.defineProperty(scope,'selected',{get:selectedGetter});
+function inner() {
+  try {
+    with(scope) { selected; }
+  } catch(error) {
+    if(error!==marker || inner.caller!==outer || inner.arguments.length!==0) throw 'caught owner';
+    return returned;
+  } finally {
+    if(inner.caller!==outer || inner.arguments.length!==0) throw 'finalizer owner';
+  }
+}
+function outer() {
+  if(inner()!==returned || reads!==1) throw 'whole Return';
+  if(inner.caller!==null || inner.arguments!==null || selectedGetter.caller!==null
+      || selectedGetter.arguments!==null) throw 'retired owner';
+}
+outer();
+print('legacy-reflection-ok');
+"#,
+        "caught With throw and finally source completion epilogue",
+    );
+}
+
+#[test]
+fn shared_source_epilogue_preserves_generator_iteration_across_normal_suspension() {
+    assert_reflection_script(
+        r#"
+var token={}, pending;
+function probe() { return probe.caller; }
+function* synchronous() {
+  for(var key in {first:1,second:2}) {
+    if(probe()!==null) throw 'generator caller';
+    yield key;
+  }
+  return token;
+}
+async function* asynchronous() {
+  for(var key in {first:1,second:2}) {
+    await Promise.resolve(0);
+    if(probe()!==null) throw 'async generator caller';
+    yield key;
+  }
+  return token;
+}
+function outer() {
+  var iterator=synchronous(), result=iterator.next();
+  if(result.value!=='first' || result.done || probe()!==outer) throw 'first yield';
+  result=iterator.next();
+  if(result.value!=='second' || result.done || probe()!==outer) throw 'saved enumerator';
+  result=iterator.next();
+  if(result.value!==token || !result.done || probe()!==outer) throw 'whole generator Return';
+  var asyncIterator=asynchronous();
+  pending=asyncIterator.next().then(function first(result) {
+    if(result.value!=='first' || result.done || probe()!==first) throw 'first async yield';
+    return asyncIterator.next();
+  }).then(function second(result) {
+    if(result.value!=='second' || result.done || probe()!==second) throw 'saved async enumerator';
+    return asyncIterator.next();
+  }).then(function finished(result) {
+    if(result.value!==token || !result.done || probe()!==finished) throw 'whole async Return';
+    print('legacy-reflection-ok');
+  });
+  if(probe()!==outer) throw 'async initialization owner';
+}
+outer();
+if(probe()!==null) throw 'inactive outer';
+"#,
+        "Normal Yield/Await retain saved iterator cells through shared epilogue",
+    );
+}
+
+#[test]
+fn shared_source_epilogue_restores_depth_after_rejected_owner_admission() {
+    assert_reflection_script(
+        r#"
+var entries=0, firstCount=0;
+function recursive() { entries++; recursive(); }
+function outer() {
+  for(var run=0;run<2;run++) {
+    entries=0;
+    try { recursive(); throw 'missing source depth rejection'; }
+    catch(error) { if(!(error instanceof RangeError)) throw error; }
+    if(entries<2 || (run!==0 && entries!==firstCount)) throw 'source depth did not restore';
+    firstCount=entries;
+    if(recursive.caller!==null || recursive.arguments!==null || outer.arguments.length!==0)
+      throw 'rejected entry retired admitted owner';
+  }
+}
+outer();
+if(outer.caller!==null || outer.arguments!==null) throw 'inactive outer';
+print('legacy-reflection-ok');
+"#,
+        "source depth guard precedes owner admission and shared epilogue",
+    );
+}

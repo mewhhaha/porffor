@@ -1,6 +1,33 @@
 # Lila
 
-## Current native checkpoint and iteration measurements — 2026-10-14
+## Native checkpoint and prepared completion repair — 2026-10-14
+
+Actual compiler `750c4d74c` completes sixteen affected targets with
+**6,380 pass, 10 fail and zero ignored**. Every prior inventory
+ID is retained; 6,333 of 6,336 prior passes remain passing.
+The three prior-pass regressions and all ten failures remain repair inputs.
+The same-source Realm retry passes all395 tests; its original110 disk-exhaustion
+failures remain in their separate incomplete owner. This checkpoint does not
+establish full workspace or current-pin acceptance.
+
+The prepared repair shares one checked source-activation completion exit and
+keeps primary record values ahead of supplemental conversion views. It retains
+source-depth rejection, caller/arguments restoration, proper-tail retirement and
+saved generator state, with six new native controls. Corrected fixture inputs
+preserve return ASI, exact UTF16 source text, actual Realm capabilities and
+ECMA-402's accepted reversed Date ranges. All six corrected fixture observations
+pass against unchanged750 product libraries in both modes. An isolated partial
+AOT diagnostic validates all three emitted programs and reduces incremental
+With body growth from12069 to7155 bytes under the unchanged9000 gate.
+These focused observations do not replace complete successor verification.
+
+See [every source-bound native verdict and timing](docs/rust-rewrite/historical-source-750-native-checkpoint-20261014.json).
+The joined successor and genuinely regenerated Intl source identities require
+fresh types, exact focused controls, all6390 native IDs, the historical5365
+replay and remaining workspace/pin/task gates before acceptance. CONTINUE and
+all task files remain until their actual closure.
+
+## Previous native checkpoint and iteration measurements — 2026-10-14
 
 The prepared follow-up preserves raw UTF-16 through parsing and callable source
 spans, keeps generator lexical initialization behind its continuation owner,

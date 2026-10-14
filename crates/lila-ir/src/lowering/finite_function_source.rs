@@ -276,7 +276,9 @@ impl ScriptLowerer<'_> {
                     .collect();
                 let mut candidates = vec![FiniteSourceValue::Record(properties)];
                 if let Some(text) = self.function_source_candidate(expression) {
-                    candidates.push(FiniteSourceValue::Text(text));
+                    // A possible conversion is another view of the same object,
+                    // not an extra primary value competing with its properties.
+                    candidates.push(FiniteSourceValue::SupplementalText(text));
                 }
                 return candidates;
             }

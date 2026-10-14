@@ -745,3 +745,70 @@ var reads = first(2, 'return 91;'); print(reads[0]()); print(reads[1]()); print(
         assert_function_trace(&format!("{directive}{source}"), &["91", "92", "93"]);
     }
 }
+
+#[test]
+fn record_iteration_retains_all_256_primary_property_sources_and_low_count_conversions() {
+    let records = (0..256)
+        .map(|index| format!("{{body: 'return {index};'}}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    for directive in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!(
+                r#"
+{directive}
+function build(record) {{ return () => Function(record.body)(); }}
+var index = 0;
+for (var value of [{records}]) {{
+ var read = build(value);
+ if (index === 0 || index === 255) print(read());
+ index++;
+}}
+function indirect() {{ build({{body: 'return 997;'}}); }}
+indirect();
+print(Function({{toString() {{ return 'return 9;'; }} }})());
+var rejected = false;
+try {{ Function({{body: 'return 9;'}}); }} catch (error) {{ rejected = error instanceof SyntaxError; }}
+print(rejected);
+"#
+            ),
+            &["0", "255", "9", "true"],
+        );
+    }
+}
+
+#[test]
+fn overflowing_for_of_sources_reach_the_unmatched_live_tuple_boundary() {
+    let literals = (0..257)
+        .map(|index| format!("'return {index};'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compiler worker");
+    for directive in ["", "'use strict';"] {
+        for head in ["var body", "let body", "const body"] {
+            let source = format!("{directive} for ({head} of [{literals}]) {{ Function(body); }}");
+            let error = Engine::new(RealmBuilder::new().build())
+                .observe_script(
+                    &source,
+                    CompileOptions {
+                        host_surface_policy: HostSurfacePolicy::Test262,
+                        ..CompileOptions::default()
+                    },
+                    RunOptions {
+                        backend: ExecutionBackend::WasmAot,
+                        timeout_ms: Some(30_000),
+                        ..RunOptions::default()
+                    },
+                )
+                .expect_err(
+                    "the actual257 source inputs must not all acquire prepared tuple admission",
+                );
+            assert!(
+                error
+                    .to_string()
+                    .contains("unsupported dynamic-source operation"),
+                "the live unmatched tuple must retain its explicit NI boundary: {error}: {source}"
+            );
+        }
+    }
+}

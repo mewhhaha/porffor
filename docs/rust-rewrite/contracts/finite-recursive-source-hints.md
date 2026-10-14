@@ -41,3 +41,31 @@ candidates, including later cross-owner rescans. A full primary set is admitted
 before optional text-containing structures, so supplemental discovery cannot
 consume the slots of those existing primary bodies. The original exact 256-body
 regression remains unchanged and covers scalar and record source paths.
+
+
+Record source candidates and their possible ToString text are two views of the
+same observed object. The conversion view is supplemental. The actual750c
+Front+IR diagnostic found no prepared property bodies for256 records even
+without global supplemental discovery:256 Record views plus one primary
+`[object Object]` conversion exceeded the unchanged256-value budget. A possible
+conversion view must not consume a primary object's property-source slot.
+Low-count object conversion preparation remains available and live ToString
+still runs before exact tuple matching.
+
+The same diagnostic found that257 `var body` iteration strings retain only the
+older optional `undefined` hoist tuple; `let` and `const` retain no tuples.
+A nonempty optional catalog does not admit any of those257 real source strings.
+The original overflow control retains all input strings and the256 case, and
+now asserts the unchanged256 catalog cap, at least one unmatched exact input
+and the original dynamic constructor operand in the generic iterator body.
+Paired native controls execute all257 original input values and require the
+explicit unsupported dynamic-source boundary. That boundary may occur during
+live tuple selection after compilation; it must not be replaced by whole-program
+static rejection merely to make the catalog empty.
+
+The retained native record control executes the first and last of the full256
+property sources in both modes, including unused indirect supplemental record
+input. Independent low-count custom conversion and default-object SyntaxError
+checks preserve the converted-source paths. Acceptance requires the complete
+existing IR/native inventories and exact diagnostics; private authoring ran no
+Cargo, rustc or native execution.

@@ -769,6 +769,16 @@ impl<'a> FunctionBuilder<'a> {
             self.emit_branch_to_target(target, function);
             return;
         }
+        if let Some(target) = self.completion_exit.source_activation_epilogue_target() {
+            // Reference/finally cleanup above remains local to this exit.
+            // Environment unwind keeps its actual branch depth; activation
+            // properties/current caller/depth are restored once at the sink.
+            // Statement-value retirement was already selected by the actual
+            // completion kind above. A suspension must preserve parked values.
+            self.emit_unwind_environments_to_target(target, function);
+            function.branch_to_label(target.label);
+            return;
+        }
         self.emit_unwind_environment_depth(self.environment_depth, function);
         self.emit_leave_source_activation(function);
         self.completion().emit(function);
@@ -7844,7 +7854,7 @@ impl<'a> FunctionBuilder<'a> {
             | None => {
                 return Err(EmitError::unsupported(
                     "for-await requires its checked async activation owner",
-                ))
+                ));
             }
         };
         if !(plan.entry_state() < plan.value_resume_state()

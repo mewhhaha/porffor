@@ -245,7 +245,10 @@ var definition='function read(){ /*\uD83D é 🌱 \u{F0000}D83D */ return /\\uD8
 var prefix='/*\uDC38 before 🌱 */\r\n';
 var source=prefix+'('+definition+')';
 var first=eval(source), again=eval(source), indirect=(0,eval)(source);
-var constructed=Function('return '+source+';')();
+// The original CRLF input must apply ASI before the function expression.
+if(Function('return '+source+';')()!==undefined) throw new Error('return line terminator ASI');
+// Keep the CRLF prefix inside the return expression, beyond the ASI boundary.
+var constructed=Function('return ('+source+');')();
 if(first===again || first===indirect || first===constructed) throw new Error('activation identity');
 var functions=[first,again,indirect,constructed];
 for(var i=0;i<functions.length;i++) {
@@ -273,9 +276,9 @@ if(eval(source)!==marker || (0,eval)(source)!==marker) throw new Error('eval mar
 if(Function('return "\u{F0000}D83D";')()!==marker) throw new Error('Function marker data');
 var realm=new ShadowRealm();
 if(realm.evaluate(source)!==marker || realm.evaluate(source)!==marker) throw new Error('realm marker data');
-$262.evalScript('globalThis.markerData = "\u{F0000}D83D";');
+__lilaRealmEvalScript('globalThis.markerData = "\u{F0000}D83D";');
 if(globalThis.markerData!==marker) throw new Error('realm script marker data');
-var child=$262.createRealm();
+var child=__lilaCreateRealm();
 child.evalScript('globalThis.markerData = "\u{F0000}D83D";');
 if(child.global.markerData!==marker) throw new Error('child script marker data');
 print('raw-regexp-ok'); true;

@@ -165,7 +165,7 @@ fn utf16_error_spans_follow_actual_columns_and_literal_marker_text() {
             vec![0xd83d],
             format!("{terminator}var text = '").encode_utf16().collect(),
             vec![0xdc38],
-            "'; @;".encode_utf16().collect(),
+            "'; 🐸;".encode_utf16().collect(),
         ]
         .concat();
         let error = parse_script_utf16(&units).unwrap_err();
@@ -173,11 +173,14 @@ fn utf16_error_spans_follow_actual_columns_and_literal_marker_text() {
             error.diagnostic().kind(),
             ParseDiagnosticKind::MalformedJavaScript
         );
+        // `@` is a decorator prefix in the vendored grammar and rejects a
+        // later token. A frog scalar is an unambiguous invalid lexical token.
+        assert!(error.message().contains("unexpected '🐸'"), "{error:?}");
         let span = error
             .diagnostic()
             .span
             .expect("actual unexpected token has a span");
         let encoded = encode_js_string_utf16(&units);
-        assert_eq!(&encoded[span.start..span.end], "@");
+        assert_eq!(&encoded[span.start..span.end], "🐸");
     }
 }

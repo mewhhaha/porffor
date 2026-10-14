@@ -424,8 +424,16 @@ for (var index = 0; index < 16; index++) {
   var fresh = formatter.formatRangeToParts(before, after);
   if (fresh === parts || fresh[0] === parts[0] || fresh.some(p => p.value === 'poison' || p.source === 'poison')) throw 'reused range response';
   if (fresh.map(p => p.value).join('') !== expected || formatter.formatRange(before, after) !== expected) throw 'changed range';
-  try { formatter.formatRange(after, before); throw 'missing reversed range'; }
-  catch (error) { if (!(error instanceof RangeError)) throw error; }
+  // Valid reversed Date ranges are accepted by the current ECMA-402 algorithm.
+  var reversed = formatter.formatRange(after, before);
+  var reversedParts = formatter.formatRangeToParts(after, before);
+  if (typeof reversed !== 'string' || reversedParts.map(p => p.value).join('') !== reversed) throw 'reversed range';
+  if (formatter.formatRange(new Date(after), new Date(before)) !== reversed) throw 'reversed Date range';
+  reversedParts[0].value = 'poison'; reversedParts[0].source = 'poison';
+  var reversedFresh = formatter.formatRangeToParts(after, before);
+  if (reversedFresh === reversedParts || reversedFresh[0] === reversedParts[0]
+      || reversedFresh.some(p => p.value === 'poison' || p.source === 'poison')
+      || reversedFresh.map(p => p.value).join('') !== reversed) throw 'reused reversed range response';
 }
 var trace = '', marker = {};
 try { formatter.formatRange({valueOf:function(){trace += 'L';return NaN;}}, {valueOf:function(){trace += 'R';throw marker;}}); throw 'missing abrupt range'; }
