@@ -1,5 +1,36 @@
 # Lila
 
+## Verified historical repairs — 2026-10-14
+
+Actual product compiler `115279841` turns **61 of 105 earlier Bug/Crash
+executions into Success**, including six of seven crashes. The unchanged
+105-ID replay completes with **61 Success, 41 Bug, one Crash and two
+NotImplemented**; native exit 1 and every unresolved ID remain recorded.
+No original Bug becomes a Crash. These are observed historical executions,
+not a full pinned-suite result.
+
+Four complete affected Engine targets pass **2,053 tests**, retaining all
+**2,037 previous passing IDs** and adding 16 controls. Three targets execute
+on `115279841`; the 881-test library executes on `d297a8dc5`, whose sole
+source difference is a test synchronization repair. The original red run
+remains preserved. A bounded handshake now checks that broadcast releases
+the worker registry before waiting for retrieval receipts. All 177 frontend
+tests, 514 Python checks and 26 AOT runtime-link tests also pass on their
+recorded source revisions. The complete AOT/IR test graph type-checks.
+
+The repairs cover arrow/direct-eval context, class strictness, Annex B and
+live arguments, syntax/name inference, oversized RegExp replacement and
+compact finite RegExp candidates. The emitted candidate lookup body measures
+426/427 bytes for 16/512 candidates. See the
+[source-bound checkpoint](docs/rust-rewrite/historical-repairs-checkpoint-20261014.json)
+for exact IDs, compiler/images, complete owners and remaining failures.
+
+Refresh the historical comparison with the captured actual worker:
+`python3 scripts/limited_verification.py --cloud -- python3 scripts/replay-test262-executions.py target/historical-bug-comparison-input-115279841-20261013/executions --binary target/historical-cli-capture-115279841-20261013/lila-worker --suite-root test262/vendor/test262 --output-dir target/historical-repairs-refresh --workers 1 --reuse-case-workers`,
+using a fresh output directory and the recorded bounded cache policy.
+This checkpoint does not establish latest whole-workspace, ordinary CLI,
+oracle, independent-host or full pinned conformance closure.
+
 ## Exact replay native checkpoint — 2026-10-13
 
 Actual compiler `aee6bc109` passes all **2,108 affected
@@ -21,14 +52,9 @@ native process tree retires, and same-image resume retains every original
 result. Available case times survive; unrecorded times stay absent. The
 full5,365-ID historical replay remains a separate pending owner.
 
-That replay has identified parser, arrow-eval context, class strictness, Annex B
-arguments and oversized replacement failures. The prepared repair batch also
-repairs source arguments binding resolution and replaces the finite RegExp
-candidate helper with a compact table loop. It includes
-paired controls and [normative contracts](docs/rust-rewrite/contracts/arrow-eval-and-class-reference-context.md).
-Its replacement construction collects completed pieces and copies them once.
-These source changes await native verification; the accepted counts above
-remain bound to their actual compiler.
+That replay identified the parser, arrow-eval, class, arguments and RegExp
+failures repaired in the verified historical successor above. Its earlier
+accepted counts remain bound to the actual `aee6bc109` compiler.
 
 The host producer's adopted opt-level1 keeps the product at opt-level3. Earlier
 same-source producers reproduce allthree bundle files byte-for-byte: cold

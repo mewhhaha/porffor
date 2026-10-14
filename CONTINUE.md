@@ -1,9 +1,40 @@
-# Current continuation — 2026-10-13
+# Current continuation — 2026-10-14
 
 The user authorizes continuous pushes to main and faster tooling. Root writes
 code; Luna agents do read-only chores/exploration. Finish actual task acceptance
 and the full suite before deleting this file or tasks. Retain every failure,
 unsupported/missing-input ID and previous passing ID.
+
+## Latest verified historical repairs
+
+Actual product `115279841f5e9ab858dbb9fa2d8a2b9c4f06df4d` repairs 61 of
+105 observed historical Bug/Crash IDs, including six crashes. Complete exact
+replay retains every input: 61 Success, 41 Bug, one Crash, two NotImplemented,
+native exit 1, zero Bug-to-Crash. Unsupported is not counted as fixed.
+All four complete affected Engine targets pass 2053/0/0 and retain all2037
+prior passing IDs, with16 additions. Three targets use the product revision;
+881 library tests use test-only successor
+`d297a8dc5557f94234f65d607d7d878bbaae744e`. Its sole delta replaces a racy
+registry try_lock assertion with a bounded handshake holding the registry
+through receipt completion. Product broadcast is unchanged. The original
+2052/1 red owner and its archived library bytes remain preserved.
+
+All177 frontend,514 Python and26 AOT runtime-link controls pass on their
+recorded revisions; AOT/IR complete test graph checks. RegExp candidate bodies
+measure426/427 bytes for16/512 rows. See
+[the portable checkpoint](docs/rust-rewrite/historical-repairs-checkpoint-20261014.json).
+Do not infer latest whole-workspace, ordinary CLI, oracle or full-pin closure.
+
+Source next owns the verified successor; canonicalAE and original4e remain
+frozen for the independent all5365 historical replay. Next private patches
+cover Text modules, literal runtime import attributes, host-load rejection,
+legacy Date space syntax, computed field names, with-write facts and stable
+Math.atanh. Review/apply the complete batch before another expensive build.
+Finite source candidate propagation across captured binding identities is
+being prepared separately; no runtime parser, shape exceptions or fake names.
+Run unchanged repaired-ID retention plus every remaining historical ID.
+Preserve images/DSOs/owners; retire only closed owned caches with manifests
+before building, because both cloud filesystems currently have little room.
 
 ## Actual accepted exact replay checkpoint
 
@@ -132,7 +163,7 @@ unavailable. Preserve their raw snapshots, logs, images and source identity.
 Do not count partial families as completed closure. Their generated inactive
 caches may be retired with owned manifests to make room for new verification.
 
-Root has prepared the coherent historical repair batch in porffor-next:
+Root has verified the historical repair batch in porffor-next:
 
 - Sloppy plain/escaped `let:` follows ordinary label grammar; strict labels still
   reject. The three original let-label Bug executions are retained.
@@ -171,18 +202,15 @@ prepared8cb35ae74 passes all177 frontend controls, retaining all172 old IDs; its
 complete IR test/type graph checks after three tracked sparse fixtures were
 restored. These are frontend/type verdicts, not JavaScript/Wasm acceptance.
 
-The later source batch adds strict callable metadata, live arguments bindings,
-compact RegExp candidate emission and private runtime-bundle publication.
-Cheap formatting/diff/module guards precede its type check. There is no new
-Engine/runtime/native verdict yet. Use one coherent shared native build from
-this existing source checkout. This is now feasible alongside CPU3 historical
-resume because the three older full owners have stopped and actual old workers
-use immutable copies/content-addressed DSOs. Archive completed owned Cargo
-leaves before their generic output paths can be overwritten. Keep canonicalAE,
-original4e and all frozen workers/DSOs unchanged until their owners close.
-Run focus, every complete affected inventory and original historical IDs with
-exact prior-pass retention before claiming bug elimination or publishing an
-accepted checkpoint. Do not relabel a prepared compiler as accepted AE.
+Strict callable metadata, live arguments bindings, compact RegExp emission and
+private runtime-bundle publication now have the source-bound native evidence
+above. Actual focus passes16, complete affected Engine inventories2053,
+runtime-link26 and full Python514. Private CLI capture preserves ordinary
+output and produces the actual115279 worker; its105-ID replay is complete red
+with61 repaired. Whole-workspace no-run hit ENOSPC before native execution;
+keep that failed owner separate. Use serial selected-target builds for the next
+batch; archive closed Cargo leaves before generic output overwrite. Keep
+canonicalAE/original4e and frozen workers/DSOs unchanged until owners close.
 
 Remaining historical resource/caller findings stay explicit: catchable recursion
 needs an actual stack-usage bound, the huge generated Unicode table needs generic
