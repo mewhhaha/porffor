@@ -315,7 +315,7 @@ impl FunctionBuilder<'_> {
             );
         self.publish_compact_array_element(&parent, ordinal, &value, &absent, &mut f)?;
         parent.clear(&mut f);
-        value.clear(&mut f);
+        value.set_undefined(&mut f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
         ordinal.load(&mut f);
