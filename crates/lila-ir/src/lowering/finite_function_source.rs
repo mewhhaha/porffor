@@ -1,3 +1,4 @@
+use super::dynamic_source::dynamic_source_kind_for_function_id;
 use super::*;
 
 pub(super) const MAX_SOURCE_CANDIDATES: usize = 256;
