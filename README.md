@@ -1,6 +1,52 @@
 # Lila
 
-## Complete native checkpoint and remaining repairs — 2026-10-14
+## Complete affected native checkpoint — 2026-10-14
+
+`0a18df332ca26b193b8e13bf09c104ff08fdb70c` affected native checkpoint: **GREEN**, complete across 16 targets and 6399 IDs: 6399 passed, 0 failed, 0 ignored.
+
+All 6396 closed c1 and 6390 historical 750 IDs remain. Passing retention: c1 6394/6394; historical 750 6380/6380. Prior REDs passing exact focus and complete union: c1 2/2; historical 750 10/10. Added controls: 3.
+
+Native scope uses validated exact focus and disjoint remaining processes. Actual partition streams own the complete union; process initialization, cache warming and order may differ from one unfiltered process.
+
+Fresh default and standalone Intl type cohorts passed. Genuine Intl generation: 1397 inputs, 15 APIs, 44 outputs, 0 changed identity files, 83 associated Python checks.
+
+Full Python owner: 514 discovered IDs, {'Success': 514}.
+
+Scope remains affected native, recorded source generation and supplied Python tooling. Ordinary CLI, full workspace, current pinned Test262, replay, original 5,365 retention and idle performance require separate evidence.
+
+Build seconds below are recorded command wall times. Captured Cargo HTML files are classified as collector observations; duplicate neighbor payloads remain explicit and their units are not attributed to the capturing invocation.
+
+| Target | Passed | Failed | Ignored | Build s | Native processes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `lila_front` | 177 | 0 | 0 | 24.041 | 2 |
+| `dynamic_function_preparation` | 6 | 0 | 0 | 7.017 | 2 |
+| `regexp_legacy_astral_ranges` | 6 | 0 | 0 | 16.028 | 2 |
+| `module_source_ranges` | 6 | 0 | 0 | 16.020 | 2 |
+| `lila_ir_integration` | 703 | 0 | 0 | 189.314 | 2 |
+| `lila_aot_wasm` | 340 | 0 | 0 | 284.757 | 2 |
+| `runtime_link` | 29 | 0 | 0 | 147.963 | 2 |
+| `aot_realm_modules` | 397 | 0 | 0 | 498.500 | 2 |
+| `aot_language` | 295 | 0 | 0 | 7.043 | 2 |
+| `aot_gc_entries` | 164 | 0 | 0 | 4.048 | 2 |
+| `aot_builtins` | 523 | 0 | 0 | 9.083 | 2 |
+| `lila_engine` | 888 | 0 | 0 | 72.584 | 2 |
+| `lila_test262` | 421 | 0 | 0 | 117.507 | 2 |
+| `aot_intl` | 293 | 0 | 0 | 9.096 | 2 |
+| `lila_ir` | 1511 | 0 | 0 | 211.482 | 2 |
+| `lila_intl` | 640 | 0 | 0 | 114.721 | 2 |
+
+Refresh this source-bound export after its owner closes:
+
+```bash
+export_dir="$(mktemp -d /workspace/porffor/target/native-successor-status-0a18df332-20261014-XXXXXX)"
+python3 -B /workspace/porffor/target/future-verification-drivers-20261012/export-partitioned-native-successor-checkpoint-20261014.py --owner /workspace/porffor/target/historical-next-partitioned-successor-0a18df332-20261014/receipt.json --owner-sha256 619420748d42c16965288d8e30cfe27b655369daa7ef78afd6b0bbd676e55501 --head 0a18df332ca26b193b8e13bf09c104ff08fdb70c --python-owner /workspace/porffor/target/historical-source-python-0a18df332-20261014/receipt.json --python-owner-sha256 1ae3ae196cf03452b5df95d79ba5244012c487e7a2f895c32765f55cb28560a0 --output "$export_dir/checkpoint.json" --status "$export_dir/status.md"
+```
+
+See [every source-bound verdict, retained ID, archive and measured observation](docs/rust-rewrite/historical-source-0a18-native-checkpoint-20261014.json).
+
+The compiled revision is `0a18df332ca26b193b8e13bf09c104ff08fdb70c`. A later docs-only publication commit records this evidence; it is not the compiled revision. Next, Original and Canonical remain at their recorded compiler HEADs. The same-head CLI worker preparation is complete; the historical 5,365-ID retention owner is RUNNING, and its complete outcome and passing retention remain pending. Ordinary CLI, historical 5,365 retention, full workspace, current pinned Test262 and task closure remain open. CONTINUE and task files remain.
+
+## Previous c1 native checkpoint and remaining repairs — 2026-10-14
 
 `c1fecbed30757715e199e94b3f42e68e4ab38e84` affected native checkpoint: **RED**, complete across 16 targets and 6396 IDs: 6394 passed, 2 failed, 0 ignored.
 
