@@ -130,3 +130,145 @@ for (const constructor of constructors) {
         assert_function_trace(&format!("{prefix}{source}"), &["true"; 6]);
     }
 }
+
+#[test]
+fn synthetic_subclasses_run_unchanged_pinned_function_and_generator_fixtures_in_both_modes() {
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    const PROPERTY: &str =
+        include_str!("../../../../test262/vendor/test262/harness/propertyHelper.js");
+    for source in [
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-length.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-name.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/regular-subclassing.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-length.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-name.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-prototype.js"),
+        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/regular-subclassing.js"),
+    ] {
+        for prefix in ["", "'use strict';"] {
+            assert_function_trace(&format!("{prefix}{STA}\n{ASSERT}\n{PROPERTY}\n{source}"), &[]);
+        }
+    }
+}
+
+#[test]
+fn synthetic_subclass_dispatch_keeps_super_constructor_callee_conversion_and_new_target_live() {
+    let source = r#"
+class Created extends Function {}
+var created = new Created('value', 'return value + 1;');
+print(created(40));
+print(Object.getPrototypeOf(created) === Created.prototype);
+var marker = {};
+var holder = { Created: Created };
+Object.defineProperty(holder, 'Created', {
+  get: function () { print('callee'); throw marker; }
+});
+try { new holder.Created((print('wrong argument'), 'return 0;')); }
+catch (error) { print(error === marker); }
+var body = { toString: function () { print('convert'); return 'return 42;'; } };
+var target = new Proxy(function Target() {}, {
+  get: function (object, key) {
+    if (key === 'prototype') { print('prototype'); return marker; }
+    return Reflect.get(object, key);
+  }
+});
+var reflected = Reflect.construct(Created, [body], target);
+print(reflected());
+print(Object.getPrototypeOf(reflected) === marker);
+var failedTarget = new Proxy(function Target() {}, {
+  get: function (object, key) {
+    if (key === 'prototype') { print('prototype throw'); throw marker; }
+    return Reflect.get(object, key);
+  }
+});
+try { Reflect.construct(Created, ['return 42;'], failedTarget); }
+catch (error) { print(error === marker); }
+Object.setPrototypeOf(Created, function Replacement(body) {
+  print('replacement');
+  print(body);
+  return marker;
+});
+print(new Created('return }') === marker);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "41",
+                "true",
+                "callee",
+                "true",
+                "convert",
+                "prototype",
+                "42",
+                "true",
+                "prototype throw",
+                "true",
+                "replacement",
+                "return }",
+                "true",
+            ],
+        );
+    }
+}
+
+#[test]
+fn synthetic_subclasses_keep_active_constructor_realm_and_new_target_prototype_separate() {
+    let source = r#"
+var foreign = __lilaCreateRealm().global;
+class Created extends foreign.Function {}
+var created = new Created('return globalThis;');
+print(created() === foreign);
+print(Object.getPrototypeOf(created) === Created.prototype);
+var other = {};
+var target = new Proxy(function Target() {}, {
+  get: function (object, key) {
+    if (key === 'prototype') { return other; }
+    return Reflect.get(object, key);
+  }
+});
+var reflected = Reflect.construct(Created, ['return globalThis;'], target);
+print(reflected() === foreign);
+print(Object.getPrototypeOf(reflected) === other);
+try { new Created('return }'); throw 'missing SyntaxError'; }
+catch (error) { print(Object.getPrototypeOf(error) === foreign.SyntaxError.prototype); }
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(&format!("{prefix}{source}"), &["true"; 5]);
+    }
+}
+
+#[test]
+fn synthetic_subclasses_keep_runtime_source_capability_rejections_typed() {
+    use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
+
+    for (intrinsic, body, kind) in [
+        ("Function", "return 1;", DynamicFunctionKind::Ordinary),
+        (
+            "Object.getPrototypeOf(function* () {}).constructor",
+            "yield 1;",
+            DynamicFunctionKind::Generator,
+        ),
+    ] {
+        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+        let error = Engine::new(RealmBuilder::new().build())
+            .run_script(
+                &format!("var Base = {intrinsic}; class Created extends Base {{}} try {{ new Created({body:?} + '/*' + Math.random() + '*/'); }} catch (error) {{ print('caught'); }}"),
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("unprepared source remains a host capability rejection");
+        assert_eq!(
+            error.runtime_dynamic_source_operations(),
+            vec![DynamicSourceRuntimeOperation::Function(kind)],
+            "{error}"
+        );
+        assert!(error.parse_diagnostic().is_none(), "{error}");
+        assert!(error.ir_diagnostic().is_none(), "{error}");
+    }
+}

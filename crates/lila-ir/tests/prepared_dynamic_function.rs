@@ -1003,3 +1003,153 @@ fn finite_for_of_identifier_hints_keep_the_original_256_candidate_budget() {
         }
     }
 }
+
+#[test]
+fn synthetic_class_constructor_sources_preserve_each_grammar_and_original_construct() {
+    use lila_ir::{ExprIr, StatementIr};
+
+    for (intrinsic, kind) in [
+        ("Function", DynamicFunctionKind::Ordinary),
+        (
+            "Object.getPrototypeOf(function* () {}).constructor",
+            DynamicFunctionKind::Generator,
+        ),
+        (
+            "Object.getPrototypeOf(async function () {}).constructor",
+            DynamicFunctionKind::Async,
+        ),
+        (
+            "Object.getPrototypeOf(async function* () {}).constructor",
+            DynamicFunctionKind::AsyncGenerator,
+        ),
+    ] {
+        for declaration in [
+            "class Created extends Base {}".to_string(),
+            "var Created = class extends Base {};".to_string(),
+            "let Created = class Named extends Base {};".to_string(),
+            "class First extends Base {} class Created extends First {}".to_string(),
+        ] {
+            for prefix in ["", "'use strict';"] {
+                let parsed = parse(
+                    format!("{prefix} var Base = {intrinsic}; {declaration} new Created('a', 'b', 'return a + b');"),
+                    ParseOptions::script(),
+                )
+                .unwrap();
+                let program = lower(&parsed);
+                assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+                let script = program.script.unwrap();
+                assert!(
+                    script.prepared_dynamic_functions.iter().any(|prepared| {
+                        prepared.kind == kind
+                            && prepared.arguments == ["a", "b", "return a + b"]
+                            && matches!(
+                                prepared.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )
+                    }),
+                    "missing class source for {kind:?}: {declaration}"
+                );
+                let StatementIr::Expression(expression) = script.body.statements.last().unwrap()
+                else {
+                    panic!("the caller retains the original construction");
+                };
+                let ExprIr::Construct { callee, args, .. } = &expression.expr else {
+                    panic!(
+                        "source discovery cannot replace Construct: {:?}",
+                        expression.expr
+                    );
+                };
+                assert!(
+                    matches!(
+                        callee.expr,
+                        ExprIr::EnvironmentIdentifier(_)
+                            | ExprIr::Identifier(_)
+                            | ExprIr::GlobalIdentifierRead { .. }
+                            | ExprIr::GlobalPropertyRead { .. }
+                    ),
+                    "the actual Created Reference must remain live: {:?}",
+                    callee.expr
+                );
+                assert_eq!(args.len(), 3);
+                for (argument, expected) in args.iter().zip(["a", "b", "return a + b"]) {
+                    assert!(matches!(&argument.expr, ExprIr::String(actual) if actual == expected));
+                }
+                assert!(script.functions.iter().any(|function| {
+                    function.is_synthetic_default_derived_constructor
+                        && function.is_derived_constructor
+                }));
+            }
+        }
+        let parsed = parse(
+            format!("new (class extends {intrinsic} {{}})('value', 'return value;');"),
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program
+            .script
+            .unwrap()
+            .prepared_dynamic_functions
+            .iter()
+            .any(|prepared| {
+                prepared.kind == kind
+                    && prepared.arguments == ["value", "return value;"]
+                    && matches!(
+                        prepared.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )
+            }));
+    }
+}
+
+#[test]
+fn synthetic_class_source_hints_follow_resolved_cells_and_with_reference_order() {
+    for use_source in [
+        "function invoke(Created) { new Created('return 997;'); } invoke(function Other(body) {});",
+        "{ class Created {} new Created('return 997;'); }",
+        "with ({ Created: function Other(body) {} }) { new Created('return 997;'); }",
+        "with ({ Created: function Other(body) {} }) { const invoke = () => new Created('return 997;'); invoke(); }",
+        "with ({ Base: function Other(body) {} }) { class Intercepted extends Base {} new Intercepted('return 997;'); }",
+    ] {
+        let parsed = parse(
+            format!("var Base = Function; class Created extends Base {{}} new Created('return 91;'); {use_source}"),
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        assert!(prepared.iter().any(|entry| entry.arguments == ["return 91;"]));
+        assert!(!prepared.iter().any(|entry| entry.arguments == ["return 997;"]),
+            "shadowed Reference borrowed the class grammar: {use_source}");
+    }
+    let parsed = parse(
+        "with ({ Created: function Other(body) {} }) { class Created extends Function {} const invoke = () => new Created('return 92;'); invoke(); }",
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(program
+        .script
+        .unwrap()
+        .prepared_dynamic_functions
+        .iter()
+        .any(|entry| { entry.arguments == ["return 92;"] }));
+}
+
+#[test]
+fn synthetic_class_discovery_keeps_unknown_and_explicit_constructor_sources_unprepared() {
+    for source in [
+        "class Created extends Function {} new Created(runtimeBody);",
+        "class Created extends runtimeBase {} new Created('return 93;');",
+        "class Created extends Function { constructor(body) { return {}; } } new Created('return 94;');",
+    ] {
+        let parsed = parse(source, ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        assert!(program.script.unwrap().prepared_dynamic_functions.is_empty(),
+            "discovery guessed a source tuple: {source}");
+    }
+}

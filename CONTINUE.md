@@ -1,5 +1,16 @@
 # Current continuation — 2026-10-14
 
+## Finite synthetic Function subclasses — 2026-10-14
+
+The next source batch prepares bounded, proven Function and GeneratorFunction
+bodies through classes with implicit constructors, including class expressions
+and synthetic subclass chains. Actual callee lookup, arguments, conversions,
+super constructors, realms and new-target prototypes remain live at runtime.
+Explicit constructors and unknown dynamic sources retain the existing capability
+boundary. Three IR and four engine controls cover these semantics and the
+14 unchanged pinned subclass modes. Rust compilation and native verification
+remain pending; the CLI checkpoint below records their actual earlier NI outcomes.
+
 ## Ordinary CLI repair checkpoint — 2026-10-14
 
 The genuine default release CLI on compiler `f5e3f706` completed the

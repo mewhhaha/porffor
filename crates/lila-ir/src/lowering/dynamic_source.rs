@@ -594,7 +594,7 @@ impl ScriptLowerer<'_> {
                 };
                 name
             }
-            _ if reflected_constructor => String::new(),
+            _ if reflected_constructor || !known_constructor_kinds.is_empty() => String::new(),
             _ => return,
         };
         if let Some(kind) = Self::named_script_source_kind(&name) {

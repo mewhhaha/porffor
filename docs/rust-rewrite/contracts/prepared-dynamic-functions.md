@@ -43,7 +43,26 @@ an enclosing finite candidate set. This pass does not collect arbitrary user
 function return records from a generic call.
 The actual prototype call, property Get, argument conversion and constructor
 Realm remain live. The source registry and its existing 256-candidate bound
-remain unchanged. Class-subclass heritage propagation is outside this change.
+remain unchanged.
+
+Synthetic derived class constructors also retain their heritage's possible
+Function grammar as an optional source hint. Class declarations install it only
+in the initialized outer binding's analyzed cell; class expressions contribute
+it to the existing finite-value domain. The hint can follow another synthetic
+subclass, a captured cell or a literal container, while normal Reference ordering
+prevents a shadowing parameter, class or preceding `with` environment from
+borrowing it. An explicit constructor contributes no forwarding hint because it
+can transform or replace its arguments. Unknown heritage/source values remain
+unprepared.
+
+The original Construct, callee Get, argument expressions, runtime super lookup,
+ToString operations and newTarget are unchanged. Only an actual Function-family
+intrinsic can select the hook, and only the converted exact argument tuple can
+select a prepared body. The active intrinsic still owns the defining realm and
+SyntaxError; the live newTarget owns GetPrototypeFromConstructor, including
+observable getters and abrupt completions. No parser or evaluator enters Wasm.
+The new pinned-fixture, Reference-order and runtime-effect controls still require
+coordinated execution; their presence establishes no Test262 verdict.
 The paired IR and native controls are pending coordinated verification; these
 new hints do not establish a Test262 pass count.
 

@@ -6723,6 +6723,11 @@ impl<'a> ScriptLowerer<'a> {
         // is still uninitialized in the enclosing scope. That is why the
         // `LoweredInitializer` is minted from the already-computed result rather
         // than the binding being initialized first.
+        // Discover before evaluating heritage/element effects, but install only
+        // after InitializeBoundName. The resolved outer cell retains the hint;
+        // class-name and shadowing cells cannot borrow it by spelling.
+        let source_candidates = self
+            .finite_synthetic_class_constructor_candidates(class.super_ref(), class.constructor());
         let enclosing_prefix = self.async_expression_prefix.replace(Vec::new());
         let init = self.lower_class_common(
             SourceClassName::from_declaration(class, self.interner),
@@ -6754,6 +6759,9 @@ impl<'a> ScriptLowerer<'a> {
             ),
         };
         let declaration = initialized.declare(self);
+        if !source_candidates.is_empty() {
+            self.set_finite_source_binding_candidates(&name, source_candidates);
+        }
         if statements.is_empty() {
             (declaration, ValueKind::Undefined)
         } else {

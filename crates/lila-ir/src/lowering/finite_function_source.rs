@@ -170,6 +170,49 @@ impl ScriptLowerer<'_> {
             .collect()
     }
 
+    /// A synthetic derived constructor forwards its original argument list.
+    /// Heritage grammar hints only add optional compilation units; they cannot
+    /// resolve the class's live [[Prototype]], select super, or replace newTarget.
+    pub(super) fn finite_synthetic_class_constructor_candidates(
+        &self,
+        heritage: Option<&Expression>,
+        constructor: Option<&FunctionExpression>,
+    ) -> Vec<FiniteSourceValue> {
+        if constructor.is_some() {
+            // An explicit constructor may transform or replace the arguments.
+            // Those source tuples need separate discovery; do not guess forwarding.
+            return Vec::new();
+        }
+        bounded_candidates(
+            heritage
+                .into_iter()
+                .flat_map(|expression| self.function_source_value_candidates(expression))
+                .filter_map(|candidate| match candidate {
+                    FiniteSourceValue::FunctionConstructor(kind) => {
+                        Some(FiniteSourceValue::FunctionConstructor(kind))
+                    }
+                    FiniteSourceValue::Function(function_id) => {
+                        match dynamic_source_kind_for_function_id(&function_id) {
+                            Some(DynamicSourceKind::Function(kind)) => {
+                                Some(FiniteSourceValue::FunctionConstructor(kind))
+                            }
+                            Some(
+                                DynamicSourceKind::DirectEval
+                                | DynamicSourceKind::IndirectEval
+                                | DynamicSourceKind::RealmEvalScript
+                                | DynamicSourceKind::ShadowRealmEvaluate,
+                            )
+                            | None => None,
+                        }
+                    }
+                    FiniteSourceValue::Text(_)
+                    | FiniteSourceValue::SupplementalText(_)
+                    | FiniteSourceValue::Record(_)
+                    | FiniteSourceValue::Array(_) => None,
+                }),
+        )
+    }
+
     pub(super) fn register_finite_undefined_var_source_candidate(&mut self, name: &str) {
         let Some(key) = self.finite_source_binding_key(name) else {
             return;
@@ -349,6 +392,12 @@ impl ScriptLowerer<'_> {
                 if !candidates.is_empty() {
                     return bounded_candidates(candidates);
                 }
+            }
+            Expression::ClassExpression(class) => {
+                return self.finite_synthetic_class_constructor_candidates(
+                    class.super_ref(),
+                    class.constructor(),
+                );
             }
             Expression::ArrayLiteral(array) => {
                 let elements = bounded_candidates(
