@@ -701,3 +701,125 @@ fn captured_source_hints_retain_the_existing_256_body_boundary() {
         );
     }
 }
+
+#[test]
+fn global_recursive_and_mutual_calls_keep_each_captured_body_candidate() {
+    for (source, expected) in [
+        (
+            r#"
+function recursive(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = recursive(0, 'return 82;'); return [read, next[0]]; }
+  return [read];
+}
+var reads = recursive(1, 'return 81;'); reads[0](); reads[1]();
+"#,
+            vec!["return 81;", "return 82;"],
+        ),
+        (
+            r#"
+function first(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = second(depth - 1, 'return 92;'); return [read, next[0], next[1]]; }
+  return [read];
+}
+function second(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = first(depth - 1, 'return 93;'); return [read, next[0]]; }
+  return [read];
+}
+var reads = first(2, 'return 91;'); reads[0](); reads[1](); reads[2]();
+"#,
+            vec!["return 91;", "return 92;", "return 93;"],
+        ),
+    ] {
+        for directive in ["", "'use strict';"] {
+            let parsed = parse(format!("{directive}{source}"), ParseOptions::script()).unwrap();
+            let program = lower(&parsed);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let prepared = program.script.unwrap().prepared_dynamic_functions;
+            for body in &expected {
+                assert!(
+                    prepared.iter().any(|entry| entry.arguments == [*body]
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )),
+                    "missing recursive candidate {body:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn global_source_target_discovery_does_not_cross_shadowed_or_dynamic_references() {
+    let definitions = r#"
+function build(body) { return () => Function(body)(); }
+build('return 91;')();
+"#;
+    for source in [
+        "function local(build) { build('return 997;'); } local(function ignored(value) { return value; });",
+        "function local() { let build = function ignored(value) { return value; }; build('return 998;'); } local();",
+        "function local() { var build = function ignored(value) { return value; }; return () => build('return 999;'); } local()();",
+        "function local() { with ({ build: function ignored(value) { return value; } }) { build('return 996;'); } } local();",
+        "function local() { var build = function ignored(value) { return value; }; eval(''); build('return 995;'); } local();",
+    ] {
+        let parsed = parse(format!("{definitions}{source}"), ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        assert!(prepared.iter().any(|entry|entry.arguments == ["return 91;"]));
+        for body in ["return 997;","return 998;","return 999;","return 996;","return 995;"] {
+            assert!(!prepared.iter().any(|entry|entry.arguments == [body]),
+                "shadowed reference seeded unused global body {body:?}: {source}");
+        }
+    }
+}
+
+#[test]
+fn supplemental_global_call_sources_preserve_all_256_primary_bodies() {
+    let bodies = (0..256)
+        .map(|index| format!("return {index};"))
+        .collect::<Vec<_>>();
+    for (parameter, argument, supplemental) in [
+        ("body", "body", "'return 997;'"),
+        ("record", "record.body", "{body: 'return 997;'}"),
+    ] {
+        let literals = bodies
+            .iter()
+            .map(|body| {
+                if parameter == "record" {
+                    format!("{{body: {body:?}}}")
+                } else {
+                    format!("{body:?}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            r#"
+function build({parameter}) {{ return () => Function({argument})(); }}
+for (var value of [{literals}]) {{ build(value); }}
+function indirect() {{ build({supplemental}); }}
+indirect();
+"#
+        );
+        let parsed = parse(source, ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        for body in &bodies {
+            assert!(
+                prepared
+                    .iter()
+                    .any(|entry| entry.arguments == [body.as_str()]
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )),
+                "supplemental global discovery displaced primary {body:?} from {parameter}"
+            );
+        }
+    }
+}

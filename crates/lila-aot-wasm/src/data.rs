@@ -1,5 +1,6 @@
 use super::*;
 use crate::gc_types::I64Local;
+mod program_string_descriptors;
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, RegExpCaseFolding,
@@ -8,6 +9,9 @@ use lila_ir::{
     BUILTIN_REGEXP_PROTOTYPE_COMPILE_FUNCTION_ID, REALM_EVAL_SCRIPT_METHOD_NAME,
     REGEXP_BACKREFERENCE_IGNORE_CASE, REGEXP_OPCODE_NAMED_BACKREFERENCE,
     REGEXP_OPCODE_NUMBERED_BACKREFERENCE,
+};
+pub(crate) use program_string_descriptors::{
+    ProgramStringDescriptorImage, ProgramStringDescriptorWord,
 };
 
 mod temporal_east_asian_years;
@@ -27,6 +31,12 @@ pub(crate) use regexp_unicode_properties::{
 
 mod intl_supported_values;
 use intl_supported_values::{CompiledSupportedValuesTables, SupportedValuesPoolError};
+
+mod compact_array_recipes;
+pub(crate) use compact_array_recipes::{
+    CompactArrayNode, CompactArrayOpcode, CompactArrayPlan, CompactArrayRecipe,
+    COMPACT_ARRAY_RECIPE_ROW_BYTES, COMPACT_ARRAY_RECIPE_SEGMENT,
+};
 
 mod normalization;
 mod unicode_case_tables;
@@ -361,6 +371,7 @@ pub(crate) struct StringPool {
     intl_default_locale: Option<lila_intl::CanonicalLocaleId>,
     pub(crate) bytes: Vec<u8>,
     module_bytes: BTreeMap<lila_ir::ModuleUnitId, PooledModuleBytes>,
+    compact_array_recipes: compact_array_recipes::CompactArrayRecipes,
     pooled_code_unit_bytes: Vec<u8>,
     refs: BTreeMap<String, StringRef>,
     source_runtime_error_messages: BTreeMap<String, i64>,
@@ -3095,6 +3106,30 @@ impl StringPool {
             }
             ExprIr::ArrayLiteral(elements) => {
                 self.uses_heap = true;
+                if let Some(plan) = CompactArrayPlan::of(elements) {
+                    // A complete pure walk preserves every original string
+                    // and RegExp candidate while avoiding recursive, repeated
+                    // recipe collection for child arrays covered by this one.
+                    for node in plan.nodes() {
+                        if let CompactArrayNode::String(text) = node {
+                            self.script_string_literals.insert((*text).to_owned());
+                            self.runtime_regexp_candidate_literals
+                                .insert((*text).to_owned());
+                            self.intern_string(text);
+                        }
+                    }
+                    let refs = &self.refs;
+                    self.compact_array_recipes.collect(&plan, |text| {
+                        refs.get(text)
+                            .map(|reference| reference.index)
+                            .ok_or_else(|| {
+                                EmitError::unsupported(
+                                    "compiler invariant: compact Array String was not interned",
+                                )
+                            })
+                    });
+                    return;
+                }
                 for element in elements {
                     collect_finite_string_choices(
                         element,
@@ -4078,7 +4113,10 @@ impl StringPool {
                 // defect: it made "seen and illegal" indistinguishable from
                 // "never seen", and the emitted lookup could then only fall out
                 // of its loop leaving a null program behind.
-                match RegExpProgram::compile(compilation_source, flags) {
+                match RegExpProgram::compile_utf16(
+                    &Self::runtime_code_units_for_string(compilation_source),
+                    flags,
+                ) {
                     Ok(program) => {
                         let key = RegExpProgramStaticKey::from_program(&program);
                         self.queue_regexp_program(&program);
@@ -4299,7 +4337,7 @@ impl StringPool {
 
     /// The pool of the runtime module: nothing past the compiler-owned phase.
     pub(crate) fn require_runtime_only(&self) -> Result<(), EmitError> {
-        if self.boundary() == self.compiler_owned {
+        if self.boundary() == self.compiler_owned && !self.compact_array_recipes.has_recipes() {
             Ok(())
         } else {
             Err(EmitError::unsupported(
@@ -4336,6 +4374,10 @@ impl StringPool {
                 .copied(),
         );
         section.passive(self.bytes[boundary.static_bytes..].iter().copied());
+        self.program_string_descriptor_image()
+            .append_passive(section);
+        assert_eq!(section.len(), COMPACT_ARRAY_RECIPE_SEGMENT);
+        section.passive(self.compact_array_recipes.bytes().iter().copied());
     }
 
     /// Segment index of the program's passive static bytes.
@@ -4415,43 +4457,7 @@ impl StringPool {
             })
     }
     pub(crate) fn runtime_code_units_for_string(value: &str) -> Vec<u16> {
-        let mut units = Vec::new();
-        let mut chars = value.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch != JS_STRING_SURROGATE_SENTINEL {
-                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
-                continue;
-            }
-            if chars.peek().copied() == Some(JS_STRING_SURROGATE_SENTINEL) {
-                chars.next();
-                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
-                continue;
-            }
-            let mut consumed = Vec::new();
-            let mut unit = 0u16;
-            let mut marker = true;
-            for _ in 0..4 {
-                let Some(hex) = chars.next() else {
-                    marker = false;
-                    break;
-                };
-                consumed.push(hex);
-                let Some(value) = hex.to_digit(16) else {
-                    marker = false;
-                    break;
-                };
-                unit = (unit << 4) | value as u16;
-            }
-            if marker && (0xD800..=0xDFFF).contains(&unit) {
-                units.push(unit);
-            } else {
-                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
-                for ch in consumed {
-                    units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
-                }
-            }
-        }
-        units
+        lila_ir::decode_js_string_utf16(value)
     }
 
     pub(crate) fn payload(&self, value: &str) -> i64 {

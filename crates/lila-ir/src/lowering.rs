@@ -9585,7 +9585,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower_regexp_literal(&mut self, regexp: &RegExpLiteral) -> TypedExpr {
-        let pattern = self.interner.resolve_expect(regexp.pattern()).to_string();
+        let pattern = self.interned_runtime_string(regexp.pattern());
         let flags = self.interner.resolve_expect(regexp.flags()).to_string();
         let args = vec![
             TypedExpr::from_info(

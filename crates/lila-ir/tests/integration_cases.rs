@@ -90,6 +90,8 @@ mod direct_eval_environment;
 mod direct_eval_spread;
 #[path = "dynamic_component_authority_structure.rs"]
 mod dynamic_component_authority_structure;
+#[path = "dynamic_import_site_metadata.rs"]
+mod dynamic_import_site_metadata;
 #[path = "dynamic_import_slash_meaning_structure.rs"]
 mod dynamic_import_slash_meaning_structure;
 #[path = "dynamic_source_proof_structure.rs"]
@@ -264,6 +266,8 @@ mod regexp_lookbehind_polarity;
 mod regexp_lookbehind_polarity_structure;
 #[path = "regexp_pure_epsilon.rs"]
 mod regexp_pure_epsilon;
+#[path = "regexp_raw_utf16.rs"]
+mod regexp_raw_utf16;
 #[path = "regexp_reverse_whitespace.rs"]
 mod regexp_reverse_whitespace;
 #[path = "regexp_unicode_property_aliases.rs"]
@@ -288,3 +292,6 @@ mod unsupported_dynamic_source_call_structure;
 mod with_has_binding;
 #[path = "with_var_hoisting.rs"]
 mod with_var_hoisting;
+
+#[path = "text_modules.rs"]
+mod text_modules;

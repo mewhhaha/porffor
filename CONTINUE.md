@@ -5,6 +5,29 @@ code; Luna agents do read-only chores/exploration. Finish actual task acceptance
 and the full suite before deleting this file or tasks. Retain every failure,
 unsupported/missing-input ID and previous passing ID.
 
+## Complete historical comparison and prepared repair batch
+
+Source-bound3bc completes all254 original Bug/Crash IDs: 229Success/23Bug/2Crash,
+exit1, no missing/extra IDs, all61 previous repairs retained, zeroBug-to-Crash.
+OriginalAE complete coverage is5365: 4849Success/246Bug/8Crash/260NotImplemented/
+2InfrastructureError. Both DurationFormat missing modes and the adopted
+runner exit-status mismatch remain explicit. See the generated
+[complete comparison](docs/rust-rewrite/historical-complete-comparison-20261014.json).
+
+Current3bc native red owner is complete2490:2488pass/2fail, allIDsretained.
+One new recursive Function source observation is missing; one old Script module
+fixture expectsSyntaxError for host-load instead of the correctTypeError.
+Both are repaired in the prepared source batch, with original red owners kept.
+The batch also adds semantic UTF16RegExp pattern lowering, checked passive String
+root descriptors and compact pure fixed Array recipes. Every exposed Array is
+fresh; runtime limits, conversion and source bytes remain unchanged. The appended
+program helper ABI changesRtype-section bytes/cache keys; measure the actualmiss.
+Both orphanText/dynamic-import IR modules now enter the explicit Cargo inventory.
+No successor native pass is inferred. Complete types, focused controls, every
+complete affected target and exact original-ID retention are required next.
+Closed current native artifacts and actual34a producer bytes are reversibly
+archived; closed old focus cache retired, preserving all red results and images.
+
 ## Latest verified historical repairs
 
 Actual product `115279841f5e9ab858dbb9fa2d8a2b9c4f06df4d` repairs 61 of
@@ -26,7 +49,7 @@ measure426/427 bytes for16/512 rows. See
 Do not infer latest whole-workspace, ordinary CLI, oracle or full-pin closure.
 
 Source next owns the verified successor; canonicalAE and original4e remain
-frozen for the independent all5365 historical replay. The next reviewed source
+frozen for preserved original historical evidence. The next reviewed source
 batch now includes Text modules, literal runtime import attributes, host-load
 rejection, legacy Date space syntax, computed field names, with-write facts,
 stable Math.atanh and finite source propagation keyed by analyzed environment

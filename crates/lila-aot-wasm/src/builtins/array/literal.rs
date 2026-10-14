@@ -5,6 +5,8 @@ use super::*;
 use crate::gc_types::{GcLocal, PropertyDescriptor, StoredValue};
 use crate::heap::StoredPropertyAttributes;
 
+mod compact;
+
 /// There is no constructor from an existing Array and no borrowed-array view.
 /// Only consuming finish can publish this fresh object's whole Value.
 #[must_use = "a fresh literal stays private until all elements are initialized"]
@@ -103,6 +105,9 @@ impl FunctionBuilder<'_> {
         let length = u32::try_from(elements.len()).map_err(|_| {
             EmitError::unsupported("Array literal exceeds the maximum ECMAScript Array length")
         })?;
+        if let Some(recipe) = self.strings.compact_array_recipe(elements)? {
+            return self.compile_compact_array_literal(recipe, output, f);
+        }
         let schema = self.runtime_schema();
         let value = schema.reserve_value_local(f);
         let mut literal = FreshArrayLiteral::new(length, self, f)?;

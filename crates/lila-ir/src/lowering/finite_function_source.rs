@@ -454,11 +454,35 @@ impl ScriptLowerer<'_> {
         callee: &Expression,
         arguments: &[Expression],
     ) {
+        let mut targets = self
+            .function_source_value_candidates(callee)
+            .into_iter()
+            .filter_map(|candidate| match candidate {
+                FiniteSourceValue::Function(function_id) => Some((function_id, false)),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+        if let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(callee) {
+            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+            if self.with_environment_chain.is_empty()
+                && !self.uses_runtime_identifier_environment()
+                && self.is_unshadowed_script_global_binding(&name)
+            {
+                // Body entry replaces the visible map with owner-local
+                // declarations. Recover this resolved global declaration only
+                // to observe actual recursive/mutual call arguments; its value
+                // and the runtime call remain untouched.
+                if let Some(function_id) = self.analysis.owner_plans[SCRIPT_OWNER_ID]
+                    .function_bindings
+                    .get(&name)
+                {
+                    targets.entry(function_id.clone()).or_insert(true);
+                }
+            }
+        }
         let mut observations = BTreeMap::new();
-        for candidate in self.function_source_value_candidates(callee) {
-            let FiniteSourceValue::Function(function_id) = candidate else {
-                continue;
-            };
+        let mut supplemental_observations = BTreeMap::new();
+        for (function_id, supplemental) in targets {
             let Some(plan) = self.analysis.function_plans.get(&function_id) else {
                 continue;
             };
@@ -472,11 +496,44 @@ impl ScriptLowerer<'_> {
                 }
                 let candidates = self.function_source_value_candidates(argument);
                 if !candidates.is_empty() {
-                    observations.insert((function_id.clone(), index), candidates);
+                    let key = (function_id.clone(), index);
+                    if supplemental {
+                        supplemental_observations.insert(
+                            key,
+                            candidates
+                                .into_iter()
+                                .map(|candidate| match candidate {
+                                    FiniteSourceValue::Text(text) => {
+                                        FiniteSourceValue::SupplementalText(text)
+                                    }
+                                    candidate => candidate,
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                    } else {
+                        observations.insert(key, candidates);
+                    }
                 }
             }
         }
         self.merge_function_source_parameter_candidates(observations);
+        for (key, candidates) in supplemental_observations {
+            let previous = self
+                .function_source_parameter_candidates
+                .remove(&key)
+                .unwrap_or_default();
+            let merged = bounded_candidates(previous.iter().cloned().chain(candidates));
+            // Optional structured hints can also overflow the closed budget.
+            // They must not erase an already admitted primary candidate set.
+            self.function_source_parameter_candidates.insert(
+                key,
+                if merged.is_empty() && !previous.is_empty() {
+                    previous
+                } else {
+                    merged
+                },
+            );
+        }
     }
 
     pub(super) fn register_array_callback_source_candidates(

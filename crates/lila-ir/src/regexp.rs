@@ -607,6 +607,18 @@ fn subtract_ranges(left: &[(u32, u32)], right: &[(u32, u32)]) -> Vec<(u32, u32)>
 
 impl RegExpProgram {
     pub fn compile(pattern: &str, flags: &str) -> Result<Self, RegExpCompileError> {
+        Self::compile_source_bytes(pattern.as_bytes(), flags)
+    }
+
+    /// Compiles the semantic UTF-16 Pattern without turning raw surrogates into
+    /// RegExp escapes. Adjacent raw pairs and fixed escaped pairs have separate
+    /// grammar ownership; a mixed raw/escaped pair remains two Unicode atoms.
+    pub fn compile_utf16(pattern: &[u16], flags: &str) -> Result<Self, RegExpCompileError> {
+        let source = Utf16PatternSource::new(pattern);
+        Self::compile_source_bytes(source.bytes(), flags)
+    }
+
+    fn compile_source_bytes(pattern: &[u8], flags: &str) -> Result<Self, RegExpCompileError> {
         let flags = parse_flags(flags)?;
         let parsed = parse_pattern(pattern, flags.unicode_mode, flags.ignore_case)?;
         let mut instructions = Vec::with_capacity(pattern.len() + 1);
@@ -874,17 +886,9 @@ impl SyntaxRule {
     }
 }
 
-/// The message every `&str`-boundary decode failure inside this parser reports.
-///
-/// [`RegExpProgram::compile`] takes `&str`, so the byte slice these parsers walk
-/// is always well-formed UTF-8 and `std::str::from_utf8` can only fail if the
-/// cursor reached a position that is not a character boundary. That is a defect
-/// in *this compiler*, never in the pattern, so none of those sites can cite an
-/// ECMA-262 production and none of them may answer `InvalidSyntax`. They were
-/// `InvalidSyntax` until batch 8; `UnsupportedFeature` is the honest verdict of
-/// the two this error type has. Making the state unrepresentable — decoding from
-/// the `&str` rather than re-decoding a `&[u8]` — is filed as follow-up in
-/// `target/lane-notes/re-verdict-b8-integration.md`.
+/// A cursor failure in validated UTF-8 or UTF-16-derived WTF-8 source is a
+/// compiler capability defect, never an ECMAScript syntax rejection. Source
+/// decoding includes raw lone surrogate units; RegExp escapes are parsed later.
 const NON_BOUNDARY_SOURCE: &str =
     "regular-expression source could not be decoded at a character boundary";
 
@@ -978,6 +982,7 @@ enum ParsedTerm {
 mod legacy_utf16_pair;
 mod lexical;
 mod pure_epsilon;
+mod source;
 pub use lexical::{
     regexp_character_escape, regexp_hex_digit_value, RegExpScopedModifier,
     REGEXP_CHARACTER_ESCAPES, REGEXP_DIGIT_RANGES, REGEXP_HEX_DIGIT_RANGES,
@@ -993,6 +998,7 @@ pub use program::{
 };
 
 use legacy_utf16_pair::LegacyUtf16Pair;
+use source::{pattern_code_point_at, Utf16PatternSource};
 
 enum ParsedTermAtom {
     Ordinary(ParsedAtom),
@@ -1076,7 +1082,7 @@ struct NamedCapture {
 }
 
 fn parse_pattern(
-    pattern: &str,
+    pattern: &[u8],
     unicode_mode: RegExpUnicodeMode,
     ignore_case: bool,
 ) -> Result<ParsedPattern, RegExpCompileError> {
@@ -1089,9 +1095,9 @@ fn parse_pattern(
         });
     }
 
-    let (total_capture_count, has_named_capture_syntax) = regexp_capture_syntax(pattern.as_bytes());
+    let (total_capture_count, has_named_capture_syntax) = regexp_capture_syntax(pattern);
     let mut parser = PatternParser {
-        bytes: pattern.as_bytes(),
+        bytes: pattern,
         offset: 0,
         capture_count: 0,
         unicode_mode,
@@ -1747,18 +1753,17 @@ fn parse_non_ascii_pattern_atom(
     scalar_offset: usize,
     unicode_mode: RegExpUnicodeMode,
 ) -> Result<ParsedTermAtom, RegExpCompileError> {
-    let source = std::str::from_utf8(&bytes[scalar_offset..])
-        .map_err(|_| RegExpCompileError::unsupported_feature(scalar_offset, NON_BOUNDARY_SOURCE))?;
-    let character = source.chars().next().expect("non-empty scalar source");
-    *offset = scalar_offset + character.len_utf8();
-    let code_point = character as u32;
+    let (code_point, end) = pattern_code_point_at(bytes, scalar_offset)?;
+    *offset = end;
     if unicode_mode.is_unicode_mode() || code_point <= 0xffff {
         return Ok(ParsedTermAtom::Ordinary(ParsedAtom::Instruction(
             RegExpInstruction::literal_code_point(code_point),
         )));
     }
-    let pair = LegacyUtf16Pair::from_scalar(character)
-        .expect("an astral Unicode scalar has one UTF-16 surrogate pair");
+    let pair = LegacyUtf16Pair::from_scalar(
+        char::from_u32(code_point).expect("an astral source character is a Unicode scalar"),
+    )
+    .expect("an astral Unicode scalar has one UTF-16 surrogate pair");
     Ok(ParsedTermAtom::LegacyUtf16Pair(pair))
 }
 
@@ -2180,12 +2185,15 @@ fn parse_regexp_identifier_name(
                 }
             }
         } else {
-            let source = std::str::from_utf8(&bytes[cursor..]).map_err(|_| {
-                RegExpCompileError::unsupported_feature(cursor, NON_BOUNDARY_SOURCE)
-            })?;
-            let code_point = source.chars().next().expect("source is non-empty");
-            cursor += code_point.len_utf8();
-            code_point
+            let (code_point, end) = pattern_code_point_at(bytes, cursor)?;
+            cursor = end;
+            char::from_u32(code_point).ok_or_else(|| {
+                RegExpCompileError::invalid_syntax(
+                    SyntaxRule::RegExpIdentifierName,
+                    code_point_offset,
+                    format!("{description} contains a raw unpaired surrogate"),
+                )
+            })?
         };
 
         let position = RegExpIdentifierPosition::after(&name);
@@ -2605,7 +2613,15 @@ fn parse_unicode_property_ranges(
     };
     let value_end = value_start + relative_end;
     let value = std::str::from_utf8(&bytes[value_start..value_end])
-        .map_err(|_| RegExpCompileError::unsupported_feature(escape_offset, NON_BOUNDARY_SOURCE))?;
+        .ok()
+        .filter(|value| value.is_ascii())
+        .ok_or_else(|| {
+            RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnicodePropertyName,
+                escape_offset,
+                "Unicode property names contain only ASCII property-name characters",
+            )
+        })?;
     if value.is_empty() {
         return Err(RegExpCompileError::invalid_syntax(
             SyntaxRule::UnicodePropertyEscape,
@@ -3344,11 +3360,9 @@ fn parse_class_atom(
         ));
     };
     if member != b'\\' {
-        let source = std::str::from_utf8(&bytes[offset..])
-            .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
-        let character = source.chars().next().expect("non-empty class source");
-        *cursor += character.len_utf8();
-        return Ok(ClassAtom::CodePoint(character as u32));
+        let (code_point, end) = pattern_code_point_at(bytes, offset)?;
+        *cursor = end;
+        return Ok(ClassAtom::CodePoint(code_point));
     }
 
     let Some(&escaped) = bytes.get(offset + 1) else {
@@ -3506,12 +3520,9 @@ fn parse_class_atom(
             ))
         }
         _ => {
-            let source = std::str::from_utf8(&bytes[offset + 1..]).map_err(|_| {
-                RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE)
-            })?;
-            let character = source.chars().next().expect("non-empty escape source");
-            *cursor = offset + 1 + character.len_utf8();
-            Ok(ClassAtom::CodePoint(character as u32))
+            let (code_point, end) = pattern_code_point_at(bytes, offset + 1)?;
+            *cursor = end;
+            Ok(ClassAtom::CodePoint(code_point))
         }
     }
 }
@@ -4005,7 +4016,15 @@ fn parse_unicode_property_of_strings(
     };
     let value_end = value_start + relative_end;
     let value = std::str::from_utf8(&bytes[value_start..value_end])
-        .map_err(|_| RegExpCompileError::unsupported_feature(offset, NON_BOUNDARY_SOURCE))?;
+        .ok()
+        .filter(|value| value.is_ascii())
+        .ok_or_else(|| {
+            RegExpCompileError::invalid_syntax(
+                SyntaxRule::UnicodePropertyName,
+                offset,
+                "Unicode property names contain only ASCII property-name characters",
+            )
+        })?;
     let Some(property) = unicode_string_property_from_str(value) else {
         return Ok(None);
     };
@@ -4532,19 +4551,15 @@ fn parse_single_unicode_class(
         ));
     };
     let end = class_offset + 1 + relative_end;
-    let source = std::str::from_utf8(&bytes[class_offset + 1..end])
-        .map_err(|_| RegExpCompileError::unsupported_feature(class_offset, NON_BOUNDARY_SOURCE))?;
-    let mut characters = source.chars();
-    let Some(character) = characters.next() else {
+    if class_offset + 1 == end {
         return Ok(None);
-    };
-    if character.is_ascii() || characters.next().is_some() {
+    }
+    let (code_point, character_end) = pattern_code_point_at(bytes, class_offset + 1)?;
+    if code_point < 128 || character_end != end {
         return Ok(None);
     }
     *offset = end + 1;
-    Ok(Some(RegExpInstruction::literal_code_point(
-        character as u32,
-    )))
+    Ok(Some(RegExpInstruction::literal_code_point(code_point)))
 }
 
 fn parse_ascii_class_atom(
@@ -7045,7 +7060,8 @@ mod tests {
     #[test]
     fn unicode_sets_finite_string_algebra() {
         fn finite_atom(pattern: &str) -> FiniteClassSetAtom {
-            let mut parsed = parse_pattern(pattern, RegExpUnicodeMode::UnicodeSets, false).unwrap();
+            let mut parsed =
+                parse_pattern(pattern.as_bytes(), RegExpUnicodeMode::UnicodeSets, false).unwrap();
             let term = parsed
                 .alternatives
                 .pop()
@@ -8312,7 +8328,7 @@ mod tests {
     #[test]
     fn unicode_sets_folded_strings_lower_each_position_through_existing_instructions() {
         let mut parsed =
-            parse_pattern(r"[\q{\u212A\u017F}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
+            parse_pattern(br"[\q{\u212A\u017F}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
         let term = parsed.alternatives.pop().unwrap().pop().unwrap();
         let ParsedTerm::Quantified {
             atom: ParsedAtom::FiniteClassSet(atom),
@@ -8382,7 +8398,7 @@ mod tests {
     #[test]
     fn unicode_sets_folded_strings_keep_longest_first_and_scoped_modifiers() {
         let mut parsed =
-            parse_pattern(r"[\q{A|Ab|ABC|}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
+            parse_pattern(br"[\q{A|Ab|ABC|}]", RegExpUnicodeMode::UnicodeSets, true).unwrap();
         let term = parsed.alternatives.pop().unwrap().pop().unwrap();
         let ParsedTerm::Quantified {
             atom: ParsedAtom::FiniteClassSet(atom),

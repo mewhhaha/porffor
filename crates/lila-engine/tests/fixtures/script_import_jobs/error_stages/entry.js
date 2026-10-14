@@ -8,9 +8,13 @@ const checks = [direct.then(() => { throw 'direct syntax fulfilled'; }, error =>
   events.push('direct');
 })];
 Promise.resolve().then(() => events.push('tick'));
-for (const pending of [import('./transitive.js'), import('./link.js'), import('./missing.js')]) {
+for (const [pending, ErrorType] of [
+  [import('./transitive.js'), SyntaxError],
+  [import('./link.js'), SyntaxError],
+  [import('./missing.js'), TypeError]
+]) {
   checks.push(pending.then(() => { throw 'invalid closure fulfilled'; }, error => {
-    if (!(error instanceof SyntaxError) || events.indexOf('tick') === -1)
+    if (!(error instanceof ErrorType) || events.indexOf('tick') === -1)
       throw 'dependency rejection stage';
     events.push('dependency');
   }));

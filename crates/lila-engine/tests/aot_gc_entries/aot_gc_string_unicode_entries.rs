@@ -185,3 +185,62 @@ print('gc-string-unicode-realms:ok');
         "gc-string-unicode-realms:ok",
     );
 }
+
+#[test]
+fn program_literal_descriptor_roots_preserve_empty_long_nul_and_surrogate_units() {
+    let long = "x".repeat(16 * 1024);
+    let source = format!(
+        r#"
+function check(value, label) {{ if (!value) throw label; }}
+var empty = '', nul = '\u0000', pair = '\ud800\udc00', lone = '\ud800X\udc00';
+var long = '{long}\u0000\ud800\udc00\ud800';
+var saved = [empty, nul, pair, lone, long];
+gc(); gc();
+check(saved[0].length === 0 && saved[0] === String.fromCharCode(), 'empty root');
+check(saved[1].length === 1 && saved[1].charCodeAt(0) === 0, 'NUL root');
+check(saved[2].length === 2 && saved[2].codePointAt(0) === 0x10000, 'paired root');
+check(saved[3].length === 3 && saved[3].charCodeAt(0) === 0xd800
+    && saved[3].charCodeAt(2) === 0xdc00, 'isolated roots');
+check(saved[4].length === 16388 && saved[4].charCodeAt(16384) === 0
+    && saved[4].charCodeAt(16385) === 0xd800 && saved[4].charCodeAt(16387) === 0xd800, 'long root');
+check(saved[4].slice(0, 16384) === 'x'.repeat(16384), 'full long prefix');
+check(saved[3] === String.fromCharCode(0xd800, 88, 0xdc00), 'literal and dynamic unit equality');
+check(saved[4].slice(16384) === String.fromCharCode(0, 0xd800, 0xdc00, 0xd800), 'exact terminal units');
+var foreign = __lilaCreateRealm().global;
+check(foreign.String.prototype.slice.call(saved[3], 0) === saved[3], 'borrowed foreign string');
+gc(); check(saved[4] === long && saved[0] === '', 'pool remains rooted after Realm creation');
+print('program-literal-units:ok');
+262;
+"#
+    );
+    assert_unicode_modes(&source, "program-literal-units:ok");
+}
+
+#[test]
+fn many_program_literal_roots_preserve_runtime_pool_names_and_intrinsics() {
+    let values = (0..512)
+        .map(|index| format!("'program_literal_{index:04}\\u0000\\uD800'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let source = format!(
+        r#"
+function check(value, label) {{ if (!value) throw label; }}
+var values = [{values}];
+var shared = ['', 'name', 'String', 'Object', 'TypeError', 'parse', 'string'];
+var foreign = __lilaCreateRealm().global;
+gc();
+for (var i = 0; i < values.length; i++) {{
+  var expected = 'program_literal_' + ('0000' + i).slice(-4) + String.fromCharCode(0, 0xd800);
+  check(values[i] === expected && values[i].length === 22, 'program row ' + i);
+}}
+check(shared[2] === String.name && shared[3] === Object.name, 'runtime constructor name roots');
+check(shared[4] === foreign.TypeError.name && shared[5] === Date.parse.name, 'cross-Realm builtin name roots');
+check(shared[6] === typeof shared[0] && Object.getOwnPropertyDescriptor(Object, shared[1]).value === shared[3], 'runtime primitive and descriptor names');
+check(new foreign.String(values[511]).valueOf() === values[511], 'foreign boxing of last source row');
+gc(); check(values[0].charCodeAt(21) === 0xd800 && shared[0] === '', 'all namespaces stay rooted');
+print('program-literal-many:ok');
+262;
+"#
+    );
+    assert_unicode_modes(&source, "program-literal-many:ok");
+}

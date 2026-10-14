@@ -1,6 +1,7 @@
 //! Runtime and program literal-root initialization from the shared string pool.
 
 use super::*;
+mod program_strings;
 
 impl<'a> FunctionBuilder<'a> {
     /// `main` of a program module: the runtime module builds the pooled-string
@@ -29,14 +30,7 @@ impl<'a> FunctionBuilder<'a> {
             function,
         );
         schema.release_i32_local(program_strings, function);
-        let index = schema.reserve_i32_local(function);
-        let table_slot = schema.reserve_gc_local::<PooledStringTable, NonNullable>(function);
-        let table = table_slot.initialize(schema.pooled_string_table_reference(function), function);
-        for (ordinal, literal) in self.strings.program_pooled_string_initializers() {
-            self.emit_pooled_string_slot(&table, index, ordinal, &literal, function);
-        }
-        table.clear(function);
-        schema.release_i32_local(index, function);
+        self.initialize_program_string_roots(function);
         function.instruction(&Instruction::End);
         Ok(())
     }

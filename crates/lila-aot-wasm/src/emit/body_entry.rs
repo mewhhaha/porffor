@@ -136,7 +136,8 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RegExpProgramCandidate
             | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::PooledStringsInitialize
-            | RuntimeHelperId::JsonStringifyValue => {}
+            | RuntimeHelperId::JsonStringifyValue
+            | RuntimeHelperId::CompactArrayLiteral => {}
         }
         self.take_owned_body()
     }

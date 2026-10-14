@@ -1,5 +1,29 @@
 # Lila
 
+## Complete historical failure comparison — 2026-10-14
+
+Actual compiler `3bc80ecc3` completes all 254 Bug/Crash IDs from the frozen
+historical baseline: **229 Success, 23 Bug and 2 Crash**. All 61 earlier
+repairs remain passing; no original Bug becomes a Crash. Every remaining ID
+and native exit 1 are retained. Five complete affected native targets finish
+**2,488 pass, 2 fail, zero ignored**; both failures remain explicitly red.
+The prepared successor repairs recursive source discovery and the stale host-load
+fixture expectation, adds raw UTF-16 RegExp source lowering, and replaces unrolled
+String-root and pure-array construction with checked passive data and bounded
+Wasm loops. Actual successor verification is pending.
+
+The original `aee6bc109` replay covers every one of the 5,365 historical IDs:
+**4,849 Success, 246 Bug, 8 Crash, 260 NotImplemented and
+2 infrastructure errors**. Both missing DurationFormat modes remain recorded.
+The adopted runner's observed exit status disagrees with its red result data;
+the separate final coverage owner preserves that mismatch. This is historical
+coverage, not full pinned conformance or latest passing-ID retention.
+See [every result and compiler identity](docs/rust-rewrite/historical-complete-comparison-20261014.json).
+
+Refresh with the actual worker and unchanged exact input:
+`python3 scripts/limited_verification.py --cloud -- python3 scripts/replay-test262-executions.py target/historical-complete-observed-failure-input-aee-20261014/executions --binary target/historical-direct-cli-worker-3bc80ecc3-20261014/lila-worker --suite-root test262/vendor/test262 --output-dir target/historical-complete-refresh --workers 1 --reuse-case-workers`,
+using a fresh output directory and the recorded bounded cache policy.
+
 ## Verified historical repairs — 2026-10-14
 
 Actual product compiler `115279841` turns **61 of 105 earlier Bug/Crash
@@ -35,9 +59,8 @@ The next coherent source batch adds Text module records, declared literal
 imports with runtime attributes, distinct host-load rejections, legacy Date
 space forms, computed field function names and stable Math.atanh reduction.
 It also repairs optional source discovery across captured bindings and facts
-after object-environment writes. Its new controls and unchanged historical
-executions are awaiting native verification; the accepted counts above remain
-bound to their recorded compilers.
+after object-environment writes. Its actual historical comparison and red native scope are recorded above;
+earlier accepted counts remain bound to their recorded compilers.
 
 ## Exact replay native checkpoint — 2026-10-13
 
@@ -57,8 +80,7 @@ worker reuse. Actual per-ID and native-batch runs preserve the same36 identities
 34 Success and both missing DurationFormat modes as explicit infrastructure
 errors. Real interruption retains an owned partial checkpoint, the observed
 native process tree retires, and same-image resume retains every original
-result. Available case times survive; unrecorded times stay absent. The
-full5,365-ID historical replay remains a separate pending owner.
+result. Available case times survive; unrecorded times stay absent. The complete5,365-ID historical replay is recorded above with every red outcome.
 
 That replay identified the parser, arrow-eval, class, arguments and RegExp
 failures repaired in the verified historical successor above. Its earlier

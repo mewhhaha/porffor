@@ -747,3 +747,5 @@ clone.source === original.source && clone.flags === 'gi';
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
 }
+
+mod raw_utf16;

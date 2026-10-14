@@ -30,6 +30,48 @@ pub fn encode_js_string_utf16(units: &[u16]) -> String {
         })
         .collect()
 }
+/// Decodes the lossless internal StringPool spelling into semantic UTF-16.
+/// This codec does not interpret ECMAScript or RegExp escape syntax.
+pub fn decode_js_string_utf16(value: &str) -> Vec<u16> {
+    let mut units = Vec::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != JS_STRING_SURROGATE_SENTINEL {
+            units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+            continue;
+        }
+        if chars.peek().copied() == Some(JS_STRING_SURROGATE_SENTINEL) {
+            chars.next();
+            units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+            continue;
+        }
+        let mut consumed = Vec::new();
+        let mut unit = 0u16;
+        let mut marker = true;
+        for _ in 0..4 {
+            let Some(hex) = chars.next() else {
+                marker = false;
+                break;
+            };
+            consumed.push(hex);
+            let Some(value) = hex.to_digit(16) else {
+                marker = false;
+                break;
+            };
+            unit = (unit << 4) | value as u16;
+        }
+        if marker && (0xD800..=0xDFFF).contains(&unit) {
+            units.push(unit);
+        } else {
+            units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+            for ch in consumed {
+                units.extend_from_slice(ch.encode_utf16(&mut [0u16; 2]));
+            }
+        }
+    }
+    units
+}
+
 /// Source-unspellable capture of a direct eval caller execution context.
 pub const DIRECT_EVAL_EXECUTION_CONTEXT_NAME: &str = "\0direct.eval.context";
 pub const LEXICAL_THIS_NAME: &str = "$this";

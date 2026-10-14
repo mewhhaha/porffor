@@ -284,8 +284,12 @@ pub(super) fn emit_script_module(
     )
     .with_gc_imports(gc_host_imports);
     let source = SourceFunctions::partition(script);
-    let helper_emission =
-        RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
+    let helper_emission = RuntimeHelperEmission::NONE
+        .with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify)
+        .with(
+            RuntimeHelperFact::UsesCompactArrayLiteral,
+            string_pool.has_compact_array_recipes(),
+        );
     let helpers_of = |program_owned: bool| {
         if uses_heap {
             RuntimeHelperId::ALL
@@ -1330,6 +1334,21 @@ pub(super) fn emit_script_module(
         );
     }
     if compile_program_helpers {
+        if helper_emission.holds(RuntimeHelperFact::UsesCompactArrayLiteral) {
+            let mut builder = FunctionBuilder::new_runtime_operation_helper(
+                module_package.schema(),
+                RuntimeHelperId::CompactArrayLiteral,
+                &string_pool,
+                &function_metas,
+                uses_heap,
+                runtime_bootstrap_plan.clone(),
+                runtime_helper_base,
+            );
+            helper_bodies.insert(
+                RuntimeHelperId::CompactArrayLiteral,
+                builder.compile_compact_array_literal_helper()?,
+            );
+        }
         for operation in crate::modules::ModuleRuntimeOperation::ALL {
             let body = if function_metas.module_graph().is_some() {
                 let mut builder = FunctionBuilder::new_runtime_operation_helper(
@@ -1728,10 +1747,7 @@ pub(super) fn emit_script_module(
             "internal functions: {}",
             layout.defined_functions().len() - 1 - function_table.runtime_helper_count()
         ),
-        // Derived from the same table the bodies were pushed into, so it
-        // cannot go stale the way the previous hand-written `27` did: the
-        // counted truth was already 32 unconditional helpers plus one
-        // conditional one.
+        // Derived from the same table that owns the emitted helper bodies.
         format!(
             "runtime helper functions: {}",
             function_table.runtime_helper_count()

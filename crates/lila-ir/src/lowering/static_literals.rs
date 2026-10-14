@@ -22,7 +22,7 @@ impl<'a> ScriptLowerer<'a> {
         // for every legal-but-unimplemented pattern. `lila-aot-wasm`'s runtime
         // RegExp table draws the same line
         // (`RuntimeRegExpEntry::{Rejected,Unsupported}`); the two must not drift.
-        match RegExpProgram::compile(pattern, flags) {
+        match RegExpProgram::compile_utf16(&decode_js_string_utf16(pattern), flags) {
             Ok(program) => Some(StaticRegExpCompilation::Program(program)),
             Err(error) => match error.kind {
                 RegExpCompileErrorKind::InvalidSyntax => {

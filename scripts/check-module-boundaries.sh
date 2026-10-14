@@ -3170,6 +3170,21 @@ if [[ "$module_assembly_code" != *'register_runtime_helper!(PooledStringsInitial
 fi
 check_no_inline_legacy_includes "$wasm_literal_roots"
 check_raw_line_budget "$wasm_literal_roots" 180
+wasm_program_string_roots="crates/lila-aot-wasm/src/emit/body_entry/literal_roots/program_strings.rs"
+wasm_program_string_descriptors="crates/lila-aot-wasm/src/data/program_string_descriptors.rs"
+wasm_gc_program_string_descriptors="crates/lila-aot-wasm/src/gc_types/value/program_string_descriptors.rs"
+require_module_decl "$wasm_literal_roots" program_strings
+require_module_decl crates/lila-aot-wasm/src/data.rs program_string_descriptors
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs program_string_descriptors
+for program_string_owner in "$wasm_program_string_roots" "$wasm_program_string_descriptors" "$wasm_gc_program_string_descriptors"; do
+  require_file "$program_string_owner"
+  check_no_inline_legacy_includes "$program_string_owner"
+done
+require_fixed_string_count "$wasm_literal_roots" 'self.initialize_program_string_roots(function);' 1 'bounded program-string bootstrap consumer'
+require_fixed_string_count "$wasm_literal_roots" 'program_pooled_string_initializers()' 0 'no unrolled program-string bootstrap'
+check_raw_line_budget "$wasm_program_string_roots" 100
+check_raw_line_budget "$wasm_program_string_descriptors" 180
+check_raw_line_budget "$wasm_gc_program_string_descriptors" 180
 check_raw_line_budget "$wasm_module_assembly" 1950
 wasm_module_metadata="crates/lila-aot-wasm/src/emit/module_assembly/metadata.rs"
 require_file "$wasm_module_metadata"

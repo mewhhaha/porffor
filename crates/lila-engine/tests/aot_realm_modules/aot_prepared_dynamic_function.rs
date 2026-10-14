@@ -710,3 +710,38 @@ var run = reject(); run(); run();
         );
     }
 }
+
+#[test]
+fn global_recursive_source_hints_keep_distinct_escaped_activation_cells() {
+    let source = r#"
+function recursive(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = recursive(0, 'return 82;'); return [read, next[0]]; }
+  return [read];
+}
+var reads = recursive(1, 'return 81;'); print(reads[0]()); print(reads[1]());
+"#;
+    for directive in ["", "'use strict';"] {
+        assert_function_trace(&format!("{directive}{source}"), &["81", "82"]);
+    }
+}
+
+#[test]
+fn mutually_recursive_source_hints_keep_all_live_captured_cells() {
+    let source = r#"
+function first(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = second(depth - 1, 'return 92;'); return [read, next[0], next[1]]; }
+  return [read];
+}
+function second(depth, source) {
+  var text = source; var read = () => Function(text)();
+  if (depth) { var next = first(depth - 1, 'return 93;'); return [read, next[0]]; }
+  return [read];
+}
+var reads = first(2, 'return 91;'); print(reads[0]()); print(reads[1]()); print(reads[2]());
+"#;
+    for directive in ["", "'use strict';"] {
+        assert_function_trace(&format!("{directive}{source}"), &["91", "92", "93"]);
+    }
+}

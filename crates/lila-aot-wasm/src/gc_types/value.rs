@@ -3,7 +3,10 @@
 use super::*;
 use crate::WasmRuntimeValueTag;
 
+mod compact_array_recipes;
 mod object_header_projection;
+mod program_string_descriptors;
+pub(crate) use program_string_descriptors::ProgramStringDescriptorTable;
 mod weak_host;
 
 macro_rules! scalar_local {

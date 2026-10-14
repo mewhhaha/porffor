@@ -61,3 +61,47 @@ fn candidate_rows_preserve_gc_string_ordinals_and_all_closed_outcomes() {
             .bytes()
     );
 }
+
+#[test]
+fn candidate_cache_compiles_semantic_units_instead_of_string_pool_marker_text() {
+    let mut pool = StringPool::default();
+    let patterns = [
+        vec![0xd83d, 92, 117, 68, 67, 51, 56],
+        vec![92, 117, 68, 56, 51, 68, 0xdc38],
+        vec![91, 0xd83d, 92, 117, 68, 67, 51, 56, 93],
+        "\u{F0000}D83D".encode_utf16().collect(),
+    ];
+    for units in &patterns {
+        pool.runtime_regexp_candidate_literals
+            .insert(lila_ir::encode_js_string_utf16(units));
+    }
+    pool.script_string_literals.insert("u".into());
+    pool.queue_runtime_regexp_programs();
+    for units in &patterns {
+        let source = lila_ir::encode_js_string_utf16(units);
+        for flags in ["", "u"] {
+            let (_, _, entry) = pool
+                .runtime_regexp_programs
+                .iter()
+                .find(|(candidate, candidate_flags, _)| {
+                    candidate == &source && candidate_flags == flags
+                })
+                .expect("every source/flags pair must have a physical candidate row");
+            let RuntimeRegExpEntry::Program(reference) = entry else {
+                panic!("valid raw unit pattern was not compiled: {units:?}/{flags}: {entry:?}");
+            };
+            let expected = ValidatedRegExpProgram::from_program(
+                &RegExpProgram::compile_utf16(units, flags).unwrap(),
+            )
+            .unwrap();
+            let descriptor = reference.payload();
+            let start = (descriptor >> 32) as usize - STATIC_DATA_OFFSET as usize;
+            let length = descriptor as u32 as usize;
+            assert_eq!(
+                &pool.bytes[start..start + length],
+                expected.bytes(),
+                "{units:?}/{flags}"
+            );
+        }
+    }
+}
