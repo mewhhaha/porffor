@@ -1,5 +1,27 @@
 # Current continuation — 2026-10-14
 
+## Complete default workspace — 2026-10-14
+
+Compiler source `f5e3f706` passes all 107 default workspace scopes: **9,120
+passed, zero failed, zero ignored**. Exact comparison retains **6,399/6,399**
+earlier passing IDs and all 63 required controls pass. All 848 CLI tests pass.
+The 13 storage-deferred frontend scopes passed in their source-bound continuation.
+
+Temporary disk exhaustion caused the original run to fail 30 tests in Engine
+and async. Their complete same-source reruns pass all 1,137 tests, including every
+original failed ID and earlier pass. The checkpoint retains the original RED
+process and its verdicts separately from the successful logical union; it does
+not claim that original process passed. Retired executable bytes are recorded
+by their observed hashes without claiming that they remain present or archived.
+
+See [the portable native checkpoint](docs/rust-rewrite/default-workspace-f5-native-checkpoint-20261014.json)
+for exact IDs, raw inventories/transcripts, actual Cargo and runtime-image
+provenance, full passing retention and original failure evidence. The normal
+CLI build and 45-case diagnostic replay are now active. All-features, full
+historical and pinned Test262 verification, and individual task closure remain
+pending. CONTINUE.md and tasks are retained.
+
+
 ## Verification storage and native partitions — 2026-10-14
 
 Workspace verification now checks the physical filesystems used by temporary
