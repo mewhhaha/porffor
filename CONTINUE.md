@@ -1,5 +1,25 @@
 # Current continuation — 2026-10-14
 
+## Private numeric-call Unicode phase comparison — 2026-10-14
+
+Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c` remains frozen; documentation publication parent is `d2716d1a3ed2230e9bd5abd9efe155ccba9de8ec`. The four-file private AOT candidate is unapplied and has separate patch, library and executable identities. Baseline revision metadata identifies R compatibility, not acceptance of this compiler candidate.
+
+The unchanged original Unicode ignoreCase case (299,825 original bytes; 305,744 materialized bytes) recorded **59.03s native libtest elapsed** (59.108s wrapper wall), **31.301s compilation** and **27.628s runtime**. Compilation preparation was 30.352s, emission 0.940s and validation 0.004466s. Its literal trace records parsing 0.023183s and lowering 30.328s inside preparation; the API lowering field (0.001414s) is a separate stage. Runtime module work was 0.517346s (program 0.402977s; R 0.114333s), with execution/completion 27.104s.
+
+| Captured diagnostic | Baseline | Private candidate |
+| --- | ---: | ---: |
+| Compilation | 26.512s | 31.301s |
+| Runtime module work | 123.730s | 0.517s |
+| Execution/completion | 45.497s | 27.104s |
+| Program bytes / largest body | 1,962,259 / 1,711,700 | 373,800 / 51,952 |
+| Sampled maximum process RSS | 2,852,282,368 bytes | 456,359,936 bytes |
+
+Both profiles used the identical 40,315,118-byte R payload and completed `Normal(Undefined)` with module-cache `Miss`. The wrapper-wall ratio is **3.32×** for this one captured case; separate runs and shared load do not establish a general benchmark speedup or idle performance. RSS values are samples, not true peaks. Normal completion is not Test262 acceptance.
+
+The independent controls remain **6 passed / 2 FAILED**: bodies of 67,317 and 820,896 bytes exceeded the unchanged 65,536-byte gates before JavaScript execution. Their incomplete aggregate owner and original failed static-DSO build remain preserved; the corrected shared-DSO build and standalone profile closed successfully. No semantic failure, merge or full-gate acceptance is inferred. The published native checkpoint remains 6,399 passed; the full historical 5,365 replay is still active and retention remains pending.
+
+Exact owner, raw-event/log, command, source, private artifact, R and archive hashes are in the [portable comparison](docs/rust-rewrite/private-numeric-call-profile-20261014.json); earlier measurements and status follow unchanged.
+
 ## Measured verification and private Front foundation — 2026-10-14
 
 Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c` remains frozen; documentation publication parent is `8911e9b9598f7969fad2919b8a7b76e74176384d`.
