@@ -420,7 +420,7 @@ pub(super) fn validate_linker_identifiers(
 /// module asked — and one module may write both `import('./m.js')` and
 /// `import.source('./m.js')`, which settle with different objects for the same
 /// runtime string, so the phase cannot be recovered from the argument either.
-fn dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
+pub(super) fn dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> String {
     match phase {
         // The unphased name is left exactly as it was: it is by far the common
         // case and every existing artifact spells it this way.
@@ -689,7 +689,13 @@ impl ModuleGraphIr {
     ) -> Result<super::callable_source::OriginalUnitSource, String> {
         let record = &self.unit(unit).record;
         let heads = &record.dynamic_import_heads;
-        if heads.len() != record.dynamic_import_sites.len() {
+        if heads.len()
+            != record
+                .dynamic_import_sites
+                .iter()
+                .filter(|site| site.has_retained_source_head())
+                .count()
+        {
             return Err("dynamic-import call is missing its original parser range".into());
         }
         let spans: Vec<_> = heads.iter().map(|head| head.span).collect();

@@ -1182,8 +1182,24 @@ impl<'a> FunctionBuilder<'a> {
         if !resumable_root_body {
             self.initialize_direct_lexical_bindings(&block.statements, function);
         }
-        for statement in &block.statements {
-            self.compile_statement(statement, function)?;
+        // Ordinary source bodies keep their activation, locals and completion
+        // while sharing one code row for long runs of inert numeric arguments.
+        // Resumable and runtime-owned bodies retain their existing control path.
+        let compact_calls = self.has_source_execution_environment()
+            && matches!(execution, Some(FunctionExecutionKind::Ordinary) | None);
+        let mut next = 0;
+        while next < block.statements.len() {
+            if compact_calls {
+                if let Some(run) =
+                    crate::call_rows::NumericCallRun::of_prefix(&block.statements[next..])
+                {
+                    self.compile_numeric_call_run(&run, function)?;
+                    next += run.len();
+                    continue;
+                }
+            }
+            self.compile_statement(&block.statements[next], function)?;
+            next += 1;
         }
         self.emit_clear_private_argument_lists_in_scope(function)?;
         if block.lexical_environment.is_some() {

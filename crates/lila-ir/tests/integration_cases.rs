@@ -102,6 +102,8 @@ mod empty_function_and_erased_eval;
 mod environment_kind_structure;
 #[path = "error_instance_prototype_resolution.rs"]
 mod error_instance_prototype_resolution;
+#[path = "finite_function_constructor.rs"]
+mod finite_function_constructor;
 #[path = "finite_indirect_eval.rs"]
 mod finite_indirect_eval;
 #[path = "float16_array.rs"]

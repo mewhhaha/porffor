@@ -44,6 +44,7 @@ pub(super) fn compile_dynamic_function_sources(
                 continue;
             }
         };
+        let caller_origin = allocations.script_import_origin.take();
         let mut compiled = lower_script_program_with_allocations(
             &parsed,
             ParseGoal::Script,
@@ -55,6 +56,7 @@ pub(super) fn compile_dynamic_function_sources(
             allocations,
             ScriptInstantiation::FreshEntry,
         );
+        allocations.script_import_origin = caller_origin;
         if !compiled.diagnostics.is_empty() {
             if compiled
                 .diagnostics

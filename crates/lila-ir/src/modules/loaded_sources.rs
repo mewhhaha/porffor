@@ -18,6 +18,7 @@ pub struct ModuleSourceIr {
     key: ModuleKey,
     meta_url: String,
     pub(super) parse: ModuleParse,
+    pub(super) prepared_script_import_sites: Vec<super::DynamicImportSiteIr>,
 }
 
 /// Record syntax is part of host identity and is never inferred from equal bytes.
@@ -84,6 +85,44 @@ pub(super) enum ModuleParse {
 }
 
 impl ModuleSourceIr {
+    /// Whether retained Script syntax has a call that could be direct eval.
+    /// This whole-tree check only avoids impossible finite-source discovery;
+    /// it proves neither intrinsic identity nor source or module authority.
+    #[doc(hidden)]
+    pub fn may_contain_direct_eval_call(&self) -> bool {
+        match &self.parse {
+            ModuleParse::ScriptEntry(source) => source
+                .with_compiler_session(|ast, _| crate::analysis::contains_direct_eval_call(ast)),
+            _ => false,
+        }
+    }
+
+    /// Attach exact sites discovered in direct evals that retain this Script
+    /// Record. This source alone supplies their host referrer; syntax heads in
+    /// the original entry remain separate and are still checked one-for-one.
+    #[doc(hidden)]
+    pub fn include_prepared_script_import_sites(
+        &mut self,
+        sites: &[super::DynamicImportSiteIr],
+    ) -> bool {
+        assert!(
+            matches!(self.parse, ModuleParse::ScriptEntry(_)),
+            "a prepared Script-origin import cannot claim a Module referrer"
+        );
+        let mut changed = false;
+        for site in sites
+            .iter()
+            .cloned()
+            .map(super::DynamicImportSiteIr::as_prepared_script_site)
+        {
+            if !self.prepared_script_import_sites.contains(&site) {
+                self.prepared_script_import_sites.push(site);
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Potential finite importValue targets. Discovery does not claim that the
     /// spelled method is intrinsic and never rewrites its ordinary call.
     pub fn realm_module_requests(&self) -> Vec<ModuleRequestKeyIr> {
@@ -111,6 +150,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse,
         }
     }
@@ -120,6 +160,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse: ModuleParse::Bytes(bytes),
         }
     }
@@ -129,6 +170,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse: ModuleParse::Text(text),
         }
     }
@@ -187,6 +229,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse,
         }
     }
@@ -199,6 +242,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse: ModuleParse::Module(source),
         }
     }
@@ -212,6 +256,7 @@ impl ModuleSourceIr {
         Self {
             key,
             meta_url,
+            prepared_script_import_sites: Vec::new(),
             parse: ModuleParse::ScriptEntry(source),
         }
     }
@@ -246,7 +291,19 @@ impl ModuleSourceIr {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
             ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
-            ModuleParse::ScriptEntry(source) => Some(scan_script_module_requests(source)),
+            ModuleParse::ScriptEntry(source) => {
+                let mut requests = scan_script_module_requests(source);
+                for request in self
+                    .prepared_script_import_sites
+                    .iter()
+                    .filter_map(super::DynamicImportSiteIr::discovery_request)
+                {
+                    if !requests.contains(request.key()) {
+                        requests.push(request.key().clone());
+                    }
+                }
+                Some(requests)
+            }
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -262,7 +319,10 @@ impl ModuleSourceIr {
             ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(loading_requests_with_dynamic_imports(
                 Vec::new(),
-                &script_dynamic_import_sites(source),
+                &script_dynamic_import_sites(source)
+                    .into_iter()
+                    .chain(self.prepared_script_import_sites.iter().cloned())
+                    .collect::<Vec<_>>(),
             )),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
@@ -275,7 +335,12 @@ impl ModuleSourceIr {
     pub fn dynamic_import_sites(&self) -> Option<Vec<super::DynamicImportSiteIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(module_dynamic_import_sites(source)),
-            ModuleParse::ScriptEntry(source) => Some(script_dynamic_import_sites(source)),
+            ModuleParse::ScriptEntry(source) => Some(
+                script_dynamic_import_sites(source)
+                    .into_iter()
+                    .chain(self.prepared_script_import_sites.iter().cloned())
+                    .collect(),
+            ),
             ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
@@ -293,6 +358,7 @@ impl ModuleSourceIr {
         match &self.parse {
             ModuleParse::ScriptEntry(source) => Some(
                 !script_dynamic_import_sites(source).is_empty()
+                    || !self.prepared_script_import_sites.is_empty()
                     || !self.realm_module_requests().is_empty(),
             ),
             ModuleParse::Module(_)

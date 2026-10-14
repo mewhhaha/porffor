@@ -33,10 +33,19 @@ pub(super) fn prepare_source_catalog(
                 }
             },
         };
+        if let PreparedModuleCompilation::Embedded { graph, .. } = modules {
+            let sites = session.prepared_script_import_sites();
+            if sites.is_empty()
+                || !graph.modules[graph.entry as usize].include_prepared_script_import_sites(&sites)
+            {
+                // Only declared host resolutions may satisfy these new sites.
+                // Annotating retained syntax grants no ambient load authority.
+                return Ok(ir);
+            }
+            continue;
+        }
         let PreparedModuleCompilation::Ambient { loader, graph, .. } = modules else {
-            // Complete catalogs have their exact Realm-origin resolutions
-            // already. Finite strings cannot grant ambient loading authority.
-            return Ok(ir);
+            unreachable!("the complete catalog was handled above")
         };
         let requests = session
             .realm_module_requests()
@@ -47,7 +56,13 @@ pub(super) fn prepare_source_catalog(
                     .is_none_or(|graph| !graph.realm_requests.contains_key(request))
             })
             .collect::<Vec<_>>();
-        if requests.is_empty() {
+        let script_sites = session.prepared_script_import_sites();
+        let script_changed = graph.as_mut().is_some_and(|graph| {
+            !script_sites.is_empty()
+                && graph.modules[graph.entry as usize]
+                    .include_prepared_script_import_sites(&script_sites)
+        });
+        if requests.is_empty() && !script_changed && (graph.is_some() || script_sites.is_empty()) {
             return Ok(ir);
         }
         if graph.is_none() {
@@ -72,6 +87,11 @@ pub(super) fn prepare_source_catalog(
         let graph = graph
             .as_mut()
             .expect("prepared request has its retained graph");
+        if !script_sites.is_empty() {
+            graph.modules[graph.entry as usize].include_prepared_script_import_sites(&script_sites);
+        }
+        // The same source-record loading driver resolves these imports against
+        // the actual Script key; Realm requests keep their distinct origin.
         module_loader::extend_module_graph_realm_requests(graph, &requests, loader.as_ref())
             .map_err(|error| EngineError::new(error.to_string()))?;
         if requests
@@ -307,5 +327,52 @@ export const value = 1;
             "a missing dependency cannot use loaded code"
         );
         assert_ne!(edited.bytes, removed.bytes);
+    }
+    #[test]
+    fn prepared_script_import_edges_keep_the_actual_base_identity_and_load_policy() {
+        let files = ModuleFiles::new();
+        let source = r#"eval('import("./value.js")'); true;"#;
+        files.write("entry.js", source);
+        files.write("value.js", "export const value = 1;");
+        let engine = Engine::new(RealmBuilder::new().build());
+        let options = files.options();
+        let first = engine
+            .prepare_compilation(source, ParseGoal::Script, &options)
+            .unwrap();
+        let graph = first
+            .modules
+            .graph()
+            .expect("prepared import owns its Script graph");
+        assert_eq!(graph.modules.len(), 2);
+        assert_eq!(graph.modules[0].goal(), ParseGoal::Script);
+        assert!(graph
+            .resolutions
+            .iter()
+            .any(|(owner, request, target)| *owner == graph.entry
+                && request.specifier() == "./value.js"
+                && *target == 1));
+        assert!(
+            graph.realm_requests.is_empty(),
+            "an eval import is not a Realm-origin request"
+        );
+        let key = program_cache_key(source, ParseGoal::Script, &options, Some(graph));
+        files.write("value.js", "export const value = 2;");
+        let changed = engine
+            .prepare_compilation(source, ParseGoal::Script, &options)
+            .unwrap();
+        assert_ne!(
+            key,
+            program_cache_key(source, ParseGoal::Script, &options, changed.modules.graph())
+        );
+        let mut denied = options;
+        denied.module_loading_policy = ModuleLoadingPolicy::RejectAll;
+        let denied = engine
+            .prepare_compilation(source, ParseGoal::Script, &denied)
+            .unwrap();
+        let graph = denied.modules.graph().unwrap();
+        assert_eq!(graph.modules.len(), 1);
+        assert!(graph.resolutions.is_empty());
+        assert!(graph.realm_requests.is_empty());
+        assert!(denied.ir.is_wasm_supported(), "{:?}", denied.ir.diagnostics);
     }
 }

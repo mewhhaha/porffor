@@ -57,6 +57,7 @@ mod arguments_protocol;
 mod backend_operation_evidence;
 mod bigint;
 mod builtins;
+mod call_rows;
 mod code_sink;
 mod control_flow;
 mod data;

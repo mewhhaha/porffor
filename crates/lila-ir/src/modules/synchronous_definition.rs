@@ -472,6 +472,25 @@ impl ModuleExecutionDefinitions {
             .find(|(_, name)| name.as_str() == super::realm_request::REALM_IMPORT_DISPATCHER)
             .map(|(id, _)| id.clone())
             .expect("trusted Realm import dispatcher is declared");
+        let script_import_dispatchers = match self.entry {
+            ModuleExecutionEntry::Script(script) => [
+                ImportPhaseIr::Evaluation,
+                ImportPhaseIr::Defer,
+                ImportPhaseIr::Source,
+            ]
+            .into_iter()
+            .filter_map(|phase| {
+                let name = super::dynamic::dispatcher_name(script, phase);
+                analysis
+                    .module_execution
+                    .private_dispatchers
+                    .iter()
+                    .find(|(_, private)| **private == name)
+                    .map(|(id, _)| (phase, id.clone()))
+            })
+            .collect(),
+            ModuleExecutionEntry::Module(_) => BTreeMap::new(),
+        };
         let execution_graph = ModuleExecutionGraphIr::new(
             self.record_count,
             self.units
@@ -486,7 +505,8 @@ impl ModuleExecutionDefinitions {
                 ModuleExecutionEntry::Script(script) => ModuleExecutionEntry::Script(*script),
             },
         )
-        .with_realm_requests(self.realm_requests.clone(), realm_import_dispatcher);
+        .with_realm_requests(self.realm_requests.clone(), realm_import_dispatcher)
+        .with_script_import_dispatchers(script_import_dispatchers);
         analysis.module_execution.initializers.insert(
             std::ptr::from_ref(initializer_expression) as usize,
             execution_graph

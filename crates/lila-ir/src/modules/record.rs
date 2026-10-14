@@ -437,6 +437,12 @@ impl CatalogEligibility {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DynamicImportSiteOrigin {
+    RetainedSource,
+    PreparedScript,
+}
+
 /// One `import(...)` call site found in a module body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DynamicImportSiteIr {
@@ -448,9 +454,19 @@ pub struct DynamicImportSiteIr {
     /// Compile-time knowledge of the request's `[[Attributes]]`.
     pub attributes: DynamicImportAttributesIr,
     catalog_eligibility: CatalogEligibility,
+    origin: DynamicImportSiteOrigin,
 }
 
 impl DynamicImportSiteIr {
+    pub(super) fn as_prepared_script_site(mut self) -> Self {
+        self.origin = DynamicImportSiteOrigin::PreparedScript;
+        self
+    }
+
+    pub(super) fn has_retained_source_head(&self) -> bool {
+        self.origin == DynamicImportSiteOrigin::RetainedSource
+    }
+
     /// Whether this retained call site can select a declared host key.
     /// This preserves exact known attributes and scalar-string eligibility;
     /// runtime attributes remain unknown until the emitted import evaluates.
@@ -493,7 +509,7 @@ impl DynamicImportSiteIr {
     /// values, and will only match an exact request variant present in the AOT
     /// component registry. This can over-compile the attribute-free target but
     /// cannot make a differently attributed request resolve to it.
-    pub(super) fn discovery_request(&self) -> Option<ModuleRequestIr> {
+    pub(crate) fn discovery_request(&self) -> Option<ModuleRequestIr> {
         let specifier = self.static_specifier.clone()?;
         let attributes = match &self.attributes {
             DynamicImportAttributesIr::Known(attributes) => attributes.clone(),
@@ -2008,6 +2024,7 @@ impl<'ast> Visitor<'ast> for ModuleBodyScan<'_> {
             phase: ImportPhaseIr::from_ast(node.phase()),
             attributes,
             catalog_eligibility,
+            origin: DynamicImportSiteOrigin::RetainedSource,
         });
         node.visit_with(self)
     }
@@ -2205,7 +2222,7 @@ pub(super) fn module_dynamic_import_sites(source: &ParsedModule) -> Vec<DynamicI
     })
 }
 
-pub(super) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
+pub(crate) fn script_dynamic_import_sites(source: &ParsedScript) -> Vec<DynamicImportSiteIr> {
     script_sites_with_admission(source, super::admission::GraphAdmission::LoadedClosure).0
 }
 
@@ -2980,6 +2997,7 @@ mod tests {
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
                     catalog_eligibility: CatalogEligibility::Eligible,
+                    origin: DynamicImportSiteOrigin::RetainedSource,
                 },
                 // A computed specifier is not statically discoverable, so the
                 // target cannot be compiled into the artifact.
@@ -2988,6 +3006,7 @@ mod tests {
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
                     catalog_eligibility: CatalogEligibility::Eligible,
+                    origin: DynamicImportSiteOrigin::RetainedSource,
                 },
                 // Nesting inside a function does not hide the site: the whole
                 // point is that the target is reachable at run time.
@@ -2996,6 +3015,7 @@ mod tests {
                     phase: ImportPhaseIr::Evaluation,
                     attributes: known_attributes(Vec::new()),
                     catalog_eligibility: CatalogEligibility::Eligible,
+                    origin: DynamicImportSiteOrigin::RetainedSource,
                 },
             ]
         );

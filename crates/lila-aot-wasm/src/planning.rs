@@ -5761,6 +5761,10 @@ pub(crate) fn expr_references_function(expr: &TypedExpr, target: &FunctionId) ->
             graph.initializer() == Some(target)
                 || graph.realm_import_dispatcher() == Some(target)
                 || graph
+                    .script_import_dispatchers()
+                    .values()
+                    .any(|dispatcher| dispatcher == target)
+                || graph
                     .activations()
                     .iter()
                     .any(|activation| activation.function() == target)

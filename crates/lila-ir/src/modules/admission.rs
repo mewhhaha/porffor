@@ -251,6 +251,12 @@ fn link_admitted_graph(
         {
             return original.expect("loaded admission retained its original result");
         }
+        let record = record.map(|mut record| {
+            record
+                .dynamic_import_sites
+                .extend(source.prepared_script_import_sites.iter().cloned());
+            record
+        });
         // A rejected non-entry module fails while the graph loads/links.
         records.push(if index == sources.entry as usize {
             record

@@ -262,3 +262,199 @@ Promise.all(checks).then(() => print('literal-runtime-attributes:ok'));
         );
     }
 }
+
+#[test]
+fn finite_direct_eval_imports_declare_only_actual_script_referrer_edges() {
+    let directory = Directory::new();
+    let source = r#"eval('eval("import(\\"./target_FIXTURE.js\\");")');"#;
+    let entry = directory.0.join("entry.js");
+    fs::write(&entry, source).unwrap();
+    fs::write(directory.0.join("target_FIXTURE.js"), "export default 42;").unwrap();
+    fs::write(
+        directory.0.join("unrelated_FIXTURE.js"),
+        "throw 'undeclared fixture';",
+    )
+    .unwrap();
+    let graph = declare(&entry, EmbeddedModuleGoal::Script, source, source)
+        .unwrap()
+        .unwrap()
+        .graph;
+    let request =
+        lila_engine::EmbeddedModuleRequest::try_new("./target_FIXTURE.js", Vec::new()).unwrap();
+    let referrer = EmbeddedModuleReferrer::Script(graph.entry().identity().into());
+    assert_eq!(
+        graph.resolve(&referrer, &request).unwrap().source_text(),
+        Some("export default 42;")
+    );
+    assert!(graph
+        .resolve(&EmbeddedModuleReferrer::Realm, &request)
+        .is_none());
+    assert!(graph
+        .resolve(&EmbeddedModuleReferrer::Unlocated, &request)
+        .is_none());
+    let unrelated =
+        lila_engine::EmbeddedModuleRequest::try_new("./unrelated_FIXTURE.js", Vec::new()).unwrap();
+    assert!(graph.resolve(&referrer, &unrelated).is_none());
+}
+
+#[test]
+fn unproved_eval_requests_do_not_authorize_available_fixture_files() {
+    let directory = Directory::new();
+    let entry = directory.0.join("entry.js");
+    fs::write(directory.0.join("target_FIXTURE.js"), "export default 42;").unwrap();
+    for (goal, source) in [
+        (EmbeddedModuleGoal::Script, r#"eval('import(specifier)');"#),
+        (
+            EmbeddedModuleGoal::Script,
+            r#"(0, eval)('import("./target_FIXTURE.js")');"#,
+        ),
+        (
+            EmbeddedModuleGoal::Module,
+            r#"eval('import("./target_FIXTURE.js")');"#,
+        ),
+    ] {
+        fs::write(&entry, source).unwrap();
+        let graph = declare(&entry, goal, source, source)
+            .unwrap()
+            .unwrap()
+            .graph;
+        let request =
+            lila_engine::EmbeddedModuleRequest::try_new("./target_FIXTURE.js", Vec::new()).unwrap();
+        let referrer = match goal {
+            EmbeddedModuleGoal::Script => {
+                EmbeddedModuleReferrer::Script(graph.entry().identity().into())
+            }
+            EmbeddedModuleGoal::Module => {
+                EmbeddedModuleReferrer::Module(graph.entry().identity().into())
+            }
+        };
+        assert!(graph.resolve(&referrer, &request).is_none());
+        assert!(graph
+            .resolve(&EmbeddedModuleReferrer::Realm, &request)
+            .is_none());
+    }
+}
+
+#[test]
+fn ordinary_script_import_discovery_skips_lowering_without_a_direct_eval_call() {
+    for (label, text, retained_request) in [
+        (
+            "unicode-and-eval-text",
+            r#"const frog = "🐸"; const text = "eval('import(\"./fake.js\")')"; import("./retained.js");"#,
+            Some("./retained.js"),
+        ),
+        (
+            "property-call",
+            r#"object.eval('import("./target.js")');"#,
+            None,
+        ),
+        (
+            "computed-property-call",
+            r#"object["eval"]('import("./target.js")');"#,
+            None,
+        ),
+        (
+            "indirect-call",
+            r#"(0, eval)('import("./target.js")');"#,
+            None,
+        ),
+        ("optional-call", r#"eval?.('import("./target.js")');"#, None),
+        (
+            "identifier-reference",
+            r#"const alias = eval; alias('import("./target.js")');"#,
+            None,
+        ),
+    ] {
+        let lila_front::ParsedSource::Script(script) =
+            lila_front::parse(text, lila_front::ParseOptions::script()).unwrap()
+        else {
+            panic!("not a Script: {label}");
+        };
+        let mut source = ModuleSourceIr::from_parsed_script(
+            ModuleKey::from_host("entry"),
+            String::new(),
+            script,
+        );
+        include_prepared_script_imports_if_needed(&mut source, || {
+            panic!("finite-source lowering reached an impossible direct eval: {label}")
+        });
+        let requests = source.module_loading_requests().unwrap();
+        match retained_request {
+            Some(specifier) => {
+                assert_eq!(requests.len(), 1, "{label}");
+                assert_eq!(requests[0].key(), &ModuleRequestKeyIr::plain(specifier));
+            }
+            None => assert!(requests.is_empty(), "{label}: {requests:?}"),
+        }
+    }
+}
+
+#[test]
+fn prepared_script_discovery_covers_nested_escaped_and_parenthesized_direct_eval_calls() {
+    for (label, text, literal_target) in [
+        (
+            "escaped-identifier",
+            r#"\u0065val('import("./target.js")');"#,
+            true,
+        ),
+        (
+            "parenthesized-reference",
+            r#"(((eval)))('import("./target.js")');"#,
+            true,
+        ),
+        (
+            "nested-functions",
+            r#"function outer() { function inner() { eval('import("./target.js")'); } inner(); } outer();"#,
+            true,
+        ),
+        (
+            "object-method",
+            r#"var object = { method() { eval('import("./target.js")'); } }; object.method();"#,
+            true,
+        ),
+        (
+            "class-method",
+            r#"class C { method() { eval('import("./target.js")'); } } new C().method();"#,
+            true,
+        ),
+        (
+            "computed-import-remains-unproved",
+            r#"eval('import(specifier)');"#,
+            false,
+        ),
+        (
+            "unknown-eval-source-remains-unproved",
+            r#"eval(source);"#,
+            false,
+        ),
+    ] {
+        let lila_front::ParsedSource::Script(script) =
+            lila_front::parse(text, lila_front::ParseOptions::script()).unwrap()
+        else {
+            panic!("not a Script: {label}");
+        };
+        let mut source = ModuleSourceIr::from_parsed_script(
+            ModuleKey::from_host("entry"),
+            String::new(),
+            script.clone(),
+        );
+        let discovery_calls = std::cell::Cell::new(0);
+        include_prepared_script_imports_if_needed(&mut source, || {
+            discovery_calls.set(discovery_calls.get() + 1);
+            let session = lila_ir::LoweringSession::default();
+            session.lower_source(
+                &lila_front::ParsedSource::Script(script),
+                lila_ir::HostSurfacePolicy::Test262,
+            );
+            session.prepared_script_import_sites()
+        });
+        assert_eq!(discovery_calls.get(), 1, "missed source: {label}");
+        let requests = source.module_loading_requests().unwrap();
+        if literal_target {
+            assert_eq!(requests.len(), 1, "{label}: {requests:?}");
+            assert_eq!(requests[0].key(), &ModuleRequestKeyIr::plain("./target.js"));
+        } else {
+            assert!(requests.is_empty(), "unproved edge: {label}: {requests:?}");
+        }
+    }
+}

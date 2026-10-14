@@ -29,6 +29,7 @@ mod aot_equality_operand_effects;
 mod aot_exact_context_budget;
 mod aot_for_of_head_completion;
 mod aot_in_operand_order;
+mod aot_numeric_call_rows;
 mod aot_object_binding_single_get;
 mod aot_optional_private_calls;
 mod aot_parameter_environment_lifetime;

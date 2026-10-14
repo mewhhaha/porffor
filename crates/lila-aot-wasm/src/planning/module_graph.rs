@@ -45,6 +45,14 @@ impl ModuleGraphPlan {
         Ok(plan)
     }
 
+    pub(crate) fn script_import_dispatcher(
+        &self,
+        referrer: u32,
+        phase: lila_ir::ImportPhaseIr,
+    ) -> Option<&FunctionId> {
+        self.graph.script_import_dispatcher(referrer, phase)
+    }
+
     pub(crate) fn record_count(&self) -> u32 {
         self.graph.record_count()
     }

@@ -39,6 +39,13 @@ pub(super) fn compile_dynamic_script_sources(
             }
         };
         let id = allocations.allocate_static_script_id();
+        let caller_origin = allocations.script_import_origin;
+        allocations.script_import_origin = match &source.kind {
+            PreparedScriptKind::DirectEval(context) => context.script_import_origin(),
+            PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::RealmScript
+            | PreparedScriptKind::ShadowRealmEvaluate => None,
+        };
         let mut compiled = lower_script_program_with_allocations(
             &parsed,
             ParseGoal::Script,
@@ -50,6 +57,7 @@ pub(super) fn compile_dynamic_script_sources(
             allocations,
             ScriptInstantiation::Prepared(source.kind.clone()),
         );
+        allocations.script_import_origin = caller_origin;
         if !compiled.diagnostics.is_empty() {
             if compiled
                 .diagnostics
@@ -133,6 +141,7 @@ pub(super) fn compile_module_prelude(
 ) {
     let id = allocations.allocate_static_script_id();
     let kind = PreparedScriptKind::RealmScript;
+    let caller_origin = allocations.script_import_origin.take();
     let mut compiled = lower_script_program_with_allocations(
         parsed,
         ParseGoal::Script,
@@ -144,6 +153,7 @@ pub(super) fn compile_module_prelude(
         allocations,
         ScriptInstantiation::Prepared(kind.clone()),
     );
+    allocations.script_import_origin = caller_origin;
     if !compiled.diagnostics.is_empty() {
         program.diagnostics.append(&mut compiled.diagnostics);
         record_prepared_compilation_stage(program);

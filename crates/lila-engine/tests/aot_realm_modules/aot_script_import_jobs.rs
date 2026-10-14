@@ -28,7 +28,9 @@ fn assert_script(
     )));
     std::fs::create_dir_all(&fixture.0).expect("create Script module fixture");
     for (name, text) in files {
-        std::fs::write(fixture.0.join(name), text).expect("write Script module fixture");
+        let path = fixture.0.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).expect("create Script fixture parent");
+        std::fs::write(path, text).expect("write Script module fixture");
     }
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
     let observed = Engine::new(RealmBuilder::new().build())
@@ -456,4 +458,141 @@ true;
         ],
         &["contextual source grammar and error owners"],
     );
+}
+
+#[test]
+fn pinned_import_usage_from_eval_preserves_both_original_modes() {
+    const SOURCE: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/expressions/dynamic-import/usage-from-eval.js"
+    );
+    const MODULE: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/expressions/dynamic-import/module-code_FIXTURE.js"
+    );
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    const DONE: &str =
+        include_str!("../../../../test262/vendor/test262/harness/doneprintHandle.js");
+    let files = [
+        ("usage-from-eval.js", SOURCE),
+        ("module-code_FIXTURE.js", MODULE),
+    ];
+    for directive in ["", "\"use strict\";\n"] {
+        assert_script(
+            &files,
+            &format!("{directive}{STA}\n{ASSERT}\n{DONE}\n{SOURCE}"),
+            &["Test262:AsyncTestComplete"],
+            ObservedJsValue::Undefined,
+        );
+    }
+}
+
+#[test]
+fn nested_direct_eval_imports_keep_script_base_jobs_and_namespace_identity() {
+    const ENTRY: &str = r#"
+var evaluations = 0, order = [];
+const first = eval('eval("import(\\"./target.js\\");")');
+const second = eval('import("./target.js")');
+if (first === second || Promise.resolve(first) !== first ||
+    Object.getPrototypeOf(first) !== Promise.prototype) throw 'intrinsic fresh promise';
+if (evaluations !== 0) throw 'eager prepared import';
+order.push('entry');
+Promise.all([first, second]).then(function (namespaces) {
+    if (namespaces[0] !== namespaces[1] || namespaces[0].value !== 42 ||
+        evaluations !== 1 || order.join(',') !== 'entry,target') throw 'canonical module jobs';
+    print('prepared imports share one namespace');
+});
+print('imports queued');
+true;
+"#;
+    for directive in ["", "\"use strict\";\n"] {
+        let entry = format!("{directive}{ENTRY}");
+        success(
+            &[
+                ("dir/entry.js", &entry),
+                (
+                    "dir/target.js",
+                    "evaluations++; order.push('target'); export const value = 42;",
+                ),
+                ("target.js", "throw 'wrong Script base';"),
+            ],
+            &["imports queued", "prepared imports share one namespace"],
+        );
+    }
+}
+
+#[test]
+fn prepared_eval_import_rejections_keep_cached_values_and_one_evaluation() {
+    const ENTRY: &str = r#"
+var attempts = 0, failure = { marker: 42 };
+const first = eval('import("./fail.js")');
+const second = eval('eval("import(\\"./fail.js\\");")');
+function fulfilled() { throw 'rejected import fulfilled'; }
+Promise.all([first.then(fulfilled, x => x), second.then(fulfilled, x => x)]).then(function (values) {
+    if (values[0] !== failure || values[1] !== failure || attempts !== 1) throw 'cached module rejection';
+    print('one exact module rejection');
+});
+if (attempts !== 0) throw 'synchronous target evaluation';
+print('rejections queued');
+true;
+"#;
+    for directive in ["", "\"use strict\";\n"] {
+        let entry = format!("{directive}{ENTRY}");
+        success(
+            &[
+                ("entry.js", &entry),
+                ("fail.js", "attempts++; throw failure;"),
+            ],
+            &["rejections queued", "one exact module rejection"],
+        );
+    }
+}
+
+#[test]
+fn unproved_eval_imports_keep_typed_capability_rejection_with_catalogued_targets() {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let fixture = Modules(std::env::temp_dir().join(format!(
+        "lila-prepared-import-bounds-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )));
+    std::fs::create_dir_all(&fixture.0).unwrap();
+    std::fs::write(fixture.0.join("target.js"), "export const value = 42;").unwrap();
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    for (module, body) in [
+        (
+            false,
+            r#"void import('./target.js'); var specifier = './target.js'; try { eval('import(specifier)'); } catch (_) {} true;"#,
+        ),
+        (
+            true,
+            r#"void import('./target.js'); try { eval('import("./target.js")'); } catch (_) {}"#,
+        ),
+    ] {
+        std::fs::write(fixture.0.join("entry.js"), body).unwrap();
+        let engine = Engine::new(RealmBuilder::new().build());
+        let options = CompileOptions {
+            filename: Some(fixture.0.join("entry.js").to_str().unwrap().into()),
+            module_root: Some(fixture.0.to_str().unwrap().into()),
+            ..CompileOptions::default()
+        };
+        let run = RunOptions {
+            backend: ExecutionBackend::WasmAot,
+            timeout_ms: Some(30_000),
+            ..RunOptions::default()
+        };
+        let result = if module {
+            engine.run_module(body, options, run)
+        } else {
+            engine.run_script(body, options, run)
+        };
+        let error = result
+            .expect_err("unknown import operands/origins cannot become catchable JS failures");
+        assert_eq!(
+            error.runtime_dynamic_source_operations(),
+            vec![lila_ir::DynamicSourceRuntimeOperation::Eval],
+            "{error}"
+        );
+        assert!(error.parse_diagnostic().is_none(), "{error}");
+        assert!(error.ir_diagnostic().is_none(), "{error}");
+    }
 }

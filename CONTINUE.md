@@ -1,5 +1,20 @@
 # Current continuation — 2026-10-14
 
+## Integrated repair batch — 2026-10-14
+
+The strict callable-header, finite Function-constructor, prepared direct-eval
+import and numeric-call emission repairs are integrated. Direct-eval imports
+retain their Script referrer and use the existing module jobs; unproved dynamic
+source remains an explicit capability gap. Numeric call rows preserve live
+lookup, argument evaluation and completion handling. Release workspace testing
+now uses the selected shared Cargo target and runtime image contract.
+
+All generated Intl outputs reproduce without changes from the combined source,
+and the associated generator checks pass. Integrated Rust compilation, native
+regressions, the complete workspace and Test262 acceptance are still pending.
+The previous closed checkpoint and every remaining failure follow below;
+CONTINUE.md and tasks remain until their acceptance requirements are met.
+
 ## Closed historical replay and private V3 diagnostics — 2026-10-14
 
 Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c`; documentation publication parent `a86a8b2ba451145491157891a30c68a8af8173d6`. The historical replay has closed. Coverage and exact passing retention are verified; conformance remains RED.

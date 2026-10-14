@@ -156,7 +156,7 @@ macro_rules! early_error_codes {
             /// The length is written into the type: adding a row without
             /// updating it is `error[E0308]`, and the tie between this order and
             /// the `#[repr(u8)]` discriminants is checked by assertion P3.
-            pub const ALL: [EarlyErrorCode; 75] = [$(EarlyErrorCode::$variant,)+];
+            pub const ALL: [EarlyErrorCode; 76] = [$(EarlyErrorCode::$variant,)+];
 
             /// The single spelling authority for these codes in this workspace.
             ///
@@ -482,6 +482,11 @@ early_error_codes! {
     ModuleInconsistentLoad => "E_MODULE_INCONSISTENT_LOAD";
     /// An implementation limit, **not** a spec condition. See ledger L4.
     ModuleTooManyUnits => "E_MODULE_TOO_MANY_UNITS";
+    /// 12.1.1 / 10.2.1. A callable header binding is a strict reserved
+    /// identifier because its own FunctionBody contains a Use Strict Directive.
+    /// Appended to retain every existing discriminant. The typed AST owner
+    /// carries this condition independently of parser presentation text.
+    StrictModeReservedBindingIdentifier => "E_STRICT_MODE_RESERVED_BINDING_IDENTIFIER";
 }
 
 const fn code_eq(a: EarlyErrorCode, b: EarlyErrorCode) -> bool {
@@ -1285,11 +1290,17 @@ pub const NO_EARLY_ERROR_CODE: &str = "E_IR_DIAGNOSTIC";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ParseClassified(EarlyErrorCode);
 
-// The sole typed parser owner is separate from the message-pattern table.
+// The typed parser and AST owners are separate from the message-pattern table.
 // It cannot be acquired by text classification, even when another parser
 // error carries the same presentation text.
 const TYPED_CLASS_METHOD_SUPER_CODE: ParseClassified =
     ParseClassified(EarlyErrorCode::ClassMethodHasDirectSuper);
+
+// Successful Boa syntax still requires the callable header checks whose
+// strictness is established by its own body directive. Only that AST owner
+// produces this witness; no message-pattern row can mint it.
+pub(crate) const TYPED_STRICT_BINDING_CODE: ParseClassified =
+    ParseClassified(EarlyErrorCode::StrictModeReservedBindingIdentifier);
 
 impl ParseClassified {
     /// Project Boa's closed error carrier before its presentation text is made.
@@ -1408,9 +1419,8 @@ pub const fn classify_parse_failure(message: &str) -> Option<ParseClassified> {
 }
 
 impl EarlyErrorCode {
-    /// True iff the one message-pattern table or dedicated typed parser owner
-    /// can produce this code — i.e.
-    /// iff a boa **parse** failure can be classified as this condition.
+    /// True iff the message-pattern table or a dedicated typed parser/AST
+    /// owner can produce this code at the parse boundary.
     ///
     /// `pub` because its consumer is `lila_ir::early_error_code`'s assertion
     /// P7, which must hold across the crate boundary while the table itself
@@ -1418,7 +1428,9 @@ impl EarlyErrorCode {
     /// doc comment that used to ask, in words, that the two tables agree.
     #[must_use]
     pub const fn is_parse_classified(self) -> bool {
-        if code_eq(self, TYPED_CLASS_METHOD_SUPER_CODE.code()) {
+        if code_eq(self, TYPED_CLASS_METHOD_SUPER_CODE.code())
+            || code_eq(self, TYPED_STRICT_BINDING_CODE.code())
+        {
             return true;
         }
         let mut i = 0;

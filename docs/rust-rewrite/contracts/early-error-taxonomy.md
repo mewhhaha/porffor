@@ -1,5 +1,14 @@
 # Contract: early-error taxonomy — pointer
 
+## 2026-10-14 strict callable binding amendment
+
+A typed Front AST owner validates strict reserved identifiers in callable
+headers after the body establishes strictness. This closes the pinned parser
+late-directive gap across Script, Module, eval and Function preparation without
+changing the message-pattern table or contextual Yield grammar. See
+`strict-callable-binding-early-errors.md`. Native verification is pending; this
+amendment makes no aggregate conformance or publication claim.
+
 ## Parse-failure pattern observation
 
 `ParseFailurePattern` retains `Clone` and `Copy` as intentional static-table

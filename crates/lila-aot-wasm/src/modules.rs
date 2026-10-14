@@ -18,8 +18,8 @@
 //! graph call site — `import(`, `import.defer(` and `import.source(` alike
 //! — into an ordinary call to a generated dispatcher function that `ToString`s
 //! the specifier, compares it against the specifiers compiled into the artifact
-//! and resolves or rejects a promise, so no `ImportCall` node reaches this
-//! backend and no source is parsed at runtime, ever. A Script gets the same
+//! and resolves or rejects a promise. Prepared direct evals select that same
+//! dispatcher through their proved Script Record; no source is parsed at runtime. A Script gets the same
 //! treatment as a module: `lila_ir::lower_script_graph` compiles the targets
 //! of a Script's `import()` calls into the same artifact and wraps them in one
 //! strict function so the Script itself stays Script code. See
@@ -111,36 +111,85 @@ impl FunctionBuilder<'_> {
         result
     }
 
-    /// `ExprIr::DynamicImport`: requires a compiled graph, never a runtime parser.
-    ///
-    /// Reaching this arm means the *host* compiled a source that writes
-    /// `import()` without supplying the graph its specifiers name, so there is
-    /// nothing in the artifact to resolve against and nothing this emitter could
-    /// invent. Both goals normally supply one — a module through
-    /// `lower_module_graph`, a Script through `lower_script_graph` — and
-    /// `lila_ir::modules::dynamic` desugars every call site of a graph into
-    /// an ordinary call to a generated dispatcher, so no `ImportCall` survives
-    /// to this backend.
-    ///
-    /// What is left here is the case the linker cannot reach at all: a Script
-    /// the loader could not read as module code (a sloppy `with`, an octal
-    /// literal), whose `import()` specifiers therefore could not be discovered.
-    /// Closing it needs the entry's dynamic-import sites read off a *Script*
-    /// parse, not a Wasm emitter — an artifact with no target compiled into it
-    /// can only reject, and rejecting silently would be a wrong answer rather
-    /// than a missing one.
+    /// Prepared direct evals retain a proved Script Record and use that
+    /// record's already compiled async dispatcher. The canonical dispatcher
+    /// owns the promise, coercion, module jobs, namespace and rejection value.
+    /// An absent/ambiguous origin or an undiscovered target remains AOT debt.
     pub(crate) fn emit_dynamic_import(
         &mut self,
-        _referrer: Option<u32>,
-        _specifier: &TypedExpr,
-        _options: Option<&TypedExpr>,
-        _output: &ValueLocals,
-        _function: &mut Function,
+        referrer: Option<u32>,
+        phase: lila_ir::ImportPhaseIr,
+        specifier: &TypedExpr,
+        options: Option<&TypedExpr>,
+        output: &ValueLocals,
+        function: &mut Function,
     ) -> Result<(), EmitError> {
-        Err(unsupported(
-            "dynamic import without a compiled graph (the host lowered a source that writes \
-             `import()` without loading its targets)",
-        ))
+        let dispatcher = referrer
+            .and_then(|referrer| {
+                self.functions
+                    .module_graph()
+                    .and_then(|graph| graph.script_import_dispatcher(referrer, phase))
+            })
+            .cloned()
+            .ok_or_else(|| {
+                unsupported(
+                "dynamic import without a compiled graph (the host lowered a source that writes \
+                 `import()` without loading its targets)",
+            )
+            })?;
+        let meta = self.functions.get(&dispatcher).cloned().ok_or_else(|| {
+            unsupported("prepared Script import dispatcher requires its compiled entry")
+        })?;
+        let schema = self.runtime_schema();
+        // ImportCall evaluates both operands before creating its promise.
+        let argument = schema.reserve_value_local(function);
+        self.compile_expr_to_value(specifier, &argument, function)?;
+        let import_options = schema.reserve_value_local(function);
+        if let Some(options) = options {
+            self.compile_expr_to_value(options, &import_options, function)?;
+        } else {
+            import_options.set_undefined(function);
+        }
+        let pending = schema.reserve_completion(function);
+        pending.initialize(function);
+        let realm = self.load_current_realm(function);
+        // Initialization creates canonical cells, without evaluating targets.
+        // The same graph is reusable if the direct eval executes in another Realm.
+        self.emit_module_initialize_in_realm(&realm, &pending, function)?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        let prototype = schema.reserve_value_local(function);
+        self.emit_load_non_array_realm_intrinsic(
+            &realm,
+            NonArrayRealmIntrinsicSlot::AsyncFunctionPrototype,
+            &prototype,
+            function,
+        );
+        let callable = schema.reserve_gc_local(function).initialize(
+            self.emit_dynamic_source_function_record(&meta, &realm, &prototype, function)?,
+            function,
+        );
+        let callee = schema.reserve_value_local(function);
+        callee.set_reference(&callable, schema, function);
+        let receiver = schema.reserve_value_local(function);
+        receiver.set_undefined(function);
+        let arguments = self.emit_pre_evaluated_arg_vector(&[&argument, &import_options], function);
+        self.emit_function_or_proxy_call_with_argv(
+            &callee, &receiver, &arguments, &pending, function,
+        )?;
+        self.completion().copy_from(&pending, function);
+        self.emit_propagate_current_throw_if_needed(function);
+        output.copy_from(pending.value(), function);
+        arguments.clear(function);
+        receiver.clear(function);
+        callee.clear(function);
+        callable.clear(function);
+        prototype.clear(function);
+        realm.clear(function);
+        pending.clear(function);
+        import_options.clear(function);
+        argument.clear(function);
+        Ok(())
     }
 
     /// `ExprIr::ImportMeta`: retains its explicit unsupported source boundary.

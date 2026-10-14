@@ -12,6 +12,7 @@ mod dynamic_function;
 mod early_error_code;
 mod eval_source;
 mod json;
+mod strict_callable_bindings;
 mod utf16_source;
 
 // Generated source uses exactly the lexer's decoded-code-point grammar.
@@ -537,6 +538,15 @@ pub fn parse(
             .map(|(ast, source)| ParsedAst::Module(ast, source)),
     })?;
 
+    match &ast {
+        ParsedAst::Script(ast, _) => strict_callable_bindings::validate(ast, |position| {
+            source_span_at_position(&source_text, position)
+        }),
+        ParsedAst::Module(ast, _) => strict_callable_bindings::validate(ast, |position| {
+            source_span_at_position(&source_text, position)
+        }),
+    }?;
+
     let source = SourceUnit {
         goal: options.goal,
         filename: options.filename,
@@ -554,6 +564,9 @@ pub fn parse_script_utf16(source_units: &[u16]) -> Result<ParsedScript, ParseErr
     let (ast, source_text) = parse_utf16_with_boundary(source_units, || {
         Parser::new(Source::from_utf16(source_units))
             .parse_script_with_source(&scope, &mut interner)
+    })?;
+    strict_callable_bindings::validate(&ast, |position| {
+        source_span_utf16_at_position(source_units, position)
     })?;
     Ok(ParsedScript {
         source: SourceUnit {
@@ -659,7 +672,10 @@ fn parse_error_position(error: &boa_parser::Error) -> Option<boa_ast::Position> 
 }
 
 fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<SourceSpan> {
-    let position = parse_error_position(error)?;
+    source_span_at_position(source_text, parse_error_position(error)?)
+}
+
+fn source_span_at_position(source_text: &str, position: boa_ast::Position) -> Option<SourceSpan> {
     let start = byte_offset_for_line_col(
         source_text,
         position.line_number() as usize,
@@ -680,7 +696,13 @@ fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<Sour
 /// Traverse actual source code points for line/column ownership, then encode
 /// the selected boundary; marker characters are ordinary user data here.
 fn parse_error_span_utf16(source: &[u16], error: &boa_parser::Error) -> Option<SourceSpan> {
-    let position = parse_error_position(error)?;
+    source_span_utf16_at_position(source, parse_error_position(error)?)
+}
+
+fn source_span_utf16_at_position(
+    source: &[u16],
+    position: boa_ast::Position,
+) -> Option<SourceSpan> {
     let target = (
         position.line_number() as usize,
         position.column_number() as usize,

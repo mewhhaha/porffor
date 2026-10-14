@@ -11,6 +11,11 @@ pub(crate) use eval_environment::{
 };
 use std::sync::Arc;
 
+/// Necessary syntax condition only; intrinsic eval identity remains a lowering proof.
+pub(crate) fn contains_direct_eval_call(script: &Script) -> bool {
+    eval_environment::contains_direct_eval_call(script)
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct PendingFunction<'a> {
     pub(crate) id: FunctionId,
@@ -224,6 +229,7 @@ impl FunctionPlan<'_> {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AnalysisAllocationState {
     pub(crate) prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
+    pub(crate) script_import_origin: Option<crate::direct_eval_context::ScriptImportOrigin>,
     pub(crate) template_sources: crate::template_site::TemplateSourceOwners,
     next_static_script_id: u32,
     next_function_id: usize,
@@ -353,6 +359,7 @@ fn environment_has_runtime_storage(
 #[derive(Default)]
 pub(crate) struct AnalysisBuilder<'a> {
     prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
+    script_import_origin: Option<crate::direct_eval_context::ScriptImportOrigin>,
     template_source: Option<TemplateSourceIr>,
     template_sources: crate::template_site::TemplateSourceOwners,
     script_instantiation: ScriptInstantiation,
@@ -411,6 +418,7 @@ impl<'a> AnalysisBuilder<'a> {
         Self {
             template_source,
             prepared_sources: allocations.prepared_sources,
+            script_import_origin: allocations.script_import_origin,
             template_sources: allocations.template_sources,
             script_instantiation,
             next_static_script_id: allocations.next_static_script_id,
@@ -598,6 +606,7 @@ impl<'a> AnalysisBuilder<'a> {
             script_instantiation: self.script_instantiation,
             allocations: AnalysisAllocationState {
                 prepared_sources: self.prepared_sources,
+                script_import_origin: self.script_import_origin,
                 template_sources: self.template_sources,
                 next_static_script_id: self.next_static_script_id,
                 next_function_id: self.next_function_id,

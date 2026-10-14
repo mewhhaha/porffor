@@ -192,6 +192,8 @@ fn lower_graph(
 
     let mut allocations = AnalysisAllocationState::default();
     allocations.prepared_sources = session.prepared_sources.clone();
+    allocations.script_import_origin = entry_is_script
+        .then_some(crate::direct_eval_context::ScriptImportOrigin::LoadedRecord(graph.entry));
     let instantiation = if prelude.is_some() {
         ScriptInstantiation::ModuleAfterGlobalScript
     } else {

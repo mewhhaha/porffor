@@ -62,6 +62,17 @@ pub(crate) fn declare(
     catalog.into_graph(entry_source).map(Some)
 }
 
+/// Keep costly finite-source lowering lazy behind its necessary AST condition.
+/// The discovery callback still owns the intrinsic and source-context proof.
+fn include_prepared_script_imports_if_needed(
+    source: &mut ModuleSourceIr,
+    discover: impl FnOnce() -> Vec<DynamicImportSiteIr>,
+) {
+    if source.may_contain_direct_eval_call() {
+        source.include_prepared_script_import_sites(&discover());
+    }
+}
+
 /// What a source text can ask the host for, found without a second parser.
 struct ModuleLoadingSyntax {
     /// Any `import(...)`, `import.defer(...)`, `import.source(...)` or
@@ -250,11 +261,23 @@ impl Catalog {
             Node::ScriptEntry => {
                 match lila_front::parse(text, lila_front::ParseOptions::script()) {
                     Ok(lila_front::ParsedSource::Script(script)) => {
-                        Some(ModuleSourceIr::from_parsed_script(
+                        let mut source = ModuleSourceIr::from_parsed_script(
                             ModuleKey::from_host("entry"),
                             String::new(),
-                            script,
-                        ))
+                            script.clone(),
+                        );
+                        include_prepared_script_imports_if_needed(&mut source, || {
+                            let session = lila_ir::LoweringSession::default();
+                            // Reuse this Script parse and the compiler's finite-source
+                            // proof only when the AST could call direct eval.
+                            // This creates no module-loading authority by itself.
+                            session.lower_source(
+                                &lila_front::ParsedSource::Script(script),
+                                lila_ir::HostSurfacePolicy::Test262,
+                            );
+                            session.prepared_script_import_sites()
+                        });
+                        Some(source)
                     }
                     _ => None,
                 }

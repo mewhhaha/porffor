@@ -935,6 +935,8 @@ impl LoweringSession {
             ParsedSource::Script(source) => {
                 let mut allocations = AnalysisAllocationState::default();
                 allocations.prepared_sources = self.prepared_sources.clone();
+                allocations.script_import_origin =
+                    Some(crate::direct_eval_context::ScriptImportOrigin::Discovery);
                 lower_script_program_with_allocations(
                     source,
                     ParseGoal::Script,
@@ -6429,10 +6431,8 @@ impl<'a> ScriptLowerer<'a> {
                 // capability, where it rejects instead.
                 let specifier = self.lower_expression(call.argument());
                 let options = call.options().map(|options| self.lower_expression(options));
-                // `None` referrer: `import()` is legal in Script goal, where
-                // the referrer is genuinely absent. A module unit passes its
-                // own id once the per-unit lowering seam exists.
-                match modules::lower_import_call(call, specifier, options, None) {
+                let referrer = self.prepared_literal_import_referrer(call);
+                match modules::lower_import_call(call, specifier, options, referrer) {
                     Ok(expression) => expression,
                     Err(message) => {
                         self.unsupported_with_message(message);

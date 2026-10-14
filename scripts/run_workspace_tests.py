@@ -9,8 +9,10 @@ test exactly once across disjoint processes.
 """
 import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
 from pathlib import Path
+root=Path.cwd()
+sys.path.insert(0,str(root/'scripts'))
 from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli
-root=Path.cwd();parser=argparse.ArgumentParser();parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -26,6 +28,13 @@ def source_map():
             'untracked':{os.fsdecode(p):hashlib.sha256((root/os.fsdecode(p)).read_bytes()).hexdigest() for p in untracked if p}}
 source=source_map();(out/'source-start.json').write_text(json.dumps(source,sort_keys=True)+'\n')
 metadata=json.loads(subprocess.check_output(['cargo','metadata','--format-version','1','--no-deps','--locked','--offline'],text=True));(out/'metadata.json').write_text(json.dumps(metadata)+'\n')
+cargo_target_dir=Path(metadata['target_directory']).resolve()
+profile_root=cargo_target_dir/args.profile
+profile_flags=['--release'] if args.profile=='release' else []
+def evidence_path(path):
+    path=Path(path).absolute()
+    try:return str(path.relative_to(root))
+    except ValueError:return str(path)
 package_ids={p['name']:p['id'] for p in metadata['packages']}
 members=set(metadata['workspace_members']);packages=[p for p in metadata['packages'] if p['id'] in members]
 priority=['lila-front','lila-ir','lila-aot-wasm','lila-engine','lila-cli']
@@ -73,11 +82,13 @@ if args.only_targets:
     assert requested <= known, requested-known
     cases=[c for c in cases if c['package']+':'+c['target'] in requested]
 
-result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages}
+result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages}
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
     assert previous['head']==result['head'] and previous['source_unchanged']
+    assert previous.get('profile','debug')==args.profile, 'Retry profile changed'
+    assert Path(previous.get('target_directory',root/'target')).resolve()==cargo_target_dir, 'Retry Cargo target directory changed'
     assert previous['all_features']==args.all_features and previous['include_ignored']==args.include_ignored
     assert previous['selected_workspace_packages']==result['selected_workspace_packages']
     assert previous.get('isolated_test_packages',[])==isolated_packages
@@ -102,17 +113,37 @@ if args.shared_runtime_linker:
     assert linker.name=='cc' and linker.is_file()
     build_env['PATH']=str(linker.parent)+os.pathsep+build_env['PATH']
     if args.strip_test_debug:build_env['LILA_TEST_STRIP_DEBUG']='1'
-    result['shared_runtime_linker']={'files':{str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [linker,linker.with_name('shared_image.py'),linker.with_name('strip_debug.py')]},'policy':'only Rust libtest ELF outputs in target/debug/deps share immutable data; ordinary product and doc links retain static archive'}
+    if args.shared_runtime_linker_contract:
+        contract_path=args.shared_runtime_linker_contract.resolve()
+        contract=json.loads(contract_path.read_text())
+        assert contract['profile']==args.profile, 'Shared linker profile differs'
+        assert Path(contract['target_directory']).resolve()==cargo_target_dir, 'Shared linker target directory differs'
+        assert Path(contract['native_output_directory']).resolve()==profile_root/'deps', 'Shared linker native output directory differs'
+        assert Path(contract['shared_runtime_directory']).resolve()==cargo_target_dir/'shared-test-runtime-images', 'Shared linker image directory differs'
+        files=[Path(row['path']).resolve() for row in contract['files']]
+        assert len(files)==len(set(files)) and linker in files
+        assert {p.name for p in files}=={'cc','shared_image.py','strip_debug.py'}
+        assert all(hashlib.sha256(Path(row['path']).read_bytes()).hexdigest()==row['sha256'] for row in contract['files']), 'Shared linker contract bytes changed'
+        files.append(contract_path)
+    else:
+        assert args.profile=='debug', 'An external release linker needs an explicit bound contract'
+        assert (linker.parents[2]/'target').resolve()==cargo_target_dir, 'Adjacent debug linker targets a different Cargo directory'
+        files=[linker,linker.with_name('shared_image.py'),linker.with_name('strip_debug.py')]
+    result['shared_runtime_linker']={'profile':args.profile,'target_directory':str(cargo_target_dir),
+        'files':{evidence_path(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
+        'policy':'Only Rust libtest ELF outputs in the selected Cargo profile directory share immutable data; ordinary product and doc links retain static archive.'}
+else:
+    assert not args.shared_runtime_linker_contract, 'A linker contract requires its actual cc'
 if args.no_test_incremental:
     wrapper=(root/'scripts/test-shared-runtime-images/test-rustc').resolve()
     assert not build_env.get('RUSTC_WRAPPER'), 'Cannot replace an existing compiler wrapper'
     build_env['RUSTC_WRAPPER']=str(wrapper)
-    result['test_incremental_policy']={'wrapper':str(wrapper.relative_to(root)),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'policy':'Verification compiler units omit incremental scratch; compiled normal libraries remain reusable, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
+    result['test_incremental_policy']={'wrapper':evidence_path(wrapper),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'policy':'Verification compiler units omit incremental scratch; compiled normal libraries remain reusable, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
 
 def release_incremental(case):
     prefix=case['target'].replace('-','_')+'-'
     removed=[]
-    for cache in (root/'target/debug/incremental').glob(prefix+'*'):
+    for cache in (profile_root/'incremental').glob(prefix+'*'):
         if cache.is_dir():
             # Library and library-test incremental namespaces overlap. Preserve
             # them rather than guessing current Cargo graph identities.
@@ -122,7 +153,10 @@ def release_incremental(case):
     case['released_incremental']=removed
 
 def save():
-    result['source_unchanged']=source==source_map();(out/'receipt.json').write_text(json.dumps(result,indent=2)+'\n')
+    result['source_unchanged']=source==source_map()
+    result['shared_runtime_linker_unchanged']=all(hashlib.sha256((root/path).read_bytes()).hexdigest()==digest for path,digest in result.get('shared_runtime_linker',{}).get('files',{}).items())
+    assert result['shared_runtime_linker_unchanged'], 'Shared linker/helper contract changed during verification'
+    (out/'receipt.json').write_text(json.dumps(result,indent=2)+'\n')
 save()
 
 # Independent complete native targets can run concurrently, each under one CPU
@@ -137,10 +171,38 @@ result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'test_threads_per_process':1,'cargo_jobs':1,'strip_test_debug':args.strip_test_debug,
  'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
 active={}
-sys.path.insert(0,str(root/'scripts'))
 from workspace_test_artifacts import build_script_artifact, doc_cohorts, package_selection, selector_key, test_artifacts
 from workspace_build_cpus import expand_build_tree
 def group_key(case):return selector_key(case,isolated_packages)
+def cargo_test_base(case):
+    flags=['--all-features'] if args.all_features else []
+    selection=['-p',case['package']] if case['kind']=='doc' or case['package'] in isolated_packages else package_selection(args.packages,isolated_packages)
+    return ['cargo','test','--locked','--offline',*profile_flags,*selection,*flags,*case['selector']]
+def profile_test_artifacts(messages,expected):
+    outputs=test_artifacts(messages,expected)
+    assert all(path.parent.resolve()==(profile_root/'deps').resolve() for path in outputs.values()), 'Cargo-selected native output belongs to another profile or target directory'
+    return outputs
+if args.plan_only:
+    assert not args.reuse_library_build_from, 'Planning does not admit carried native outputs'
+    result['prepared_only']=True
+    result['native_executed']=False
+    result['native_acceptance']=False
+    result['command_plan']=[{'package':case['package'],'target':case['target'],'kind':case['kind'],
+        'cargo_command':cargo_test_base(case),
+        'build_command':cargo_test_base(case)+([] if case['kind']=='doc' else ['--no-run','--message-format=json-render-diagnostics']),
+        'inventory_arguments':['--list'],
+        'execution_arguments':['--test-threads=1']+(['--include-ignored'] if args.include_ignored else []),
+        'barrier':is_barrier(case) or is_partitioned_cli(case,args.partition_cli),
+        'partitioned_cli':is_partitioned_cli(case,args.partition_cli),
+        'build_group':':'.join(group_key(case)) if case['kind']!='doc' else None}
+        for _,case in execution_order(cases,args.partition_cli)]
+    result['documentation_cohort_plan']=[{'group':group,'packages':sorted(names),
+        'inventory_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--list'],
+        'execution_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--test-threads=1',*(['--include-ignored'] if args.include_ignored else [])]}
+        for group,selection,names in doc_cohorts(full_inventory,args.packages,isolated_packages)]
+    save()
+    print(json.dumps({'prepared_only':True,'native_executed':False,'profile':args.profile,'target_directory':str(cargo_target_dir),'selected_targets':len(cases)},sort_keys=True),flush=True)
+    raise SystemExit(0)
 artifact_cohorts={}
 build_groups={}
 result['build_groups']=build_groups
@@ -152,6 +214,8 @@ if args.reuse_library_build_from:
     carry_path=args.reuse_library_build_from
     carry=json.loads(carry_path.read_text())
     assert carry['source_unchanged'] and carry['head']==result['head']
+    assert carry.get('profile','debug')==args.profile, 'Library carry profile changed'
+    assert Path(carry.get('target_directory',root/'target')).resolve()==cargo_target_dir, 'Library carry Cargo target directory changed'
     assert carry['all_features']==args.all_features and carry['include_ignored']==args.include_ignored
     assert carry['selected_workspace_packages']==result['selected_workspace_packages']
     assert json.loads((carry_path.parent/'source-start.json').read_text())==source
@@ -164,7 +228,7 @@ if args.reuse_library_build_from:
     messages=[json.loads(line) for line in raw.splitlines()]
     assert any(m.get('reason')=='build-finished' and m.get('success') is True for m in messages)
     expected=[(package_ids[c['package']],c['target'],c['kind']) for c in full_inventory if c['kind']=='lib']
-    outputs=test_artifacts(messages,expected)
+    outputs=profile_test_artifacts(messages,expected)
     wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if c['kind']=='lib'}
     admitted={}
     evidence=[]
@@ -183,11 +247,11 @@ if args.reuse_library_build_from:
             original=restored_rows[str(path)]
             assert original['sha256']==hashlib.sha256(path.read_bytes()).hexdigest()
             assert original['bytes']==path.stat().st_size
-        assert path.is_file() and path.parent.resolve()==(root/'target/debug/deps').resolve()
+        assert path.is_file() and path.parent.resolve()==(profile_root/'deps').resolve()
         previous_case=next(c for c in carry['cases'] if (package_ids[c['package']],c['target'],c['kind'])==key)
         assert previous_case.get('state') in ('storage-deferred',None), 'Never carry an executed or failed output'
         admitted[key]=path
-        evidence.append({'package_id':key[0],'target':key[1],'kind':key[2],'path':str(path.relative_to(root)),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'bytes':path.stat().st_size,'cargo_fresh':matching[0]['fresh']})
+        evidence.append({'package_id':key[0],'target':key[1],'kind':key[2],'path':evidence_path(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'bytes':path.stat().st_size,'cargo_fresh':matching[0]['fresh']})
     assert admitted
     cases.sort(key=lambda case: 0 if case['kind']=='lib' else 1)
     result['scheduling']['cached_library_priority']='Run never-executed validated library outputs first; their retirement releases space without another link. Exact whole-target inventory is unchanged.'
@@ -232,7 +296,7 @@ def seal_build_logs(case, paths):
         original_sha=hashlib.sha256(path.read_bytes()).hexdigest()
         packed=path.with_suffix(path.suffix+'.gz')
         with path.open('rb') as src, gzip.open(packed,'wb',compresslevel=1) as dst:shutil.copyfileobj(src,dst)
-        archives.append({'path':str(packed.relative_to(root)),'uncompressed_sha256':original_sha,'gzip_sha256':hashlib.sha256(packed.read_bytes()).hexdigest(),'uncompressed_bytes':path.stat().st_size,'compressed_bytes':packed.stat().st_size})
+        archives.append({'path':evidence_path(packed),'uncompressed_sha256':original_sha,'gzip_sha256':hashlib.sha256(packed.read_bytes()).hexdigest(),'uncompressed_bytes':path.stat().st_size,'compressed_bytes':packed.stat().st_size})
         path.unlink()
     case['sealed_build_logs']=archives
     if case.get('build_group') and archives:build_groups[case['build_group']]['sealed_build_logs']=archives
@@ -261,25 +325,25 @@ def complete(cpu):
     matches_inventory=bool(outcomes) and observed==case['inventoried_tests'] and ignored==0 and failed==0
     case.update(state='passed' if status==0 and matches_inventory else 'failed',exit_code=status,
       inventory_matches=matches_inventory,seconds=round(time.monotonic()-entry['start'],3),outcomes=outcomes,
-      transcript_log=str(watch.relative_to(root)))
+      transcript_log=evidence_path(watch))
     if watch.exists():case['transcript_sha256']=hashlib.sha256(watch.read_bytes()).hexdigest()
     if entry.get('partition_receipt'):
         partition_path=entry['partition_receipt']
         if partition_path.exists():
             partition_evidence=json.loads(partition_path.read_text())
-            case['native_partitions']={'path':str(partition_path.relative_to(root)),'sha256':hashlib.sha256(partition_path.read_bytes()).hexdigest(),'evidence':partition_evidence}
+            case['native_partitions']={'path':evidence_path(partition_path),'sha256':hashlib.sha256(partition_path.read_bytes()).hexdigest(),'evidence':partition_evidence}
             if case['state']=='passed':
                 assert partition_evidence['inventory_matches'] and partition_evidence['complete_test_count']==case['inventoried_tests']
                 assert partition_evidence['counts']==outcomes[0] and len(outcomes)==1
                 assert partition_evidence['executable_sha256']==case['executable_sha256']
     executable=entry.get('executable')
     if executable is not None:
-        assert executable.parent.resolve()==(root/'target/debug/deps').resolve()
+        assert executable.parent.resolve()==(profile_root/'deps').resolve()
         assert hashlib.sha256(executable.read_bytes()).hexdigest()==case['executable_sha256'], 'Native artifact changed during execution'
         executable.unlink();case['executable_released']=True
         # No build is active in this orchestrator. Serialize cache cleanup with
         # any other Cargo producer; running test ELFs do not read incremental.
-        with (root/'target/debug/.cargo-lock').open('a+b') as lock:
+        with (profile_root/'.cargo-lock').open('a+b') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
             release_incremental(case)
     del active[cpu];save()
@@ -308,19 +372,20 @@ def split_doc_packages(text):
 def admit_build_space(case, label, *, cached_native=False):
     # Existing validated ELFs need no link reserve. Any actual relink, including
     # the static-to-shared fallback, must obtain the reserve before unlinking.
-    free_bytes=shutil.disk_usage(root/'target').free
+    free_bytes=shutil.disk_usage(cargo_target_dir).free
     case['build_start_free_disk_bytes']=free_bytes
     build_reserve=0 if cached_native else 2*1024**3
     case['build_space_policy']='No link admitted: use the exact source-bound validated existing native artifact' if cached_native else 'Reserve two GiB before an actual Cargo/rustdoc build'
     if not cached_native and free_bytes < 4*1024**3:
-        with (root/'target/debug/.cargo-lock').open('a+b') as lock:
+        profile_root.mkdir(parents=True,exist_ok=True)
+        with (profile_root/'.cargo-lock').open('a+b') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)
             removed=[]
-            for cache in (root/'target/debug/incremental').iterdir():
+            for cache in ((profile_root/'incremental').iterdir() if (profile_root/'incremental').is_dir() else []):
                 if cache.is_dir():
-                    removed.append({'path':str(cache.relative_to(root)),'allocated_bytes':sum(p.stat().st_blocks*512 for p in cache.rglob('*') if p.is_file())});shutil.rmtree(cache)
+                    removed.append({'path':evidence_path(cache),'allocated_bytes':sum(p.stat().st_blocks*512 for p in cache.rglob('*') if p.is_file())});shutil.rmtree(cache)
             case['inactive_incremental_prune']=removed
-        free_bytes=shutil.disk_usage(root/'target').free
+        free_bytes=shutil.disk_usage(cargo_target_dir).free
     last_drain_at=None
     while free_bytes < build_reserve and active:
         now=time.monotonic()
@@ -330,7 +395,7 @@ def admit_build_space(case, label, *, cached_native=False):
         reap()
         forward_progress()
         time.sleep(.1)
-        free_bytes=shutil.disk_usage(root/'target').free
+        free_bytes=shutil.disk_usage(cargo_target_dir).free
     if free_bytes < build_reserve:
         case.update(state='storage-deferred',build_start_free_disk_bytes=free_bytes,reason='insufficient disk for raw link output; no Cargo process admitted; active native scopes drained normally')
         save();print('STORAGE DEFERRED',label,free_bytes,flush=True)
@@ -353,7 +418,7 @@ def run_doc_cohort():
             save()
             continue
         flags=['--all-features'] if args.all_features else []
-        base=['cargo','test','--locked','--offline',*selection,*flags,'--doc','--no-fail-fast']
+        base=['cargo','test','--locked','--offline',*profile_flags,*selection,*flags,'--doc','--no-fail-fast']
         prefix=['python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--']
         command_inventory=prefix+base+['--','--list']
         inventory_path=out/(cohort_label+'.inventory.log')
@@ -373,8 +438,8 @@ def run_doc_cohort():
         execution_rows=split_doc_packages(watch.read_text())
         assert set(execution_rows)==expected, (set(execution_rows),expected)
         cohort={'inventory_command':command_inventory,'command':command,'exit_code':executed.returncode,
-            'inventory_log':str(inventory_path.relative_to(root)), 'inventory_sha256':hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
-            'transcript_log':str(watch.relative_to(root)), 'transcript_sha256':hashlib.sha256(watch.read_bytes()).hexdigest(),
+            'inventory_log':evidence_path(inventory_path), 'inventory_sha256':hashlib.sha256(inventory_path.read_bytes()).hexdigest(),
+            'transcript_log':evidence_path(watch), 'transcript_sha256':hashlib.sha256(watch.read_bytes()).hexdigest(),
             'policy':'One complete documentation cohort on the exact selected Cargo graph; explicitly isolated test roots remain separate. Rustdoc controls stay serial and idle-exclusive. Completed siblings never replace prior verdicts.'}
         build_groups[group]=cohort
         for case in selected:
@@ -390,7 +455,7 @@ def run_doc_cohort():
             case.update(state='passed' if matches else 'failed',build_exit=inventory.returncode,
                 exit_code=0 if matches else 1,cohort_exit_code=executed.returncode,inventory_matches=matches,inventoried_tests=count,
                 inventoried_benchmarks=len(re.findall(r'^.+: benchmark$',inventory_rows[package],re.M)),
-                outcomes=outcomes,inventory_log=str(inventory_piece.relative_to(root)),inventory_sha256=hashlib.sha256(inventory_piece.read_bytes()).hexdigest(),transcript_log=str(transcript.relative_to(root)),transcript_sha256=hashlib.sha256(transcript.read_bytes()).hexdigest(),
+                outcomes=outcomes,inventory_log=evidence_path(inventory_piece),inventory_sha256=hashlib.sha256(inventory_piece.read_bytes()).hexdigest(),transcript_log=evidence_path(transcript),transcript_sha256=hashlib.sha256(transcript.read_bytes()).hexdigest(),
                 inventory_command=command_inventory,command=command,build_group=group,seconds=round(time.monotonic()-started,3),
                 test_policy='complete Cargo documentation cohort, one libtest thread per rustdoc; idle-exclusive; cohort wall time is shared')
             print('END',label,case['state'],outcomes,flush=True)
@@ -419,9 +484,7 @@ for i,case in execution_order(cases,args.partition_cli):
     label=f'{i:04d}-{case["package"]}-{case["target"]}'
     watch_label=f'workspace-{out.name}-{label}'
     print('START',label,flush=True)
-    flags=['--all-features'] if args.all_features else []
-    selection=['-p',case['package']] if case['kind']=='doc' or case['package'] in isolated_packages else package_selection(args.packages,isolated_packages)
-    base=['cargo','test','--locked','--offline',*selection,*flags,*case['selector']]
+    base=cargo_test_base(case)
     cached_native=case['kind']!='doc' and group_key(case) in artifact_cohorts
     if not admit_build_space(case,label,cached_native=cached_native):continue
     cpu=next(cpu for cpu in slots if cpu not in active)
@@ -433,7 +496,7 @@ for i,case in execution_order(cases,args.partition_cli):
         inventory=subprocess.run(inventory_command,capture_output=True,text=True,env=build_env)
         inventory_path=out/(label+'.inventory.log')
         inventory_path.write_text(inventory.stdout+inventory.stderr)
-        case['inventory_log']=str(inventory_path.relative_to(root))
+        case['inventory_log']=evidence_path(inventory_path)
         case['inventory_sha256']=hashlib.sha256(inventory_path.read_bytes()).hexdigest()
         case['inventory_command']=inventory_command
         assert inventory.returncode==0,(case,inventory.stderr)
@@ -455,7 +518,7 @@ for i,case in execution_order(cases,args.partition_cli):
             executable=artifact_cohorts[group][(package_ids[case['package']],case['target'],case['kind'])]
             assert executable.is_file()
             if 'carried_unexecuted_outputs' in build_groups[group_name]:
-                admission=next(row for row in build_groups[group_name]['carried_unexecuted_outputs'] if row['path']==str(executable.relative_to(root)))
+                admission=next(row for row in build_groups[group_name]['carried_unexecuted_outputs'] if row['path']==evidence_path(executable))
                 assert hashlib.sha256(executable.read_bytes()).hexdigest()==admission['sha256']
                 case['carried_library_admission']=admission
             case['build_exit']=0
@@ -467,7 +530,7 @@ for i,case in execution_order(cases,args.partition_cli):
             case['build_exit']=build_exit
             if build_exit:
                 case.update(state='build-failed',seconds=round(time.monotonic()-start,3))
-                with (root/'target/debug/.cargo-lock').open('a+b') as lock:
+                with (profile_root/'.cargo-lock').open('a+b') as lock:
                     fcntl.flock(lock,fcntl.LOCK_EX);release_incremental(case)
                 seal_build_logs(case,[buildlog,errlog])
                 save();print('BUILD FAILED',label,flush=True)
@@ -477,9 +540,9 @@ for i,case in execution_order(cases,args.partition_cli):
                 continue
             expected=[(package_ids[c['package']],c['target'],c['kind']) for c in full_inventory if group_key(c)==group]
             messages=[json.loads(line) for line in buildlog.read_text().splitlines()]
-            artifact_cohorts[group]=test_artifacts(messages,expected)
+            artifact_cohorts[group]=profile_test_artifacts(messages,expected)
             executable=artifact_cohorts[group][(package_ids[case['package']],case['target'],case['kind'])]
-            build_groups[group_name]={'command':command_build,'executables':[{'package_id':key[0],'target':key[1],'kind':key[2],'path':str(path.relative_to(root))} for key,path in artifact_cohorts[group].items()],
+            build_groups[group_name]={'command':command_build,'executables':[{'package_id':key[0],'target':key[1],'kind':key[2],'path':evidence_path(path)} for key,path in artifact_cohorts[group].items()],
                 'policy':'One build per exact selector cohort; explicitly isolated test roots do not widen the normal graph; every selected package executable is independently inventoried and executed.',
                 'completed_unit_cache_retirement':case['completed_unit_cache_retirement']}
             producers=[]
@@ -491,15 +554,15 @@ for i,case in execution_order(cases,args.partition_cli):
             assert seen<=workspace_scripts, 'Cargo build scripts must match the exact workspace metadata'
             for package_id,target in sorted(seen):
                 producer=build_script_artifact(messages,package_id,target)
-                producers.append({'package_id':package_id,'target':target,'path':str(producer.relative_to(root)),
+                producers.append({'package_id':package_id,'target':target,'path':evidence_path(producer),
                                   'bytes':producer.stat().st_size,'sha256':hashlib.sha256(producer.read_bytes()).hexdigest()})
             build_groups[group_name]['build_script_artifacts']=producers
             wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if group_key(c)==group}
             retired_siblings=[]
             for key,path in artifact_cohorts[group].items():
                 if key not in wanted:
-                    assert path.parent.resolve()==(root/'target/debug/deps').resolve()
-                    retired_siblings.append({'package_id':key[0],'target':key[1],'kind':key[2],'path':str(path.relative_to(root)),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'reason':'Unselected already-completed sibling rebuilt by stable workspace selector; no native admission or verdict claimed.'})
+                    assert path.parent.resolve()==(profile_root/'deps').resolve()
+                    retired_siblings.append({'package_id':key[0],'target':key[1],'kind':key[2],'path':evidence_path(path),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'reason':'Unselected already-completed sibling rebuilt by stable workspace selector; no native admission or verdict claimed.'})
                     path.unlink()
             build_groups[group_name]['unselected_artifacts_retired']=retired_siblings
         case['build_group']=group_name
@@ -530,7 +593,7 @@ for i,case in execution_order(cases,args.partition_cli):
             shared=[name for name in needed if name.startswith('liblila_runtime_images_')]
             assert len(shared)<=1
             if shared:
-                image=root/'target/shared-test-runtime-images'/shared[0]
+                image=cargo_target_dir/'shared-test-runtime-images'/shared[0]
                 receipt=json.loads(image.with_suffix('.json').read_text())
                 assert hashlib.sha256(image.read_bytes()).hexdigest()==receipt['shared_sha256']
                 assert str(image.parent) in dynamic
@@ -546,7 +609,7 @@ for i,case in execution_order(cases,args.partition_cli):
         inventory=subprocess.run([str(executable),'--list']+([native_filters[case['package']+':'+case['target']]] if case['package']+':'+case['target'] in native_filters else []),capture_output=True,text=True)
         inventory_path=out/(label+'.inventory.log')
         inventory_path.write_text(inventory.stdout+inventory.stderr)
-        case['inventory_log']=str(inventory_path.relative_to(root))
+        case['inventory_log']=evidence_path(inventory_path)
         case['inventory_sha256']=hashlib.sha256(inventory_path.read_bytes()).hexdigest()
         assert inventory.returncode==0,(case,inventory.stderr)
         case['inventoried_tests']=len(re.findall(r'^.+: test$',inventory.stdout,re.M))
@@ -564,7 +627,7 @@ for i,case in execution_order(cases,args.partition_cli):
         partition_driver=root/'scripts/workspace_test_partitions.py'
         command=['python3','-B',str(partition_driver),'--executable',str(executable),'--inventory',str(out/(label+'.inventory.log')),'--output',str(partition_output),'--cpus',*map(str,slots),'--include-ignored']
         case['partition_driver_sha256']=hashlib.sha256(partition_driver.read_bytes()).hexdigest()
-        case['partition_receipt_path']=str(partition_receipt.relative_to(root))
+        case['partition_receipt_path']=evidence_path(partition_receipt)
     log=out/(label+'.run.log');watch=root/'target/watched'/(watch_label+'.log')
     case.update(state='running',command=command,test_cpu=cpu,
       test_policy=('explicitly filtered native control with its matching exact inventory' if case.get('native_filter') else 'complete native executable')+' on one inherited CPU and one libtest thread; independent target concurrency recorded separately');save()

@@ -110,6 +110,49 @@ pub(super) fn bounded_candidates(
 }
 
 impl ScriptLowerer<'_> {
+    fn finite_function_constructor_kind(&self, function_id: &str) -> Option<DynamicFunctionKind> {
+        self.analysis.function_plans.get(function_id).map(|plan| {
+            match plan.protocol.source_execution_kind() {
+                FunctionExecutionKind::Ordinary => DynamicFunctionKind::Ordinary,
+                FunctionExecutionKind::Generator => DynamicFunctionKind::Generator,
+                FunctionExecutionKind::Async => DynamicFunctionKind::Async,
+                FunctionExecutionKind::AsyncGenerator => DynamicFunctionKind::AsyncGenerator,
+            }
+        })
+    }
+
+    // A resolved data property can retain possible intrinsic targets after
+    // effects widen its identity. This supplies source hints, never a Get fold.
+    fn finite_source_property_function_candidates(
+        &self,
+        target: &Expression,
+        name: &str,
+    ) -> Vec<FiniteSourceValue> {
+        let Expression::Identifier(identifier) = Self::unwrap_parenthesized_expr(target) else {
+            return Vec::new();
+        };
+        let name_of_binding = self.interner.resolve_expect(identifier.sym()).to_string();
+        let info = self
+            .lookup_binding(&name_of_binding)
+            .map(|binding| binding.heap_shape)
+            .unwrap_or_else(|| {
+                self.lookup_global_property_info(&name_of_binding)
+                    .and_then(|property| property.value_info.heap_shape.clone())
+            });
+        let Some(ObjectShapeProperty::Data(info)) = info
+            .as_deref()
+            .and_then(|shape| crate::read_heap_shape_property(shape, name))
+        else {
+            return Vec::new();
+        };
+        info.function_targets
+            .known_targets()
+            .iter()
+            .cloned()
+            .map(FiniteSourceValue::Function)
+            .collect()
+    }
+
     pub(super) fn register_finite_undefined_var_source_candidate(&mut self, name: &str) {
         let Some(key) = self.finite_source_binding_key(name) else {
             return;
@@ -191,6 +234,43 @@ impl ScriptLowerer<'_> {
             }
             return candidates;
         }
+        if let Expression::Call(call) = expression {
+            let reads_prototype = self.function_source_value_candidates(call.function())
+                .into_iter().any(|candidate| matches!(candidate,
+                    FiniteSourceValue::Function(function_id)
+                    if matches!(StandardBuiltinId::from_function_id(&function_id),
+                        Some(StandardBuiltinId::ObjectGetPrototypeOf | StandardBuiltinId::ReflectGetPrototypeOf))));
+            if reads_prototype {
+                let constructors = bounded_candidates(
+                    call.args()
+                        .first()
+                        .into_iter()
+                        .flat_map(|source| self.function_source_value_candidates(source))
+                        .filter_map(|candidate| match candidate {
+                            FiniteSourceValue::Function(function_id) => self
+                                .finite_function_constructor_kind(&function_id)
+                                .map(FiniteSourceValue::FunctionConstructor),
+                            _ => None,
+                        }),
+                );
+                if !constructors.is_empty() {
+                    if let Some(text) = self.function_source_candidate(expression) {
+                        // Generic call discovery already retained this primary
+                        // conversion view. An additive prototype record must
+                        // not replace it or consume another primary slot in an
+                        // enclosing candidate set. Keep the original text view
+                        // when both interpretations are possible.
+                        return vec![FiniteSourceValue::Text(text)];
+                    }
+                    // The actual prototype call and later constructor Get may
+                    // invoke arbitrary code. Only the possible grammar travels.
+                    return vec![FiniteSourceValue::Record(BTreeMap::from([(
+                        "constructor".to_string(),
+                        constructors,
+                    )]))];
+                }
+            }
+        }
         match expression {
             Expression::Identifier(identifier) => {
                 let name = self.interner.resolve_expect(identifier.sym()).to_string();
@@ -207,8 +287,21 @@ impl ScriptLowerer<'_> {
                             .cloned()
                             .map(FiniteSourceValue::Function),
                     );
-                } else if let Some(function_id) = self.visible_function_names.get(&name) {
-                    candidates.push(FiniteSourceValue::Function(function_id.clone()));
+                } else {
+                    if let Some(function_id) = self.visible_function_names.get(&name) {
+                        candidates.push(FiniteSourceValue::Function(function_id.clone()));
+                    }
+                    if let Some(property) = self.lookup_global_property_info(&name) {
+                        candidates.extend(
+                            property
+                                .value_info
+                                .function_targets
+                                .known_targets()
+                                .iter()
+                                .cloned()
+                                .map(FiniteSourceValue::Function),
+                        );
+                    }
                 }
                 if name == "eval" {
                     candidates.push(FiniteSourceValue::Function(
@@ -310,27 +403,10 @@ impl ScriptLowerer<'_> {
                                 // A possible inherited constructor supplies
                                 // source hints only. Own properties, prototype
                                 // mutations and the resolved callable stay live.
-                                self.analysis
-                                    .function_plans
-                                    .get(&function_id)
-                                    .map(|plan| {
-                                        let kind = match plan.protocol.source_execution_kind() {
-                                            FunctionExecutionKind::Ordinary => {
-                                                DynamicFunctionKind::Ordinary
-                                            }
-                                            FunctionExecutionKind::Generator => {
-                                                DynamicFunctionKind::Generator
-                                            }
-                                            FunctionExecutionKind::Async => {
-                                                DynamicFunctionKind::Async
-                                            }
-                                            FunctionExecutionKind::AsyncGenerator => {
-                                                DynamicFunctionKind::AsyncGenerator
-                                            }
-                                        };
-                                        vec![FiniteSourceValue::FunctionConstructor(kind)]
-                                    })
-                                    .unwrap_or_default()
+                                self.finite_function_constructor_kind(&function_id)
+                                    .map(FiniteSourceValue::FunctionConstructor)
+                                    .into_iter()
+                                    .collect()
                             }
                             FiniteSourceValue::Text(_)
                             | FiniteSourceValue::SupplementalText(_)
@@ -339,6 +415,11 @@ impl ScriptLowerer<'_> {
                             | FiniteSourceValue::Array(_) => Vec::new(),
                         }),
                 );
+                if let Some(name) = &name {
+                    candidates.extend(
+                        self.finite_source_property_function_candidates(access.target(), name),
+                    );
+                }
                 let evaluator = match name.as_deref() {
                     Some("eval") => Some(StandardBuiltinId::EvalFunction.function_id()),
                     Some("evalScript") => Some(

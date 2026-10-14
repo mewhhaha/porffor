@@ -131,6 +131,12 @@ fn assemble_sources(
                 Err(vec![super::early::module_parse_failure_diagnostic(error)])
             }
         };
+        let record = record.map(|mut record| {
+            record
+                .dynamic_import_sites
+                .extend(source.prepared_script_import_sites.iter().cloned());
+            record
+        });
         match record {
             Ok(record) => {
                 let resolved_imports =

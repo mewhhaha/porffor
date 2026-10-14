@@ -78,6 +78,7 @@ pub use loaded_sources::{ModuleGraphSources, ModuleKindIr, ModuleSourceIr};
 pub use module_key::{ModuleKey, ModuleRecordKey, ANONYMOUS_MODULE_KEY};
 pub use module_unit::ModuleUnitIr;
 pub use namespace::*;
+pub(crate) use record::script_dynamic_import_sites;
 pub use record::*;
 pub use resolved_binding::{ModuleBindingNameIr, ResolvedBindingIr};
 

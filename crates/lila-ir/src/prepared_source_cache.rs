@@ -27,6 +27,7 @@ enum PreparedSourceInput {
 struct PreparedSourceCacheState {
     parsed: Vec<(PreparedSourceInput, Result<ParsedScript, ParseError>)>,
     realm_requests: BTreeSet<ModuleRequestKeyIr>,
+    script_import_sites: Vec<crate::DynamicImportSiteIr>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,7 +50,24 @@ impl PreparedSourceCache {
                 PreparedSourceInput::DirectEval(source, context.parse_context())
             }
         };
-        self.parse(input)
+        let parsed = self.parse(input);
+        if matches!(kind, PreparedScriptKind::DirectEval(context)
+            if context.script_import_origin().is_some())
+        {
+            if let Ok(script) = &parsed {
+                let sites = crate::modules::script_dynamic_import_sites(script);
+                let mut state = self.0.borrow_mut();
+                for site in sites
+                    .into_iter()
+                    .filter(|site| site.discovery_request().is_some())
+                {
+                    if !state.script_import_sites.contains(&site) {
+                        state.script_import_sites.push(site);
+                    }
+                }
+            }
+        }
+        parsed
     }
 
     pub(crate) fn parse_function(
@@ -130,6 +148,12 @@ pub struct LoweringSession {
 }
 
 impl LoweringSession {
+    /// Literal imports from direct evals proved to retain this compilation's
+    /// Script entry. Their sites retain phase and exact attribute eligibility.
+    pub fn prepared_script_import_sites(&self) -> Vec<crate::DynamicImportSiteIr> {
+        self.prepared_sources.0.borrow().script_import_sites.clone()
+    }
+
     /// Potential Realm-origin imports found in successfully parsed finite
     /// sources, including nested sources and Function constructor bodies.
     pub fn realm_module_requests(&self) -> Vec<ModuleRequestKeyIr> {
@@ -352,5 +376,126 @@ const realm = new ShadowRealm();
             .unwrap();
         assert_eq!(marker.compiler_source_utf16(), marker_units);
         assert_ne!(first.syntax_identity(), marker.syntax_identity());
+    }
+    #[test]
+    fn nested_direct_eval_imports_retain_the_script_record_and_cached_syntax() {
+        let source = lila_front::parse(
+            r#"eval('eval("import(\\"./target.js\\");")');"#,
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let session = LoweringSession::default();
+        session.lower_source(&source, crate::HostSurfacePolicy::default());
+        let sites = session.prepared_script_import_sites();
+        assert_eq!(sites.len(), 1);
+        assert_eq!(sites[0].static_specifier.as_deref(), Some("./target.js"));
+        assert_eq!(sites[0].phase, crate::ImportPhaseIr::Evaluation);
+        let parsed = session.prepared_sources.0.borrow().parsed.clone();
+        let lila_front::ParsedSource::Script(entry) = source else {
+            unreachable!()
+        };
+        let mut graph = crate::ModuleGraphSources {
+            modules: vec![
+                crate::ModuleSourceIr::from_parsed_script(
+                    crate::ModuleKey::from_host("/suite/dir/entry.js"),
+                    "file:///suite/dir/entry.js".into(),
+                    entry,
+                ),
+                crate::ModuleSourceIr::new(
+                    crate::ModuleKey::from_host("/suite/dir/target.js"),
+                    "export const value = 42;".into(),
+                    "file:///suite/dir/target.js".into(),
+                ),
+            ],
+            entry: 0,
+            resolutions: vec![(0, ModuleRequestKeyIr::plain("./target.js"), 1)],
+            realm_requests: Default::default(),
+        };
+        assert!(graph.modules[0].include_prepared_script_import_sites(&sites));
+        assert!(!graph.modules[0].include_prepared_script_import_sites(&sites));
+        let program = session.lower_loaded_graph(&graph, crate::HostSurfacePolicy::default(), None);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let linked = program.modules.as_ref().unwrap();
+        assert!(linked
+            .dynamic_components()
+            .iter()
+            .any(|component| component.referrer() == linked.entry
+                && component.request().specifier() == "./target.js"));
+        let script = program.script.as_ref().unwrap();
+        assert!(script.prepared_scripts.iter().any(|prepared| {
+            let crate::PreparedScriptOutcome::Executable(unit) = &prepared.outcome else {
+                return false;
+            };
+            matches!(prepared.kind, PreparedScriptKind::DirectEval(_))
+                && unit.body.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        crate::StatementIr::Expression(crate::TypedExpr {
+                            expr: crate::ExprIr::DynamicImport {
+                                referrer: Some(0),
+                                ..
+                            },
+                            ..
+                        })
+                    )
+                })
+        }));
+        assert!(script
+            .executable_script_bodies()
+            .any(|body| body.statements.iter().any(|statement| {
+                let crate::StatementIr::Expression(crate::TypedExpr {
+                    expr: crate::ExprIr::ModuleExecutionGraph(execution),
+                    ..
+                }) = statement
+                else {
+                    return false;
+                };
+                execution
+                    .script_import_dispatcher(0, crate::ImportPhaseIr::Evaluation)
+                    .is_some()
+                    && execution
+                        .script_import_dispatcher(1, crate::ImportPhaseIr::Evaluation)
+                        .is_none()
+            })));
+        let retained = session.prepared_sources.0.borrow();
+        for (input, old) in parsed {
+            let current = &retained
+                .parsed
+                .iter()
+                .find(|(key, _)| key == &input)
+                .unwrap()
+                .1;
+            assert_eq!(
+                old.as_ref().map(ParsedScript::syntax_identity),
+                current.as_ref().map(ParsedScript::syntax_identity)
+            );
+        }
+    }
+
+    #[test]
+    fn computed_and_unproved_eval_origins_cannot_claim_script_import_edges() {
+        for (source, options) in [
+            (r#"eval('import(specifier)');"#, ParseOptions::script()),
+            (
+                r#"(0, eval)('import("./indirect.js")');"#,
+                ParseOptions::script(),
+            ),
+            (
+                r#"eval('import("./module-relative.js")');"#,
+                ParseOptions::module(),
+            ),
+        ] {
+            let source = lila_front::parse(source, options).unwrap();
+            let session = LoweringSession::default();
+            let program = session.lower_source(&source, crate::HostSurfacePolicy::default());
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            assert!(session.prepared_script_import_sites().is_empty());
+            if let Some(script) = program.script {
+                assert!(script.prepared_scripts.iter().all(|prepared| !matches!(
+                    prepared.outcome,
+                    crate::PreparedScriptOutcome::Executable(_)
+                )));
+            }
+        }
     }
 }

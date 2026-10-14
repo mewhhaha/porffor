@@ -71,6 +71,10 @@ fn prepare_eval_with_parser<R: boa_parser::source::ReadChar>(
         SourceTextEncoding::Utf8 => parse_with_boundary(&source_text, operation),
         SourceTextEncoding::EncodedUtf16 => parse_utf16_with_boundary(source_units, operation),
     }?;
+    strict_callable_bindings::validate(&ast, |position| match encoding {
+        SourceTextEncoding::Utf8 => source_span_at_position(&source_text, position),
+        SourceTextEncoding::EncodedUtf16 => source_span_utf16_at_position(source_units, position),
+    })?;
     if let EvalParseContext::Direct(context) = context {
         let invalid_syntax = match context.invocation {
             EvalInvocationContext::Script if contains(&ast, ContainsSymbol::NewTarget) => {

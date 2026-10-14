@@ -100,6 +100,8 @@ pub struct ModuleExecutionGraphIr {
     realm_requests:
         std::collections::BTreeMap<super::ModuleRequestKeyIr, super::RealmModuleResolutionIr>,
     realm_import_dispatcher: Option<FunctionId>,
+    script_entry: Option<ModuleUnitId>,
+    script_import_dispatchers: std::collections::BTreeMap<super::ImportPhaseIr, FunctionId>,
 }
 
 impl ModuleExecutionGraphIr {
@@ -157,6 +159,11 @@ impl ModuleExecutionGraphIr {
             initializer: None,
             realm_requests: Default::default(),
             realm_import_dispatcher: None,
+            script_entry: match entry {
+                ModuleExecutionEntry::Script(script) => Some(script),
+                ModuleExecutionEntry::Module(_) => None,
+            },
+            script_import_dispatchers: Default::default(),
         }
     }
     /// Root execution invokes the same compiled initializer that another Realm
@@ -197,6 +204,32 @@ impl ModuleExecutionGraphIr {
         self.realm_import_dispatcher = Some(dispatcher);
         self
     }
+    pub(super) fn with_script_import_dispatchers(
+        mut self,
+        dispatchers: std::collections::BTreeMap<super::ImportPhaseIr, FunctionId>,
+    ) -> Self {
+        assert!(
+            self.script_entry.is_some() || dispatchers.is_empty(),
+            "Script-origin imports require an actual Script record"
+        );
+        self.script_import_dispatchers = dispatchers;
+        self
+    }
+    pub fn script_import_dispatchers(
+        &self,
+    ) -> &std::collections::BTreeMap<super::ImportPhaseIr, FunctionId> {
+        &self.script_import_dispatchers
+    }
+    pub fn script_import_dispatcher(
+        &self,
+        referrer: ModuleUnitId,
+        phase: super::ImportPhaseIr,
+    ) -> Option<&FunctionId> {
+        (self.script_entry == Some(referrer))
+            .then(|| self.script_import_dispatchers.get(&phase))
+            .flatten()
+    }
+
     pub fn realm_requests(
         &self,
     ) -> &std::collections::BTreeMap<super::ModuleRequestKeyIr, super::RealmModuleResolutionIr>

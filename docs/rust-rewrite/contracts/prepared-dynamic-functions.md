@@ -22,6 +22,24 @@ declarations even though runtime reads use global properties. A scoped or
 captured binding selects its own storage first, so local shadowing cannot
 borrow a global declaration's hints. Runtime callable identity and exact source
 equality remain authoritative.
+Resolved global function targets also enter the finite-value domain, so an
+ordinary Function constructor value can travel through a literal array,
+callback or finite iterator just like the other constructor kinds. Possible
+`Object.getPrototypeOf` and `Reflect.getPrototypeOf` targets derive constructor
+grammar hints from analyzed function identities, including named generators
+and aliases of the prototype reader. Local bindings take precedence over
+global metadata; a spelling alone does not establish either new hint.
+If a call already has a primary boxed-conversion text hint, that view takes
+precedence over a new possible prototype record. Omitting the additive record
+in that ambiguous call preserves both the original source and its capacity in
+an enclosing finite candidate set. This pass does not collect arbitrary user
+function return records from a generic call.
+The actual prototype call, property Get, argument conversion and constructor
+Realm remain live. The source registry and its existing 256-candidate bound
+remain unchanged. Class-subclass heritage propagation is outside this change.
+The paired IR and native controls are pending coordinated verification; these
+new hints do not establish a Test262 pass count.
+
 Candidate expansion is bounded at 256 distinct values or argument tuples;
 exceeding that bound leaves the runtime source limitation explicit. Getter
 reads, callback dispatch and source coercion still occur at runtime.

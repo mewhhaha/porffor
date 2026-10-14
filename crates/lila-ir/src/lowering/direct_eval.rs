@@ -64,12 +64,69 @@ impl ScriptLowerer<'_> {
             }
             owner_id = owner.parent_owner_id.as_deref();
         }
+        let mut origin = self.analysis.allocations.script_import_origin;
+        let mut owner_id = Some(self.current_owner_id.as_str());
+        while let Some(id) = owner_id {
+            if self.analysis.function_plans.get(id).is_some_and(|plan| {
+                matches!(
+                    plan.protocol,
+                    FunctionProtocolIr::ModuleActivation
+                        | FunctionProtocolIr::AsyncModuleActivation
+                )
+            }) {
+                // A linked module's body and every closure it defines retain
+                // that Module Record, never the surrounding entry Script.
+                origin = None;
+                break;
+            }
+            owner_id = self.analysis.owner_plans[id].parent_owner_id.as_deref();
+        }
         DirectEvalContextIr::new(
             self.reference_strictness(),
             self.analysis.owner_plans[&self.current_owner_id].eval_invocation,
             private_names,
             derived_constructor_owner,
         )
+        .with_script_import_origin(origin)
+    }
+
+    pub(super) fn prepared_literal_import_referrer(
+        &mut self,
+        call: &boa_ast::expression::ImportCall,
+    ) -> Option<ModuleUnitId> {
+        let ScriptInstantiation::Prepared(kind) = &self.analysis.script_instantiation else {
+            return None;
+        };
+        let referrer = match kind {
+            PreparedScriptKind::DirectEval(context)
+                if matches!(Self::unwrap_parenthesized_expr(call.argument()), Expression::Literal(literal)
+                    if matches!(literal.kind(), LiteralKind::String(_))) =>
+            {
+                context
+                    .script_import_origin()
+                    .and_then(|origin| origin.referrer())
+            }
+            PreparedScriptKind::DirectEval(_)
+            | PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::RealmScript
+            | PreparedScriptKind::ShadowRealmEvaluate => None,
+        };
+        if referrer.is_none() {
+            let kind = match kind {
+                PreparedScriptKind::DirectEval(_) => DynamicSourceKind::DirectEval,
+                PreparedScriptKind::IndirectEval => DynamicSourceKind::IndirectEval,
+                PreparedScriptKind::RealmScript => DynamicSourceKind::RealmEvalScript,
+                PreparedScriptKind::ShadowRealmEvaluate => DynamicSourceKind::ShadowRealmEvaluate,
+            };
+            // An unbound or computed request cannot claim an entry base. An
+            // omitted runtime candidate still reaches the existing typed AOT
+            // source rejection if its String is actually evaluated.
+            self.diagnostics
+                .push(IrDiagnostic::unsupported_dynamic_source(
+                    DynamicSourceGap::aot_known_source(kind),
+                ));
+        }
+        referrer
     }
 
     pub(super) fn register_direct_eval_source(

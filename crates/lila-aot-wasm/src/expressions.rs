@@ -708,9 +708,10 @@ impl<'a> FunctionBuilder<'a> {
                 specifier,
                 options,
                 referrer,
-                ..
+                phase,
             } => self.emit_dynamic_import(
                 *referrer,
+                *phase,
                 specifier,
                 options.as_deref(),
                 output,

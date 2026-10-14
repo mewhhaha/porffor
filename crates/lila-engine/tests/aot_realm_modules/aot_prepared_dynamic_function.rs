@@ -812,3 +812,54 @@ fn overflowing_for_of_sources_reach_the_unmatched_live_tuple_boundary() {
         }
     }
 }
+
+#[test]
+fn strict_header_rejections_keep_conversion_effects_and_the_constructor_realm() {
+    let source = r#"
+var conversions = 0;
+var foreign = __lilaCreateRealm().global;
+try { Function("function* yield() { 'use strict'; (yield 3) + (yield 4); }"); }
+catch (error) { if (error.constructor !== SyntaxError) throw error; }
+try { foreign.Function("function* yield() { 'use strict'; (yield 3) + (yield 4); }"); }
+catch (error) { if (error.constructor !== foreign.SyntaxError) throw error; }
+Function('function* yield() { yield 17; } return yield().next().value;');
+var invalid = {
+  toString() {
+    conversions++;
+    print('invalid-conversion');
+    return "function* yield() { 'use strict'; (yield 3) + (yield 4); }";
+  }
+};
+try { Function(invalid); print('missing-local-rejection'); }
+catch (error) { print(error.constructor === SyntaxError); }
+try { foreign.Function(invalid); print('missing-foreign-rejection'); }
+catch (error) {
+  print(error.constructor === foreign.SyntaxError);
+  print(!(error instanceof SyntaxError));
+}
+var valid = {
+  toString() {
+    conversions++;
+    print('valid-conversion');
+    return 'function* yield() { yield 17; } return yield().next().value;';
+  }
+};
+print(Function(valid)());
+print(conversions);
+"#;
+    for caller_directive in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{caller_directive}{source}"),
+            &[
+                "invalid-conversion",
+                "true",
+                "invalid-conversion",
+                "true",
+                "true",
+                "valid-conversion",
+                "17",
+                "3",
+            ],
+        );
+    }
+}

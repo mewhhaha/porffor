@@ -80,7 +80,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
     );
     assert_eq!(
         code_without_whitespace(fields),
-        "key:ModuleKey,meta_url:String,pub(super)parse:ModuleParse,}"
+        "key:ModuleKey,meta_url:String,pub(super)parse:ModuleParse,pub(super)prepared_script_import_sites:Vec<super::DynamicImportSiteIr>,}"
     );
 
     let parse = bounded(
@@ -112,6 +112,8 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
     );
 
     for method in [
+        "may_contain_direct_eval_call",
+        "include_prepared_script_import_sites",
         "new",
         "json",
         "bytes",
@@ -133,7 +135,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
             "{method} must have one public owner"
         );
     }
-    assert_eq!(OWNER_SOURCE.matches("#[doc(hidden)]").count(), 1);
+    assert_eq!(OWNER_SOURCE.matches("#[doc(hidden)]").count(), 3);
     assert_eq!(
         OWNER_SOURCE.matches("scan_module_requests(source)").count(),
         1

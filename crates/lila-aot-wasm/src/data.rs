@@ -372,6 +372,7 @@ pub(crate) struct StringPool {
     pub(crate) bytes: Vec<u8>,
     module_bytes: BTreeMap<lila_ir::ModuleUnitId, PooledModuleBytes>,
     compact_array_recipes: compact_array_recipes::CompactArrayRecipes,
+    numeric_call_tables: crate::call_rows::NumericCallTables,
     pooled_code_unit_bytes: Vec<u8>,
     refs: BTreeMap<String, StringRef>,
     source_runtime_error_messages: BTreeMap<String, i64>,
@@ -2227,6 +2228,7 @@ impl CompilerOwnedPool {
             pool.queue_runtime_regexp_programs();
         }
         pool.append_regexp_programs();
+        pool.numeric_call_tables.validate()?;
         Ok(pool)
     }
 }
@@ -2345,8 +2347,26 @@ impl StringPool {
         }
     }
 
+    pub(crate) fn numeric_call_table(
+        &self,
+        run: &crate::call_rows::NumericCallRun<'_>,
+    ) -> Result<crate::call_rows::NumericCallTable, EmitError> {
+        self.numeric_call_tables.find(run)
+    }
+
     fn collect_block(&mut self, block: &BlockIr) {
         self.collect_lexical_environment(block.lexical_environment.as_ref());
+        let mut next = 0;
+        while next < block.statements.len() {
+            if let Some(run) =
+                crate::call_rows::NumericCallRun::of_prefix(&block.statements[next..])
+            {
+                self.numeric_call_tables.collect(&run, &mut self.bytes);
+                next += run.len();
+            } else {
+                next += 1;
+            }
+        }
         for statement in &block.statements {
             self.collect_statement(statement);
         }
