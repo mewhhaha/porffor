@@ -1,5 +1,25 @@
 # Lila
 
+## Measured verification and private Front foundation — 2026-10-14
+
+Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c` remains frozen; documentation publication parent is `8911e9b9598f7969fad2919b8a7b76e74176384d`.
+
+The original sloppy-script Unicode ignoreCase public-API diagnostic recorded **26.512s compilation** (preparation 25.567s, lowering 0.001031s, emission 0.924s, validation 0.017s) and **169.233s runtime** (module 123.730s, execution/completion 45.497s). Program bytes: 1,962,259; largest body: 1,711,700; 35 defined functions, 1089 function imports. Actual cache outcome: `Miss`; completion: `Normal(Undefined)`. This is private-cache cold evidence under captured shared load, with no warm comparison, speedup, idle-performance, replay-phase or Test262 acceptance claim.
+
+The unapplied private joined AST → Parser → Front candidate passed **11 proposed-behavior compatibility controls**, rejected all **13 original invalid inputs**, accepted **5 valid controls** and the outer fixture. Its recorded command wall sum is 18.904s. The focused strict-header defect repair is confirmed; Both Annex candidates remain held/unapplied under the current pin/host contract; their controls do not prove normative correctness. Product integration, full IR and native verification remain pending.
+
+The existing affected-native checkpoint remains 6,399 passed, 0 failed, 0 ignored across 16 targets. Owner wall: 5010.002s; recorded builds 1729.204s, partition controllers 3010.811s, types 65.656s, unattributed remainder 204.330s. Warm worker preparation recorded 1.0056s Cargo-library work and 2.0075s direct leaf linking. The enclosing supervisor-command walls sum 3039.004s; native child-process walls sum 2911.161s. These are distinct, nested observations, not additive phases or per-crate/idle measurements.
+
+The historical 5,365-ID retention replay is ACTIVE and its complete outcome/retention remain pending. Ordinary CLI, full workspace, current pinned Test262 and task closure remain open.
+
+See [measured phases, resources and provenance](docs/rust-rewrite/verification-phase-measurements-20261014.json); the existing [complete affected-native evidence](docs/rust-rewrite/historical-source-0a18-native-checkpoint-20261014.json) remains unchanged.
+
+Reprepare from these immutable owners while the recorded compiler HEADs and publication parent remain frozen, using a fresh output name (no native execution):
+
+```sh
+python3 -B /workspace/porffor/target/future-verification-drivers-20261012/prepare-verification-phase-measurements-publication-20261014-v2.py --output-dir /workspace/porffor/target/verification-phase-measurements-publication-REFRESH-UNIQUE
+```
+
 ## Complete affected native checkpoint — 2026-10-14
 
 `0a18df332ca26b193b8e13bf09c104ff08fdb70c` affected native checkpoint: **GREEN**, complete across 16 targets and 6399 IDs: 6399 passed, 0 failed, 0 ignored.
