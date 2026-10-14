@@ -333,13 +333,36 @@ fn records_async_arrows_with_lexical_captures_and_parameter_tdz() {
                 .any(|statement| matches!(statement, StatementIr::AsyncAwait { .. }))
         })
         .expect("block-bodied async arrow should suspend");
+    let Some(ExprIr::EnvironmentIdentifier(reference)) =
+        block.params[0].default_init.as_ref().map(|init| &init.expr)
+    else {
+        panic!("the original forward default must read the live parameter cell");
+    };
+    assert_eq!(reference.name, "later");
     assert!(matches!(
-        block.params[0].default_init.as_ref().map(|init| &init.expr),
-        Some(ExprIr::RuntimeThrow {
-            name: NativeErrorKind::ReferenceError,
-            ..
-        })
+        reference.operation,
+        EnvironmentIdentifierOperationIr::Read
     ));
+    assert_eq!(
+        reference.resolution_start(),
+        EnvironmentIdentifierResolutionStart::CurrentEnvironment
+    );
+    assert_eq!(block.params[1].name, "later");
+    assert!(block.params[1].default_init.is_none());
+    let Some(EvalEnvironmentRoleIr::Declarative { bindings, .. }) = &block.eval_environment else {
+        panic!("the forward default's parameter record must be named at runtime");
+    };
+    for parameter in ["value", "later"] {
+        let binding = bindings
+            .iter()
+            .find(|binding| binding.source_name == parameter)
+            .expect("both formal cells precede default evaluation");
+        assert_eq!(binding.declaration, EvalBindingDeclarationIr::Parameter);
+        assert!(block
+            .owned_env_bindings
+            .iter()
+            .any(|owned| owned.name == parameter && owned.slot == binding.slot));
+    }
 }
 
 #[test]

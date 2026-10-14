@@ -131,3 +131,91 @@ fn dynamic_import_heads_come_from_grammar_with_utf16_and_phase_trivia() {
             );
         });
 }
+
+#[test]
+fn source_modifier_lookahead_retains_from_bindings_and_ordinary_default_imports() {
+    use boa_ast::{declaration::ImportPhase, ModuleItem};
+    for (source, phase, local) in [
+        ("import source from from 'm';", ImportPhase::Source, "from"),
+        (
+            "import source source from 'm';",
+            ImportPhase::Source,
+            "source",
+        ),
+        (
+            r"import source \u0066rom from 'm';",
+            ImportPhase::Source,
+            "from",
+        ),
+        (
+            r"import source \u0073ource from 'm';",
+            ImportPhase::Source,
+            "source",
+        ),
+        (
+            "import source\r\nfrom\u{2028}from 'm';",
+            ImportPhase::Source,
+            "from",
+        ),
+        (
+            "import source /* binding */ from /* delimiter */ from 'm';",
+            ImportPhase::Source,
+            "from",
+        ),
+        ("import source from 'm';", ImportPhase::Evaluation, "source"),
+        (
+            r"import sour\u0063e from 'm';",
+            ImportPhase::Evaluation,
+            "source",
+        ),
+        (
+            "import source, {named as value} from 'm';",
+            ImportPhase::Evaluation,
+            "source",
+        ),
+        (
+            "import source, * as namespace from 'm';",
+            ImportPhase::Evaluation,
+            "source",
+        ),
+        ("import from from 'm';", ImportPhase::Evaluation, "from"),
+    ] {
+        let parsed = parse(source, ParseOptions::module())
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        parsed
+            .as_module()
+            .unwrap()
+            .with_compiler_session(|module, interner| {
+                let [ModuleItem::ImportDeclaration(import)] = module.items().items() else {
+                    panic!("one original import: {source}");
+                };
+                assert_eq!(import.request().phase(), phase, "{source}");
+                assert_eq!(
+                    interner
+                        .resolve_expect(import.default().expect("actual local binding").sym())
+                        .utf8(),
+                    Some(local),
+                    "{source}"
+                );
+                let ModuleItemSourceSyntax::Declaration(span) = module.items().source_syntax()[0]
+                else {
+                    panic!("original declaration range: {source}");
+                };
+                assert_eq!(source_slice(source, span), source, "unchanged source range");
+            });
+    }
+}
+
+#[test]
+fn source_import_contextual_modifiers_and_delimiters_reject_escapes_and_reserved_bindings() {
+    for source in [
+        r"import sour\u0063e from from 'm';",
+        r"import source from fr\u006fm 'm';",
+        r"import source value fr\u006fm 'm';",
+        r"import source fr\u006fm 'm';",
+        "import source await from 'm';",
+        "import source yield from 'm';",
+    ] {
+        assert!(parse(source, ParseOptions::module()).is_err(), "{source}");
+    }
+}

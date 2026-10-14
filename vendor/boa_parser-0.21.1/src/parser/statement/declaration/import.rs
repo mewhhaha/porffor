@@ -22,9 +22,8 @@ use boa_ast::{
     Keyword, Punctuator, Spanned,
     declaration::{
         ImportAttribute as AstImportAttribute, ImportDeclaration as AstImportDeclaration,
-        ImportKind, ImportPhase, ModuleRequest as AstModuleRequest,
-        ImportSpecifier as AstImportSpecifier, ModuleSpecifier,
-        ReExportRequest as AstReExportRequest,
+        ImportKind, ImportPhase, ImportSpecifier as AstImportSpecifier,
+        ModuleRequest as AstModuleRequest, ModuleSpecifier, ReExportRequest as AstReExportRequest,
     },
     expression::Identifier,
 };
@@ -83,23 +82,32 @@ where
 
         // `import source <ImportedBinding> from "m"` (source-phase imports).
         //
-        // `source` is not a keyword, so this only holds when the token after it
-        // can start an `ImportedBinding` *and* is not `from`: `import source
-        // from "m"` is an ordinary default import whose local name happens to
-        // be `source`, and `import source, { x } from "m"` is a default import
-        // followed by a named list. Computed before the `peek(0)` below because
-        // a match guard's borrow of `cursor` would outlive the arm it selects.
+        // `source` and `from` are contextual words. `import source from "m"`
+        // is an ordinary default import, while `import source from from "m"`
+        // binds a source-phase value to the identifier `from`. In that
+        // ambiguous case the next actual, unescaped `from` selects the source
+        // grammar. An escaped binding is legal; an escaped delimiter is not.
+        // Default imports followed by a named/namespace list remain ordinary.
+        // Compute this before borrowing `peek(0)` for the clause below.
         let source_phase = cursor.peek(0, interner)?.is_some_and(|token| {
             matches!(
                 token.kind(),
                 TokenKind::IdentifierName((name, ContainsEscapeSequence(false)))
                     if *name == source_sym
             )
-        }) && cursor.peek(1, interner)?.is_some_and(|token| match token.kind() {
-            TokenKind::IdentifierName((name, _)) => *name != Sym::FROM,
-            TokenKind::Keyword((Keyword::Await | Keyword::Yield, _)) => true,
-            _ => false,
-        });
+        }) && if cursor.peek(1, interner)?.is_some_and(|token| {
+            matches!(token.kind(), TokenKind::IdentifierName((name, _)) if *name == Sym::FROM)
+        }) {
+            cursor.peek(2, interner)?.is_some_and(|token| {
+                token.kind() == &TokenKind::identifier(Sym::FROM)
+            })
+        } else {
+            cursor.peek(1, interner)?.is_some_and(|token| match token.kind() {
+                TokenKind::IdentifierName(_) => true,
+                TokenKind::Keyword((Keyword::Await | Keyword::Yield, _)) => true,
+                _ => false,
+            })
+        };
 
         let tok = cursor.peek(0, interner).or_abrupt()?;
 
@@ -120,7 +128,9 @@ where
                     request,
                 ));
             }
-            TokenKind::IdentifierName((name, ContainsEscapeSequence(false))) if *name == defer_sym => {
+            TokenKind::IdentifierName((name, ContainsEscapeSequence(false)))
+                if *name == defer_sym =>
+            {
                 if let Some(next) = cursor.peek(1, interner)?
                     && next.kind() == &TokenKind::Punctuator(Punctuator::Mul)
                 {
@@ -256,12 +266,8 @@ where
         };
 
         let module_identifier = FromClause::new("import declaration").parse(cursor, interner)?;
-        let request = parse_module_request(
-            cursor,
-            interner,
-            module_identifier,
-            import_clause.phase(),
-        )?;
+        let request =
+            parse_module_request(cursor, interner, module_identifier, import_clause.phase())?;
 
         Ok(import_clause.with_request(request))
     }
@@ -318,15 +324,9 @@ fn parse_module_request_attributes<R: ReadChar>(
                 _ => {
                     let token = cursor.next(interner).or_abrupt()?;
                     let key = match token.kind() {
-                        TokenKind::IdentifierName((name, _)) => {
-                            *name
-                        }
-                        TokenKind::Keyword((kw, _)) => {
-                            kw.to_sym()
-                        }
-                        TokenKind::StringLiteral((name, _)) => {
-                            *name
-                        }
+                        TokenKind::IdentifierName((name, _)) => *name,
+                        TokenKind::Keyword((kw, _)) => kw.to_sym(),
+                        TokenKind::StringLiteral((name, _)) => *name,
                         _ => {
                             return Err(Error::expected(
                                 ["identifier name".to_owned(), "string literal".to_owned()],

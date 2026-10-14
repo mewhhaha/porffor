@@ -16,6 +16,35 @@ pub(super) enum FiniteSourceValue {
 }
 
 impl FiniteSourceValue {
+    fn supplemental(self) -> Self {
+        match self {
+            Self::Text(text) | Self::SupplementalText(text) => Self::SupplementalText(text),
+            Self::Record(properties) => Self::Record(
+                properties
+                    .into_iter()
+                    .map(|(name, values)| {
+                        (name, values.into_iter().map(Self::supplemental).collect())
+                    })
+                    .collect(),
+            ),
+            Self::Array(values) => {
+                Self::Array(values.into_iter().map(Self::supplemental).collect())
+            }
+            value @ (Self::Function(_) | Self::FunctionConstructor(_)) => value,
+        }
+    }
+
+    fn is_supplemental(&self) -> bool {
+        match self {
+            Self::SupplementalText(_) => true,
+            Self::Record(properties) => {
+                !properties.is_empty() && properties.values().flatten().all(Self::is_supplemental)
+            }
+            Self::Array(values) => !values.is_empty() && values.iter().all(Self::is_supplemental),
+            Self::Text(_) | Self::Function(_) | Self::FunctionConstructor(_) => false,
+        }
+    }
+
     pub(super) fn text(&self) -> Option<&str> {
         match self {
             Self::Text(text) | Self::SupplementalText(text) => Some(text),
@@ -56,26 +85,25 @@ pub(super) fn bounded_candidates(
     let mut distinct = BTreeSet::new();
     let mut supplemental = BTreeSet::new();
     for candidate in candidates {
-        match candidate {
-            FiniteSourceValue::SupplementalText(text) => {
-                if supplemental.len() < MAX_SOURCE_CANDIDATES {
-                    supplemental.insert(text);
-                }
+        if candidate.is_supplemental() {
+            if supplemental.len() < MAX_SOURCE_CANDIDATES {
+                supplemental.insert(candidate);
             }
-            candidate => {
-                distinct.insert(candidate);
-                if distinct.len() > MAX_SOURCE_CANDIDATES {
-                    return Vec::new();
-                }
+        } else {
+            distinct.insert(candidate);
+            if distinct.len() > MAX_SOURCE_CANDIDATES {
+                return Vec::new();
             }
         }
     }
-    for text in supplemental {
+    for candidate in supplemental {
         if distinct.len() == MAX_SOURCE_CANDIDATES {
             break;
         }
-        if !distinct.contains(&FiniteSourceValue::Text(text.clone())) {
-            distinct.insert(FiniteSourceValue::SupplementalText(text));
+        if !matches!(&candidate, FiniteSourceValue::SupplementalText(text)
+            if distinct.contains(&FiniteSourceValue::Text(text.clone())))
+        {
+            distinct.insert(candidate);
         }
     }
     distinct.into_iter().collect()
@@ -502,12 +530,7 @@ impl ScriptLowerer<'_> {
                             key,
                             candidates
                                 .into_iter()
-                                .map(|candidate| match candidate {
-                                    FiniteSourceValue::Text(text) => {
-                                        FiniteSourceValue::SupplementalText(text)
-                                    }
-                                    candidate => candidate,
-                                })
+                                .map(FiniteSourceValue::supplemental)
                                 .collect::<Vec<_>>(),
                         );
                     } else {

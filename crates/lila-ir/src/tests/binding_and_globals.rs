@@ -482,11 +482,28 @@ fn root_update_replaces_an_earlier_nested_script_global_value() {
     let StatementIr::Expression(expression) = script.body.statements.last().unwrap() else {
         panic!("expected final expression");
     };
-    assert_eq!(expression.kind, ValueKind::Number);
-    assert_eq!(
-        expression.possible_kinds,
-        KindSet::from_kind(ValueKind::Number)
-    );
+    let ExprIr::EnvironmentIdentifier(reference) = &expression.expr else {
+        panic!("the final read must observe the live updated global binding");
+    };
+    assert_eq!(reference.name, "args");
+    assert!(matches!(
+        reference.operation,
+        EnvironmentIdentifierOperationIr::Read
+    ));
+    let StatementIr::Expression(update) = &script.body.statements[script.body.statements.len() - 2]
+    else {
+        panic!("the original root update must precede the final read");
+    };
+    let ExprIr::EnvironmentIdentifier(reference) = &update.expr else {
+        panic!("the original write must retain runtime Reference selection");
+    };
+    assert_eq!(reference.name, "args");
+    let EnvironmentIdentifierOperationIr::Assign { value } = &reference.operation else {
+        panic!("the root update must remain a single actual assignment");
+    };
+    assert_eq!(value.kind, ValueKind::Number);
+    assert_eq!(value.possible_kinds, KindSet::from_kind(ValueKind::Number));
+    assert!(matches!(value.expr, ExprIr::Number(bits) if bits == 1f64.to_bits()));
 }
 
 #[test]

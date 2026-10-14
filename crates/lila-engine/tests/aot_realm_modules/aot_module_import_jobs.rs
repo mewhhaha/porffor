@@ -416,7 +416,7 @@ Promise.all(checks).then(() => {
   print('host-load-kind:ok');
 });
 "#),
-        ("host.js", "import './ensure.js'; import source source from '<do not resolve>'; globalThis.invalidBody = true;"),
+        ("host.js", "import './ensure.js'; import source source from '<do not resolve>'; import source from from '<do not resolve>'; globalThis.invalidBody = true;"),
         ("ensure.js", "import {missing} from './ensure.js'; globalThis.invalidBody = true;"),
         ("parse.js", "invalid syntax!"),
         ("link.js", "import {missing} from './value.js'; globalThis.invalidBody = true;"),

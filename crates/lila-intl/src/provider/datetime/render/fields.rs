@@ -10,15 +10,15 @@ use super::super::{
 
 pub(super) fn format(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     pattern: &Pattern,
     field: Field,
     fields: Fields,
 ) -> Result<String, DateTimeFormatError> {
     format_fields(
         profile,
-        plan.locale,
-        plan.calendar,
+        &plan.locale,
+        &plan.calendar,
         &plan.numbering,
         pattern,
         field,

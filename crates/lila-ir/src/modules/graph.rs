@@ -385,3 +385,7 @@ fn import_name_text(import_name: &ImportNameIr) -> ExportName {
 #[cfg(test)]
 #[path = "graph_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "graph_request_identity_tests.rs"]
+mod request_identity_tests;

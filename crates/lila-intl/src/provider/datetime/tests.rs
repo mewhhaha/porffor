@@ -8,6 +8,7 @@ use super::{DateTimeProvider, NamedTimeZones};
 mod buddhist;
 mod locale_selection;
 mod parts;
+mod plan_reuse;
 mod range_endpoint_patterns;
 mod ranges;
 mod tols;
@@ -40,7 +41,7 @@ fn calendar_record_mut<'a>(
     &mut profile["calendar_pool"][index]
 }
 
-fn provider() -> &'static DateTimeProvider {
+pub(super) fn provider() -> &'static DateTimeProvider {
     static IMAGE: OnceLock<crate::DateTimeDataImage> = OnceLock::new();
     IMAGE
         .get_or_init(|| crate::embedded_date_time_data_image().expect("admitted DateTime image"))
@@ -61,7 +62,7 @@ fn locale_request(locales: &[&str]) -> DateTimeLocaleRequest {
         hour_cycle: DateTimeHourCyclePreference::Default,
     }
 }
-fn request(locale: &str, selection: DateTimeStyleSelection) -> DateTimePlanRequest {
+pub(super) fn request(locale: &str, selection: DateTimeStyleSelection) -> DateTimePlanRequest {
     DateTimePlanRequest {
         locale: provider()
             .resolve_locale(locale_request(&[locale]))
@@ -73,7 +74,7 @@ fn request(locale: &str, selection: DateTimeStyleSelection) -> DateTimePlanReque
         defaults: DateTimeDefaults::Date,
     }
 }
-fn date_components() -> DateTimeComponents {
+pub(super) fn date_components() -> DateTimeComponents {
     DateTimeComponents {
         year: Some(DateTimeNumericWidth::Numeric),
         month: Some(DateTimeMonthWidth::Numeric),

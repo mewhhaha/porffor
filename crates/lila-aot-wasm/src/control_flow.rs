@@ -770,6 +770,7 @@ impl<'a> FunctionBuilder<'a> {
             return;
         }
         self.emit_unwind_environment_depth(self.environment_depth, function);
+        self.emit_leave_source_activation(function);
         self.completion().emit(function);
         function.instruction(&Instruction::Return);
     }

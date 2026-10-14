@@ -20,6 +20,11 @@ pub(crate) use value::*;
 mod host;
 pub use host::*;
 mod snapshot;
+mod source_activation_depth;
+pub(crate) use source_activation_depth::SourceActivationDepth;
+use source_activation_depth::SourceActivationDepthGlobal;
+#[cfg(test)]
+mod type_registration_tests;
 pub(crate) use host::{DeclaredGcHostImport, GcHostImports};
 pub use snapshot::*;
 
@@ -371,6 +376,8 @@ impl RuntimeGcTypes {
         let well_known_symbols = GcRootGlobal::declare(&self.layouts, &mut globals);
         let registered_symbols = GcRootGlobal::declare(&self.layouts, &mut globals);
         let current_realm = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let active_source_function = GcRootGlobal::declare(&self.layouts, &mut globals);
+        let source_activation_depth = SourceActivationDepthGlobal::declare(&mut globals);
         let throw_name = GcRootGlobal::declare(&self.layouts, &mut globals);
         let throw_message = GcRootGlobal::declare(&self.layouts, &mut globals);
         let throw_constructor_name = GcRootGlobal::declare(&self.layouts, &mut globals);
@@ -402,6 +409,8 @@ impl RuntimeGcTypes {
             well_known_symbols,
             registered_symbols,
             current_realm,
+            active_source_function,
+            source_activation_depth,
             throw_name,
             throw_message,
             throw_constructor_name,
@@ -430,6 +439,8 @@ impl RuntimeGcTypes {
 /// Frozen type declarations and their exact assigned GC indices.
 ///
 /// Registration consumes the section after singleton function signatures.
+/// R contains only the core graph; P and standalone modules append direct
+/// program-helper signatures after that graph without moving any core type.
 /// Multi-member recursion groups make TypeSection::len a group-entry count;
 /// no later caller can append or guess a type index through that section.
 /// The only transition finalizes globals into the existing sealed package.
@@ -439,10 +450,14 @@ pub(crate) struct RuntimeModuleTypes {
 }
 
 impl RuntimeModuleTypes {
-    pub(crate) fn register() -> Self {
-        use crate::{module::StaticSignature, runtime_helpers::RuntimeHelperId};
+    pub(crate) fn register(kind: crate::runtime_artifact::ModuleKind<'_>) -> Self {
+        use crate::{
+            module::StaticSignature,
+            runtime_helpers::{HelperTypeRegion, RuntimeHelperId},
+        };
         use wasm_encoder::{CompositeInnerType, CompositeType, FuncType, SubType};
-        let function_count = StaticSignature::ALL.len() + RuntimeHelperId::ALL.len();
+        let function_count =
+            StaticSignature::ALL.len() + RuntimeHelperId::type_count(HelperTypeRegion::Core);
         let layouts = GcLayoutRegistry::assigned(
             u32::try_from(function_count).expect("function type count overflow"),
         );
@@ -473,7 +488,9 @@ impl RuntimeModuleTypes {
             }
         }
         for helper in RuntimeHelperId::ALL {
-            members.push(function_type(helper.definition(&layouts)));
+            if helper.type_region() == HelperTypeRegion::Core {
+                members.push(function_type(helper.definition(&layouts)));
+            }
         }
         members.extend(
             GcLayout::ALL
@@ -481,6 +498,17 @@ impl RuntimeModuleTypes {
                 .map(|layout| layout.definition(&layouts)),
         );
         section.ty().rec(members);
+        if kind.compiles_program() {
+            for helper in RuntimeHelperId::ALL {
+                if helper.type_region() == HelperTypeRegion::Program {
+                    let definition = helper.definition(&layouts);
+                    section.ty().function(
+                        definition.parameters().iter().copied(),
+                        definition.results().iter().copied(),
+                    );
+                }
+            }
+        }
         Self {
             section,
             runtime: RuntimeGcTypes::from_layouts(layouts),
@@ -576,6 +604,8 @@ pub(crate) struct RuntimeSchema {
     well_known_symbols: GcRootGlobal<WellKnownSymbolTable>,
     registered_symbols: GcRootGlobal<RegisteredSymbolTable>,
     current_realm: GcRootGlobal<RealmRecord>,
+    active_source_function: GcRootGlobal<FunctionObject>,
+    source_activation_depth: SourceActivationDepthGlobal,
     throw_name: GcRootGlobal<StringValue>,
     throw_message: GcRootGlobal<StringValue>,
     throw_constructor_name: GcRootGlobal<StringValue>,
@@ -773,7 +803,7 @@ mod tests {
 
     #[test]
     fn recursive_callable_and_semantic_declarations_validate_together() {
-        let registered = RuntimeModuleTypes::register();
+        let registered = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime);
         let runtime = registered.finalize_globals(GlobalLedger::new(), false, 0);
         let mut module = wasm_encoder::Module::new();
         module.section(runtime.types());
@@ -811,7 +841,8 @@ mod tests {
     fn finalized_globals_bind_the_root_to_the_actual_next_index() {
         for existing_global_count in [0_u32, 1, 7] {
             for snapshot in [false, true] {
-                let runtime = RuntimeModuleTypes::register();
+                let runtime =
+                    RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime);
                 let mut globals = GlobalLedger::new();
                 for _ in 0..existing_global_count {
                     globals.global(
@@ -842,7 +873,7 @@ mod tests {
                 assert_eq!(
                     finalized.globals.section.len(),
                     existing_global_count
-                        + 15
+                        + 17
                         + crate::runtime_helpers::ProgramHook::ALL.len() as u32
                         + snapshot_global_count,
                     "ordinary roots and opt-in typed inventory/witnesses share the actual section"

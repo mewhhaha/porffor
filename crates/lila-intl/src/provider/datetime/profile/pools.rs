@@ -12,6 +12,11 @@ pub(super) struct CalendarRecords {
 }
 
 impl CalendarRecords {
+    pub(super) fn owner(&self, calendar: DateTimeCalendar) -> Option<Arc<Calendar>> {
+        self.records[CalendarId::from_admitted(calendar).index()]
+            .as_ref()
+            .map(Arc::clone)
+    }
     pub(super) fn get(&self, calendar: DateTimeCalendar) -> Option<&Calendar> {
         self.records[CalendarId::from_admitted(calendar).index()].as_deref()
     }

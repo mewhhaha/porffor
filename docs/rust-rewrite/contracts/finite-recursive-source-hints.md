@@ -26,3 +26,18 @@ Acceptance requires actual Engine execution of both recursive closures in both
 modes, mutual recursion with three independent captures, and retention of the
 previous capture/shadow/assignment/conversion and 256-candidate controls. IR
 controls require every real body and reject unused bodies from shadowed targets.
+
+
+The direct identifier head of a generic for-of loop now receives optional
+source candidates from its actual iterable. Its element ValueInfo remains
+Dynamic: user iterator methods can yield unrelated values, and the ordinary
+iterator and live constructor tuple admission remain in emitted IR. Pattern,
+property, borrowed-eval and intercepted assignment heads do not acquire facts
+from the private iteration temporary. Source discovery retains the original
+256-value limit; a 257-value source remains outside finite preparation.
+
+Supplemental global text priority also follows text nested in Record and Array
+candidates, including later cross-owner rescans. A full primary set is admitted
+before optional text-containing structures, so supplemental discovery cannot
+consume the slots of those existing primary bodies. The original exact 256-body
+regression remains unchanged and covers scalar and record source paths.

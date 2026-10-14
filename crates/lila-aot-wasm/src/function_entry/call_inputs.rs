@@ -1,5 +1,6 @@
 //! Semantic call arguments. Count is always derived from the rooted vector.
 
+use super::runtime_dispatch::NativeCallerBoundary;
 use super::*;
 use crate::gc_types::{
     AsyncActivation, AsyncGeneratorActivation, DirectEvalExecutionContext, Environment,
@@ -171,7 +172,7 @@ impl<'a> PreparedScriptInputs<'a> {
 }
 
 macro_rules! planned_callable_call {
-    ($entry:ident, $inputs:ident) => {
+    ($entry:ident, $inputs:ident $(; $boundary:ident)?) => {
         impl $entry<'_> {
             pub(crate) fn emit_call(
                 &self,
@@ -180,13 +181,16 @@ macro_rules! planned_callable_call {
                 schema: &RuntimeSchema,
                 function: &mut Function,
             ) -> GcCallResult {
+                $(let boundary = $boundary::enter(callable, schema, function);)?
                 inputs.emit(callable, schema, function);
-                schema.call_entry(self.0, function)
+                let completion = schema.call_entry(self.0, function);
+                $($boundary::restore(boundary, schema, function);)?
+                completion
             }
         }
     };
 }
-planned_callable_call!(OrdinaryBodyEntry, OrdinaryBodyInputs);
+planned_callable_call!(OrdinaryBodyEntry, OrdinaryBodyInputs; NativeCallerBoundary);
 planned_callable_call!(GeneratorBodyEntry, GeneratorBodyInputs);
 planned_callable_call!(AsyncBodyEntry, AsyncBodyInputs);
 planned_callable_call!(AsyncGeneratorBodyEntry, AsyncGeneratorBodyInputs);

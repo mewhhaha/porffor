@@ -1668,6 +1668,24 @@ impl RuntimeSchema {
         self.array_type::<WellKnownSymbolTable>().emit_get(function);
         GcStackReference::new()
     }
+    /// Actual caller identity at the current source-call boundary. Opaque
+    /// native entries install their own barrier identity; prepared Scripts and
+    /// forwarding intrinsics remain transparent. Null denotes no active call.
+    pub(crate) fn load_active_source_function(
+        &self,
+        function: &mut Function,
+    ) -> GcStackReference<FunctionObject, Nullable> {
+        emit_root_get(function, self.active_source_function);
+        GcStackReference::new()
+    }
+    pub(crate) fn replace_active_source_function<N: GcFieldNullability>(
+        &self,
+        callable: &GcLocal<FunctionObject, N>,
+        function: &mut Function,
+    ) {
+        callable.load(self, function);
+        emit_root_set(function, self.active_source_function);
+    }
     pub(crate) fn load_current_realm(
         &self,
         function: &mut Function,

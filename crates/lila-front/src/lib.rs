@@ -12,15 +12,23 @@ mod dynamic_function;
 mod early_error_code;
 mod eval_source;
 mod json;
+mod utf16_source;
 
 // Generated source uses exactly the lexer's decoded-code-point grammar.
 // Re-export the authority instead of maintaining another Unicode classifier.
 pub use boa_parser::lexer::{is_identifier_part, is_identifier_start};
-pub use dynamic_function::{prepare_dynamic_function, FunctionParseKind};
+pub use dynamic_function::{
+    prepare_dynamic_function, prepare_dynamic_function_utf16, FunctionParseKind,
+};
 pub use eval_source::{
-    prepare_eval_source, DirectEvalParseContext, EvalInvocationContext, EvalParseContext,
+    prepare_eval_source, prepare_eval_source_utf16, DirectEvalParseContext, EvalInvocationContext,
+    EvalParseContext,
 };
 pub use json::{parse_json, JsonParseError, JsonValue, ParsedJson};
+pub use utf16_source::{
+    decode_js_string_utf16, encode_js_string_utf16, SourceTextEncoding,
+    JS_STRING_SURROGATE_SENTINEL,
+};
 
 pub use early_error_code::{
     classify_parse_failure, EarlyErrorCode, ParseClassified, NO_EARLY_ERROR_CODE,
@@ -58,7 +66,9 @@ impl ParseOptions {
 pub struct SourceUnit {
     pub goal: ParseGoal,
     pub filename: Option<String>,
+    /// Exact UTF-8 host text or losslessly encoded UTF-16, selected by `encoding`.
     pub source_text: String,
+    pub encoding: SourceTextEncoding,
 }
 
 /// A successfully parsed Script compilation unit.
@@ -77,6 +87,7 @@ pub struct ParsedScript {
 struct ScriptSyntax {
     ast: Script,
     interner: Interner,
+    source_text: boa_ast::SourceText,
 }
 
 /// Identity of one successful Script parse, retaining its actual owned syntax
@@ -117,6 +128,7 @@ pub struct ParsedModule {
 struct ModuleSyntax {
     ast: Module,
     interner: Interner,
+    source_text: boa_ast::SourceText,
 }
 
 /// The closed result of a successful parse.
@@ -171,6 +183,16 @@ impl ParsedScript {
         &self.source
     }
 
+    /// Exact semantic source units retained with the AST/interner allocation.
+    /// Parser linear spans index this owner, never its encoded presentation.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn compiler_source_utf16(&self) -> &[u16] {
+        self.syntax
+            .source_text
+            .get_code_points_from_pos(boa_ast::LinearPosition::new(0))
+    }
+
     /// Gives compiler source ownership the identity of this AST/interner
     /// allocation. Metadata equality deliberately remains source equality.
     #[doc(hidden)]
@@ -200,6 +222,16 @@ impl ParsedModule {
     #[must_use]
     pub const fn source(&self) -> &SourceUnit {
         &self.source
+    }
+
+    /// Exact semantic source units retained with the AST/interner allocation.
+    /// Parser linear spans index this owner, never its encoded presentation.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn compiler_source_utf16(&self) -> &[u16] {
+        self.syntax
+            .source_text
+            .get_code_points_from_pos(boa_ast::LinearPosition::new(0))
     }
 
     /// Module counterpart of [`ParsedScript::with_compiler_session`].
@@ -498,39 +530,92 @@ pub fn parse(
 
     let ast = parse_with_boundary(&source_text, || match options.goal {
         ParseGoal::Script => Parser::new(source)
-            .parse_script(&scope, &mut interner)
-            .map(ParsedAst::Script),
+            .parse_script_with_source(&scope, &mut interner)
+            .map(|(ast, source)| ParsedAst::Script(ast, source)),
         ParseGoal::Module => Parser::new(source)
-            .parse_module(&scope, &mut interner)
-            .map(ParsedAst::Module),
+            .parse_module_with_source(&scope, &mut interner)
+            .map(|(ast, source)| ParsedAst::Module(ast, source)),
     })?;
 
     let source = SourceUnit {
         goal: options.goal,
         filename: options.filename,
         source_text,
+        encoding: SourceTextEncoding::Utf8,
     };
-    Ok(match ast {
-        ParsedAst::Script(ast) => ParsedSource::Script(ParsedScript {
-            source,
-            syntax: Rc::new(ScriptSyntax { ast, interner }),
-        }),
-        ParsedAst::Module(ast) => ParsedSource::Module(ParsedModule {
-            source,
-            syntax: Rc::new(ModuleSyntax { ast, interner }),
+    Ok(parsed_source(ast, source, interner))
+}
+
+/// Parses a prepared Script supplied as an ECMAScript string. Module host
+/// files keep their separate UTF-8 byte-range owner through `parse`.
+pub fn parse_script_utf16(source_units: &[u16]) -> Result<ParsedScript, ParseError> {
+    let mut interner = Interner::default();
+    let scope = Scope::new_global();
+    let (ast, source_text) = parse_utf16_with_boundary(source_units, || {
+        Parser::new(Source::from_utf16(source_units))
+            .parse_script_with_source(&scope, &mut interner)
+    })?;
+    Ok(ParsedScript {
+        source: SourceUnit {
+            goal: ParseGoal::Script,
+            filename: None,
+            source_text: encode_js_string_utf16(source_units),
+            encoding: SourceTextEncoding::EncodedUtf16,
+        },
+        syntax: Rc::new(ScriptSyntax {
+            ast,
+            interner,
+            source_text,
         }),
     })
+}
+
+fn parsed_source(ast: ParsedAst, source: SourceUnit, interner: Interner) -> ParsedSource {
+    match ast {
+        ParsedAst::Script(ast, source_text) => ParsedSource::Script(ParsedScript {
+            source,
+            syntax: Rc::new(ScriptSyntax {
+                ast,
+                interner,
+                source_text,
+            }),
+        }),
+        ParsedAst::Module(ast, source_text) => ParsedSource::Module(ParsedModule {
+            source,
+            syntax: Rc::new(ModuleSyntax {
+                ast,
+                interner,
+                source_text,
+            }),
+        }),
+    }
 }
 
 fn parse_with_boundary<T>(
     source_text: &str,
     operation: impl FnOnce() -> Result<T, boa_parser::Error>,
 ) -> Result<T, ParseError> {
+    parse_with_boundary_and_span(operation, |error| parse_error_span(source_text, error))
+}
+
+fn parse_utf16_with_boundary<T>(
+    source_units: &[u16],
+    operation: impl FnOnce() -> Result<T, boa_parser::Error>,
+) -> Result<T, ParseError> {
+    parse_with_boundary_and_span(operation, |error| {
+        parse_error_span_utf16(source_units, error)
+    })
+}
+
+fn parse_with_boundary_and_span<T>(
+    operation: impl FnOnce() -> Result<T, boa_parser::Error>,
+    span: impl FnOnce(&boa_parser::Error) -> Option<SourceSpan>,
+) -> Result<T, ParseError> {
     match panic::catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(parsed)) => Ok(parsed),
         Ok(Err(err)) => {
             let typed_code = ParseClassified::from_boa_error(&err);
-            let span = parse_error_span(source_text, &err);
+            let span = span(&err);
             let err = err.to_string();
             let message = format!("parse error: {err}");
             // The typed condition already carries its code. Other variants use
@@ -552,12 +637,12 @@ fn parse_with_boundary<T>(
 }
 
 enum ParsedAst {
-    Script(Script),
-    Module(Module),
+    Script(Script, boa_ast::SourceText),
+    Module(Module, boa_ast::SourceText),
 }
 
-fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<SourceSpan> {
-    let position = match error {
+fn parse_error_position(error: &boa_parser::Error) -> Option<boa_ast::Position> {
+    Some(match error {
         boa_parser::Error::Expected { span, .. } | boa_parser::Error::Unexpected { span, .. } => {
             span.start()
         }
@@ -570,7 +655,11 @@ fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<Sour
         | boa_parser::Error::Lex {
             err: boa_parser::lexer::Error::IO(_),
         } => return None,
-    };
+    })
+}
+
+fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<SourceSpan> {
+    let position = parse_error_position(error)?;
     let start = byte_offset_for_line_col(
         source_text,
         position.line_number() as usize,
@@ -584,6 +673,50 @@ fn parse_error_span(source_text: &str, error: &boa_parser::Error) -> Option<Sour
     Some(SourceSpan {
         start,
         end: start + width,
+    })
+}
+
+/// Diagnostic byte ranges refer to the explicitly encoded SourceUnit text.
+/// Traverse actual source code points for line/column ownership, then encode
+/// the selected boundary; marker characters are ordinary user data here.
+fn parse_error_span_utf16(source: &[u16], error: &boa_parser::Error) -> Option<SourceSpan> {
+    let position = parse_error_position(error)?;
+    let target = (
+        position.line_number() as usize,
+        position.column_number() as usize,
+    );
+    let (mut offset, mut line, mut column) = (0, 1, 1);
+    while offset < source.len() {
+        let first = source[offset];
+        let width = if (0xD800..=0xDBFF).contains(&first)
+            && source
+                .get(offset + 1)
+                .is_some_and(|unit| (0xDC00..=0xDFFF).contains(unit))
+        {
+            2
+        } else {
+            1
+        };
+        if (line, column) == target {
+            let start = encode_js_string_utf16(&source[..offset]).len();
+            let end = start + encode_js_string_utf16(&source[offset..offset + width]).len();
+            return Some(SourceSpan { start, end });
+        }
+        offset += width;
+        match first {
+            0x000D | 0x000A | 0x2028 | 0x2029 => {
+                if first == 0x000D && source.get(offset) == Some(&0x000A) {
+                    offset += 1;
+                }
+                line += 1;
+                column = 1;
+            }
+            _ => column += 1,
+        }
+    }
+    ((line, column) == target).then(|| {
+        let end = encode_js_string_utf16(source).len();
+        SourceSpan { start: end, end }
     })
 }
 

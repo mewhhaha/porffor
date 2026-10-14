@@ -176,6 +176,7 @@ impl ModuleSourceIr {
             }
             Err(error) => ModuleParse::Rejected {
                 source: SourceUnit {
+                    encoding: lila_front::SourceTextEncoding::Utf8,
                     goal: ParseGoal::Module,
                     filename: Some(key.as_str().to_string()),
                     source_text,

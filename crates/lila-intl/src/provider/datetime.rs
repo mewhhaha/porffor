@@ -14,6 +14,7 @@ mod locale;
 mod names;
 mod pattern;
 mod plan;
+mod plan_cache;
 mod profile;
 mod ranges;
 mod raw;
@@ -30,6 +31,7 @@ const PLAN_MAGIC: &[u8; 8] = b"LILADTF2";
 
 pub(crate) struct DateTimeProvider {
     profile: Profile,
+    plans: plan_cache::PlanCache,
     calendars: calendar::CalendarKernels,
     named_time_zones: Arc<NamedTimeZones>,
     keyword_aliases: Arc<KeywordAliasData>,
@@ -95,7 +97,7 @@ impl DateTimeProvider {
         Ok(profile
             .locales
             .into_iter()
-            .map(|locale| locale.identifier)
+            .map(|locale| locale.identifier.clone())
             .collect())
     }
 
@@ -131,6 +133,11 @@ impl DateTimeProvider {
         Self::validate_locales(&profile, canonicalizer)?;
         Ok(Self {
             profile,
+            plans: plan_cache::PlanCache::new(
+                &image_digest,
+                &locale_digest,
+                &named_time_zone_digest,
+            ),
             calendars: calendar::CalendarKernels::from_data(data)?,
             named_time_zones,
             keyword_aliases,
@@ -191,8 +198,9 @@ impl DateTimeProvider {
         bytes.extend_from_slice(self.locale_digest.as_bytes());
         bytes.extend_from_slice(self.named_time_zone_digest.as_bytes());
         bytes.extend_from_slice(&recipe);
+        let encoded = EncodedDateTimePlan::from_bytes(bytes);
         Ok(DateTimePlanResult {
-            plan: EncodedDateTimePlan::from_bytes(bytes),
+            plan: encoded,
             locale: request.locale,
             time_zone: request.time_zone,
             components: selected.legacy_components(),
@@ -207,8 +215,7 @@ impl DateTimeProvider {
         &self,
         request: DateTimeFormatRequest,
     ) -> Result<DateTimeParts, DateTimeFormatError> {
-        let recipe = self.decode_plan(&request.plan)?;
-        let selected = plan::select(&self.profile, &recipe)?;
+        let selected = self.admit_plan(&request.plan)?.select()?;
         render::format(
             &self.profile,
             &selected,
@@ -221,11 +228,13 @@ impl DateTimeProvider {
         &self,
         request: DateTimeRangeRequest,
     ) -> Result<DateTimeRangeParts, DateTimeFormatError> {
-        let recipe = self.decode_plan(&request.plan)?;
+        // Decode/identity/zone rejection still precedes the range kind check;
+        // full format selection still follows it on an uncached request.
+        let admission = self.admit_plan(&request.plan)?;
         if request.start.kind() != request.end.kind() {
             return Err(DateTimeFormatError::InputKindMismatch);
         }
-        let selected = plan::select(&self.profile, &recipe)?;
+        let selected = admission.select()?;
         ranges::format(
             &self.profile,
             &selected,
@@ -235,10 +244,19 @@ impl DateTimeProvider {
             &self.calendars,
         )
     }
-    fn decode_plan(
-        &self,
-        plan: &EncodedDateTimePlan,
-    ) -> Result<DateTimePlanRequest, DateTimeFormatError> {
+    fn admit_plan<'p>(
+        &'p self,
+        encoded: &'p EncodedDateTimePlan,
+    ) -> Result<PlanAdmission<'p>, DateTimeFormatError> {
+        match self.plans.get(encoded) {
+            Some(selected) => Ok(PlanAdmission::Cached(selected)),
+            None => self.decode_plan(encoded).map(PlanAdmission::Decoded),
+        }
+    }
+    fn decode_plan<'p>(
+        &'p self,
+        plan: &'p EncodedDateTimePlan,
+    ) -> Result<DecodedDateTimePlan<'p>, DateTimeFormatError> {
         let bytes = plan.as_bytes();
         if bytes.get(..8) != Some(PLAN_MAGIC.as_slice())
             || bytes.get(8..40) != Some(self.image_digest.as_bytes().as_slice())
@@ -251,7 +269,11 @@ impl DateTimeProvider {
         }
         let request = DateTimePlanRequest::decode(&bytes[104..]).map_err(plan_wire_error)?;
         self.require_plan_time_zone(&request.time_zone)?;
-        Ok(request)
+        Ok(DecodedDateTimePlan {
+            provider: self,
+            encoded: plan,
+            request,
+        })
     }
 
     pub(crate) fn uses_named_time_zones(&self, zones: &Arc<NamedTimeZones>) -> bool {
@@ -287,6 +309,45 @@ impl DateTimeProvider {
                 })?;
         }
         Ok(())
+    }
+}
+
+/// A cache miss retains the exact identity-checked wire owner and its decoded
+/// recipe together. The provider cannot accidentally select a different recipe
+/// or skip the range-kind stage by confusing cached and decoded states.
+struct DecodedDateTimePlan<'p> {
+    provider: &'p DateTimeProvider,
+    encoded: &'p EncodedDateTimePlan,
+    request: DateTimePlanRequest,
+}
+struct AdmittedDateTimePlan {
+    encoded: Box<[u8]>,
+    selected: Arc<plan::ValidatedPlan>,
+}
+impl DecodedDateTimePlan<'_> {
+    fn select(self) -> Result<AdmittedDateTimePlan, DateTimeFormatError> {
+        Ok(AdmittedDateTimePlan {
+            encoded: self.encoded.as_bytes().into(),
+            selected: Arc::new(plan::select(&self.provider.profile, &self.request)?),
+        })
+    }
+}
+enum PlanAdmission<'p> {
+    Cached(Arc<plan::ValidatedPlan>),
+    Decoded(DecodedDateTimePlan<'p>),
+}
+impl PlanAdmission<'_> {
+    fn select(self) -> Result<Arc<plan::ValidatedPlan>, DateTimeFormatError> {
+        match self {
+            Self::Cached(selected) => Ok(selected),
+            Self::Decoded(decoded) => {
+                let provider = decoded.provider;
+                let admitted = decoded.select()?;
+                let selected = Arc::clone(&admitted.selected);
+                provider.plans.remember(admitted);
+                Ok(selected)
+            }
+        }
     }
 }
 

@@ -686,6 +686,17 @@ impl<'a> ScriptLowerer<'a> {
         }
         let resumable_plan = lowerer.current_resumable_plan.clone().or(resumable_plan);
 
+        let generator_plan =
+            (function.protocol.execution_kind() == FunctionExecutionKind::Generator).then(|| {
+                if function.protocol == FunctionProtocolIr::ModuleActivation {
+                    GeneratorPlanIr::module_instantiation()
+                } else {
+                    let source_plan = linear_generator_plan(function.body)
+                        .unwrap_or_else(GeneratorPlanIr::without_suspensions);
+                    lowerer.generator_plan_for_lowered_named_environment(&body, source_plan)
+                }
+            });
+
         self.merge_nested_script_global_value_infos(&lowerer.nested_script_global_value_infos);
         self.merge_called_script_global_value_infos(&lowerer.called_script_global_value_infos);
         self.merge_child_compilation_records(&mut lowerer);
@@ -716,16 +727,7 @@ impl<'a> ScriptLowerer<'a> {
             name: function.name.clone(),
             to_string_representation: function.to_string_representation.clone(),
             protocol: function.protocol,
-            generator_plan: (function.protocol.execution_kind()
-                == FunctionExecutionKind::Generator)
-                .then(|| {
-                    if function.protocol == FunctionProtocolIr::ModuleActivation {
-                        GeneratorPlanIr::module_instantiation()
-                    } else {
-                        linear_generator_plan(function.body)
-                            .unwrap_or_else(GeneratorPlanIr::without_suspensions)
-                    }
-                }),
+            generator_plan,
             resumable_plan,
             strict: function.strict,
             class_element_execution_kind: ClassElementExecutionKind::None,

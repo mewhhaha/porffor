@@ -129,8 +129,14 @@ pub(super) fn compile_dynamic_function_sources(
             continue;
         }
         function.name = "anonymous".to_string();
-        function.to_string_representation =
-            CallableToStringRepresentation::ExactSource(parser_kind.source_text(&source.arguments));
+        let source_arguments: Vec<_> = source
+            .arguments
+            .iter()
+            .map(|argument| decode_js_string_utf16(argument))
+            .collect();
+        function.to_string_representation = CallableToStringRepresentation::ExactSource(
+            encode_js_string_utf16(&parser_kind.source_text_utf16(&source_arguments)),
+        );
         let script = program.script.as_mut().expect("source owner was lowered");
         append_prepared_unit(script, unit);
         script

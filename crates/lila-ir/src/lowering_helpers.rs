@@ -1900,8 +1900,34 @@ pub(crate) fn class_static_block_key(block: &StaticBlockBody) -> String {
     )
 }
 
-fn source_slice_from_utf16_span(source_text: &str, span: boa_ast::LinearSpan) -> String {
-    source_text[source_byte_range_from_utf16_span(source_text, span)].to_string()
+/// The parser's source owner is UTF-16. UTF-8 is retained only for compiler
+/// unit fixtures and original module byte-range recovery; it is never decoded
+/// as an internal string spelling.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CompilerSourceText<'a> {
+    Utf8(&'a str),
+    Utf16(&'a [u16]),
+}
+
+impl<'a> From<&'a str> for CompilerSourceText<'a> {
+    fn from(source: &'a str) -> Self {
+        Self::Utf8(source)
+    }
+}
+
+fn source_slice_from_utf16_span(
+    source_text: CompilerSourceText<'_>,
+    span: boa_ast::LinearSpan,
+) -> String {
+    match source_text {
+        CompilerSourceText::Utf8(source) => {
+            let slice = &source[source_byte_range_from_utf16_span(source, span)];
+            encode_js_string_utf16(&slice.encode_utf16().collect::<Vec<_>>())
+        }
+        CompilerSourceText::Utf16(source) => {
+            encode_js_string_utf16(&source[span.start().pos()..span.end().pos()])
+        }
+    }
 }
 
 pub(crate) fn source_byte_range_from_utf16_span(
@@ -1927,14 +1953,17 @@ pub(crate) fn source_byte_range_from_utf16_span(
     panic!("parser source span {span:?} must end within the source text");
 }
 
-pub(crate) fn function_source_slice(function: &FunctionDeclaration, source_text: &str) -> String {
+pub(crate) fn function_source_slice(
+    function: &FunctionDeclaration,
+    source_text: CompilerSourceText<'_>,
+) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn generator_declaration_source_slice(
     function: &GeneratorDeclaration,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -1942,7 +1971,7 @@ pub(crate) fn generator_declaration_source_slice(
 
 pub(crate) fn async_function_declaration_source_slice(
     function: &AsyncFunctionDeclaration,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -1950,7 +1979,7 @@ pub(crate) fn async_function_declaration_source_slice(
 
 pub(crate) fn async_generator_declaration_source_slice(
     function: &AsyncGeneratorDeclaration,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -1958,7 +1987,7 @@ pub(crate) fn async_generator_declaration_source_slice(
 
 pub(crate) fn async_function_expression_source_slice(
     function: &AsyncFunctionExpression,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -1966,7 +1995,7 @@ pub(crate) fn async_function_expression_source_slice(
 
 pub(crate) fn async_generator_expression_source_slice(
     function: &AsyncGeneratorExpression,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -1974,7 +2003,7 @@ pub(crate) fn async_generator_expression_source_slice(
 
 pub(crate) fn function_expression_source_slice(
     function: &FunctionExpression,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     if let Some(span) = function.linear_span() {
         return source_slice_from_utf16_span(source_text, span);
@@ -1984,20 +2013,23 @@ pub(crate) fn function_expression_source_slice(
 
 pub(crate) fn generator_expression_source_slice(
     function: &GeneratorExpression,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
 }
 
-pub(crate) fn arrow_function_source_slice(function: &ArrowFunction, source_text: &str) -> String {
+pub(crate) fn arrow_function_source_slice(
+    function: &ArrowFunction,
+    source_text: CompilerSourceText<'_>,
+) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn async_arrow_function_source_slice(
     function: &AsyncArrowFunction,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = function.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -2005,7 +2037,7 @@ pub(crate) fn async_arrow_function_source_slice(
 
 pub(crate) fn object_method_source_slice(
     method: &ObjectMethodDefinition,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = method.linear_span();
     source_slice_from_utf16_span(source_text, span)
@@ -2013,20 +2045,23 @@ pub(crate) fn object_method_source_slice(
 
 pub(crate) fn class_method_source_slice(
     method: &ClassMethodDefinition,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = method.linear_span();
     source_slice_from_utf16_span(source_text, span)
 }
 
-pub(crate) fn class_expression_source_slice(class: &ClassExpression, source_text: &str) -> String {
+pub(crate) fn class_expression_source_slice(
+    class: &ClassExpression,
+    source_text: CompilerSourceText<'_>,
+) -> String {
     let span = class.linear_span();
     source_slice_from_utf16_span(source_text, span)
 }
 
 pub(crate) fn class_declaration_source_slice(
     class: &ClassDeclaration,
-    source_text: &str,
+    source_text: CompilerSourceText<'_>,
 ) -> String {
     let span = class.linear_span();
     source_slice_from_utf16_span(source_text, span)

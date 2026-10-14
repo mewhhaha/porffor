@@ -151,6 +151,14 @@ impl FunctionBuilder<'_> {
         self.emit_define_function_runtime_metadata_property(
             &object, "caller", &value, zero, zero, function,
         )?;
+        self.emit_define_function_runtime_metadata_property(
+            &object,
+            "arguments",
+            &value,
+            zero,
+            zero,
+            function,
+        )?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 

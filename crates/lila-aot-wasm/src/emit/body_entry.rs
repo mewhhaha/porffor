@@ -5,6 +5,9 @@ mod literal_roots;
 
 impl<'a> FunctionBuilder<'a> {
     pub(super) fn clear_body_entry_roots(&mut self, function: &mut Function) {
+        if let Some(activation) = self.source_activation.take() {
+            activation.clear(function);
+        }
         for binding in self.local_bindings.iter().flatten() {
             if let Some(list) = binding.private_argument_list() {
                 list.set_null(self.schema, function);

@@ -1555,7 +1555,7 @@ fn a_public_host_resolution_row_matches_canonical_request_attributes() {
     let modules = vec![
         ModuleSourceIr::new(
             ModuleKey::from_host("/root/entry.js"),
-            "import { value } from './dep.js' with { charset: 'utf8', type: 'text' };\n\
+            "import { value } from './dep.js' with { charset: 'utf8', syntax: 'javascript' };\n\
              value;"
                 .to_string(),
             "file:///root/entry.js".to_string(),
@@ -1569,7 +1569,10 @@ fn a_public_host_resolution_row_matches_canonical_request_attributes() {
     let host_request = ModuleRequestKeyIr::try_new(
         "./dep.js",
         // Reverse of the source's canonical order.
-        vec![attribute("type", "text"), attribute("charset", "utf8")],
+        vec![
+            attribute("syntax", "javascript"),
+            attribute("charset", "utf8"),
+        ],
     )
     .expect("host attributes are unique");
     let sources = ModuleGraphSources {
@@ -1605,7 +1608,7 @@ fn an_attributed_reexport_uses_the_matching_public_host_resolution_row() {
     let modules = vec![
         ModuleSourceIr::new(
             ModuleKey::from_host("/root/entry.js"),
-            "export { value as renamed } from './dep.js' with { charset: 'utf8', type: 'text' };"
+            "export { value as renamed } from './dep.js' with { charset: 'utf8', syntax: 'javascript' };"
                 .to_string(),
             "file:///root/entry.js".to_string(),
         ),
@@ -1618,7 +1621,10 @@ fn an_attributed_reexport_uses_the_matching_public_host_resolution_row() {
     let host_request = ModuleRequestKeyIr::try_new(
         "./dep.js",
         // Reverse of the source's canonical order.
-        vec![attribute("type", "text"), attribute("charset", "utf8")],
+        vec![
+            attribute("syntax", "javascript"),
+            attribute("charset", "utf8"),
+        ],
     )
     .expect("host attributes are unique");
     let sources = ModuleGraphSources {

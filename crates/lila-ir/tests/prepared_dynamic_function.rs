@@ -823,3 +823,54 @@ indirect();
         }
     }
 }
+
+#[test]
+fn finite_for_of_identifier_hints_keep_the_original_256_candidate_budget() {
+    for count in [256, 257] {
+        let bodies = (0..count)
+            .map(|index| format!("return {index};"))
+            .collect::<Vec<_>>();
+        let literals = bodies
+            .iter()
+            .map(|body| format!("{body:?}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        for head in ["var body", "let body", "const body"] {
+            let parsed = parse(
+                format!("for ({head} of [{literals}]) {{ Function(body); }}"),
+                ParseOptions::script(),
+            )
+            .unwrap();
+            let program = lower(&parsed);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.unwrap();
+            assert!(
+                script.body.statements.iter().any(|statement| matches!(
+                    statement,
+                    lila_ir::StatementIr::ForOfIterator { .. }
+                )),
+                "source discovery must retain the actual generic iterator"
+            );
+            if count == 257 {
+                assert!(
+                    script.prepared_dynamic_functions.is_empty(),
+                    "overflow must keep the unsupported live-tuple boundary: {head}"
+                );
+            } else {
+                for body in &bodies {
+                    assert!(
+                        script
+                            .prepared_dynamic_functions
+                            .iter()
+                            .any(|entry| entry.arguments == [body.as_str()]
+                                && matches!(
+                                    entry.outcome,
+                                    PreparedDynamicFunctionOutcome::Compiled { .. }
+                                )),
+                        "missing {head} iteration candidate {body:?}"
+                    );
+                }
+            }
+        }
+    }
+}

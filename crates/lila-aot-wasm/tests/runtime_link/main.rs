@@ -16,5 +16,6 @@ mod rooted_snapshot_exports;
 mod runtime_error_active_handler_structure;
 mod runtime_import_reachability;
 mod runtime_regexp_entry_kind_structure;
+mod separated_helper_types;
 mod thrown_error_diagnostic_kind_authority_structure;
 mod unhandled_rejection_reporting_structure;

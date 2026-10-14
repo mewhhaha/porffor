@@ -361,6 +361,23 @@ enum HelperRegion {
     Program,
 }
 
+/// Signature ownership differs from body ownership: runtime hooks have
+/// program bodies, but R's typed globals and `call_ref` consume their ABI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HelperTypeRegion {
+    Core,
+    Program,
+}
+
+impl HelperOwner {
+    const fn type_region(self) -> HelperTypeRegion {
+        match self {
+            Self::Runtime | Self::Hook(_) => HelperTypeRegion::Core,
+            Self::Program => HelperTypeRegion::Program,
+        }
+    }
+}
+
 /// The first index of each helper region. Only `FunctionIndexLayout` mints it
 /// and only this owner performs helper-index arithmetic; callers retain the plan.
 #[derive(Debug, Clone, Copy)]
@@ -803,7 +820,43 @@ macro_rules! runtime_helper_domain {
                 }
                 rank
             }
-            pub(crate) const fn type_index(self) -> u32 { StaticSignature::ALL.len() as u32 + self as u32 }
+            pub(crate) const fn type_region(self) -> HelperTypeRegion {
+                self.owner().type_region()
+            }
+            pub(crate) const fn type_count(region: HelperTypeRegion) -> usize {
+                let mut count = 0;
+                let mut position = 0;
+                while position < Self::ALL.len() {
+                    if Self::ALL[position].type_region() as u32 == region as u32 {
+                        count += 1;
+                    }
+                    position += 1;
+                }
+                count
+            }
+            const fn rank_in_type_region(self) -> u32 {
+                let region = self.type_region();
+                let mut rank = 0;
+                let mut position = 0;
+                while position < self as usize {
+                    if Self::ALL[position].type_region() as u32 == region as u32 {
+                        rank += 1;
+                    }
+                    position += 1;
+                }
+                rank
+            }
+            /// Core function signatures precede the recursive GC layouts;
+            /// direct program signatures follow that complete stable graph.
+            /// The same ownership authority drives declaration and use.
+            pub(crate) const fn type_index(self) -> u32 {
+                let first = match self.type_region() {
+                    HelperTypeRegion::Core => StaticSignature::ALL.len(),
+                    HelperTypeRegion::Program => StaticSignature::ALL.len()
+                        + Self::type_count(HelperTypeRegion::Core) + GcLayout::ALL.len(),
+                };
+                first as u32 + self.rank_in_type_region()
+            }
             pub(crate) const fn debug_name(self) -> &'static str { match self { $(Self::$id => $debug),+ } }
             pub(crate) fn parameter_types(self) -> Vec<AbiType> {
                 match self { $( Self::$id => {

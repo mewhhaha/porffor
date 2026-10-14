@@ -1,3 +1,5 @@
+mod checked_environment;
+
 use super::*;
 
 impl<'a> ScriptLowerer<'a> {
@@ -16,7 +18,11 @@ impl<'a> ScriptLowerer<'a> {
                     GeneratorValueBranchAdmission::OrdinaryOutsideLoops
                 ) && crate::lowering_helpers::ordinary_generator_if_requires_complete_owner(
                     if_statement,
-                )))
+                ))
+                || (matches!(
+                    self.generator_value_branch_admission(),
+                    GeneratorValueBranchAdmission::OrdinaryOutsideLoops
+                ) && self.generator_if_branch_owns_runtime_environment(if_statement)))
         {
             return self.lower_ordinary_generator_loop_if(if_statement);
         }

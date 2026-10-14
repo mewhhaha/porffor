@@ -153,8 +153,10 @@ impl ScriptLowerer<'_> {
             }
             // A speculative parse must not record eager host module requests.
             // The ordinary prepared-source cache records those during admission.
-            let Ok(parsed) = lila_front::prepare_dynamic_function(parser_kind, &[body.to_string()])
-            else {
+            let Ok(parsed) = lila_front::prepare_dynamic_function_utf16(
+                parser_kind,
+                &[decode_js_string_utf16(body)],
+            ) else {
                 continue;
             };
             let references = parsed.with_compiler_session(|script, interner| {

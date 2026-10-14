@@ -225,10 +225,42 @@ fn generator_activation_owns_bindings_that_survive_a_yield() {
         .collect::<BTreeSet<_>>();
     assert!(owned_names.contains("parameter"));
     assert!(owned_names.contains("local"));
-    assert!(matches!(
-        function.body.statements[1],
-        StatementIr::GeneratorIf { .. }
-    ));
+    let StatementIr::LexicalBlock(prefix) = &function.body.statements[1] else {
+        panic!("the environment-owning conditional must expose its checked continuation");
+    };
+    let branch = prefix
+        .iter()
+        .find_map(|statement| {
+            if let StatementIr::OrdinaryGeneratorIf(branch) = statement {
+                Some(branch)
+            } else {
+                None
+            }
+        })
+        .expect("the original yielding conditional owns its selected and skipped states");
+    assert!(
+        branch.then_branch().block().lexical_environment.is_some(),
+        "the original named Environment Record must survive the yield"
+    );
+    let mut points = Vec::new();
+    crate::generator_loop_control::collect_suspensions(
+        &branch.then_branch().block().statements,
+        &mut points,
+    );
+    assert_eq!(
+        points.len(),
+        1,
+        "the original conditional retains exactly one yield"
+    );
+    assert_eq!(
+        function.generator_plan.as_ref().unwrap().suspension_points,
+        points,
+        "function metadata must agree with the checked body continuation"
+    );
+    assert_eq!(
+        function.generator_plan.as_ref().unwrap().state_count,
+        branch.exit_state() + 1
+    );
 }
 
 #[test]

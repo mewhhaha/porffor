@@ -7,19 +7,20 @@ use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use lila_front::{
-    DirectEvalParseContext, EvalParseContext, FunctionParseKind, ParseError, ParseOptions,
-    ParsedScript, ParsedSource,
+    DirectEvalParseContext, EvalParseContext, FunctionParseKind, ParseError, ParsedScript,
 };
 
 use crate::{DynamicFunctionKind, ModuleRequestKeyIr, PreparedScriptKind};
+#[cfg(test)]
+use lila_front::ParseOptions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PreparedSourceInput {
-    RealmScript(String),
-    IndirectEval(String),
-    ShadowRealmEvaluate(String),
-    DirectEval(String, DirectEvalParseContext),
-    Function(DynamicFunctionKind, Vec<String>),
+    RealmScript(Vec<u16>),
+    IndirectEval(Vec<u16>),
+    ShadowRealmEvaluate(Vec<u16>),
+    DirectEval(Vec<u16>, DirectEvalParseContext),
+    Function(DynamicFunctionKind, Vec<Vec<u16>>),
 }
 
 #[derive(Debug, Default)]
@@ -37,16 +38,15 @@ impl PreparedSourceCache {
         kind: &PreparedScriptKind,
         source: &str,
     ) -> Result<ParsedScript, ParseError> {
+        let source = crate::decode_js_string_utf16(source);
         let input = match kind {
-            PreparedScriptKind::RealmScript => PreparedSourceInput::RealmScript(source.to_owned()),
-            PreparedScriptKind::IndirectEval => {
-                PreparedSourceInput::IndirectEval(source.to_owned())
-            }
+            PreparedScriptKind::RealmScript => PreparedSourceInput::RealmScript(source),
+            PreparedScriptKind::IndirectEval => PreparedSourceInput::IndirectEval(source),
             PreparedScriptKind::ShadowRealmEvaluate => {
-                PreparedSourceInput::ShadowRealmEvaluate(source.to_owned())
+                PreparedSourceInput::ShadowRealmEvaluate(source)
             }
             PreparedScriptKind::DirectEval(context) => {
-                PreparedSourceInput::DirectEval(source.to_owned(), context.parse_context())
+                PreparedSourceInput::DirectEval(source, context.parse_context())
             }
         };
         self.parse(input)
@@ -57,7 +57,13 @@ impl PreparedSourceCache {
         kind: DynamicFunctionKind,
         arguments: &[String],
     ) -> Result<ParsedScript, ParseError> {
-        self.parse(PreparedSourceInput::Function(kind, arguments.to_vec()))
+        self.parse(PreparedSourceInput::Function(
+            kind,
+            arguments
+                .iter()
+                .map(|argument| crate::decode_js_string_utf16(argument))
+                .collect(),
+        ))
     }
 
     fn parse(&self, input: PreparedSourceInput) -> Result<ParsedScript, ParseError> {
@@ -71,22 +77,17 @@ impl PreparedSourceCache {
             return parsed.clone();
         }
         let parsed = match &input {
-            PreparedSourceInput::RealmScript(source) => {
-                lila_front::parse(source.clone(), ParseOptions::script()).map(|parsed| {
-                    let ParsedSource::Script(parsed) = parsed else {
-                        unreachable!("Script goal produces a Script")
-                    };
-                    parsed
-                })
-            }
+            PreparedSourceInput::RealmScript(source) => lila_front::parse_script_utf16(source),
             PreparedSourceInput::IndirectEval(source)
             | PreparedSourceInput::ShadowRealmEvaluate(source) => {
-                lila_front::prepare_eval_source(source.clone(), &EvalParseContext::Indirect)
+                lila_front::prepare_eval_source_utf16(source, &EvalParseContext::Indirect)
             }
-            PreparedSourceInput::DirectEval(source, context) => lila_front::prepare_eval_source(
-                source.clone(),
-                &EvalParseContext::Direct(context.clone()),
-            ),
+            PreparedSourceInput::DirectEval(source, context) => {
+                lila_front::prepare_eval_source_utf16(
+                    source,
+                    &EvalParseContext::Direct(context.clone()),
+                )
+            }
             PreparedSourceInput::Function(kind, arguments) => {
                 let kind = match kind {
                     DynamicFunctionKind::Ordinary => FunctionParseKind::Ordinary,
@@ -94,7 +95,7 @@ impl PreparedSourceCache {
                     DynamicFunctionKind::Async => FunctionParseKind::Async,
                     DynamicFunctionKind::AsyncGenerator => FunctionParseKind::AsyncGenerator,
                 };
-                lila_front::prepare_dynamic_function(kind, arguments)
+                lila_front::prepare_dynamic_function_utf16(kind, arguments)
             }
         };
         let requests = parsed
@@ -143,12 +144,14 @@ mod tests {
     #[test]
     fn cached_parse_identity_and_rejections_keep_the_exact_grammar_context() {
         let cache = PreparedSourceCache::default();
-        let input = PreparedSourceInput::ShadowRealmEvaluate("1 + 2".into());
+        let input = PreparedSourceInput::ShadowRealmEvaluate("1 + 2".encode_utf16().collect());
         let first = cache.parse(input.clone()).unwrap();
         let again = cache.parse(input).unwrap();
         assert_eq!(first.syntax_identity(), again.syntax_identity());
         let other_kind = cache
-            .parse(PreparedSourceInput::RealmScript("1 + 2".into()))
+            .parse(PreparedSourceInput::RealmScript(
+                "1 + 2".encode_utf16().collect(),
+            ))
             .unwrap();
         assert_ne!(first.syntax_identity(), other_kind.syntax_identity());
 
@@ -158,7 +161,7 @@ mod tests {
             private_names: Vec::new(),
         };
         let outside = PreparedSourceInput::DirectEval(
-            "new.target".into(),
+            "new.target".encode_utf16().collect(),
             context(lila_front::EvalInvocationContext::Script),
         );
         let rejected = cache.parse(outside.clone()).unwrap_err();
@@ -167,7 +170,7 @@ mod tests {
         assert_eq!(cache.0.borrow().parsed.len(), count);
         assert!(cache
             .parse(PreparedSourceInput::DirectEval(
-                "new.target".into(),
+                "new.target".encode_utf16().collect(),
                 context(lila_front::EvalInvocationContext::Function),
             ))
             .is_ok());
@@ -311,5 +314,43 @@ const realm = new ShadowRealm();
                 "original function parameter lost source candidate {source}"
             );
         }
+    }
+
+    #[test]
+    fn semantic_utf16_cache_identity_keeps_codec_data_and_grammar_context_separate() {
+        let cache = PreparedSourceCache::default();
+        let source_units = [
+            "'".encode_utf16().collect::<Vec<_>>(),
+            vec![0xd83d, 0xdc38],
+            "';".encode_utf16().collect(),
+        ]
+        .concat();
+        let canonical = crate::encode_js_string_utf16(&source_units);
+        let split = format!(
+            "'{}{}';",
+            crate::encode_js_string_utf16(&[0xd83d]),
+            crate::encode_js_string_utf16(&[0xdc38])
+        );
+        let first = cache
+            .parse_script(&PreparedScriptKind::IndirectEval, &canonical)
+            .unwrap();
+        let second = cache
+            .parse_script(&PreparedScriptKind::IndirectEval, &split)
+            .unwrap();
+        assert_eq!(first.syntax_identity(), second.syntax_identity());
+        assert_eq!(first.compiler_source_utf16(), source_units);
+        let realm = cache
+            .parse_script(&PreparedScriptKind::RealmScript, &canonical)
+            .unwrap();
+        assert_ne!(first.syntax_identity(), realm.syntax_identity());
+        let marker_units = "'\u{F0000}D83D';".encode_utf16().collect::<Vec<_>>();
+        let marker = cache
+            .parse_script(
+                &PreparedScriptKind::IndirectEval,
+                &crate::encode_js_string_utf16(&marker_units),
+            )
+            .unwrap();
+        assert_eq!(marker.compiler_source_utf16(), marker_units);
+        assert_ne!(first.syntax_identity(), marker.syntax_identity());
     }
 }

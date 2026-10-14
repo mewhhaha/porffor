@@ -5,6 +5,29 @@ code; Luna agents do read-only chores/exploration. Finish actual task acceptance
 and the full suite before deleting this file or tasks. Retain every failure,
 unsupported/missing-input ID and previous passing ID.
 
+## Current native checkpoint and iteration measurements — 2026-10-14
+
+Actual source `32c197968` completes ten affected targets: **5,216 pass,
+16 fail, zero ignored**, retaining every one of 5,194 prior test IDs.
+Of 5,193 prior passes, 5,182 remain passing and 11 regress; all are repair
+inputs. Both previous Realm failures now pass. This is a complete red checkpoint,
+not full workspace or pinned Test262 acceptance. The next batch repairs the
+confirmed source, state and runtime problems before repeating exact retention.
+
+Source-bound diagnostics measure the original DateTimeFormat case at about
+1.2 seconds compiling and 58.2 seconds executing in sloppy mode; strict mode
+hits its unchanged 60-second epoch deadline. Both large original String mapping
+bodies complete normally in about 15.7 seconds with largest emitted bodies
+68,736 and 72,581 bytes. These observations require supervised original-ID replay
+before being counted as repairs. The diagnostic leaf links in 2.4–3.0 seconds
+from actual optimized libraries, with zero Cargo commands. The native sweep was
+active concurrently, so these measurements do not establish idle performance.
+
+See [every verdict, regression, timing and compiler identity](docs/rust-rewrite/native-batch-and-profile-20261014.json).
+Refresh the complete affected-target workflow with a fresh owner and exact
+frozen source; preserve all 5,232 IDs and the sixteen red IDs. Full workspace,
+ordinary CLI, current-pin replay, task stress and publication gates remain open.
+
 ## Complete historical comparison and prepared repair batch
 
 Source-bound3bc completes all254 original Bug/Crash IDs: 229Success/23Bug/2Crash,

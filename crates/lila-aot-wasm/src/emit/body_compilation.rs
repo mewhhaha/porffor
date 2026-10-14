@@ -79,6 +79,7 @@ impl<'a> FunctionBuilder<'a> {
             self.init_script_global_object(&mut function)?;
             self.bind_captured_bindings(&mut function);
         }
+        self.emit_enter_source_activation(&mut function)?;
         let schema = self.runtime_schema();
         let frame = self
             .body_entry_locals()
@@ -239,6 +240,7 @@ impl<'a> FunctionBuilder<'a> {
             schema.release_i32_local(mode, &mut function);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.completion.initialize(&mut function);
+            self.emit_leave_source_activation(&mut function);
             self.completion.emit(&mut function);
             function.instruction(&Instruction::Return);
             function.instruction(&Instruction::End);
@@ -260,6 +262,7 @@ impl<'a> FunctionBuilder<'a> {
             function.instruction(&Instruction::I32Eq);
             function.instruction(&Instruction::If(BlockType::Empty));
             self.completion.initialize(&mut function);
+            self.emit_leave_source_activation(&mut function);
             self.completion.emit(&mut function);
             function.instruction(&Instruction::Return);
             function.instruction(&Instruction::End);
@@ -359,6 +362,7 @@ impl<'a> FunctionBuilder<'a> {
         }
         self.pop_scope();
 
+        self.emit_leave_source_activation(&mut function);
         self.completion.emit(&mut function);
         self.clear_body_entry_roots(&mut function);
         if let Some(execution) = self.template_source_execution.take() {
@@ -533,6 +537,7 @@ impl<'a> FunctionBuilder<'a> {
             }
         }
         self.pop_scope();
+        self.emit_leave_source_activation(&mut function);
         self.completion.emit(&mut function);
         self.clear_body_entry_roots(&mut function);
         if let Some(execution) = self.template_source_execution.take() {

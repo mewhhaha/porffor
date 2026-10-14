@@ -603,33 +603,25 @@ impl ScriptLowerer<'_> {
     pub(super) fn aot_source_text(&self, expression: &Expression) -> Option<String> {
         match Self::unwrap_parenthesized_expr(expression) {
             Expression::Literal(literal) => match literal.kind() {
-                LiteralKind::String(symbol) => Some(self.interner.resolve_expect(*symbol).join(
-                    str::to_string,
-                    Self::utf16_units_to_runtime_string,
-                    true,
-                )),
+                LiteralKind::String(symbol) => Some(self.interned_runtime_string(*symbol)),
                 _ => None,
             },
             Expression::TemplateLiteral(template) => {
-                let mut source = String::new();
+                let mut units = Vec::new();
                 for element in template.elements() {
                     let TemplateElement::String(symbol) = element else {
                         return None;
                     };
-                    source.push_str(&self.interner.resolve_expect(*symbol).join(
-                        str::to_string,
-                        Self::utf16_units_to_runtime_string,
-                        true,
-                    ));
+                    units.extend_from_slice(self.interner.resolve_expect(*symbol).utf16());
                 }
-                Some(source)
+                Some(Self::utf16_units_to_runtime_string(&units))
             }
             Expression::Binary(binary)
                 if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) =>
             {
-                let mut source = self.aot_source_text(binary.lhs())?;
-                source.push_str(&self.aot_source_text(binary.rhs())?);
-                Some(source)
+                let mut units = decode_js_string_utf16(&self.aot_source_text(binary.lhs())?);
+                units.extend(decode_js_string_utf16(&self.aot_source_text(binary.rhs())?));
+                Some(Self::utf16_units_to_runtime_string(&units))
             }
             _ => None,
         }

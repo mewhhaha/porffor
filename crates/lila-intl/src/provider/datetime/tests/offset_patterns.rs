@@ -41,7 +41,9 @@ fn genuine_english_and_french_offset_patterns_keep_captured_signs_and_seconds() 
         names["patterns"] = fixtures[language]["patterns"].clone();
         let names: raw::ZoneNames = serde_json::from_value(names).unwrap();
         let checked = ZoneNames::from_raw(names, &profile.geography).unwrap();
-        profile.locales[0].zones = Arc::new(checked);
+        Arc::get_mut(&mut profile.locales[0])
+            .expect("unique private fixture")
+            .zones = Arc::new(checked);
         let locale = &profile.locales[0];
         for (offset, short, long) in cases {
             for (style, expected) in [

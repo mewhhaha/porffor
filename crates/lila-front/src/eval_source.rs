@@ -29,14 +29,48 @@ pub fn prepare_eval_source(
     source_text: String,
     context: &EvalParseContext,
 ) -> Result<ParsedScript, ParseError> {
+    let parser = Parser::new(Source::from_bytes(source_text.as_bytes()));
+    prepare_eval_with_parser(
+        parser,
+        source_text.clone(),
+        SourceTextEncoding::Utf8,
+        &[],
+        context,
+    )
+}
+
+/// Prepare an eval input in its actual ECMAScript code-unit domain.
+pub fn prepare_eval_source_utf16(
+    source_units: &[u16],
+    context: &EvalParseContext,
+) -> Result<ParsedScript, ParseError> {
+    let parser = Parser::new(Source::from_utf16(source_units));
+    prepare_eval_with_parser(
+        parser,
+        encode_js_string_utf16(source_units),
+        SourceTextEncoding::EncodedUtf16,
+        source_units,
+        context,
+    )
+}
+
+fn prepare_eval_with_parser<R: boa_parser::source::ReadChar>(
+    mut parser: Parser<'_, R>,
+    source_text: String,
+    encoding: SourceTextEncoding,
+    source_units: &[u16],
+    context: &EvalParseContext,
+) -> Result<ParsedScript, ParseError> {
     let mut interner = Interner::default();
-    let mut parser = Parser::new(Source::from_bytes(source_text.as_bytes()));
     if matches!(context, EvalParseContext::Direct(context) if context.strict_caller) {
         parser.set_strict();
     }
     let direct = matches!(context, EvalParseContext::Direct(_));
-    let (mut ast, _) =
-        parse_with_boundary(&source_text, || parser.parse_eval(direct, &mut interner))?;
+    let operation = || parser.parse_eval(direct, &mut interner);
+    let (mut ast, syntax_source) = match encoding {
+        SourceTextEncoding::Utf8 => parse_with_boundary(&source_text, operation),
+        SourceTextEncoding::EncodedUtf16 => parse_utf16_with_boundary(source_units, operation),
+    }?;
     if let EvalParseContext::Direct(context) = context {
         let invalid_syntax = match context.invocation {
             EvalInvocationContext::Script if contains(&ast, ContainsSymbol::NewTarget) => {
@@ -88,7 +122,12 @@ pub fn prepare_eval_source(
             goal: ParseGoal::Script,
             filename: None,
             source_text,
+            encoding,
         },
-        syntax: Rc::new(ScriptSyntax { ast, interner }),
+        syntax: Rc::new(ScriptSyntax {
+            ast,
+            interner,
+            source_text: syntax_source,
+        }),
     })
 }

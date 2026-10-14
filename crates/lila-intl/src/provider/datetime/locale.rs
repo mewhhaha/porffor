@@ -199,25 +199,22 @@ fn calendar_option(
 
 /// A selected locale and its exact physical calendar record are admitted
 /// together before plan selection; no consumer can index an absent calendar.
-pub(super) struct ValidatedLocaleCalendar<'p> {
-    locale: &'p Locale,
-    calendar: &'p Calendar,
+pub(super) struct ValidatedLocaleCalendar {
+    locale: std::sync::Arc<Locale>,
+    calendar: std::sync::Arc<Calendar>,
 }
-impl<'p> ValidatedLocaleCalendar<'p> {
-    pub(super) fn locale(&self) -> &'p Locale {
-        self.locale
-    }
-    pub(super) fn calendar(&self) -> &'p Calendar {
-        self.calendar
+impl ValidatedLocaleCalendar {
+    pub(super) fn into_owners(self) -> (std::sync::Arc<Locale>, std::sync::Arc<Calendar>) {
+        (self.locale, self.calendar)
     }
 }
 
-pub(super) fn validate<'p>(
-    profile: &'p Profile,
+pub(super) fn validate(
+    profile: &Profile,
     result: &DateTimeLocaleResult,
-) -> Result<ValidatedLocaleCalendar<'p>, DateTimeFormatError> {
+) -> Result<ValidatedLocaleCalendar, DateTimeFormatError> {
     let locale = profile
-        .locale(result.data_locale.as_str())
+        .locale_owner(result.data_locale.as_str())
         .ok_or(DateTimeFormatError::InvalidPlan("unknown data locale"))?;
     let (base, keywords) = unicode_extension(result.locale.as_str());
     if base != result.data_locale.as_str()
@@ -249,7 +246,7 @@ pub(super) fn validate<'p>(
     }
     let calendar =
         locale
-            .checked_calendar(result.calendar)
+            .calendar_owner(result.calendar)
             .ok_or(DateTimeFormatError::InvalidPlan(
                 "absent localized calendar",
             ))?;

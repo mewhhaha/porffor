@@ -158,13 +158,13 @@ fn literal_count_grows_descriptor_data_without_expanding_main_initialization() {
                     .validate_all(&artifact.bytes).expect("program descriptor module validates");
                 let body = named_function_body(&artifact.bytes, "lila::main");
                 let parsed_body = wasmparser::FunctionBody::new(wasmparser::BinaryReader::new(&body, 0));
-                let mut data_initializers = [0; 3];
+                let mut data_initializers = [0; 4];
                 for operator in parsed_body.get_operators_reader().expect("main opens") {
                     if let Operator::ArrayNewData { array_data_index, .. } = operator.expect("main decodes") {
                         data_initializers[array_data_index as usize] += 1;
                     }
                 }
-                assert_eq!(data_initializers, [1, 0, 1],
+                assert_eq!(data_initializers, [1, 0, 1, 0],
                     "one dynamic string creation and one private descriptor table, independent of count");
                 let segments = Parser::new(0).parse_all(&artifact.bytes)
                     .find_map(|payload| match payload.expect("program decodes") {
@@ -173,20 +173,24 @@ fn literal_count_grows_descriptor_data_without_expanding_main_initialization() {
                             .collect::<Vec<_>>()),
                         _ => None,
                     }).expect("program passive images exist");
-                assert!(segments.len() >= 3);
+                assert_eq!(segments.len(), 4);
+                assert!(segments[3].is_empty());
                 assert_eq!(segments[2].len() % 12, 0);
                 assert!(segments[2].len() >= count * 12,
                     "every unique source literal needs its descriptor row");
                 (artifact, body.len(), segments[2].len())
             };
+            let (empty, empty_main, _) = emit(0);
             let (small, small_main, small_descriptors) = emit(16);
             let (large, large_main, large_descriptors) = emit(2048);
+            assert_eq!(empty.runtime().unwrap().bytes(), small.runtime().unwrap().bytes());
             assert_eq!(small.runtime().unwrap().bytes(), large.runtime().unwrap().bytes(),
                 "program string count must preserve the complete shared runtime");
             assert!(large_descriptors >= small_descriptors + (2048 - 16) * 12);
             assert!(large.bytes.len() > small.bytes.len() + 32 * 1024);
             eprintln!("pooled string count main body: {small_main} -> {large_main} bytes");
-            assert!(large_main <= 4096, "actual main body is {large_main} bytes");
+            assert!(small_main <= empty_main + 128 && large_main <= empty_main + 128,
+                "literal roots add bounded code to fixed main initialization: {empty_main} -> {small_main} -> {large_main}");
             assert!(large_main <= small_main + 64,
                 "descriptor count grows data, not unrolled main code: {small_main} -> {large_main}");
         })

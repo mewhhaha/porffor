@@ -18,6 +18,9 @@ impl FunctionBuilder<'_> {
             .initialize(self.current_environment().load(schema, function), function);
         self.emit_retire_abandoned_identifier_references(function);
         self.emit_unwind_environment_depth(self.environment_depth, function);
+        // Proper tail calls retire the actual caller before dispatching the
+        // target. Operand conversion and all user effects above precede this.
+        self.emit_leave_source_activation(function);
         schema.return_call_helper(
             crate::runtime_helpers::ProxyCallArguments::new(
                 callee,

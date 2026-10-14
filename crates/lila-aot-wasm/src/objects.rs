@@ -363,7 +363,7 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     /// Resolves a key through the auxiliary index without invoking getters.
-    fn emit_ordinary_own_descriptor_reference(
+    pub(crate) fn emit_ordinary_own_descriptor_reference(
         &self,
         object: &GcLocal<OrdinaryObject>,
         key: &PropertyKeyLocals,

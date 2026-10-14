@@ -101,6 +101,18 @@ impl PlannedFunctionEntry {
         }
     }
 
+    /// Only a genuine source callable contributes a reflection activation.
+    /// Prepared eval Scripts and native forwarding bodies are transparent.
+    pub(crate) fn has_source_activation(&self) -> bool {
+        match self.origin {
+            EntryOrigin::User { .. } => true,
+            EntryOrigin::PreparedScript { .. }
+            | EntryOrigin::StandardBuiltin(_)
+            | EntryOrigin::HostBuiltin(_)
+            | EntryOrigin::EmptyOrdinaryFunction => false,
+        }
+    }
+
     pub(crate) fn emit_ref_func(&self, function: &mut Function) {
         function.instruction(&Instruction::RefFunc(self.wasm_index));
     }

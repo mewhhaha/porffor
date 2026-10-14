@@ -357,3 +357,128 @@ print(true);
 "#,
     );
 }
+
+#[test]
+fn repeated_plan_reuse_preserves_fresh_parts_live_coercion_and_called_realm() {
+    for directive in ["", "'use strict';\n"] {
+        assert_date_time_script(&format!(
+            "{directive}{}",
+            r#"
+var foreign = __lilaCreateRealm().global;
+var options = {timeZone:'UTC', year:'numeric', month:'numeric', day:'numeric'};
+var local = new Intl.DateTimeFormat('en-US', options);
+var other = new foreign.Intl.DateTimeFormat('en-US', options);
+var localParts = Intl.DateTimeFormat.prototype.formatToParts;
+var otherParts = foreign.Intl.DateTimeFormat.prototype.formatToParts;
+var previous = [], calls = 0;
+var input = {[Symbol.toPrimitive]: function(hint) {
+  if (hint !== 'number') throw 'conversion hint';
+  return (++calls % 2) ? 0 : 86400000;
+}};
+for (var index = 0; index < 32; index++) {
+  var parts = localParts.call(other, input);
+  if (Object.getPrototypeOf(parts) !== Array.prototype) throw 'local array Realm';
+  if (Object.getPrototypeOf(parts[0]) !== Object.prototype) throw 'local part Realm';
+  if (parts === previous[0] || parts[0] === previous[1]) throw 'reused JS response';
+  if (parts.find(p => p.type === 'day').value !== '1') throw 'cached input';
+  previous = [parts, parts[0]];
+  parts[0].value = 'poison'; parts.push({type:'literal', value:'poison'});
+  var fresh = otherParts.call(local, input);
+  if (Object.getPrototypeOf(fresh) !== foreign.Array.prototype) throw 'foreign array Realm';
+  if (Object.getPrototypeOf(fresh[0]) !== foreign.Object.prototype) throw 'foreign part Realm';
+  if (fresh.find(p => p.type === 'day').value !== '2') throw 'lost live conversion';
+  if (fresh.some(p => p.value === 'poison')) throw 'cached mutable parts';
+}
+if (calls !== 64) throw 'conversion count';
+var marker = {};
+try { otherParts.call(local, {[Symbol.toPrimitive]: function() { throw marker; }}); throw 'missing abrupt conversion'; }
+catch (error) { if (error !== marker) throw 'changed completion'; }
+try { otherParts.call(local, NaN); throw 'missing invalid time'; }
+catch (error) { if (Object.getPrototypeOf(error) !== foreign.RangeError.prototype) throw 'cached error Realm'; }
+if (otherParts.call(local, 0).map(p => p.value).join('') !== local.format(0)) throw 'cache poisoned by failure';
+print(true);
+"#
+        ));
+    }
+}
+
+#[test]
+fn repeated_plan_reuse_keeps_zone_transitions_range_order_and_fresh_range_parts() {
+    for directive in ["", "'use strict';\n"] {
+        assert_date_time_script(&format!(
+            "{directive}{}",
+            r#"
+var formatter = new Intl.DateTimeFormat('en-US', {
+  timeZone:'America/New_York', hour:'2-digit', minute:'2-digit', second:'2-digit',
+  hourCycle:'h23', timeZoneName:'longOffset'
+});
+var before = 1710053999000, after = 1710054000000;
+function field(parts, type) { return parts.find(p => p.type === type).value; }
+for (var index = 0; index < 16; index++) {
+  var first = formatter.formatToParts(before), second = formatter.formatToParts(after);
+  if (field(first, 'hour') !== '01' || field(second, 'hour') !== '03') throw 'cached calendar fields';
+  if (field(first, 'timeZoneName') !== 'GMT-05:00' || field(second, 'timeZoneName') !== 'GMT-04:00') throw 'cached transition';
+  var parts = formatter.formatRangeToParts(before, after);
+  var expected = parts.map(p => p.value).join('');
+  parts[0].value = 'poison'; parts[0].source = 'poison';
+  var fresh = formatter.formatRangeToParts(before, after);
+  if (fresh === parts || fresh[0] === parts[0] || fresh.some(p => p.value === 'poison' || p.source === 'poison')) throw 'reused range response';
+  if (fresh.map(p => p.value).join('') !== expected || formatter.formatRange(before, after) !== expected) throw 'changed range';
+  try { formatter.formatRange(after, before); throw 'missing reversed range'; }
+  catch (error) { if (!(error instanceof RangeError)) throw error; }
+}
+var trace = '', marker = {};
+try { formatter.formatRange({valueOf:function(){trace += 'L';return NaN;}}, {valueOf:function(){trace += 'R';throw marker;}}); throw 'missing abrupt range'; }
+catch (error) { if (error !== marker || trace !== 'LR') throw 'cached range coercion'; }
+print(true);
+"#
+        ));
+    }
+}
+
+#[test]
+fn unchanged_original_temporal_comparison_checks_all_dates_in_both_execution_modes() {
+    let original = include_str!("../../../../test262/vendor/test262/test/intl402/DateTimeFormat/prototype/formatToParts/compare-to-temporal.js");
+    let merged = include_str!("../../../lila-test262/assets/local-harness/wasm-aot.js");
+    let mut harness = String::new();
+    for name in ["assert.js", "sta-preamble.js"] {
+        let section = merged
+            .split("///")
+            .skip(1)
+            .find(|section| {
+                section
+                    .lines()
+                    .next()
+                    .is_some_and(|first| first.trim() == name)
+            })
+            .expect("canonical EmbeddedWasmAot named section");
+        harness.push_str(&section.lines().skip(1).collect::<Vec<_>>().join("\n"));
+        harness.push('\n');
+    }
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    for directive in ["\"use strict\";\n", ""] {
+        let source = format!("{directive}{harness}{original}");
+        assert!(source.ends_with(original));
+        let observation = Engine::new(RealmBuilder::new().build())
+            .observe_script(
+                &source,
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    promise_rejection_policy: lila_engine::PromiseRejectionPolicy::Ignore,
+                    ..CompileOptions::default()
+                },
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(60_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect("unchanged original 14,544-date case must execute with its original deadline");
+        assert!(
+            matches!(observation.completion, ObservedCompletion::Normal(_)),
+            "{:?}",
+            observation.completion
+        );
+        assert!(observation.output_events.is_empty());
+    }
+}

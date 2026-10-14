@@ -1022,7 +1022,7 @@ fn computed_loaded_imports_reuse_source_discovered_keys_with_their_own_phases() 
 fn dynamic_rejection_kind_preserves_host_loading_before_module_linking() {
     let sources = script_sources(&[
         ("entry.js", "import('./host.js'); import('./parse.js'); import('./link.js'); import.source('./host.js');"),
-        ("host.js", "import './ensure.js'; import source source from '<do not resolve>';"),
+        ("host.js", "import './ensure.js'; import source source from '<do not resolve>'; import source from from '<do not resolve>';"),
         ("ensure.js", "import {missing} from './ensure.js';"),
         ("parse.js", "invalid syntax!"),
         ("link.js", "import {missing} from './value.js';"),
@@ -1065,4 +1065,75 @@ fn dynamic_rejection_kind_preserves_host_loading_before_module_linking() {
     );
     assert!(dispatcher.contains("$lila$module$TypeError"));
     assert!(dispatcher.contains("$lila$module$SyntaxError"));
+}
+
+#[test]
+fn contextual_source_bindings_reach_host_loading_without_masking_parse_or_link_errors() {
+    let original = include_str!("../../../../../test262/vendor/test262/test/language/module-code/source-phase-import/import-source-binding-name-2_FIXTURE.js");
+    let ensure = include_str!("../../../../../test262/vendor/test262/test/language/module-code/source-phase-import/ensure-linking-error_FIXTURE.js");
+    let sources = script_sources(&[
+        ("entry.js", "import('./contextual.js'); import('./invalid.js'); import('./resolved.js'); import('./default.js'); import.source('./value.js');"),
+        ("contextual.js", original),
+        ("ensure-linking-error_FIXTURE.js", ensure),
+        ("invalid.js", r"import source from fr\u006fm './value.js';"),
+        ("resolved.js", "import source from from './value.js';"),
+        ("default.js", "import source from './value.js'; export default source;"),
+        ("value.js", "export default 17;"),
+    ], 0);
+    let source = &sources.modules[1];
+    let ModuleParse::Module(parsed) = &source.parse else {
+        panic!("original contextual bindings parse");
+    };
+    let record = super::super::record::parse_module_record(parsed, 1, source.key().clone())
+        .expect("original contextual bindings form a valid module record");
+    let source_bindings: Vec<_> = record
+        .import_entries
+        .iter()
+        .filter(|entry| entry.request.phase() == ImportPhaseIr::Source)
+        .map(|entry| entry.local_name.spec_name())
+        .collect();
+    assert_eq!(source_bindings, ["source", "from"]);
+    let graph = admitted(&sources);
+    let rejection = |specifier: &str, phase: ImportPhaseIr| {
+        let matches: Vec<_> = graph
+            .dynamic_rejections
+            .iter()
+            .filter(|rejection| {
+                rejection.request.specifier() == specifier && rejection.request.phase() == phase
+            })
+            .collect();
+        assert_eq!(matches.len(), 1, "one owner for {specifier}");
+        matches[0]
+    };
+    let host = rejection("./contextual.js", ImportPhaseIr::Evaluation);
+    assert_eq!(host.kind, DynamicModuleRejectionKind::HostLoad);
+    assert_eq!(host.stage, DynamicModuleRejectionStage::Dependencies);
+    assert!(host.message.contains("<do not resolve>"));
+    let invalid = rejection("./invalid.js", ImportPhaseIr::Evaluation);
+    assert_eq!(invalid.kind, DynamicModuleRejectionKind::Syntax);
+    assert_eq!(invalid.stage, DynamicModuleRejectionStage::ModuleLoad);
+    for (specifier, phase, stage) in [
+        (
+            "./resolved.js",
+            ImportPhaseIr::Evaluation,
+            DynamicModuleRejectionStage::Dependencies,
+        ),
+        (
+            "./value.js",
+            ImportPhaseIr::Source,
+            DynamicModuleRejectionStage::ModuleLoad,
+        ),
+    ] {
+        let source = rejection(specifier, phase);
+        assert_eq!(source.kind, DynamicModuleRejectionKind::Syntax);
+        assert_eq!(source.stage, stage);
+        assert!(source.message.contains("no source representation"));
+    }
+    assert!(
+        graph
+            .dynamic_components()
+            .iter()
+            .any(|component| { component.request().specifier() == "./default.js" }),
+        "ordinary default import remains executable"
+    );
 }

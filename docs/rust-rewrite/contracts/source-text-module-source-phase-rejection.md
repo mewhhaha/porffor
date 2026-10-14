@@ -96,5 +96,12 @@ regressions, then the broad verification checkpoint and pinned proposal witnesse
 remain for the authorized executable-verification phase. The staging pinned
 `import-source-source-text-module.js` expects SyntaxError for existing JS targets.
 The language `module-code/source-phase-import/import-source.js` fixture instead
-uses missing targets and expects a host-loading error; it is not evidence for a
-successful source object or the same rejection category.
+uses three valid source-import grammar targets with an unresolved host request
+and expects a host-loading error. Its binding-name-2 target includes
+`import source from from '<do not resolve>'`: the first `from` is the actual
+binding name, and the second unescaped `from` is the grammar delimiter. The
+contextual lookahead repair admits that original declaration so the existing
+host failure wins before the ensure-link fixture's later missing-export error.
+It does not change GetModuleSource's required SyntaxError for resolved
+JavaScript records. The pinned full body and all three fixture bodies remain
+unchanged and are included in a native control for both Script modes.

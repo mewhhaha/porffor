@@ -96,11 +96,12 @@ fn legacy_utf16_pair_constructor_and_projections_have_closed_callers() {
         "fn parse_non_ascii_pattern_atom(",
         "fn regexp_capture_syntax(",
     );
-    assert!(scalar_parser.contains("LegacyUtf16Pair::from_scalar(character)"));
+    assert!(scalar_parser.contains("LegacyUtf16Pair::from_scalar("));
+    assert!(scalar_parser.contains("char::from_u32(code_point).expect("));
     assert!(scalar_parser.contains("unicode_mode.is_unicode_mode() || code_point <= 0xffff"));
     assert_before(
         scalar_parser,
-        "let pair = LegacyUtf16Pair::from_scalar(character)",
+        "let pair = LegacyUtf16Pair::from_scalar(",
         "Ok(ParsedTermAtom::LegacyUtf16Pair(pair))",
     );
     let class_parser = bounded(

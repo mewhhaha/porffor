@@ -26,7 +26,7 @@ pub(super) enum Difference {
 }
 
 pub(super) fn greatest(
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     pattern: &Pattern,
     start: Fields,
     end: Fields,
@@ -153,7 +153,7 @@ fn rank(field: Field) -> Option<Difference> {
 }
 
 pub(super) fn select<'p>(
-    plan: &'p ValidatedPlan<'_>,
+    plan: &'p ValidatedPlan,
     base: &Pattern,
     difference: Difference,
 ) -> Option<(&'p Interval, Pattern)> {

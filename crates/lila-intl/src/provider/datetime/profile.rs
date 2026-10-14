@@ -140,7 +140,7 @@ impl AlgorithmicField {
 
 pub(super) struct Profile {
     pub(super) default_locale: String,
-    pub(super) locales: Vec<Locale>,
+    pub(super) locales: Vec<Arc<Locale>>,
     pub(super) digits: BTreeMap<String, [char; 10]>,
     pub(super) algorithmic: BTreeMap<String, AlgorithmicField>,
     pub(super) geography: super::zones::Geography,
@@ -190,8 +190,8 @@ impl Locale {
             .get(calendar)
             .expect("the complete source control owns this calendar")
     }
-    pub(super) fn checked_calendar(&self, calendar: DateTimeCalendar) -> Option<&Calendar> {
-        self.calendars.get(calendar)
+    pub(super) fn calendar_owner(&self, calendar: DateTimeCalendar) -> Option<Arc<Calendar>> {
+        self.calendars.owner(calendar)
     }
     pub(super) fn supports_calendar(&self, calendar: DateTimeCalendar) -> bool {
         self.calendars.get(calendar).is_some()
@@ -313,7 +313,7 @@ impl Profile {
             return Err(invalid("duplicate or incomplete selected locale inventory"));
         }
         for raw in raw.locales {
-            locales.push(Locale::from_raw(raw, &digits, &mut pools)?);
+            locales.push(Arc::new(Locale::from_raw(raw, &digits, &mut pools)?));
         }
         pools.validate_coverage()?;
         locales.sort_by(|left, right| left.identifier.as_str().cmp(right.identifier.as_str()));
@@ -336,11 +336,17 @@ impl Profile {
         result.validate_names()?;
         Ok(result)
     }
+    pub(super) fn locale_owner(&self, identifier: &str) -> Option<Arc<Locale>> {
+        self.locales
+            .binary_search_by(|locale| locale.identifier.as_str().cmp(identifier))
+            .ok()
+            .map(|index| Arc::clone(&self.locales[index]))
+    }
     pub(super) fn locale(&self, identifier: &str) -> Option<&Locale> {
         self.locales
             .binary_search_by(|locale| locale.identifier.as_str().cmp(identifier))
             .ok()
-            .map(|index| &self.locales[index])
+            .map(|index| self.locales[index].as_ref())
     }
 }
 

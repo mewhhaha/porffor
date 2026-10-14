@@ -37,6 +37,7 @@ mod aot_private_numeric_updates;
 mod aot_property_flow_boundaries;
 mod aot_public_class_fields;
 mod aot_remaining_invocation_references;
+mod aot_source_recursion;
 mod aot_super_assignment_reference;
 mod aot_tail_call_environment;
 mod aot_thrown_exception_constructor;

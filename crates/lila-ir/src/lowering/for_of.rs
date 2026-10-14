@@ -293,6 +293,9 @@ impl<'a> ScriptLowerer<'a> {
         }
         let lexical_environment =
             self.lower_for_in_of_environment(for_of as *const ForOfLoop as usize);
+        // Finite source hints are separate from the generic iterator's live
+        // element facts. Capture them before iterator effects erase flow facts.
+        let iteration_source_candidates = self.finite_spread_source_candidates(for_of.iterable());
         let iterable = match (
             pattern_initializer.as_ref(),
             assignment_pattern_initializer.as_ref(),
@@ -407,6 +410,16 @@ impl<'a> ScriptLowerer<'a> {
                 initialization: Initialization::Initialized,
             },
         );
+        if pattern_initializer.is_none()
+            && assignment_pattern_initializer.is_none()
+            && access_initializer.is_none()
+            && matches!(bare_identifier_head, ForOfBareIdentifierHead::Absent)
+            && !iteration_source_candidates.is_empty()
+        {
+            // This is the actual analyzed identifier head, not a pattern's
+            // private temporary or a potentially intercepted assignment target.
+            self.set_finite_source_binding_candidates(&name, iteration_source_candidates);
+        }
         let mut pattern_prefix = if let ForOfBareIdentifierHead::BorrowedVar { source_name } =
             &bare_identifier_head
         {

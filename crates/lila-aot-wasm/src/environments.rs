@@ -891,6 +891,9 @@ impl<'a> FunctionBuilder<'a> {
                 function,
             );
         value.set_reference(&arguments, schema, function);
+        // Retain the actual object before a parameter or source write can
+        // replace the visible `arguments` binding.
+        self.emit_publish_source_activation_arguments(&arguments, function);
         arguments.clear(function);
         self.write_binding_from_locals(storage, &value, function);
         value.clear(function);

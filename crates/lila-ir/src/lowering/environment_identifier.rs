@@ -1,5 +1,112 @@
 use super::*;
 
+/// Evidence for the initial value of one analyzed implicit arguments cell.
+/// The named runtime Reference still performs ResolveBinding and GetValue.
+struct StableImplicitArgumentsCell {
+    environment_id: EnvironmentId,
+}
+
+/// Conservatively reject every source form that can invoke user code, suspend,
+/// or replace a binding. Traversing nested functions is intentional: a closure
+/// may be called after its owner returns. Refusal only loses a ValueInfo fact.
+struct ArgumentsCellStability;
+
+impl<'ast> Visitor<'ast> for ArgumentsCellStability {
+    type BreakTy = ();
+
+    fn visit_expression(&mut self, expression: &'ast Expression) -> ControlFlow<()> {
+        match expression {
+            Expression::Identifier(_)
+            | Expression::Literal(_)
+            | Expression::This(_)
+            | Expression::NewTarget(_)
+            | Expression::Parenthesized(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ArrowFunction(_)
+            | Expression::AsyncArrowFunction(_)
+            | Expression::GeneratorExpression(_)
+            | Expression::AsyncFunctionExpression(_)
+            | Expression::AsyncGeneratorExpression(_) => expression.visit_with(self),
+            _ => ControlFlow::Break(()),
+        }
+    }
+
+    fn visit_statement(&mut self, statement: &'ast Statement) -> ControlFlow<()> {
+        match statement {
+            Statement::With(_)
+            | Statement::ForInLoop(_)
+            | Statement::ForOfLoop(_)
+            | Statement::Debugger => ControlFlow::Break(()),
+            _ => statement.visit_with(self),
+        }
+    }
+
+    fn visit_pattern(&mut self, _: &'ast Pattern) -> ControlFlow<()> {
+        // Binding patterns can run arbitrary iterator/getter code.
+        ControlFlow::Break(())
+    }
+
+    fn visit_class_declaration(&mut self, _: &'ast ClassDeclaration) -> ControlFlow<()> {
+        ControlFlow::Break(())
+    }
+}
+
+impl StableImplicitArgumentsCell {
+    fn analyze(lowerer: &ScriptLowerer<'_>, name: &str) -> Option<Self> {
+        if name != "arguments"
+            || lowerer.lookup_binding(name).is_some()
+            || !lowerer.with_environment_chain.is_empty()
+        {
+            return None;
+        }
+        let current = lowerer
+            .analysis
+            .function_plans
+            .get(&lowerer.current_owner_id)?;
+        let (owner_id, environment_id) = if current.protocol.flavor() == FunctionFlavor::Arrow {
+            let capture = current.captures.get(LEXICAL_ARGUMENTS_NAME)?;
+            if capture.source_name != LEXICAL_ARGUMENTS_NAME {
+                return None;
+            }
+            (&capture.owner_id, capture.environment_id)
+        } else {
+            let owner = &lowerer.analysis.owner_plans[&lowerer.current_owner_id];
+            (&lowerer.current_owner_id, owner.activation_environment_id)
+        };
+        let owner = lowerer.analysis.owner_plans.get(owner_id)?;
+        let function = lowerer.analysis.function_plans.get(owner_id)?;
+        let environment = lowerer.analysis.environment_plans.get(&environment_id)?;
+        if function.protocol.flavor() != FunctionFlavor::Ordinary
+            || owner.root_bindings.contains("arguments")
+            || environment.owner_id != *owner_id
+            || !environment
+                .binding_storage_names
+                .contains(LEXICAL_ARGUMENTS_NAME)
+            || !environment
+                .owned_env_slots
+                .contains_key(LEXICAL_ARGUMENTS_NAME)
+        {
+            return None;
+        }
+        let mut stability = ArgumentsCellStability;
+        if function.parameters.visit_with(&mut stability).is_break()
+            || function.body.visit_with(&mut stability).is_break()
+        {
+            return None;
+        }
+        Some(Self { environment_id })
+    }
+
+    fn value_info(self, lowerer: &ScriptLowerer<'_>) -> ValueInfo {
+        // Retain the analyzed identity until the only consumer requests its
+        // initial object-kind fact. No bare private-storage spelling proves it.
+        debug_assert!(lowerer.analysis.environment_plans[&self.environment_id]
+            .binding_storage_names
+            .contains(LEXICAL_ARGUMENTS_NAME));
+        ValueInfo::new(ValueKind::Arguments)
+    }
+}
+
 impl ScriptLowerer<'_> {
     /// Var bookkeeping must keep its activation/captured declarative position.
     /// Creating a block binding here would incorrectly cut off the enclosing
@@ -96,9 +203,13 @@ impl ScriptLowerer<'_> {
         if let Some(host) = self.host_surface_policy.resolve_global(&name) {
             self.used_host_builtins.insert(host);
         }
+        let read_info = matches!(operation, EnvironmentIdentifierOperationIr::Read)
+            .then(|| StableImplicitArgumentsCell::analyze(self, &name))
+            .flatten()
+            .map(|cell| cell.value_info(self));
         self.invalidate_unknown_user_code_effects();
         TypedExpr::from_info(
-            unknown_runtime_value_info(),
+            read_info.unwrap_or_else(unknown_runtime_value_info),
             ExprIr::EnvironmentIdentifier(Box::new(EnvironmentIdentifierIr::current(
                 name,
                 self.reference_strictness(),

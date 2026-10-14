@@ -314,6 +314,7 @@ pub(super) fn linked_module_execution_source(
     Ok(LinkedScriptSource {
         definitions: linked,
         source: SourceUnit {
+            encoding: lila_front::SourceTextEncoding::Utf8,
             goal: ParseGoal::Script,
             filename: sources
                 .modules

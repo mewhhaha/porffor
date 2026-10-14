@@ -285,6 +285,7 @@ pub(crate) struct FunctionBuilder<'a> {
     completion: CompletionLocals,
     local_bindings: Vec<Option<LocalBindingLocals>>,
     body_entry_locals: Option<crate::function_entry::BodyEntryLocals>,
+    pub(crate) source_activation: Option<crate::functions::SourceActivation>,
     // Only a declared typed helper parameter can retain an actual callable's
     // immutable context. It never manufactures a callable body entry.
     helper_function_context: Option<GcLocal<FunctionContext>>,
@@ -1812,6 +1813,7 @@ impl<'a> FunctionBuilder<'a> {
             completion,
             local_bindings: Vec::new(),
             body_entry_locals,
+            source_activation: None,
             helper_function_context: None,
             helper_execution_realm: None,
             bootstrap_realm: None,

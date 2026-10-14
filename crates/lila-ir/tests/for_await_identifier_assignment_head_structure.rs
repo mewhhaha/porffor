@@ -143,7 +143,10 @@ fn bare_identifier_prefix_uses_the_checked_reference_write_path() {
         "self.with_environment_reference_plan(name.clone(), objects)",
         "PutValueBindings::allocate(",
         "plan.put_value(bindings, value, |bound| {",
-        "self.lower_located_identifier_assign_value_with_evidence(name, bound, fallback)",
+        "self.lower_located_identifier_assign_value_with_evidence(",
+        "name.clone(),",
+        "bound,",
+        "fallback,",
     ];
     let mut cursor = 0;
     for required in order {

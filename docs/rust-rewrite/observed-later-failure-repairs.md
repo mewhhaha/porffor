@@ -17,9 +17,11 @@ partial failure cohort, not a conformance percentage or expected-failure list.
 - Function source extraction converts parser UTF-16 positions to UTF-8 string
   boundaries. The lexer preserves its line-terminator buffering invariant across
   comments, including CR, LF, CRLF and Unicode separators.
-- Ordinary sloppy functions uniformly expose an immutable own `caller` whose
-  value is `null`. Strict and non-ordinary functions retain their forbidden
-  caller behavior; no strict caller is exposed.
+- This checkpoint selected an immutable own `caller` with the value `null`
+  for ordinary sloppy functions. The later optional
+  [active legacy reflection contract](contracts/active-legacy-function-reflection.md)
+  supersedes that always-null policy with actual activation identity and
+  `arguments`, while preserving strict and non-ordinary restrictions.
 - Iterator consumers call predicates with an explicit undefined receiver before
   the callback's own strict/sloppy this-binding rules apply.
 - Created realms publish synchronous DisposableStack intrinsics. Constructor

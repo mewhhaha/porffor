@@ -1004,7 +1004,11 @@ fn lower_script_program_with_allocations(
             template_source,
         )
         .with_realm_reusable_module_environments(definitions.has_realm_reusable_modules())
-        .finish(script, interner, script_source.source_text.as_str());
+        .finish(
+            script,
+            interner,
+            CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
+        );
         definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations.clone();
@@ -1015,7 +1019,7 @@ fn lower_script_program_with_allocations(
         let lowered = ScriptLowerer::new(
             interner,
             &analysis,
-            script_source.source_text.as_str(),
+            CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
             root_this_binding,
             SCRIPT_OWNER_ID.to_string(),
             host_surface_policy,
@@ -1140,7 +1144,7 @@ pub(crate) struct ScriptLowerer<'a> {
     function_source_parameter_candidates: BTreeMap<(FunctionId, usize), Vec<FiniteSourceValue>>,
     interner: &'a Interner,
     analysis: &'a Analysis<'a>,
-    source_text: &'a str,
+    source_text: CompilerSourceText<'a>,
     current_owner_id: String,
     lexical_strictness: Option<Strictness>,
     host_surface_policy: HostSurfacePolicy,
@@ -1575,7 +1579,7 @@ impl<'a> ScriptLowerer<'a> {
     fn new(
         interner: &'a Interner,
         analysis: &'a Analysis<'a>,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         root_this_binding: RootThisBinding,
         current_owner_id: String,
         host_surface_policy: HostSurfacePolicy,
@@ -7048,6 +7052,22 @@ impl<'a> ScriptLowerer<'a> {
             .iter_mut()
             .find(|function| &function.id == function_id)
             .unwrap_or_else(|| panic!("generated class method `{function_id}` must be lowered"));
+        let generator_plan = if function.eval_environment.is_some() {
+            crate::generator_loop_control::sequence_end(&function.body.statements, 0)
+                .ok()
+                .map(|exit| {
+                    let mut points = Vec::new();
+                    crate::generator_loop_control::collect_suspensions(
+                        &function.body.statements,
+                        &mut points,
+                    );
+                    finish_generator_plan(exit, points)
+                        .expect("checked generator region exit fits its state domain")
+                })
+                .unwrap_or(generator_plan)
+        } else {
+            generator_plan
+        };
         function.generator_plan = Some(generator_plan);
     }
 

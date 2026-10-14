@@ -369,3 +369,91 @@ true;
         &["Script source target stayed idle"],
     );
 }
+
+#[test]
+fn original_source_import_grammar_body_keeps_all_three_fixtures_in_both_script_modes() {
+    const SOURCE: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/source-phase-import/import-source.js"
+    );
+    const FIRST: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/source-phase-import/import-source-binding-name_FIXTURE.js"
+    );
+    const SECOND: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/source-phase-import/import-source-binding-name-2_FIXTURE.js"
+    );
+    const NEWLINES: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/source-phase-import/import-source-newlines_FIXTURE.js"
+    );
+    const ENSURE: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/source-phase-import/ensure-linking-error_FIXTURE.js"
+    );
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    const DONE: &str =
+        include_str!("../../../../test262/vendor/test262/harness/doneprintHandle.js");
+    const ASYNC: &str = include_str!("../../../../test262/vendor/test262/harness/asyncHelpers.js");
+    let files = [
+        ("import-source.js", SOURCE),
+        ("import-source-binding-name_FIXTURE.js", FIRST),
+        ("import-source-binding-name-2_FIXTURE.js", SECOND),
+        ("import-source-newlines_FIXTURE.js", NEWLINES),
+        ("ensure-linking-error_FIXTURE.js", ENSURE),
+    ];
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{STA}\n{ASSERT}\n{DONE}\n{ASYNC}\n{SOURCE}");
+        assert_script(
+            &files,
+            &source,
+            &["Test262:AsyncTestComplete"],
+            ObservedJsValue::Undefined,
+        );
+    }
+}
+
+#[test]
+fn contextual_source_bindings_keep_host_parse_source_errors_and_ordinary_imports_distinct() {
+    success(
+        &[
+            (
+                "entry.js",
+                r#"
+const NativeTypeError = TypeError, NativeSyntaxError = SyntaxError;
+globalThis.invalidBody = false;
+globalThis.TypeError = function() { throw 'mutable TypeError observed'; };
+globalThis.SyntaxError = function() { throw 'mutable SyntaxError observed'; };
+function rejects(promise, Type, message) { return promise.then(
+  () => { throw 'invalid closure fulfilled'; },
+  error => {
+    if (!(error instanceof Type) || !error.message.includes(message)) throw 'wrong failure owner';
+  }
+); }
+const checks = [
+  rejects(import('./host.js'), NativeTypeError, '<do not resolve>'),
+  rejects(import('./escaped-host.js'), NativeTypeError, '<do not resolve>'),
+  rejects(import('./invalid.js'), NativeSyntaxError, 'from'),
+  rejects(import('./resolved.js'), NativeSyntaxError, 'no source representation'),
+  rejects(import.source('./value.js'), NativeSyntaxError, 'no source representation'),
+  import('./default.js').then(ns => { if (ns.default !== 42) throw 'ordinary default source binding'; }),
+  import('./escaped-default.js').then(ns => { if (ns.default !== 42) throw 'escaped ordinary default binding'; }),
+  import('./mixed-default.js').then(ns => { if (ns.default !== 43) throw 'ordinary default/named list'; })
+];
+Promise.all(checks).then(() => {
+  if (globalThis.invalidBody) throw 'invalid closure evaluated';
+  print('contextual source grammar and error owners');
+});
+true;
+"#,
+            ),
+            ("host.js", "import './ensure.js'; import source source from '<do not resolve>'; import source from from '<do not resolve>'; globalThis.invalidBody = true;"),
+            ("escaped-host.js", r"import source \u0066rom /* delimiter */ from '<do not resolve>'; globalThis.invalidBody = true;"),
+            ("ensure.js", "import {missing} from './ensure.js'; globalThis.invalidBody = true;"),
+            ("invalid.js", r"import source from fr\u006fm './value.js';"),
+            ("resolved.js", "import source\r\nfrom\u{2028}from './value.js'; globalThis.invalidBody = true;"),
+            ("default.js", "import source from './value.js'; export default source;"),
+            ("escaped-default.js", r"import sour\u0063e from './value.js'; export default source;"),
+            ("mixed-default.js", "import source, {named as value} from './value.js'; export default source + value;"),
+            ("value.js", "export default 42; export const named = 1;"),
+        ],
+        &["contextual source grammar and error owners"],
+    );
+}

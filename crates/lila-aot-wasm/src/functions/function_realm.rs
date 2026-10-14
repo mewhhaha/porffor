@@ -239,6 +239,7 @@ impl FunctionBuilder<'_> {
                     completion,
                     function,
                 )?;
+                self.emit_leave_source_activation(function);
                 completion.emit(function);
                 function.instruction(&Instruction::Return);
             }

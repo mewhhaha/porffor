@@ -1,5 +1,39 @@
 # Lila
 
+## Current native checkpoint and iteration measurements — 2026-10-14
+
+The prepared follow-up preserves raw UTF-16 through parsing and callable source
+spans, keeps generator lexical initialization behind its continuation owner,
+and resolves ordinary legacy caller/arguments from actual active functions.
+Source entry checks a conservative 128-body implementation bound and returns a
+defining-Realm RangeError on exhaustion, with restoration across completion,
+suspension and proper tail calls. Native stack and execution deadlines stay
+unchanged; this is an active-source bound, not a native-frame-size proof.
+DateTimeFormat reuses only immutable admitted plans within one provider, capped
+at 32 entries and 2 MiB; every actual input, transition and result remains live.
+These changes require the next complete source-bound verification checkpoint.
+
+Actual source `32c197968` completes ten affected targets: **5,216 pass,
+16 fail, zero ignored**, retaining every one of 5,194 prior test IDs.
+Of 5,193 prior passes, 5,182 remain passing and 11 regress; all are repair
+inputs. Both previous Realm failures now pass. This is a complete red checkpoint,
+not full workspace or pinned Test262 acceptance. The next batch repairs the
+confirmed source, state and runtime problems before repeating exact retention.
+
+Source-bound diagnostics measure the original DateTimeFormat case at about
+1.2 seconds compiling and 58.2 seconds executing in sloppy mode; strict mode
+hits its unchanged 60-second epoch deadline. Both large original String mapping
+bodies complete normally in about 15.7 seconds with largest emitted bodies
+68,736 and 72,581 bytes. These observations require supervised original-ID replay
+before being counted as repairs. The diagnostic leaf links in 2.4–3.0 seconds
+from actual optimized libraries, with zero Cargo commands. The native sweep was
+active concurrently, so these measurements do not establish idle performance.
+
+See [every verdict, regression, timing and compiler identity](docs/rust-rewrite/native-batch-and-profile-20261014.json).
+Refresh the complete affected-target workflow with a fresh owner and exact
+frozen source; preserve all 5,232 IDs and the sixteen red IDs. Full workspace,
+ordinary CLI, current-pin replay, task stress and publication gates remain open.
+
 ## Complete historical failure comparison — 2026-10-14
 
 Actual compiler `3bc80ecc3` completes all 254 Bug/Crash IDs from the frozen
@@ -10,7 +44,7 @@ and native exit 1 are retained. Five complete affected native targets finish
 The prepared successor repairs recursive source discovery and the stale host-load
 fixture expectation, adds raw UTF-16 RegExp source lowering, and replaces unrolled
 String-root and pure-array construction with checked passive data and bounded
-Wasm loops. Actual successor verification is pending.
+Wasm loops. The complete red successor checkpoint is recorded above; further repairs remain unverified.
 
 The original `aee6bc109` replay covers every one of the 5,365 historical IDs:
 **4,849 Success, 246 Bug, 8 Crash, 260 NotImplemented and
@@ -583,6 +617,13 @@ bounded runtime retention remain authoritative. Eleven focused native controls,
 joined all-feature/all-target types and twelve guards pass. Full-suite and task
 closure remain pending. See the
 [metadata boundary checkpoint](docs/rust-rewrite/runtime-image-metadata-boundary-20261011.md).
+
+Runtime and program-hook signatures share the stable core GC type group.
+Direct program-helper signatures follow it only in program and standalone
+modules, so adding those helpers cannot renumber core GC types. This is layout
+ABI 4; existing raw/runtime packages must be regenerated once. Source/package
+fingerprints remain conservative, and no new cache timing result is claimed.
+See the [type ownership contract](docs/rust-rewrite/runtime-program-helper-types.md).
 
 ## Cloud continuation — 2026-10-10
 
@@ -7749,8 +7790,12 @@ Recent focused progress through `2026-09-01`:
   `yield-weak-binding` paths individually with the same one-path command.
   The complete `forbidden-ext` generator-expression subtree reports `5/5` as
   of `2026-07-20`: generator functions expose no forbidden own `arguments` or
-  `caller` properties. Ordinary sloppy functions now expose an immutable own
-  `caller` with value `null`; strict functions retain the throwing restriction. Refresh it with
+  `caller` properties. That checkpoint used an immutable own `caller` with
+  value `null` for ordinary sloppy functions. Current optional
+  [active legacy reflection](docs/rust-rewrite/contracts/active-legacy-function-reflection.md)
+  resolves ordinary sloppy `caller` and `arguments` from actual activations;
+  inactive values are `null`, and strict/non-ordinary restrictions remain.
+  These historical counts do not verify the later policy. Refresh it with
   `./target/release/lila test262 run language/expressions/generators/forbidden-ext --execution-backend wasm --jobs 1 --threads 1 --timeout-ms 60000 --snapshot-name gen-forbidden-ext-complete-20260720`.
   The final nine-root AOT closure checkpoint reports `9/9` as of `2026-07-20`:
   two parse-negative roots and seven runtime roots covering class-static-block
@@ -10314,3 +10359,13 @@ present and remain unchanged. Original failed evidence is retained; fresh
 verification, all672 combined pinned modes, MAIN admission and the broad
 checkpoint remain required. This focused result does not change published
 full-suite counts or close T23/T26.
+
+
+The source-phase import parser now distinguishes ordinary
+`import source from 'target'` from `import source from from 'target'`, whose
+source binding is named `from`. Escaped binding names and line terminators use
+the actual grammar; escaped contextual modifiers/delimiters still reject.
+[Host load and source-phase error ownership](docs/rust-rewrite/contracts/dynamic-module-host-load-error-kind.md)
+retains unresolved host TypeErrors, genuine parse/link SyntaxErrors and
+resolved JavaScript GetModuleSource SyntaxErrors. This is an authored repair;
+pinned/native verification and full-suite acceptance are tracked separately.

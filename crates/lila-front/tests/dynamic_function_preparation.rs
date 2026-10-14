@@ -138,3 +138,51 @@ fn constructor_source_text_preserves_arguments_and_required_newlines() {
     );
     prepare_dynamic_function(FunctionParseKind::Ordinary, &arguments).expect("comments preserved");
 }
+
+#[test]
+fn utf16_constructor_fragments_and_to_string_keep_exact_raw_code_units() {
+    use lila_front::{decode_js_string_utf16, prepare_dynamic_function_utf16, SourceTextEncoding};
+    let parameters = [
+        "value /* ".encode_utf16().collect::<Vec<_>>(),
+        vec![0xdc38],
+        " */".encode_utf16().collect(),
+    ]
+    .concat();
+    let body = [
+        "/* \u{F0000}D83D ".encode_utf16().collect::<Vec<_>>(),
+        vec![0xd83d],
+        " */ return /\\uD83D".encode_utf16().collect(),
+        vec![0xdc38],
+        "/;".encode_utf16().collect(),
+    ]
+    .concat();
+    let arguments = [parameters.clone(), body.clone()];
+    for kind in [
+        FunctionParseKind::Ordinary,
+        FunctionParseKind::Generator,
+        FunctionParseKind::Async,
+        FunctionParseKind::AsyncGenerator,
+    ] {
+        let parsed = prepare_dynamic_function_utf16(kind, &arguments).unwrap();
+        assert_eq!(parsed.encoding, SourceTextEncoding::EncodedUtf16);
+        assert_eq!(
+            decode_js_string_utf16(&parsed.source_text),
+            parsed.compiler_source_utf16()
+        );
+        assert!(parsed
+            .compiler_source_utf16()
+            .windows(body.len())
+            .any(|window| window == body));
+        let source = kind.source_text_utf16(&arguments);
+        assert!(source
+            .windows(parameters.len())
+            .any(|window| window == parameters));
+        assert!(source.windows(body.len()).any(|window| window == body));
+        let bad = [
+            "/*".encode_utf16().collect(),
+            [vec![0xd83d], "*/ return 1;".encode_utf16().collect()].concat(),
+        ];
+        let error = prepare_dynamic_function_utf16(kind, &bad).unwrap_err();
+        assert_eq!(error.diagnostic().error_type(), Some("SyntaxError"));
+    }
+}

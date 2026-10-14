@@ -88,7 +88,8 @@ fn compact_nested_literals_use_the_defining_source_realm_array_prototype() {
     // string literal and does not introduce Unicode escape-policy ambiguity.
     run(&format!(
         r#"
-var realm = $262.createRealm();
+// Raw Engine scripts expose the Test262 host primitive without its JS harness prelude.
+var realm = __lilaCreateRealm();
 var foreignFactory = realm.evalScript({factory:?});
 var foreignPrototype = realm.evalScript('Array.prototype');
 var array = foreignFactory(), again = foreignFactory();

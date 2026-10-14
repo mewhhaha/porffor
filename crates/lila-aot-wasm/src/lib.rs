@@ -3054,8 +3054,8 @@ setterReceiver === receiver;
             })
             .sum::<usize>();
         assert_eq!(
-            segments, 2,
-            "P owns separate UTF-16 and static-data suffixes"
+            segments, 4,
+            "P owns UTF-16, static bytes, String descriptors and pure Array recipes"
         );
     }
 
@@ -3128,7 +3128,8 @@ setterReceiver === receiver;
         let runtime = artifact.runtime().expect("heap program links R");
         assert!(data_segment_at(runtime.bytes(), 1).starts_with(&expected_prefix));
         assert_eq!(wire_data_segment_counts(runtime.bytes()), (1, 1));
-        assert_eq!(wire_data_segment_counts(&artifact.bytes), (2, 0));
+        assert_eq!(wire_data_segment_counts(&artifact.bytes), (4, 0));
+        assert!(data_segment_at(&artifact.bytes, 3).is_empty());
         assert!(artifact
             .gc_host_imports()
             .contains(&GcHostImport::CollectGc));

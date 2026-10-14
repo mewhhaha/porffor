@@ -425,8 +425,9 @@ impl<'a> AnalysisBuilder<'a> {
         mut self,
         script: &'a Script,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: impl Into<CompilerSourceText<'a>>,
     ) -> Analysis<'a> {
+        let source_text = source_text.into();
         self.eval_visible = self.eval_visible
             || matches!(
                 &self.script_instantiation,
@@ -1424,7 +1425,7 @@ impl<'a> AnalysisBuilder<'a> {
     fn collect_root_functions(
         &mut self,
         interner: &Interner,
-        source_text: &str,
+        source_text: CompilerSourceText<'_>,
         items: &'a [StatementListItem],
         owner_strict: bool,
         capture_aliases: &BTreeMap<String, String>,
@@ -1562,7 +1563,7 @@ impl<'a> AnalysisBuilder<'a> {
         parent_owner_id: String,
         definition_environment_cursor: EnvironmentCursor,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
     ) {
         let owner_id = function.id.clone();
         // Source function allocation always creates the immutable self-name
@@ -2936,7 +2937,7 @@ impl<'a> AnalysisBuilder<'a> {
         parameters: &'a [FormalParameter],
         items: &'a [StatementListItem],
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
@@ -3017,7 +3018,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         item: &'a StatementListItem,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -3155,7 +3156,7 @@ impl<'a> AnalysisBuilder<'a> {
         constructor: Option<&'a FunctionExpression>,
         elements: &'a [ClassElement],
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -3276,7 +3277,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         function: &'a FunctionDeclaration,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = function_declaration_key(function);
@@ -3319,7 +3320,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         function: &'a GeneratorDeclaration,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = generator_declaration_key(function);
@@ -3356,7 +3357,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         function: &'a AsyncFunctionDeclaration,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = async_function_declaration_key(function);
@@ -3393,7 +3394,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         function: &'a AsyncGeneratorDeclaration,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = async_generator_declaration_key(function);
@@ -3431,7 +3432,7 @@ impl<'a> AnalysisBuilder<'a> {
         elements: &'a [ClassElement],
         definition_environment_cursor: EnvironmentCursor,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         for element in elements {
@@ -3610,7 +3611,7 @@ impl<'a> AnalysisBuilder<'a> {
         initializer: &'a Expression,
         definition_environment_cursor: EnvironmentCursor,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = class_field_initializer_key(initializer);
@@ -3666,7 +3667,7 @@ impl<'a> AnalysisBuilder<'a> {
         block: &'a StaticBlockBody,
         definition_environment_cursor: EnvironmentCursor,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let key = class_static_block_key(block);
@@ -3758,7 +3759,7 @@ impl<'a> AnalysisBuilder<'a> {
         constructor: &'a FunctionExpression,
         definition_environment_cursor: EnvironmentCursor,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         is_derived_constructor: bool,
         capture_aliases: &BTreeMap<String, String>,
     ) -> FunctionId {
@@ -3955,7 +3956,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         expression: &'a Expression,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         capture_aliases: &BTreeMap<String, String>,
     ) {
         let activation_cursor = self.activation_environment_cursor(owner_id);
@@ -4017,7 +4018,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         statement: &'a Statement,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5060,7 +5061,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a ArrayPattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5163,7 +5164,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a ObjectPattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5285,7 +5286,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a Pattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5317,7 +5318,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a ArrayPattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5458,7 +5459,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a ObjectPattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5607,7 +5608,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         pattern: &'a Pattern,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -5639,7 +5640,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         expression: &'a Expression,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -6442,7 +6443,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         name: &'a PropertyName,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,
@@ -6465,7 +6466,7 @@ impl<'a> AnalysisBuilder<'a> {
         owner_id: &str,
         access: &'a PropertyAccess,
         interner: &'a Interner,
-        source_text: &'a str,
+        source_text: CompilerSourceText<'a>,
         self_name: Option<&str>,
         capture_aliases: &BTreeMap<String, String>,
         refs: &mut BTreeMap<String, String>,

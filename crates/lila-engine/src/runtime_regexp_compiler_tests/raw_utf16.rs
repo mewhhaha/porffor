@@ -231,3 +231,54 @@ fn runtime_only_patterns_keep_raw_escaped_quantifier_and_class_domains() {
     source.push_str("print('raw-regexp-ok'); true;");
     assert_native(&source);
 }
+
+#[test]
+fn prepared_source_units_preserve_callable_metadata_and_repeated_activations() {
+    assert_native(
+        r#"
+function unitsEqual(a,b) {
+  if(a.length!==b.length) return false;
+  for(var i=0;i<a.length;i++) if(a.charCodeAt(i)!==b.charCodeAt(i)) return false;
+  return true;
+}
+var definition='function read(){ /*\uD83D é 🌱 \u{F0000}D83D */ return /\\uD83D\uDC38/; }';
+var prefix='/*\uDC38 before 🌱 */\r\n';
+var source=prefix+'('+definition+')';
+var first=eval(source), again=eval(source), indirect=(0,eval)(source);
+var constructed=Function('return '+source+';')();
+if(first===again || first===indirect || first===constructed) throw new Error('activation identity');
+var functions=[first,again,indirect,constructed];
+for(var i=0;i<functions.length;i++) {
+  if(!unitsEqual(functions[i].toString(),definition)) throw new Error('callable source units');
+  var re=functions[i]();
+  if(!unitsEqual(re.source,'\\uD83D\uDC38')) throw new Error('literal source units');
+  var match=re.exec('\u{1F438}');
+  if(match===null || !unitsEqual(match[0],'\u{1F438}')) throw new Error('mixed raw units');
+}
+var outer='eval("/\\\\uD83D\uDC38/")';
+var nested=eval(outer);
+if(!unitsEqual(nested.source,'\\uD83D\uDC38') || nested.exec('\u{1F438}')===null) throw new Error('nested prepared units');
+print('raw-regexp-ok'); true;
+"#,
+    );
+}
+
+#[test]
+fn prepared_source_marker_spelling_remains_actual_user_text_in_every_realm() {
+    assert_native(
+        r#"
+var marker='\u{F0000}D83D';
+var source='"\u{F0000}D83D";';
+if(eval(source)!==marker || (0,eval)(source)!==marker) throw new Error('eval marker data');
+if(Function('return "\u{F0000}D83D";')()!==marker) throw new Error('Function marker data');
+var realm=new ShadowRealm();
+if(realm.evaluate(source)!==marker || realm.evaluate(source)!==marker) throw new Error('realm marker data');
+$262.evalScript('globalThis.markerData = "\u{F0000}D83D";');
+if(globalThis.markerData!==marker) throw new Error('realm script marker data');
+var child=$262.createRealm();
+child.evalScript('globalThis.markerData = "\u{F0000}D83D";');
+if(child.global.markerData!==marker) throw new Error('child script marker data');
+print('raw-regexp-ok'); true;
+"#,
+    );
+}

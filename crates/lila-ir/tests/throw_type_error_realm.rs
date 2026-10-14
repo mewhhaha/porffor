@@ -78,3 +78,71 @@ fn extracted_foreign_thrower_calls_remain_runtime_owned_and_do_not_request_gc() 
     };
     assert!(matches!(expression.expr, ExprIr::CallIndirect { .. }));
 }
+
+#[test]
+fn stable_arguments_fact_keeps_the_live_named_reference_and_ordinary_cell_owner() {
+    let script = lower_script(
+        "function stable() { 'use strict'; return () => arguments; }
+\
+         function unrelated() { arguments = 19; return arguments; }",
+    );
+    let arrow = script
+        .functions
+        .iter()
+        .find(|function| function.protocol == FunctionProtocolIr::Arrow)
+        .unwrap();
+    assert!(arrow.captures_lexical_arguments);
+    assert_eq!(arrow.return_kind, ValueKind::Arguments);
+    fn returned_reference(statements: &[StatementIr]) -> Option<&lila_ir::TypedExpr> {
+        statements.iter().find_map(|statement| match statement {
+            StatementIr::Return(expression) => Some(expression),
+            StatementIr::Block(block) => returned_reference(&block.statements),
+            _ => None,
+        })
+    }
+    let returned = returned_reference(&arrow.body.statements).expect("arrow's return");
+    assert!(matches!(&returned.expr,
+        ExprIr::EnvironmentIdentifier(reference)
+            if reference.name == "arguments"
+            && matches!(reference.operation, lila_ir::EnvironmentIdentifierOperationIr::Read)));
+    let unrelated = script
+        .functions
+        .iter()
+        .find(|function| function.name == "unrelated")
+        .unwrap();
+    assert_ne!(
+        unrelated.return_kind,
+        ValueKind::Arguments,
+        "an independent owner's assignment must neither acquire nor erase the stable cell's fact"
+    );
+}
+
+#[test]
+fn arguments_cell_facts_refuse_reassignment_shadowing_hooks_and_suspension() {
+    for source in [
+        "function owner() { arguments = 7; return arguments; }",
+        "function owner(arguments) { return arguments; }",
+        "function owner() { var arguments = 7; return arguments; }",
+        "function owner() { let arguments = 7; return () => arguments; }",
+        "function owner() { eval('arguments = 7'); return () => arguments; }",
+        "function owner() { var read = () => arguments; arguments = 7; return read; }",
+        "function owner() { callback(); return () => arguments; }",
+        "function owner() { with ({arguments: 7}) { return () => arguments; } }",
+        "function owner(value = (arguments = 7)) { return arguments; }",
+        "async function owner() { await 0; return () => arguments; }",
+    ] {
+        let script = lower_script(source);
+        let result = script
+            .functions
+            .iter()
+            .find(|function| function.protocol == FunctionProtocolIr::Arrow)
+            .or_else(|| {
+                script
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "owner")
+            })
+            .expect("read's owner");
+        assert_ne!(result.return_kind, ValueKind::Arguments, "{source}");
+    }
+}

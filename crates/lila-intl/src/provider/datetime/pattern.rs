@@ -279,6 +279,30 @@ impl Pattern {
             skeleton,
         }
     }
+    /// Conservative owned allocation extent; shared profile records are counted by their provider.
+    pub(super) fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let mut bytes = size_of::<Self>()
+            .saturating_add(self.tokens.capacity().saturating_mul(size_of::<Token>()))
+            .saturating_add(
+                self.numbering
+                    .capacity()
+                    .saturating_mul(size_of::<(Option<char>, String)>()),
+            )
+            .saturating_add(self.skeleton.capacity().saturating_mul(size_of::<Field>()));
+        for token in &self.tokens {
+            if let Token::Literal(text) = token {
+                bytes = bytes.saturating_add(text.capacity());
+            }
+        }
+        for (_, text) in &self.numbering {
+            bytes = bytes.saturating_add(text.capacity());
+        }
+        if let Some(companion) = &self.range_pattern {
+            bytes = bytes.saturating_add(companion.retained_bytes());
+        }
+        bytes
+    }
     pub(super) fn single(field: Field) -> Self {
         Self::new(vec![Token::Field(field)], Vec::new())
     }
@@ -323,6 +347,20 @@ pub(super) struct Glue {
 }
 
 impl Glue {
+    pub(super) fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        self.tokens.iter().fold(
+            size_of::<Self>().saturating_add(
+                self.tokens
+                    .capacity()
+                    .saturating_mul(size_of::<GlueToken>()),
+            ),
+            |bytes, token| match token {
+                GlueToken::Literal(text) => bytes.saturating_add(text.capacity()),
+                GlueToken::First | GlueToken::Second => bytes,
+            },
+        )
+    }
     pub(super) fn combine(
         &self,
         first: &Pattern,

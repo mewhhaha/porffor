@@ -1233,6 +1233,30 @@ check_raw_line_budget "$ir_resumable_sync_for_of_binding" 459
 # generator split/merge lifecycle. The shared static expression helpers remain
 # parent-owned and the parent cannot regrow a second if implementation.
 ir_if_statement_lowering="crates/lila-ir/src/lowering/if_statement.rs"
+ir_generator_if_environment_owner="crates/lila-ir/src/lowering/if_statement/checked_environment.rs"
+require_file "$ir_generator_if_environment_owner"
+require_module_decl "$ir_if_statement_lowering" "checked_environment"
+require_fixed_string_count \
+  "$ir_if_statement_lowering" \
+  'self.generator_if_branch_owns_runtime_environment(if_statement)' \
+  1 \
+  'checked runtime-record conditional admission consumer'
+require_fixed_string_count \
+  "$ir_generator_if_environment_owner" \
+  'fn generator_if_branch_owns_runtime_environment(' \
+  1 \
+  'checked runtime-record conditional admission owner'
+require_fixed_string_count \
+  "crates/lila-ir/src/lowering/function_definition.rs" \
+  'lowerer.generator_plan_for_lowered_named_environment(&body, source_plan)' \
+  1 \
+  'checked named-record generator plan consumer'
+require_fixed_string_count \
+  "$ir_generator_if_environment_owner" \
+  'fn generator_plan_for_lowered_named_environment(' \
+  1 \
+  'checked named-record generator plan owner'
+check_raw_line_budget "$ir_generator_if_environment_owner" 64
 require_file "$ir_if_statement_lowering"
 require_module_decl "$ir_lowering" "if_statement"
 require_fixed_string_count \
@@ -3032,7 +3056,7 @@ require_fixed_string_count \
   'function.instruction(&Instruction::StructSet {' \
   1 \
   'typed mutable-field StructSet encoder boundary'
-require_fixed_string_count "$compiled_module_package" 'registered: RuntimeModuleTypes::register(),' 1 'sole consumed callable/layout type registration'
+require_fixed_string_count "$compiled_module_package" 'registered: RuntimeModuleTypes::register(kind),' 1 'sole consumed ownership-aware callable/layout type registration'
 
 # The consumed global finalizer declares each concrete root against the actual
 # encoded section. Generic typed globals keep their index construction private.
@@ -3051,7 +3075,8 @@ if [[ "$gc_root_finalizer_code" != *'self,mutglobals:GlobalLedger,snapshot:bool,
   || ! grep -Fq 'section: GlobalLedger,' "$wasm_gc_types"; then
   fail 'both finalization modes must consume the actual global ledger through one typed-root owner and seal its matching schema'
 fi
-require_text_regex_count "$gc_root_finalizer" 'GcRootGlobal::declare[(]&self.layouts, &mut globals[)]' 14 'declared semantic GC roots in the sole finalizer'
+require_text_regex_count "$gc_root_finalizer" 'GcRootGlobal::declare[(]&self.layouts, &mut globals[)]' 15 'declared semantic GC roots in the sole finalizer'
+require_fixed_string_count "$wasm_gc_types" 'active_source_function: GcRootGlobal<FunctionObject>,' 1 'typed active source activation root'
 require_text_regex_count "$gc_root_finalizer" 'CollectionKeyHashCounterGlobal::declare[(]&mut globals[)]' 1 'declared scalar collection identity root'
 require_regex_count "$wasm_gc_types" '^[[:space:]]+fn finalize_globals[(]' 1 'sole concrete GC-root finalizer'
 require_regex_count "$wasm_gc_types" '^[[:space:]]+pub[(]crate[)] fn finalize_globals[(]' 1 'sole registered type and global finalizer'

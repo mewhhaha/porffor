@@ -11,9 +11,9 @@ pub(crate) struct ModuleTypeRegistry {
 }
 
 impl ModuleTypeRegistry {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(kind: crate::runtime_artifact::ModuleKind<'_>) -> Self {
         Self {
-            registered: RuntimeModuleTypes::register(),
+            registered: RuntimeModuleTypes::register(kind),
         }
     }
 
@@ -224,7 +224,8 @@ impl ModuleAssemblySections {
 // ownership transitions no longer matches these function types and fails to
 // compile.
 const _: fn(FinalizedModuleSections, u32) -> CompiledModulePackage = FinalizedModuleSections::begin;
-const _: fn() -> ModuleTypeRegistry = ModuleTypeRegistry::new;
+const _: fn(crate::runtime_artifact::ModuleKind<'_>) -> ModuleTypeRegistry =
+    ModuleTypeRegistry::new;
 const _: fn(
     ImportSection,
     std::ops::Range<u32>,

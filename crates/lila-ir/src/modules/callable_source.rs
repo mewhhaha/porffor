@@ -9,7 +9,7 @@ impl super::synchronous_definition::ModuleExecutionAnalysis {
     pub(crate) fn class_method_to_string_representation(
         &self,
         method: &ClassMethodDefinition,
-        source_text: &str,
+        source_text: CompilerSourceText<'_>,
     ) -> CallableToStringRepresentation {
         CallableToStringRepresentation::ExactSource(
             self.original_callable_source(method.linear_span())
@@ -129,11 +129,12 @@ impl OriginalUnitSource {
         let bytes = source_byte_range_from_utf16_span(&self.text, span);
         let start = self.boundaries[bytes.start]?;
         let end = self.boundaries[bytes.end]?;
-        Some(
-            self.original
-                .get(start..end)
-                .expect("callable origins are original UTF-8 boundaries")
-                .into(),
-        )
+        let original = self
+            .original
+            .get(start..end)
+            .expect("callable origins are original UTF-8 boundaries");
+        Some(encode_js_string_utf16(
+            &original.encode_utf16().collect::<Vec<_>>(),
+        ))
     }
 }

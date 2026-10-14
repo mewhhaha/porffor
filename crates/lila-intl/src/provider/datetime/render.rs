@@ -20,7 +20,7 @@ pub(super) struct PreparedInput {
 }
 
 pub(super) fn prepare(
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     input: DateTimeInput,
     named: &NamedTimeZones,
     calendars: &calendar::CalendarKernels,
@@ -78,7 +78,7 @@ pub(super) fn prepare(
 
 pub(super) fn format(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     input: DateTimeInput,
     named: &NamedTimeZones,
     calendars: &calendar::CalendarKernels,
@@ -90,7 +90,7 @@ pub(super) fn format(
 
 pub(super) fn pattern(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     pattern: &Pattern,
     input: &PreparedInput,
 ) -> Result<DateTimeParts, DateTimeFormatError> {
@@ -104,7 +104,7 @@ pub(super) fn pattern(
 
 pub(super) fn token_value(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     pattern: &Pattern,
     token: &Token,
     input: &PreparedInput,
@@ -118,7 +118,7 @@ pub(super) fn token_value(
             kind: field.part(),
             value: match field {
                 Field::ZoneName(style) => {
-                    zones::format(profile, plan.locale, &plan.numbering, &input.zone, *style)?
+                    zones::format(profile, &plan.locale, &plan.numbering, &input.zone, *style)?
                 }
                 _ => fields::format(profile, plan, pattern, *field, input.fields)?,
             },

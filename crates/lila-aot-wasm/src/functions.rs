@@ -45,6 +45,8 @@ use generator_instance_prototype::GeneratorInstanceFamily;
 mod constructability;
 mod indirect_call;
 mod iterator_close;
+mod legacy_activation;
+pub(crate) use legacy_activation::SourceActivation;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
 mod realm_intrinsic;

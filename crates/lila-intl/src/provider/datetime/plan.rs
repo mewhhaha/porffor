@@ -21,16 +21,36 @@ pub(super) struct Format {
     pub(super) time: Option<Pattern>,
     pub(super) range_glue: Option<Glue>,
 }
-pub(super) struct ValidatedPlan<'p> {
-    pub(super) locale: &'p Locale,
-    pub(super) calendar: &'p Calendar,
+pub(super) struct ValidatedPlan {
+    pub(super) locale: std::sync::Arc<Locale>,
+    pub(super) calendar: std::sync::Arc<Calendar>,
     pub(super) calendar_kind: DateTimeCalendar,
     pub(super) numbering: String,
     pub(super) time_zone: TimeZoneSelection,
     pub(super) hour_cycle: DateTimeHourCycle,
     formats: [Option<Format>; 7],
 }
-impl ValidatedPlan<'_> {
+impl ValidatedPlan {
+    pub(super) fn retained_bytes(&self) -> usize {
+        let bytes = std::mem::size_of::<Self>().saturating_add(self.numbering.capacity());
+        let bytes = match &self.time_zone {
+            TimeZoneSelection::Named(name) => bytes.saturating_add(name.as_str().len()),
+            TimeZoneSelection::FixedOffset(_) => bytes,
+        };
+        self.formats.iter().flatten().fold(bytes, |bytes, format| {
+            let bytes = bytes.saturating_add(format.pattern.retained_bytes());
+            let bytes = format.date.as_ref().map_or(bytes, |pattern| {
+                bytes.saturating_add(pattern.retained_bytes())
+            });
+            let bytes = format.time.as_ref().map_or(bytes, |pattern| {
+                bytes.saturating_add(pattern.retained_bytes())
+            });
+            format
+                .range_glue
+                .as_ref()
+                .map_or(bytes, |glue| bytes.saturating_add(glue.retained_bytes()))
+        })
+    }
     pub(super) fn available_formats(&self) -> DateTimeFormatAvailability {
         DateTimeFormatAvailability::from_available_kinds(
             [
@@ -69,13 +89,12 @@ fn index(kind: DateTimeValueKind) -> usize {
     }
 }
 
-pub(super) fn select<'p>(
-    profile: &'p Profile,
+pub(super) fn select(
+    profile: &Profile,
     request: &DateTimePlanRequest,
-) -> Result<ValidatedPlan<'p>, DateTimeFormatError> {
+) -> Result<ValidatedPlan, DateTimeFormatError> {
     let admitted = locale::validate(profile, &request.locale)?;
-    let locale = admitted.locale();
-    let calendar = admitted.calendar();
+    let (locale, calendar) = admitted.into_owners();
     match request.matcher {
         DateTimeFormatMatcher::Basic | DateTimeFormatMatcher::BestFit => {}
     }
@@ -90,8 +109,8 @@ pub(super) fn select<'p>(
         }
     }
     let candidates = candidates::Candidates::new(
-        locale,
-        calendar,
+        &locale,
+        &calendar,
         request.locale.hour_cycle,
         request.locale.numbering_system.as_str(),
     )?;

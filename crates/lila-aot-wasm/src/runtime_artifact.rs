@@ -29,7 +29,8 @@ pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
 
 /// Bumped when the physical or semantic R/P contract changes.
 // Version 3 admits whole-Completion tail calls, Identifier PutValue and native ByteArray allocation.
-const LAYOUT_VERSION: u32 = 3;
+// Version 4 keeps direct program-helper signatures outside the stable core GC group.
+const LAYOUT_VERSION: u32 = 4;
 
 fn function_export_name(index: u32) -> String {
     format!("f{index}")

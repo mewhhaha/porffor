@@ -13,7 +13,7 @@ mod selection;
 
 pub(super) fn format(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     start: DateTimeInput,
     end: DateTimeInput,
     named: &NamedTimeZones,
@@ -57,7 +57,7 @@ pub(super) fn format(
 
 fn fallback(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     pattern: &Pattern,
     start: &PreparedInput,
     end: &PreparedInput,
@@ -123,7 +123,7 @@ fn combine(
 
 fn interval_parts(
     profile: &Profile,
-    plan: &ValidatedPlan<'_>,
+    plan: &ValidatedPlan,
     interval: &Interval,
     pattern: &Pattern,
     start: &PreparedInput,

@@ -336,7 +336,7 @@ pub(super) fn emit_script_module(
         ModuleKind::Program(runtime) => runtime.layout().require_pool(&string_pool)?,
     }
     let provided_hooks = ProvidedHooks::of(&function_metas, &string_pool);
-    let module_types = ModuleTypeRegistry::new();
+    let module_types = ModuleTypeRegistry::new(kind);
     let module_guard_count = module_unit_guard_count(script);
 
     // Only numeric byte-scratch state and module status are scalar globals
