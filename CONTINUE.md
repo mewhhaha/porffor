@@ -1,5 +1,44 @@
 # Current continuation — 2026-10-14
 
+## Closed historical replay and private V3 diagnostics — 2026-10-14
+
+Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c`; documentation publication parent `a86a8b2ba451145491157891a30c68a8af8173d6`. The historical replay has closed. Coverage and exact passing retention are verified; conformance remains RED.
+
+Compiled revision `0a18df332ca26b193b8e13bf09c104ff08fdb70c` completed the unchanged **5,365-ID historical replay**: 5,142 Success, 217 NotImplemented, 0 Crash, 4 Bug, 2 InfrastructureError.
+
+Coverage is complete; historical conformance is RED. Actual replay exit is **2**; the native batch exit is **1**. Both absent DurationFormat modes remain InfrastructureError, with their literal native diagnostics, exits and transcript hashes retained.
+
+`aee5365` passing retention: **4,849/4,849**; 0 regressions, 293 repaired IDs, 0 Bug-to-Crash transitions. Every exact ID/transition is retained.
+
+`3bc254` passing retention: **229/229**; 0 regressions, 23 repaired IDs, 0 Bug-to-Crash transitions. Every exact ID/transition is retained.
+
+`115105` passing retention: **61/61**; 0 regressions, 42 repaired IDs, 0 Bug-to-Crash transitions. Every exact ID/transition is retained.
+
+This checkpoint proves the recorded historical input and exact passing retention. It does not establish full pinned Test262, ordinary CLI, whole workspace, independent-host, oracle, task closure or idle performance acceptance. Native execution remains the recorded default Wasm-AOT worker graph with its runtime requirements, one worker and unchanged 60,000 ms deadline.
+
+The original AE replay's observed exit 0 despite red outcomes is preserved as historical evidence; it is not reused as the current replay exit.
+
+The distinct prior-success union retains 5,078/5,078 IDs, with 0 regressions. Overlapping baseline successes are counted once in this union.
+
+Refresh from the same closed evidence with a fresh export directory (no native execution):
+
+```sh
+historical_export_dir=$(mktemp -d /workspace/porffor/target/historical5365-export-refresh.XXXXXX)
+python3 -B /workspace/porffor/target/future-verification-drivers-20261012/export-current-historical5365-checkpoint-20261014.py --owner /workspace/porffor/target/historical-native-replay-0a18df332-20261014-retention/receipt.json --owner-sha256 427a50b760853ce07906b69cf2fbcde8045689097c1eb1d7306001203e436ca3 --head 0a18df332ca26b193b8e13bf09c104ff08fdb70c --output "$historical_export_dir/checkpoint.json" --status "$historical_export_dir/status.md"
+```
+
+Against AE, 244 Bug → Success, 8 Crash → Success and 41 NotImplemented → Success transitions produced 293 additional successes. The 2 NotImplemented → Bug transitions remain red, and all 4 current Bug IDs remain explicit. Missing modes remain InfrastructureError.
+
+Private numeric-call V3 remains **unapplied**. Its literal-source diagnostic passed **8 controls** and **1 standalone original-case profile**; registered-scope/full-source acceptance remains pending. V2's two REDs are preserved. V3 adds typed EnvironmentReference call admission and explicitly changes the rich-program pre-execution size gate from 65,536 to 131,072 bytes; the stricter AOT body/growth controls are byte-identical.
+
+The original-case V3 wrapper wall was 54.6408s: compilation 27.841727s (preparation 26.940313s) and runtime API call 26.621184s (module 0.534387s; execution/completion 26.076455s). P remained 373,800 bytes, largest body 51,952; unchanged R was 40,315,118 bytes, completion `Normal(Undefined)`. The literal lowering trace records prepass 15.746768s and final body 10.959529s within script lowering 26.922378s (analysis 0.001574s). These identify measured dominant phases; they establish no proposed algorithm, general speedup, idle performance or Test262 acceptance.
+
+The separate accepted native checkpoint remains **6,399 passed**. Ordinary CLI, full workspace, the full pinned suite and current task closure remain open. All prior owners and status are preserved below.
+
+The [portable historical checkpoint](docs/rust-rewrite/historical5365-source-0a18-checkpoint-20261014.json) exposes every exact current ID/verdict, all transitions and remaining failures. Its packed evidence decodes to the **byte-identical original exporter JSON** with all source, worker, raw transcript, snapshot, metadata and historical provenance; its checksum and lossless decoding contract are included.
+
+### Previous checkpoints and measurements
+
 ## Private numeric-call Unicode phase comparison — 2026-10-14
 
 Compiled source `0a18df332ca26b193b8e13bf09c104ff08fdb70c` remains frozen; documentation publication parent is `d2716d1a3ed2230e9bd5abd9efe155ccba9de8ec`. The four-file private AOT candidate is unapplied and has separate patch, library and executable identities. Baseline revision metadata identifies R compatibility, not acceptance of this compiler candidate.
