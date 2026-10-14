@@ -89,6 +89,15 @@ def partition_groups(original, count):
     return groups
 
 
+def partition_label(output, index):
+    # A target basename repeats across workspace runs, while watched logs live
+    # in one shared directory. Bind each label to its complete output owner.
+    output = Path(output).resolve()
+    owner = hashlib.sha256(os.fsencode(output)).hexdigest()
+    prefix = re.sub(r'[^A-Za-z0-9_.-]', '-', output.name)[:64] or 'native'
+    return f'{prefix}-{owner}-partition-{index}'
+
+
 original = names(args.inventory.read_text())
 assert original and len(original) == len(set(original))
 checked = subprocess.run([str(args.executable.resolve()), '--list'],
@@ -143,7 +152,7 @@ if args.inventory_only:
 active = []
 started = time.monotonic()
 for row in receipt['partitions']:
-    label = args.output.name + '-partition-' + str(row['index'])
+    label = partition_label(args.output, row['index'])
     log = args.output / f'partition-{row["index"]}.launcher.log'
     stream = log.open('w')
     launch = ['taskset', '-c', str(row['cpu']), './scripts/run-watched.sh',

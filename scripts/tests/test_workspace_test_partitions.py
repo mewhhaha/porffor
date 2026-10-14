@@ -1,16 +1,19 @@
 """Pure Python controls; no Cargo or native test body is executed."""
 import ast
 from collections import Counter
+import hashlib
 import importlib.util
+import os
 from pathlib import Path
 import re
+import tempfile
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'workspace_test_partitions.py'
 TREE = ast.parse(SOURCE.read_text())
 FUNCTIONS = [node for node in TREE.body if isinstance(node, ast.FunctionDef)
-             and node.name in ('names', 'outcomes', 'weight', 'partition_groups')]
-NAMESPACE = {'re': re}
+             and node.name in ('names', 'outcomes', 'weight', 'partition_groups', 'partition_label')]
+NAMESPACE = {'re': re, 'hashlib': hashlib, 'os': os, 'Path': Path}
 exec(compile(ast.Module(body=FUNCTIONS, type_ignores=[]), str(SOURCE), 'exec'), NAMESPACE)
 
 
@@ -80,6 +83,44 @@ class NativePartitionProofTests(unittest.TestCase):
             self.assertEqual(command[-3:], ['a::one', '--test-threads=1', '--include-ignored'])
             self.assertIn('--cloud', command)
             self.assertNotIn('--cloud-cpus', command)
+
+    def test_watched_logs_keep_the_resolved_run_owner_and_partition_identity(self):
+        loop = next(node for node in TREE.body if isinstance(node, ast.For)
+                    and isinstance(node.target, ast.Name) and node.target.id == 'row'
+                    and isinstance(node.iter, ast.Subscript))
+        assignments = [node for node in loop.body if isinstance(node, ast.Assign)
+                       and any((isinstance(target, ast.Name) and target.id in ('label', 'launch'))
+                               or (isinstance(target, ast.Subscript)
+                                   and ast.unparse(target) == "row['transcript_log']")
+                               for target in node.targets)]
+        actual = compile(ast.Module(body=assignments, type_ignores=[]), str(SOURCE), 'exec')
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            paths = []
+            labels = {}
+            for parent in ('default-run', 'all-features-run'):
+                output = base / parent / '0049-lila-cli-cli-partitions'
+                for index in range(4):
+                    scope = dict(NAMESPACE, args=type('Arguments', (), {
+                        'output': output, 'stall_seconds': 3600,
+                    })(), row={'index': index, 'cpu': index,
+                               'command': ['/native', '--exact', 'a::one',
+                                           '--test-threads=1', '--include-ignored']})
+                    exec(actual, scope)
+                    launch = scope['launch']
+                    label = launch[launch.index('--label') + 1]
+                    transcript = Path(scope['row']['transcript_log'])
+                    self.assertEqual(transcript, Path('target/watched') / f'{label}.log')
+                    paths.append(transcript)
+                    labels[(parent, index)] = label
+            self.assertEqual(len(set(paths)), 8, 'Fresh run owners must not overwrite prior transcripts')
+            output = base / 'default-run' / '0049-lila-cli-cli-partitions'
+            alias = output / '..' / output.name
+            self.assertEqual(NAMESPACE['partition_label'](alias, 0), labels[('default-run', 0)])
+            self.assertEqual(NAMESPACE['partition_label'](output, 0), labels[('default-run', 0)])
+            long = NAMESPACE['partition_label'](base / ('long owner ' * 18), 3)
+            self.assertRegex(long, r'^[A-Za-z0-9_.-]+$')
+            self.assertLessEqual(len(os.fsencode(long + '.log')), 255)
 
     def test_driver_rejects_an_attempt_to_raise_non_cli_stall_to_cli_allowance(self):
         checks = []

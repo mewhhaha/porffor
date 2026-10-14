@@ -1,5 +1,16 @@
 # Lila
 
+## Preserve verification transcripts across runs — 2026-10-14
+
+Native partition logs now include the complete resolved run directory identity
+and partition index. Default and all-features runs with identical target
+basenames therefore keep separate transcripts. The old label regression
+reproduces its overwrite; all nine Python partition controls pass with the fix.
+Native test membership, bodies, scheduling, CPUs, threads, deadlines and cache
+limits retain their existing policy. The active D2 run continues on its frozen
+source and preserves its original evidence; the next batch uses the corrected
+labels.
+
 ## Complete default workspace checkpoint — 2026-10-14
 
 Compiler source `d2f4bc51` passes all 107 default workspace scopes:
