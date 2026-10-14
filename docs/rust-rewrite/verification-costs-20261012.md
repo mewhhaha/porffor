@@ -258,3 +258,21 @@ Prototype the dependency cut and measure a real lowering-only edit through
 normal Cargo. Rust libraries remain compiler/profile/feature/dependency-specific;
 do not treat an old `.rlib` as a universal precompiled ABI or force freshness.
 Compiler/host ABI identities and every full-suite acceptance gate remain intact.
+
+## Current partition observations — 2026-10-14
+
+On source `d2f4bc511`, all 889 Engine library tests and 248 async tests
+pass in four disjoint native partitions, with zero failures or ignores. Engine
+partition execution takes 355.132 seconds and async takes 265.105 seconds; the
+previous `f5e3f706` serial native reruns took 611.96 and 414.11 seconds.
+These consecutive observations have different source and cache state and are
+not a controlled benchmark. Python tooling briefly overlapped native execution;
+its actual CPU placement is retained. All 538 Python checks pass in 268.102
+seconds of unittest execution (270.537 seconds including the outer launcher).
+
+The [measurement record](partition-measurements-d2f4bc511-20261014.json)
+includes the exact native IDs, complete partition inventories, original raw
+transcripts and source-bound Python closure. Each native process still uses one
+CPU and one test thread, with unchanged bodies, deadlines and cache caps. The
+complete default suite remains active; all-features, ordinary CLI and full
+Test262 acceptance remain pending.
