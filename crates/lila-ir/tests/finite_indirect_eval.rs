@@ -135,3 +135,64 @@ fn source_without_a_finite_candidate_retains_runtime_selection_without_a_prepare
     assert!(script.prepared_scripts.is_empty());
     assert_eq!(script.result_kind(), ValueKind::Dynamic);
 }
+
+#[test]
+fn realm_script_conversion_views_prepare_sources_without_replacing_live_arguments() {
+    for call in [
+        "run(text)",
+        "run.call(undefined, text)",
+        "run.apply(undefined, [text])",
+        "Reflect.apply(run, undefined, [text])",
+        "realm.evalScript?.(text)",
+        "(function(source) { return run(source); })(text)",
+    ] {
+        let program = lower(&format!(
+            "const realm = __lilaCreateRealm(), run = realm.evalScript; \
+             const log = []; \
+             const text = {{ toString() {{ log.push('string'); return 'globalThis;'; }}, \
+                            valueOf() {{ throw 'wrong hint'; }} }}; {call};"
+        ));
+        assert_prepared(&program, "globalThis;", PreparedScriptKind::RealmScript);
+    }
+}
+
+#[test]
+fn script_conversion_views_do_not_authorize_eager_realm_module_requests() {
+    use lila_ir::{LoweringSession, ModuleRequestKeyIr};
+    let parsed = parse(
+        "const realm = new ShadowRealm(); \
+         const specifier = { toString() { return './conversion-only.js'; } }; \
+         realm.importValue(specifier, 'value'); \
+         realm.importValue('./primary.js', 'value');",
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let session = LoweringSession::default();
+    let program = session.lower_source(&parsed, HostSurfacePolicy::default());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert_eq!(
+        session.realm_module_requests(),
+        [ModuleRequestKeyIr::plain("./primary.js")]
+    );
+}
+
+#[test]
+fn first_script_argument_keeps_all_256_primary_sources_before_conversion_views() {
+    let sources = (0..256).map(|index| format!("'{index};'"));
+    let source_list = sources.collect::<Vec<_>>().join(",");
+    let program = lower(&format!(
+        "const realm = __lilaCreateRealm(); \
+         realm.evalScript(...[{{toString() {{ return 'globalThis;'; }} }}], ...[{source_list}]);"
+    ));
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let prepared = &program.script.as_ref().unwrap().prepared_scripts;
+    assert_eq!(prepared.len(), 256, "the source budget stays unchanged");
+    for index in 0..256 {
+        assert_prepared(
+            &program,
+            &format!("{index};"),
+            PreparedScriptKind::RealmScript,
+        );
+    }
+    assert!(prepared.iter().all(|source| source.source != "globalThis;"));
+}

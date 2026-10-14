@@ -212,6 +212,14 @@ fn has_aot_source_text_proof(expression: &Expression) -> bool {
     }
 }
 
+/// Source compilation can use a possible conversion view without granting
+/// that same view permission to request an eagerly resolved host module.
+#[derive(Clone, Copy)]
+enum FirstArgumentTextPurpose {
+    ScriptCompilation,
+    RealmModuleRequest,
+}
+
 /// The closed call-site contexts observed by standard-builtin analysis.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum BuiltinCallContext {
@@ -275,8 +283,11 @@ impl ScriptLowerer<'_> {
     fn finite_first_argument_text_candidates(
         &self,
         arguments: &[&Expression],
+        purpose: FirstArgumentTextPurpose,
     ) -> Option<BTreeSet<String>> {
+        use super::finite_function_source::MAX_SOURCE_CANDIDATES;
         let mut sources = BTreeSet::new();
+        let mut conversions = BTreeSet::new();
         for argument in arguments {
             let (candidates, spread) = match Self::unwrap_parenthesized_expr(argument) {
                 Expression::Spread(spread) => {
@@ -284,21 +295,28 @@ impl ScriptLowerer<'_> {
                 }
                 argument => (self.function_source_value_candidates(argument), false),
             };
-            sources.extend(
-                candidates
-                    .into_iter()
-                    .filter_map(|candidate| match candidate {
-                        FiniteSourceValue::Text(source) => Some(source),
-                        // Module requests can trigger eager host resolution;
-                        // speculative conversion hints provide no such authority.
-                        FiniteSourceValue::SupplementalText(_)
-                        | FiniteSourceValue::Function(_)
-                        | FiniteSourceValue::FunctionConstructor(_)
-                        | FiniteSourceValue::Record(_)
-                        | FiniteSourceValue::Array(_) => None,
-                    }),
-            );
-            if sources.len() > super::finite_function_source::MAX_SOURCE_CANDIDATES {
+            for candidate in candidates {
+                match candidate {
+                    FiniteSourceValue::Text(source) => {
+                        sources.insert(source);
+                    }
+                    FiniteSourceValue::SupplementalText(source) => match purpose {
+                        FirstArgumentTextPurpose::ScriptCompilation => {
+                            if conversions.len() < MAX_SOURCE_CANDIDATES {
+                                conversions.insert(source);
+                            }
+                        }
+                        // Speculative conversion views cannot authorize eager
+                        // host resolution of a Realm module specifier.
+                        FirstArgumentTextPurpose::RealmModuleRequest => {}
+                    },
+                    FiniteSourceValue::Function(_)
+                    | FiniteSourceValue::FunctionConstructor(_)
+                    | FiniteSourceValue::Record(_)
+                    | FiniteSourceValue::Array(_) => {}
+                }
+            }
+            if sources.len() > MAX_SOURCE_CANDIDATES {
                 return None;
             }
             // An earlier spread can be empty; execution still obtains the live
@@ -307,11 +325,22 @@ impl ScriptLowerer<'_> {
                 break;
             }
         }
+        // Existing primitive sources have priority. An optional conversion view
+        // uses spare capacity and cannot erase an admitted primary source set.
+        for source in conversions {
+            if sources.len() == MAX_SOURCE_CANDIDATES {
+                break;
+            }
+            sources.insert(source);
+        }
         Some(sources)
     }
 
     fn register_realm_import_source_candidates(&self, arguments: &[&Expression]) {
-        if let Some(sources) = self.finite_first_argument_text_candidates(arguments) {
+        if let Some(sources) = self.finite_first_argument_text_candidates(
+            arguments,
+            FirstArgumentTextPurpose::RealmModuleRequest,
+        ) {
             self.analysis
                 .allocations
                 .prepared_sources
@@ -373,7 +402,10 @@ impl ScriptLowerer<'_> {
         arguments: &[&Expression],
         admission: PreparedScriptAdmission,
     ) -> bool {
-        let Some(sources) = self.finite_first_argument_text_candidates(arguments) else {
+        let Some(sources) = self.finite_first_argument_text_candidates(
+            arguments,
+            FirstArgumentTextPurpose::ScriptCompilation,
+        ) else {
             return false;
         };
         let found = !sources.is_empty();

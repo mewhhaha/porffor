@@ -69,3 +69,20 @@ input. Independent low-count custom conversion and default-object SyntaxError
 checks preserve the converted-source paths. Acceptance requires the complete
 existing IR/native inventories and exact diagnostics; private authoring ran no
 Cargo, rustc or native execution.
+
+
+The first-argument source projection distinguishes Script compilation from
+Realm module request discovery. Script compilation keeps supplemental conversion
+views, including a known object ToString return, without changing its actual
+argument or replacing its live conversion. Prepared source dispatch still checks
+the resulting string and the captured callable's Realm. Eager Realm module
+requests use primary text only; a supplemental conversion view grants no host
+resolution authority.
+
+The same projection admits every existing primary text before optional conversion
+views. Across possible first-argument spread prefixes, a full 256-source primary
+set leaves no spare conversion slot. Supplemental discovery cannot erase those
+sources by overflowing their existing budget. The previous GC conversion,
+original Throw, Symbol TypeError and captured-Realm control remains unchanged;
+focused IR controls retain the forwarded and optional call routes, primary-only
+module requests and the full 256-source Script boundary.

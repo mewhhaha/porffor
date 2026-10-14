@@ -5,7 +5,34 @@ code; Luna agents do read-only chores/exploration. Finish actual task acceptance
 and the full suite before deleting this file or tasks. Retain every failure,
 unsupported/missing-input ID and previous passing ID.
 
-## Native checkpoint and prepared completion repair — 2026-10-14
+## Complete native checkpoint and remaining repairs — 2026-10-14
+
+`c1fecbed30757715e199e94b3f42e68e4ab38e84` affected native checkpoint: **RED**, complete across 16 targets and 6396 IDs: 6394 passed, 2 failed, 0 ignored.
+
+All 6390 prior `750c4d74c` IDs remain present, with 6 added controls (6 passing in focus and complete runs). The complete prior owner's passing set retains 6379/6380; 9/10 old REDs pass both runs. Historical union retention is 6382/6383.
+
+The continuation adopts 10 literally unchanged closed scopes from the interrupted same-source owner, including 2 recorded failures, and executes its 6 storage-deferred scopes. The original owner remains incomplete; metadata and both type cohorts retain their original execution provenance.
+
+Python discovery: 514 IDs, {'Success': 514}. Generated metadata: 15 APIs, 83 associated checks, 1397 bound source inputs, 30 changed identity files and 10 byte-identical semantic outputs. The generator owner records the repaired precommit 750 tree; its outputs are SHA-bound to this commit.
+
+The two remaining failures have a prepared successor repair. Script preparation
+uses converted source views while eager Realm module requests retain their
+primary-source boundary; primary source hints keep all 256 existing slots.
+The recipe control retains its original small input and adds a positive input
+above the unchanged admission floor. The original GC fixture is unchanged.
+Three new IR controls cover conversion routes, host-loading authority and the
+full primary-source budget. These changes require fresh native verification.
+
+See [every verdict, retained ID and measured phase](docs/rust-rewrite/historical-source-c1-native-checkpoint-20261014.json).
+Refresh from the frozen compiler and actual owners with
+`python3 -B target/future-verification-drivers-20261012/export-c1fecbed3-native-successor-checkpoint-20261014.py --output target/c1fecbed3-native-checkpoint-export-20261014/checkpoint.json --status target/c1fecbed3-native-checkpoint-export-20261014/status.md`.
+The exporter verifies evidence; it does not rerun tests. Fresh successor
+verification uses the sealed partitioned driver, retaining all 6,396 current IDs
+and adding the three IR controls. Exact focused IDs and the disjoint remainder
+run once each. Ordinary CLI, full workspace, all 5,365 historical executions,
+current pinned Test262 and task acceptance remain open.
+
+## Previous native checkpoint and completion repair — 2026-10-14
 
 Actual compiler `750c4d74c` completes sixteen affected targets with
 **6,380 pass, 10 fail and zero ignored**. Every prior inventory

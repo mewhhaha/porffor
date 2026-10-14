@@ -99,9 +99,26 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
             let plain = emit("var record = { value: 1 }; record.value;");
-            let arrays = emit("function build() { return [['slot',1],['other',2]]; } build();");
+            let small_arrays =
+                emit("function build() { return [['slot',1],['other',2]]; } build();");
+            // Each pure nested pair contributes four recipe nodes; 32 pairs plus
+            // the outer Begin/End exceed the unchanged 128-node admission floor.
+            let pairs = (0..32)
+                .map(|index| match index {
+                    0 => "['slot',1]".to_owned(),
+                    1 => "['other',2]".to_owned(),
+                    _ => format!("['slot',{}]", index + 1),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let arrays = emit(&format!(
+                "function build() {{ return [{pairs}]; }} build();"
+            ));
             let runtime = plain.runtime().expect("ordinary object uses linked R");
             let array_runtime = arrays.runtime().expect("array program uses linked R");
+            let small_array_runtime = small_arrays.runtime().expect("small array uses linked R");
+            assert_eq!(runtime.key(), small_array_runtime.key());
+            assert_eq!(runtime.bytes(), small_array_runtime.bytes());
             assert_eq!(runtime.key(), array_runtime.key());
             assert_eq!(
                 runtime.bytes(),
@@ -168,7 +185,7 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                 "the direct array helper body belongs only to P"
             );
 
-            for artifact in [&plain, &arrays] {
+            for artifact in [&plain, &small_arrays, &arrays] {
                 let program = shape(&artifact.bytes);
                 assert_eq!(
                     &program.groups[..core.groups.len()],
@@ -222,6 +239,15 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                 .find(|body| body.name == "helper::compact_array_literal")
                 .unwrap()
                 .bytes();
+            let small_array_body = module_bodies(&small_arrays.bytes)
+                .into_iter()
+                .find(|body| body.name == "helper::compact_array_literal")
+                .unwrap()
+                .bytes();
+            assert_eq!(
+                small_array_body, plain_body,
+                "the original two-pair input stays below recipe admission"
+            );
             let array_body = module_bodies(&arrays.bytes)
                 .into_iter()
                 .find(|body| body.name == "helper::compact_array_literal")
