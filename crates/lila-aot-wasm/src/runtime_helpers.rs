@@ -178,7 +178,6 @@ impl RegExpCompilerStatus {
 #[repr(u32)]
 pub(crate) enum RuntimeHelperFact {
     UsesJsonStringify = 0,
-    UsesCompactArrayLiteral = 1,
 }
 
 impl RuntimeHelperFact {
@@ -973,8 +972,8 @@ runtime_helper_domain! {
     RelationalComparison / RelationalComparisonArguments / RelationalComparisonParameters / "relational_comparison" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     PrivateElementAdd / PrivateElementAddArguments / PrivateElementAddParameters / "private_element_add" { receiver:Value,element:(Ref PrivateElement NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
     PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
-    JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable) } => Completion;
     CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value } => Completion;
+    JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable) } => Completion;
 }
 
 impl RuntimeHelperId {
@@ -1206,7 +1205,7 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReturnReactions => true,
             Self::AsyncGeneratorAwaitReturnReactions => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
-            Self::CompactArrayLiteral => emission.holds(RuntimeHelperFact::UsesCompactArrayLiteral),
+            Self::CompactArrayLiteral => true,
         }
     }
     /// Whether the body is generated from the program and so sits after
@@ -1400,13 +1399,7 @@ mod tests {
             .copied()
             .filter(|helper| helper.is_conditional())
             .collect::<Vec<_>>();
-        assert_eq!(
-            conditional,
-            vec![
-                RuntimeHelperId::JsonStringifyValue,
-                RuntimeHelperId::CompactArrayLiteral
-            ]
-        );
+        assert_eq!(conditional, vec![RuntimeHelperId::JsonStringifyValue]);
     }
 
     /// Every hint names a distinct body, and every body is a real helper in
@@ -1446,10 +1439,7 @@ mod tests {
     /// holds in it" is what makes a conditional helper detectable at all.
     #[test]
     fn the_empty_emission_context_holds_no_fact() {
-        for fact in [
-            RuntimeHelperFact::UsesJsonStringify,
-            RuntimeHelperFact::UsesCompactArrayLiteral,
-        ] {
+        for fact in [RuntimeHelperFact::UsesJsonStringify] {
             assert!(!RuntimeHelperEmission::NONE.holds(fact), "{fact:?}");
             assert!(RuntimeHelperEmission::NONE.with(fact, true).holds(fact));
             assert_eq!(

@@ -284,12 +284,8 @@ pub(super) fn emit_script_module(
     )
     .with_gc_imports(gc_host_imports);
     let source = SourceFunctions::partition(script);
-    let helper_emission = RuntimeHelperEmission::NONE
-        .with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify)
-        .with(
-            RuntimeHelperFact::UsesCompactArrayLiteral,
-            string_pool.has_compact_array_recipes(),
-        );
+    let helper_emission =
+        RuntimeHelperEmission::NONE.with(RuntimeHelperFact::UsesJsonStringify, uses_json_stringify);
     let helpers_of = |program_owned: bool| {
         if uses_heap {
             RuntimeHelperId::ALL
@@ -1334,7 +1330,7 @@ pub(super) fn emit_script_module(
         );
     }
     if compile_program_helpers {
-        if helper_emission.holds(RuntimeHelperFact::UsesCompactArrayLiteral) {
+        let compact_array_body = if string_pool.has_compact_array_recipes() {
             let mut builder = FunctionBuilder::new_runtime_operation_helper(
                 module_package.schema(),
                 RuntimeHelperId::CompactArrayLiteral,
@@ -1344,11 +1340,14 @@ pub(super) fn emit_script_module(
                 runtime_bootstrap_plan.clone(),
                 runtime_helper_base,
             );
-            helper_bodies.insert(
-                RuntimeHelperId::CompactArrayLiteral,
-                builder.compile_compact_array_literal_helper()?,
-            );
-        }
+            builder.compile_compact_array_literal_helper()?
+        } else {
+            let mut body = Function::new(LocalDeclarations::from_types([]));
+            body.instruction(&Instruction::Unreachable);
+            body.instruction(&Instruction::End);
+            body
+        };
+        helper_bodies.insert(RuntimeHelperId::CompactArrayLiteral, compact_array_body);
         for operation in crate::modules::ModuleRuntimeOperation::ALL {
             let body = if function_metas.module_graph().is_some() {
                 let mut builder = FunctionBuilder::new_runtime_operation_helper(

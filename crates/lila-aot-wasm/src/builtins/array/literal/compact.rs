@@ -2,8 +2,8 @@
 use super::*;
 use crate::data::{CompactArrayOpcode, CompactArrayRecipe, COMPACT_ARRAY_RECIPE_ROW_BYTES};
 use crate::gc_types::{
-    ArrayIndexKeyConstruction, ByteArray, I32Local, PooledStringTable, ScalarValue,
-    TemplateSiteTable,
+    ArrayIndexKeyConstruction, ByteArray, I32Local, NonNullable, PooledStringTable, ScalarValue,
+    StringValue, TemplateSiteTable,
 };
 use crate::runtime_helpers::{
     CompactArrayLiteralArguments, CompactArrayLiteralParameters, HelperParameters,

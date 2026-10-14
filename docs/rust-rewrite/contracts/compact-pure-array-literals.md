@@ -42,3 +42,9 @@ control validates actual Wasm and compares 256 against 4,096 nested primitive
 pairs: complete data must grow while the helper and largest program body stay
 bounded. These controls and the original unchanged 65,536-pair Test262 source
 require native verification and replay before this prepared change is accepted.
+
+The program helper has a dense unconditional declaration like module-operation
+helpers. Its real body is emitted only when the completed pool owns a recipe;
+otherwise its slot contains an unreachable stub. Function layout precedes pool
+collection, so a pool-dependent conditional declaration cannot select indices.
+The existing conditional-helper invariant and JsonStringify control stay intact.
