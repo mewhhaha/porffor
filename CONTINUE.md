@@ -1024,7 +1024,7 @@ unavailable. Preserve their raw snapshots, logs, images and source identity.
 Do not count partial families as completed closure. Their generated inactive
 caches may be retired with owned manifests to make room for new verification.
 
-Root has verified the historical repair batch in porffor-next:
+Root has verified the historical repair batch in the repair checkout:
 
 - Sloppy plain/escaped `let:` follows ordinary label grammar; strict labels still
   reject. The three original let-label Bug executions are retained.

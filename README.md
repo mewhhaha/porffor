@@ -1,5 +1,7 @@
 # Lila
 
+CI contract repair (2026-10-15): the required Cargo formatting check passes after correcting one test import order. The identity audit now recognizes narrowly bounded historical paths in registered evidence while continuing to reject retired product identifiers. All **12 identity regressions**, Cargo formatting and the full selected-source identity audit pass. [Validation](docs/rust-rewrite/ci-contract-check-20261015.json) records the scope; hosted and native acceptance gates remain pending.
+
 Hosted verification syntax (2026-10-15): quoted Cargo test selectors fix four invalid YAML workflows. All 21 workflow files parse, and all 11 affected shell commands are unchanged. [Validation](docs/rust-rewrite/workflow-yaml-check-20261015.json) records the pre-existing failures; hosted test results remain pending.
 
 Parser correction (2026-10-15): object assignment rest rejects a following comma, while object spread expressions remain valid. All **261 selected native checks pass**: seven new regressions, 235 retained Front checks and 19 parser AST witnesses. The [captured verification](docs/rust-rewrite/object-rest-trailing-comma-native-20261015.json) preserves exact IDs and earlier setup/source-view failures. The generated Test262 status block and broader acceptance gates remain unchanged.

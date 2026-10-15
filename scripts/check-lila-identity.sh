@@ -57,6 +57,12 @@ old_path_pattern='(^|/)(porffor-[^/]*|porf([.]rs|[.]cmd)?|porffor[.](jsonc|json|
 old_token_pattern='porffor-|porffor_|PORFFOR_|__porf|\$Porffor|\$porffor\$module\$|porf_host|CARGO_BIN_EXE_porf|unsupported in porffor|not supported in porffor|porffor wasm trace:|(^|[^[:alnum:]_])porf([^[:alnum:]_]|$)'
 old_word_pattern='(^|[^[:alnum:]_])(porffor|Porffor)([^[:alnum:]_]|$)'
 
+# Filter only closed, validated historical proof contexts. Every other token
+# remains subject to the same product identity checks below.
+proof_filter="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/identity_provenance.py"
+proof_audit_source="$(mktemp)"
+trap 'rm -f "$proof_audit_source"' EXIT
+
 while IFS= read -r -d '' path; do
   [ -e "$path" ] || continue
 
@@ -79,7 +85,18 @@ while IFS= read -r -d '' path; do
     fail "transitional path remains: $path"
   fi
 
-  matches="$(grep -nEI "$old_token_pattern" "$path" 2>/dev/null || true)"
+  audit_source="$path"
+  case "$path" in
+    docs/rust-rewrite/*.json|docs/rust-rewrite/verify-*.py)
+      if ! python3 -B "$proof_filter" "$path" > "$proof_audit_source"; then
+        fail "$path has invalid historical provenance context"
+        continue
+      fi
+      audit_source="$proof_audit_source"
+      ;;
+  esac
+
+  matches="$(grep -nEI "$old_token_pattern" "$audit_source" 2>/dev/null || true)"
   if [ -n "$matches" ]; then
     while IFS= read -r match; do
       [ -n "$match" ] && fail "$path:$match"
@@ -92,7 +109,7 @@ EOF
     *.md|index.html|CNAME) continue ;;
   esac
 
-  matches="$(grep -nEI "$old_word_pattern" "$path" 2>/dev/null \
+  matches="$(grep -nEI "$old_word_pattern" "$audit_source" 2>/dev/null \
     | grep -Fv 'https://github.com/mewhhaha/porffor' \
     | grep -Fv 'porffor.dev' || true)"
   case "$path" in

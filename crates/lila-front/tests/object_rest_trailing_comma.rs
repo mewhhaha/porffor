@@ -1,4 +1,4 @@
-use lila_front::{ParseError, ParseOptions, parse, parse_script_utf16};
+use lila_front::{parse, parse_script_utf16, ParseError, ParseOptions};
 
 fn syntax_error(error: ParseError, source: &str) {
     assert_eq!(

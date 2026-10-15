@@ -104,6 +104,86 @@ class IdentityTests(unittest.TestCase):
                 self.assertIn(relative, result.stderr)
                 path.unlink()
 
+    def write_proof(self, value, filename="default-workspace-eb1ca63c9-native-checkpoint-20261015.json"):
+        import json
+        path = self.root / "docs/rust-rewrite" / filename
+        path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+        return path
+
+    def proof(self, **fields):
+        return {"schema": "portable-current-workspace-retention-v1", **fields}
+
+    def test_captured_proof_roots_and_worktree_paths_keep_literal_bytes(self):
+        roots = [f"/workspace/{RETIRED_NAME}{suffix}" for suffix in ("", "-next", "-repairs")]
+        value = self.proof(cwd=roots[1], argv=[root + "/crates/lila-engine/src/lib.rs" for root in roots],
+            cargo_package="path+file://" + roots[1] + "/crates/lila-engine#0.1.0",
+            index=roots[0] + f"/.git/worktrees/{RETIRED_NAME}-next/index",
+            diagnostic="actual checkout " + roots[1] + "; source retained",
+            dependency_output="left\n\n" + roots[0] + "/target/native.rmeta: input.rs\n")
+        path = self.write_proof(value)
+        original = path.read_bytes()
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_historical_proof_paths_do_not_admit_product_api_or_ui_drift(self):
+        for drift in (f"{RETIRED_NAME}-cli", f"{RETIRED_NAME}_engine", "$" + RETIRED_NAME.title(),
+                RETIRED_NAME + " runtime", f"/workspace/{RETIRED_NAME}-next/crates/{RETIRED_NAME}-cli/src/main.rs"):
+            with self.subTest(drift=drift):
+                self.write_proof(self.proof(cwd=f"/workspace/{RETIRED_NAME}-next", product=drift))
+                result = self.audit()
+                self.assertNotEqual(result.returncode, 0)
+
+    def test_unregistered_json_wrong_schema_and_product_context_are_rejected(self):
+        for relative, value in (
+                ("docs/rust-rewrite/unregistered-proof.json", self.proof(cwd=f"/workspace/{RETIRED_NAME}-next")),
+                ("docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json", {"schema": "wrong", "cwd": f"/workspace/{RETIRED_NAME}-next"}),
+                ("crates/lila-cli/src/proof.json", self.proof(cwd=f"/workspace/{RETIRED_NAME}-next"))):
+            with self.subTest(path=relative):
+                import json
+                path = self.root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+                self.assertNotEqual(self.audit().returncode, 0)
+                path.unlink()
+
+    def test_lookalike_checkout_roots_are_not_historical_paths(self):
+        for suffix in ("-nextish", "-next.bad", "-next-product"):
+            with self.subTest(suffix=suffix):
+                self.write_proof(self.proof(cwd=f"/workspace/{RETIRED_NAME}{suffix}"))
+                self.assertNotEqual(self.audit().returncode, 0)
+        for prefix in ("/foreign", "https://example.invalid"):
+            with self.subTest(prefix=prefix):
+                self.write_proof(self.proof(cwd=prefix + f"/workspace/{RETIRED_NAME}-next"))
+                self.assertNotEqual(self.audit().returncode, 0)
+
+    def test_historical_reader_must_keep_its_exact_captured_source(self):
+        path = self.root / "docs/rust-rewrite/verify-workspace-eb1ca63c9-20261015.py"
+        path.write_text(f"ROOT = '/workspace/{RETIRED_NAME}-next'\n", encoding="utf-8")
+        result = self.audit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid historical provenance", result.stderr)
+
+    def test_only_the_four_existing_source_fence_field_locators_are_admitted(self):
+        filename = "workspace-source-revalidation-eb1ca63c9-20261015.json"
+        value = {"schema": "portable-default-source-revalidation-eb1ca63c9-v1",
+            "fields": [f".{phase}./workspace/{RETIRED_NAME}-next.real_index.{field}"
+                for phase in ("before", "after") for field in ("bytes", "sha256")]}
+        path = self.write_proof(value, filename)
+        original = path.read_bytes()
+        self.assertEqual(self.audit().returncode, 0)
+        self.assertEqual(path.read_bytes(), original)
+        value["fields"].append(f".before./workspace/{RETIRED_NAME}-next.real_index.product")
+        self.write_proof(value, filename)
+        self.assertNotEqual(self.audit().returncode, 0)
+
+    def test_malformed_or_duplicate_registered_schema_is_rejected(self):
+        for text in ('{"schema":', '{"schema":"portable-current-workspace-retention-v1","schema":"portable-current-workspace-retention-v1"}'):
+            with self.subTest(text=text):
+                path = self.write_proof(self.proof())
+                path.write_text(text, encoding="utf-8")
+                self.assertNotEqual(self.audit().returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
