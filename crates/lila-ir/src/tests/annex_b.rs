@@ -927,8 +927,8 @@ fn labelled_lexical_selector_stops_at_a_statement_instead_of_unwrapping_labels()
 #[test]
 fn labelled_block_and_case_environments_keep_only_direct_lexical_label_items() {
     for source in [
-        "function owner() { { label: function single() {} a: b: function chained() {} function read() { return single; } eval('typeof single'); } }",
-        "function owner() { switch (0) { case 0: label: function single() {} a: b: function chained() {} function read() { return single; } eval('typeof single'); } }",
+        "function owner() { { label: function single() {} a: b: function chained() {} function read() { return [single, typeof chained]; } eval('typeof single'); } }",
+        "function owner() { switch (0) { case 0: label: function single() {} a: b: function chained() {} function read() { return [single, typeof chained]; } eval('typeof single'); } }",
     ] {
         with_script_analysis(source, |analysis| {
             let read = analysis
@@ -936,8 +936,8 @@ fn labelled_block_and_case_environments_keep_only_direct_lexical_label_items() {
                 .values()
                 .find(|function| function.name == "read")
                 .expect("the reader must be analyzed");
-            assert!(read.capture_aliases.contains_key("single"), "{source}");
-            assert!(!read.capture_aliases.contains_key("chained"), "{source}");
+            assert!(read.captures.values().any(|capture| capture.source_name == "single"), "{source}");
+            assert!(!read.captures.values().any(|capture| capture.source_name == "chained"), "{source}");
             let environment = analysis
                 .environment_plans
                 .values()
