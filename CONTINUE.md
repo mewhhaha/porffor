@@ -1,5 +1,17 @@
 # Current continuation — 2026-10-15
 
+Focused IR candidate checkpoint (2026-10-15): **36 actual native unit checks passed**,
+including seven new and 29 existing controls; all 1,536 old unit IDs remain in the
+1,543-ID inventory. This tests an unapplied IR subset, not the whole repair batch
+or full IR suite. [Captured proof](docs/rust-rewrite/ir-foundation-eb1ca63c9-native36-20261015.json)
+and its [offline reader](docs/rust-rewrite/verify-ir-foundation-eb1ca63c9-native36-20261015.py)
+retain that scope. The full baseline was interrupted at 332/748 closed nodes by
+a temporary object emitted into the checkout by the private compiler diagnostic.
+Tracked source/index bytes stayed unchanged; the literal guard failure remains
+recorded, and the completed nodes plus 190 interrupted checkpoint IDs are retained.
+Guarded continuation and exact-ID/full-suite acceptance remain required.
+
+
 ## Dynamic-source foundation diagnostic — 2026-10-15
 
 The [isolated native diagnostic](docs/rust-rewrite/dynamic-aot-same-store-eb1ca63c9-20261015.json) confirms same-Store reentrant
