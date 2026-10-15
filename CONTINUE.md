@@ -1,33 +1,31 @@
 # Current continuation — 2026-10-15
 
-## Guarded full-suite continuation — 2026-10-15
+## Closed partial Test262 replays — 2026-10-15
 
-The frozen `8e9a8c82` full pinned Test262 family resumes under a persistent
-supervisor. It checks a fresh complete file inventory before native commands
-and retains full byte-identity checks at startup, before publication and at
-closure. Compiler, suite pins, three workers, serial native jobs, 60,000 ms
-case deadlines and cache caps keep their existing policy.
+Both frozen `8e9a8c82` Test262 replays are now closed, with their original
+interrupted results preserved. The full-suite prefix contains **67/748 complete
+nodes and 10,903 executions: 10,898 Success, 4 NotImplemented, 1 Bug, zero Crash**.
+The historical replay contains **1,600 completed native executions: 1,436
+Success, 161 NotImplemented, 3 Bug, zero Crash**, plus two missing-input
+infrastructure errors. All 1,405 earlier historical passes reached by that
+partial run remain passing; the unrun IDs remain unrun.
 
-The closed handoff preserves **28 complete native nodes / 6,469 executions**:
-**6,464 Success, 4 NotImplemented, 1 Bug, zero Crash**. Every previous node's
-JSON/TXT/timing bytes and positive and negative IDs are retained. The original
-publisher keeps its literal **exit 143**; the separate continuation's actual
-startup identity and native progress through **31/748 nodes** are recorded.
-Historical replay continues separately. These are partial observations;
-full-suite and task acceptance remain open.
+The [portable closure proof](docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json)
+preserves the raw failures, interruptions, complete node outputs and separate
+source-byte closure proof. It requires **16,071 distinct prior passing IDs** in
+the later repaired-source full verification. These are retention requirements,
+not claims of new passes or complete suite coverage.
 
-The [portable handoff checkpoint](docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json)
-includes the raw boundary, original interruption, normal CLI provenance,
-controller controls and observed continuation. Verify it offline with:
+Verify it with the previously published handoff files in the same directory:
 
 ```sh
-python3 -B docs/rust-rewrite/verify-guarded-publication-handoff-8e9a8c82-20261015.py \
-  docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json
+python3 -B docs/rust-rewrite/verify-incomplete-publication-closure-8e9a8c82-20261015.py \
+  docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json
 ```
 
-The observed startup identity phase took 7.847 seconds. The checkpoint retains
-individual inventory-check timings; no controlled speed gain is claimed.
-CONTINUE.md and tasks remain until their complete acceptance gates pass.
+The RegExp source and labelled lexical scope repairs are undergoing separate
+native checks. Full pinned Test262 and task acceptance remain open; CONTINUE.md
+and tasks remain until their complete gates pass.
 
 ## Cloud conformance worker CPUs — 2026-10-15
 

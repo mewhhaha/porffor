@@ -22,14 +22,14 @@ these are reserved-capacity observations, not allocation/live-byte/pause/peak
 measurements. All prior selected weak IDs remain passing. See the
 [source-bound record](../docs/rust-rewrite/generator-oracle-repair-20261012.json).
 
-The unchanged pinned 99,999-link WeakMap fixture times out in both script modes
-at the original 60,000 ms on both the actual retained clean 672 compiler and the
-new compiler. These two pre-existing failures have no regression. Source review
-confirms quadratic Vec lookup and repeated full ephemeron scans for boxed value
-chains. Both cost paths need a coherent repair with non-rooting lookup tokens,
-collection invalidation, genuine conditional marking and unchanged stress
-bounds. Draft design/control review does not pass that stress gate. Complete
-default/release/full-pin, independent-host and lifecycle acceptance remain open.
+The original 2026-10-12 comparison timed out on both 99,999-link WeakMap
+modes: sloppy mode ended as Crash after 64.153 s and strict mode after 68.197 s,
+with the unchanged 60,000 ms deadline. The repair comparison records Success
+in 18.196 s and 18.160 s, respectively, with no regressions or remaining failures;
+see the [weak repair record](../docs/rust-rewrite/weak-index-repair-20261012.json),
+`original_deep_stress_exact_comparison`. This resolves that historical pair of
+timeouts. Exact-ID retention on later compiler revisions, the complete task-owned
+pinned trees, independent-host and lifecycle acceptance remain required.
 
 ## Deterministic root and bounded-cycle source — 2026-10-12
 
