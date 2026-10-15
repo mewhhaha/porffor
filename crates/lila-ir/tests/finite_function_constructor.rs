@@ -7,6 +7,7 @@ fn prepared_function_children_keep_canonical_global_constructor_grammars() {
         let parsed = parse(
             format!(
                 r#"{prefix}
+var unrelated = {{}}; unrelated.property = function () {{}};
 var Ordinary = Function;
 var Generator = (function* () {{}}).constructor;
 var Async = (async function () {{}}).constructor;
@@ -48,10 +49,17 @@ Function("return Generator('yield', 'return yield');");
 
 #[test]
 fn prepared_global_constructor_hints_cover_unmodified_generator_runtime_source() {
+    const STA: &str = include_str!("../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../test262/vendor/test262/harness/assert.js");
+    const COMPARE: &str = include_str!("../../../test262/vendor/test262/harness/compareArray.js");
     const SOURCE: &str =
         include_str!("../../../test262/vendor/test262/test/staging/sm/generators/runtime.js");
     for prefix in ["", "'use strict';"] {
-        let parsed = parse(format!("{prefix}{SOURCE}"), ParseOptions::script()).unwrap();
+        let parsed = parse(
+            format!("{prefix}{STA}\n{ASSERT}\n{COMPARE}\n{SOURCE}"),
+            ParseOptions::script(),
+        )
+        .unwrap();
         let program = lower(&parsed);
         assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
         let functions = program.script.unwrap().prepared_dynamic_functions;
@@ -71,47 +79,65 @@ fn prepared_global_constructor_hints_cover_unmodified_generator_runtime_source()
                 "missing generator syntax rejection for {arguments:?}"
             );
         }
-        assert!(functions
-            .iter()
-            .any(|entry| entry.kind == DynamicFunctionKind::Generator
-                && entry.arguments.is_empty()
-                && matches!(
-                    entry.outcome,
-                    PreparedDynamicFunctionOutcome::Compiled { .. }
-                )));
+        for arguments in [
+            vec![],
+            vec!["yield 1"],
+            vec!["return 1"],
+            vec!["a", "yield a"],
+            vec!["a", "return a"],
+            vec!["with (x) return foo;"],
+            vec!["yield 10"],
+        ] {
+            assert!(
+                functions
+                    .iter()
+                    .any(|entry| entry.kind == DynamicFunctionKind::Generator
+                        && entry.arguments == arguments
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )),
+                "missing generator source tuple with full harness: {arguments:?}"
+            );
+        }
     }
 }
 
 #[test]
 fn prepared_global_constructor_hints_stop_at_shadow_with_and_local_cells() {
-    let parsed = parse(
+    for source in [
         r#"
 var Factory = (function* () {}).constructor;
 Function('Factory', "return Factory('return 997;');");
 Function("var Factory; return Factory('return 998;');");
 Function("with (globalThis.unknown) { Factory('return 999;'); }");
+Function("eval(''); return Factory('return 995;');");
 function owner() {
     var LocalOnly = (function* () {}).constructor;
     Function("return LocalOnly('return 996;');");
 }
 owner();
 "#,
-        ParseOptions::script(),
-    )
-    .unwrap();
-    let program = lower(&parsed);
-    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
-    for entry in program.script.unwrap().prepared_dynamic_functions {
-        assert!(
-            !["return 996;", "return 997;", "return 998;", "return 999;"]
-                .iter()
-                .any(|body| entry.kind == DynamicFunctionKind::Generator
-                    && entry.arguments == [*body]),
-            "an unrelated local or Object Environment borrowed a global grammar hint"
-        );
+        r#"let Factory = (function* () {}).constructor; Function("return Factory('return 994;');");"#,
+        r#"var Object = { getPrototypeOf(value) { return { constructor(body) { return body; } }; } };
+function* g() {} var prototype = Object.getPrototypeOf(g); var Factory = prototype.constructor;
+Function("return Factory('return 993;');");"#,
+        r#"const Reflect = { getPrototypeOf(value) { return { constructor(body) { return body; } }; } };
+function* g() {} var prototype = Reflect.getPrototypeOf(g); var Factory = prototype.constructor;
+Function("return Factory('return 992;');");"#,
+        r#"function* g() {} with (globalThis.unknown) { var prototype = Object.getPrototypeOf(g); var Factory = prototype.constructor; }
+Function("return Factory('return 991;');");"#,
+    ] {
+        let parsed = parse(source, ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        for entry in program.script.unwrap().prepared_dynamic_functions {
+            assert!(!(991..=999).any(|number| entry.kind == DynamicFunctionKind::Generator
+                && entry.arguments == [format!("return {number};")]),
+                "a local, lexical, eval, with or shadowed namespace borrowed a global grammar hint: {source}");
+        }
     }
 }
-
 #[test]
 fn supplemental_global_constructor_sources_never_authorize_host_requests() {
     use lila_ir::{HostSurfacePolicy, LoweringSession};

@@ -49,6 +49,9 @@ impl ScriptLowerer<'_> {
                 }
             }
         }
+        // Existing analyzed candidates retain priority; syntax hypotheses use
+        // only spare capacity and never enter callable or runtime value facts.
+        hints.merge(&self.analysis.source_function_global_hypotheses);
         hints
     }
 
@@ -61,8 +64,10 @@ impl ScriptLowerer<'_> {
             return;
         };
         let name = self.interner.resolve_expect(identifier.sym()).to_string();
-        if self.lookup_binding(&name).is_some()
-            || self.visible_function_names.contains_key(&name)
+        let script_global_var = self.is_script_global_var_name(&name)
+            && self.is_unshadowed_script_global_binding(&name);
+        if (self.lookup_binding(&name).is_some() || self.visible_function_names.contains_key(&name))
+            && !script_global_var
             || !self.with_environment_chain.is_empty()
             || self.uses_runtime_identifier_environment()
             || arguments
@@ -75,7 +80,8 @@ impl ScriptLowerer<'_> {
             .analysis
             .function_global_hints
             .kinds(&name)
-            .collect::<Vec<_>>();
+            .chain(self.analysis.source_function_global_hypotheses.kinds(&name))
+            .collect::<BTreeSet<_>>();
         if kinds.is_empty() {
             return;
         }

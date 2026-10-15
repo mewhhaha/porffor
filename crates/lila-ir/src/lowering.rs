@@ -40,6 +40,7 @@ mod direct_eval;
 mod dynamic_source;
 mod environment_identifier;
 mod finite_function_body_hints;
+mod finite_function_global_syntax;
 mod finite_function_globals;
 mod finite_function_source;
 mod finite_iterator_source;
@@ -1021,6 +1022,10 @@ fn lower_script_program_with_allocations(
             .function_global_hints(script_source);
         definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
+        analysis.source_function_global_hypotheses =
+            finite_function_global_syntax::source_function_global_hypotheses(
+                script, interner, &analysis,
+            );
         *allocations = analysis.allocations.clone();
         if trace_phases {
             eprintln!("lila lower trace: analysis: {:?}", t0.elapsed());

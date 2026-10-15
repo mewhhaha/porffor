@@ -26,7 +26,7 @@ impl FunctionGlobalConstructorHints {
         self.names.get(name).into_iter().flatten().copied()
     }
 
-    fn merge(&mut self, other: &Self) {
+    pub(crate) fn merge(&mut self, other: &Self) {
         for (name, kinds) in &other.names {
             for kind in kinds {
                 self.observe(name, *kind);

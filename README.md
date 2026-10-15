@@ -1,5 +1,16 @@
 # Lila
 
+## Prepared prototype-reader grammar hypotheses — 2026-10-15
+
+The next source correction retains constructor grammar hypotheses for named
+functions read through unshadowed Object/Reflect prototype-reader aliases after
+ordinary property writes. These hints remain separate from live callable facts
+and pass the existing resource-free source gate. The preceding full-harness
+Engine witness still rejected `GeneratorFunction('yield 1')`; this correction and
+its strengthened same-ID controls are prepared and unexecuted. Historical
+acceptance results remain unchanged. See the
+[contract](docs/rust-rewrite/contracts/prepared-function-global-constructor-hints.md).
+
 ## Prepared Function global constructor hints — 2026-10-15
 
 A separate source change carries bounded constructor grammar hints from Script

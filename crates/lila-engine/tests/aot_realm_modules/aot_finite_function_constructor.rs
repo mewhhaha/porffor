@@ -51,7 +51,10 @@ fn prepared_global_constructor_hints_run_unmodified_generator_runtime_in_both_mo
 #[test]
 fn prepared_global_constructor_hints_keep_callee_conversion_getter_and_throw_order_live() {
     let source = r#"
-var Factory = (function* () {}).constructor;
+var unrelated = {}; unrelated.property = function () {};
+function* source() {}
+var prototype = Object.getPrototypeOf(source);
+var Factory = prototype.constructor;
 var original = Factory;
 var trace = '';
 var marker = {};
@@ -71,6 +74,23 @@ var getter = Function("return Factory({ get toString() { trace += 'get;'; throw 
 try { getter(); throw 'missing getter throw'; }
 catch (error) { print(error === marker); }
 print(trace);
+var descriptor = Object.getOwnPropertyDescriptor(Object, 'getPrototypeOf');
+trace = '';
+Object.defineProperty(Object, 'getPrototypeOf', {
+    configurable: true,
+    get: function () {
+        trace += 'reader-get;';
+        return function (value) {
+            trace += 'reader-call;';
+            return { constructor: function (body) { trace += 'replacement;'; return 33; } };
+        };
+    }
+});
+var replacedPrototype = Object.getPrototypeOf(source);
+var replacedFactory = replacedPrototype.constructor;
+print(replacedFactory('yield }'));
+print(trace);
+Object.defineProperty(Object, 'getPrototypeOf', descriptor);
 "#;
     for prefix in ["", "'use strict';"] {
         assert_function_trace(
@@ -83,6 +103,8 @@ print(trace);
                 "param;body;",
                 "true",
                 "get;",
+                "33",
+                "reader-get;reader-call;replacement;",
             ],
         );
     }
