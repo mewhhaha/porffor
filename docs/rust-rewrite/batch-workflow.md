@@ -30,7 +30,7 @@ Run from the repository root after writing the whole batch:
 
 ```sh
 . /workspace/.lila-tools/activate.sh
-python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
   python3 -B scripts/run_workspace_tests.py --output target/workspace-fresh \
   --all-features --include-ignored --test-processes 4 --partition-cli \
   --shared-runtime-linker scripts/test-shared-runtime-images/cc \
@@ -69,6 +69,37 @@ new IDs separately from regressions on previously passing tests.
 
 See [measured costs and proposed crate boundaries](verification-costs-20261012.md)
 for the current timing frame and the dependency cuts that could reduce rebuilds.
+
+## Fast source-structure preflight — 2026-10-15
+
+The Annex B collection structure module uses only the Rust standard library.
+Its existing three assertions can run before any workspace build:
+
+```sh
+mkdir -p target/structure-preflight
+CARGO_MANIFEST_DIR="$PWD/crates/lila-ir" \
+  python3 -B scripts/limited_verification.py --cloud -- \
+  rustc --edition=2021 --test \
+  crates/lila-ir/tests/annex_b_direct_function_collection_structure.rs \
+  --crate-name annex_source_structure_preflight -C debuginfo=0 \
+  -o target/structure-preflight/annex-source-structure
+python3 -B scripts/limited_verification.py --cloud -- \
+  ./target/structure-preflight/annex-source-structure --test-threads=1
+python3 -B -m unittest discover -s scripts/tests -p test_limited_verification.py -v
+python3 -B -m unittest discover -s scripts/tests -p test_workspace_test_partitions.py -v
+```
+
+On this cloud host the standalone structural compile took 0.149 seconds and
+all three assertions took 0.017 seconds. Together with 45 focused Python controls,
+the owned quick run took 0.453 seconds. It checks the same structural assertions
+as the complete IR integration target without linking its dependency graph.
+Complete integration and workspace runs remain required for acceptance.
+
+The complete workspace coordinator uses `--cloud-worker-cpus auto`: it needs
+all explicitly selected native worker CPUs even when `LILA_JOBS=1` and
+`RAYON_NUM_THREADS=1`. Its nested partition coordinator uses the same mode.
+Using `--cloud-cpus auto` there would shrink the worker set to the native
+compilation job limit. Cargo builds keep their separate compilation policy.
 
 ## Explicit cloud conformance workers — 2026-10-15
 

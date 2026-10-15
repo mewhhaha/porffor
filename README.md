@@ -1,5 +1,26 @@
 # Lila
 
+## Workspace verification repair — 2026-10-15
+
+The complete `fb3a1235` default run closed with **102 passing scopes**,
+**6,893 passing native tests** and **two failed structural assertions**.
+Four partitioned scopes stopped before running tests because their coordinator
+was restricted to one CPU by the native compilation job limit.
+
+The coordinator now uses cloud worker affinity while native compilation,
+Cargo and libtest remain serial. A regression exercises the actual workspace
+launch command for all four partitioned targets with one, three and four CPUs.
+The two structural expectations now name the lexical declaration selector
+already used by the compiler; their assertions and test IDs remain intact.
+
+All **45 focused Python controls** and **three source-structure Rust tests**
+pass. The complete quick check took **0.453 seconds**; the standalone structural
+compile took **0.149 seconds** and its tests **0.017 seconds**. These checks do
+not replace complete native verification. Both full workspace modes, ordinary
+CLI, historical retention and full pinned Test262 remain pending on this repair.
+The failed run is preserved, and `CONTINUE.md` and `tasks/` remain open.
+See the [verification commands](docs/rust-rewrite/batch-workflow.md#fast-source-structure-preflight--2026-10-15).
+
 ## RegExp source and labelled lexical scope repair batch — 2026-10-15
 
 The compiler batch fixes RegExp source serialization after an already escaped

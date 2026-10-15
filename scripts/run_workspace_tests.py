@@ -664,7 +664,7 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
       '--stall',str(native_stall_seconds(case['package'])),'--poll','1','--',
       'python3','-B','scripts/limited_verification.py','--cloud','--',*command]
     if partitioned:
-        launch=['./scripts/run-watched.sh','--label',watch_label,'--stall',str(native_stall_seconds(case['package'])),'--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--',*command]
+        launch=['./scripts/run-watched.sh','--label',watch_label,'--stall',str(native_stall_seconds(case['package'])),'--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-worker-cpus','auto','--',*command]
         case['test_cpus']=slots
         case['test_policy']='complete logical native target; all exact qualified IDs in disjoint source-bound partitions, each on one inherited CPU and one libtest thread; no other native target active; source-bound partition driver and original native stall allowance retained'
         save()

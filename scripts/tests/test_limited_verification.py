@@ -1,6 +1,7 @@
 """Resource launcher controls: absent or ineffective caps never start payloads."""
 
 from contextlib import ExitStack
+import ast
 import importlib.util
 import io
 from pathlib import Path
@@ -384,6 +385,42 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
                 self.assertEqual(dict(launcher.os.environ), before)
                 self.assertIn("3 CPU(s)", output.getvalue())
                 self.assertIn("native compilation defaults up to 1 jobs", output.getvalue())
+
+    def test_workspace_partition_launch_preserves_each_assigned_cpu(self):
+        runner = SOURCE.with_name("run_workspace_tests.py")
+        tree = ast.parse(runner.read_text())
+        branches = [node for node in ast.walk(tree) if isinstance(node, ast.If)
+                    and isinstance(node.test, ast.Name) and node.test.id == "partitioned"]
+        launches = [node for branch in branches for node in branch.body
+                    if isinstance(node, ast.Assign)
+                    and any(isinstance(target, ast.Name) and target.id == "launch"
+                            for target in node.targets)]
+        self.assertEqual(len(launches), 1)
+        actual = compile(ast.Module(body=launches, type_ignores=[]), str(runner), "exec")
+        for assigned in ({0}, {0, 1, 2, 3}, {2, 4, 6}):
+            for qualified in ("lila-engine:lila_engine", "lila-engine:aot_async",
+                              "lila-engine:aot_intl", "lila-cli:cli"):
+                package = qualified.split(":", 1)[0]
+                payload = ["python3", "-B", "scripts/workspace_test_partitions.py",
+                           "--cpus", *map(str, sorted(assigned)),
+                           "--qualified-target", qualified, "--include-ignored"]
+                scope = {"watch_label": "partition-proof", "case": {"package": package},
+                         "command": payload,
+                         "native_stall_seconds": lambda name: 3600 if name == "lila-cli" else 900}
+                exec(actual, scope)
+                invocation = scope["launch"]
+                options = invocation[invocation.index("scripts/limited_verification.py") + 1:]
+                with self.subTest(assigned=assigned, target=qualified), \
+                        self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus=assigned), \
+                        patch.dict(launcher.os.environ, {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1"}), \
+                        patch.object(launcher.sys, "stderr", new_callable=io.StringIO), \
+                        patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
+                    with self.assertRaises(PayloadWouldStart):
+                        launcher.main(options)
+                    self.assertEqual(launcher.os.sched_getaffinity(0), assigned)
+                    self.assertEqual(execute.call_args.args[:2], (payload[0], payload))
+                    for setting in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                        self.assertEqual(execute.call_args.args[2][setting], "1")
 
     def test_worker_affinity_uses_tightest_quota_without_native_job_caps(self):
         with self.cloud("/machine/task", {

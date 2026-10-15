@@ -115,7 +115,7 @@ fn annex_b_direct_function_collection_is_private_non_derived_and_exhaustive() {
     let policy = balanced_block_after(consumer, "match direct_function_collection {");
     assert_eq!(
         code_without_whitespace(policy),
-        "matchdirect_function_collection{AnnexBDirectFunctionCollection::Skip=>{}AnnexBDirectFunctionCollection::Record=>{letdirect_functions=items.iter().filter_map(statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);}}"
+        "matchdirect_function_collection{AnnexBDirectFunctionCollection::Skip=>{}AnnexBDirectFunctionCollection::Record=>{letdirect_functions=items.iter().filter_map(lexically_scoped_statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);}}"
     );
     assert_eq!(
         consumer
@@ -211,7 +211,7 @@ fn exactly_six_named_producers_preserve_owner_switch_and_recursive_order() {
         .expect("missing switch case recursion after aggregation");
     assert_eq!(
         code_without_whitespace(&recursive[aggregation_start..aggregation_end]),
-        "letdirect_functions=statement.cases().iter().flat_map(|case|case.body().statements()).filter_map(statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);"
+        "letdirect_functions=statement.cases().iter().flat_map(|case|case.body().statements()).filter_map(lexically_scoped_statement_list_item_function_declaration).collect::<Vec<_>>();self.record_annex_b_direct_functions(owner_id,&direct_functions,eligible_keys,interner,);"
     );
     assert_before(
         recursive,
