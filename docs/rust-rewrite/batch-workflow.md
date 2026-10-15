@@ -1,5 +1,22 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Test-only compiler identity inputs — 2026-10-15
+
+The production fingerprint and build-script rerun inventory exclude only
+explicit project test paths. Native Function controls and their test observer
+are out-of-line `cfg(test)` modules; editing them must not invalidate emitted
+program caches. Their production parent module, decoder, factory and other
+compiler/runtime/data inputs remain covered. Cargo continues to track and
+rebuild the tests themselves through ordinary test-target dependencies.
+
+All twelve existing fingerprint controls pass after extending both the test-only
+lifecycle matrix and the production-input invalidation matrix. The standalone
+compile took 0.438 seconds and native execution 0.177 seconds under concurrent
+suite load. This proves invalidation behavior; the avoided runtime rebuild cost
+has not been measured as a controlled before/after speedup. See the
+[captured check](native-test-fingerprint-boundary-20261015.json).
+
+
 ## Reuse a captured native CLI — 2026-10-13
 
 For a producer that explicitly captures a private non-test CLI in its owned

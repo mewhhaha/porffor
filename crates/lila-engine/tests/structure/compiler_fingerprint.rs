@@ -64,6 +64,9 @@ fn every_previously_omitted_compiler_input_invalidates_the_cache() {
         "crates/lila-intl/src/lib.rs",
         "crates/lila-engine/src/wasmtime_policy.rs",
         "crates/lila-engine/src/wasmtime_config.rs",
+        "crates/lila-engine/src/wasm_native_function_compiler.rs",
+        "crates/lila-engine/src/wasm_native_function_compiler/factory.rs",
+        "crates/lila-engine/src/wasm_native_function_compiler/sources.rs",
         "crates/lila-engine/src/embedded_runtime/build.rs",
         "crates/lila-engine/src/embedded_runtime/compile.rs",
         "crates/lila-engine/src/cache/native.rs",
@@ -175,6 +178,11 @@ fn pure_test_input_lifecycle_preserves_production_identity_and_rerun_inputs() {
         "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
         "crates/lila-engine/src/array_present_index_tests.rs",
         "crates/lila-engine/src/module_async_runtime_tests.rs",
+        "crates/lila-engine/src/native_function_compiler_tests.rs",
+        "crates/lila-engine/src/native_function_compiler_tests/program_ownership.rs",
+        "crates/lila-engine/src/native_function_compiler_tests/realm_and_order.rs",
+        "crates/lila-engine/src/wasm_native_function_compiler/observer.rs",
+        "crates/lila-engine/src/wasm_native_function_compiler/tests.rs",
     ] {
         let workspace = Workspace::new();
         let before = workspace.digest();

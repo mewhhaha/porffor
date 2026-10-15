@@ -1,5 +1,13 @@
 # Lila
 
+Verification iteration (2026-10-15): exact out-of-line native Function test
+modules no longer invalidate the production compiler fingerprint or its Cargo
+build-script rerun inputs. Production compiler and runtime sources, native
+compiler dependencies and data retain their invalidation coverage. All **12
+fingerprint controls pass**; the standalone compile took **0.438 seconds** and
+the native check **0.177 seconds**. The [captured check](docs/rust-rewrite/native-test-fingerprint-boundary-20261015.json)
+is an identity regression check; it establishes no runtime speedup or conformance count.
+
 Unapplied repair checkpoint (2026-10-15): the fresh ABI6 runtime passes all
 **four prepared same-Store ownership cases**, including conflicting function
 rows, both installation orders, forced GC and typed reentry. Reentry returns

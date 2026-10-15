@@ -42,7 +42,7 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
 ];
 
 // These exact project paths are outside the product dependency closure: Cargo
-// integration tests, the IR's cfg(test) module tree, and six cfg(test)-only
+// integration tests, the IR's cfg(test) module tree, and explicit cfg(test)-only
 // Engine modules. Do not generalize this to every path named "tests": vendored
 // sources and production resources retain conservative coverage.
 const TEST_ONLY_INPUTS: &[&str] = &[
@@ -58,6 +58,10 @@ const TEST_ONLY_INPUTS: &[&str] = &[
     "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
     "crates/lila-engine/src/array_present_index_tests.rs",
     "crates/lila-engine/src/module_async_runtime_tests.rs",
+    "crates/lila-engine/src/native_function_compiler_tests.rs",
+    "crates/lila-engine/src/native_function_compiler_tests",
+    "crates/lila-engine/src/wasm_native_function_compiler/observer.rs",
+    "crates/lila-engine/src/wasm_native_function_compiler/tests.rs",
 ];
 
 pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {
