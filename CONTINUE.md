@@ -1,5 +1,16 @@
 # Current continuation — 2026-10-15
 
+## Verification gate map and shortcut audit — 2026-10-15
+
+Compiler `eb1ca63c9` passes the actual checkout shortcut audit: **26 exact
+entries**, exit zero in **0.964 seconds**, with unchanged source. The
+[remaining acceptance map](docs/rust-rewrite/remaining-acceptance-eb1ca63c9-20261015.md) identifies required workloads already
+covered by the complete default/all-features checkpoints and the distinct
+campaign, idle, shard/resume, backlog and host gates. Reuse the active full
+matrix for the current baseline and publication rather than starting another.
+Historical/current-pin completion and task closure remain pending; retain
+`CONTINUE.md` and `tasks/`.
+
 ## Verified ordinary release CLI55 — 2026-10-15
 
 The normal default release CLI on compiler `eb1ca63c9` passes all **55 selected executions with Success**, with zero NotImplemented, Bug, Crash or InfrastructureError. All **53 preceding selected passes** are retained, and both original RegExp escape modes now pass. Fixture bytes, modes and pins are unchanged.
