@@ -1,5 +1,18 @@
 # Lila
 
+## Dynamic-source foundation diagnostic — 2026-10-15
+
+The [isolated native diagnostic](docs/rust-rewrite/dynamic-aot-same-store-eb1ca63c9-20261015.json) confirms same-Store reentrant
+Wasm-GC function transport: a newly compiled program's function returns **42**
+through the running program, survives forced GC, and the original call resumes.
+A separate ownership control remains **red**: after a second program installs
+its prepared-Function hook, the original program returns **23 instead of 17**.
+General dynamic-source support therefore still requires per-program hook and
+data ownership. The diagnostic reused the genuine shared precompiled runtime;
+its final scratch compile/link took 4.000 seconds under concurrent suite load.
+This adds no Test262 passes or product capability claim; all existing suite
+failures and task gates remain recorded.
+
 ## Closed historical replay — 2026-10-15
 
 The [exact 5,365-ID original-tree replay](docs/rust-rewrite/original-history-eb1ca63c9-20261015.json) is complete and audited:
