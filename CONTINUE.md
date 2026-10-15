@@ -1,5 +1,44 @@
 # Current continuation — 2026-10-15
 
+## Genuine ordinary CLI53 checkpoint — 2026-10-15
+
+The normal default release CLI on compiler `8e9a8c82` completes all **53 cases
+with Success**, with **zero NotImplemented, Bug, Crash or InfrastructureError**.
+All **43 preceding D2 successes** and **29 earlier f5 successes** are retained.
+Both previously unsupported GeneratorFunction runtime modes now pass, along
+with all eight selected ShadowRealm modes. Fixtures, modes and pins are unchanged.
+
+The actual normal Cargo build takes **647.103 seconds**. The native 53-case
+invocation exits zero in **47.056 seconds**; its source-bound outer invocation
+also exits zero in **53.976 seconds**. Worker count remains one, with one thread
+and a 60,000 ms deadline. The distinct replay worker matches the ordinary binary
+byte-for-byte and uses the normal static runtime producer.
+
+The [portable CLI53 checkpoint](docs/rust-rewrite/ordinary-cli-8e9a8c82-probe53-20261015.json)
+contains exact execution IDs, fixtures, actual Cargo/static-runtime provenance,
+prior-pass retention and lossless raw evidence. Verify it entirely offline:
+
+```sh
+python3 docs/rust-rewrite/verify-ordinary-cli53-8e9a8c82-20261015.py \
+  docs/rust-rewrite/ordinary-cli-8e9a8c82-probe53-20261015.json
+```
+
+A prepared verifier compared the upstream Test262 commit with the content-tree
+ID native snapshots record. Its original failure remains embedded. A separate
+read-only audit verifies the committed commit-to-tree mapping and the existing
+native results; no compiler build, replay, pin or outcome was changed.
+
+The [matched twenty-case timing comparison](docs/rust-rewrite/runtime-retention-matched20-8e9a8c82-20261015.json)
+passes all twenty cases in both runs: **2.806 seconds before, 2.857 seconds
+after**. The old reused worker already retained runtime code, so this sample
+establishes no meaningful retention speed gain. Formatting, module boundaries,
+product/oracle dependency separation, host ABI and the refreshed shortcut
+inventory checks pass. The inventory refresh changes display line numbers only;
+selector fingerprints and classifications remain unchanged.
+
+Historical 5,365-ID retention, the full pinned 102,994-execution Test262 suite
+and task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
+
 ## Complete all-features workspace checkpoint — 2026-10-15
 
 Compiler source `8e9a8c82` passes all **108 all-features workspace scopes**:
@@ -24,8 +63,9 @@ python3 docs/rust-rewrite/verify-workspace-8e9a8c82-20261015.py \
 ```
 
 Together, the complete default and all-features checkpoints retain all prior
-passes and add 34 controls in each mode. Genuine ordinary CLI53, historical
-5,365-ID retention, full pinned Test262 and task acceptance remain pending.
+passes and add 34 controls in each mode. The genuine ordinary CLI53 checkpoint
+is recorded above. Historical 5,365-ID retention, full pinned Test262 and task
+acceptance remain pending.
 `CONTINUE.md` and `tasks/` remain open.
 
 ## Complete default workspace checkpoint — 2026-10-15
@@ -61,8 +101,8 @@ The prior twenty-case warm-worker sample already retained runtime code; no
 retention speed gain is claimed before the matched after measurement.
 
 The complete 108-scope all-features run also passes on the same frozen source.
-Genuine ordinary CLI53, historical 5,365-ID retention, full pinned Test262 and
-task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
+The genuine ordinary CLI53 checkpoint is recorded above. Historical 5,365-ID
+retention, full pinned Test262 and task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
 
 ## Genuine ordinary CLI subclass checkpoint — 2026-10-14
 
