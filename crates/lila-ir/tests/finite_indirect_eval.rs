@@ -353,7 +353,19 @@ fn returned_callable_requests_keep_256_hints_without_evicting_primary_sources() 
          const run = realm.evaluate('const inner = new ShadowRealm(); text => inner.evaluate(text)'); \
          for (const text of [{values}]) run(text); run('late-overflow;');"
     ));
-    assert_prepared(&program, "999;", PreparedScriptKind::ShadowRealmEvaluate);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(program
+        .script
+        .as_ref()
+        .unwrap()
+        .prepared_scripts
+        .iter()
+        .any(|source| {
+            source.source == "999;"
+                && source.kind == PreparedScriptKind::ShadowRealmEvaluate
+                && source.admission == PreparedScriptAdmission::ResolvedIntrinsic
+                && matches!(source.outcome, PreparedScriptOutcome::Executable(_))
+        }));
     for index in 0..256 {
         assert_prepared(
             &program,
