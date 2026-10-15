@@ -1,5 +1,18 @@
 # Lila Rust AOT + Test262 execution plan
 
+Unapplied repair checkpoint (2026-10-15): the fresh ABI6 runtime passes all
+**four prepared same-Store ownership cases**, including conflicting function
+rows, both installation orders, forced GC and typed reentry. Reentry returns
+`42`; the original program remains `17` after the second program is installed.
+The [captured diagnostic](../docs/rust-rewrite/abi6-prepared-ownership-eb1ca63c9-20261015.json)
+and [offline reader](../docs/rust-rewrite/verify-abi6-prepared-ownership-eb1ca63c9-20261015.py)
+preserve the two earlier driver failures and their corrections. Compilation took
+6.232 seconds and native execution 62.164 seconds on one CPU, using the already
+compiled candidate IR/AOT libraries. Native Function host misses are deliberately
+rejected by this driver; Engine host-miss controls, ordinary builds and repaired
+conformance acceptance remain pending. This diagnostic does not close a task.
+
+
 Unapplied repair checkpoint (2026-10-15): all five affected default-feature
 libraries pass a metadata-only compile in **81.250 seconds** end to end
 (**46.173 seconds** of compiler work on one CPU). The original 12 AOT compile
