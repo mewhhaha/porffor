@@ -2,6 +2,9 @@
 //! final lowering pass. A cache entry includes its exact grammar/context and
 //! retains both successful parse products and deferred failures.
 
+mod function_globals;
+pub(crate) use function_globals::FunctionGlobalConstructorHints;
+
 mod returned_callable;
 pub(crate) use returned_callable::ReturnedCallableSourceId;
 
@@ -30,8 +33,10 @@ enum PreparedSourceInput {
 
 #[derive(Debug, Default)]
 struct PreparedSourceCacheState {
+    function_globals: function_globals::FunctionGlobalHintOwners,
     returned_callables: returned_callable::ReturnedCallableSources,
     parsed: Vec<(PreparedSourceInput, Result<ParsedScript, ParseError>)>,
+    realm_request_sources: Vec<lila_front::ParsedScriptIdentity>,
     realm_requests: BTreeSet<ModuleRequestKeyIr>,
     script_import_sites: Vec<crate::DynamicImportSiteIr>,
 }
@@ -91,6 +96,23 @@ impl PreparedSourceCache {
     }
 
     fn parse(&self, input: PreparedSourceInput) -> Result<ParsedScript, ParseError> {
+        let parsed = self.parse_syntax(input);
+        if let Ok(source) = &parsed {
+            let identity = source.syntax_identity();
+            let already_scanned = self.0.borrow().realm_request_sources.contains(&identity);
+            if !already_scanned {
+                let requests = crate::modules::scan_script_realm_module_requests(source);
+                let mut state = self.0.borrow_mut();
+                state.realm_requests.extend(requests);
+                state.realm_request_sources.push(identity);
+            }
+        }
+        parsed
+    }
+
+    // A syntax-only hint cannot request host resources. Normal admission still
+    // records requests when the same retained syntax was first parsed as a hint.
+    fn parse_syntax(&self, input: PreparedSourceInput) -> Result<ParsedScript, ParseError> {
         if let Some((_, parsed)) = self
             .0
             .borrow()
@@ -122,13 +144,7 @@ impl PreparedSourceCache {
                 lila_front::prepare_dynamic_function_utf16(kind, arguments)
             }
         };
-        let requests = parsed
-            .as_ref()
-            .map(crate::modules::scan_script_realm_module_requests)
-            .unwrap_or_default();
-        let mut state = self.0.borrow_mut();
-        state.realm_requests.extend(requests);
-        state.parsed.push((input, parsed.clone()));
+        self.0.borrow_mut().parsed.push((input, parsed.clone()));
         parsed
     }
 

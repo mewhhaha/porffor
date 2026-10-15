@@ -4,6 +4,7 @@ use lila_front::{FunctionParseKind, ParseDiagnosticKind};
 pub(super) fn compile_dynamic_function_sources(
     program: &mut ProgramIr,
     sources: Vec<DynamicFunctionSource>,
+    global_hints: &crate::prepared_source_cache::FunctionGlobalConstructorHints,
     host_surface_policy: HostSurfacePolicy,
     allocations: &mut AnalysisAllocationState,
 ) {
@@ -44,6 +45,9 @@ pub(super) fn compile_dynamic_function_sources(
                 continue;
             }
         };
+        allocations
+            .prepared_sources
+            .record_function_global_hints(&parsed, global_hints);
         let caller_origin = allocations.script_import_origin.take();
         let mut compiled = lower_script_program_with_allocations(
             &parsed,

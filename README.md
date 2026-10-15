@@ -1,5 +1,15 @@
 # Lila
 
+## Prepared Function global constructor hints — 2026-10-15
+
+A separate source change carries bounded constructor grammar hints from Script
+global variables into independently prepared Function bodies. Runtime global
+reads, callees, conversions and Realms remain live. Supplemental bodies that can
+discover nested source or imports retain the explicit capability boundary. The
+new controls, including both unchanged generator runtime fixture modes, are
+prepared but unexecuted; the historical results below remain unchanged. See the
+[contract](docs/rust-rewrite/contracts/prepared-function-global-constructor-hints.md).
+
 ## Bounded ShadowRealm sources and runtime-only worker retention — 2026-10-15
 
 The current source batch discovers bounded template/String/filter source hints

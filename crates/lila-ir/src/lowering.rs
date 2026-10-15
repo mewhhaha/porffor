@@ -40,6 +40,7 @@ mod direct_eval;
 mod dynamic_source;
 mod environment_identifier;
 mod finite_function_body_hints;
+mod finite_function_globals;
 mod finite_function_source;
 mod finite_iterator_source;
 mod finite_regexp_source;
@@ -662,6 +663,7 @@ fn captured_environment_positions(
 }
 
 pub(crate) struct LoweredScript {
+    pub(crate) function_global_hints: crate::prepared_source_cache::FunctionGlobalConstructorHints,
     pub(crate) dynamic_script_sources: Vec<DynamicScriptSource>,
     pub(crate) runtime_declarations: RuntimeGlobalDeclarationPlan,
     pub(crate) dynamic_function_sources: Vec<DynamicFunctionSource>,
@@ -1014,6 +1016,9 @@ fn lower_script_program_with_allocations(
             interner,
             CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
         );
+        analysis.function_global_hints = allocations
+            .prepared_sources
+            .function_global_hints(script_source);
         definitions.apply(script, &mut analysis, interner);
         analysis.prepare_runtime_script_slots(script, interner);
         *allocations = analysis.allocations.clone();
@@ -1076,6 +1081,7 @@ fn lower_script_program_with_allocations(
         compile_dynamic_function_sources(
             &mut program,
             lowered.dynamic_function_sources,
+            &lowered.function_global_hints,
             host_surface_policy,
             allocations,
         );
@@ -2418,6 +2424,7 @@ impl<'a> ScriptLowerer<'a> {
         }
         let runtime_declarations = self.runtime_global_declarations(script);
         LoweredScript {
+            function_global_hints: self.collect_function_global_hints(),
             runtime_declarations,
             dynamic_script_sources: self.dynamic_script_sources,
             dynamic_function_sources: self.dynamic_function_sources,

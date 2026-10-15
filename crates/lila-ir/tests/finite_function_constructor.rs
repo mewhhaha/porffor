@@ -2,6 +2,155 @@ use lila_front::{parse, ParseOptions};
 use lila_ir::{lower, DynamicFunctionKind, PreparedDynamicFunctionOutcome};
 
 #[test]
+fn prepared_function_children_keep_canonical_global_constructor_grammars() {
+    for prefix in ["", "'use strict';"] {
+        let parsed = parse(
+            format!(
+                r#"{prefix}
+var Ordinary = Function;
+var Generator = (function* () {{}}).constructor;
+var Async = (async function () {{}}).constructor;
+var AsyncGenerator = (async function* () {{}}).constructor;
+Function("return Ordinary('return 81;');");
+Function("return Generator('return 81;');");
+Function("return Async('return 81;');");
+Function("return AsyncGenerator('return 81;');");
+Function("return Generator('yield', 'return yield');");
+"#
+            ),
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let functions = program.script.unwrap().prepared_dynamic_functions;
+        for kind in DynamicFunctionKind::ALL {
+            assert!(
+                functions.iter().any(|entry| entry.kind == *kind
+                    && entry.arguments == ["return 81;"]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )),
+                "missing canonical {kind:?} global grammar"
+            );
+        }
+        assert!(functions
+            .iter()
+            .any(|entry| entry.kind == DynamicFunctionKind::Generator
+                && entry.arguments == ["yield", "return yield"]
+                && matches!(
+                    entry.outcome,
+                    PreparedDynamicFunctionOutcome::SyntaxError { .. }
+                )));
+    }
+}
+
+#[test]
+fn prepared_global_constructor_hints_cover_unmodified_generator_runtime_source() {
+    const SOURCE: &str =
+        include_str!("../../../test262/vendor/test262/test/staging/sm/generators/runtime.js");
+    for prefix in ["", "'use strict';"] {
+        let parsed = parse(format!("{prefix}{SOURCE}"), ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let functions = program.script.unwrap().prepared_dynamic_functions;
+        for arguments in [
+            vec!["yield", "return yield"],
+            vec!["\"use strict\"; with (x) return foo;"],
+        ] {
+            assert!(
+                functions
+                    .iter()
+                    .any(|entry| entry.kind == DynamicFunctionKind::Generator
+                        && entry.arguments == arguments
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::SyntaxError { .. }
+                        )),
+                "missing generator syntax rejection for {arguments:?}"
+            );
+        }
+        assert!(functions
+            .iter()
+            .any(|entry| entry.kind == DynamicFunctionKind::Generator
+                && entry.arguments.is_empty()
+                && matches!(
+                    entry.outcome,
+                    PreparedDynamicFunctionOutcome::Compiled { .. }
+                )));
+    }
+}
+
+#[test]
+fn prepared_global_constructor_hints_stop_at_shadow_with_and_local_cells() {
+    let parsed = parse(
+        r#"
+var Factory = (function* () {}).constructor;
+Function('Factory', "return Factory('return 997;');");
+Function("var Factory; return Factory('return 998;');");
+Function("with (globalThis.unknown) { Factory('return 999;'); }");
+function owner() {
+    var LocalOnly = (function* () {}).constructor;
+    Function("return LocalOnly('return 996;');");
+}
+owner();
+"#,
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    for entry in program.script.unwrap().prepared_dynamic_functions {
+        assert!(
+            !["return 996;", "return 997;", "return 998;", "return 999;"]
+                .iter()
+                .any(|body| entry.kind == DynamicFunctionKind::Generator
+                    && entry.arguments == [*body]),
+            "an unrelated local or Object Environment borrowed a global grammar hint"
+        );
+    }
+}
+
+#[test]
+fn supplemental_global_constructor_sources_never_authorize_host_requests() {
+    use lila_ir::{HostSurfacePolicy, LoweringSession};
+    let parsed = parse(
+        r#"
+var Factory = (function* () {}).constructor;
+Function("return Factory(\"yield realm.importValue('./hint-only.js', 'value');\");");
+Function("return Factory(\"yield import('./dynamic-only.js');\");");
+Function("return Factory(\"yield eval('privateName');\");");
+Function("return Factory(\"yield ({}).#privateName;\");");
+"#,
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let session = LoweringSession::default();
+    let program = session.lower_source(&parsed, HostSurfacePolicy::default());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(session.realm_module_requests().is_empty());
+    assert!(session.prepared_script_import_sites().is_empty());
+    let functions = program.script.unwrap().prepared_dynamic_functions;
+    assert!(!functions
+        .iter()
+        .any(|entry| entry.kind == DynamicFunctionKind::Generator
+            && entry.arguments.iter().any(|body| body.contains("hint-only")
+                || body.contains("dynamic-only")
+                || body.contains("eval("))));
+    // Independent Function grammar rejects unknown private names; it never
+    // borrows the caller's private environment to compile the expression.
+    assert!(functions
+        .iter()
+        .any(|entry| entry.kind == DynamicFunctionKind::Generator
+            && entry.arguments == ["yield ({}).#privateName;"]
+            && matches!(
+                entry.outcome,
+                PreparedDynamicFunctionOutcome::SyntaxError { .. }
+            )));
+}
+
+#[test]
 fn mixed_prototype_readers_keep_existing_primary_boxed_source_candidates() {
     let parsed = parse(
         r#"

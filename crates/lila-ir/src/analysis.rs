@@ -252,6 +252,7 @@ impl AnalysisAllocationState {
 pub(crate) struct Analysis<'a> {
     pub(crate) binding_inference: OwnerBindingInference<'a>,
     pub(crate) template_source: Option<TemplateSourceIr>,
+    pub(crate) function_global_hints: crate::prepared_source_cache::FunctionGlobalConstructorHints,
     pub(crate) script_instantiation: ScriptInstantiation,
     pub(crate) allocations: AnalysisAllocationState,
     pub(crate) owner_plans: BTreeMap<String, OwnerPlan>,
@@ -602,6 +603,7 @@ impl<'a> AnalysisBuilder<'a> {
         );
         Analysis {
             binding_inference,
+            function_global_hints: Default::default(),
             template_source: self.template_source,
             script_instantiation: self.script_instantiation,
             allocations: AnalysisAllocationState {

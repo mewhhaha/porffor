@@ -435,6 +435,7 @@ impl ScriptLowerer<'_> {
         callee: &Expression,
         arguments: &[Expression],
     ) {
+        self.register_function_global_hint_candidates(callee, arguments);
         self.register_source_call_argument_candidates(callee, arguments);
         let property_name =
             |access: &boa_ast::expression::access::SimplePropertyAccess| match access.field() {

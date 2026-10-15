@@ -33,6 +33,123 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
 }
 
 #[test]
+fn prepared_global_constructor_hints_run_unmodified_generator_runtime_in_both_modes() {
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    const COMPARE: &str =
+        include_str!("../../../../test262/vendor/test262/harness/compareArray.js");
+    const SOURCE: &str =
+        include_str!("../../../../test262/vendor/test262/test/staging/sm/generators/runtime.js");
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{STA}\n{ASSERT}\n{COMPARE}\n{SOURCE}"),
+            &[],
+        );
+    }
+}
+
+#[test]
+fn prepared_global_constructor_hints_keep_callee_conversion_getter_and_throw_order_live() {
+    let source = r#"
+var Factory = (function* () {}).constructor;
+var original = Factory;
+var trace = '';
+var marker = {};
+function replacement(argument) { trace += 'replacement:' + typeof argument + ';'; return 32; }
+var run = Function("return Factory({ toString: function () { trace += 'convert;'; Factory = replacement; return 'yield 31;'; } });");
+print(run()().next().value);
+print(run());
+print(trace);
+Factory = original;
+trace = '';
+var ordered = Function("return Factory({ toString: function () { trace += 'param;'; return 'value'; } }, { toString: function () { trace += 'body;'; if (marker) throw marker; return 'yield value;'; } });");
+try { ordered(); throw 'missing conversion throw'; }
+catch (error) { print(error === marker); }
+print(trace);
+trace = '';
+var getter = Function("return Factory({ get toString() { trace += 'get;'; throw marker; } });");
+try { getter(); throw 'missing getter throw'; }
+catch (error) { print(error === marker); }
+print(trace);
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "31",
+                "32",
+                "convert;replacement:object;",
+                "true",
+                "param;body;",
+                "true",
+                "get;",
+            ],
+        );
+    }
+}
+
+#[test]
+fn prepared_global_constructor_hints_keep_foreign_globals_realms_and_replacements_live() {
+    let source = r#"
+var Factory = (function* () {}).constructor;
+var foreign = __lilaCreateRealm().global;
+var source = foreign.Function('return function* () {};')();
+var foreignFactory = Object.getPrototypeOf(source).constructor;
+foreign.Factory = foreignFactory;
+var run = foreign.Function("return Factory('yield globalThis;');");
+var created = run();
+print(created().next().value === foreign);
+print(Object.getPrototypeOf(created) === foreignFactory.prototype);
+foreign.Factory = function (body) { return body; };
+print(run());
+var shadowed = foreign.Function('Factory', "return Factory('yield 44;');");
+print(shadowed(function (body) { return body; }));
+var withObject = foreign.Function('object', "with (object) { return Factory('yield 45;'); }");
+print(withObject({ Factory: function (body) { return body; } }));
+"#;
+    for prefix in ["", "'use strict';"] {
+        assert_function_trace(
+            &format!("{prefix}{source}"),
+            &[
+                "true",
+                "true",
+                "yield globalThis;",
+                "yield 44;",
+                "yield 45;",
+            ],
+        );
+    }
+}
+
+#[test]
+fn prepared_global_constructor_hints_keep_unknown_sources_as_typed_rejections() {
+    use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let error = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            r#"var Factory = (function* () {}).constructor;
+var run = Function("return Factory('yield 1;' + '/*' + Math.random() + '*/');");
+try { run(); } catch (error) { print('caught'); }"#,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect_err("unprepared source remains an uncatchable capability rejection");
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::Function(
+            DynamicFunctionKind::Generator
+        )],
+        "{error}"
+    );
+    assert!(error.parse_diagnostic().is_none(), "{error}");
+    assert!(error.ir_diagnostic().is_none(), "{error}");
+}
+
+#[test]
 fn finite_constructor_arrays_and_iterators_keep_all_four_execution_protocols() {
     let definitions = r#"
 var Ordinary = Function;
