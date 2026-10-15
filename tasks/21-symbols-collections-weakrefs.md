@@ -86,7 +86,7 @@ original source scope and cannot verify this correction. The semantic GC switch,
 real weak/ephemeron facility and complete T05/T21 acceptance remain open. See the
 [boundary contract](../docs/rust-rewrite/contracts/weak-unavailable-runtime-boundary.md).
 
-**Status:** In progress — reviewed Symbol/strong-collection source is authored; real weak reachability is explicitly unavailable, and task-wide native, pinned-suite and resource/performance acceptance remain open.
+**Status:** In progress — Symbol, strong collections, weak collections, WeakRef and finalization have real product implementations. The October 11/13 checkpoints above supersede the older unavailable-capability descriptions below. Current task-wide pinned-suite and resource/performance acceptance remain open.
 
 **Parallel group:** Feature lane; split internally by Symbol, strong collections and weak reachability  
 **Depends on:** T05, T06, T10; iterators use T15; cleanup jobs use T14  
@@ -103,14 +103,13 @@ compilation and execution are pending. See the
 [completed record contract](../docs/rust-rewrite/contracts/completed-set-like-record.md).
 
 Symbol, Map and Set retain their active runtime records and builtin algorithms.
-WeakMap, WeakSet, WeakRef and FinalizationRegistry retain installed intrinsic
-surfaces and ordinary early validation, while actual successful construction
-and weak storage require the explicitly unavailable runtime facility. Their
-previous strong-retaining record producers are retired. Passive weak layout
-and ephemeron edge declarations do not implement reachability or cleanup jobs.
-Strong collection coverage has advanced, but real weak semantics and complete
-tree acceptance remain open on T05/T14. Later records below describe their
-dated source checkpoints; current weak behavior follows the boundary above.
+WeakMap, WeakSet, WeakRef and FinalizationRegistry use the real weak/ephemeron
+facility and job integration recorded in the October 11/13 checkpoints above.
+Both original deep WeakMap modes pass the unchanged deadlines on those
+verified sources. The unavailable-capability descriptions below document the
+earlier October 3/7 source states. They do not describe current weak storage.
+Current task-wide pinned, lifecycle, stress and resource acceptance remains
+open; the focused RegExp/label check is not a substitute for those gates.
 
 Map and Set iterator result shape is now a closed persisted-wire domain rather
 than five raw integer constants. Each constructor accepts only

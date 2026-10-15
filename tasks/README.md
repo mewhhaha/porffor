@@ -1,5 +1,30 @@
 # Lila Rust AOT + Test262 execution plan
 
+## Current verification and remaining gates — 2026-10-15
+
+Source `fb3a1235` passes all 1,556 selected RegExp/label native tests, retaining
+all 1,551 preceding passes, repairing both recorded failures and adding three
+activation-binding controls. The [portable focused proof](../docs/rust-rewrite/focused-native-fb3a1235-20261015.json)
+preserves the earlier failures and current source-bound results. All 546 Python
+tooling tests pass, retaining every one of the earlier 539 IDs. Formatting,
+module boundaries, host ABI and product interpreter-exclusion checks pass.
+
+The full 107-scope default and 108-scope all-features workspace runs are queued
+on that same frozen source. Their accepted predecessors on `8e9a8c82` contain
+9,161 and 9,254 passing IDs respectively; every eligible previous ID must remain
+passing. Ordinary CLI55, historical 5,365-ID retention and the fresh complete
+pinned Test262 runs remain pending. The earlier `8e9a8c82` Test262 runs are
+[closed partial results](../docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json),
+with 16,071 distinct prior passing IDs required by the next complete replay.
+
+The dated reports and acceptance table below remain historical records.
+Real weak collections and finalization are implemented and evidenced by the
+October 11/13 checkpoints; the older unavailable-weak descriptions are
+superseded. Task-wide pinned semantic families, resource/stress criteria and
+required independent-host evidence still need their own results. No task is
+closed by this status update. Keep CONTINUE.md and tasks until their actual
+acceptance gates pass.
+
 ## Verified String construction and retained native passes — 2026-10-13
 
 Actual `afba1a07a` completes fifteen optimized native scopes: 5,455 pass,
