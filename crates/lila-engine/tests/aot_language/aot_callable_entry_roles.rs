@@ -121,3 +121,153 @@ defaults() && enclosing(43);
 "#,
     );
 }
+
+fn assert_labelled_lexical_depth(source: &str) {
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    lila_engine::configure_compilation_jobs(1).expect("one compiler worker");
+    // Host surface selection must not select a labelled-declaration dialect.
+    for host_surface_policy in [HostSurfacePolicy::Product, HostSurfacePolicy::Test262] {
+        let source = format!("{STA}\n{ASSERT}\n{source}\ntrue;");
+        let outcome = Engine::new(RealmBuilder::new().build())
+            .run_script(
+                &source,
+                CompileOptions {
+                    host_surface_policy,
+                    ..CompileOptions::default()
+                },
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(60_000),
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("labelled lexical depth failed: {error}\n{source}"));
+        assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+        assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
+    }
+}
+
+#[test]
+fn labelled_single_lexical_items_and_top_level_chains_keep_hoisted_functions() {
+    assert_labelled_lexical_depth(
+        r#"
+assert.sameValue(root(), 17);
+top: next: function root() { return 17; }
+function owner() {
+  assert.sameValue(inner(), 19);
+  first: second: function inner() { return 19; }
+  {
+    assert.sameValue(single(), 23);
+    label: function single() { return 23; }
+    assert.sameValue((() => single)(), single);
+  }
+  switch (0) {
+    case 0:
+      assert.sameValue(caseSingle(), 29);
+      break;
+    default:
+      label: function caseSingle() { return 29; }
+  }
+}
+owner();
+"#,
+    );
+}
+
+#[test]
+fn labelled_chains_do_not_create_block_or_case_bindings() {
+    assert_labelled_lexical_depth(
+        r#"
+{
+  assert.sameValue(typeof missingBlock, 'undefined');
+  assert.throws(ReferenceError, () => missingBlock);
+  outer: inner: function missingBlock() { return 31; }
+  assert.throws(ReferenceError, () => missingBlock);
+}
+switch (0) {
+  case 0:
+    assert.sameValue(typeof missingCase, 'undefined');
+    assert.throws(ReferenceError, () => missingCase);
+    outer: inner: function missingCase() { return 37; }
+    assert.throws(ReferenceError, () => missingCase);
+    break;
+}
+function outerBindings() {
+  let existing = 41;
+  {
+    assert.sameValue(existing, 41);
+    a: b: c: function existing() { return 43; }
+    assert.sameValue(existing, 41);
+  }
+  switch (0) {
+    case 0:
+      assert.sameValue(existing, 41);
+      a: b: function existing() { return 47; }
+      assert.sameValue(existing, 41);
+  }
+  return existing;
+}
+assert.sameValue(outerBindings(), 41);
+{
+  assert.sameValue(direct(), 53);
+  function direct() { return 53; }
+  a: b: function direct() { return 59; }
+  assert.sameValue(direct(), 53);
+}
+with ({ visible: 61 }) {
+  a: b: function visible() { return 67; }
+  assert.sameValue(visible, 61);
+}
+try { throw 71; } catch (caught) {
+  a: b: function caught() { return 73; }
+  assert.sameValue(caught, 71);
+}
+"#,
+    );
+}
+
+#[test]
+fn labelled_chains_do_not_invent_closure_aliases_or_finite_eval_bindings() {
+    assert_labelled_lexical_depth(
+        r#"
+var readMissing;
+{
+  readMissing = () => absent;
+  a: b: function absent() { return 79; }
+}
+assert.throws(ReferenceError, readMissing);
+eval("{ assert.throws(ReferenceError, () => evalMissing); a: b: function evalMissing() {} assert.throws(ReferenceError, () => evalMissing); }");
+function capturedOuter() {
+  let visible = 83;
+  let read;
+  {
+    read = () => visible;
+    assert.sameValue(eval('visible'), 83);
+    a: b: function visible() { return 89; }
+    assert.sameValue(eval('visible'), 83);
+  }
+  assert.sameValue(read(), 83);
+  switch (0) {
+    case 0:
+      assert.sameValue(eval('visible'), 83);
+      a: b: function visible() { return 97; }
+      assert.sameValue(eval('visible'), 83);
+  }
+  return read();
+}
+assert.sameValue(capturedOuter(), 83);
+"#,
+    );
+}
+
+#[test]
+fn unchanged_pinned_labelled_function_syntax_keeps_both_top_level_names() {
+    const PINNED: &str = include_str!(
+        "../../../../test262/vendor/test262/test/annexB/language/statements/labeled/function-declaration.js"
+    );
+    let source = format!(
+        "{PINNED}\nassert.sameValue(typeof g, 'function');\nassert.sameValue(typeof f, 'function');"
+    );
+    assert_labelled_lexical_depth(&source);
+}

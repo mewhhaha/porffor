@@ -908,3 +908,106 @@ fn annex_b_labelled_block_function_shares_storage_with_direct_redeclaration() {
     let copies = collect_annex_b_copies(&script.body);
     assert!(copies.iter().any(|(source, _, _)| source == "g"));
 }
+
+#[test]
+fn labelled_lexical_selector_stops_at_a_statement_instead_of_unwrapping_labels() {
+    let source = "single: function first() {} outer: inner: function chained() {}";
+    let mut interner = Interner::default();
+    let scope = Scope::new_global();
+    let parsed = Parser::new(Source::from_bytes(source.as_bytes()))
+        .parse_script(&scope, &mut interner)
+        .expect("sloppy labelled declarations should parse");
+    let items = parsed.statements().statements();
+    assert!(lexically_scoped_statement_list_item_function_declaration(&items[0]).is_some());
+    assert!(lexically_scoped_statement_list_item_function_declaration(&items[1]).is_none());
+    // Syntax/root traversal is a different operation and still sees the chain.
+    assert!(statement_list_item_function_declaration(&items[1]).is_some());
+}
+
+#[test]
+fn labelled_block_and_case_environments_keep_only_direct_lexical_label_items() {
+    for source in [
+        "function owner() { { label: function single() {} a: b: function chained() {} function read() { return single; } eval('typeof single'); } }",
+        "function owner() { switch (0) { case 0: label: function single() {} a: b: function chained() {} function read() { return single; } eval('typeof single'); } }",
+    ] {
+        with_script_analysis(source, |analysis| {
+            let read = analysis
+                .function_plans
+                .values()
+                .find(|function| function.name == "read")
+                .expect("the reader must be analyzed");
+            assert!(read.capture_aliases.contains_key("single"), "{source}");
+            assert!(!read.capture_aliases.contains_key("chained"), "{source}");
+            let environment = analysis
+                .environment_plans
+                .values()
+                .find(|environment| {
+                    matches!(
+                        environment.kind,
+                        EnvironmentKind::Block | EnvironmentKind::SwitchCaseBlock
+                    ) && environment
+                        .binding_storage_names
+                        .iter()
+                        .any(|name| name.ends_with(".single"))
+                })
+                .expect("the single-labelled function needs a lexical environment");
+            assert!(!environment
+                .binding_storage_names
+                .iter()
+                .any(|name| name.ends_with(".chained")), "{source}");
+            let Some(EvalEnvironmentRoleIr::Declarative { bindings, .. }) =
+                &environment.eval_environment
+            else {
+                panic!("the direct-eval-visible lexical record must be retained: {source}");
+            };
+            assert!(bindings.iter().any(|binding| binding.source_name == "single"));
+            assert!(bindings.iter().all(|binding| binding.source_name != "chained"));
+        });
+    }
+}
+
+#[test]
+fn labelled_case_initialization_omits_chains_without_changing_annex_b_copies() {
+    let program = lower_script(
+        "function owner() { switch (0) { case 0: label: function single() {} a: b: function chained() {} } return typeof chained; }",
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script IR");
+    let owner = script.functions.iter().find(|f| f.name == "owner").unwrap();
+    let declarations = owner
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Switch {
+                lexical_declarations,
+                ..
+            } => Some(lexical_declarations),
+            _ => None,
+        })
+        .expect("switch IR");
+    assert_eq!(declarations.len(), 1);
+    assert!(matches!(&declarations[0], StatementIr::Lexical { name, .. }
+        if name.ends_with(".single")));
+    assert!(collect_annex_b_copies(&owner.body).is_empty());
+    assert!(!owner
+        .owned_env_bindings
+        .iter()
+        .any(|binding| { binding.name == "chained" || binding.name.ends_with(".chained") }));
+}
+
+#[test]
+fn labelled_chains_keep_script_and_function_top_level_var_hoisting() {
+    let source = "root(); a: b: function root() { return 17; } function owner() { inner(); c: d: function inner() { return 19; } }";
+    let program = lower_script(source);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script IR");
+    assert!(script.global_bindings.iter().any(|binding| {
+        binding.name == "root" && binding.declarations == GlobalDeclarationSetIr::Function
+    }));
+    with_script_analysis(source, |analysis| {
+        let owner = function_owner_plan_by_name(analysis, "owner");
+        assert!(owner.root_bindings.contains("inner"));
+        assert!(owner.function_bindings.contains_key("inner"));
+    });
+}

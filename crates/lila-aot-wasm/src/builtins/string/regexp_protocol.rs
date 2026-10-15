@@ -926,6 +926,7 @@ impl FunctionBuilder<'_> {
         let end = s.reserve_i64_local(f);
         let unit = s.reserve_i32_local(f);
         let escaped = s.reserve_i32_local(f);
+        let in_class = s.reserve_i32_local(f);
         self.emit_native_gc_string_length(&source, length, f);
         let accumulated = s
             .reserve_gc_local(f)
@@ -942,6 +943,8 @@ impl FunctionBuilder<'_> {
         index.store(f);
         f.instruction(&Instruction::I32Const(0));
         escaped.store(f);
+        f.instruction(&Instruction::I32Const(0));
+        in_class.store(f);
         let done = self.open_frame(ControlFrameKind::Block, f);
         let next = self.open_frame(ControlFrameKind::Loop, f);
         index.load(f);
@@ -962,7 +965,14 @@ impl FunctionBuilder<'_> {
             f.instruction(&Instruction::I32Const(i32::from(code)));
             f.instruction(&Instruction::I32Eq);
             self.open_frame(ControlFrameKind::If, f);
+            // Reuse an existing odd trailing backslash instead of doubling it.
+            escaped.load(f);
+            self.open_frame(ControlFrameKind::If, f);
+            piece.replace(self.emit_native_string_static(&replacement[1..], f), f);
+            f.instruction(&Instruction::Else);
             piece.replace(self.emit_native_string_static(replacement, f), f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
             self.pop_control(ControlFrameKind::If);
             f.instruction(&Instruction::End);
         }
@@ -970,6 +980,9 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::I32Const(47));
         f.instruction(&Instruction::I32Eq);
         escaped.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        f.instruction(&Instruction::I32And);
+        in_class.load(f);
         f.instruction(&Instruction::I32Eqz);
         f.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, f);
@@ -981,6 +994,23 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         accumulated.replace(self.emit_concat_gc_strings(&accumulated, &piece, f), f);
         piece.clear(f);
+        // RegularExpressionLiteral has a lexical (non-nested) class grammar.
+        // Valid v-mode class sets already protect their slash characters.
+        escaped.load(f);
+        f.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, f);
+        for (code, inside) in [(91, true), (93, false)] {
+            unit.load(f);
+            f.instruction(&Instruction::I32Const(code));
+            f.instruction(&Instruction::I32Eq);
+            self.open_frame(ControlFrameKind::If, f);
+            f.instruction(&Instruction::I32Const(i32::from(inside)));
+            in_class.store(f);
+            self.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
+        }
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
         unit.load(f);
         f.instruction(&Instruction::I32Const(92));
         f.instruction(&Instruction::I32Eq);
@@ -1004,6 +1034,7 @@ impl FunctionBuilder<'_> {
         f.instruction(&Instruction::End);
         self.emit_native_string_normal_reference(&accumulated, &output, f);
         accumulated.clear(f);
+        s.release_i32_local(in_class, f);
         s.release_i32_local(escaped, f);
         s.release_i32_local(unit, f);
         s.release_i64_local(end, f);

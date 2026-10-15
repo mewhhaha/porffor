@@ -356,6 +356,25 @@ pub(crate) fn statement_list_item_function_declaration(
     }
 }
 
+/// Function declarations selected by Block/CaseBlock lexical instantiation.
+/// Keep this separate from the Annex B declaration-candidate syntax walker.
+pub(crate) fn lexically_scoped_statement_list_item_function_declaration(
+    item: &StatementListItem,
+) -> Option<&FunctionDeclaration> {
+    match item {
+        StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+            Declaration::FunctionDeclaration(function) => Some(function),
+            _ => None,
+        },
+        StatementListItem::Statement(statement) => match statement.as_ref() {
+            Statement::Labelled(labelled) => {
+                lexically_scoped_labelled_function_declaration(labelled)
+            }
+            _ => None,
+        },
+    }
+}
+
 pub(crate) fn annex_b_block_storage_name(
     function: &FunctionDeclaration,
     source_name: &str,
@@ -2071,6 +2090,21 @@ pub(crate) fn private_name_key(interner: &Interner, name: PrivateName) -> String
     interner.resolve_expect(name.description()).to_string()
 }
 
+/// LexicallyScopedDeclarations of a LabelledStatement: only the immediate
+/// LabelledItem::FunctionDeclaration contributes a declaration. An inner label
+/// is LabelledItem::Statement and contributes nothing to a Block or CaseBlock.
+/// TopLevelVarScopedDeclarations deliberately uses the separate chain walker.
+pub(crate) fn lexically_scoped_labelled_function_declaration(
+    labelled: &AstLabelled,
+) -> Option<&FunctionDeclaration> {
+    match labelled.item() {
+        LabelledItem::FunctionDeclaration(function) => Some(function),
+        LabelledItem::Statement(_) => None,
+    }
+}
+
+/// Top-level declaration collection and syntax traversal may unwrap labels.
+/// Do not use this walker to collect Block/CaseBlock lexical declarations.
 pub(crate) fn labelled_function_declaration(
     labelled: &AstLabelled,
 ) -> Option<&FunctionDeclaration> {

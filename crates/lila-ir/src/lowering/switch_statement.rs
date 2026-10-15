@@ -45,7 +45,9 @@ impl<'a> ScriptLowerer<'a> {
         let mut last_function_by_name = BTreeMap::new();
         for case in switch.cases() {
             for item in case.body().statements() {
-                let Some(function) = statement_list_item_function_declaration(item) else {
+                let Some(function) =
+                    lexically_scoped_statement_list_item_function_declaration(item)
+                else {
                     continue;
                 };
                 last_function_by_name

@@ -2581,7 +2581,9 @@ impl<'a> AnalysisBuilder<'a> {
                 },
                 StatementListItem::Statement(statement) => {
                     if let Statement::Labelled(labelled) = statement.as_ref() {
-                        if let Some(function) = labelled_function_declaration(labelled) {
+                        if let Some(function) =
+                            lexically_scoped_labelled_function_declaration(labelled)
+                        {
                             self.add_scoped_function_alias(interner, function, &mut aliases);
                         }
                     }
@@ -2663,7 +2665,8 @@ impl<'a> AnalysisBuilder<'a> {
                     let Statement::Labelled(labelled) = statement.as_ref() else {
                         continue;
                     };
-                    let Some(function) = labelled_function_declaration(labelled) else {
+                    let Some(function) = lexically_scoped_labelled_function_declaration(labelled)
+                    else {
                         continue;
                     };
                     let storage_name = self

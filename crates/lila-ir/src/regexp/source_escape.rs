@@ -2,9 +2,11 @@
 
 /// The empty OriginalSource is displayed as a noncapturing empty pattern.
 pub const REGEXP_EMPTY_SOURCE: &str = "(?:)";
-/// Escape a delimiter not already protected by an odd backslash run.
+/// Escape a delimiter outside a character class and an odd backslash run.
 pub const REGEXP_SOURCE_SLASH_ESCAPE: &str = "\\/";
 /// Each LineTerminator is escaped without changing its matched code unit.
+/// After an odd backslash run, reuse its final backslash by appending only the
+/// suffix of this spelling; adding a second backslash changes the matcher.
 pub const REGEXP_SOURCE_LINE_ESCAPES: [(u16, &str); 4] = [
     (10, "\\n"),
     (13, "\\r"),
@@ -20,15 +22,34 @@ pub fn escape_regexp_pattern_utf16(pattern: &[u16]) -> Vec<u16> {
     }
     let mut result = Vec::with_capacity(pattern.len());
     let mut escaped = false;
+    let mut in_class = false;
     for &unit in pattern {
-        let replacement = REGEXP_SOURCE_LINE_ESCAPES
+        if let Some(replacement) = REGEXP_SOURCE_LINE_ESCAPES
             .iter()
             .find_map(|&(code, text)| (unit == code).then_some(text))
-            .or_else(|| (unit == 47 && !escaped).then_some(REGEXP_SOURCE_SLASH_ESCAPE));
-        if let Some(replacement) = replacement {
+        {
+            // The preceding backslash already belongs to this escape. Keep it
+            // once, including when the original source has a longer odd run.
+            let replacement = if escaped {
+                &replacement[1..]
+            } else {
+                replacement
+            };
             result.extend(replacement.encode_utf16());
+        } else if unit == 47 && !escaped && !in_class {
+            result.extend(REGEXP_SOURCE_SLASH_ESCAPE.encode_utf16());
         } else {
             result.push(unit);
+        }
+        // Track the lexical RegularExpressionClass, not Pattern nesting. The
+        // literal grammar permits a raw slash inside this class. In v mode a
+        // valid Pattern already escapes every class-set slash.
+        if !escaped {
+            if unit == 91 {
+                in_class = true;
+            } else if unit == 93 {
+                in_class = false;
+            }
         }
         escaped = unit == 92 && !escaped;
     }
@@ -54,6 +75,55 @@ mod tests {
             (vec![0xd83d, 0xde00], vec![0xd83d, 0xde00]),
         ] {
             assert_eq!(escape_regexp_pattern_utf16(&pattern), expected);
+        }
+    }
+}
+
+#[cfg(test)]
+mod source_context_tests {
+    use super::*;
+
+    #[test]
+    fn line_terminator_escapes_reuse_an_existing_odd_backslash() {
+        for (unit, replacement) in REGEXP_SOURCE_LINE_ESCAPES {
+            for prefix_length in 0..=4 {
+                for class in [false, true] {
+                    let mut pattern = vec![92; prefix_length];
+                    pattern.push(unit);
+                    let mut expected = vec![92; prefix_length - prefix_length % 2];
+                    expected.extend(replacement.encode_utf16());
+                    if class {
+                        pattern.insert(0, 91);
+                        pattern.push(93);
+                        expected.insert(0, 91);
+                        expected.push(93);
+                    }
+                    assert_eq!(escape_regexp_pattern_utf16(&pattern), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn slashes_follow_lexical_class_and_backslash_context() {
+        for (pattern, expected) in [
+            ("[/]", "[/]"),
+            (r"[\/]", r"[\/]"),
+            (r"[\\/]", r"[\\/]"),
+            (r"[\\\/]", r"[\\\/]"),
+            (r"\[/\]", r"\[\/\]"),
+            (r"[\]]/", r"[\]]\/"),
+            (r"[[]/", r"[[]\/"),
+            (r"[\\]/", r"[\\]\/"),
+            (r"[/]\[/", r"[/]\[\/"),
+            (r"[[a]--[b]]\/", r"[[a]--[b]]\/"),
+            (r"[\q{a\/b}]", r"[\q{a\/b}]"),
+        ] {
+            assert_eq!(
+                escape_regexp_pattern_utf16(&pattern.encode_utf16().collect::<Vec<_>>()),
+                expected.encode_utf16().collect::<Vec<_>>(),
+                "{pattern}"
+            );
         }
     }
 }

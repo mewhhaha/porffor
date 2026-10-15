@@ -1,5 +1,27 @@
 # Lila
 
+## RegExp source and labelled lexical scope repair batch — 2026-10-15
+
+The next compiler batch fixes RegExp source serialization after an already
+escaped line terminator and preserves delimiter spelling inside character
+classes. Finite source discovery and the emitted Wasm getter use the same
+policy, with matcher and source round-trip regression coverage.
+
+Block and switch lexical declaration selection now stops at a labelled
+Statement, as required by the pinned static semantics. Direct labelled function
+declarations and top-level label-chain hoisting retain their respective rules;
+closures and finite eval use the same lexical selection. The separate disputed
+Annex B outer-copy behavior is unchanged. See the
+[lexical scope contract](docs/rust-rewrite/contracts/labelled-function-lexical-depth.md).
+
+These source changes are prepared; native verification remains pending. Both
+preceding `8e9a8c82` Test262 replays are now closed with incomplete coverage:
+1,436 historical successes and 10,898 full-suite successes across 67/748 nodes.
+Every observed success remains required in current-source retention, alongside
+all 5,142 earlier historical passes. The historical run retained all 1,405
+earlier passes it reached. Literal failures and unrun IDs remain recorded;
+these partial runs do not close the full pinned suite or individual task gates.
+
 ## Guarded full-suite continuation — 2026-10-15
 
 The frozen `8e9a8c82` full pinned Test262 family resumes under a persistent
