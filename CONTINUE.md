@@ -1,5 +1,34 @@
 # Current continuation — 2026-10-15
 
+## Guarded full-suite continuation — 2026-10-15
+
+The frozen `8e9a8c82` full pinned Test262 family resumes under a persistent
+supervisor. It checks a fresh complete file inventory before native commands
+and retains full byte-identity checks at startup, before publication and at
+closure. Compiler, suite pins, three workers, serial native jobs, 60,000 ms
+case deadlines and cache caps keep their existing policy.
+
+The closed handoff preserves **28 complete native nodes / 6,469 executions**:
+**6,464 Success, 4 NotImplemented, 1 Bug, zero Crash**. Every previous node's
+JSON/TXT/timing bytes and positive and negative IDs are retained. The original
+publisher keeps its literal **exit 143**; the separate continuation's actual
+startup identity and native progress through **31/748 nodes** are recorded.
+Historical replay continues separately. These are partial observations;
+full-suite and task acceptance remain open.
+
+The [portable handoff checkpoint](docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json)
+includes the raw boundary, original interruption, normal CLI provenance,
+controller controls and observed continuation. Verify it offline with:
+
+```sh
+python3 -B docs/rust-rewrite/verify-guarded-publication-handoff-8e9a8c82-20261015.py \
+  docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json
+```
+
+The observed startup identity phase took 7.847 seconds. The checkpoint retains
+individual inventory-check timings; no controlled speed gain is claimed.
+CONTINUE.md and tasks remain until their complete acceptance gates pass.
+
 ## Cloud conformance worker CPUs — 2026-10-15
 
 `limited_verification.py --cloud --cloud-worker-cpus auto` gives explicitly
