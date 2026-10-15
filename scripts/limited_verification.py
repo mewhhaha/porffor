@@ -4,8 +4,9 @@
 Local scopes use at most 4096 MiB, no swap and grouped OOM termination.
 An explicit --cloud invocation uses the managed machine's inherited finite
 cap instead. Cargo builds and test execution remain serial. Cloud callers may
-opt into CPU-quota-bound native compilation with --cloud-cpus auto; explicit
-payload worker counts are preserved.
+opt into CPU-quota-bound native compilation with --cloud-cpus auto, or give
+explicit payload workers a quota-bound CPU set with --cloud-worker-cpus auto
+while native compilation stays serial. Payload worker counts are preserved.
 """
 
 import argparse
@@ -118,7 +119,7 @@ def require_cloud_budget(*, serial: bool = True) -> int:
     return min(limits)
 
 
-def cloud_native_affinity() -> int:
+def cloud_affinity(*, native_limits: bool) -> int:
     """Use whole CPUs within the inherited affinity and tightest CPU quota."""
     inherited = os.sched_getaffinity(0)
     if not inherited:
@@ -140,13 +141,22 @@ def cloud_native_affinity() -> int:
         if group == root:
             break
         group = group.parent
-    for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
-        capacity = inherited_limit(os.environ, name, capacity)
+    if native_limits:
+        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+            capacity = inherited_limit(os.environ, name, capacity)
     selected = set(sorted(inherited)[:capacity])
     os.sched_setaffinity(0, selected)
     if os.sched_getaffinity(0) != selected:
-        raise ValueError("cloud native compilation CPU affinity could not be established")
+        raise ValueError("cloud CPU affinity could not be established")
     return len(selected)
+
+
+def cloud_native_affinity() -> int:
+    return cloud_affinity(native_limits=True)
+
+
+def cloud_worker_affinity() -> int:
+    return cloud_affinity(native_limits=False)
 
 
 def main(argv=None) -> int:
@@ -155,8 +165,11 @@ def main(argv=None) -> int:
                         help="local scope budget in MiB (default: 4096)")
     parser.add_argument("--cloud", action="store_true",
                         help="use the managed cloud machine's inherited finite memory cap")
-    parser.add_argument("--cloud-cpus", choices=("auto",),
-                        help="opt into quota-bound cloud native compilation; tests and Cargo builds stay serial")
+    cloud_cpus = parser.add_mutually_exclusive_group()
+    cloud_cpus.add_argument("--cloud-cpus", choices=("auto",),
+                            help="opt into quota-bound cloud native compilation; tests and Cargo builds stay serial")
+    cloud_cpus.add_argument("--cloud-worker-cpus", choices=("auto",),
+                            help="give explicit payload workers quota-bound cloud CPUs; native compilation, tests and Cargo builds stay serial")
     parser.add_argument("--in-scope", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -167,17 +180,25 @@ def main(argv=None) -> int:
         parser.error("--cloud cannot be combined with local scope options")
     if args.cloud_cpus is not None and not args.cloud:
         parser.error("--cloud-cpus requires --cloud")
+    if args.cloud_worker_cpus is not None and not args.cloud:
+        parser.error("--cloud-worker-cpus requires --cloud")
     memory_mib = args.memory_mib or DEFAULT_MEMORY_MIB
     budget = memory_mib * MIB
     try:
         if not sys.platform.startswith("linux"):
             raise ValueError("Linux cgroup-v2 memory control is required; verification was not started")
         if args.cloud:
-            cap = require_cloud_budget(serial=args.cloud_cpus is None)
-            native_jobs = cloud_native_affinity() if args.cloud_cpus is not None else None
+            cap = require_cloud_budget(serial=args.cloud_cpus is None and args.cloud_worker_cpus is None)
+            cpus = 1
+            native_jobs = None
+            if args.cloud_cpus is not None:
+                cpus = native_jobs = cloud_native_affinity()
+            elif args.cloud_worker_cpus is not None:
+                cpus = cloud_worker_affinity()
+                native_jobs = 1
             environment = limited_environment(cloud_budget=cap, native_jobs=native_jobs)
             print(f"limited-verification: confirmed inherited cloud memory cap {cap} bytes, "
-                  f"{native_jobs or 1} CPU(s), serial Cargo/test defaults, "
+                  f"{cpus} CPU(s), serial Cargo/test defaults, "
                   f"native compilation defaults up to {environment['LILA_JOBS']} jobs; retained module cache "
                   f"{environment['LILA_MODULE_MEMORY_CACHE_ENTRIES']} entries / "
                   f"{environment['LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",

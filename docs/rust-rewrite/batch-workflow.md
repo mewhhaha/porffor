@@ -70,6 +70,25 @@ new IDs separately from regressions on previously passing tests.
 See [measured costs and proposed crate boundaries](verification-costs-20261012.md)
 for the current timing frame and the dependency cuts that could reduce rebuilds.
 
+## Explicit cloud conformance workers — 2026-10-15
+
+For a conformance command that already specifies its worker count, give the
+workers the inherited CPU set bounded by the tightest visible cgroup CPU quota:
+
+```sh
+LILA_JOBS=1 RAYON_NUM_THREADS=1 \
+  python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
+  ./target/release/lila --jobs 1 test262 run --execution-backend wasm-aot --threads 3
+```
+
+Keep the command's existing worker count, deadlines and other arguments. This
+option selects CPU affinity independently of native compilation job limits;
+Cargo, libtest and native compilation defaults remain one. It preserves explicit
+CLI arguments and feature flags. It requires `--cloud` and cannot be combined
+with `--cloud-cpus auto`, which continues to bound both native compilation jobs
+and CPU affinity by explicit `LILA_JOBS` / `RAYON_NUM_THREADS` limits. Neither
+option expands inherited affinity or the machine's visible CPU quota.
+
 ## Opt-in iteration tooling — 2026-10-11
 
 The Linux x86_64 test linker can share the exact immutable runtime image data

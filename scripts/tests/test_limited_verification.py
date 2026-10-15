@@ -2,6 +2,7 @@
 
 from contextlib import ExitStack
 import importlib.util
+import io
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -345,6 +346,115 @@ class CloudCpuBudgetTests(unittest.TestCase):
                 launcher.main(["--cloud-cpus", "auto", "--", "payload"])
             self.assertEqual(failure.exception.code, 2)
             execute.assert_not_called()
+
+
+class CloudWorkerCpuBudgetTests(unittest.TestCase):
+    cloud = CloudBudgetTests.cloud
+
+    def setUp(self):
+        environment = patch.dict(launcher.os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_worker_affinity_is_independent_of_serial_compilation_and_preserves_payload(self):
+        argv = ["payload", "--threads", "3", "--jobs", "1", "two words", "$HOME", "*"]
+        supplied = {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1",
+                    "LILA_ENABLE_SPEC_EXEC": "0", "FEATURE_SENTINEL": "unchanged"}
+        for share, expected_share in (({}, "100"), ({"LILA_CPU_PERCENT": "37"}, "37")):
+            with self.subTest(share=share), \
+                    self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus={0, 1, 2}), \
+                    patch.dict(launcher.os.environ, {**supplied, **share}), \
+                    patch.object(launcher.shutil, "which") as manager, \
+                    patch.object(launcher.sys, "stderr", new_callable=io.StringIO) as output, \
+                    patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
+                before = dict(launcher.os.environ)
+                with self.assertRaises(PayloadWouldStart):
+                    launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", *argv])
+                manager.assert_not_called()
+                self.assertEqual(execute.call_args.args[:2], ("payload", argv))
+                self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1, 2})
+                environment = execute.call_args.args[2]
+                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                    self.assertEqual(environment[name], "1")
+                for name, value in supplied.items():
+                    self.assertEqual(environment[name], value)
+                self.assertEqual(environment["LILA_CPU_PERCENT"], expected_share)
+                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "2")
+                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "268435456")
+                self.assertEqual(dict(launcher.os.environ), before)
+                self.assertIn("3 CPU(s)", output.getvalue())
+                self.assertIn("native compilation defaults up to 1 jobs", output.getvalue())
+
+    def test_worker_affinity_uses_tightest_quota_without_native_job_caps(self):
+        with self.cloud("/machine/task", {
+            "/machine/task": "max", "/machine": "8589934592", "/": "34359738368",
+        }, cpu_limits={
+            "/machine/task": "800000 100000", "/machine": "250000 100000", "/": "400000 100000",
+        }, allowed_cpus={0, 1, 2, 3, 4}), \
+                patch.dict(launcher.os.environ, {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1"}):
+            self.assertEqual(launcher.require_cloud_budget(serial=False), 8589934592)
+            self.assertEqual(launcher.cloud_worker_affinity(), 2)
+            self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1})
+
+    def test_worker_affinity_never_expands_inherited_or_fractional_capacity(self):
+        for quota, allowed, expected in (
+            ("max 100000", {2, 4, 6}, {2, 4, 6}),
+            ("400000 100000", {4}, {4}),
+            ("400000 100000", {2, 6}, {2, 6}),
+            ("50000 100000", {2, 4, 6}, {2}),
+            ("150000 100000", {2, 4, 6}, {2}),
+        ):
+            with self.subTest(quota=quota, allowed=allowed), \
+                    self.cloud(cpu_limits={"/": quota}, allowed_cpus=allowed):
+                self.assertEqual(launcher.cloud_worker_affinity(), len(expected))
+                self.assertEqual(launcher.os.sched_getaffinity(0), expected)
+
+    def test_worker_mode_keeps_native_defaults_serial_without_explicit_limits(self):
+        for supplied in ({}, {"LILA_JOBS": "16", "RAYON_NUM_THREADS": "8"}):
+            with self.subTest(supplied=supplied), \
+                    self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus={0, 1, 2, 3, 4}), \
+                    patch.dict(launcher.os.environ, supplied), \
+                    patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
+                with self.assertRaises(PayloadWouldStart):
+                    launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", "payload"])
+                self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1, 2, 3})
+                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                    self.assertEqual(execute.call_args.args[2][name], "1")
+
+    def test_invalid_worker_mode_selection_never_executes(self):
+        for options in (
+            ["--cloud-worker-cpus", "auto"],
+            ["--cloud", "--cloud-worker-cpus", "3"],
+            ["--cloud", "--cloud-cpus", "auto", "--cloud-worker-cpus", "auto"],
+            ["--cloud", "--cloud-worker-cpus", "auto", "--memory-mib", "4096"],
+        ):
+            with self.subTest(options=options), patch.object(launcher.os, "execvpe") as execute:
+                with self.assertRaises(SystemExit) as failure:
+                    launcher.main([*options, "--", "payload"])
+                self.assertEqual(failure.exception.code, 2)
+                execute.assert_not_called()
+
+    def test_invalid_worker_cpu_controller_and_affinity_never_execute(self):
+        for quota, allowed in (("max 0", {2, 4, 6}), ("bad 100000", {2, 4, 6}),
+                               ("400000 100000", set())):
+            with self.subTest(quota=quota, allowed=allowed), \
+                    self.cloud(cpu_limits={"/": quota}, allowed_cpus=allowed), \
+                    patch.object(launcher.os, "execvpe") as execute:
+                self.assertEqual(launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", "payload"]), 2)
+                execute.assert_not_called()
+        with self.cloud(cpu_limits={"/": "100000 100000"}), \
+                patch.object(launcher.os, "sched_setaffinity"), \
+                patch.object(launcher.os, "execvpe") as execute:
+            self.assertEqual(launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", "payload"]), 2)
+            execute.assert_not_called()
+
+    def test_worker_mode_rejects_invalid_native_job_limits(self):
+        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+            with self.subTest(name=name), self.cloud(cpu_limits={"/": "400000 100000"}), \
+                    patch.dict(launcher.os.environ, {name: "invalid"}), \
+                    patch.object(launcher.os, "execvpe") as execute:
+                self.assertEqual(launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", "payload"]), 2)
+                execute.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,26 @@
 # Lila
 
+## Cloud conformance worker CPUs — 2026-10-15
+
+`limited_verification.py --cloud --cloud-worker-cpus auto` gives explicitly
+requested conformance workers the inherited CPU set bounded by the machine's
+CPU quota. Native compilation, Cargo and libtest defaults remain one. This
+lets three selected workers use CPUs 0–2 while keeping `LILA_JOBS=1` and
+`RAYON_NUM_THREADS=1`; the existing native-compilation mode keeps its current
+behavior. Worker counts, deadlines, cache caps and feature flags are preserved.
+
+All **35 focused tooling controls** pass, including seven new controls. An
+actual cloud payload confirms three allowed CPUs, one compilation job, one
+Cargo/libtest thread and unchanged feature selection. See the
+[verified tooling checkpoint](docs/rust-rewrite/cloud-worker-affinity-checkpoint-20261015.json)
+and [worker invocation](docs/rust-rewrite/batch-workflow.md#explicit-cloud-conformance-workers--2026-10-15).
+
+The historical and full pinned Test262 runs continue on frozen compiler
+`8e9a8c82`. Their live scheduling correction uses CPUs 0–2 for full-suite
+workers and CPU 3 for history, without restarting cases. The full run includes
+both scheduling periods; this is conformance evidence rather than a uniform
+CPU benchmark. Its final outcomes and task acceptance remain pending.
+
 ## Genuine ordinary CLI53 checkpoint — 2026-10-15
 
 The normal default release CLI on compiler `8e9a8c82` completes all **53 cases
@@ -36,8 +57,9 @@ product/oracle dependency separation, host ABI and the refreshed shortcut
 inventory checks pass. The inventory refresh changes display line numbers only;
 selector fingerprints and classifications remain unchanged.
 
-Historical 5,365-ID retention, the full pinned 102,994-execution Test262 suite
-and task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
+Historical 5,365-ID retention and the full pinned 102,994-execution Test262
+suite are active on the same frozen compiler. Final outcomes and task acceptance
+remain pending. `CONTINUE.md` and `tasks/` remain open.
 
 ## Complete all-features workspace checkpoint — 2026-10-15
 
