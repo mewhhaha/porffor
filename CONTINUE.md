@@ -1,5 +1,33 @@
 # Current continuation — 2026-10-15
 
+## Complete all-features workspace checkpoint — 2026-10-15
+
+Compiler source `8e9a8c82` passes all **108 all-features workspace scopes**:
+**9,254 passed, zero failed, zero ignored**. Exact retention keeps every one
+of the **9,220 preceding all-features passing IDs**. All **104 required controls**
+pass. Four default-only oracle-refusal controls also pass in the same-source
+default checkpoint and are accounted for separately.
+
+The single complete run exits zero in **4153.918 seconds**, without storage
+deferrals or continuations. Source, native test bodies, deadlines and cache
+limits are unchanged. The complete 855-test CLI inventory, differential worker,
+generated campaign and standalone fake-publisher checks pass.
+
+The [portable all-features checkpoint](docs/rust-rewrite/all-features-workspace-8e9a8c82-native-checkpoint-20261015.json)
+contains exact qualified IDs, Cargo/runtime provenance, source bindings,
+lossless raw transcripts and the same-source default proof. Verify it offline:
+
+```sh
+python3 docs/rust-rewrite/verify-workspace-8e9a8c82-20261015.py \
+  docs/rust-rewrite/all-features-workspace-8e9a8c82-native-checkpoint-20261015.json \
+  --audit-sha256 7f93713f95e403bc5fefcfdae49d1cad289e815ff454f7b3f8640b9835e770e9
+```
+
+Together, the complete default and all-features checkpoints retain all prior
+passes and add 34 controls in each mode. Genuine ordinary CLI53, historical
+5,365-ID retention, full pinned Test262 and task acceptance remain pending.
+`CONTINUE.md` and `tasks/` remain open.
+
 ## Complete default workspace checkpoint — 2026-10-15
 
 Compiler source `8e9a8c82` passes all **107 default workspace scopes**:
@@ -32,7 +60,7 @@ remain live; supplemental source admission remains resource-free. See the
 The prior twenty-case warm-worker sample already retained runtime code; no
 retention speed gain is claimed before the matched after measurement.
 
-The complete 108-scope all-features run is active on the same frozen source.
+The complete 108-scope all-features run also passes on the same frozen source.
 Genuine ordinary CLI53, historical 5,365-ID retention, full pinned Test262 and
 task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
 
