@@ -9,12 +9,14 @@ preserves the earlier failures and current source-bound results. All 546 Python
 tooling tests pass, retaining every one of the earlier 539 IDs. Formatting,
 module boundaries, host ABI and product interpreter-exclusion checks pass.
 
-Current source `eb1ca63c9` also passes all 547 Python tooling tests, retaining all 546 preceding IDs. The complete all-features workspace run is in progress and remains pending.
+Current source `eb1ca63c9` also passes all 547 Python tooling tests, retaining all 546 preceding IDs. Both complete workspace modes now pass.
 
-Completed workspace verification: the default run on `eb1ca63c9` passes all 9,176 tests across 107 scopes, with all 17 RegExp/label controls and exact predecessor retention verified. See the [completed default checkpoint](../docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json). Ordinary CLI55, historical 5,365-ID retention and the fresh complete
+Completed workspace verification: the all-features run on `eb1ca63c9` passes all 9,269 tests across 108 scopes, with all 17 RegExp/label controls and exact predecessor retention verified. See the [completed all-features checkpoint](../docs/rust-rewrite/all-features-workspace-eb1ca63c9-native-checkpoint-20261015.json). Ordinary CLI55, historical 5,365-ID retention and the fresh complete
 pinned Test262 runs remain pending. The earlier `8e9a8c82` Test262 runs are
 [closed partial results](../docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json),
 with 16,071 distinct prior passing IDs required by the next complete replay.
+
+The complete default checkpoint already covers the native package selectors required by T02, T03 and T05, including the product-process fake subset and the 20,000-link ephemeron lifecycle controls. These native selectors need no additional package rerun. Actual pinned-suite data, representative artifact comparisons, idle performance measurements and independent-host receipts retain their separate acceptance requirements.
 
 The dated reports and acceptance table below remain historical records.
 Real weak collections and finalization are implemented and evidenced by the
