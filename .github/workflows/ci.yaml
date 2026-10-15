@@ -142,7 +142,7 @@ jobs:
           grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' /tmp/agent-result.txt
 
       - name: Audit emitted product artifact
-        run: cargo test -p lila-aot-wasm --test emission -- product_artifact::
+        run: "cargo test -p lila-aot-wasm --test emission -- product_artifact::"
 
       - name: Check known-failure ledger
         run: >-

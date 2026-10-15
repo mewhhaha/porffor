@@ -1,5 +1,7 @@
 # Lila
 
+Hosted verification syntax (2026-10-15): quoted Cargo test selectors fix four invalid YAML workflows. All 21 workflow files parse, and all 11 affected shell commands are unchanged. [Validation](docs/rust-rewrite/workflow-yaml-check-20261015.json) records the pre-existing failures; hosted test results remain pending.
+
 Parser correction (2026-10-15): object assignment rest rejects a following comma, while object spread expressions remain valid. All **261 selected native checks pass**: seven new regressions, 235 retained Front checks and 19 parser AST witnesses. The [captured verification](docs/rust-rewrite/object-rest-trailing-comma-native-20261015.json) preserves exact IDs and earlier setup/source-view failures. The generated Test262 status block and broader acceptance gates remain unchanged.
 
 Verification iteration (2026-10-15): exact out-of-line native Function test
