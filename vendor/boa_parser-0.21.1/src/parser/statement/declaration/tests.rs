@@ -129,20 +129,23 @@ fn using_declaration_in_block() {
     check_script_parser(
         "{ using x = null; }",
         vec![Statement::Block(
-            boa_ast::statement::Block::from(vec![Declaration::Lexical(
-                LexicalDeclaration::Using(
-                    vec![Variable::from_identifier(
-                        Identifier::new(
-                            interner.get_or_intern_static("x", utf16!("x")),
-                            Span::new((1, 9), (1, 10)),
-                        ),
-                        Some(Literal::Null(Span::new((1, 13), (1, 17))).into()),
-                    )]
-                    .try_into()
-                    .unwrap(),
-                ),
-            )
-            .into()]),
+            boa_ast::statement::Block::from((
+                vec![Declaration::Lexical(
+                    LexicalDeclaration::Using(
+                        vec![Variable::from_identifier(
+                            Identifier::new(
+                                interner.get_or_intern_static("x", utf16!("x")),
+                                Span::new((1, 9), (1, 10)),
+                            ),
+                            Some(Literal::new(LiteralKind::Null, Span::new((1, 13), (1, 17))).into()),
+                        )]
+                        .try_into()
+                        .unwrap(),
+                    ),
+                )
+                .into()],
+                boa_ast::LinearPosition::new(19),
+            )),
         )
         .into()],
         interner,

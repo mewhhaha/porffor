@@ -41,19 +41,22 @@ use core::{fmt::Write as _, ops::ControlFlow};
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectLiteral {
     properties: Box<[PropertyDefinition]>,
+    has_trailing_comma_spread: bool,
     span: Span,
 }
 
 impl ObjectLiteral {
-    /// Create a new [`ObjectLiteral`].
+    /// Create a new [`ObjectLiteral`], retaining a comma after its final spread
+    /// property for cover-grammar reinterpretation.
     #[inline]
     #[must_use]
-    pub fn new<T>(properties: T, span: Span) -> Self
+    pub fn new<T>(properties: T, has_trailing_comma_spread: bool, span: Span) -> Self
     where
         T: Into<Box<[PropertyDefinition]>>,
     {
         Self {
             properties: properties.into(),
+            has_trailing_comma_spread,
             span,
         }
     }
@@ -65,9 +68,23 @@ impl ObjectLiteral {
         &self.properties
     }
 
+    /// Indicates whether the final spread property is followed by a comma.
+    /// Valid in an object expression, but invalid in an object assignment pattern.
+    #[inline]
+    #[must_use]
+    pub const fn has_trailing_comma_spread(&self) -> bool {
+        self.has_trailing_comma_spread
+    }
+
     /// Converts the object literal into an [`ObjectPattern`].
     #[must_use]
     pub fn to_pattern(&self, strict: bool) -> Option<ObjectPattern> {
+        // ObjectAssignmentPattern has no comma after AssignmentRestProperty.
+        // ObjectLiteral permits it, so reject only during cover conversion.
+        if self.has_trailing_comma_spread() {
+            return None;
+        }
+
         let mut bindings = Vec::new();
         for (i, property) in self.properties.iter().enumerate() {
             match property {

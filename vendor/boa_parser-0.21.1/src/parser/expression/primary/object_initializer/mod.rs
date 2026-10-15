@@ -82,6 +82,7 @@ where
         cursor.set_goal(InputElement::RegExp);
 
         let mut elements = Vec::new();
+        let mut has_trailing_comma_spread = false;
 
         let mut has_proto = false;
         let mut duplicate_proto_position = None;
@@ -121,6 +122,14 @@ where
                     "object literal",
                 ));
             }
+
+            if let Some(token) = cursor.next_if(Punctuator::CloseBlock, interner)? {
+                has_trailing_comma_spread = matches!(
+                    elements.last(),
+                    Some(PropertyDefinitionNode::SpreadObject(_))
+                );
+                break token.span().end();
+            }
         };
 
         if let Some(position) = duplicate_proto_position
@@ -136,7 +145,11 @@ where
         }
 
         let start = open_block_token.span().start();
-        Ok(literal::ObjectLiteral::new(elements, Span::new(start, end)))
+        Ok(literal::ObjectLiteral::new(
+            elements,
+            has_trailing_comma_spread,
+            Span::new(start, end),
+        ))
     }
 }
 

@@ -1,5 +1,7 @@
 # Lila
 
+Parser correction (2026-10-15): object assignment rest rejects a following comma, while object spread expressions remain valid. All **261 selected native checks pass**: seven new regressions, 235 retained Front checks and 19 parser AST witnesses. The [captured verification](docs/rust-rewrite/object-rest-trailing-comma-native-20261015.json) preserves exact IDs and earlier setup/source-view failures. The generated Test262 status block and broader acceptance gates remain unchanged.
+
 Verification iteration (2026-10-15): exact out-of-line native Function test
 modules no longer invalidate the production compiler fingerprint or its Cargo
 build-script rerun inputs. Production compiler and runtime sources, native
