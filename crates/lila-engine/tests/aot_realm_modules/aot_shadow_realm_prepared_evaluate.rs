@@ -128,3 +128,254 @@ fn unmatched_shadow_source_retains_uncatchable_typed_runtime_rejection() {
     assert!(error.parse_diagnostic().is_none(), "{error}");
     assert!(error.ir_diagnostic().is_none(), "{error}");
 }
+
+#[test]
+fn finite_templates_run_unchanged_pinned_wrapped_names_and_global_properties() {
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    const PROPERTY: &str =
+        include_str!("../../../../test262/vendor/test262/harness/propertyHelper.js");
+    for fixture in [
+        include_str!("../../../../test262/vendor/test262/test/built-ins/ShadowRealm/WrappedFunction/name.js"),
+        include_str!("../../../../test262/vendor/test262/test/built-ins/ShadowRealm/prototype/evaluate/globalthis-available-properties.js"),
+    ] {
+        assert_modes(&format!("{STA}\n{ASSERT}\n{PROPERTY}\n{fixture}\ntrue;"));
+    }
+}
+
+#[test]
+fn finite_template_conversion_keeps_method_get_arguments_and_throw_order_live() {
+    assert_modes(
+        r#"
+const realm = new ShadowRealm();
+let trace = '';
+const holder = {
+  get evaluate() {
+    trace += 'get,';
+    return ShadowRealm.prototype.evaluate;
+  }
+};
+let sum = 0;
+for (const value of [
+  { toString() { trace += 'first,'; return '17'; } },
+  { toString() { trace += 'second,'; return '19'; } }
+]) {
+  sum += holder.evaluate.call(realm, `${String(value)};`, (trace += 'extra,', 0));
+}
+const marker = {};
+try {
+  holder.evaluate.call(realm, `${{
+    toString() { trace += 'throw,'; throw marker; }
+  }};`, (trace += 'wrong-extra,', 0));
+  throw 'missing-conversion-throw';
+} catch (error) {
+  if (error !== marker) throw error;
+}
+sum === 36 && trace === 'get,first,extra,get,second,extra,get,throw,';
+"#,
+    );
+}
+
+#[test]
+fn finite_filter_hints_keep_replaced_method_and_callback_results_live() {
+    assert_modes(
+        r#"
+const realm = new ShadowRealm();
+const values = ['17', '19', '23'];
+let trace = '';
+Object.defineProperty(values, 'filter', {
+  get() {
+    trace += 'get,';
+    return function(callback) {
+      trace += 'call,';
+      callback('17');
+      return ['19', '23'];
+    };
+  }
+});
+const selected = values.filter(value => {
+  trace += 'first:' + value + ',';
+  return false;
+});
+const available = selected.filter(value => {
+  trace += 'second:' + value + ',';
+  return realm.evaluate(`${value};`) === Number(value);
+});
+available.join(',') === '19,23'
+  && trace === 'get,call,first:17,second:19,second:23,';
+"#,
+    );
+}
+
+#[test]
+fn filter_values_outside_the_finite_domain_keep_typed_source_rejection() {
+    lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
+    let error = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            r#"
+const realm = new ShadowRealm();
+const values = ['17;', '19;'];
+values.filter = function(callback) {
+  callback('17;');
+  return ['23;/*' + Math.random() + '*/'];
+};
+const selected = values.filter(value => true);
+try {
+  selected.filter(value => realm.evaluate(`${value}`));
+} catch (error) {
+  throw 'must not catch capability rejection';
+}
+throw 'must not continue';
+"#,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(60_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect_err("a replaced filter cannot select a different prepared source");
+    assert_eq!(
+        error.runtime_dynamic_source_operations(),
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate],
+        "{error}"
+    );
+    assert_eq!(
+        error.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::DynamicSource)
+    );
+    assert!(error.parse_diagnostic().is_none(), "{error}");
+    assert!(error.ir_diagnostic().is_none(), "{error}");
+}
+
+#[test]
+fn returned_callable_hints_run_unchanged_pinned_nested_realm_fixtures() {
+    const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
+    const ASSERT: &str = include_str!("../../../../test262/vendor/test262/harness/assert.js");
+    for fixture in [
+        include_str!("../../../../test262/vendor/test262/test/built-ins/ShadowRealm/prototype/evaluate/nested-realms.js"),
+        include_str!("../../../../test262/vendor/test262/test/built-ins/ShadowRealm/prototype/evaluate/wrapped-function-multiple-different-realms-nested.js"),
+    ] {
+        assert_modes(&format!("{STA}\n{ASSERT}\n{fixture}\ntrue;"));
+    }
+}
+
+#[test]
+fn equal_prepared_text_keeps_distinct_realm_and_captured_lexical_state_live() {
+    assert_modes(
+        r#"
+globalThis.marker = 'outer';
+const first = new ShadowRealm();
+const second = new ShadowRealm();
+first.evaluate('globalThis.marker = "first";');
+second.evaluate('globalThis.marker = "second";');
+const source = `
+  const owner = globalThis.marker;
+  const inner = new ShadowRealm();
+  let calls = 0;
+  (text) => owner + ':' + (++calls) + ':' + inner.evaluate(text);
+`;
+const left = first.evaluate(source);
+const right = second.evaluate(source);
+if (left === right) throw 'same-wrapper';
+if (left('17;') !== 'first:1:17') throw 'first-capture';
+if (right('19;') !== 'second:1:19') throw 'second-capture';
+first.evaluate('globalThis.marker = "changed";');
+if (left('23;') !== 'first:2:23') throw 'retained-first-environment';
+if (right('29;') !== 'second:2:29') throw 'retained-second-environment';
+globalThis.marker === 'outer';
+"#,
+    );
+}
+
+#[test]
+fn returned_callable_hints_keep_live_callee_get_arguments_method_and_throws() {
+    assert_modes(
+        r#"
+const realm = new ShadowRealm();
+const original = realm.evaluate(`
+  const inner = new ShadowRealm();
+  (source) => inner.evaluate(source);
+`);
+let trace = '';
+let run = original;
+run = function(source, extra) { trace += 'call,'; return 'local:' + source; };
+const holder = { get run() { trace += 'get,'; return run; } };
+if (holder.run((trace += 'arg,', '31;'), (trace += 'extra,', 0)) !== 'local:31;') {
+  throw 'reassigned-callee';
+}
+const marker = {};
+try {
+  holder.run((trace += 'throw,', (() => { throw marker; })()), (trace += 'wrong-extra,', 0));
+  throw 'missing-argument-throw';
+} catch (error) {
+  if (error !== marker) throw error;
+}
+if (trace !== 'get,arg,extra,call,get,throw,') throw trace;
+if (original('37;') !== 37) throw 'original-wrapper';
+let coercions = 0;
+try {
+  original({ toString() { coercions++; return '41;'; } });
+  throw 'object-argument-accepted';
+} catch (error) {
+  if (!(error instanceof TypeError)) throw error;
+}
+if (coercions !== 0) throw 'invented-source-coercion';
+try {
+  original('throw new Error("inner");');
+  throw 'missing-inner-throw';
+} catch (error) {
+  if (!(error instanceof TypeError)) throw error;
+}
+const replaceMethod = realm.evaluate(`
+  const inner = new ShadowRealm();
+  (source, replace) => {
+    if (replace) inner.evaluate = function(text) { return 'replacement:' + text; };
+    return inner.evaluate(source);
+  };
+`);
+if (replaceMethod('43;', false) !== 43) throw 'original-method';
+replaceMethod('47;', true) === 'replacement:47;';
+"#,
+    );
+}
+
+#[test]
+fn unknown_returned_callable_source_keeps_uncatchable_typed_runtime_rejection() {
+    lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
+    const SOURCE: &str = r#"
+const realm = new ShadowRealm();
+const run = realm.evaluate('const inner = new ShadowRealm(); source => inner.evaluate(source)');
+let text = '53;';
+if (run(text) !== 53) throw 'known-source';
+text += '/*' + Math.random() + '*/';
+try { run(text); }
+catch (error) { throw 'must not catch capability rejection'; }
+throw 'must not continue';
+"#;
+    for directive in ["", "'use strict';\n"] {
+        let source = format!("{directive}{SOURCE}");
+        let error = Engine::new(RealmBuilder::new().build())
+            .run_script(
+                &source,
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(60_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("an unknown nested source cannot select another prepared unit");
+        assert_eq!(
+            error.runtime_dynamic_source_operations(),
+            vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate],
+            "{error}"
+        );
+        assert_eq!(
+            error.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::DynamicSource)
+        );
+        assert!(error.parse_diagnostic().is_none(), "{error}");
+        assert!(error.ir_diagnostic().is_none(), "{error}");
+    }
+}

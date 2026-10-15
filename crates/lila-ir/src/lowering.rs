@@ -43,7 +43,9 @@ mod finite_function_body_hints;
 mod finite_function_source;
 mod finite_iterator_source;
 mod finite_regexp_source;
+mod finite_returned_callable_source;
 mod finite_source_binding;
+mod finite_string_source;
 mod for_lexical_environment;
 mod function_source_candidates;
 mod generator_array_pattern;
@@ -1019,15 +1021,16 @@ fn lower_script_program_with_allocations(
             eprintln!("lila lower trace: analysis: {:?}", t0.elapsed());
         }
         let t1 = std::time::Instant::now();
-        let lowered = ScriptLowerer::new(
+        let mut lowerer = ScriptLowerer::new(
             interner,
             &analysis,
             CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
             root_this_binding,
             SCRIPT_OWNER_ID.to_string(),
             host_surface_policy,
-        )
-        .lower(script);
+        );
+        lowerer.seed_returned_callable_parameter_candidates(script_source);
+        let lowered = lowerer.lower(script);
         if trace_phases {
             eprintln!("lila lower trace: script-lower: {:?}", t1.elapsed());
         }
@@ -2215,6 +2218,8 @@ impl<'a> ScriptLowerer<'a> {
             self.host_surface_policy,
         );
         prepass.function_signatures = self.function_signatures.clone();
+        prepass.function_source_parameter_candidates =
+            self.function_source_parameter_candidates.clone();
         prepass.is_prepass = true;
         prepass.script_global_call_observation_mode = ScriptGlobalCallObservationMode::ExecutedFlow;
         prepass.hoist_root_statement_items(script.statements().statements());

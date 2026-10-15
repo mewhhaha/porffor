@@ -5082,7 +5082,6 @@ fn run_case_entry_with_dispatch(
             preludes,
             config.timeout_ms,
             run_config.execution_backend,
-            config.reuse_case_workers,
         )
     }))
     .unwrap_or_else(|panic_payload| TestResult {
@@ -5124,25 +5123,21 @@ fn run_one_case_on_persistent_worker(
     preludes: &PreludeStore,
     timeout_ms: u64,
     execution_backend: ExecutionBackend,
-    retain_modules: bool,
 ) -> TestResult {
     run_one_case_with_wasm_aot_execution(
         case,
         preludes,
         timeout_ms,
         execution_backend,
-        if retain_modules {
-            // The ordinary Engine entry retains only immutable compiled
-            // modules in the existing bounded cache. It owns a sized thread;
-            // all JS Realm/Store state still belongs to this exact invocation.
-            WasmAotExecutionStack::DedicatedWorker
-        } else {
-            WasmAotExecutionStack::PersistentTest262Worker
-        },
+        // execute_cases already owns the sized worker stack. The current-thread
+        // entry retains immutable R code and bypasses unique P modules; every
+        // invocation still creates its own Engine, Realm and Store.
+        WasmAotExecutionStack::PersistentTest262Worker,
     )
 }
 
 enum WasmAotExecutionStack {
+    #[cfg(test)]
     DedicatedWorker,
     PersistentTest262Worker,
 }
@@ -5280,6 +5275,7 @@ fn run_one_case_with_wasm_aot_execution(
             && !materialized.execution_mode().is_module()
             && agent_prelude.is_some()
             && (match &wasm_aot_execution_stack {
+                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             }) {
@@ -5305,6 +5301,7 @@ fn run_one_case_with_wasm_aot_execution(
             )
         } else if execution_backend == ExecutionBackend::WasmAot
             && (match &wasm_aot_execution_stack {
+                #[cfg(test)]
                 WasmAotExecutionStack::DedicatedWorker => false,
                 WasmAotExecutionStack::PersistentTest262Worker => true,
             })

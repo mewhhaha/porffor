@@ -1,7 +1,7 @@
 use super::dynamic_source::dynamic_source_kind_for_function_id;
 use super::*;
 
-pub(super) const MAX_SOURCE_CANDIDATES: usize = 256;
+pub(super) use crate::prepared_source_cache::MAX_SOURCE_CANDIDATES;
 
 // Optional compilation hints never replace an expression or authorize a call.
 // Prepared constructors and eval still check the live arguments before dispatch.
@@ -11,13 +11,14 @@ pub(super) enum FiniteSourceValue {
     // Additive hints may use spare capacity but never displace existing sources.
     SupplementalText(String),
     Function(FunctionId),
+    ReturnedCallableSource(crate::prepared_source_cache::ReturnedCallableSourceId),
     FunctionConstructor(DynamicFunctionKind),
     Record(BTreeMap<String, Vec<FiniteSourceValue>>),
     Array(Vec<FiniteSourceValue>),
 }
 
 impl FiniteSourceValue {
-    fn supplemental(self) -> Self {
+    pub(super) fn supplemental(self) -> Self {
         match self {
             Self::Text(text) | Self::SupplementalText(text) => Self::SupplementalText(text),
             Self::Record(properties) => Self::Record(
@@ -31,13 +32,15 @@ impl FiniteSourceValue {
             Self::Array(values) => {
                 Self::Array(values.into_iter().map(Self::supplemental).collect())
             }
-            value @ (Self::Function(_) | Self::FunctionConstructor(_)) => value,
+            value @ (Self::Function(_)
+            | Self::ReturnedCallableSource(_)
+            | Self::FunctionConstructor(_)) => value,
         }
     }
 
     fn is_supplemental(&self) -> bool {
         match self {
-            Self::SupplementalText(_) => true,
+            Self::SupplementalText(_) | Self::ReturnedCallableSource(_) => true,
             Self::Record(properties) => {
                 !properties.is_empty() && properties.values().flatten().all(Self::is_supplemental)
             }
@@ -49,9 +52,11 @@ impl FiniteSourceValue {
     pub(super) fn text(&self) -> Option<&str> {
         match self {
             Self::Text(text) | Self::SupplementalText(text) => Some(text),
-            Self::Function(_) | Self::FunctionConstructor(_) | Self::Record(_) | Self::Array(_) => {
-                None
-            }
+            Self::Function(_)
+            | Self::ReturnedCallableSource(_)
+            | Self::FunctionConstructor(_)
+            | Self::Record(_)
+            | Self::Array(_) => None,
         }
     }
 
@@ -60,6 +65,7 @@ impl FiniteSourceValue {
             Self::Text(text) => Some(text),
             Self::SupplementalText(_)
             | Self::Function(_)
+            | Self::ReturnedCallableSource(_)
             | Self::FunctionConstructor(_)
             | Self::Record(_)
             | Self::Array(_) => None,
@@ -244,6 +250,7 @@ impl ScriptLowerer<'_> {
                     }
                     FiniteSourceValue::Text(_)
                     | FiniteSourceValue::SupplementalText(_)
+                    | FiniteSourceValue::ReturnedCallableSource(_)
                     | FiniteSourceValue::Record(_)
                     | FiniteSourceValue::Array(_) => None,
                 }),
@@ -333,10 +340,33 @@ impl ScriptLowerer<'_> {
             }
             return candidates;
         }
-        // Both prototype and RegExp views need the same callee discovery.
-        // Reusing it avoids duplicate recursive work for nested callee Calls.
+        // Filter result and callee views share the same receiver discovery.
+        // Rediscovering a chained receiver for both views would double its
+        // complete subtree at each call, despite the finite candidate budget.
+        let filter_receiver = match expression {
+            Expression::Call(call) => match Self::unwrap_parenthesized_expr(call.function()) {
+                Expression::PropertyAccess(PropertyAccess::Simple(access))
+                    if self.finite_source_access_name(access).as_deref() == Some("filter") =>
+                {
+                    Some((
+                        access,
+                        self.function_source_value_candidates(access.target()),
+                    ))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        // Prototype, RegExp and String views also reuse this callee discovery.
         let callee_candidates = match expression {
-            Expression::Call(call) => self.function_source_value_candidates(call.function()),
+            Expression::Call(call) => match &filter_receiver {
+                Some((access, receiver)) => self.finite_property_access_source_candidates(
+                    Self::unwrap_parenthesized_expr(call.function()),
+                    access,
+                    receiver.clone(),
+                ),
+                None => self.function_source_value_candidates(call.function()),
+            },
             Expression::New(construct) => {
                 self.function_source_value_candidates(construct.constructor())
             }
@@ -494,81 +524,11 @@ impl ScriptLowerer<'_> {
                 return candidates;
             }
             Expression::PropertyAccess(PropertyAccess::Simple(access)) => {
-                let name = match access.field() {
-                    PropertyAccessField::Const(identifier) => {
-                        Some(self.interner.resolve_expect(identifier.sym()).to_string())
-                    }
-                    PropertyAccessField::Expr(expression) => {
-                        self.finite_source_computed_key_candidate(expression)
-                    }
-                };
-                let mut candidates = bounded_candidates(
-                    self.function_source_value_candidates(access.target())
-                        .into_iter()
-                        .flat_map(|candidate| match candidate {
-                            FiniteSourceValue::Record(mut properties) => name
-                                .as_ref()
-                                .and_then(|name| properties.remove(name))
-                                .unwrap_or_default(),
-                            FiniteSourceValue::Array(elements)
-                                if matches!(access.field(), PropertyAccessField::Expr(_)) =>
-                            {
-                                elements
-                            }
-                            FiniteSourceValue::Function(function_id)
-                                if name.as_deref() == Some("constructor") =>
-                            {
-                                // A possible inherited constructor supplies
-                                // source hints only. Own properties, prototype
-                                // mutations and the resolved callable stay live.
-                                self.finite_function_constructor_kind(&function_id)
-                                    .map(FiniteSourceValue::FunctionConstructor)
-                                    .into_iter()
-                                    .collect()
-                            }
-                            FiniteSourceValue::Text(_)
-                            | FiniteSourceValue::SupplementalText(_)
-                            | FiniteSourceValue::Function(_)
-                            | FiniteSourceValue::FunctionConstructor(_)
-                            | FiniteSourceValue::Array(_) => Vec::new(),
-                        }),
+                return self.finite_property_access_source_candidates(
+                    expression,
+                    access,
+                    self.function_source_value_candidates(access.target()),
                 );
-                if let Some(name) = &name {
-                    candidates.extend(
-                        self.finite_source_property_function_candidates(access.target(), name),
-                    );
-                }
-                if candidates.is_empty()
-                    && name.as_deref() == Some("Function")
-                    && self.function_source_candidate(expression).is_none()
-                {
-                    // Like a directly called `.Function`, an otherwise unknown
-                    // property can supply a possible grammar, including another
-                    // realm's intrinsic. Its Get, identity, arguments and realm
-                    // remain live; do not displace an existing finite value view.
-                    candidates.push(FiniteSourceValue::FunctionConstructor(
-                        DynamicFunctionKind::Ordinary,
-                    ));
-                }
-                let evaluator = match name.as_deref() {
-                    Some("eval") => Some(StandardBuiltinId::EvalFunction.function_id()),
-                    Some("evalScript") => Some(
-                        DynamicSourceIntrinsic::RealmEvalScript
-                            .function_id()
-                            .to_string(),
-                    ),
-                    Some("evaluate") => {
-                        Some(StandardBuiltinId::ShadowRealmPrototypeEvaluate.function_id())
-                    }
-                    Some("importValue") => {
-                        Some(StandardBuiltinId::ShadowRealmPrototypeImportValue.function_id())
-                    }
-                    _ => None,
-                };
-                candidates.extend(evaluator.map(FiniteSourceValue::Function));
-                if !candidates.is_empty() {
-                    return bounded_candidates(candidates);
-                }
             }
             Expression::Binary(binary) if binary.op() == BinaryOp::Comma => {
                 return self.function_source_value_candidates(binary.rhs());
@@ -579,6 +539,17 @@ impl ScriptLowerer<'_> {
                         .into_iter()
                         .chain(self.function_source_value_candidates(conditional.if_false())),
                 );
+            }
+            Expression::TemplateLiteral(template) => {
+                let hints = self.finite_template_source_candidates(template);
+                if !hints.is_empty() {
+                    return bounded_candidates(
+                        self.function_source_candidate(expression)
+                            .map(FiniteSourceValue::Text)
+                            .into_iter()
+                            .chain(hints),
+                    );
+                }
             }
             Expression::Binary(binary)
                 if binary.op() == BinaryOp::Arithmetic(ArithmeticOp::Add) =>
@@ -595,7 +566,22 @@ impl ScriptLowerer<'_> {
                 }));
             }
             Expression::RegExpLiteral(_) | Expression::Call(_) | Expression::New(_) => {
-                let hints = self.finite_regexp_source_candidates(expression, &callee_candidates);
+                let mut hints =
+                    self.finite_regexp_source_candidates(expression, &callee_candidates);
+                if let Expression::Call(call) = expression {
+                    hints.extend(
+                        self.finite_returned_callable_source_candidates(call, &callee_candidates),
+                    );
+                    hints.extend(
+                        self.finite_string_call_source_candidates(
+                            call,
+                            &callee_candidates,
+                            filter_receiver
+                                .as_ref()
+                                .map(|(_, receiver)| receiver.as_slice()),
+                        ),
+                    );
+                }
                 if !hints.is_empty() {
                     return bounded_candidates(
                         self.function_source_candidate(expression)
@@ -606,6 +592,97 @@ impl ScriptLowerer<'_> {
                 }
             }
             _ => {}
+        }
+        self.function_source_candidate(expression)
+            .map(FiniteSourceValue::Text)
+            .into_iter()
+            .collect()
+    }
+
+    pub(super) fn finite_source_access_name(
+        &self,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+    ) -> Option<String> {
+        match access.field() {
+            PropertyAccessField::Const(identifier) => {
+                Some(self.interner.resolve_expect(identifier.sym()).to_string())
+            }
+            PropertyAccessField::Expr(expression) => {
+                self.finite_source_computed_key_candidate(expression)
+            }
+        }
+    }
+
+    fn finite_property_access_source_candidates(
+        &self,
+        expression: &Expression,
+        access: &boa_ast::expression::access::SimplePropertyAccess,
+        target_candidates: Vec<FiniteSourceValue>,
+    ) -> Vec<FiniteSourceValue> {
+        let name = self.finite_source_access_name(access);
+        let mut candidates =
+            bounded_candidates(target_candidates.into_iter().flat_map(|candidate| {
+                match candidate {
+                    FiniteSourceValue::Record(mut properties) => name
+                        .as_ref()
+                        .and_then(|name| properties.remove(name))
+                        .unwrap_or_default(),
+                    FiniteSourceValue::Array(elements)
+                        if matches!(access.field(), PropertyAccessField::Expr(_)) =>
+                    {
+                        elements
+                    }
+                    FiniteSourceValue::Function(function_id)
+                        if name.as_deref() == Some("constructor") =>
+                    {
+                        // A possible inherited constructor supplies
+                        // source hints only. Own properties, prototype
+                        // mutations and the resolved callable stay live.
+                        self.finite_function_constructor_kind(&function_id)
+                            .map(FiniteSourceValue::FunctionConstructor)
+                            .into_iter()
+                            .collect()
+                    }
+                    FiniteSourceValue::Text(_)
+                    | FiniteSourceValue::SupplementalText(_)
+                    | FiniteSourceValue::Function(_)
+                    | FiniteSourceValue::ReturnedCallableSource(_)
+                    | FiniteSourceValue::FunctionConstructor(_)
+                    | FiniteSourceValue::Array(_) => Vec::new(),
+                }
+            }));
+        if let Some(name) = &name {
+            candidates
+                .extend(self.finite_source_property_function_candidates(access.target(), name));
+        }
+        if candidates.is_empty()
+            && name.as_deref() == Some("Function")
+            && self.function_source_candidate(expression).is_none()
+        {
+            // Like a directly called `.Function`, an otherwise unknown
+            // property can supply a possible grammar, including another
+            // realm's intrinsic. Its Get, identity, arguments and realm
+            // remain live; do not displace an existing finite value view.
+            candidates.push(FiniteSourceValue::FunctionConstructor(
+                DynamicFunctionKind::Ordinary,
+            ));
+        }
+        let evaluator = match name.as_deref() {
+            Some("eval") => Some(StandardBuiltinId::EvalFunction.function_id()),
+            Some("evalScript") => Some(
+                DynamicSourceIntrinsic::RealmEvalScript
+                    .function_id()
+                    .to_string(),
+            ),
+            Some("evaluate") => Some(StandardBuiltinId::ShadowRealmPrototypeEvaluate.function_id()),
+            Some("importValue") => {
+                Some(StandardBuiltinId::ShadowRealmPrototypeImportValue.function_id())
+            }
+            _ => None,
+        };
+        candidates.extend(evaluator.map(FiniteSourceValue::Function));
+        if !candidates.is_empty() {
+            return bounded_candidates(candidates);
         }
         self.function_source_candidate(expression)
             .map(FiniteSourceValue::Text)
@@ -706,8 +783,9 @@ impl ScriptLowerer<'_> {
         callee: &Expression,
         arguments: &[Expression],
     ) {
-        let mut targets = self
-            .function_source_value_candidates(callee)
+        let callees = self.function_source_value_candidates(callee);
+        self.register_returned_callable_argument_candidates(&callees, arguments);
+        let mut targets = callees
             .into_iter()
             .filter_map(|candidate| match candidate {
                 FiniteSourceValue::Function(function_id) => Some((function_id, false)),
@@ -822,6 +900,7 @@ impl ScriptLowerer<'_> {
                     FiniteSourceValue::Text(_)
                     | FiniteSourceValue::SupplementalText(_)
                     | FiniteSourceValue::Function(_)
+                    | FiniteSourceValue::ReturnedCallableSource(_)
                     | FiniteSourceValue::FunctionConstructor(_)
                     | FiniteSourceValue::Record(_) => Vec::new(),
                 }),

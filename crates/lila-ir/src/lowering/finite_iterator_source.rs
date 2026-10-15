@@ -33,6 +33,7 @@ fn property_candidates(candidates: Vec<FiniteSourceValue>, name: &str) -> Vec<Fi
                 }
                 FiniteSourceValue::Text(_)
                 | FiniteSourceValue::SupplementalText(_)
+                | FiniteSourceValue::ReturnedCallableSource(_)
                 | FiniteSourceValue::Function(_)
                 | FiniteSourceValue::FunctionConstructor(_)
                 | FiniteSourceValue::Array(_) => Vec::new(),
@@ -165,6 +166,7 @@ impl ScriptLowerer<'_> {
             FiniteSourceValue::Array(elements) => elements.clone(),
             FiniteSourceValue::Text(_)
             | FiniteSourceValue::SupplementalText(_)
+            | FiniteSourceValue::ReturnedCallableSource(_)
             | FiniteSourceValue::Function(_)
             | FiniteSourceValue::FunctionConstructor(_)
             | FiniteSourceValue::Record(_) => Vec::new(),

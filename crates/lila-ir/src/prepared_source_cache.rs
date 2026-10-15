@@ -2,6 +2,11 @@
 //! final lowering pass. A cache entry includes its exact grammar/context and
 //! retains both successful parse products and deferred failures.
 
+mod returned_callable;
+pub(crate) use returned_callable::ReturnedCallableSourceId;
+
+pub(crate) const MAX_SOURCE_CANDIDATES: usize = 256;
+
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -25,6 +30,7 @@ enum PreparedSourceInput {
 
 #[derive(Debug, Default)]
 struct PreparedSourceCacheState {
+    returned_callables: returned_callable::ReturnedCallableSources,
     parsed: Vec<(PreparedSourceInput, Result<ParsedScript, ParseError>)>,
     realm_requests: BTreeSet<ModuleRequestKeyIr>,
     script_import_sites: Vec<crate::DynamicImportSiteIr>,

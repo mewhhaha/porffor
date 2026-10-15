@@ -311,6 +311,7 @@ impl ScriptLowerer<'_> {
                         FirstArgumentTextPurpose::RealmModuleRequest => {}
                     },
                     FiniteSourceValue::Function(_)
+                    | FiniteSourceValue::ReturnedCallableSource(_)
                     | FiniteSourceValue::FunctionConstructor(_)
                     | FiniteSourceValue::Record(_)
                     | FiniteSourceValue::Array(_) => {}
@@ -540,6 +541,7 @@ impl ScriptLowerer<'_> {
                 }
                 FiniteSourceValue::Text(_)
                 | FiniteSourceValue::SupplementalText(_)
+                | FiniteSourceValue::ReturnedCallableSource(_)
                 | FiniteSourceValue::Record(_)
                 | FiniteSourceValue::Array(_) => {}
             }

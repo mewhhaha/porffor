@@ -218,13 +218,8 @@ fn execute(seed: Test262ReplaySeed, backend: ExecutionBackend) -> Test262ReplayR
             .next()
             .ok_or_else(|| invalid("selected Test262 execution vanished"))?;
         let preludes = crate::load_preludes(&config).map_err(invalid)?;
-        let original = crate::run_one_case_on_persistent_worker(
-            &case,
-            &preludes,
-            config.timeout_ms,
-            backend,
-            false,
-        );
+        let original =
+            crate::run_one_case_on_persistent_worker(&case, &preludes, config.timeout_ms, backend);
         if original.test_id != *seed.execution_id() {
             return Err(invalid("Test262 evaluator returned a foreign execution id"));
         }

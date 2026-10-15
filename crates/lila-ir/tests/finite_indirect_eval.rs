@@ -196,3 +196,208 @@ fn first_script_argument_keeps_all_256_primary_sources_before_conversion_views()
     }
     assert!(prepared.iter().all(|source| source.source != "globalThis;"));
 }
+
+#[test]
+fn finite_template_sources_retain_all_primitive_string_conversion_views() {
+    let program = lower(
+        r#"
+const realm = new ShadowRealm();
+for (const value of [null, undefined, 0, '1n', false, NaN, Infinity, 'Symbol()', '[]', '{}']) {
+    realm.evaluate(`typeof (${String(value)});`);
+}
+"#,
+    );
+    for text in [
+        "null",
+        "undefined",
+        "0",
+        "1n",
+        "false",
+        "NaN",
+        "Infinity",
+        "Symbol()",
+        "[]",
+        "{}",
+    ] {
+        assert_prepared(
+            &program,
+            &format!("typeof ({text});"),
+            PreparedScriptKind::ShadowRealmEvaluate,
+        );
+    }
+}
+
+#[test]
+fn filtered_array_sources_keep_possible_elements_without_selecting_a_predicate() {
+    let program = lower(
+        r#"
+const realm = new ShadowRealm();
+let names = ['Math', 'JSON', 'Reflect'];
+names = names.filter(name => name in globalThis);
+const available = names.filter(name => {
+    return realm.evaluate(`Object.prototype.hasOwnProperty.call(globalThis, '${name}')`);
+});
+"#,
+    );
+    for name in ["Math", "JSON", "Reflect"] {
+        assert_prepared(
+            &program,
+            &format!("Object.prototype.hasOwnProperty.call(globalThis, '{name}')"),
+            PreparedScriptKind::ShadowRealmEvaluate,
+        );
+    }
+}
+
+#[test]
+fn finite_template_products_keep_256_candidates_and_original_primary_sources() {
+    let values = (0..16)
+        .map(|index| format!("'{index}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let program = lower(&format!(
+        "const realm = new ShadowRealm(); \
+         for (const left of [{values}]) {{ \
+           for (const right of [{values}]) realm.evaluate(`${{left}}+${{right}};`); \
+         }}"
+    ));
+    for left in 0..16 {
+        for right in 0..16 {
+            assert_prepared(
+                &program,
+                &format!("{left}+{right};"),
+                PreparedScriptKind::ShadowRealmEvaluate,
+            );
+        }
+    }
+    assert_eq!(program.script.unwrap().prepared_scripts.len(), 256);
+
+    let overflowing_values = format!("{values},'16'");
+    let overflowing = lower(&format!(
+        "const realm = new ShadowRealm(); realm.evaluate('999;'); \
+         for (const left of [{overflowing_values}]) {{ \
+           for (const right of [{overflowing_values}]) realm.evaluate(`${{left}}+${{right}};`); \
+         }}"
+    ));
+    assert!(
+        overflowing.is_wasm_supported(),
+        "{:?}",
+        overflowing.diagnostics
+    );
+    let prepared = &overflowing.script.as_ref().unwrap().prepared_scripts;
+    assert!(prepared.iter().any(|entry| entry.source == "999;"));
+    assert!(prepared.iter().all(|entry| !entry.source.contains('+')));
+}
+
+#[test]
+fn unknown_template_substitutions_and_filter_results_do_not_invent_sources() {
+    for source in [
+        "const realm = new ShadowRealm(); realm.evaluate(`${globalThis.unknown}`);",
+        "const realm = new ShadowRealm(); globalThis.unknown.filter(text => realm.evaluate(`${text}`));",
+        "const realm = new ShadowRealm(); realm.evaluate(`${String(globalThis.unknown)}`);",
+    ] {
+        let program = lower(source);
+        assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+        assert!(program.script.unwrap().prepared_scripts.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn returned_realm_callable_arguments_seed_the_childs_actual_ordinary_or_arrow_site() {
+    for callable in [
+        "(source) => inner.evaluate(source)",
+        "(function(source) { return inner.evaluate(source); })",
+    ] {
+        let program = lower(&format!(
+            "const realm = new ShadowRealm(); \
+             const run = realm.evaluate(`const inner = new ShadowRealm(); {callable}`); \
+             run('137;'); run('139;');"
+        ));
+        for source in ["137;", "139;"] {
+            assert_prepared(&program, source, PreparedScriptKind::ShadowRealmEvaluate);
+        }
+    }
+}
+
+#[test]
+fn returned_callable_argument_hints_keep_independent_source_owners_and_kinds() {
+    let program = lower(
+        r#"
+const realm = new ShadowRealm();
+const shadow = realm.evaluate(`const inner = new ShadowRealm(); text => inner.evaluate(text)`);
+const indirect = realm.evaluate(`text => (0, eval)(text)`);
+shadow('149;');
+indirect('151;');
+"#,
+    );
+    assert_prepared(&program, "149;", PreparedScriptKind::ShadowRealmEvaluate);
+    assert_prepared(&program, "151;", PreparedScriptKind::IndirectEval);
+    let prepared = &program.script.as_ref().unwrap().prepared_scripts;
+    for (text, kind) in [
+        ("149;", PreparedScriptKind::IndirectEval),
+        ("151;", PreparedScriptKind::ShadowRealmEvaluate),
+    ] {
+        assert!(!prepared
+            .iter()
+            .any(|entry| entry.source == text && entry.kind == kind));
+    }
+}
+
+#[test]
+fn returned_callable_requests_keep_256_hints_without_evicting_primary_sources() {
+    let values = (0..256)
+        .map(|index| format!("'{index};'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let program = lower(&format!(
+        "const realm = new ShadowRealm(); realm.evaluate('999;'); \
+         const run = realm.evaluate('const inner = new ShadowRealm(); text => inner.evaluate(text)'); \
+         for (const text of [{values}]) run(text); run('late-overflow;');"
+    ));
+    assert_prepared(&program, "999;", PreparedScriptKind::ShadowRealmEvaluate);
+    for index in 0..256 {
+        assert_prepared(
+            &program,
+            &format!("{index};"),
+            PreparedScriptKind::ShadowRealmEvaluate,
+        );
+    }
+    assert!(!program
+        .script
+        .unwrap()
+        .prepared_scripts
+        .iter()
+        .any(|entry| { entry.source == "late-overflow;" }));
+}
+
+#[test]
+fn unknown_arguments_and_unresolved_return_values_do_not_invent_nested_sources() {
+    for source in [
+        "const realm = new ShadowRealm(); \
+         const run = realm.evaluate('const inner = new ShadowRealm(); text => inner.evaluate(text)'); \
+         run(globalThis.unknownSource);",
+        "const realm = new ShadowRealm(); \
+         const run = realm.evaluate('const inner = new ShadowRealm(); const f = text => inner.evaluate(text); f'); \
+         run('unresolved-return;');",
+    ] {
+        let program = lower(source);
+        assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_scripts;
+        assert_eq!(prepared.len(), 1, "only the literal outer source is available: {source}");
+    }
+}
+
+#[test]
+fn returned_callable_text_domains_do_not_authorize_eager_realm_module_requests() {
+    use lila_ir::LoweringSession;
+    let parsed = parse(
+        "const realm = new ShadowRealm(); \
+         const run = realm.evaluate('const inner = new ShadowRealm(); specifier => inner.importValue(specifier, \"value\")'); \
+         run('./supplemental-only.js');",
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let session = LoweringSession::default();
+    let program = session.lower_source(&parsed, HostSurfacePolicy::default());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(session.realm_module_requests().is_empty());
+}

@@ -1021,6 +1021,8 @@ fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {
 #[derive(Clone, Copy)]
 enum WasmModuleMemoryCachePolicy {
     Retain,
+    /// Retain immutable R modules, while unique per-case P modules bypass the LRU.
+    RetainRuntime,
     BypassRetention,
 }
 
@@ -1297,11 +1299,13 @@ fn wasm_module_for_execution_with_factory(
     native_compilation_mode: WasmNativeCompilationMode,
     create: impl FnOnce() -> Result<WasmtimeModule, EngineError>,
 ) -> Result<(WasmtimeModule, WasmModuleMemoryCacheOutcome), EngineError> {
-    match memory_cache_policy {
-        WasmModuleMemoryCachePolicy::Retain => {
+    match (memory_cache_policy, source) {
+        (WasmModuleMemoryCachePolicy::Retain, _)
+        | (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::Runtime(_)) => {
             memory_cached_wasm_module(source, native_compilation_mode, create)
         }
-        WasmModuleMemoryCachePolicy::BypassRetention => {
+        (WasmModuleMemoryCachePolicy::RetainRuntime, WasmModuleSource::Program(_))
+        | (WasmModuleMemoryCachePolicy::BypassRetention, _) => {
             Ok((create()?, WasmModuleMemoryCacheOutcome::Bypassed))
         }
     }
@@ -2544,9 +2548,10 @@ impl Engine {
     ///
     /// Callers must provide a thread with at least 64MiB of stack. This is
     /// for hosts that already own such a persistent worker; ordinary callers
-    /// should use [`Engine::run_script`]. The persistent-worker path bypasses
-    /// in-memory compiled-module retention so unique-source workloads remain
-    /// memory-bounded; the on-disk caches remain enabled.
+    /// should use [`Engine::run_script`]. The persistent-worker path retains
+    /// immutable runtime modules within the existing bounded module cache and
+    /// bypasses per-case program retention. Every execution creates fresh
+    /// instances and a fresh Store; the on-disk caches remain enabled.
     #[doc(hidden)]
     pub fn run_wasm_aot_script_on_current_thread(
         &self,
@@ -2561,7 +2566,7 @@ impl Engine {
             options,
             timeout_ms,
             can_block,
-            WasmModuleMemoryCachePolicy::BypassRetention,
+            WasmModuleMemoryCachePolicy::RetainRuntime,
         )
     }
 
@@ -2638,9 +2643,10 @@ impl Engine {
     ///
     /// Callers must provide a thread with at least 64MiB of stack. This is
     /// for hosts that already own such a persistent worker; ordinary callers
-    /// should use [`Engine::run_module`]. The persistent-worker path bypasses
-    /// in-memory compiled-module retention so unique-source workloads remain
-    /// memory-bounded; the on-disk caches remain enabled.
+    /// should use [`Engine::run_module`]. The persistent-worker path retains
+    /// immutable runtime modules within the existing bounded module cache and
+    /// bypasses per-case program retention. Every execution creates fresh
+    /// instances and a fresh Store; the on-disk caches remain enabled.
     #[doc(hidden)]
     pub fn run_wasm_aot_module_on_current_thread(
         &self,
@@ -2655,7 +2661,7 @@ impl Engine {
             options,
             timeout_ms,
             can_block,
-            WasmModuleMemoryCachePolicy::BypassRetention,
+            WasmModuleMemoryCachePolicy::RetainRuntime,
         )
     }
 

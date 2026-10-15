@@ -134,6 +134,40 @@ mod tests {
     use super::SOURCE_DISCOVERY_WORK;
 
     #[test]
+    fn filtered_source_discovery_reuses_each_chained_receiver_once() {
+        for depth in [4, 8, 12] {
+            SOURCE_DISCOVERY_WORK.with(|work| {
+                assert_eq!(work.get().0, 0);
+                work.set((0, 0, 0));
+            });
+            let chain = format!("['17;']{}", ".filter(value => true)".repeat(depth));
+            let parsed = lila_front::parse(
+                format!("(0, eval)(({chain})[0]);"),
+                lila_front::ParseOptions::script(),
+            )
+            .unwrap();
+            let program = crate::lower(&parsed);
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            assert!(program
+                .script
+                .as_ref()
+                .unwrap()
+                .prepared_scripts
+                .iter()
+                .any(|source| source.source == "17;"));
+            SOURCE_DISCOVERY_WORK.with(|work| {
+                let (active, _, largest) = work.get();
+                assert_eq!(active, 0);
+                assert!(largest >= depth + 1);
+                assert!(
+                    largest <= 4 * depth + 24,
+                    "repeated filter receiver discovery: depth={depth}, work={largest}"
+                );
+            });
+        }
+    }
+
+    #[test]
     fn ordinary_nested_callee_discovery_keeps_linear_work_and_no_source_authority() {
         for depth in [4, 8, 12] {
             for construct in [false, true] {

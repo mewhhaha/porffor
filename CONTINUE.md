@@ -1,5 +1,20 @@
 # Current continuation — 2026-10-14
 
+## Bounded ShadowRealm sources and runtime-only worker retention — 2026-10-15
+
+The current source batch discovers bounded template/String/filter source hints
+and finite argument hints for returned ShadowRealm callables. Actual callees,
+property reads, arguments, conversions, exceptions and Realm environments remain
+live. Unknown source keeps the explicit Wasm-AOT capability boundary.
+
+Persistent Test262 cases now use their existing sized worker thread and retain
+only immutable runtime modules in the bounded LRU. Per-case program modules
+bypass memory retention; each request still creates fresh instances, Store and
+Realm. The matched preceding 20-case warm sample already retained runtime code,
+so no speed gain is claimed. The batch adds 24 native controls; Rust compilation,
+focused controls, complete suites and genuine CLI replay are pending. The prior
+verified checkpoints below remain their own source-bound evidence.
+
 ## Genuine ordinary CLI subclass checkpoint — 2026-10-14
 
 The normal default release CLI on compiler `d2f4bc51` completes the unchanged
