@@ -1,5 +1,18 @@
 # Current continuation — 2026-10-15
 
+## Closed historical replay — 2026-10-15
+
+The [exact 5,365-ID original-tree replay](docs/rust-rewrite/original-history-eb1ca63c9-20261015.json) is complete and audited:
+**5,194 Success, 167 NotImplemented, 4 Bug, 0 Crash**. Against the earlier
+5,142-pass checkpoint, 53 former nonpasses now pass and one former pass cannot
+resolve a TXT dependency absent from its original pinned tree: net **52 more
+successes**. Strict retention stays red: **5,172/5,173**. The importing case
+separately passes on the current pin. A staged Annex B diagnostic confirms its
+first failure at fixture line 33. A separate successful Unicode trace measures
+32.027 seconds of lowering (19.095 prepass, 12.683 final body) under concurrent
+load; it is not an idle benchmark. The current-pin full matrix remains active;
+task closure and literal all-zero conformance remain pending.
+
 ## Verification gate map and shortcut audit — 2026-10-15
 
 Compiler `eb1ca63c9` passes the actual checkout shortcut audit: **26 exact
