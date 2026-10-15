@@ -1,5 +1,21 @@
 # Current continuation — 2026-10-15
 
+## Verified ordinary release CLI55 — 2026-10-15
+
+The normal default release CLI on compiler `eb1ca63c9` passes all **55 selected executions with Success**, with zero NotImplemented, Bug, Crash or InfrastructureError. All **53 preceding selected passes** are retained, and both original RegExp escape modes now pass. Fixture bytes, modes and pins are unchanged.
+
+The complete ordinary build preparation passes in **156.575 seconds**; the actual source-bound native replay exits zero in **59.175 seconds**. It uses one worker, one thread and the unchanged 60,000 ms deadline, with the ordinary static runtime.
+
+The [portable CLI55 proof](docs/rust-rewrite/ordinary-cli-eb1ca63c9-probe55-20261015.json) preserves exact IDs, pinned fixture bytes, actual Cargo/runtime provenance and lossless raw native evidence. It also preserves the original report-order verification error and the corrected read-only validation; the successful native run was not repeated. Verify offline using the two default checkpoints already published beside it:
+
+```sh
+python3 docs/rust-rewrite/verify-ordinary-cli55-eb1ca63c9-20261015.py \
+  docs/rust-rewrite/ordinary-cli-eb1ca63c9-probe55-20261015.json
+```
+
+The historical 5,365-ID replay, complete pinned Test262 suite and remaining task gates retain their separate acceptance requirements. CONTINUE.md and tasks remain open.
+
+
 ## Complete all-features workspace at source eb1ca63c9 — 2026-10-15
 
 Compiler source `eb1ca63c9` passes all **108 all-features workspace scopes: 9,269 passed, zero failed, zero ignored**. All **9,254 preceding all-features passes** are retained. The preceding default inventory is accounted for by **9,157 all-features passes plus 4 actual same-source default-only passes**. All **17 RegExp and labelled-scope regression controls** pass, including the three direct-eval activation regressions.

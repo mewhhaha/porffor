@@ -11,8 +11,7 @@ module boundaries, host ABI and product interpreter-exclusion checks pass.
 
 Current source `eb1ca63c9` also passes all 547 Python tooling tests, retaining all 546 preceding IDs. Both complete workspace modes now pass.
 
-Completed workspace verification: the all-features run on `eb1ca63c9` passes all 9,269 tests across 108 scopes, with all 17 RegExp/label controls and exact predecessor retention verified. See the [completed all-features checkpoint](../docs/rust-rewrite/all-features-workspace-eb1ca63c9-native-checkpoint-20261015.json). Ordinary CLI55, historical 5,365-ID retention and the fresh complete
-pinned Test262 runs remain pending. The earlier `8e9a8c82` Test262 runs are
+Completed workspace verification: the all-features run on `eb1ca63c9` passes all 9,269 tests across 108 scopes, with all 17 RegExp/label controls and exact predecessor retention verified. See the [completed all-features checkpoint](../docs/rust-rewrite/all-features-workspace-eb1ca63c9-native-checkpoint-20261015.json). The ordinary default release CLI passes all **55 selected executions**, retaining all 53 preceding passes and both repaired RegExp modes, with zero nonpasses. See the [portable CLI55 proof](../docs/rust-rewrite/ordinary-cli-eb1ca63c9-probe55-20261015.json). Historical 5,365-ID retention and the fresh complete pinned Test262 run remain separate pending gates. The earlier `8e9a8c82` Test262 runs are
 [closed partial results](../docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json),
 with 16,071 distinct prior passing IDs required by the next complete replay.
 
