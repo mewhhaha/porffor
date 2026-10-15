@@ -15,11 +15,45 @@ functions and top-level label-chain hoisting retain their respective rules.
 The separate disputed Annex B outer-copy behavior is unchanged. See the
 [lexical scope contract](docs/rust-rewrite/contracts/labelled-function-lexical-depth.md).
 
-The `cc0210eb` focused run passed 1,551 tests and failed two: an invalid added
-RegExp literal and the phantom activation-binding regression. Both corrections
-are integrated; this source still requires native verification. The unchanged
-original RegExp fixture passed both script modes through the Wasm engine in
-separate diagnostics. Those diagnostics do not replace ordinary CLI verification.
+Source `fb3a1235` passes the exact four-scope native check: **1,556 passed,
+zero failed, zero ignored**. All **1,551 prior positive IDs** remain passing,
+both previously failed IDs now pass, and all three new activation-binding
+controls pass.
+
+The complete source-bound outer exits zero in **923.732 seconds**,
+including compilation and orchestration. The table reports each raw libtest
+duration; scheduler receipt times also include deferred completion polling.
+
+| Native scope | Passed | Libtest seconds |
+| --- | ---: | ---: |
+| IR library (complete) | 1,536 | 55.37 |
+| IR finite RegExp source | 4 | 3.21 |
+| Wasm callable entry roles | 9 | 6.44 |
+| Wasm finite RegExp source | 7 | 10.40 |
+
+The invocation uses
+`--packages lila-ir lila-engine --isolate-test-package lila-ir` to give each
+Cargo producer its own package and avoid an unused Engine library test build.
+`--only-targets` selects native executions; package and isolation options select
+the Cargo graph. Earlier runs used different inputs and graphs, so these times
+do not measure a controlled speedup.
+
+The earlier `cc0210eb` run remains recorded as **1,551 passes and two failures**.
+Its invalid RegExp literal and phantom activation-binding failures, the original
+exit-1 preflight and the Cargo exit-101 build failure all remain in the
+[portable focused proof](docs/rust-rewrite/focused-native-fb3a1235-20261015.json).
+The proof retains raw inventories, transcripts, Cargo producers, exact IDs and
+clean source-owner equality. Verify it offline:
+
+```sh
+python3 -B docs/rust-rewrite/verify-focused-native-fb3a1235-20261015.py \
+  docs/rust-rewrite/focused-native-fb3a1235-20261015.json
+```
+
+The unchanged original RegExp fixture also passed both script modes through
+the Wasm engine in separate diagnostics. Fresh ordinary CLI, full workspace,
+historical 5,365-ID retention and full pinned Test262 verification remain
+pending on the repaired source; this focused pass does not close those gates.
 
 ## Closed partial Test262 replays — 2026-10-15
 
@@ -44,9 +78,10 @@ python3 -B docs/rust-rewrite/verify-incomplete-publication-closure-8e9a8c82-2026
   docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json
 ```
 
-The RegExp source and labelled lexical scope repairs are undergoing separate
-native checks. Full pinned Test262 and task acceptance remain open; CONTINUE.md
-and tasks remain until their complete gates pass.
+The RegExp source and labelled lexical scope repairs pass the focused native
+checks above. Fresh repaired-source CLI, full workspace, historical retention
+and full pinned Test262 checks remain pending. CONTINUE.md and tasks remain
+until their complete gates pass.
 
 ## Cloud conformance worker CPUs — 2026-10-15
 
@@ -104,9 +139,10 @@ product/oracle dependency separation, host ABI and the refreshed shortcut
 inventory checks pass. The inventory refresh changes display line numbers only;
 selector fingerprints and classifications remain unchanged.
 
-Historical 5,365-ID retention and the full pinned 102,994-execution Test262
-suite are active on the same frozen compiler. Final outcomes and task acceptance
-remain pending. `CONTINUE.md` and `tasks/` remain open.
+The frozen `8e9a8c82` historical and full-suite prefix runs are closed and
+incomplete, as recorded above. Fresh historical 5,365-ID retention and full
+pinned 102,994-execution Test262 verification remain pending on the repaired
+source. `CONTINUE.md` and `tasks/` remain open.
 
 ## Complete all-features workspace checkpoint — 2026-10-15
 
