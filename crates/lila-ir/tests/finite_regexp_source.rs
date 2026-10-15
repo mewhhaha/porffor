@@ -43,7 +43,8 @@ fn literal_and_resolved_constructor_sources_prepare_escaped_script_candidates() 
         ("", r"RegExp('[\\/]')", r"/[\/]/"),
         ("", r"/[/]/", r"/[/]/"),
         ("", r"/[\\/]/", r"/[\\/]/"),
-        ("", r"/\[/\]/", r"/\[\/\]/"),
+        ("", r"/\[\/\]/", r"/\[\/\]/"),
+        ("", r"RegExp('\\[/\\]')", r"/\[\/\]/"),
         ("", "new RegExp('/')", r"/\//"),
         ("", r"/\//", r"/\//"),
         (

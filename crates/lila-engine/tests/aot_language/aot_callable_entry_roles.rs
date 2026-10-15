@@ -271,3 +271,27 @@ fn unchanged_pinned_labelled_function_syntax_keeps_both_top_level_names() {
     );
     assert_labelled_lexical_depth(&source);
 }
+
+#[test]
+fn labelled_nonlexical_chains_do_not_shadow_initialized_bindings_in_direct_eval() {
+    assert_labelled_lexical_depth(
+        r#"
+function owner() {
+  let visible = 83;
+  {
+    assert.sameValue(eval('visible'), 83);
+    a: b: function visible() { return 89; }
+    assert.sameValue(eval('visible'), 83);
+  }
+  switch (0) {
+    case 0:
+      assert.sameValue(eval('visible'), 83);
+      a: b: function visible() { return 97; }
+      assert.sameValue(eval('visible'), 83);
+  }
+  return visible;
+}
+assert.sameValue(owner(), 83);
+"#,
+    );
+}

@@ -29,9 +29,15 @@ cannot mask a surrounding lexical, catch or with-object binding by inventing
 a block cell. An ordinary direct declaration sharing the chain's spelling
 retains its own initializer.
 
+The storage-plan inventory follows the same lexical selection. A rejected
+outer-variable copy is not by itself sufficient: retaining a nonlexical
+chain's synthetic block-storage name in the activation would still publish an
+uninitialized cell to direct eval. The actual outer binding would then share
+its source name with that cell. Block and CaseBlock plan collection therefore
+exclude nonlexical label chains before assigning storage or named-record slots.
+
 This repair does not extend Annex B's optional outer-variable copy scan through
-labels. Candidate collection, copy eligibility and copy evaluation are
-unchanged. The separate Mozilla staging fixture expectation conflict remains
+labels. Outer-copy eligibility and copy evaluation are unchanged. The separate Mozilla staging fixture expectation conflict remains
 recorded in `target/annex-b-labelled-normative-disposition-0a18df332-20261014`;
 neither held copy patch is applied. HostSurfacePolicy selects exposed host
 globals and does not select a declaration-semantics dialect.

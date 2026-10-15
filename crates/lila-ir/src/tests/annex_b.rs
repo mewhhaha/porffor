@@ -1011,3 +1011,91 @@ fn labelled_chains_keep_script_and_function_top_level_var_hoisting() {
         assert!(owner.function_bindings.contains_key("inner"));
     });
 }
+
+#[test]
+fn labelled_chains_do_not_reserve_activation_cells_visible_to_direct_eval() {
+    for (source, function_owner) in [
+        (
+            "let visible = 83; { eval('visible'); a: b: function visible() {} function ordinary() {} }",
+            false,
+        ),
+        (
+            "function owner() { let visible = 83; { eval('visible'); a: b: function visible() {} function ordinary() {} } }",
+            true,
+        ),
+        (
+            "function owner(value = 0) { let visible = 83; { eval('visible'); a: b: function visible() {} function ordinary() {} } }",
+            true,
+        ),
+    ] {
+        with_script_analysis(source, |analysis| {
+            let owner = if function_owner {
+                function_owner_plan_by_name(analysis, "owner")
+            } else {
+                &analysis.owner_plans[SCRIPT_OWNER_ID]
+            };
+            let body = &analysis.environment_plans
+                [&owner.body_environment_id.unwrap_or(owner.activation_environment_id)];
+            assert!(body.binding_storage_names.contains("visible"), "{source}");
+            assert!(body.binding_storage_names.iter().all(|name| {
+                !name.starts_with("$annexb.block.") || !name.ends_with(".visible")
+            }), "a nonlexical chain must not reserve an uninitialized cell: {source}");
+            let Some(EvalEnvironmentRoleIr::Declarative { bindings, .. }) =
+                &body.eval_environment
+            else {
+                panic!("the actual outer binding must remain visible to eval: {source}");
+            };
+            assert_eq!(
+                bindings.iter().filter(|binding| binding.source_name == "visible").count(),
+                1,
+                "the named record must not contain duplicate source names: {source}"
+            );
+            assert!(analysis.annex_b_function_plans.values().all(|plan| {
+                plan.source_name != "visible"
+            }));
+            assert!(analysis.annex_b_function_plans.values().any(|plan| {
+                plan.source_name == "ordinary" && plan.copy_to_variable_environment
+            }), "ordinary eligible copies must remain intact: {source}");
+            assert_eq!(
+                analysis.annex_b_function_plans.values()
+                    .filter(|plan| plan.copy_to_variable_environment)
+                    .map(|plan| plan.source_name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["ordinary"],
+                "the eligible copy set must stay exact: {source}"
+            );
+        });
+    }
+}
+
+#[test]
+fn labelled_case_chains_do_not_reserve_activation_cells_visible_to_direct_eval() {
+    with_script_analysis(
+        "function owner() { let visible = 83; switch (0) { case 0: eval('visible'); a: b: function visible() {} function ordinary() {} } }",
+        |analysis| {
+            let owner = function_owner_plan_by_name(analysis, "owner");
+            let activation = &analysis.environment_plans[&owner.activation_environment_id];
+            assert!(activation.binding_storage_names.contains("visible"));
+            assert!(activation.binding_storage_names.iter().all(|name| {
+                !name.starts_with("$annexb.block.") || !name.ends_with(".visible")
+            }));
+            let Some(EvalEnvironmentRoleIr::Declarative { bindings, .. }) =
+                &activation.eval_environment
+            else {
+                panic!("the activation has a real direct-eval-visible lexical binding");
+            };
+            assert_eq!(bindings.iter().filter(|binding| binding.source_name == "visible").count(), 1);
+            assert!(analysis.annex_b_function_plans.values().all(|plan| plan.source_name != "visible"));
+            assert!(analysis.annex_b_function_plans.values().any(|plan| {
+                plan.source_name == "ordinary" && plan.copy_to_variable_environment
+            }));
+            assert_eq!(
+                analysis.annex_b_function_plans.values()
+                    .filter(|plan| plan.copy_to_variable_environment)
+                    .map(|plan| plan.source_name.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["ordinary"]
+            );
+        },
+    );
+}

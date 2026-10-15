@@ -2,54 +2,51 @@
 
 ## RegExp source and labelled lexical scope repair batch — 2026-10-15
 
-The next compiler batch fixes RegExp source serialization after an already
-escaped line terminator and preserves delimiter spelling inside character
-classes. Finite source discovery and the emitted Wasm getter use the same
-policy, with matcher and source round-trip regression coverage.
+The compiler batch fixes RegExp source serialization after an already escaped
+line terminator and preserves delimiter spelling inside character classes.
+Finite source discovery and the emitted Wasm getter use the same policy, with
+matcher and source round-trip regression coverage.
 
-Block and switch lexical declaration selection now stops at a labelled
-Statement, as required by the pinned static semantics. Direct labelled function
-declarations and top-level label-chain hoisting retain their respective rules;
-closures and finite eval use the same lexical selection. The separate disputed
-Annex B outer-copy behavior is unchanged. See the
+Block and switch lexical declaration selection stops at a labelled Statement,
+as required by the pinned static semantics. Storage planning uses that same
+selection, so a nonlexical chain cannot introduce an uninitialized binding
+that hides an initialized outer variable from direct eval. Direct labelled
+functions and top-level label-chain hoisting retain their respective rules.
+The separate disputed Annex B outer-copy behavior is unchanged. See the
 [lexical scope contract](docs/rust-rewrite/contracts/labelled-function-lexical-depth.md).
 
-These source changes are prepared; native verification remains pending. Both
-preceding `8e9a8c82` Test262 replays are now closed with incomplete coverage:
-1,436 historical successes and 10,898 full-suite successes across 67/748 nodes.
-Every observed success remains required in current-source retention, alongside
-all 5,142 earlier historical passes. The historical run retained all 1,405
-earlier passes it reached. Literal failures and unrun IDs remain recorded;
-these partial runs do not close the full pinned suite or individual task gates.
+The `cc0210eb` focused run passed 1,551 tests and failed two: an invalid added
+RegExp literal and the phantom activation-binding regression. Both corrections
+are integrated; this source still requires native verification. The unchanged
+original RegExp fixture passed both script modes through the Wasm engine in
+separate diagnostics. Those diagnostics do not replace ordinary CLI verification.
 
-## Guarded full-suite continuation — 2026-10-15
+## Closed partial Test262 replays — 2026-10-15
 
-The frozen `8e9a8c82` full pinned Test262 family resumes under a persistent
-supervisor. It checks a fresh complete file inventory before native commands
-and retains full byte-identity checks at startup, before publication and at
-closure. Compiler, suite pins, three workers, serial native jobs, 60,000 ms
-case deadlines and cache caps keep their existing policy.
+Both frozen `8e9a8c82` Test262 replays are now closed, with their original
+interrupted results preserved. The full-suite prefix contains **67/748 complete
+nodes and 10,903 executions: 10,898 Success, 4 NotImplemented, 1 Bug, zero Crash**.
+The historical replay contains **1,600 completed native executions: 1,436
+Success, 161 NotImplemented, 3 Bug, zero Crash**, plus two missing-input
+infrastructure errors. All 1,405 earlier historical passes reached by that
+partial run remain passing; the unrun IDs remain unrun.
 
-The closed handoff preserves **28 complete native nodes / 6,469 executions**:
-**6,464 Success, 4 NotImplemented, 1 Bug, zero Crash**. Every previous node's
-JSON/TXT/timing bytes and positive and negative IDs are retained. The original
-publisher keeps its literal **exit 143**; the separate continuation's actual
-startup identity and native progress through **31/748 nodes** are recorded.
-Historical replay continues separately. These are partial observations;
-full-suite and task acceptance remain open.
+The [portable closure proof](docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json)
+preserves the raw failures, interruptions, complete node outputs and separate
+source-byte closure proof. It requires **16,071 distinct prior passing IDs** in
+the later repaired-source full verification. These are retention requirements,
+not claims of new passes or complete suite coverage.
 
-The [portable handoff checkpoint](docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json)
-includes the raw boundary, original interruption, normal CLI provenance,
-controller controls and observed continuation. Verify it offline with:
+Verify it with the previously published handoff files in the same directory:
 
 ```sh
-python3 -B docs/rust-rewrite/verify-guarded-publication-handoff-8e9a8c82-20261015.py \
-  docs/rust-rewrite/guarded-publication-handoff-8e9a8c82-20261015.json
+python3 -B docs/rust-rewrite/verify-incomplete-publication-closure-8e9a8c82-20261015.py \
+  docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json
 ```
 
-The observed startup identity phase took 7.847 seconds. The checkpoint retains
-individual inventory-check timings; no controlled speed gain is claimed.
-CONTINUE.md and tasks remain until their complete acceptance gates pass.
+The RegExp source and labelled lexical scope repairs are undergoing separate
+native checks. Full pinned Test262 and task acceptance remain open; CONTINUE.md
+and tasks remain until their complete gates pass.
 
 ## Cloud conformance worker CPUs — 2026-10-15
 
@@ -66,11 +63,10 @@ Cargo/libtest thread and unchanged feature selection. See the
 [verified tooling checkpoint](docs/rust-rewrite/cloud-worker-affinity-checkpoint-20261015.json)
 and [worker invocation](docs/rust-rewrite/batch-workflow.md#explicit-cloud-conformance-workers--2026-10-15).
 
-The historical and full pinned Test262 runs continue on frozen compiler
-`8e9a8c82`. Their live scheduling correction uses CPUs 0–2 for full-suite
-workers and CPU 3 for history, without restarting cases. The full run includes
-both scheduling periods; this is conformance evidence rather than a uniform
-CPU benchmark. Its final outcomes and task acceptance remain pending.
+The original `8e9a8c82` historical and full-suite prefix runs are now closed
+as recorded above. Their scheduling periods remain part of the preserved
+observations, not a uniform CPU benchmark. Repaired-source verification and
+full task acceptance remain pending.
 
 ## Genuine ordinary CLI53 checkpoint — 2026-10-15
 

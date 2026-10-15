@@ -1028,7 +1028,9 @@ impl<'a> AnalysisBuilder<'a> {
             AnnexBDirectFunctionCollection::Record => {
                 let direct_functions = items
                     .iter()
-                    .filter_map(statement_list_item_function_declaration)
+                    // A storage plan also reserves a named environment cell.
+                    // Label chains have no Block lexical declaration to own it.
+                    .filter_map(lexically_scoped_statement_list_item_function_declaration)
                     .collect::<Vec<_>>();
                 self.record_annex_b_direct_functions(
                     owner_id,
@@ -1364,7 +1366,8 @@ impl<'a> AnalysisBuilder<'a> {
                     .cases()
                     .iter()
                     .flat_map(|case| case.body().statements())
-                    .filter_map(statement_list_item_function_declaration)
+                    // Use the same lexical inventory as CaseBlock initialization.
+                    .filter_map(lexically_scoped_statement_list_item_function_declaration)
                     .collect::<Vec<_>>();
                 self.record_annex_b_direct_functions(
                     owner_id,
