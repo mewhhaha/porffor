@@ -1,5 +1,16 @@
 # Lila Rust AOT + Test262 execution plan
 
+Unapplied repair checkpoint (2026-10-15): all five affected default-feature
+libraries pass a metadata-only compile in **81.250 seconds** end to end
+(**46.173 seconds** of compiler work on one CPU). The original 12 AOT compile
+errors and the five-file corrections remain in the [captured proof](../docs/rust-rewrite/abi6-five-crate-metadata-eb1ca63c9-20261015.json),
+with an [offline reader](../docs/rust-rewrite/verify-abi6-five-crate-metadata-eb1ca63c9-20261015.py).
+The complete type-fixed module-boundary check also passes. This compiles an
+unapplied candidate; it performs no native code generation, unit/integration
+execution, Wasm validation, stock Cargo build or conformance acceptance.
+Native ownership/Function tests and broad repaired-suite verification remain pending.
+
+
 Focused IR candidate checkpoint (2026-10-15): **36 actual native unit checks passed**,
 including seven new and 29 existing controls; all 1,536 old unit IDs remain in the
 1,543-ID inventory. This tests an unapplied IR subset, not the whole repair batch
