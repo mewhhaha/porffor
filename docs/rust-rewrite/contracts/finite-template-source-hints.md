@@ -1,14 +1,31 @@
 # Finite template, filtered-array and prepared-callable source hints
 
-This candidate extends optional AOT source discovery. It does not change emitted
-call, property lookup, string conversion, filter, callback or realm behavior.
+Optional AOT source discovery does not change emitted call, property lookup,
+string conversion, filter, callback or realm behavior.
 
-An interpolated template can contribute the bounded Cartesian product of its
-existing finite substitution text views. A possible intrinsic String call can
-contribute all finite text views of its first argument. A property call named
-`filter` can retain every possible input-array element as a possible result
-element, matching the existing conservative array callback hint protocol. These
-new views are supplemental and cannot displace an existing primary candidate.
+An interpolated template first uses the bounded Cartesian product of its existing
+finite substitution text views. Every nonempty product remains unchanged,
+including mixed choices that can arise after reassignment. Only when that
+expansion is empty, including an oversized product, an additional bounded search
+may reuse one text choice for repeated simple identifier holes resolving to the
+same analyzed environment/storage cell. Distinct or shadowed cells and other
+holes keep independent choices. Intercepted identifier references do not use this
+fallback. It reuses the already discovered hole candidates, including captured
+and supplemental text views, without rediscovering nested expressions.
+
+These are supplemental source proposals, not proofs that live reads correlate.
+Assignments, calls, getters and every substitution's Get and ToString still run
+in their original order. A source produced by mutation or coercion must match
+the complete live string, source kind and permitted active context before a
+prepared unit executes. An unlisted source keeps the existing typed Wasm-AOT
+capability rejection; the search neither folds runtime operations nor asserts
+that its catalog is exhaustive.
+
+A possible intrinsic String call can contribute all finite text views of its
+first argument. A property call named `filter` can retain every possible
+input-array element as a possible result element, matching the existing
+conservative array callback hint protocol. These views are supplemental and
+cannot displace an existing primary candidate.
 
 The compiler does not run the filter predicate, select its true branch, prove
 the returned object's identity, or replace the returned array. A modified method,
@@ -17,19 +34,22 @@ possibilities. Such a live value still has to match a compiled source of the
 right kind and active runtime context; otherwise it receives the existing typed
 Wasm-AOT capability rejection.
 
-The 256-candidate/tuple limits remain unchanged. An oversized template product
-contributes no new product hints. Existing source units remain available. Source
-text with unknown substitutions remains unsupported at runtime; no parser or
-interpreter is added to emitted Wasm. Supplemental views also retain the existing
-restriction against authorizing eager realm-module requests.
+The 256-candidate/tuple limits apply to both searches. If the fallback's independent
+choices also exceed the limit, it contributes no sources. Existing primary
+sources and every fitting Cartesian product remain available. Unknown live
+strings remain unsupported unless they match an admitted prepared source; no
+parser or interpreter is added to emitted Wasm. Supplemental views also retain
+the restriction against authorizing eager realm-module requests.
 
 Controls cover primitive and nullish String views, chained filter callbacks,
 the complete 256-template product and overflow, retained primary sources,
 unknown values, live method Get/argument/conversion/throw order, a replaced
 filter with observable callbacks, and typed rejection of an unmatched result.
-The unmodified pinned WrappedFunction/name.js and
-evaluate/globalthis-available-properties.js fixtures are native witnesses in both
-script modes. These controls are prepared, not yet executed for this candidate.
+Repeated-cell controls additionally cover captured eval and Function sources,
+independent and shadowed cells, the unchanged 256-choice boundary, reassignment,
+live getter/conversion effects and typed rejection of an unlisted mixed source.
+Fixture coverage includes the unmodified pinned WrappedFunction/name.js and
+evaluate/globalthis-available-properties.js files in both script modes.
 
 A returned ShadowRealm callable can contribute another optional hint when the
 prepared Script ends in an ordinary function expression or arrow literal. The
@@ -72,7 +92,6 @@ values, primary-source retention, and import-request restrictions. Native
 controls exercise equal source in distinct Realms with captured lexical state,
 reassigned callees, live method/Get/argument/throw behavior, and unknown nested
 source rejection. The two unchanged pinned nested-realms and nested
-wrapped-function fixtures are native witnesses in both modes. All these controls
-are prepared and require actual native execution before claiming a repair. The
-historical eight-execution NI evidence remains separate from current-source
-replay results.
+wrapped-function fixtures cover both modes. Acceptance requires actual native
+execution of these controls. Historical eight-execution NI evidence remains
+separate from current-source replay results.

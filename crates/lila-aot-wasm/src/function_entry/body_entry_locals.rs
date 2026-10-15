@@ -6,8 +6,8 @@ use crate::gc_types::{
     AsyncGeneratorActivationSchema, DirectEvalExecutionContext, Environment, FunctionContext,
     FunctionContextSchema, FunctionObject, FunctionObjectSchema, GcLocal, GeneratorActivation,
     GeneratorActivationSchema, I32Local, I64Local, InvocationFrame, InvocationFrameSchema,
-    NonNullable, Nullable, PrivateEnvironment, RealmRecord, RuntimeSchema, StoredValue, ValueArray,
-    ValueLocals,
+    NonNullable, Nullable, PrivateEnvironment, ProgramInstance, ProgramInstanceLocals, RealmRecord,
+    RuntimeSchema, StoredValue, ValueArray, ValueLocals,
 };
 
 struct CallableLocals {
@@ -54,6 +54,7 @@ pub(crate) enum ResumableEntryLocals<'a> {
 /// callers borrow semantic roles rather than rematerializing physical locals.
 pub(crate) struct BodyEntryLocals {
     role: EntryRoleLocals,
+    program: ProgramInstanceLocals,
     this_value: ValueLocals,
     new_target: ValueLocals,
     arguments: GcLocal<ValueArray>,
@@ -247,6 +248,27 @@ impl PlannedBodyEntry<'_> {
                 },
             },
         };
+        let program_parameter = schema
+            .parameter_gc::<ProgramInstance, NonNullable>(self.program_parameter_index(), function);
+        let calling_program =
+            ProgramInstanceLocals::bind(schema, program_parameter.load(schema, function), function);
+        program_parameter.clear(function);
+        let program = match &role {
+            EntryRoleLocals::Ordinary { callable, .. }
+            | EntryRoleLocals::Generator { callable, .. }
+            | EntryRoleLocals::Async { callable, .. }
+            | EntryRoleLocals::AsyncGenerator { callable, .. } => {
+                let effective = ProgramInstanceLocals::for_function_entry(
+                    schema,
+                    &callable.context,
+                    &calling_program,
+                    function,
+                );
+                calling_program.clear(function);
+                effective
+            }
+            EntryRoleLocals::PreparedScript { .. } => calling_program,
+        };
         let (arguments, argument_count) = match &role {
             EntryRoleLocals::Ordinary { .. } | EntryRoleLocals::PreparedScript { .. } => {
                 normalize_arguments(schema, 7, 8, function)
@@ -308,6 +330,7 @@ impl PlannedBodyEntry<'_> {
         };
         BodyEntryLocals {
             role,
+            program,
             this_value,
             new_target,
             arguments,
@@ -319,6 +342,9 @@ impl PlannedBodyEntry<'_> {
 }
 
 impl BodyEntryLocals {
+    pub(crate) fn program(&self) -> &ProgramInstanceLocals {
+        &self.program
+    }
     pub(crate) fn caller_realm(&self) -> Option<&GcLocal<RealmRecord>> {
         match &self.role {
             EntryRoleLocals::Ordinary { caller_realm, .. } => Some(caller_realm),
@@ -483,6 +509,7 @@ impl BodyEntryLocals {
                 variable_environment.clear(function);
             }
         }
+        self.program.clear(function);
     }
 }
 

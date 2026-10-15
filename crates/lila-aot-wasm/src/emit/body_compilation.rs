@@ -1,4 +1,7 @@
 use super::*;
+use crate::function_layout::ProgramInitializeIndex;
+mod program_initialize;
+pub(crate) use program_initialize::{CompletedProgramInitializeBody, ProgramInitializeCompilation};
 
 impl<'a> FunctionBuilder<'a> {
     fn normalize_base_class_constructor_result(&mut self, function: &mut Function) {
@@ -44,6 +47,30 @@ impl<'a> FunctionBuilder<'a> {
     }
 
     pub(super) fn compile(&mut self) -> Result<Function, EmitError> {
+        if self.is_program_initialize() || (self.is_main() && self.uses_heap) {
+            return Err(EmitError::unsupported(
+                "a GC bootstrap or heap main requires its dedicated typed compilation entry",
+            ));
+        }
+        self.compile_javascript_body(None)
+    }
+
+    pub(super) fn compile_main_with_program_initialize(
+        &mut self,
+        initializer: Option<ProgramInitializeIndex>,
+    ) -> Result<Function, EmitError> {
+        if !self.is_main() || self.uses_heap != initializer.is_some() {
+            return Err(EmitError::unsupported(
+                "main and its typed P initializer plan disagree",
+            ));
+        }
+        self.compile_javascript_body(initializer)
+    }
+
+    fn compile_javascript_body(
+        &mut self,
+        initializer: Option<ProgramInitializeIndex>,
+    ) -> Result<Function, EmitError> {
         if self.functions.module_execution_record_count() == 0
             && self.current_function_meta().is_some_and(|meta| {
                 matches!(
@@ -60,12 +87,13 @@ impl<'a> FunctionBuilder<'a> {
         let mut function = self.take_owned_body();
 
         self.push_scope();
-        self.install_program_static_data(&mut function);
-        self.initialize_gc_literal_roots(&mut function)?;
-        self.ensure_heap_ptr_after_static_data(&mut function);
         if self.uses_heap {
             if self.is_main() {
-                self.emit_install_program_hooks(&mut function)?;
+                let index = initializer.expect("heap main owns its completed P bootstrap");
+                let program = self
+                    .runtime_schema()
+                    .call_program_initialize(index, &mut function);
+                self.bind_entry_program(program);
             }
             self.init_current_realm(&mut function)?;
             self.init_current_env(&mut function)?;
@@ -350,7 +378,8 @@ impl<'a> FunctionBuilder<'a> {
                 FunctionModuleState::Main(_, policy) => policy,
                 FunctionModuleState::PreparedScript(_, _)
                 | FunctionModuleState::Internal(_)
-                | FunctionModuleState::RuntimeOperation(_) => {
+                | FunctionModuleState::RuntimeOperation(_)
+                | FunctionModuleState::ProgramInitialize => {
                     unreachable!("only the main export reports unhandled rejections")
                 }
             };
@@ -367,55 +396,6 @@ impl<'a> FunctionBuilder<'a> {
         }
         function.instruction(&Instruction::End);
         Ok(self.finish_function(function))
-    }
-
-    /// The runtime module's memory holds only its own static data. `main`
-    /// grows it to cover the program's bytes and copies them in behind the
-    /// runtime's, at the addresses the program's bodies were compiled with.
-    fn install_program_static_data(&self, function: &mut Function) {
-        if !self.is_main() || !self.uses_heap {
-            return;
-        }
-        let runtime = self.strings.compiler_owned_boundary();
-        let runtime_pages = initial_memory_pages(runtime.static_len(), true);
-        let program_pages = initial_memory_pages(self.strings.bytes.len(), true);
-        if program_pages > runtime_pages {
-            function.instruction(&Instruction::MemorySize(0));
-            function.instruction(&Instruction::I32Const(program_pages as i32));
-            function.instruction(&Instruction::I32LtU);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::I32Const(program_pages as i32));
-            function.instruction(&Instruction::MemorySize(0));
-            function.instruction(&Instruction::I32Sub);
-            function.instruction(&Instruction::MemoryGrow(0));
-            function.instruction(&Instruction::I32Const(-1));
-            function.instruction(&Instruction::I32Eq);
-            function.instruction(&Instruction::If(BlockType::Empty));
-            function.instruction(&Instruction::Unreachable);
-            function.instruction(&Instruction::End);
-            function.instruction(&Instruction::End);
-        }
-        let length = self.strings.program_static_len();
-        if length > 0 {
-            function.instruction(&Instruction::I32Const(
-                runtime.program_static_address() as i32
-            ));
-            function.instruction(&Instruction::I32Const(0));
-            function.instruction(&Instruction::I32Const(length as i32));
-            function.instruction(&Instruction::MemoryInit {
-                mem: 0,
-                data_index: StringPool::PROGRAM_STATIC_DATA_SEGMENT,
-            });
-        }
-    }
-
-    fn ensure_heap_ptr_after_static_data(&self, function: &mut Function) {
-        if !self.is_main() || !self.uses_heap {
-            return;
-        }
-        let heap_start = align_heap_start(self.strings.bytes.len()) as i64;
-        function.instruction(&Instruction::I64Const(heap_start));
-        function.instruction(&Instruction::GlobalSet(PRIVATE_BYTE_CURSOR_GLOBAL_INDEX));
     }
 
     fn init_current_realm(&mut self, function: &mut Function) -> Result<(), EmitError> {

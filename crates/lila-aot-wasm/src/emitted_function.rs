@@ -86,6 +86,8 @@ pub(crate) const FUNCTION_BODY_BUDGET_ENV: &str = "LILA_EMIT_FUNCTION_BODY_BUDGE
 pub(crate) enum FunctionIdentity {
     /// The exported `main` body: script top level plus the runtime bootstrap.
     Main,
+    /// The separate linked-P owner bootstrap; never a JavaScript main.
+    ProgramInitialize,
     /// A function declared by the user program.
     Script { id: FunctionId, name: String },
     /// An independently prepared Script body with its distinct typed entry.
@@ -107,6 +109,7 @@ impl FunctionIdentity {
     pub(crate) fn wasm_name(&self) -> String {
         match self {
             Self::Main => "lila::main".to_string(),
+            Self::ProgramInitialize => "lila::program_init".to_string(),
             Self::Script { id, name } | Self::PreparedScript { id, name } if name.is_empty() => {
                 format!("js::{id}")
             }
@@ -124,6 +127,7 @@ impl FunctionIdentity {
     pub(crate) fn category(&self) -> &'static str {
         match self {
             Self::Main => "main",
+            Self::ProgramInitialize => "program-initialize",
             Self::Script { .. } | Self::PreparedScript { .. } => "script",
             Self::StandardBuiltin(_) => "builtin",
             Self::HostBuiltin(_) => "host-builtin",
@@ -141,6 +145,7 @@ impl FunctionIdentity {
     fn type_index(&self) -> u32 {
         match self {
             Self::Main => StaticSignature::Main.type_index(),
+            Self::ProgramInitialize => StaticSignature::ProgramInitialize.type_index(),
             Self::Script { .. } | Self::StandardBuiltin(_) | Self::HostBuiltin(_) => {
                 StaticSignature::JavaScriptFunction.type_index()
             }
@@ -309,6 +314,7 @@ impl core::fmt::Display for FunctionBodySize {
 #[derive(Debug, Clone)]
 enum FunctionDeclaration {
     NonCallable,
+    ProgramInitialize(crate::function_layout::ProgramInitializeIndex),
     Planned(crate::function_entry::PlannedFunctionEntry),
 }
 
@@ -330,6 +336,12 @@ pub(crate) struct EmittedFunction {
 impl EmittedFunction {
     pub(crate) fn main(body: Function) -> Self {
         Self::new(FunctionIdentity::Main, body)
+    }
+    pub(crate) fn program_initialize(body: crate::emit::CompletedProgramInitializeBody) -> Self {
+        let (index, body) = body.into_parts();
+        let mut function = Self::new(FunctionIdentity::ProgramInitialize, body);
+        function.declaration = FunctionDeclaration::ProgramInitialize(index);
+        function
     }
     pub(crate) fn runtime_helper(helper: RuntimeHelperId, body: Function) -> Self {
         Self::new(FunctionIdentity::RuntimeHelper(helper), body)
@@ -402,6 +414,10 @@ impl ModuleCode {
         self.next_wasm_index += 1;
         let type_index = match &function.declaration {
             FunctionDeclaration::NonCallable => function.identity.type_index(),
+            FunctionDeclaration::ProgramInitialize(index) => {
+                index.assert_body_index(wasm_index);
+                StaticSignature::ProgramInitialize.type_index()
+            }
             FunctionDeclaration::Planned(entry) => {
                 entry.assert_body_index(wasm_index);
                 entry.signature().type_index()
@@ -796,3 +812,6 @@ mod tests {
         assert_eq!(identity.wasm_name(), "js::fn7");
     }
 }
+
+#[cfg(test)]
+mod program_initialize_tests;

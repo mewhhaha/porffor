@@ -4,12 +4,17 @@ use std::path::Path;
 const SOURCE: &str = include_str!("../../src/emit.rs");
 const COMPILATION: &str = include_str!("../../src/emit/body_compilation.rs");
 const ENTRY: &str = include_str!("../../src/emit/body_entry.rs");
+const PROGRAM_INITIALIZE: &str =
+    include_str!("../../src/emit/body_compilation/program_initialize.rs");
+const MODULE_ASSEMBLY: &str = include_str!("../../src/emit/module_assembly.rs");
+const SIGNATURES: &str = include_str!("../../src/module/static_signature.rs");
 const SOURCE_FAMILY: &str = concat!(
     include_str!("../../src/emit.rs"),
     include_str!("../../src/emit/body_compilation.rs"),
     include_str!("../../src/emit/body_entry.rs"),
     include_str!("../../src/emit/body_entry/literal_roots.rs"),
     include_str!("../../src/emit/template_objects.rs"),
+    include_str!("../../src/emit/body_compilation/program_initialize.rs"),
 );
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
@@ -78,6 +83,7 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
             "pub(crate) enum ReturnAbi {\n",
             "    MainExport,\n",
             "    MultiValue,\n",
+            "    ProgramInstance,\n",
             "}\n"
         ),
         "/// Only a builder owning the planned entry can finish this body.",
@@ -91,7 +97,7 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     assert_eq!(
         state,
         concat!(
-            "Main(&'aFinalizedModuleGlobals,PromiseRejectionPolicy),",
+            "ProgramInitialize,Main(&'aFinalizedModuleGlobals,PromiseRejectionPolicy),",
             "PreparedScript(&'aPreparedScriptUnit,&'acrate::function_entry::PlannedFunctionEntry),",
             "Internal(&'acrate::function_entry::PlannedFunctionEntry),RuntimeOperation(RuntimeHelperId),"
         )
@@ -104,7 +110,8 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     assert!(declaration.contains("Self::RuntimeOperation(helper)=>helper.parameter_types().len()"));
     assert!(declaration
         .contains("Self::Internal(entry)|Self::PreparedScript(_,entry)=>Some(entry.body())"));
-    assert!(declaration.contains("Self::Main(_,_)|Self::RuntimeOperation(_)=>None"));
+    assert!(declaration
+        .contains("Self::Main(_,_)|Self::RuntimeOperation(_)|Self::ProgramInitialize=>None"));
     assert!(!declaration.contains("#["));
     let normalized_source = normalized_code(SOURCE_FAMILY);
     for capability in ["Clone", "Copy", "Debug", "PartialEq", "Eq", "Default"] {
@@ -117,11 +124,11 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "FunctionModuleState"),
-        47
+        59
     );
     assert_eq!(
         SOURCE_FAMILY.matches("FunctionModuleState::Main").count(),
-        9
+        10
     );
     assert_eq!(
         SOURCE_FAMILY
@@ -138,7 +145,7 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
 }
 
 #[test]
-fn exactly_six_constructors_choose_their_named_module_states() {
+fn exactly_seven_constructors_choose_their_named_module_states() {
     for (start, end, expected) in [
         (
             "    fn new_main(",
@@ -157,8 +164,13 @@ fn exactly_six_constructors_choose_their_named_module_states() {
         ),
         (
             "    fn new_host_builtin(",
-            "    fn new_runtime_operation_helper(",
+            "    pub(super) fn new_program_initialize(",
             "FunctionModuleState::Internal",
+        ),
+        (
+            "    pub(super) fn new_program_initialize(",
+            "    fn new_runtime_operation_helper(",
+            "FunctionModuleState::ProgramInitialize",
         ),
         (
             "    fn new_runtime_operation_helper(",
@@ -243,6 +255,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     );
     assert_eq!(normalized_code(parameter_policy), concat!(
         "FunctionModuleState::Main(_,_)=>schema.signature(StaticSignature::Main),",
+        "FunctionModuleState::ProgramInitialize=>{schema.signature(StaticSignature::ProgramInitialize)}",
         "FunctionModuleState::PreparedScript(_,entry)|FunctionModuleState::Internal(entry)=>schema.signature(entry.signature()),",
         "FunctionModuleState::RuntimeOperation(helper)=>helper.definition(schema.layouts()),}.parameters().to_vec();"
     ));
@@ -254,6 +267,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     assert!(!construction_policy.contains("_ =>"));
     for role in [
         "Main(_, _)",
+        "ProgramInitialize",
         "PreparedScript(unit, _)",
         "Internal(_)",
         "RuntimeOperation(_)",
@@ -279,6 +293,7 @@ fn module_state_storage_and_anchor_projections_are_borrowed_and_exhaustive() {
     );
     for retained_root in [
         "context.clear(function)",
+        "self.clear_entry_program(function)",
         "entry.clear(self.schema, function)",
         "self.current_environment.set_null(self.schema, function)",
     ] {
@@ -309,7 +324,7 @@ fn prepared_script_context_projections_keep_their_closed_role_policy() {
     assert!(projections.contains("FunctionModuleState::Main(_,_)=>true"));
     assert!(projections.contains("unit.has_global_variable_environment()"));
     assert!(projections.contains(
-        "FunctionModuleState::Internal(_)|FunctionModuleState::RuntimeOperation(_)=>false"
+        "FunctionModuleState::Internal(_)|FunctionModuleState::RuntimeOperation(_)|FunctionModuleState::ProgramInitialize=>false"
     ));
     assert!(projections.contains("context.derived_constructor_owner()"));
     assert!(projections.contains("self.direct_eval_context.as_ref()?;"));
@@ -361,9 +376,87 @@ fn only_the_main_export_selects_the_host_rejection_policy() {
         normalized_code(checkpoint),
         concat!(
             "FunctionModuleState::Main(_,policy)=>policy,",
-            "FunctionModuleState::PreparedScript(_,_)|FunctionModuleState::Internal(_)|FunctionModuleState::RuntimeOperation(_)=>{",
+            "FunctionModuleState::PreparedScript(_,_)|FunctionModuleState::Internal(_)|FunctionModuleState::RuntimeOperation(_)|FunctionModuleState::ProgramInitialize=>{",
             "unreachable!(\"only the main export reports unhandled rejections\")}};",
             "self.emit_report_unhandled_rejection(promise_rejection_policy,&mutfunction)?;"
         )
+    );
+}
+
+#[test]
+fn program_initialize_has_a_distinct_nonnull_result_and_never_enters_javascript() {
+    assert!(normalized_code(SIGNATURES)
+        .contains("ProgramInitialize=>([],[Gc(GcLayout::ProgramInstance,NonNullable)])"));
+    let constructor = bounded(
+        SOURCE,
+        "    pub(super) fn new_program_initialize(",
+        "    fn new_runtime_operation_helper(",
+    );
+    assert!(constructor.contains("&EMPTY_BLOCK"));
+    assert!(constructor.contains("FunctionModuleState::ProgramInitialize"));
+    assert!(!constructor.contains("FunctionModuleState::Main"));
+    let begin = bounded(
+        SOURCE,
+        "    pub(super) fn begin_program_initialize_body(",
+        "    pub(crate) fn current_function_context(",
+    );
+    assert!(begin.contains("self.is_program_initialize()"));
+    assert!(begin.contains("self.body_entry_locals.is_none()"));
+    assert!(begin.contains("self.entry_program.is_none()"));
+    assert!(begin.contains("body.parameter_types().is_empty()"));
+    assert!(PROGRAM_INITIALIZE.contains("let result: GcStackReference<ProgramInstance>"));
+    assert!(PROGRAM_INITIALIZE.contains("program.clear(&mut function)"));
+    for forbidden in [
+        "self.completion.emit",
+        "builder.compile()?",
+        "init_current_realm(",
+        "compile_block_contents(",
+        "emit_enter_source_activation(",
+        "MemoryInit",
+        "PRIVATE_BYTE_CURSOR_GLOBAL_INDEX",
+    ] {
+        assert!(!PROGRAM_INITIALIZE.contains(forbidden), "{forbidden}");
+    }
+    assert!(
+        COMPILATION.contains("self.is_program_initialize() || (self.is_main() && self.uses_heap)")
+    );
+    let bind = COMPILATION
+        .find("self.bind_entry_program(program);")
+        .unwrap();
+    assert!(
+        bind < COMPILATION
+            .find("self.init_current_realm(&mut function)?;")
+            .unwrap()
+    );
+}
+
+#[test]
+fn gc_program_publication_does_not_reinstall_metadata_or_reset_runtime_scratch() {
+    for source in [COMPILATION, PROGRAM_INITIALIZE] {
+        for forbidden in [
+            "legacy_static_data",
+            "install_program_static_data",
+            "ensure_heap_ptr_after_static_data",
+            "Instruction::MemoryInit",
+            "PRIVATE_BYTE_CURSOR_GLOBAL_INDEX",
+        ] {
+            assert!(!source.contains(forbidden), "{forbidden}");
+        }
+    }
+    let compilation = normalized_code(COMPILATION);
+    assert!(compilation.contains(concat!(
+        "letprogram=self.runtime_schema().call_program_initialize(index,&mutfunction);",
+        "self.bind_entry_program(program);}",
+        "self.init_current_realm(&mutfunction)?;"
+    )));
+    let assembly = normalized_code(MODULE_ASSEMBLY);
+    assert!(assembly.contains(concat!(
+        "&ConstExpr::i64_const(align_heap_start(ifuses_heap{",
+        "string_pool.compiler_owned_boundary().static_len()",
+        "}else{string_pool.bytes.len()})asi64)"
+    )));
+    assert!(assembly.contains("ModuleKind::Runtime=>string_pool.append_runtime_data(&mutsection)"));
+    assert!(
+        assembly.contains("ModuleKind::Program(_)=>string_pool.append_program_data(&mutsection)")
     );
 }

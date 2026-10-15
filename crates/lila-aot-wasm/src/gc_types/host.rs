@@ -3,7 +3,7 @@
 use super::*;
 use crate::{module::StaticSignature, WasmRuntimeValueTag};
 
-/// Layouts whose contents cross the structured host completion boundary.
+/// Layouts consumed by the structured completion and native compiler boundaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcHostLayout {
     String,
@@ -13,6 +13,10 @@ pub enum GcHostLayout {
     ByteArray,
     StoredValue,
     Completion,
+    ValueArray,
+    FunctionContext,
+    Environment,
+    ProgramInstance,
 }
 
 impl GcHostLayout {
@@ -22,7 +26,10 @@ impl GcHostLayout {
             Self::BigInt => Some(BigIntValue::FIELD_COUNT),
             Self::StoredValue => Some(StoredValue::FIELD_COUNT),
             Self::Completion => Some(CompletionRecord::FIELD_COUNT),
-            Self::CodeUnits | Self::BigIntLimbs | Self::ByteArray => None,
+            Self::FunctionContext => Some(FunctionContext::FIELD_COUNT),
+            Self::Environment => Some(Environment::FIELD_COUNT),
+            Self::ProgramInstance => Some(ProgramInstance::FIELD_COUNT),
+            Self::CodeUnits | Self::BigIntLimbs | Self::ByteArray | Self::ValueArray => None,
         }
     }
 
@@ -37,7 +44,16 @@ impl GcHostLayout {
             Self::ByteArray => {
                 Some(<<ByteArray as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE)
             }
-            Self::String | Self::BigInt | Self::StoredValue | Self::Completion => None,
+            Self::ValueArray => {
+                Some(<<ValueArray as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE)
+            }
+            Self::String
+            | Self::BigInt
+            | Self::StoredValue
+            | Self::Completion
+            | Self::FunctionContext
+            | Self::Environment
+            | Self::ProgramInstance => None,
         }
     }
 
@@ -52,7 +68,14 @@ impl GcHostLayout {
             Self::ByteArray => {
                 Some(<<ByteArray as GcArrayHeapType>::Element as HostFieldStorage>::HOST_STORAGE)
             }
-            Self::String | Self::BigInt | Self::StoredValue | Self::Completion => None,
+            Self::ValueArray => Some(reference_array_element::<ValueArray, StoredValue>()),
+            Self::String
+            | Self::BigInt
+            | Self::StoredValue
+            | Self::Completion
+            | Self::FunctionContext
+            | Self::Environment
+            | Self::ProgramInstance => None,
         }
     }
 }
@@ -80,7 +103,20 @@ macro_rules! host_targets {
 }
 host_targets!(StringValue => String, CodeUnitArray => CodeUnits,
     BigIntValue => BigInt, BigIntLimbArray => BigIntLimbs, ByteArray => ByteArray,
-    StoredValue => StoredValue, CompletionRecord => Completion);
+    StoredValue => StoredValue, CompletionRecord => Completion,
+    ValueArray => ValueArray, FunctionContext => FunctionContext,
+    Environment => Environment, ProgramInstance => ProgramInstance);
+
+const fn reference_array_element<A, T>() -> GcHostStorage
+where
+    A: GcArrayHeapType<Element = GcRef<T>>,
+    T: HostTarget,
+{
+    GcHostStorage::Reference {
+        layout: T::HOST_LAYOUT,
+        nullable: <A::Nullability as GcFieldNullability>::NULLABLE,
+    }
+}
 
 trait HostFieldStorage {
     const HOST_STORAGE: GcHostStorage;
@@ -124,6 +160,7 @@ pub enum GcHostField {
     CompletionTarget,
     CompletionNext,
     CompletionReturnStage,
+    ContextDefiningProgram,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,6 +230,9 @@ impl GcHostField {
             Self::CompletionTarget => scalar_field(&CompletionRecordSchema::TARGET),
             Self::CompletionNext => reference_field(&CompletionRecordSchema::NEXT),
             Self::CompletionReturnStage => scalar_field(&CompletionRecordSchema::RETURN_STAGE),
+            Self::ContextDefiningProgram => {
+                reference_field(&FunctionContextSchema::DEFINING_PROGRAM)
+            }
         }
     }
 }
@@ -286,8 +326,8 @@ pub fn check_gc_main_completion(
     }
 }
 
-/// Native imports are byte resources or explicit collector operations. None
-/// accepts a JavaScript reference encoded as a scalar handle.
+/// Native imports carry explicit resource operations or typed GC references.
+/// JavaScript references never cross this boundary as scalar handles.
 macro_rules! gc_host_imports {
     ($($import:ident => ($name:literal, $signature:ident)),+ $(,)?) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -339,6 +379,7 @@ gc_host_imports! {
     FinalizationTokenMatches => ("finalization_token_matches", HostFinalizationTokenMatches),
     FinalizationCellRemove => ("finalization_cell_remove", HostFinalizationCellRemove),
     ReportCleanupException => ("report_cleanup_exception", HostReportCleanupException),
+    CompileDynamicFunction => ("compile_dynamic_function", HostCompileDynamicFunction),
 }
 
 /// Only declaration assigns a function index, together with its closed import
@@ -398,7 +439,9 @@ impl GcHostImports {
         let mut declarations = Vec::new();
         for import in GcHostImport::ALL {
             let needed = match import {
-                GcHostImport::CollectGc | GcHostImport::ByteArrayAllocate => true,
+                GcHostImport::CollectGc
+                | GcHostImport::ByteArrayAllocate
+                | GcHostImport::CompileDynamicFunction => true,
                 GcHostImport::SharedBufferAllocate
                 | GcHostImport::SharedBufferBase
                 | GcHostImport::SharedBufferLength

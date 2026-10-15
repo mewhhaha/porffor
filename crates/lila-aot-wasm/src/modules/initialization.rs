@@ -16,7 +16,7 @@ impl FunctionBuilder<'_> {
         }
         self.runtime_schema()
             .call_helper(
-                ModuleInitializeArguments::new(realm),
+                ModuleInitializeArguments::new(realm, self.current_program()),
                 self.runtime_helper_base()?,
                 function,
             )
@@ -42,15 +42,8 @@ impl FunctionBuilder<'_> {
                 EmitError::unsupported("canonical module initializer must have a compiled entry")
             })?;
         let schema = self.runtime_schema();
-        let records = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<RealmRecord>()
-                .field(RealmRecordSchema::MODULES)
-                .read(realm, schema, function)
-                .reference(),
-            function,
-        );
-        records.load(schema, function);
+        let graph = self.emit_module_graph_in_realm(realm, self.current_program(), function);
+        graph.load(schema, function);
         function.instruction(&Instruction::RefIsNull);
         self.open_frame(ControlFrameKind::If, function);
         let prototype = schema.reserve_value_local(function);
@@ -85,7 +78,7 @@ impl FunctionBuilder<'_> {
         prototype.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        records.clear(function);
+        graph.clear(function);
         Ok(())
     }
 }

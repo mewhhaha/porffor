@@ -58,6 +58,7 @@ impl RuntimeArtifactCache for RuntimeWasmCache<'_> {
 pub(super) struct WasmProgramRef<'a> {
     pub(super) bytes: &'a [u8],
     pub(super) runtime: Option<&'a Arc<RuntimeArtifact>>,
+    pub(super) compilation_policy: Option<&'a WasmCompilationPolicy>,
 }
 
 impl<'a> WasmProgramRef<'a> {
@@ -66,11 +67,21 @@ impl<'a> WasmProgramRef<'a> {
         Self {
             bytes,
             runtime: None,
+            compilation_policy: None,
         }
     }
 
     pub(super) fn new(bytes: &'a [u8], runtime: Option<&'a Arc<RuntimeArtifact>>) -> Self {
-        Self { bytes, runtime }
+        Self {
+            bytes,
+            runtime,
+            compilation_policy: None,
+        }
+    }
+
+    pub(super) fn with_compilation_policy(mut self, policy: &'a WasmCompilationPolicy) -> Self {
+        self.compilation_policy = Some(policy);
+        self
     }
 
     /// The module that owns the host imports, memory imports and Intl images.

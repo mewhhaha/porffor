@@ -345,6 +345,7 @@ never turn incomplete or historical evidence into current pass counts.
 - Counts for every failure kind and non-success outcome are zero.
 - Timeout, crash, unknown-origin, missing-case and duplicate-case counts are zero.
 - Independent rerun/sharding/resume checks produce the same complete result set.
+- Closure defaults to one case worker; explicit parallel scheduling stays within visible affinity/CPU quotas, keeps compiler jobs serial, and verifies the exact worker/timeout/reuse settings against each fresh node's snapshot-bound evidence.
 - The integrity audit finds no test-specific semantic branch, fake standard builtin or silent host fallback.
 - The T27 interpreter-quarantine audit is green: Wasm-AOT is the default backend everywhere, no interpreter engine crate is linked into product builds, and no emitted artifact embeds an interpreter or user source consumed by an evaluator.
 - All workspace tests, fake suites, differential corpus and required stress checks are green.

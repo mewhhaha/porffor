@@ -22,7 +22,12 @@ macro_rules! reaction_helper {
                 let base = self.runtime_helper_base()?;
                 self.runtime_schema()
                     .call_helper(
-                        $arguments::new(activation, value, self.current_environment()),
+                        $arguments::new(
+                            activation,
+                            value,
+                            self.current_environment(),
+                            self.current_program(),
+                        ),
                         base,
                         function,
                     )
@@ -89,6 +94,7 @@ impl FunctionBuilder<'_> {
                     activation,
                     value,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,

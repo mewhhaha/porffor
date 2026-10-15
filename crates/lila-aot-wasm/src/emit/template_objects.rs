@@ -211,7 +211,7 @@ impl FunctionBuilder<'_> {
                 realm.clear(function);
                 TemplateSourceExecution { source, owner }
             }
-            FunctionModuleState::RuntimeOperation(_) => {
+            FunctionModuleState::RuntimeOperation(_) | FunctionModuleState::ProgramInitialize => {
                 unreachable!("runtime helpers do not own parsed template sites",)
             }
         };

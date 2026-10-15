@@ -64,6 +64,7 @@ impl IntlHostProbe {
             &wasm_engine,
             WasmHostState {
                 weak: wasm_gc_weak_host::WeakGcState::default(),
+                native_function_compiler: None,
                 monotonic_clock_origin: realm.host_clock().monotonic_instant(),
                 realm,
                 output_events: WasmOutputEvents::DelegateOnly,

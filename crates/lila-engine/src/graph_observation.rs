@@ -67,6 +67,7 @@ impl Engine {
             Some(ProgramWasmArtifact {
                 bytes: Arc::from(bytes),
                 runtime: None,
+                compilation_policy: WasmCompilationPolicy::from_options(&options),
                 cached_entry: Some(ProgramWasmCacheEntry {
                     cache: Arc::clone(cache),
                     key,
@@ -141,6 +142,7 @@ impl Engine {
             bytes: Arc::from(artifact.bytes),
             runtime,
             cached_entry: None,
+            compilation_policy: WasmCompilationPolicy::from_unit(&unit),
         })
     }
     #[cfg(feature = "spec-exec-oracle")]

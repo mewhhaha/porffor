@@ -52,6 +52,45 @@ fn unmatched_language_has_only_locale_independent_sort_preferences() {
 }
 
 #[test]
+fn reserved_base_languages_use_checked_locale_independent_profiles() {
+    let profiles = embedded_collator_profiles().unwrap();
+    let locales_before: Vec<_> = profiles.available_locales().cloned().collect();
+    let collations_before = profiles.available_collations().to_vec();
+    for tag in [
+        "abcde",
+        "abcdef",
+        "abcdefg",
+        "abcdefgh",
+        "abcde-Latn-DE-u-ca-gregory",
+        "abcdefgh-DE-t-de-u-rg-dezzzz-x-phonebk",
+    ] {
+        assert_eq!(names(tag), ["emoji", "eor"], "{tag}");
+    }
+    assert_eq!(
+        profiles.available_locales().cloned().collect::<Vec<_>>(),
+        locales_before
+    );
+    assert_eq!(
+        profiles.available_collations(),
+        collations_before.as_slice()
+    );
+}
+
+#[test]
+fn reserved_transform_languages_keep_base_lookup_and_unicode_extension_boundaries() {
+    for tag in [
+        "de-t-abcde",
+        "de-t-abcdefgh-latn-us-u-ca-buddhist",
+        "de-a-foobar-t-abcde-u-rg-uszzzz-x-co-search",
+        "de-u-ca-buddhist-x-u-co-phonebk",
+        "de-x-u-co-search",
+    ] {
+        assert_eq!(names(tag), names("de"), "{tag}");
+    }
+    assert_eq!(names("en-t-abcde-u-ca-buddhist"), names("en"));
+}
+
+#[test]
 fn lookup_prefix_uses_the_matched_german_profile() {
     let actual = names("de-DE-fonipa");
     assert_eq!(actual, names("de"));
@@ -61,10 +100,12 @@ fn lookup_prefix_uses_the_matched_german_profile() {
 #[test]
 fn matched_locale_does_not_receive_the_global_sort_union() {
     let profiles = embedded_collator_profiles().unwrap();
-    assert!(profiles
-        .available_collations()
-        .iter()
-        .any(|name| name.as_ref() == "phonebk"));
+    assert!(
+        profiles
+            .available_collations()
+            .iter()
+            .any(|name| name.as_ref() == "phonebk")
+    );
     assert!(names("de").iter().any(|name| name == "phonebk"));
     assert!(!names("en").iter().any(|name| name == "phonebk"));
 }
@@ -82,12 +123,16 @@ fn all_admitted_locale_results_are_unique_sorted_sort_purpose_names() {
     for locale in profiles.available_locales() {
         let result = names(locale.as_str());
         assert!(result.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(result
-            .iter()
-            .all(|name| !matches!(name.as_str(), "standard" | "search" | "searchjl")));
-        assert!(result.iter().all(|name| union_before
-            .iter()
-            .any(|admitted| admitted.as_ref() == name.as_str())));
+        assert!(
+            result
+                .iter()
+                .all(|name| !matches!(name.as_str(), "standard" | "search" | "searchjl"))
+        );
+        assert!(result.iter().all(|name| {
+            union_before
+                .iter()
+                .any(|admitted| admitted.as_ref() == name.as_str())
+        }));
     }
     assert_eq!(profiles.available_collations(), union_before.as_slice());
 }
@@ -111,8 +156,10 @@ fn locale_profile_requires_collation_data_without_granting_collator_service() {
     use crate::{IntlDataCapability, IntlProfilePlan, IntlService, IntlServiceSet};
     let profile =
         IntlProfilePlan::minimal(IntlServiceSet::EMPTY.with(IntlService::Locale)).unwrap();
-    assert!(profile
-        .capabilities()
-        .contains(IntlDataCapability::Collation));
+    assert!(
+        profile
+            .capabilities()
+            .contains(IntlDataCapability::Collation)
+    );
     assert!(!profile.services().contains(IntlService::Collator));
 }

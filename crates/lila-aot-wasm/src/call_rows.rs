@@ -137,6 +137,15 @@ impl<'a> NumericCallRun<'a> {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NumericCallTable {
     address: u32,
+    length: u32,
+}
+impl NumericCallTable {
+    fn metadata_span(
+        self,
+        strings: &StringPool,
+    ) -> Result<crate::data::ProgramMetadataSpan, EmitError> {
+        crate::data::ProgramMetadataSpan::for_pool(strings, self.address, self.length)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -166,7 +175,9 @@ impl NumericCallTables {
         };
         bytes.resize(aligned, 0);
         bytes.extend_from_slice(&key);
-        self.tables.insert(key, NumericCallTable { address });
+        let length = u32::try_from(key.len()).expect("numeric table extent was checked");
+        self.tables
+            .insert(key, NumericCallTable { address, length });
     }
 
     pub(crate) fn validate(&self) -> Result<(), EmitError> {
@@ -236,8 +247,14 @@ impl FunctionBuilder<'_> {
         run: &NumericCallRun<'_>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let table = self.strings.numeric_call_table(run)?;
+        let table = self
+            .strings
+            .numeric_call_table(run)?
+            .metadata_span(self.strings)?;
         let schema = self.runtime_schema();
+        let metadata = self
+            .current_program()
+            .metadata_span(schema, table, function);
         let cursor = schema.reserve_i32_local(function);
         let row_index = schema.reserve_i32_local(function);
         let argument_count = schema.reserve_i32_local(function);
@@ -247,8 +264,7 @@ impl FunctionBuilder<'_> {
         let receiver = schema.reserve_value_local(function);
         let value = schema.reserve_value_local(function);
         let result = schema.reserve_completion(function);
-        function.instruction(&Instruction::I32Const(table.address as i32));
-        cursor.store(function);
+        cursor.set_constant(0, function);
         function.instruction(&Instruction::I32Const(0));
         row_index.store(function);
 
@@ -265,8 +281,7 @@ impl FunctionBuilder<'_> {
         // GetValue is live on every row, before any argument construction.
         // An earlier call can replace the binding or install a throwing getter.
         self.emit_numeric_call_reference(run.reference, &callee, &receiver, function)?;
-        cursor.load(function);
-        function.instruction(&Instruction::I32Load(Self::memarg32(0)));
+        metadata.read_u32(cursor, schema, function);
         argument_count.store(function);
         cursor.load(function);
         function.instruction(&Instruction::I32Const(8));
@@ -299,8 +314,7 @@ impl FunctionBuilder<'_> {
         self.emit_branch_to_target(arguments_done, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        cursor.load(function);
-        function.instruction(&Instruction::I64Load(Self::memarg32(0)));
+        metadata.read_u64(cursor, 0, schema, function);
         bits.store(function);
         value.set_number(bits, function);
         let stored = schema.reserve_gc_local(function).initialize(
@@ -351,6 +365,7 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
 
+        metadata.clear(schema, function);
         schema.release_i64_local(bits, function);
         schema.release_i32_local(argument_index, function);
         schema.release_i32_local(argument_count, function);

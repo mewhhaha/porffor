@@ -196,6 +196,44 @@ fn runtime_cache_round_trip_reconstructs_the_encoded_types_and_pool() {
 }
 
 #[test]
+fn previous_layout_runtime_cache_entry_is_replaced_before_current_entry_is_reused() {
+    let identity = identity();
+    let cache = MemoryCache::new();
+    let key = identity.cache_key(cache.compiler_identity());
+    let runtime = fixture(Defect::None);
+    let mut previous = encode(&runtime, key);
+    let previous_version = 4u32;
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Keep the current valid payload and key, and repair the checksum, so the
+    // previous-version rejection cannot be supplied by another broken field.
+    // This is an envelope control, not an old-GC-schema admission assertion.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    let digest_offset = previous.len() - DIGEST_BYTES;
+    let digest = Sha256::digest(&previous[..digest_offset]);
+    previous[digest_offset..].copy_from_slice(&digest);
+    assert!(decode(&previous, key, &identity).is_none());
+    cache.store(key, previous);
+
+    let emissions = Cell::new(0);
+    let replacement = load_or_emit(&identity, Some(&cache), || {
+        emissions.set(emissions.get() + 1);
+        Ok(runtime.clone())
+    })
+    .expect("a previous-layout entry falls back to the current producer");
+    let current = load_or_emit(&identity, Some(&cache), || {
+        panic!("the replacement is a valid current-layout cache hit")
+    })
+    .expect("the current-layout replacement admits without another emission");
+    assert_eq!(emissions.get(), 1);
+    assert_eq!(cache.removals.get(), 1);
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.bytes, runtime.bytes);
+        assert_eq!(admitted.key, runtime.key);
+        assert_eq!(admitted.layout, runtime.layout);
+    }
+}
+
+#[test]
 fn runtime_cache_rejects_corruption_truncation_stale_identity_and_trailing_bytes() {
     let identity = identity();
     let key = identity.cache_key(&[17; 32]);

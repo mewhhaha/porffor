@@ -74,8 +74,7 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         use crate::runtime_helpers::{
-            ProgramHook, RegExpCompilerArguments, RegExpCompilerStatus,
-            RegExpProgramCandidateArguments,
+            RegExpCompilerArguments, RegExpCompilerStatus, RegExpProgramCandidateArguments,
         };
         let schema = self.runtime_schema();
         let pending = schema
@@ -85,8 +84,7 @@ impl<'a> FunctionBuilder<'a> {
         status.set_constant(RegExpCompilerStatus::Compiled.abi_word() as i32, function);
         let cursor = schema.reserve_i64_local(function);
         let detail = schema.reserve_i64_local(function);
-        self.emit_program_hook_dispatch(
-            ProgramHook::RegExpProgramCandidate,
+        self.emit_program_hook_dispatch::<crate::gc_types::RegExpProgramCandidateHook>(
             |_, hook, function| {
                 let candidate = schema
                     .call_hook(
@@ -400,6 +398,7 @@ impl<'a> FunctionBuilder<'a> {
                     enumerable,
                     configurable,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

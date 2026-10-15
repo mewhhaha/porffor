@@ -220,6 +220,7 @@ mod tests {
                     description: String::new(),
                     debug_dump: String::new(),
                     runtime: None,
+                    compilation_policy: None,
                 },
                 None,
                 false,

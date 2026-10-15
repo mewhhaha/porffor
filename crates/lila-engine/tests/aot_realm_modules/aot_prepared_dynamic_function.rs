@@ -18,7 +18,7 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
                 ..RunOptions::default()
             },
         )
-        .expect("prepared Function source must compile and execute through Wasm AOT");
+        .expect("Function source must compile and execute through Wasm AOT");
     assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
     assert!(
         matches!(outcome.completion, ObservedCompletion::Normal(_)),
@@ -30,6 +30,40 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
         .map(|line| HostOutputEvent::PrintLine((*line).to_string()))
         .collect::<Vec<_>>();
     assert_eq!(outcome.output_events, expected, "source:\n{source}");
+}
+
+fn assert_unmatched_source_tuples(source: &str, tuples: &[&[&str]], for_of: bool) {
+    let unit = Engine::new(RealmBuilder::new().build())
+        .compile_script(
+            source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+        )
+        .expect("outer source lowers without expanding finite source admission");
+    let script = unit.ir.script.as_ref().expect("Script IR");
+    assert!(script.prepared_dynamic_functions.len() <= 256);
+    for tuple in tuples {
+        assert!(
+            !script.prepared_dynamic_functions.iter().any(|entry| entry
+                .arguments
+                .iter()
+                .map(String::as_str)
+                .eq(tuple.iter().copied())),
+            "actual tuple must retain unmatched runtime dispatch: {tuple:?}"
+        );
+    }
+    if for_of {
+        assert!(
+            script
+                .body
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, lila_ir::StatementIr::ForOfIterator { .. })),
+            "the generic iterator must remain in the outer program"
+        );
+    }
 }
 
 #[test]
@@ -89,18 +123,20 @@ print(counter);
 
 #[test]
 fn body_reference_hints_require_an_exact_runtime_source_tuple() {
+    let source = r#"
+var key1 = 17;
+var counter = 3;
+var p = { toString() { var name = 'key' + (++counter); print(name); return name; } };
+var created = Function(p, 'return key1;');
+print(created(42));
+print(counter);
+print(created.length);
+print(created.toString().includes('key4'));
+"#;
     for prefix in ["", "'use strict';"] {
-        let error = Engine::new(RealmBuilder::new().build()).observe_script(
-            &format!("{prefix} var counter=3; var p={{toString:function(){{return 'key'+(++counter);}}}}; try {{ Function(p,'return key1;'); print('wrong'); }} catch(error) {{ print('caught'); }}"),
-            CompileOptions { host_surface_policy: HostSurfacePolicy::Test262, ..CompileOptions::default() },
-            RunOptions { backend: ExecutionBackend::WasmAot, timeout_ms: Some(30_000), ..RunOptions::default() },
-        ).expect_err("a guessed formal must not admit a different runtime source tuple");
-        assert!(
-            error
-                .to_string()
-                .contains("unsupported dynamic-source operation"),
-            "{error}"
-        );
+        let source = format!("{prefix}{source}");
+        assert_unmatched_source_tuples(&source, &[&["key4", "return key1;"]], false);
+        assert_function_trace(&source, &["key4", "17", "4", "1", "true"]);
     }
 }
 
@@ -783,32 +819,25 @@ fn overflowing_for_of_sources_reach_the_unmatched_live_tuple_boundary() {
         .map(|index| format!("'return {index};'"))
         .collect::<Vec<_>>()
         .join(",");
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compiler worker");
     for directive in ["", "'use strict';"] {
         for head in ["var body", "let body", "const body"] {
-            let source = format!("{directive} for ({head} of [{literals}]) {{ Function(body); }}");
-            let error = Engine::new(RealmBuilder::new().build())
-                .observe_script(
-                    &source,
-                    CompileOptions {
-                        host_surface_policy: HostSurfacePolicy::Test262,
-                        ..CompileOptions::default()
-                    },
-                    RunOptions {
-                        backend: ExecutionBackend::WasmAot,
-                        timeout_ms: Some(30_000),
-                        ..RunOptions::default()
-                    },
-                )
-                .expect_err(
-                    "the actual257 source inputs must not all acquire prepared tuple admission",
-                );
-            assert!(
-                error
-                    .to_string()
-                    .contains("unsupported dynamic-source operation"),
-                "the live unmatched tuple must retain its explicit NI boundary: {error}: {source}"
+            let source = format!(
+                r#"
+{directive}
+var visits = 0, conversions = 0, trace = '';
+for ({head} of [{literals}]) {{
+  var index = visits++;
+  if (index === 0 || index === 256) {{
+    print(Function({{toString() {{ conversions++; trace += index + ';'; return body; }}}})());
+  }}
+}}
+print(visits);
+print(conversions);
+print(trace);
+"#
             );
+            assert_unmatched_source_tuples(&source, &[&["return 0;"], &["return 256;"]], true);
+            assert_function_trace(&source, &["0", "256", "257", "2", "0;256;"]);
         }
     }
 }

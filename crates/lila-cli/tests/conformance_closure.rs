@@ -1,6 +1,28 @@
 use lila_cli::run_cli_capture;
 
 #[test]
+fn release_closure_rejects_invalid_worker_requests_before_creating_evidence() {
+    for arguments in [
+        vec!["--threads"],
+        vec!["--threads", "0"],
+        vec!["--threads", "-4"],
+        vec!["--threads", "+4"],
+        vec!["--threads", "4.0"],
+        vec!["--threads", "999999999999999999999999999999"],
+        vec!["--threads", "2", "--threads", "3"],
+    ] {
+        let mut command = vec!["test262", "close-release", "--reuse-case-workers"];
+        command.extend(arguments);
+        let result = run_cli_capture(command);
+        assert_ne!(result.exit_code, 0);
+        assert!(String::from_utf8(result.stderr)
+            .unwrap()
+            .contains("closure"));
+        assert!(result.stdout.is_empty());
+    }
+}
+
+#[test]
 fn release_closure_cannot_select_subsets_existing_names_or_an_oracle() {
     for arguments in [
         vec!["--filter", "language/wasm/pass"],
@@ -16,7 +38,6 @@ fn release_closure_cannot_select_subsets_existing_names_or_an_oracle() {
         vec!["--execution-backend", "spec-exec"],
         vec!["--case-harness", "none"],
         vec!["--timeout-ms", "1"],
-        vec!["--threads", "2"],
         vec!["--worker-bin", "another-image"],
     ] {
         for reuse in [false, true] {

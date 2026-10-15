@@ -18,7 +18,12 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         schema
             .call_helper(
-                WithEnvironmentHasBindingArguments::new(object, name, self.current_environment()),
+                WithEnvironmentHasBindingArguments::new(
+                    object,
+                    name,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )
@@ -74,7 +79,12 @@ impl FunctionBuilder<'_> {
         let name_key = PropertyKeyLocals::from_string(schema, name, function);
         schema
             .call_helper(
-                ObjectHasPropertyArguments::new(object, &name_key, self.current_environment()),
+                ObjectHasPropertyArguments::new(
+                    object,
+                    &name_key,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )
@@ -97,7 +107,13 @@ impl FunctionBuilder<'_> {
         let key = PropertyKeyLocals::from_symbol(schema, &symbol, function);
         schema
             .call_helper(
-                ObjectReadArguments::new(object, object, &key, self.current_environment()),
+                ObjectReadArguments::new(
+                    object,
+                    object,
+                    &key,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )
@@ -116,6 +132,7 @@ impl FunctionBuilder<'_> {
                     &exclusions,
                     &name_key,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,

@@ -1153,3 +1153,208 @@ fn synthetic_class_discovery_keeps_unknown_and_explicit_constructor_sources_unpr
             "discovery guessed a source tuple: {source}");
     }
 }
+
+#[test]
+fn finite_for_of_array_binding_hints_prepare_helper_eval_sources() {
+    use lila_ir::{
+        ExprIr, PreparedScriptAdmission, PreparedScriptKind, PreparedScriptOutcome, StatementIr,
+    };
+
+    fn has_array_destructuring(statement: &StatementIr) -> bool {
+        match statement {
+            StatementIr::DeclarationEvaluation(expression) => {
+                matches!(expression.expr, ExprIr::ArrayDestructure { .. })
+            }
+            StatementIr::Block(block) => block.statements.iter().any(has_array_destructuring),
+            StatementIr::LexicalBlock(statements) => statements.iter().any(has_array_destructuring),
+            _ => false,
+        }
+    }
+
+    for head in ["var", "let", "const"] {
+        for (pattern, rows) in [
+            (
+                "[source, named]",
+                "[['local + 1', true], ['local + 2', false]]",
+            ),
+            (
+                "[[source], named]",
+                "[[['local + 1'], true], [['local + 2'], false]]",
+            ),
+            (
+                "[source = 'local + 2', named]",
+                "[['local + 1', true], [undefined, false]]",
+            ),
+            ("[...[source]]", "[['local + 1'], ['local + 2']]"),
+        ] {
+            let source = format!(
+                "function evaluate(text) {{ var local = 40; return eval(text); }}\n\
+                 var rows = {rows};\n\
+                 for ({head} {pattern} of rows) {{ evaluate(source); }}"
+            );
+            let parsed = parse(&source, ParseOptions::script()).unwrap();
+            let program = lower(&parsed);
+            assert!(
+                program.is_wasm_supported(),
+                "{source}: {:?}",
+                program.diagnostics
+            );
+            let script = program.script.unwrap();
+            for text in ["local + 1", "local + 2"] {
+                assert!(
+                    script.prepared_scripts.iter().any(|entry| {
+                        matches!(entry.kind, PreparedScriptKind::DirectEval(_))
+                            && entry.source == text
+                            && entry.admission == PreparedScriptAdmission::RuntimeCandidate
+                            && matches!(entry.outcome, PreparedScriptOutcome::Executable(_))
+                    }),
+                    "missing live helper eval candidate {text:?}: {source}"
+                );
+            }
+            let body = script
+                .body
+                .statements
+                .iter()
+                .find_map(|statement| {
+                    if let StatementIr::ForOfIterator { body, .. } = statement {
+                        Some(body.as_ref())
+                    } else {
+                        None
+                    }
+                })
+                .expect("source preparation retains the real generic loop");
+            assert!(
+                has_array_destructuring(body),
+                "source preparation retains real binding initialization: {source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn finite_for_of_array_binding_hints_keep_cells_separate_and_existing_var_sources() {
+    for source in [
+        "for (let [source] of [['return 991;']]) {} for (let [source] of runtimeRows) { Function(source); }",
+        "for (const [source] of [['return 991;']]) {} function build(source) { return Function(source); } build(runtimeSource);",
+        "var source = 'return 992;'; with ({source: 'return 993;'}) { for (var [source] of [['return 991;']]) {} } Function(source);",
+        "var source; for ([source] of [['return 991;']]) {} Function(source);",
+    ] {
+        let parsed = parse(source, ParseOptions::script()).unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+        assert!(!program.script.unwrap().prepared_dynamic_functions.iter()
+            .any(|entry| entry.arguments == ["return 991;"]),
+            "a distinct or intercepted Reference borrowed an iteration source: {source}");
+    }
+
+    let parsed = parse(
+        "var source = 'return 39;'; var rows = [['return 41;']];\n\
+         rows[Symbol.iterator] = function() { return {next() { return {done: true}; }}; };\n\
+         for (var [source] of rows) {} Function(source);",
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    assert!(
+        program
+            .script
+            .unwrap()
+            .prepared_dynamic_functions
+            .iter()
+            .any(|entry| {
+                entry.arguments == ["return 39;"]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )
+            }),
+        "a possibly empty loop must preserve the previous var source"
+    );
+}
+
+#[test]
+fn finite_for_of_array_binding_hints_keep_the_original_candidate_limit() {
+    for count in [256, 257] {
+        let bodies = (0..count)
+            .map(|index| format!("return {index};"))
+            .collect::<Vec<_>>();
+        let rows = bodies
+            .iter()
+            .map(|body| format!("[{body:?}]"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let parsed = parse(
+            format!("for (const [source] of [{rows}]) {{ Function(source); }}"),
+            ParseOptions::script(),
+        )
+        .unwrap();
+        let program = lower(&parsed);
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let prepared = program.script.unwrap().prepared_dynamic_functions;
+        assert!(
+            prepared.len() <= 256,
+            "array projection changed the existing source budget"
+        );
+        if count == 256 {
+            for body in &bodies {
+                assert!(
+                    prepared
+                        .iter()
+                        .any(|entry| entry.arguments == [body.as_str()]
+                            && matches!(
+                                entry.outcome,
+                                PreparedDynamicFunctionOutcome::Compiled { .. }
+                            )),
+                    "lost bounded iteration source {body:?}"
+                );
+            }
+        } else {
+            assert!(
+                bodies.iter().any(|body| !prepared
+                    .iter()
+                    .any(|entry| entry.arguments == [body.as_str()])),
+                "an unmatched source must still reach the existing runtime guard"
+            );
+        }
+    }
+}
+
+#[test]
+fn finite_for_of_array_binding_hints_do_not_displace_existing_primary_sources() {
+    let bodies = (0..256)
+        .map(|index| format!("return {index};"))
+        .collect::<Vec<_>>();
+    let literals = bodies
+        .iter()
+        .map(|body| format!("{body:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let parsed = parse(
+        format!(
+            "var source; [{literals}].forEach(function(value) {{ source = value; }});\n\
+                 for (var [source] of [['return 997;']]) {{}} Function(source);"
+        ),
+        ParseOptions::script(),
+    )
+    .unwrap();
+    let program = lower(&parsed);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let prepared = program.script.unwrap().prepared_dynamic_functions;
+    for body in &bodies {
+        assert!(
+            prepared
+                .iter()
+                .any(|entry| entry.arguments == [body.as_str()]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )),
+            "additive iteration discovery displaced primary source {body:?}"
+        );
+    }
+    assert!(
+        prepared.len() <= 256,
+        "projection changed the existing source limit"
+    );
+}

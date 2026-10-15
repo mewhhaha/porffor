@@ -89,6 +89,7 @@ mod tests {
             0,
             source.program.len() + script.prepared_script_units().count(),
             0,
+            crate::runtime_artifact::ModuleKind::Standalone,
         );
         build_function_metas(&source, script.prepared_script_units(), &[], &[], &layout)
     }

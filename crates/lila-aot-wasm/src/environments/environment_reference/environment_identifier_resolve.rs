@@ -29,6 +29,7 @@ impl FunctionBuilder<'_> {
                     &record,
                     &realm,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 helper_base,
                 function,

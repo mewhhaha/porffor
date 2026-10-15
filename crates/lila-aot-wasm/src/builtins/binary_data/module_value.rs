@@ -18,7 +18,11 @@ impl FunctionBuilder<'_> {
         let offset = s.reserve_i64_local(f);
         let fixed = s.reserve_i32_local(f);
         let byte = s.reserve_i32_local(f);
+        let byte_offset = s.reserve_i32_local(f);
         let data = self.strings.module_bytes(plan.module())?;
+        let metadata =
+            self.current_program()
+                .metadata_span(s, data.metadata_span(self.strings)?, f);
         f.instruction(&Instruction::I64Const(i64::from(data.length())));
         length.store(f);
         offset.set_constant(0, f);
@@ -44,7 +48,10 @@ impl FunctionBuilder<'_> {
         length.load(f);
         f.instruction(&Instruction::I64GeU);
         self.emit_branch_if_to_target(done, f);
-        data.emit_byte(offset, f);
+        offset.load(f);
+        f.instruction(&Instruction::I32WrapI64);
+        byte_offset.store(f);
+        metadata.read_byte(byte_offset, s, f);
         byte.store(f);
         access.write_byte(offset, byte, self, f)?;
         self.emit_increment_local(offset, 1, f);
@@ -82,6 +89,8 @@ impl FunctionBuilder<'_> {
         pending.clear(f);
         buffer_value.clear(f);
         prototype.clear(f);
+        metadata.clear(s, f);
+        s.release_i32_local(byte_offset, f);
         s.release_i32_local(byte, f);
         s.release_i32_local(fixed, f);
         s.release_i64_local(offset, f);

@@ -1,5 +1,7 @@
 # Lila
 
+ABI6 repair (2026-10-15): the native Rust Function compiler follows the JavaScript → Wasm path. The optimized diagnostic compiler passes all **24 focused real Test262 executions** (98.415 seconds). The [native checkpoint](docs/rust-rewrite/abi6-native-repairs-20261015.json) records exact control IDs, source bindings and preserved failed owners. Broader retention, full suites and verification of the combined published source identity remain pending.
+
 CI contract repair (2026-10-15): the required Cargo formatting check passes after correcting one test import order. The identity audit now recognizes narrowly bounded historical paths in registered evidence while continuing to reject retired product identifiers. All **12 identity regressions**, Cargo formatting and the full selected-source identity audit pass. [Validation](docs/rust-rewrite/ci-contract-check-20261015.json) records the scope; hosted and native acceptance gates remain pending.
 
 Hosted verification syntax (2026-10-15): quoted Cargo test selectors fix four invalid YAML workflows. All 21 workflow files parse, and all 11 affected shell commands are unchanged. [Validation](docs/rust-rewrite/workflow-yaml-check-20261015.json) records the pre-existing failures; hosted test results remain pending.

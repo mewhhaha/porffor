@@ -20,6 +20,7 @@ mod aot_temporal_named_conversions;
 mod aot_temporal_named_zdt_leaves;
 mod aot_temporal_partial_date_format;
 mod aot_temporal_persian_calendar;
+mod aot_temporal_plain_date_difference;
 mod aot_temporal_plain_date_zoned;
 mod aot_temporal_plain_year_month;
 mod aot_temporal_relative_bag;

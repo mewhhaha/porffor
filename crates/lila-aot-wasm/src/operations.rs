@@ -529,6 +529,7 @@ impl<'a> FunctionBuilder<'a> {
                             &inputs[0],
                             &name,
                             self.current_environment(),
+                            self.current_program(),
                         ),
                         self.runtime_helper_base()?,
                         function,
@@ -652,6 +653,7 @@ impl<'a> FunctionBuilder<'a> {
                                     &lookup,
                                     &key,
                                     self.current_environment(),
+                                    self.current_program(),
                                 ),
                                 self.runtime_helper_base()?,
                                 function,
@@ -693,6 +695,7 @@ impl<'a> FunctionBuilder<'a> {
                                     &key,
                                     &inputs[2],
                                     self.current_environment(),
+                                    self.current_program(),
                                 ),
                                 self.runtime_helper_base()?,
                                 function,
@@ -1005,6 +1008,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToPrimitiveDefaultArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     base,
                     function,
@@ -1015,6 +1019,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToPrimitiveNumberArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     base,
                     function,
@@ -1025,6 +1030,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToPrimitiveStringArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     base,
                     function,
@@ -1680,6 +1686,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToNumericArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     self.runtime_helper_base()?,
                     function,
@@ -2179,6 +2186,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToNumberArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     self.runtime_helper_base()?,
                     function,
@@ -2374,6 +2382,7 @@ impl<'a> FunctionBuilder<'a> {
                 crate::runtime_helpers::ValueToPropertyKeyArguments::new(
                     input,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -2419,6 +2428,7 @@ impl<'a> FunctionBuilder<'a> {
                 crate::runtime_helpers::ValueToStringArguments::new(
                     &primitive,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,
@@ -4297,6 +4307,7 @@ impl<'a> FunctionBuilder<'a> {
                     crate::runtime_helpers::ValueToStringArguments::new(
                         input,
                         self.current_environment(),
+                        self.current_program(),
                     ),
                     self.runtime_helper_base()?,
                     function,
@@ -5967,6 +5978,7 @@ impl<'a> FunctionBuilder<'a> {
                     input,
                     &key,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

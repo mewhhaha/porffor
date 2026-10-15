@@ -184,7 +184,7 @@ impl FunctionBuilder<'_> {
             &rounding,
             function,
         );
-        self.emit_publish_intl_number_format_object(completed, function);
+        self.emit_publish_intl_number_format_object(completed, function)?;
         numbering_system.clear(function);
         data_locale.clear(function);
         locale.clear(function);

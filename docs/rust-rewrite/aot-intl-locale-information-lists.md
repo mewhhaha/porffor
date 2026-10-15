@@ -53,6 +53,13 @@ enter public results. Empty supported preferences fall back to gregory.
 existing admitted Collator lookup-matched locale's sort map. It does not call
 formatting resolution or expose a global union. Null/standard/search/searchjl
 are removed; unmatched languages use emoji/eor, and names sort lexically.
+Lookup operates on the complete canonical Unicode locale string, including
+reserved 5–8-letter base or transformed language subtags. It structurally
+removes the Unicode extension, preserves opaque private-use text, and performs
+the same prefix search without reparsing through ICU's narrower language type.
+An unmatched identifier consumes the checked locale-independent emoji/eor
+profile owner; it never substitutes `und` or borrows a formatting default.
+Present explicit collation slots still bypass the absent-slot provider query.
 
 [TimeZonesOfLocale](https://tc39.es/ecma402/#sec-timezonesoflocale) reads only
 the original immutable base-region slot. Missing returns undefined locally;

@@ -305,7 +305,11 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         schema
             .call_helper(
-                ObjectGetPrototypeOfArguments::new(&search, self.current_environment()),
+                ObjectGetPrototypeOfArguments::new(
+                    &search,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )

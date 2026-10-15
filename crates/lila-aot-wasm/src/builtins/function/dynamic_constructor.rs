@@ -1,5 +1,6 @@
 use super::*;
-use lila_ir::{DynamicSourceRuntimeOperation, GeneratorPlanIr, ResumablePlanIr};
+use lila_ir::{GeneratorPlanIr, ResumablePlanIr};
+mod native_compiler;
 
 #[derive(Clone, Copy)]
 enum EmptyDerivedFunction {
@@ -32,14 +33,6 @@ impl EmptyDerivedFunction {
             Self::Generator => "function* anonymous(\n) {\n\n}",
             Self::Async => "async function anonymous(\n) {\n\n}",
             Self::AsyncGenerator => "async function* anonymous(\n) {\n\n}",
-        }
-    }
-
-    const fn kind(self) -> DynamicFunctionKind {
-        match self {
-            Self::Generator => DynamicFunctionKind::Generator,
-            Self::Async => DynamicFunctionKind::Async,
-            Self::AsyncGenerator => DynamicFunctionKind::AsyncGenerator,
         }
     }
 
@@ -147,15 +140,14 @@ impl FunctionBuilder<'_> {
     /// Every argument is converted to a String in order, abrupt completions
     /// propagating, before anything is matched. The program (when it prepared
     /// any literal `new Function(...)`) then answers through its hook; a miss
-    /// reaches the constructor's own unprepared paths.
+    /// invokes the native compiler once with the already converted sources.
     pub(super) fn emit_dynamic_constructor_body(
         &mut self,
         kind: DynamicFunctionKind,
-        empty: &WasmFunctionMeta,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         use crate::gc_types::{StoredValue, ValueArray};
-        use crate::runtime_helpers::{PreparedDynamicFunctionArguments, ProgramHook};
+        use crate::runtime_helpers::PreparedDynamicFunctionArguments;
         let schema = self.runtime_schema();
         let new_target = schema.reserve_value_local(function);
         self.emit_dynamic_constructor_new_target(&new_target, function)?;
@@ -243,8 +235,7 @@ impl FunctionBuilder<'_> {
         matched.set_constant(0, function);
         let kind_word = schema.reserve_i32_local(function);
         kind_word.set_constant(dynamic_function_kind_code(kind), function);
-        self.emit_program_hook_dispatch(
-            ProgramHook::PreparedDynamicFunction,
+        self.emit_program_hook_dispatch::<crate::gc_types::PreparedDynamicFunctionHook>(
             |builder, hook, function| {
                 let context = builder
                     .current_function_context()
@@ -273,23 +264,19 @@ impl FunctionBuilder<'_> {
         self.emit_branch_to_target(done, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+
+        self.emit_native_dynamic_function_compile(
+            kind_word,
+            &new_target,
+            &sources,
+            &outcome,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
         schema.release_i32_local(kind_word, function);
         schema.release_i32_local(matched, function);
         outcome.clear(function);
-
-        self.body_entry_locals()
-            .expect("dynamic constructor owns its count")
-            .argument_count()
-            .load(function);
-        function.instruction(&Instruction::I64Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_dynamic_function_allocation(kind, empty, &new_target, function)?;
-        function.instruction(&Instruction::Else);
-        self.emit_reject_dynamic_source(DynamicSourceRuntimeOperation::Function(kind), function);
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        function.instruction(&Instruction::End);
         schema.release_i32_local(index, function);
         pending.clear(function);
         argument.clear(function);
@@ -436,18 +423,7 @@ impl FunctionBuilder<'_> {
         kind: DynamicFunctionKind,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let empty = match kind {
-            DynamicFunctionKind::Ordinary => {
-                return self.compile_function_constructor_builtin(function)
-            }
-            DynamicFunctionKind::Generator => EmptyDerivedFunction::Generator,
-            DynamicFunctionKind::Async => EmptyDerivedFunction::Async,
-            DynamicFunctionKind::AsyncGenerator => EmptyDerivedFunction::AsyncGenerator,
-        };
-        let body = self.functions.get(empty.id()).cloned().ok_or_else(|| {
-            EmitError::unsupported("missing compiler-generated empty dynamic function body")
-        })?;
-        self.emit_dynamic_constructor_body(empty.kind(), &body, function)
+        self.emit_dynamic_constructor_body(kind, function)
     }
 }
 

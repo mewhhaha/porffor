@@ -708,6 +708,66 @@ impl ScriptLowerer<'_> {
         }
     }
 
+    pub(super) fn finite_correlated_template_source_hints(
+        &self,
+        template: &TemplateLiteral,
+        parts: &[Vec<FiniteSourceValue>],
+    ) -> Vec<FiniteSourceValue> {
+        let mut bindings = BTreeMap::new();
+        let mut choices = Vec::new();
+        let mut positions = Vec::new();
+        let mut repeated_binding = false;
+        for (index, element) in template.elements().iter().enumerate() {
+            let key = match element {
+                TemplateElement::Expr(expression) => {
+                    match Self::unwrap_parenthesized_expr(expression) {
+                        Expression::Identifier(identifier) => {
+                            let name = self.interner.resolve_expect(identifier.sym()).to_string();
+                            if !self.finite_source_identifier_has_unintercepted_reference(&name) {
+                                return Vec::new();
+                            }
+                            self.finite_source_binding_key(&name)
+                        }
+                        _ => None,
+                    }
+                }
+                TemplateElement::String(_) => None,
+            };
+            if let Some(position) = key.as_ref().and_then(|key| bindings.get(key)) {
+                repeated_binding = true;
+                positions.push(*position);
+                continue;
+            }
+            let position = choices.len();
+            if let Some(key) = key {
+                bindings.insert(key, position);
+            }
+            positions.push(position);
+            // Share the original discovery results. Rediscovering a nested
+            // template after every failed product would double subtree work.
+            choices.push(parts[index].clone());
+        }
+        if !repeated_binding {
+            return Vec::new();
+        }
+        // This is an additional bounded search, not a proof that live reads
+        // correlate. Each analyzed cell proposes one text choice; other holes
+        // stay independent. Assignment, Get and ToString still execute in the
+        // original template, and only its exact actual source can dispatch.
+        // Effectful or otherwise unlisted strings retain the prior typed AOT
+        // rejection. Never replace the complete product when it already fits.
+        Self::source_candidate_tuples(&choices, true)
+            .into_iter()
+            .map(|choice| {
+                let mut source = String::new();
+                for position in &positions {
+                    source.push_str(&choice[*position]);
+                }
+                FiniteSourceValue::SupplementalText(source)
+            })
+            .collect()
+    }
+
     pub(super) fn source_candidate_tuples(
         arguments: &[Vec<FiniteSourceValue>],
         include_supplemental: bool,

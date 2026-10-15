@@ -5,7 +5,7 @@ use super::*;
 use crate::gc_types::{
     AsyncActivation, AsyncGeneratorActivation, DirectEvalExecutionContext, Environment,
     FunctionObject, GcCallResult, GcLocal, GcNullability, GeneratorActivation, Nullable,
-    PrivateEnvironment, RealmRecord, RuntimeSchema, ValueArray, ValueLocals,
+    PrivateEnvironment, ProgramInstanceLocals, RealmRecord, RuntimeSchema, ValueArray, ValueLocals,
 };
 
 pub(crate) struct EntryArguments<'a>(&'a GcLocal<ValueArray>);
@@ -34,6 +34,7 @@ pub(crate) struct OrdinaryBodyInputs<'a> {
     new_target: NewTargetInput<'a>,
     arguments: EntryArguments<'a>,
     caller_realm: &'a GcLocal<RealmRecord>,
+    calling_program: &'a ProgramInstanceLocals,
 }
 
 impl<'a> OrdinaryBodyInputs<'a> {
@@ -41,12 +42,14 @@ impl<'a> OrdinaryBodyInputs<'a> {
         this_value: &'a ValueLocals,
         arguments: EntryArguments<'a>,
         caller_realm: &'a GcLocal<RealmRecord>,
+        calling_program: &'a ProgramInstanceLocals,
     ) -> Self {
         Self {
             this_value,
             new_target: NewTargetInput::Call,
             arguments,
             caller_realm,
+            calling_program,
         }
     }
 
@@ -55,12 +58,14 @@ impl<'a> OrdinaryBodyInputs<'a> {
         new_target: &'a ValueLocals,
         arguments: EntryArguments<'a>,
         caller_realm: &'a GcLocal<RealmRecord>,
+        calling_program: &'a ProgramInstanceLocals,
     ) -> Self {
         Self {
             this_value,
             new_target: NewTargetInput::Construct(new_target),
             arguments,
             caller_realm,
+            calling_program,
         }
     }
 
@@ -85,6 +90,7 @@ impl<'a> OrdinaryBodyInputs<'a> {
         }
         self.arguments.emit(schema, function);
         self.caller_realm.load(schema, function);
+        self.calling_program.reference(schema, function);
     }
 }
 
@@ -94,17 +100,20 @@ macro_rules! resumable_inputs {
             this_value: &'a ValueLocals,
             activation: &'a GcLocal<$activation>,
             arguments: EntryArguments<'a>,
+            calling_program: &'a ProgramInstanceLocals,
         }
         impl<'a> $inputs<'a> {
             pub(crate) fn new(
                 this_value: &'a ValueLocals,
                 activation: &'a GcLocal<$activation>,
                 arguments: EntryArguments<'a>,
+                calling_program: &'a ProgramInstanceLocals,
             ) -> Self {
                 Self {
                     this_value,
                     activation,
                     arguments,
+                    calling_program,
                 }
             }
 
@@ -118,6 +127,7 @@ macro_rules! resumable_inputs {
                 self.this_value.emit(function);
                 self.activation.load(schema, function);
                 self.arguments.emit(schema, function);
+                self.calling_program.reference(schema, function);
             }
         }
     };
@@ -134,6 +144,7 @@ pub(crate) struct PreparedScriptInputs<'a> {
     variable_environment: &'a GcLocal<Environment, Nullable>,
     private_environment: &'a GcLocal<PrivateEnvironment, Nullable>,
     direct_eval_context: &'a GcLocal<DirectEvalExecutionContext, Nullable>,
+    executing_program: &'a ProgramInstanceLocals,
 }
 
 impl<'a> PreparedScriptInputs<'a> {
@@ -144,6 +155,7 @@ impl<'a> PreparedScriptInputs<'a> {
         variable_environment: &'a GcLocal<Environment, Nullable>,
         private_environment: &'a GcLocal<PrivateEnvironment, Nullable>,
         direct_eval_context: &'a GcLocal<DirectEvalExecutionContext, Nullable>,
+        executing_program: &'a ProgramInstanceLocals,
     ) -> Self {
         Self {
             lexical_environment,
@@ -152,6 +164,7 @@ impl<'a> PreparedScriptInputs<'a> {
             variable_environment,
             private_environment,
             direct_eval_context,
+            executing_program,
         }
     }
 
@@ -168,6 +181,7 @@ impl<'a> PreparedScriptInputs<'a> {
         self.variable_environment.load(schema, function);
         self.private_environment.load(schema, function);
         self.direct_eval_context.load(schema, function);
+        self.executing_program.reference(schema, function);
     }
 }
 

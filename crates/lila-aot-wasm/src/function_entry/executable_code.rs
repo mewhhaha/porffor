@@ -7,25 +7,30 @@ use crate::gc_types::{
 };
 
 impl PlannedFunctionEntry {
+    /// The same planned kind validates required allocation ownership and code
+    /// publication. Every actual source body uses defining program ownership.
+    pub(crate) fn executable_kind(&self) -> Result<ExecutableCodeKind, EmitError> {
+        match self.origin {
+            EntryOrigin::User { .. } => Ok(ExecutableCodeKind::JavaScript),
+            EntryOrigin::StandardBuiltin(_) => Ok(ExecutableCodeKind::StandardBuiltin),
+            EntryOrigin::HostBuiltin(_) => Ok(ExecutableCodeKind::HostBuiltin),
+            EntryOrigin::PreparedScript { .. } => Err(entry_error(
+                "a prepared Script cannot publish a callable code record",
+            )),
+        }
+    }
+
     pub(crate) fn emit_executable_code(
         &self,
         class_element_execution: ClassElementExecutionKind,
         schema: &RuntimeSchema,
         function: &mut Function,
     ) -> Result<GcStackReference<ExecutableCode>, EmitError> {
-        let (kind, standard_builtin, host_builtin) = match self.origin {
-            EntryOrigin::User { .. } | EntryOrigin::EmptyOrdinaryFunction => {
-                (ExecutableCodeKind::JavaScript, None, None)
-            }
-            EntryOrigin::StandardBuiltin(id) => {
-                (ExecutableCodeKind::StandardBuiltin, Some(id), None)
-            }
-            EntryOrigin::HostBuiltin(id) => (ExecutableCodeKind::HostBuiltin, None, Some(id)),
-            EntryOrigin::PreparedScript { .. } => {
-                return Err(entry_error(
-                    "a prepared Script cannot publish a callable code record",
-                ))
-            }
+        let kind = self.executable_kind()?;
+        let (standard_builtin, host_builtin) = match self.origin {
+            EntryOrigin::StandardBuiltin(id) => (Some(id), None),
+            EntryOrigin::HostBuiltin(id) => (None, Some(id)),
+            EntryOrigin::User { .. } | EntryOrigin::PreparedScript { .. } => (None, None),
         };
         let metadata = ExecutableCodeMetadata {
             // This identifies the declaration for diagnostics. It is never a
@@ -60,5 +65,46 @@ impl PlannedFunctionEntry {
                 unreachable!("Script rejected before publication")
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod program_ownership_tests {
+    use super::*;
+
+    #[test]
+    fn native_and_source_entries_require_distinct_program_capture_policies() {
+        let native = PlannedFunctionEntry::standard(StandardBuiltinId::FunctionPrototype, 17);
+        let source = PlannedFunctionEntry {
+            origin: EntryOrigin::User {
+                id: "source-owner".into(),
+                name: "sourceOwner".into(),
+                protocol: FunctionProtocolIr::OrdinaryCallOnly,
+            },
+            wasm_index: 19,
+        };
+        let host = PlannedFunctionEntry::host(HostBuiltinId::HTMLDDA, 23);
+        assert_eq!(
+            native.executable_kind().unwrap(),
+            ExecutableCodeKind::StandardBuiltin
+        );
+        assert_eq!(
+            host.executable_kind().unwrap(),
+            ExecutableCodeKind::HostBuiltin
+        );
+        assert_eq!(
+            source.executable_kind().unwrap(),
+            ExecutableCodeKind::JavaScript
+        );
+        assert!(source.has_source_activation());
+        assert!(!native.has_source_activation());
+        let script = PlannedFunctionEntry {
+            origin: EntryOrigin::PreparedScript {
+                id: "script-owner".into(),
+                kind: PreparedScriptKind::IndirectEval,
+            },
+            wasm_index: 29,
+        };
+        assert!(script.executable_kind().is_err());
     }
 }

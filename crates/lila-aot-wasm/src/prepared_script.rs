@@ -102,7 +102,10 @@ struct PreparedScriptRealmExecution {
 }
 
 impl PreparedScriptRealmExecution {
-    fn inputs(&self) -> crate::function_entry::PreparedScriptInputs<'_> {
+    fn inputs<'a>(
+        &'a self,
+        program: &'a crate::gc_types::ProgramInstanceLocals,
+    ) -> crate::function_entry::PreparedScriptInputs<'a> {
         crate::function_entry::PreparedScriptInputs::new(
             &self.environment,
             &self.this_value,
@@ -110,6 +113,7 @@ impl PreparedScriptRealmExecution {
             &self.environment,
             &self.private_environment,
             &self.direct_eval_context,
+            program,
         )
     }
 
@@ -196,7 +200,7 @@ impl FunctionBuilder<'_> {
         let execution = self.emit_enter_prepared_script_realm(realm, function);
         let pending = schema.reserve_completion(function);
         pending.store_call(
-            entry.emit_call(execution.inputs(), schema, function),
+            entry.emit_call(execution.inputs(self.current_program()), schema, function),
             function,
         );
         execution.restore(self, function);
@@ -258,7 +262,7 @@ impl FunctionBuilder<'_> {
         output: &CompletionLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        use crate::runtime_helpers::{PreparedScriptArguments, ProgramHook};
+        use crate::runtime_helpers::PreparedScriptArguments;
         let schema = self.runtime_schema();
         let kind = schema.reserve_i32_local(function);
         let code = script_kind_code(&dispatch.script_kind())
@@ -274,8 +278,7 @@ impl FunctionBuilder<'_> {
                 .reserve_gc_local(function)
                 .initialize(realm.load(schema, function), function),
         };
-        self.emit_program_hook_dispatch(
-            ProgramHook::PreparedScript,
+        self.emit_program_hook_dispatch::<crate::gc_types::PreparedScriptHook>(
             |_, hook, function| {
                 schema
                     .call_hook(
@@ -402,7 +405,7 @@ impl FunctionBuilder<'_> {
                             execution
                                 .as_ref()
                                 .expect("executable source entered its Realm")
-                                .inputs(),
+                                .inputs(self.current_program()),
                             schema,
                             &mut function,
                         ),

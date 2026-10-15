@@ -72,7 +72,13 @@ impl FunctionBuilder<'_> {
             ($arguments:ident) => {
                 schema
                     .call_helper(
-                        $arguments::new(name, &record, &realm, self.current_environment()),
+                        $arguments::new(
+                            name,
+                            &record,
+                            &realm,
+                            self.current_environment(),
+                            self.current_program(),
+                        ),
                         base,
                         function,
                     )

@@ -11,6 +11,7 @@ use super::*;
 pub(crate) struct CompletionExit(CompletionExitState);
 
 enum CompletionExitState {
+    ProgramInitialize,
     MainExport,
     MainJobCheckpoint(ControlTarget),
     MultiValue,
@@ -20,6 +21,7 @@ enum CompletionExitState {
 impl CompletionExit {
     pub(super) fn for_return_abi(return_abi: ReturnAbi) -> Self {
         Self(match return_abi {
+            ReturnAbi::ProgramInstance => CompletionExitState::ProgramInitialize,
             ReturnAbi::MainExport => CompletionExitState::MainExport,
             ReturnAbi::MultiValue => CompletionExitState::MultiValue,
         })
@@ -27,6 +29,7 @@ impl CompletionExit {
 
     pub(crate) const fn return_abi(&self) -> ReturnAbi {
         match &self.0 {
+            CompletionExitState::ProgramInitialize => ReturnAbi::ProgramInstance,
             CompletionExitState::MainExport | CompletionExitState::MainJobCheckpoint(_) => {
                 ReturnAbi::MainExport
             }
@@ -40,6 +43,7 @@ impl CompletionExit {
         match &self.0 {
             CompletionExitState::MainJobCheckpoint(target) => Some(*target),
             CompletionExitState::MainExport
+            | CompletionExitState::ProgramInitialize
             | CompletionExitState::MultiValue
             | CompletionExitState::SourceActivationEpilogue(_) => None,
         }
@@ -49,6 +53,7 @@ impl CompletionExit {
         assert!(match &self.0 {
             CompletionExitState::MainExport => true,
             CompletionExitState::MainJobCheckpoint(_)
+            | CompletionExitState::ProgramInitialize
             | CompletionExitState::MultiValue
             | CompletionExitState::SourceActivationEpilogue(_) => false,
         });
@@ -59,6 +64,7 @@ impl CompletionExit {
         assert!(match &self.0 {
             CompletionExitState::MainJobCheckpoint(active) => *active == target,
             CompletionExitState::MainExport
+            | CompletionExitState::ProgramInitialize
             | CompletionExitState::MultiValue
             | CompletionExitState::SourceActivationEpilogue(_) => false,
         });
@@ -82,6 +88,7 @@ impl CompletionExit {
             CompletionExitState::SourceActivationEpilogue(target) => Some(*target),
             CompletionExitState::MainExport
             | CompletionExitState::MainJobCheckpoint(_)
+            | CompletionExitState::ProgramInitialize
             | CompletionExitState::MultiValue => None,
         }
     }
@@ -91,6 +98,7 @@ impl CompletionExit {
             CompletionExitState::SourceActivationEpilogue(active) => *active == target,
             CompletionExitState::MainExport
             | CompletionExitState::MainJobCheckpoint(_)
+            | CompletionExitState::ProgramInitialize
             | CompletionExitState::MultiValue => false,
         });
         self.0 = CompletionExitState::MultiValue;

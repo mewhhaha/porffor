@@ -10,9 +10,13 @@ object, callback, source string to execute, or parser state.
 `Intl.NumberFormat` allocates through `NewTarget.prototype` before it observes
 locales or options. A move-only reserved-object token becomes publishable only
 after the complete private record and brand are installed. Plain calls create
-an ordinary NumberFormat in the called function's Realm. Legacy chaining is not
-implemented: a supplied `this` object is never branded or given a fallback
-symbol.
+an ordinary NumberFormat in the called function's Realm. The later prepared
+[legacy formatter component](intl-legacy-formatter-construction.md) adds
+normative optional chaining only after the fresh formatter is fully initialized.
+It installs that formatter at a hidden per-Realm fallback Symbol on an eligible
+original `this` and returns it. Only the format getter and resolvedOptions
+unwrap; parts and range methods retain direct brand checks. The new component
+and its focused Engine controls remain pending native verification.
 
 Canonical locale-list conversion precedes `CoerceOptionsToObject`. Undefined
 creates a null-prototype options object, null rejects, and every other primitive

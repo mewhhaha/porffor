@@ -42,6 +42,7 @@ impl FunctionBuilder<'_> {
         let end_epoch_local = self.runtime_schema().reserve_i64_local(function);
         let numerator_local = self.runtime_schema().reserve_i64_local(function);
         let quantum_local = self.runtime_schema().reserve_i64_local(function);
+        let quotient_local = self.runtime_schema().reserve_i64_local(function);
         let start_year_local = self.runtime_schema().reserve_i64_local(function);
         let start_month_local = self.runtime_schema().reserve_i64_local(function);
         let start_day_local = self.runtime_schema().reserve_i64_local(function);
@@ -118,6 +119,12 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::I64Const(unit.code()));
             function.instruction(&Instruction::I64Eq);
             self.open_frame(ControlFrameKind::If, function);
+            // Half-even uses the ordinal calendar-unit bucket, not the
+            // remainder's day-domain quotient (which is zero inside a window).
+            (local).load(function);
+            (increment_local).load(function);
+            function.instruction(&Instruction::I64DivS);
+            (quotient_local).store(function);
             (local).load(function);
             (step_local).load(function);
             function.instruction(&Instruction::I64Add);
@@ -177,11 +184,13 @@ impl FunctionBuilder<'_> {
             function,
         );
 
-        // `numerator` is `other - r1`, signed with the direction of travel;
-        // `quantum` is the bracket width, always positive.
+        // Compare day-domain magnitudes exactly, retaining the calendar-unit
+        // quotient separately for ApplyUnsignedRoundingMode's half-even tie.
         (other_epoch_local).load(function);
         (start_epoch_local).load(function);
         function.instruction(&Instruction::I64Sub);
+        (sign_local).load(function);
+        function.instruction(&Instruction::I64Mul);
         (numerator_local).store(function);
         (end_epoch_local).load(function);
         (start_epoch_local).load(function);
@@ -194,19 +203,20 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Const(0));
         function.instruction(&Instruction::I64GtS);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_temporal_plain_time_round_nanoseconds(
+        self.emit_temporal_duration_round_up_i32(
             numerator_local,
             quantum_local,
+            quotient_local,
+            sign_local,
             mode_local,
             function,
         );
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        // `other` lies inside the bracket, so the rounded value is either zero
-        // (keep `r1`) or the whole bracket (take `r2`).
+        // A destination at the far endpoint selects it under every mode,
+        // including trunc. Otherwise the shared decision chooses r1 or r2.
         (numerator_local).load(function);
-        function.instruction(&Instruction::I64Eqz);
-        function.instruction(&Instruction::I32Eqz);
+        (quantum_local).load(function);
+        function.instruction(&Instruction::I64Eq);
+        function.instruction(&Instruction::I32Or);
         self.open_frame(ControlFrameKind::If, function);
         function.instruction(&Instruction::I64Const(1));
         (expanded_local).store(function);
@@ -223,6 +233,8 @@ impl FunctionBuilder<'_> {
 
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
 
         for local in [
             nudge_weeks_local,
@@ -234,6 +246,7 @@ impl FunctionBuilder<'_> {
             start_day_local,
             start_month_local,
             start_year_local,
+            quotient_local,
             quantum_local,
             numerator_local,
             end_epoch_local,

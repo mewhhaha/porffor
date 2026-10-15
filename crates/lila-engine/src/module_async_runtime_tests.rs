@@ -1,8 +1,10 @@
 use super::*;
 use lila_ir::{ExprIr, StatementIr};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use wasmtime::{AsContextMut, OwnedRooted, Rooted, StructRef};
+use wasmtime::{
+    ArrayRef, ArrayRefPre, AsContextMut, GcHeapOutOfMemory, OwnedRooted, Rooted, StructRef,
+};
 
 fn append_uleb(bytes: &mut Vec<u8>, mut value: u32) {
     loop {
@@ -46,6 +48,35 @@ fn function_names(bytes: &[u8]) -> BTreeMap<u32, String> {
         }
     }
     names
+}
+
+/// Resolve the real R export by its physical name-section index. R already
+/// exports its functions; no test alias or P-owned stand-in is needed.
+fn runtime_helper_export(bytes: &[u8], helper: &str) -> String {
+    let names = function_names(bytes);
+    let indices: Vec<_> = names
+        .iter()
+        .filter_map(|(&index, name)| (name == helper).then_some(index))
+        .collect();
+    let [index] = indices.as_slice() else {
+        panic!("one actual runtime helper {helper}: {indices:?}")
+    };
+    let name = format!("f{index}");
+    let mut found = 0;
+    for payload in WasmParser::new(0).parse_all(bytes) {
+        if let WasmPayload::ExportSection(exports) = payload.unwrap() {
+            for export in exports {
+                let export = export.unwrap();
+                if export.name == name {
+                    assert_eq!(export.kind, wasmparser::ExternalKind::Func);
+                    assert_eq!(export.index, *index);
+                    found += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(found, 1, "physical R helper export {helper}");
+    name
 }
 
 /// Stop a copied main immediately before its one entry Evaluate call. The
@@ -113,9 +144,9 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> (Vec<u8>, u32) {
     );
     let evaluate_type = types[function_types[evaluate as usize] as usize].unwrap_func();
     assert!(
-        matches!(evaluate_type.params(), [wasmparser::ValType::Ref(reference)]
-        if !reference.is_nullable()),
-        "one typed ModuleRecord input"
+        matches!(evaluate_type.params(), [wasmparser::ValType::Ref(record), wasmparser::ValType::Ref(program)]
+        if !record.is_nullable() && !program.is_nullable() && record != program),
+        "typed ModuleRecord and its explicit ProgramInstance inputs"
     );
     assert_eq!(evaluate_type.results(), main_type.results());
 
@@ -194,6 +225,7 @@ fn paused_before_entry_evaluation(bytes: &[u8]) -> (Vec<u8>, u32) {
                 let mut body = bytes[cursor..call.start].to_vec();
                 // Retain the actual typed record, then return a normal
                 // Undefined Completion without entering source or draining jobs.
+                body.push(0x1a); // drop the final P operand; the graph retains it
                 body.push(0x24); // global.set
                 append_uleb(&mut body, global_count);
                 body.extend_from_slice(&[0x41, 0, 0x42, 0, 0xd0, 0x6d, 0x41, 0, 0x41, 0, 0x0f]);
@@ -225,6 +257,7 @@ fn with_private_exports(bytes: &[u8], module_root: u32) -> Vec<u8> {
         ("test_module_evaluate", "helper::module_evaluate"),
         ("test_module_execute", "helper::module_execute"),
         ("test_module_ready", "helper::module_ready"),
+        ("test_module_initialize", "helper::module_initialize"),
     ] {
         let index = *names
             .iter()
@@ -271,6 +304,7 @@ fn with_private_exports(bytes: &[u8], module_root: u32) -> Vec<u8> {
 // APIs, so a field-kind mismatch fails rather than indexing unrelated bytes.
 mod record_field {
     pub const GRAPH: usize = 0;
+    pub const REALM: usize = 2;
     pub const ENVIRONMENT: usize = 3;
     pub const ACTIVATION_KIND: usize = 6;
     pub const ASYNC_ACTIVATION: usize = 8;
@@ -278,6 +312,14 @@ mod record_field {
     pub const STATE: usize = 12;
     pub const COMPLETION: usize = 13;
     pub const BODY_STATE: usize = 14;
+}
+mod graph_field {
+    pub const MODULES: usize = 0;
+    pub const PROGRAM: usize = 4;
+    pub const NEXT: usize = 5;
+}
+mod realm_field {
+    pub const MODULES: usize = 7;
 }
 mod activation_field {
     pub const FRAME: usize = 0;
@@ -314,6 +356,46 @@ fn null_field(store: &mut impl AsContextMut, record: Rooted<StructRef>, index: u
         WasmtimeVal::AnyRef(None)
     )
 }
+// ProgramInstance hooks are typed funcrefs, never GC anyrefs. Validate the
+// actual role's complete leading owner/module shape before testing nullness.
+fn null_module_body_reaction(
+    store: &mut impl AsContextMut,
+    program: Rooted<StructRef>,
+    module: Rooted<StructRef>,
+) -> bool {
+    const MODULE_BODY_REACTION: usize = 3;
+    let program_type = program.ty(&*store).unwrap();
+    assert_eq!(program_type.fields().len(), 9, "ProgramInstance schema");
+    let field = program_type.field(MODULE_BODY_REACTION).unwrap();
+    assert_eq!(field.mutability(), wasmtime::Mutability::Const);
+    let hook = field.element_type().unwrap_val_type().unwrap_ref();
+    assert!(hook.is_nullable(), "absent hook retains its typed null");
+    let signature = hook.heap_type().unwrap_concrete_func();
+    let parameters: Vec<_> = signature.params().collect();
+    assert_eq!(parameters.len(), 6, "P, ModuleRecord, rejected, Value");
+    assert_eq!(signature.results().len(), 0, "ModuleBodyReaction is void");
+    let owner = parameters[0].unwrap_ref();
+    assert!(!owner.is_nullable());
+    assert!(wasmtime::StructType::eq(
+        owner.heap_type().unwrap_concrete_struct(),
+        &program_type,
+    ));
+    let record = parameters[1].unwrap_ref();
+    assert!(!record.is_nullable());
+    assert!(wasmtime::StructType::eq(
+        record.heap_type().unwrap_concrete_struct(),
+        &module.ty(&*store).unwrap(),
+    ));
+    assert!(matches!(parameters[2], wasmtime::ValType::I32));
+    assert!(matches!(parameters[3], wasmtime::ValType::I32));
+    assert!(matches!(parameters[4], wasmtime::ValType::I64));
+    parameters[5].unwrap_ref();
+    matches!(
+        program.field(store, MODULE_BODY_REACTION).unwrap(),
+        WasmtimeVal::FuncRef(None)
+    )
+}
+
 fn same_record(store: impl AsContext, left: Rooted<StructRef>, right: Rooted<StructRef>) {
     assert!(Rooted::ref_eq(store, &left, &right).unwrap());
 }
@@ -329,30 +411,48 @@ fn call_completion(
         WasmtimeVal::I32(0),
         WasmtimeVal::I32(0),
     ];
-    operation.call(store, &[WasmtimeVal::from(record)], &mut result)?;
+    let arguments = record_arguments(store, record);
+    operation.call(store, &arguments, &mut result)?;
     Ok(result)
+}
+
+fn record_arguments(store: &mut impl AsContextMut, record: Rooted<StructRef>) -> [WasmtimeVal; 2] {
+    let graph = reference_field(store, record, record_field::GRAPH);
+    let program = reference_field(store, graph, graph_field::PROGRAM);
+    [WasmtimeVal::from(record), WasmtimeVal::from(program)]
 }
 
 struct ModuleStore {
     limits: WasmtimeStoreLimits,
+    realm: Realm,
+    monotonic_clock_origin: MonotonicClockInstant,
     source_allowed: bool,
     reentrant_calls: usize,
     record: Option<Rooted<StructRef>>,
     evaluate: Option<wasmtime::Func>,
     reentrant_promise: Option<OwnedRooted<StructRef>>,
+    // The two-program control supplies the expected FIFO source-entry owners.
+    // Each callback reenters its actual P helper and typed ModuleRecord, rather
+    // than borrowing whichever program happened to initialize the fixture.
+    reentry_schedule: VecDeque<(Rooted<StructRef>, wasmtime::Func)>,
 }
 struct ModuleFixture {
     engine: WasmtimeEngine,
     runtime: WasmtimeModule,
     module: WasmtimeModule,
+    runtime_key: lila_aot_wasm::RuntimeArtifactKey,
+    drain_export: String,
 }
 impl ModuleFixture {
     fn new() -> Self {
+        Self::from_source("print('body'); await 0; print('resumed');")
+    }
+    fn from_source(source: &str) -> Self {
         configure_compilation_jobs(1).unwrap();
         let compiler = Engine::new(RealmBuilder::new().build());
         let unit = compiler
             .compile_module(
-                "print('body'); await 0; print('resumed');",
+                source,
                 CompileOptions {
                     host_surface_policy: HostSurfacePolicy::Test262,
                     ..CompileOptions::default()
@@ -367,6 +467,11 @@ impl ModuleFixture {
             .module_entry_evaluation()
             .is_some());
         let original = compiler.emit_wasm(&unit).unwrap();
+        let runtime_key = original.runtime.as_ref().unwrap().key();
+        let drain_export = runtime_helper_export(
+            original.runtime.as_ref().unwrap().0.bytes(),
+            "helper::promise_drain_jobs",
+        );
         let (paused, root) = paused_before_entry_evaluation(&original.bytes);
         let bytes = with_private_exports(&paused, root);
         let engine = shared_wasm_engine().unwrap();
@@ -380,20 +485,27 @@ impl ModuleFixture {
             engine,
             runtime,
             module,
+            runtime_key,
+            drain_export,
         }
     }
     fn instantiate(&self) -> PrivateModule {
+        let realm = RealmBuilder::new().build();
+        let monotonic_clock_origin = realm.host_clock().monotonic_instant();
         let mut store = WasmtimeStore::new(
             &self.engine,
             ModuleStore {
                 limits: WasmtimeStoreLimitsBuilder::new()
                     .memory_size(64 * 1024 * 1024)
                     .build(),
+                realm,
+                monotonic_clock_origin,
                 source_allowed: false,
                 reentrant_calls: 0,
                 record: None,
                 evaluate: None,
                 reentrant_promise: None,
+                reentry_schedule: VecDeque::new(),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -403,17 +515,82 @@ impl ModuleFixture {
             match import.ty() {
                 WasmtimeExternType::Func(signature) => {
                     let is_print = import.name() == WASM_HOST_IMPORT_PRINT_LINE_UTF8;
-                    linker.func_new(import.module(), import.name(), signature, move |mut caller, _, _| {
+                    let host = format!("{}::{}", import.module(), import.name());
+                    if host == "lila_host::monotonic_clock_nanos" {
+                        assert_eq!(signature.params().len(), 0);
+                        assert!(matches!(
+                            signature.results().collect::<Vec<_>>().as_slice(),
+                            [wasmtime::ValType::I64]
+                        ));
+                    }
+                    let byte_array = if host == "lila_host::byte_array_allocate" {
+                        assert!(matches!(
+                            &signature.params().collect::<Vec<_>>()[..],
+                            [wasmtime::ValType::I32]
+                        ));
+                        let results: Vec<_> = signature.results().collect();
+                        let [result] = results.as_slice() else {
+                            panic!("one byte-array result")
+                        };
+                        let result = result.unwrap_ref();
+                        assert!(result.is_nullable(), "actual collector OOM is nullable");
+                        let array = result.heap_type().unwrap_concrete_array();
+                        assert_eq!(array.mutability(), wasmtime::Mutability::Var);
+                        assert!(matches!(array.element_type(), wasmtime::StorageType::I8));
+                        Some(array.clone())
+                    } else {
+                        None
+                    };
+                    linker.func_new(import.module(), import.name(), signature, move |mut caller, inputs, outputs| {
+                        // These fixtures never create weak references or finalization
+                        // registries: those callbacks still trap below. The genuine
+                        // empty-state boundary returns exactly what Engine returns.
+                        match host.as_str() {
+                            "lila_host::monotonic_clock_nanos" => {
+                                assert!(inputs.is_empty() && outputs.len() == 1);
+                                let state = caller.data();
+                                outputs[0] = WasmtimeVal::I64(
+                                    state.realm.host_clock().monotonic_instant()
+                                        .saturating_duration_since(state.monotonic_clock_origin)
+                                        .as_i64_saturating(),
+                                );
+                                return Ok(());
+                            }
+                            "lila_host::weak_job_finish" => {
+                                assert!(inputs.is_empty() && outputs.is_empty());
+                                return Ok(());
+                            }
+                            "lila_host::finalization_next_registry" => {
+                                assert!(inputs.is_empty() && outputs.len() == 1);
+                                outputs[0] = WasmtimeVal::AnyRef(None);
+                                return Ok(());
+                            }
+                            "lila_host::byte_array_allocate" => {
+                                let ([WasmtimeVal::I32(length)], [output]) = (inputs, outputs) else {
+                                    return Err(wasmtime::Error::msg("invalid byte allocation operands"));
+                                };
+                                let length = u32::try_from(*length).map_err(wasmtime::Error::new)?;
+                                let allocator = ArrayRefPre::new(&mut caller, byte_array.as_ref().unwrap().clone());
+                                *output = match ArrayRef::new(&mut caller, &allocator, &WasmtimeVal::I32(0), length) {
+                                    Ok(bytes) => WasmtimeVal::from(bytes),
+                                    Err(error) if error.is::<GcHeapOutOfMemory<()>>() => WasmtimeVal::AnyRef(None),
+                                    Err(error) => return Err(error),
+                                };
+                                return Ok(());
+                            }
+                            _ => {}
+                        }
                         if !is_print || !caller.data().source_allowed {
-                            return Err(wasmtime::Error::msg("module allocation/instantiation called source or host code"));
+                            return Err(wasmtime::Error::msg(format!("module allocation/instantiation called source or unsupported host code: {host}")));
                         }
                         // This import belongs to R, so P's private handles are
                         // held in Store data instead of Caller::get_export.
-                        let module = caller.data().record.expect("initialized program record");
+                        let (module, evaluate) = caller.data_mut().reentry_schedule.pop_front()
+                            .unwrap_or_else(|| (caller.data().record.expect("initialized program record"),
+                                                caller.data().evaluate.unwrap()));
                         assert_eq!(scalar_field(&mut caller, module, record_field::BODY_STATE), 1,
                             "body is Executing before a reentrant call");
                         let promise = reference_field(&mut caller, module, record_field::EVALUATION_PROMISE);
-                        let evaluate = caller.data().evaluate.unwrap();
                         let result = call_completion(&mut caller, evaluate, module)?;
                         assert_eq!(result[3].i32(), Some(0));
                         let returned = structure(&caller, result[2]);
@@ -440,6 +617,7 @@ impl ModuleFixture {
             }
         }
         let runtime = linker.instantiate(&mut store, &self.runtime).unwrap();
+        let drain = runtime.get_func(&mut store, &self.drain_export).unwrap();
         linker
             .instance(&mut store, lila_aot_wasm::RUNTIME_IMPORT_NAMESPACE, runtime)
             .unwrap();
@@ -491,6 +669,8 @@ impl ModuleFixture {
             evaluate,
             execute,
             ready,
+            drain,
+            linker,
         }
     }
 }
@@ -500,6 +680,8 @@ struct PrivateModule {
     evaluate: wasmtime::Func,
     execute: wasmtime::Func,
     ready: wasmtime::Func,
+    drain: wasmtime::Func,
+    linker: WasmtimeLinker<ModuleStore>,
 }
 impl PrivateModule {
     fn write(&mut self, record: Rooted<StructRef>, index: usize, value: i32) {
@@ -595,11 +777,10 @@ fn invalid_private_module_modes_and_lifecycle_words_trap_before_source_entry() {
             let result = if execute {
                 call_completion(&mut runtime.store, runtime.execute, runtime.record).map(|_| ())
             } else {
-                runtime.ready.call(
-                    &mut runtime.store,
-                    &[WasmtimeVal::from(runtime.record)],
-                    &mut [WasmtimeVal::I32(0)],
-                )
+                let arguments = record_arguments(&mut runtime.store, runtime.record);
+                runtime
+                    .ready
+                    .call(&mut runtime.store, &arguments, &mut [WasmtimeVal::I32(0)])
             };
             assert!(result.unwrap_err().downcast_ref::<WasmtimeTrap>().is_some());
             assert_eq!(runtime.store.data().reentrant_calls, 0);
@@ -648,6 +829,255 @@ fn reentrant_evaluate_while_an_async_body_is_executing_reuses_its_owned_capabili
             .downcast_ref::<WasmtimeTrap>()
             .is_some());
         assert_eq!(runtime.store.data().reentrant_calls, 1);
+    });
+}
+
+fn empty_completion() -> [WasmtimeVal; 5] {
+    [
+        WasmtimeVal::I32(0),
+        WasmtimeVal::I64(0),
+        WasmtimeVal::AnyRef(None),
+        WasmtimeVal::I32(0),
+        WasmtimeVal::I32(0),
+    ]
+}
+
+fn drain_with_program(runtime: &mut PrivateModule, program: Rooted<StructRef>) {
+    let mut arguments = Vec::from(empty_completion());
+    arguments.push(WasmtimeVal::AnyRef(None)); // explicit caller environment
+    arguments.push(WasmtimeVal::from(program));
+    let mut result = empty_completion();
+    runtime
+        .drain
+        .call(&mut runtime.store, &arguments, &mut result)
+        .unwrap();
+    assert_eq!(result[3].i32(), Some(0), "job drain preserves Normal");
+}
+
+fn assert_module_fulfilled(runtime: &mut PrivateModule, record: Rooted<StructRef>) {
+    for (field, expected) in [
+        (record_field::BODY_STATE, 2),
+        (record_field::STATE, 3),
+        (record_field::COMPLETION, 1),
+    ] {
+        assert_eq!(scalar_field(&mut runtime.store, record, field), expected);
+    }
+    let promise = reference_field(&mut runtime.store, record, record_field::EVALUATION_PROMISE);
+    assert_eq!(scalar_field(&mut runtime.store, promise, 4), 1);
+}
+
+#[test]
+fn graphless_second_program_cannot_replace_a_queued_module_body_hook_owner() {
+    run_on_sized_stack(|| {
+        let fixture = ModuleFixture::new();
+        let compiler = Engine::new(RealmBuilder::new().build());
+        let unit = compiler
+            .compile_script(
+                "const unrelated = { tag: 'P2' }; unrelated.tag;",
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap();
+        let artifact = compiler.emit_wasm(&unit).unwrap();
+        assert_eq!(
+            artifact.runtime.as_ref().unwrap().key(),
+            fixture.runtime_key
+        );
+        let second = WasmtimeModule::new(&fixture.engine, &artifact.bytes).unwrap();
+        for enter_main in [false, true] {
+            let mut runtime = fixture.instantiate();
+            runtime.store.data_mut().source_allowed = true;
+            let record = runtime.record;
+            call_completion(&mut runtime.store, runtime.evaluate, record).unwrap();
+            let graph = reference_field(&mut runtime.store, record, record_field::GRAPH);
+            let first_program = reference_field(&mut runtime.store, graph, graph_field::PROGRAM);
+            let instance = runtime
+                .linker
+                .instantiate(&mut runtime.store, &second)
+                .unwrap();
+            let mut published = [WasmtimeVal::AnyRef(None)];
+            instance
+                .get_func(&mut runtime.store, "lila.program_init")
+                .unwrap()
+                .call(&mut runtime.store, &[], &mut published)
+                .unwrap();
+            let second_program = structure(&runtime.store, published[0]);
+            assert!(!Rooted::ref_eq(&runtime.store, &first_program, &second_program).unwrap());
+            assert!(
+                null_module_body_reaction(&mut runtime.store, second_program, record),
+                "graphless P2 has no ModuleBodyReaction hook to borrow"
+            );
+            runtime.store.gc(None).unwrap();
+            if enter_main {
+                let mut result = empty_completion();
+                instance
+                    .get_func(&mut runtime.store, "main")
+                    .unwrap()
+                    .call(&mut runtime.store, &[], &mut result)
+                    .unwrap();
+                assert_eq!(result[3].i32(), Some(0));
+            } else {
+                drain_with_program(&mut runtime, second_program);
+            }
+            let retained_program = reference_field(&mut runtime.store, graph, graph_field::PROGRAM);
+            same_record(&runtime.store, first_program, retained_program);
+            assert_module_fulfilled(&mut runtime, record);
+            assert_eq!(
+                runtime.store.data().reentrant_calls,
+                2,
+                "both original body and resumed source execute after P2 installation"
+            );
+        }
+    });
+}
+
+#[test]
+fn rejected_module_body_retains_its_program_when_a_graphless_program_drains_jobs() {
+    run_on_sized_stack(|| {
+        let fixture = ModuleFixture::from_source("print('body'); await 0; throw 17;");
+        let compiler = Engine::new(RealmBuilder::new().build());
+        let unit = compiler
+            .compile_script(
+                "const unrelated = { tag: 'P2' }; unrelated.tag;",
+                CompileOptions {
+                    host_surface_policy: HostSurfacePolicy::Test262,
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap();
+        let artifact = compiler.emit_wasm(&unit).unwrap();
+        assert_eq!(
+            artifact.runtime.as_ref().unwrap().key(),
+            fixture.runtime_key
+        );
+        let second = WasmtimeModule::new(&fixture.engine, &artifact.bytes).unwrap();
+        let mut runtime = fixture.instantiate();
+        runtime.store.data_mut().source_allowed = true;
+        let record = runtime.record;
+        call_completion(&mut runtime.store, runtime.evaluate, record).unwrap();
+        let instance = runtime
+            .linker
+            .instantiate(&mut runtime.store, &second)
+            .unwrap();
+        let mut published = [WasmtimeVal::AnyRef(None)];
+        instance
+            .get_func(&mut runtime.store, "lila.program_init")
+            .unwrap()
+            .call(&mut runtime.store, &[], &mut published)
+            .unwrap();
+        let second_program = structure(&runtime.store, published[0]);
+        assert!(null_module_body_reaction(
+            &mut runtime.store,
+            second_program,
+            record
+        ));
+        runtime.store.gc(None).unwrap();
+        drain_with_program(&mut runtime, second_program);
+        for (field, expected) in [
+            (record_field::BODY_STATE, 2),
+            (record_field::STATE, 3),
+            (record_field::COMPLETION, 2),
+        ] {
+            assert_eq!(scalar_field(&mut runtime.store, record, field), expected);
+        }
+        let promise = reference_field(&mut runtime.store, record, record_field::EVALUATION_PROMISE);
+        assert_eq!(scalar_field(&mut runtime.store, promise, 4), 2);
+        assert_eq!(runtime.store.data().reentrant_calls, 1);
+    });
+}
+
+#[test]
+fn shared_realm_keeps_distinct_program_graphs_and_drains_both_retained_owners() {
+    run_on_sized_stack(|| {
+        let first = ModuleFixture::from_source(
+            "print('P1'); await 0; if (Function('return 17')() !== 17) throw 'P1 catalog'; print('P1 resumed');",
+        );
+        let second = ModuleFixture::from_source(
+            "print('P2'); await 0; if (Function('return 29')() !== 29) throw 'P2 catalog'; print('P2 resumed');",
+        );
+        assert_eq!(first.runtime_key, second.runtime_key, "one actual shared R");
+        let mut runtime = first.instantiate();
+        let first_record = runtime.record;
+        let first_graph = reference_field(&mut runtime.store, first_record, record_field::GRAPH);
+        let realm = reference_field(&mut runtime.store, first_record, record_field::REALM);
+        let second_instance = runtime
+            .linker
+            .instantiate(&mut runtime.store, &second.module)
+            .unwrap();
+        let mut result = empty_completion();
+        second_instance
+            .get_func(&mut runtime.store, "main")
+            .unwrap()
+            .call(&mut runtime.store, &[], &mut result)
+            .unwrap();
+        assert_eq!(
+            result[3].i32(),
+            Some(0),
+            "second paused main only instantiates its graph"
+        );
+        let value = second_instance
+            .get_global(&mut runtime.store, "test_module_record")
+            .unwrap()
+            .get(&mut runtime.store);
+        let second_record = structure(&runtime.store, value);
+        let second_graph = reference_field(&mut runtime.store, second_record, record_field::GRAPH);
+        let second_program =
+            reference_field(&mut runtime.store, second_graph, graph_field::PROGRAM);
+        let initialize = second_instance
+            .get_func(&mut runtime.store, "test_module_initialize")
+            .unwrap();
+        for _ in 0..2 {
+            initialize
+                .call(
+                    &mut runtime.store,
+                    &[WasmtimeVal::from(realm), WasmtimeVal::from(second_program)],
+                    &mut result,
+                )
+                .unwrap();
+            assert_eq!(result[3].i32(), Some(0));
+        }
+        let head = reference_field(&mut runtime.store, realm, realm_field::MODULES);
+        let previous = reference_field(&mut runtime.store, head, graph_field::NEXT);
+        same_record(&runtime.store, first_graph, previous);
+        assert!(
+            null_field(&mut runtime.store, first_graph, graph_field::NEXT),
+            "repeated P2 initialization never replaces or duplicates the P1 graph"
+        );
+        let retained = reference_field(&mut runtime.store, head, graph_field::PROGRAM);
+        same_record(&runtime.store, retained, second_program);
+        let WasmtimeVal::AnyRef(Some(records)) = head
+            .field(&mut runtime.store, graph_field::MODULES)
+            .unwrap()
+        else {
+            panic!("per-P graph owns its exact module registry")
+        };
+        let records = records.as_array(&runtime.store).unwrap().unwrap();
+        let value = records.get(&mut runtime.store, 0).unwrap();
+        let second_in_shared_realm = structure(&runtime.store, value);
+        assert!(!Rooted::ref_eq(&runtime.store, &first_record, &second_in_shared_realm).unwrap());
+        let evaluate = second_instance
+            .get_func(&mut runtime.store, "test_module_evaluate")
+            .unwrap();
+        runtime.store.data_mut().reentry_schedule = VecDeque::from([
+            (first_record, runtime.evaluate),
+            (second_in_shared_realm, evaluate),
+            (first_record, runtime.evaluate),
+            (second_in_shared_realm, evaluate),
+        ]);
+        runtime.store.data_mut().source_allowed = true;
+        call_completion(&mut runtime.store, runtime.evaluate, first_record).unwrap();
+        call_completion(&mut runtime.store, evaluate, second_in_shared_realm).unwrap();
+        runtime.store.gc(None).unwrap();
+        drain_with_program(&mut runtime, second_program);
+        assert_module_fulfilled(&mut runtime, first_record);
+        assert_module_fulfilled(&mut runtime, second_in_shared_realm);
+        assert_eq!(runtime.store.data().reentrant_calls, 4);
+        assert!(
+            runtime.store.data().reentry_schedule.is_empty(),
+            "all four expected source owners reentered"
+        );
     });
 }
 

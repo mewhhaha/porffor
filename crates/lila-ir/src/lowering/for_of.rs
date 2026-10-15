@@ -1,4 +1,5 @@
 mod async_function;
+mod finite_source;
 mod generator;
 mod protocol;
 
@@ -410,16 +411,6 @@ impl<'a> ScriptLowerer<'a> {
                 initialization: Initialization::Initialized,
             },
         );
-        if pattern_initializer.is_none()
-            && assignment_pattern_initializer.is_none()
-            && access_initializer.is_none()
-            && matches!(bare_identifier_head, ForOfBareIdentifierHead::Absent)
-            && !iteration_source_candidates.is_empty()
-        {
-            // This is the actual analyzed identifier head, not a pattern's
-            // private temporary or a potentially intercepted assignment target.
-            self.set_finite_source_binding_candidates(&name, iteration_source_candidates);
-        }
         let mut pattern_prefix = if let ForOfBareIdentifierHead::BorrowedVar { source_name } =
             &bare_identifier_head
         {
@@ -530,6 +521,23 @@ impl<'a> ScriptLowerer<'a> {
         } else {
             Vec::new()
         };
+        if let Some((pattern_mode, pattern)) = pattern_initializer.as_ref() {
+            // Destructuring has declared the real var or iteration cells now;
+            // the private head temporary must not stand in for those bindings.
+            self.register_for_of_array_pattern_source_candidates(
+                *pattern_mode,
+                pattern,
+                &iteration_source_candidates,
+            );
+        } else if assignment_pattern_initializer.is_none()
+            && access_initializer.is_none()
+            && matches!(bare_identifier_head, ForOfBareIdentifierHead::Absent)
+            && !iteration_source_candidates.is_empty()
+        {
+            // This is the actual analyzed identifier head, not a pattern's
+            // private temporary or a potentially intercepted assignment target.
+            self.set_finite_source_binding_candidates(&name, iteration_source_candidates);
+        }
         // Validate the actual lexical head before lowering any body states.
         let generator_pattern = if generator_entry_state.is_some() {
             if let (

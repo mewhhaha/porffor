@@ -455,7 +455,11 @@ impl FunctionBuilder<'_> {
         length_value.copy_from(pending.value(), function);
         schema
             .call_helper(
-                ValueToNumberArguments::new(&length_value, self.current_environment()),
+                ValueToNumberArguments::new(
+                    &length_value,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )

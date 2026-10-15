@@ -148,6 +148,7 @@ impl FunctionBuilder<'_> {
         let published = self.emit_complete_function_record(
             &meta,
             FunctionAllocationInputs {
+                program: crate::gc_types::FunctionProgramOwner::InheritCaller,
                 realm: &realm.realm,
                 lexical_environment: &lexical,
                 private_environment: &private,

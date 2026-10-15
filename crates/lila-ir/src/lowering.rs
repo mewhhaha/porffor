@@ -31,6 +31,8 @@ mod builtin_call_info_tests;
 mod builtin_shapes;
 mod call_candidate_analysis;
 mod call_expression;
+#[cfg(test)]
+mod capture_invalidation_tests;
 mod class_definition;
 mod class_suspension;
 mod conditional_flow;
@@ -1232,6 +1234,9 @@ pub(crate) struct ScriptLowerer<'a> {
     dynamically_installed_setters: BTreeSet<FunctionId>,
     unknown_user_code_effects_observed: bool,
     unknown_user_code_effects_introduced: bool,
+    /// Capture plans cannot change while this lowerer borrows their Analysis.
+    /// Keep physical and source-name membership once, separate from live facts.
+    captured_binding_names: BTreeSet<String>,
     function_signature_shape_evidence: FunctionSignatureShapeEvidence,
     source_call_flow_effects: SourceCallFlowEffects,
     intervening_effect_epoch: u64,
@@ -1605,9 +1610,19 @@ impl<'a> ScriptLowerer<'a> {
             .owner_plans
             .get(&current_owner_id)
             .and_then(|owner| owner.private_environment_id);
+        let captured_binding_names = analysis
+            .function_plans
+            .values()
+            .flat_map(|plan| {
+                plan.captures.iter().flat_map(|(storage_name, capture)| {
+                    [storage_name.clone(), capture.source_name.clone()]
+                })
+            })
+            .collect();
         let mut lowerer = Self {
             interner,
             analysis,
+            captured_binding_names,
             source_text,
             current_owner_id,
             lexical_strictness: None,
@@ -5782,19 +5797,11 @@ impl<'a> ScriptLowerer<'a> {
         self.unknown_user_code_effects_observed = true;
         self.unknown_user_code_effects_introduced = true;
         let unknown = unknown_runtime_value_info();
-        let mut captured_names = BTreeSet::new();
-        for plan in self.analysis.function_plans.values() {
-            for (storage_name, capture) in &plan.captures {
-                captured_names.insert(storage_name.clone());
-                captured_names.insert(capture.source_name.clone());
-            }
-        }
-
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
                 // Const protects the binding, not the object it denotes.
                 if binding.mode != BindingMode::Const
-                    && captured_names.contains(&binding.storage_name)
+                    && self.captured_binding_names.contains(&binding.storage_name)
                 {
                     binding.kind = unknown.kind;
                     binding.possible_kinds = unknown.possible_kinds;
@@ -5803,7 +5810,7 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         for (name, binding) in &mut self.var_bindings {
-            if captured_names.contains(name) {
+            if self.captured_binding_names.contains(name) {
                 binding.kind = unknown.kind;
                 binding.possible_kinds = unknown.possible_kinds;
                 binding.function_targets.widen_for_possible_replacement();

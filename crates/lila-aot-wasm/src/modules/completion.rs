@@ -136,22 +136,26 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        self.emit_program_hook_dispatch(
-            crate::runtime_helpers::ProgramHook::ModuleBodyReaction,
-            |_, hook, function| {
-                schema.call_hook(
-                    hook,
-                    ModuleBodyReactionArguments::new(module, rejected, argument),
-                    function,
-                );
-                Ok(())
-            },
-            |_, function| {
-                function.instruction(&Instruction::Unreachable);
-                Ok(())
-            },
-            function,
-        )?;
+        let program = self.emit_module_record_program(module, function);
+        let result = self
+            .emit_owned_program_hook_dispatch::<crate::gc_types::ModuleBodyReactionHook>(
+                &program,
+                |_, hook, function| {
+                    schema.call_hook(
+                        hook,
+                        ModuleBodyReactionArguments::new(module, rejected, argument),
+                        function,
+                    );
+                    Ok(())
+                },
+                |_, function| {
+                    function.instruction(&Instruction::Unreachable);
+                    Ok(())
+                },
+                function,
+            );
+        program.clear(function);
+        result?;
         self.completion().initialize(function);
         Ok(())
     }
@@ -201,12 +205,13 @@ impl FunctionBuilder<'_> {
                 schema,
                 function,
             );
+        let program = self.emit_module_record_program(module, function);
         rejected.load(function);
         self.open_frame(ControlFrameKind::If, function);
         let base = self.runtime_helper_base()?;
         schema
             .call_helper(
-                ModuleRejectedArguments::new(module, argument),
+                ModuleRejectedArguments::new(module, argument, &program),
                 base,
                 function,
             )
@@ -215,13 +220,14 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         schema
             .call_helper(
-                ModuleFulfilledArguments::new(module, argument),
+                ModuleFulfilledArguments::new(module, argument, &program),
                 base,
                 function,
             )
             .store(&result, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        program.clear(function);
         result.clear(function);
         schema.release_i32_local(state, function);
         self.completion().initialize(function);
@@ -484,9 +490,15 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::BrIf(1));
         let target = self.emit_module_list_entry(&dependencies.modules, index, function);
         let base = self.runtime_helper_base()?;
+        let program = self.emit_module_record_program(&target, function);
         schema
-            .call_helper(ModuleEvaluateArguments::new(&target), base, function)
+            .call_helper(
+                ModuleEvaluateArguments::new(&target, &program),
+                base,
+                function,
+            )
             .store(&evaluation, function);
+        program.clear(function);
         evaluation.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);
@@ -904,8 +916,13 @@ impl FunctionBuilder<'_> {
         self.open_frame(ControlFrameKind::If, function);
         self.emit_load_module_activation_kind_strict(&parent, kind, function);
         let base = self.runtime_helper_base()?;
+        let program = self.emit_module_record_program(&parent, function);
         schema
-            .call_helper(ModuleExecuteArguments::new(&parent), base, function)
+            .call_helper(
+                ModuleExecuteArguments::new(&parent, &program),
+                base,
+                function,
+            )
             .store(&execution, function);
         kind.load(function);
         function.instruction(&Instruction::I32Const(GcI32Constant::encode(
@@ -920,7 +937,7 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         schema
             .call_helper(
-                ModuleRejectedArguments::new(&parent, execution.value()),
+                ModuleRejectedArguments::new(&parent, execution.value(), &program),
                 base,
                 function,
             )
@@ -955,6 +972,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
+        program.clear(function);
         parent.clear(function);
         self.emit_branch_to_target(execute, function);
         self.pop_control(ControlFrameKind::Loop);

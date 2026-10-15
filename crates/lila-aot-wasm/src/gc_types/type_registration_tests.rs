@@ -13,7 +13,7 @@ fn encoded(kind: ModuleKind<'_>) -> (FinalizedRuntimeModule, Vec<u8>) {
     let bytes = module.finish();
     Validator::new_with_features(WasmFeatures::all())
         .validate_all(&bytes)
-        .expect("registered concrete signatures, GC graph and hook globals validate");
+        .expect("registered concrete signatures and typed ProgramInstance graph validate");
     (runtime, bytes)
 }
 
@@ -113,6 +113,26 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
         (core_end..program.len()).collect::<Vec<_>>()
     );
 
+    let instance_index = runtime
+        .globals()
+        .schema()
+        .layouts()
+        .layout_index(GcLayout::ProgramInstance) as usize;
+    let CompositeInnerType::Struct(instance) = &core[instance_index].composite_type.inner else {
+        panic!("ProgramInstance must be an actual GC struct");
+    };
+    assert_eq!(instance.fields.len(), 9);
+    let mut next_group_start = 0;
+    let instance_group = core_groups
+        .iter()
+        .find_map(|size| {
+            let range = next_group_start..next_group_start + *size;
+            next_group_start = range.end;
+            range.contains(&instance_index).then_some(range)
+        })
+        .expect("the actual ProgramInstance belongs to one emitted recursion group");
+    assert!(instance_group.len() > 1);
+
     for hook in ProgramHook::ALL {
         let helper = hook.helper();
         assert!(
@@ -120,16 +140,46 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
             "the hook body remains program-owned"
         );
         assert_eq!(helper.type_region(), HelperTypeRegion::Core);
-        let index = runtime.globals().schema().program_hook_global(hook) as usize;
-        let global = core_globals[index];
-        assert!(global.mutable);
+        assert!(
+            instance_group.contains(&(helper.type_index() as usize)),
+            "{hook:?} and ProgramInstance must be in the same actual recursion group"
+        );
+        let CompositeInnerType::Func(signature) =
+            &core[helper.type_index() as usize].composite_type.inner
+        else {
+            panic!("the typed hook must reference its actual registered function type");
+        };
         assert_eq!(
-            ValType::try_from(global.content_type).unwrap(),
+            ValType::try_from(signature.params()[0]).unwrap(),
+            ValType::Ref(RefType {
+                nullable: false,
+                heap_type: HeapType::Concrete(instance_index as u32),
+            }),
+            "every typed hook receives the actual non-null ProgramInstance first"
+        );
+
+        let field = &instance.fields[hook as usize];
+        assert!(!field.mutable, "a published P hook cannot be replaced");
+        let wasmparser::StorageType::Val(actual) = field.element_type else {
+            panic!("a ProgramInstance hook must be a typed function reference");
+        };
+        assert_eq!(
+            ValType::try_from(actual).unwrap(),
             ValType::Ref(RefType {
                 nullable: true,
-                heap_type: HeapType::Concrete(helper.type_index())
+                heap_type: HeapType::Concrete(helper.type_index()),
             }),
-            "R's {hook:?} global consumes the exact core hook signature"
+            "P's {hook:?} field consumes the exact registered core hook signature"
+        );
+        assert!(
+            core_globals.iter().all(|global| {
+                ValType::try_from(global.content_type).unwrap()
+                    != ValType::Ref(RefType {
+                        nullable: true,
+                        heap_type: HeapType::Concrete(helper.type_index()),
+                    })
+            }),
+            "the shared runtime must not retain a hook global"
         );
     }
 }

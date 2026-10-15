@@ -17,32 +17,36 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         namespace.set_undefined(function);
-        self.emit_program_hook_dispatch(
-            ProgramHook::RealmModuleImport,
-            |builder, hook, function| {
-                schema
-                    .call_hook(
-                        hook,
-                        RealmModuleImportArguments::new(
-                            realm,
-                            specifier,
-                            builder.current_environment(),
-                        ),
+        let program = self.emit_realm_module_program(realm, function);
+        let result = self
+            .emit_owned_program_hook_dispatch::<crate::gc_types::RealmModuleImportHook>(
+                &program,
+                |builder, hook, function| {
+                    schema
+                        .call_hook(
+                            hook,
+                            RealmModuleImportArguments::new(
+                                realm,
+                                specifier,
+                                builder.current_environment(),
+                            ),
+                            function,
+                        )
+                        .store(evaluation, namespace, function);
+                    Ok(())
+                },
+                |builder, function| {
+                    builder.emit_throw_runtime_error(
+                        NativeErrorKind::TypeError,
+                        RuntimeErrorMessage::MODULE_REQUEST_NOT_IN_COMPILED_CATALOG,
+                        evaluation,
                         function,
                     )
-                    .store(evaluation, namespace, function);
-                Ok(())
-            },
-            |builder, function| {
-                builder.emit_throw_runtime_error(
-                    NativeErrorKind::TypeError,
-                    RuntimeErrorMessage::MODULE_REQUEST_NOT_IN_COMPILED_CATALOG,
-                    evaluation,
-                    function,
-                )
-            },
-            function,
-        )
+                },
+                function,
+            );
+        program.clear(function);
+        result
     }
 
     /// The program half: initialize the Realm's module graph, then resolve the

@@ -2,8 +2,8 @@
 use super::*;
 use crate::data::{CompactArrayOpcode, CompactArrayRecipe, COMPACT_ARRAY_RECIPE_ROW_BYTES};
 use crate::gc_types::{
-    ArrayIndexKeyConstruction, ByteArray, I32Local, NonNullable, PooledStringTable, ScalarValue,
-    StringValue, TemplateSiteTable,
+    ArrayIndexKeyConstruction, ByteArray, I32Local, NonNullable, ScalarValue, StringValue,
+    TemplateSiteTable,
 };
 use crate::runtime_helpers::{
     CompactArrayLiteralArguments, CompactArrayLiteralParameters, HelperParameters,
@@ -30,7 +30,13 @@ impl FunctionBuilder<'_> {
         let depth = s.reserve_i32_local(f);
         depth.set_constant(recipe.depth() as i32, f);
         s.call_helper(
-            CompactArrayLiteralArguments::new(offset, bytes, depth, &prototype),
+            CompactArrayLiteralArguments::new(
+                offset,
+                bytes,
+                depth,
+                &prototype,
+                self.current_program(),
+            ),
             self.runtime_helper_base()?,
             f,
         )
@@ -136,9 +142,6 @@ impl FunctionBuilder<'_> {
                 &mut f,
             );
         let indices = ArrayIndexKeyConstruction::allocate(s, parameters.depth, &mut f);
-        let strings = s
-            .reserve_gc_local::<PooledStringTable, NonNullable>(&mut f)
-            .initialize(s.pooled_string_table_reference(&mut f), &mut f);
         let value = s.reserve_value_local(&mut f);
         value.set_undefined(&mut f);
         let absent = s.reserve_gc_local(&mut f).initialize(
@@ -268,16 +271,10 @@ impl FunctionBuilder<'_> {
                     advance.set_constant(1, &mut f);
                 }
                 CompactArrayOpcode::String => {
-                    payload.load(&mut f);
-                    f.instruction(&Instruction::I32WrapI64);
-                    slot.store(&mut f);
                     let string = s
                         .reserve_gc_local::<StringValue, NonNullable>(&mut f)
                         .initialize(
-                            s.array_type::<PooledStringTable>()
-                                .read(&strings, slot, s, &mut f)
-                                .reference()
-                                .require_non_null(&mut f),
+                            self.current_program().literal_operand(s, payload, &mut f),
                             &mut f,
                         );
                     value.set_reference(&string, s, &mut f);
@@ -340,7 +337,6 @@ impl FunctionBuilder<'_> {
         result.clear(&mut f);
         value.clear(&mut f);
         absent.clear(&mut f);
-        strings.clear(&mut f);
         indices.clear(&mut f);
         arrays.clear(&mut f);
         tape.clear(&mut f);

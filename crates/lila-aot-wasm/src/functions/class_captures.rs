@@ -52,6 +52,7 @@ impl FunctionBuilder<'_> {
             ));
         }
         let schema = self.runtime_schema();
+        let defining_program = self.capture_current_program(function);
         let realm = self.load_current_realm(function);
         let lexical_environment = schema
             .reserve_gc_local::<Environment, Nullable>(function)
@@ -73,6 +74,7 @@ impl FunctionBuilder<'_> {
             self.emit_source_function_record_from_captures(
                 meta,
                 FunctionAllocationInputs {
+                    program: crate::gc_types::FunctionProgramOwner::Defining(&defining_program),
                     realm: &realm,
                     lexical_environment: &lexical_environment,
                     private_environment,
@@ -144,6 +146,7 @@ impl FunctionBuilder<'_> {
         home_object.clear(function);
         lexical_environment.clear(function);
         realm.clear(function);
+        defining_program.clear(function);
         Ok(constructor)
     }
 
@@ -195,6 +198,12 @@ impl FunctionBuilder<'_> {
                 .reference(),
             function,
         );
+        let defining_program = schema.reserve_gc_local(function).initialize(
+            row.field(FunctionContextSchema::DEFINING_PROGRAM)
+                .read(&context, schema, function)
+                .reference(),
+            function,
+        );
         let home_value = schema.reserve_value_local(function);
         home_value.set_reference(constructor, schema, function);
         let home = schema.reserve_gc_local(function).initialize(
@@ -215,11 +224,13 @@ impl FunctionBuilder<'_> {
                     GcOperand::reference(&template, schema),
                     GcOperand::null(schema),
                     GcOperand::null(schema),
+                    GcOperand::reference(&defining_program, schema),
                 ),
                 function,
             ),
             function,
         );
+        defining_program.clear(function);
         home.clear(function);
         home_value.clear(function);
         template.clear(function);
@@ -247,6 +258,7 @@ impl FunctionBuilder<'_> {
             ));
         }
         let schema = self.runtime_schema();
+        let defining_program = self.capture_current_program(function);
         let realm = self.load_current_realm(function);
         let lexical_environment = schema
             .reserve_gc_local::<Environment, Nullable>(function)
@@ -272,6 +284,7 @@ impl FunctionBuilder<'_> {
         let result = self.emit_source_function_record_from_captures(
             meta,
             FunctionAllocationInputs {
+                program: crate::gc_types::FunctionProgramOwner::Defining(&defining_program),
                 realm: &realm,
                 lexical_environment: &lexical_environment,
                 private_environment,
@@ -293,6 +306,7 @@ impl FunctionBuilder<'_> {
         home_object.clear(function);
         lexical_environment.clear(function);
         realm.clear(function);
+        defining_program.clear(function);
         Ok(result)
     }
 
@@ -330,6 +344,18 @@ impl FunctionBuilder<'_> {
             ));
         }
         let schema = self.runtime_schema();
+        // Delayed field/static execution retains the class definition's P,
+        // independently of the frame currently materializing its callable.
+        let defining_program = crate::gc_types::ProgramInstanceLocals::bind(
+            schema,
+            schema
+                .struct_type::<FunctionContext>()
+                .field(FunctionContextSchema::DEFINING_PROGRAM)
+                .read(class_context, schema, function)
+                .reference()
+                .require_non_null(function),
+            function,
+        );
         let row = schema.struct_type::<FunctionContext>();
         let realm = schema.reserve_gc_local(function).initialize(
             row.field(FunctionContextSchema::REALM)
@@ -385,6 +411,7 @@ impl FunctionBuilder<'_> {
         let result = self.emit_source_function_record_from_captures(
             meta,
             FunctionAllocationInputs {
+                program: crate::gc_types::FunctionProgramOwner::Defining(&defining_program),
                 realm: &realm,
                 lexical_environment: &lexical_environment,
                 private_environment: &private_environment,
@@ -409,6 +436,7 @@ impl FunctionBuilder<'_> {
         private_environment.clear(function);
         lexical_environment.clear(function);
         realm.clear(function);
+        defining_program.clear(function);
         Ok(result)
     }
 

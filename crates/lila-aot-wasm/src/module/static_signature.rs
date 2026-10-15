@@ -142,17 +142,30 @@ static_signature_domain! {
     // Independent host signatures above must canonicalize as singleton types.
     JavaScriptFunction => ([Gc(GcLayout::FunctionObject, NonNullable), I32, I64, EqRef,
         I32, I64, EqRef, I64, Gc(GcLayout::ValueArray, Nullable),
-        Gc(GcLayout::RealmRecord, NonNullable)], COMPLETION_TYPES),
+        Gc(GcLayout::RealmRecord, NonNullable),
+        Gc(GcLayout::ProgramInstance, NonNullable)], COMPLETION_TYPES),
     GeneratorFunction => ([Gc(GcLayout::FunctionObject, NonNullable), I32, I64, EqRef,
-        Gc(GcLayout::GeneratorActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable)], COMPLETION_TYPES),
+        Gc(GcLayout::GeneratorActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable),
+        Gc(GcLayout::ProgramInstance, NonNullable)], COMPLETION_TYPES),
     AsyncFunction => ([Gc(GcLayout::FunctionObject, NonNullable), I32, I64, EqRef,
-        Gc(GcLayout::AsyncActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable)], COMPLETION_TYPES),
+        Gc(GcLayout::AsyncActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable),
+        Gc(GcLayout::ProgramInstance, NonNullable)], COMPLETION_TYPES),
     AsyncGeneratorFunction => ([Gc(GcLayout::FunctionObject, NonNullable), I32, I64, EqRef,
-        Gc(GcLayout::AsyncGeneratorActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable)], COMPLETION_TYPES),
+        Gc(GcLayout::AsyncGeneratorActivation, NonNullable), I64, Gc(GcLayout::ValueArray, Nullable),
+        Gc(GcLayout::ProgramInstance, NonNullable)], COMPLETION_TYPES),
     PreparedScript => ([Gc(GcLayout::Environment, Nullable), I32, I64, EqRef,
         I32, I64, EqRef, I64, Gc(GcLayout::ValueArray, Nullable),
         Gc(GcLayout::Environment, Nullable), Gc(GcLayout::PrivateEnvironment, Nullable),
-        Gc(GcLayout::DirectEvalExecutionContext, Nullable)], COMPLETION_TYPES),
+        Gc(GcLayout::DirectEvalExecutionContext, Nullable),
+        Gc(GcLayout::ProgramInstance, NonNullable)], COMPLETION_TYPES),
+    // P publication has no JavaScript entry/Completion or Realm prologue.
+    ProgramInitialize => ([], [Gc(GcLayout::ProgramInstance, NonNullable)]),
+    // Native same-Store compilation returns either factory Completion or a
+    // genuine source SyntaxError message owned by the actual constructor Realm.
+    HostCompileDynamicFunction => ([I32, I32, I64, EqRef,
+        Gc(GcLayout::ValueArray, NonNullable),
+        Gc(GcLayout::FunctionContext, NonNullable), Gc(GcLayout::Environment, Nullable)],
+        [I32, I64, EqRef, I32, I32, Gc(GcLayout::StringValue, Nullable)]),
     HostByteArrayAllocate => ([I32], [Gc(GcLayout::ByteArray, Nullable)]),
     HostIntlProviderCall => ([Gc(GcLayout::ByteArray, NonNullable)], [Gc(GcLayout::ByteArray, Nullable)]),
     HostSystemTimeZoneSnapshot => ([], [Gc(GcLayout::ByteArray, NonNullable)]),
@@ -165,3 +178,6 @@ static_signature_domain! {
 // Deriving membership from actual operands prevents a new signature from
 // silently acquiring a different canonical type or shifting its declared index.
 const _: () = assert!(StaticSignature::singleton_signatures_are_first());
+
+#[cfg(test)]
+mod program_ownership_tests;

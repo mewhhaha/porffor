@@ -42,9 +42,25 @@ impl LocaleCollationPreferences {
         requested: &CanonicalLocaleId,
         roots: &LocaleIndependentSortPreferences,
     ) -> Result<Box<[Box<str>]>, CollatorOperationError> {
-        let mut parsed: Locale = requested.as_str().parse().map_err(data_error)?;
-        parsed.extensions.unicode = Default::default();
-        let name = parsed.to_string();
+        // This checked canonical identifier has the full Unicode language domain,
+        // including 5–8-letter base and transform languages that ICU Locale cannot
+        // parse. Lookup needs only RemoveUnicodeLocaleExtension, not reparsing or
+        // language substitution. A private-use tail is opaque, including `u`.
+        let mut name = String::new();
+        let mut unicode = false;
+        let mut private = false;
+        for subtag in requested.as_str().split('-') {
+            if !private && subtag.len() == 1 {
+                private = subtag == "x";
+                unicode = subtag == "u";
+            }
+            if !unicode {
+                if !name.is_empty() {
+                    name.push('-');
+                }
+                name.push_str(subtag);
+            }
+        }
         let mut candidate = name.as_str();
         let selected = loop {
             if let Ok(index) = self

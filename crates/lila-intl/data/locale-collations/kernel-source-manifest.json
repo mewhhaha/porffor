@@ -58,7 +58,7 @@
     {
       "bytes": 9251,
       "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
-      "sha256": "d90adae6b9120040126a252aecf8d78b0ce668d0eaa34f96ad90ed1368b3d9d5"
+      "sha256": "8f67fdf4c5e6d014ed4374b46afea37bef1054ce760e66ffcc33bdbd4d4a075d"
     },
     {
       "bytes": 8073,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "babf160fd5c86aa78c19e927dc093398eb3eb781ecc46fef0e45ce3a568bf021",
+  "kernel_sha256": "e2b2eeedaaa5e469d7a9364cd7dbf8944ead73480147f516f72f0049b60e45ab",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -221,14 +221,14 @@
       "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
     },
     {
-      "bytes": 81246,
+      "bytes": 86365,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "a5838481fb8d8f50a42870721ff495035be780a5b99c46820467f294ccaa819c"
+      "sha256": "2dcd354cb546d37000ee503b93b07132e6edf6b62d409ba4d15cfc8cbd472189"
     },
     {
-      "bytes": 81528,
+      "bytes": 81425,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "201937c9adf792271b59f8f1ccd9b5545a8d7dae1810177b7aab8a975cf7c169"
+      "sha256": "6f5774614d23e3791448f14690d1032c688f7884a742c60f3949635fa93c0a13"
     },
     {
       "bytes": 33803,
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/lila-intl/src/collator/identity.rs",
-      "sha256": "1bfc318ebd59b5700a15f29998049f8e8042b3bbd6b19a6b9e8076c7300e4895"
+      "sha256": "200eeeece05609fcaa1449d6662f4bf762a3d18bef724b0a1ad09fb535ab53ac"
     },
     {
       "bytes": 31472,
@@ -286,9 +286,9 @@
       "sha256": "4d52479510a011a9afd61e1fd4312b251a99411305a776e3acdac8ffd91ddbc2"
     },
     {
-      "bytes": 3603,
+      "bytes": 4239,
       "path": "crates/lila-intl/src/collator/profiles/preferences.rs",
-      "sha256": "fd71eeac3b7928130c6b57bf970f0b10abc9db33e74c154793c3168bd1128a01"
+      "sha256": "8e0d1e81dc8e34cf35211a466085529fb516103ce111304b519ebe477f125904"
     },
     {
       "bytes": 15387,

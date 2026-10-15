@@ -13,6 +13,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let caller_realm = self.load_current_realm(function);
+        let calling_program = self.capture_current_program(function);
         let caller_environment = schema
             .reserve_gc_local(function)
             .initialize(self.current_environment().load(schema, function), function);
@@ -28,10 +29,12 @@ impl FunctionBuilder<'_> {
                 arguments,
                 &caller_realm,
                 &caller_environment,
+                &calling_program,
             ),
             self.runtime_helper_base()?,
             function,
         );
+        calling_program.clear(function);
         caller_environment.clear(function);
         caller_realm.clear(function);
         Ok(())

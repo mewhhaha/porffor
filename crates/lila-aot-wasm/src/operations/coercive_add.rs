@@ -29,7 +29,13 @@ impl FunctionBuilder<'_> {
         let realm = self.emit_execution_realm(function);
         schema
             .call_helper(
-                CoerciveAddArguments::new(&left, &right, &realm, self.current_environment()),
+                CoerciveAddArguments::new(
+                    &left,
+                    &right,
+                    &realm,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 self.runtime_helper_base()?,
                 function,
             )

@@ -32,7 +32,13 @@ impl ScriptLowerer<'_> {
             .collect::<Vec<_>>();
         // This closed Cartesian product uses the existing 256-tuple budget.
         // Each substitution still evaluates and performs ToString at runtime.
-        Self::source_candidate_tuples(&parts, true)
+        let expanded = Self::source_candidate_tuples(&parts, true);
+        if expanded.is_empty() {
+            return self.finite_correlated_template_source_hints(template, &parts);
+        }
+        // Preserve every fitting Cartesian source, including mixed text after
+        // mutation; the additional search never narrows an admitted product.
+        expanded
             .into_iter()
             .map(|parts| FiniteSourceValue::SupplementalText(parts.concat()))
             .collect()

@@ -24,7 +24,9 @@ mod body_entry;
 mod completion_exit;
 mod module_assembly;
 mod runtime_requirement;
+pub(crate) use body_compilation::{CompletedProgramInitializeBody, ProgramInitializeCompilation};
 pub(crate) use completion_exit::CompletionExit;
+pub(crate) use module_assembly::emit_runtime_function_module;
 #[cfg(test)]
 mod async_generator_dispatcher_tests;
 
@@ -135,6 +137,7 @@ pub(crate) enum BindingStorage {
 pub(crate) enum ReturnAbi {
     MainExport,
     MultiValue,
+    ProgramInstance,
 }
 
 /// Construction role of one emitted function.
@@ -144,6 +147,7 @@ pub(crate) enum ReturnAbi {
 /// a caller cannot construct a main body without its rooted section or extract
 /// a copyable schema to pair with another section.
 enum FunctionModuleState<'a> {
+    ProgramInitialize,
     Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy),
     PreparedScript(
         &'a PreparedScriptUnit,
@@ -157,6 +161,7 @@ impl<'a> FunctionModuleState<'a> {
     fn parameter_count(&self) -> usize {
         match self {
             Self::Main(_, _) => StaticSignature::Main.parameter_count(),
+            Self::ProgramInitialize => StaticSignature::ProgramInitialize.parameter_count(),
             Self::Internal(entry) | Self::PreparedScript(_, entry) => {
                 entry.signature().parameter_count()
             }
@@ -167,6 +172,7 @@ impl<'a> FunctionModuleState<'a> {
     const fn return_abi(&self) -> ReturnAbi {
         match self {
             Self::Main(_, _) => ReturnAbi::MainExport,
+            Self::ProgramInitialize => ReturnAbi::ProgramInstance,
             Self::Internal(_) | Self::PreparedScript(_, _) | Self::RuntimeOperation(_) => {
                 ReturnAbi::MultiValue
             }
@@ -175,7 +181,7 @@ impl<'a> FunctionModuleState<'a> {
     fn planned_body_entry(&self) -> Option<crate::function_entry::PlannedBodyEntry<'a>> {
         match self {
             Self::Internal(entry) | Self::PreparedScript(_, entry) => Some(entry.body()),
-            Self::Main(_, _) | Self::RuntimeOperation(_) => None,
+            Self::Main(_, _) | Self::RuntimeOperation(_) | Self::ProgramInitialize => None,
         }
     }
 }
@@ -233,6 +239,7 @@ impl<'a> MainFunctionCompilation<'a> {
     pub(crate) fn compile(
         self,
         module_globals: &FinalizedModuleGlobals,
+        program_initialize: Option<crate::function_layout::ProgramInitializeIndex>,
     ) -> Result<(EmittedFunction, u32), EmitError> {
         let mut builder = FunctionBuilder::new_main(
             self.script,
@@ -244,7 +251,7 @@ impl<'a> MainFunctionCompilation<'a> {
             module_globals,
             self.promise_rejection_policy,
         );
-        let main = builder.compile()?;
+        let main = builder.compile_main_with_program_initialize(program_initialize)?;
         let emitted_local_count = builder.emitted_local_count();
         Ok((EmittedFunction::main(main), emitted_local_count))
     }
@@ -285,6 +292,9 @@ pub(crate) struct FunctionBuilder<'a> {
     completion: CompletionLocals,
     local_bindings: Vec<Option<LocalBindingLocals>>,
     body_entry_locals: Option<crate::function_entry::BodyEntryLocals>,
+    // Main binds the P published by its initializer; registered helpers bind
+    // their required P operand. Callable bodies own theirs in BodyEntryLocals.
+    entry_program: Option<crate::gc_types::ProgramInstanceLocals>,
     pub(crate) source_activation: Option<crate::functions::SourceActivation>,
     // Only a declared typed helper parameter can retain an actual callable's
     // immutable context. It never manufactures a callable body entry.
@@ -1298,7 +1308,7 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Result<GcStackReference<StringValue>, EmitError> {
         let ordinal = self.strings.pooled_string_index(value)?;
         if self.uses_heap {
-            return Ok(self.schema.pooled_string_reference(ordinal, function));
+            return self.emit_pooled_string_reference(ordinal, function);
         }
         // Runtime-free scripts do not initialize the module's pooled table.
         // Their literal primitives still own real GC Strings and UTF-16 units.
@@ -1333,9 +1343,10 @@ impl<'a> FunctionBuilder<'a> {
         message: RuntimeErrorMessage,
         function: &mut Function,
     ) -> Result<GcStackReference<StringValue>, EmitError> {
-        Ok(self
-            .schema
-            .pooled_string_reference(self.strings.runtime_error_string_index(message)?, function))
+        self.emit_pooled_string_reference(
+            self.strings.runtime_error_string_index(message)?,
+            function,
+        )
     }
     pub(crate) fn emit_well_known_symbol_reference(
         &self,
@@ -1416,6 +1427,61 @@ impl<'a> FunctionBuilder<'a> {
     pub(crate) fn body_entry_locals(&self) -> Option<&crate::function_entry::BodyEntryLocals> {
         self.body_entry_locals.as_ref()
     }
+    pub(crate) fn current_program(&self) -> &crate::gc_types::ProgramInstanceLocals {
+        self.body_entry_locals()
+            .map(crate::function_entry::BodyEntryLocals::program)
+            .or(self.entry_program.as_ref())
+            .expect("program-consuming entry requires its explicit frame-local owner")
+    }
+    /// Main and registered helper entries bind one actual owner. Callable
+    /// entries already selected theirs from captured defining/calling P.
+    pub(crate) fn bind_entry_program(&mut self, program: crate::gc_types::ProgramInstanceLocals) {
+        assert!(
+            self.body_entry_locals.is_none() && self.entry_program.is_none(),
+            "one explicit program binding per main/helper entry"
+        );
+        assert!(
+            matches!(
+                self.module_state,
+                FunctionModuleState::Main(_, _) | FunctionModuleState::RuntimeOperation(_)
+            ),
+            "only main and registered helpers bind program operands"
+        );
+        self.entry_program = Some(program);
+    }
+    pub(crate) fn capture_current_program(
+        &self,
+        function: &mut Function,
+    ) -> crate::gc_types::ProgramInstanceLocals {
+        crate::gc_types::ProgramInstanceLocals::bind(
+            self.schema,
+            self.current_program().reference(self.schema, function),
+            function,
+        )
+    }
+    pub(crate) fn clear_entry_program(&mut self, function: &mut Function) {
+        if let Some(program) = self.entry_program.take() {
+            program.clear(function);
+        }
+    }
+    /// Root's P initializer emitter declares this body as ProgramInitialize,
+    /// publishes a P result, and never enters compile() or its JS prologue.
+    pub(super) fn begin_program_initialize_body(&mut self) -> Function {
+        assert!(
+            self.is_program_initialize()
+                && self.body_entry_locals.is_none()
+                && self.entry_program.is_none()
+                && StaticSignature::ProgramInitialize
+                    .parameter_types()
+                    .is_empty()
+                && self
+                    .owned_body
+                    .as_ref()
+                    .is_some_and(|body| body.parameter_types().is_empty()),
+            "P initialization starts from its unexecuted zero-argument bootstrap builder"
+        );
+        self.take_owned_body()
+    }
     pub(crate) fn current_function_context(&self) -> Option<&GcLocal<FunctionContext>> {
         self.body_entry_locals()
             .and_then(|entry| entry.function_context())
@@ -1448,6 +1514,14 @@ impl<'a> FunctionBuilder<'a> {
             "helper parameter roles must match this declaration"
         );
         let parameters = self.schema.helper_parameters::<P>(function);
+        if let Some(program) = parameters.caller_program() {
+            let owner = crate::gc_types::ProgramInstanceLocals::bind(
+                self.schema,
+                program.load(self.schema, function),
+                function,
+            );
+            self.bind_entry_program(owner);
+        }
         if let Some(environment) = parameters.caller_environment() {
             self.current_environment
                 .replace(environment.load(self.schema, function), function);
@@ -1635,6 +1709,40 @@ impl<'a> FunctionBuilder<'a> {
         )
     }
 
+    /// No Script, Realm, environment or source entry is attached to this body.
+    /// Only the dedicated typed module owner may publish its ProgramInstance result.
+    pub(super) fn new_program_initialize(
+        schema: &'a RuntimeSchema,
+        strings: &'a StringPool,
+        functions: &'a FunctionMetaRegistry,
+        runtime_bootstrap_plan: RuntimeBootstrapPlan,
+        runtime_helper_base: Option<crate::runtime_helpers::RuntimeHelperFunctionBase>,
+    ) -> Self {
+        Self::new(
+            schema,
+            &EMPTY_BLOCK,
+            None,
+            &[],
+            &[],
+            None,
+            &[],
+            strings,
+            functions,
+            None,
+            FunctionFlavor::Ordinary,
+            FunctionArgumentsProtocol::strict_internal_callable(),
+            None,
+            true,
+            None,
+            None,
+            true,
+            FunctionModuleState::ProgramInitialize,
+            false,
+            runtime_bootstrap_plan,
+            runtime_helper_base,
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn new_runtime_operation_helper(
         schema: &'a RuntimeSchema,
@@ -1730,6 +1838,9 @@ impl<'a> FunctionBuilder<'a> {
     ) -> Self {
         let parameter_types = match &module_state {
             FunctionModuleState::Main(_, _) => schema.signature(StaticSignature::Main),
+            FunctionModuleState::ProgramInitialize => {
+                schema.signature(StaticSignature::ProgramInitialize)
+            }
             FunctionModuleState::PreparedScript(_, entry)
             | FunctionModuleState::Internal(entry) => schema.signature(entry.signature()),
             FunctionModuleState::RuntimeOperation(helper) => helper.definition(schema.layouts()),
@@ -1738,6 +1849,7 @@ impl<'a> FunctionBuilder<'a> {
         .to_vec();
         let return_abi = module_state.return_abi();
         let hoisted_vars = match &module_state {
+            FunctionModuleState::ProgramInitialize => Vec::new(),
             FunctionModuleState::Main(_, _) => script_global_bindings
                 .expect("main builder must carry the global binding plan")
                 .main_frame_write_bindings()
@@ -1813,6 +1925,7 @@ impl<'a> FunctionBuilder<'a> {
             completion,
             local_bindings: Vec::new(),
             body_entry_locals,
+            entry_program: None,
             source_activation: None,
             helper_function_context: None,
             helper_execution_realm: None,
@@ -1873,13 +1986,19 @@ impl<'a> FunctionBuilder<'a> {
         matches!(self.return_abi(), ReturnAbi::MainExport)
     }
 
+    pub(crate) const fn is_program_initialize(&self) -> bool {
+        matches!(self.module_state, FunctionModuleState::ProgramInitialize)
+    }
+
     pub(crate) fn has_source_execution_environment(&self) -> bool {
         match self.module_state {
             FunctionModuleState::Main(_, _) | FunctionModuleState::PreparedScript(_, _) => true,
             FunctionModuleState::Internal(_) => self
                 .current_function_meta()
                 .is_some_and(|meta| meta.standard_builtin.is_none() && meta.host_builtin.is_none()),
-            FunctionModuleState::RuntimeOperation(_) => false,
+            FunctionModuleState::RuntimeOperation(_) | FunctionModuleState::ProgramInitialize => {
+                false
+            }
         }
     }
 
@@ -1887,12 +2006,15 @@ impl<'a> FunctionBuilder<'a> {
         match self.module_state {
             FunctionModuleState::Main(_, _) => true,
             FunctionModuleState::PreparedScript(unit, _) => unit.has_global_variable_environment(),
-            FunctionModuleState::Internal(_) | FunctionModuleState::RuntimeOperation(_) => false,
+            FunctionModuleState::Internal(_)
+            | FunctionModuleState::RuntimeOperation(_)
+            | FunctionModuleState::ProgramInitialize => false,
         }
     }
 
     pub(crate) fn direct_eval_derived_constructor_owner(&self) -> Option<&FunctionId> {
         match self.module_state {
+            FunctionModuleState::ProgramInitialize => None,
             FunctionModuleState::PreparedScript(unit, _) => match &unit.kind {
                 PreparedScriptKind::DirectEval(context) => context.derived_constructor_owner(),
                 PreparedScriptKind::RealmScript
@@ -1939,7 +2061,9 @@ impl<'a> FunctionBuilder<'a> {
         match self.module_state {
             FunctionModuleState::Internal(entry)
             | FunctionModuleState::PreparedScript(_, entry) => Some(entry),
-            FunctionModuleState::Main(_, _) | FunctionModuleState::RuntimeOperation(_) => None,
+            FunctionModuleState::Main(_, _)
+            | FunctionModuleState::RuntimeOperation(_)
+            | FunctionModuleState::ProgramInitialize => None,
         }
     }
 

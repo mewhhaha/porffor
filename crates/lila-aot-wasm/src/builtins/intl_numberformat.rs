@@ -1,5 +1,6 @@
 //! JavaScript observations and complete GC configurations; pinned native parts.
 use super::super::*;
+use super::intl_legacy_constructor::IntlLegacyFormatterKind;
 use super::intl_number::*;
 use crate::functions::{NonArrayRealmIntrinsicSlot, OrdinaryDefaultPrototype};
 use crate::gc_types::*;
@@ -78,9 +79,22 @@ impl NfOptionsLocals {
         self.style.clear(schema, function);
     }
 }
+#[derive(Clone, Copy)]
+enum NfReceiverOperation {
+    ResolvedOptions,
+    FormatGetter,
+    FormatToParts,
+    FormatRange,
+}
+impl NfReceiverOperation {
+    fn unwraps_legacy(self) -> bool {
+        matches!(self, Self::ResolvedOptions | Self::FormatGetter)
+    }
+}
 impl FunctionBuilder<'_> {
     fn emit_nf_record_from_receiver(
         &mut self,
+        operation: NfReceiverOperation,
         function: &mut Function,
     ) -> Result<GcLocal<IntlNumberFormatObject>, EmitError> {
         let schema = self.runtime_schema();
@@ -91,6 +105,16 @@ impl FunctionBuilder<'_> {
                 .this_value(),
             function,
         );
+        if operation.unwraps_legacy() {
+            let unwrapped = self.emit_intl_unwrap_legacy_formatter(
+                IntlLegacyFormatterKind::NumberFormat,
+                &receiver,
+                NF_RECEIVER_ERROR,
+                function,
+            )?;
+            receiver.copy_from(&unwrapped, function);
+            unwrapped.clear(function);
+        }
         receiver.reference().load(function);
         function.instruction(&Instruction::RefTestNonNull(
             schema

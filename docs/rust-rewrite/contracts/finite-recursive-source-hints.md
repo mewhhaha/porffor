@@ -1,4 +1,4 @@
-# Finite source hints through global recursive calls
+# Finite source hints through recursive calls and loop bindings
 
 Entering a function body replaces `visible_function_names` with that owner's
 own declarations. Source discovery must still recognize an analyzed script-global
@@ -28,13 +28,33 @@ previous capture/shadow/assignment/conversion and 256-candidate controls. IR
 controls require every real body and reject unused bodies from shadowed targets.
 
 
-The direct identifier head of a generic for-of loop now receives optional
-source candidates from its actual iterable. Its element ValueInfo remains
-Dynamic: user iterator methods can yield unrelated values, and the ordinary
-iterator and live constructor tuple admission remain in emitted IR. Pattern,
-property, borrowed-eval and intercepted assignment heads do not acquire facts
-from the private iteration temporary. Source discovery retains the original
-256-value limit; a 257-value source remains outside finite preparation.
+The direct identifier head of a generic for-of loop receives optional source
+candidates from its actual iterable. Array binding declarations with `var`,
+`let` or `const` also project optional hints into their analyzed declaration
+cells. Array candidates hold unordered possible members, not positional rows:
+each supported leaf receives a bounded member union, including possible default
+values. Nested array and array-rest binding patterns follow the same rule.
+No row correlation or actual iterator value is inferred.
+
+Projected text is supplemental and merges with the same cell's existing hints.
+The loop may execute zero times, and earlier iterations may leave values behind;
+iteration hints must not replace those prior sources. Existing primary sources
+keep their priority, and overflow preserves the already retained set. Cells
+with the same spelling in different analyzed environments remain separate.
+
+Object patterns, property-access targets and elisions receive no leaf projection.
+Assignment patterns are excluded, as are `var` patterns borrowing a sloppy direct
+eval variable environment. A preceding `with` environment that can intercept a
+reference suppresses that cell's projection. No binding facts are taken from a
+pattern's private iteration temporary.
+
+The live element ValueInfo remains Dynamic: user iterator methods can yield
+unrelated values. Iterator calls, destructuring, defaults, binding writes,
+per-iteration captures and effects still execute normally. Prepared eval and
+constructor dispatch require the exact full live source and permitted context;
+unlisted strings keep the existing typed Wasm-AOT rejection. Source discovery
+retains the original 256-value limit; it cannot prepare every real source in a
+257-value input.
 
 Supplemental global text priority also follows text nested in Record and Array
 candidates, including later cross-owner rescans. A full primary set is admitted
@@ -67,8 +87,9 @@ The retained native record control executes the first and last of the full256
 property sources in both modes, including unused indirect supplemental record
 input. Independent low-count custom conversion and default-object SyntaxError
 checks preserve the converted-source paths. Acceptance requires the complete
-existing IR/native inventories and exact diagnostics; private authoring ran no
-Cargo, rustc or native execution.
+existing IR/native inventories and exact diagnostics, including loop binding,
+zero-iteration, primary-retention, iterator/default effects and unmatched-source
+controls in both modes.
 
 
 The first-argument source projection distinguishes Script compilation from

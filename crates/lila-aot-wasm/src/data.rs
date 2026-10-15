@@ -1,5 +1,11 @@
 use super::*;
-use crate::gc_types::I64Local;
+mod program_metadata;
+pub(crate) use program_metadata::{
+    PooledLiteralOperand, ProgramMetadataSpan, POOLED_LITERAL_PROGRAM_DOMAIN,
+    POOLED_LITERAL_RUNTIME_DOMAIN,
+};
+mod pooled_literal_domain;
+pub(crate) use pooled_literal_domain::PooledLiteralDomain;
 mod program_string_descriptors;
 use lila_ir::{ArrayAccumulationElementIr, ValidatedRegExpProgram};
 use lila_ir::{
@@ -92,12 +98,11 @@ pub(crate) struct PooledModuleBytes {
     length: u32,
 }
 impl PooledModuleBytes {
-    pub(crate) fn emit_byte(&self, offset: I64Local, function: &mut Function) {
-        offset.load(function);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I32Load8U(FunctionBuilder::memarg8(
-            u64::from(self.address),
-        )));
+    pub(crate) fn metadata_span(
+        self,
+        strings: &StringPool,
+    ) -> Result<ProgramMetadataSpan, EmitError> {
+        ProgramMetadataSpan::for_pool(strings, self.address, self.length)
     }
     pub(crate) const fn length(self) -> u32 {
         self.length
@@ -113,7 +118,8 @@ impl PooledCodeUnits {
     }
 }
 
-/// Pointer/byte-length ownership of one immutable descriptor allocation.
+/// Compile-time storage locator for a validated descriptor. Executable P rows
+/// translate this into an explicitly Program-relative metadata span.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RegExpProgramRef {
     payload: u64,
@@ -148,28 +154,32 @@ impl RegExpProgramStaticKey {
     }
 }
 
-/// Word index of a source's pooled GC-string ordinal in a candidate record.
+/// Word index of a source's tagged R/P-relative literal operand in a candidate record.
 /// Writer and reader share word indices, byte offsets and derived row stride.
 pub(crate) const RUNTIME_REGEXP_RECORD_SOURCE_WORD: usize = 0;
-/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' pooled GC-string ordinal.
+/// See [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`]. `flags`' tagged literal operand.
 pub(crate) const RUNTIME_REGEXP_RECORD_FLAGS_WORD: usize = 1;
-/// The immutable descriptor's packed allocation pointer/byte length.
+/// The immutable descriptor's packed P-relative offset/byte length.
 pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD: usize = 2;
 /// The closed runtime-entry discriminant.
 pub(crate) const RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD: usize = 3;
+
+/// The packed descriptor is always relative to this P's immutable metadata.
+pub(crate) const RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD: usize = 4;
+pub(crate) const RUNTIME_REGEXP_DESCRIPTOR_PROGRAM_DOMAIN: u64 = 1;
 
 /// Number of `u64` words in one runtime RegExp program table record.
 ///
 /// Keep this the last word's index plus one: it is the length of the writer's
 /// array, so a word added without extending it fails to compile at the
 /// assignment rather than corrupting the next row.
-pub(crate) const RUNTIME_REGEXP_RECORD_WORDS: usize = RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD + 1;
+pub(crate) const RUNTIME_REGEXP_RECORD_WORDS: usize = RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD + 1;
 
 /// Byte stride between runtime RegExp program table records. **Derived**, never
 /// typed — see [`RUNTIME_REGEXP_RECORD_SOURCE_WORD`].
 pub(crate) const RUNTIME_REGEXP_RECORD_SIZE: u64 = (RUNTIME_REGEXP_RECORD_WORDS * 8) as u64;
 
-/// Byte offset of a record word, for the emitter's `i64.load` memargs.
+/// Byte offset of a record word in the bounded GC metadata view.
 pub(crate) const fn runtime_regexp_record_offset(word: usize) -> u64 {
     (word * 8) as u64
 }
@@ -185,24 +195,19 @@ impl RuntimeRegExpProgramTable {
     pub(crate) const fn count(self) -> u32 {
         self.count
     }
-    pub(crate) fn emit_start(self, function: &mut Function) {
-        function.instruction(&Instruction::I32Const(self.address as i32));
-    }
-    pub(crate) fn load_word(
+    pub(crate) fn metadata_span(
         self,
-        pointer: crate::gc_types::I32Local,
-        word: usize,
-        function: &mut Function,
-    ) {
-        assert!(word < RUNTIME_REGEXP_RECORD_WORDS);
-        pointer.load(function);
-        function.instruction(&Instruction::I64Load(FunctionBuilder::memarg64(
-            runtime_regexp_record_offset(word),
-        )));
+        strings: &StringPool,
+    ) -> Result<ProgramMetadataSpan, EmitError> {
+        let length = self
+            .count
+            .checked_mul(RUNTIME_REGEXP_RECORD_SIZE as u32)
+            .ok_or_else(|| EmitError::unsupported("candidate row extent exceeds P metadata"))?;
+        ProgramMetadataSpan::for_pool(strings, self.address, length)
     }
 }
 
-/// The closed outcome word in a four-word static candidate-cache record.
+/// The closed outcome word in a static candidate-cache record.
 /// Program handles carry validated immutable descriptors; a separate outcome
 /// distinguishes syntax rejection from a cache miss or unsupported capability.
 pub(crate) const RUNTIME_REGEXP_ENTRY_KIND_PROGRAM: u64 = 0;
@@ -2086,6 +2091,9 @@ impl CompilerOwnedPool {
         if uses_temporal_calendar {
             pool.append_temporal_east_asian_year_image()?;
         }
+        // The hidden per-Realm Intl fallback Symbol is allocated by native R
+        // formatter bodies, so its fixed description belongs to R's prefix.
+        pool.intern_string("IntlLegacyConstructedSymbol");
         // Unconditional: gating on script heap use would shift later slots.
         for symbol in lila_ir::WellKnownSymbol::ALL {
             pool.intern_string(symbol.description());
@@ -3139,12 +3147,21 @@ impl StringPool {
                         }
                     }
                     let refs = &self.refs;
+                    let runtime_strings = self.compiler_owned.strings();
+                    let total_strings = self.pooled_string_count();
                     self.compact_array_recipes.collect(&plan, |text| {
                         refs.get(text)
                             .map(|reference| reference.index)
                             .ok_or_else(|| {
                                 EmitError::unsupported(
                                     "compiler invariant: compact Array String was not interned",
+                                )
+                            })
+                            .and_then(|index| {
+                                PooledLiteralOperand::for_collected(
+                                    index,
+                                    runtime_strings,
+                                    total_strings,
                                 )
                             })
                     });
@@ -4188,6 +4205,45 @@ impl StringPool {
         if self.runtime_regexp_programs.is_empty() {
             return;
         }
+        // R descriptors remain R-owned. A candidate that deduplicated to one
+        // receives a small P copy so no executable row selects a linear address.
+        let references = self
+            .runtime_regexp_programs
+            .iter()
+            .filter_map(|(_, _, entry)| match entry {
+                RuntimeRegExpEntry::Program(reference) => Some(*reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut descriptors = BTreeMap::new();
+        for reference in references {
+            if descriptors.contains_key(&reference.payload()) {
+                continue;
+            }
+            let address = (reference.payload() >> 32) as u32;
+            let length = reference.payload() as u32;
+            let source = address
+                .checked_sub(STATIC_DATA_OFFSET)
+                .expect("collected descriptor address");
+            let end = source
+                .checked_add(length)
+                .expect("collected descriptor extent");
+            let boundary =
+                u32::try_from(self.compiler_owned.static_len()).expect("runtime static prefix");
+            let span = if end <= boundary {
+                let bytes = self.bytes[source as usize..end as usize].to_vec();
+                self.align_bytes(8);
+                let copied_address = STATIC_DATA_OFFSET
+                    .checked_add(u32::try_from(self.bytes.len()).expect("P descriptor offset"))
+                    .expect("P descriptor address");
+                self.bytes.extend_from_slice(&bytes);
+                ProgramMetadataSpan::for_pool(self, copied_address, length)
+            } else {
+                ProgramMetadataSpan::for_pool(self, address, length)
+            }
+            .expect("every candidate descriptor belongs to its P metadata image");
+            descriptors.insert(reference.payload(), span);
+        }
         let padding = (8 - self.bytes.len() % 8) % 8;
         self.bytes.resize(self.bytes.len() + padding, 0);
         let address = STATIC_DATA_OFFSET
@@ -4207,26 +4263,33 @@ impl StringPool {
         for (source, flags, entry) in &self.runtime_regexp_programs {
             // Assigned through the shared word indices rather than as a
             // positional array literal, so the writer's layout and the
-            // emitter's `i64.load` offsets are the same facts rather than two
+            // emitter's bounded GC offsets are the same facts rather than two
             // agreeing transcriptions. A non-`Program` row leaves the program
             // handle zeroed, as does a total miss in the object's slot.
             let mut record = [0u64; RUNTIME_REGEXP_RECORD_WORDS];
-            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = u64::from(
+            record[RUNTIME_REGEXP_RECORD_SOURCE_WORD] = PooledLiteralOperand::for_pool(
+                self,
                 self.pooled_string_index(source)
-                    .expect("candidate source is interned")
-                    .ordinal(),
-            );
-            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = u64::from(
+                    .expect("candidate source is interned"),
+            )
+            .expect("candidate source has a checked literal domain")
+            .word();
+            record[RUNTIME_REGEXP_RECORD_FLAGS_WORD] = PooledLiteralOperand::for_pool(
+                self,
                 self.pooled_string_index(flags)
-                    .expect("candidate flags are interned")
-                    .ordinal(),
-            );
+                    .expect("candidate flags are interned"),
+            )
+            .expect("candidate flags have a checked literal domain")
+            .word();
             // Exhaustive on purpose. This is the site the `continue` used to
             // hide behind: a new entry kind must be given a record encoding
             // here, or this stops compiling.
             record[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD] = match entry {
                 RuntimeRegExpEntry::Program(program) => {
-                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] = program.payload();
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] =
+                        descriptors[&program.payload()].packed();
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD] =
+                        RUNTIME_REGEXP_DESCRIPTOR_PROGRAM_DOMAIN;
                     RuntimeRegExpEntryKind::Program.word()
                 }
                 RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),
@@ -4383,8 +4446,10 @@ impl StringPool {
         );
     }
 
-    /// The program module's data, both passive: its UTF-16 image and the
-    /// static bytes `main` copies behind the runtime's.
+    /// The program's passive UTF-16, metadata, descriptor and recipe images.
+    /// Literal descriptors use P-local slots. All executable P metadata reads
+    /// use the immutable ProgramInstance image; the segment is not installed in
+    /// shared linear memory. Compact recipes use their P module's passive image.
     pub(crate) fn append_program_data(&self, section: &mut wasm_encoder::DataSection) {
         assert_eq!(section.len(), PooledCodeUnits::DATA_SEGMENT);
         let boundary = self.compiler_owned;

@@ -45,8 +45,8 @@ fn run(root: &Path, extra: &[&str]) -> Output {
         ])
         .args(extra)
         .env("LILA_CACHE_DIR", root.join("cache"))
-        .env("LILA_FUNCTION_CACHE_LIMIT_BYTES", "268435456")
-        .env("LILA_MODULE_CACHE_LIMIT_BYTES", "268435456")
+        .env("LILA_FUNCTION_CACHE_LIMIT_BYTES", "67108864")
+        .env("LILA_MODULE_CACHE_LIMIT_BYTES", "67108864")
         .env("LILA_PROGRAM_CACHE_LIMIT_BYTES", "67108864")
         .output()
         .unwrap()
@@ -154,4 +154,83 @@ fn execution_list_missing_file_or_mode_cannot_publish_partial_passing_evidence()
         assert!(!root.join("snapshots").exists());
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[test]
+fn four_case_workers_keep_exact_native_shards_realms_and_literal_failures() {
+    use std::collections::BTreeMap;
+    let root = fixture();
+    for name in ["c", "d", "e", "f"] {
+        fs::write(root.join(format!("suite/test/language/list/{name}.js")),
+            "/*---\n---*/\nif (typeof previousCase !== 'undefined') throw new Error('Realm leaked'); var previousCase = 1;\n").unwrap();
+    }
+    let execute = |stage: &str, shard: Option<&str>, reuse: bool| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_lila"));
+        command.args([
+            "--jobs",
+            "1",
+            "test262",
+            if shard.is_some() { "shard" } else { "run" },
+        ]);
+        if let Some(shard) = shard {
+            command.arg(shard);
+        }
+        command
+            .arg("language/list")
+            .arg("--suite-root")
+            .arg(root.join("suite"))
+            .arg("--snapshot-dir")
+            .arg(root.join(stage).join("snapshots"))
+            .args([
+                "--snapshot-name",
+                "cohort",
+                "--threads",
+                if shard.is_some() { "4" } else { "1" },
+                "--timeout-ms",
+                "1000",
+            ])
+            .env("LILA_CACHE_DIR", root.join("cache"))
+            .env("LILA_FUNCTION_CACHE_LIMIT_BYTES", "67108864")
+            .env("LILA_MODULE_CACHE_LIMIT_BYTES", "67108864")
+            .env("LILA_PROGRAM_CACHE_LIMIT_BYTES", "67108864");
+        if reuse {
+            command.arg("--reuse-case-workers");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            matches!(output.status.code(), Some(0 | 1)),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value = snapshot(&root.join(stage));
+        let mut results = BTreeMap::new();
+        for id in value["completed_test_ids"].as_array().unwrap() {
+            assert!(results
+                .insert(id.as_str().unwrap().to_owned(), "Success".to_owned())
+                .is_none());
+        }
+        for failure in value["failures"].as_array().unwrap() {
+            *results
+                .get_mut(failure["test_id"].as_str().unwrap())
+                .unwrap() = failure["outcome"].as_str().unwrap().to_owned();
+        }
+        assert_eq!(
+            output.status.success(),
+            results.values().all(|value| value == "Success")
+        );
+        (value["compiler_identity"].clone(), results)
+    };
+    let (compiler, serial) = execute("serial", None, false);
+    assert_eq!(serial.len(), 13);
+    assert_eq!(serial["raw-script:language/list/failure.js"], "Bug");
+    let mut union = BTreeMap::new();
+    for (stage, shard, reuse) in [("first", "1/2", false), ("second", "2/2", true)] {
+        let (identity, rows) = execute(stage, Some(shard), reuse);
+        assert_eq!(identity, compiler);
+        for (id, outcome) in rows {
+            assert!(union.insert(id, outcome).is_none());
+        }
+    }
+    assert_eq!(union, serial);
+    fs::remove_dir_all(root).unwrap();
 }

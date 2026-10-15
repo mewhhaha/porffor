@@ -3,8 +3,10 @@ use crate::data::COMPACT_ARRAY_RECIPE_SEGMENT;
 use crate::runtime_helpers::CompactArrayLiteralParameters;
 
 impl RuntimeSchema {
-    /// The internal helper parameters originate in a checked compiler recipe.
-    /// Its private data segment cannot be selected by JavaScript operands.
+    /// This Program-owned helper selects its own P module's passive recipe
+    /// segment. No bytes are installed in shared linear memory. Embedded string
+    /// operands separately select checked R/P-relative tables through that P.
+    /// Internal bounds originate in a complete compiler recipe, never JS values.
     pub(crate) fn compact_array_recipe_data(
         &self,
         parameters: &CompactArrayLiteralParameters,

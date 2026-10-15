@@ -20,7 +20,12 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         self.runtime_schema()
             .call_helper(
-                AsyncAwaitReactionsArguments::new(activation, value, self.current_environment()),
+                AsyncAwaitReactionsArguments::new(
+                    activation,
+                    value,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )
@@ -51,7 +56,11 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         self.runtime_schema()
             .call_helper(
-                AsyncGeneratorDrainQueueArguments::new(activation, self.current_environment()),
+                AsyncGeneratorDrainQueueArguments::new(
+                    activation,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )
@@ -80,7 +89,11 @@ impl FunctionBuilder<'_> {
         let base = self.runtime_helper_base()?;
         self.runtime_schema()
             .call_helper(
-                PromiseDrainJobsArguments::new(self.completion(), self.current_environment()),
+                PromiseDrainJobsArguments::new(
+                    self.completion(),
+                    self.current_environment(),
+                    self.current_program(),
+                ),
                 base,
                 function,
             )

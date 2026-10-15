@@ -32,6 +32,36 @@ fn assert_function_trace(source: &str, expected: &[&str]) {
     assert_eq!(outcome.output_events, expected, "source:\n{source}");
 }
 
+fn assert_unprepared_constructor_source(
+    source: &str,
+    kind: lila_ir::DynamicFunctionKind,
+    tuple: &[&str],
+) {
+    let unit = Engine::new(RealmBuilder::new().build())
+        .compile_script(
+            source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+        )
+        .expect("outer source retains normal finite admission");
+    let script = unit.ir.script.as_ref().expect("Script IR");
+    assert!(script.prepared_dynamic_functions.len() <= 256);
+    assert!(
+        !script
+            .prepared_dynamic_functions
+            .iter()
+            .any(|entry| entry.kind == kind
+                && entry
+                    .arguments
+                    .iter()
+                    .map(String::as_str)
+                    .eq(tuple.iter().copied())),
+        "actual converted tuple must reach the native source miss: {tuple:?}"
+    );
+}
+
 #[test]
 fn prepared_global_constructor_hints_run_unmodified_generator_runtime_in_both_modes() {
     const STA: &str = include_str!("../../../../test262/vendor/test262/harness/sta.js");
@@ -145,30 +175,26 @@ print(withObject({ Factory: function (body) { return body; } }));
 
 #[test]
 fn prepared_global_constructor_hints_keep_unknown_sources_as_typed_rejections() {
-    use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    let error = Engine::new(RealmBuilder::new().build())
-        .run_script(
-            r#"var Factory = (function* () {}).constructor;
-var run = Function("return Factory('yield 1;' + '/*' + Math.random() + '*/');");
-try { run(); } catch (error) { print('caught'); }"#,
-            CompileOptions::default(),
-            RunOptions {
-                backend: ExecutionBackend::WasmAot,
-                timeout_ms: Some(30_000),
-                ..RunOptions::default()
-            },
-        )
-        .expect_err("unprepared source remains an uncatchable capability rejection");
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Function(
-            DynamicFunctionKind::Generator
-        )],
-        "{error}"
-    );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
+    let source = r#"
+var trace = '';
+var Factory = (function* () {}).constructor;
+var run = Function("return Factory({ get toString() { trace += 'get;'; return function() { trace += 'convert;'; return 'yield 1;' + String.fromCharCode(47,42,114,117,110,116,105,109,101,42,47); }; } });");
+var created = run();
+var result = created().next();
+if (result.done || Object.getPrototypeOf(created) !== Factory.prototype) throw 'generator protocol';
+print(result.value);
+print(trace);
+print(created.toString().includes('/*runtime*/'));
+"#;
+    for prefix in ["", "'use strict';"] {
+        let source = format!("{prefix}{source}");
+        assert_unprepared_constructor_source(
+            &source,
+            lila_ir::DynamicFunctionKind::Generator,
+            &["yield 1;/*runtime*/"],
+        );
+        assert_function_trace(&source, &["1", "get;convert;", "true"]);
+    }
 }
 
 #[test]
@@ -277,16 +303,33 @@ fn synthetic_subclasses_run_unchanged_pinned_function_and_generator_fixtures_in_
     const PROPERTY: &str =
         include_str!("../../../../test262/vendor/test262/harness/propertyHelper.js");
     for source in [
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-length.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-name.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/regular-subclassing.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-length.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-name.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-prototype.js"),
-        include_str!("../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/regular-subclassing.js"),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-length.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/instance-name.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/Function/regular-subclassing.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-length.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-name.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/instance-prototype.js"
+        ),
+        include_str!(
+            "../../../../test262/vendor/test262/test/language/statements/class/subclass/builtin-objects/GeneratorFunction/regular-subclassing.js"
+        ),
     ] {
         for prefix in ["", "'use strict';"] {
-            assert_function_trace(&format!("{prefix}{STA}\n{ASSERT}\n{PROPERTY}\n{source}"), &[]);
+            assert_function_trace(
+                &format!("{prefix}{STA}\n{ASSERT}\n{PROPERTY}\n{source}"),
+                &[],
+            );
         }
     }
 }
@@ -380,34 +423,41 @@ catch (error) { print(Object.getPrototypeOf(error) === foreign.SyntaxError.proto
 
 #[test]
 fn synthetic_subclasses_keep_runtime_source_capability_rejections_typed() {
-    use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
+    use lila_ir::DynamicFunctionKind;
 
-    for (intrinsic, body, kind) in [
-        ("Function", "return 1;", DynamicFunctionKind::Ordinary),
+    for (intrinsic, body, kind, invoke) in [
+        (
+            "Function",
+            "return 1;",
+            DynamicFunctionKind::Ordinary,
+            "created()",
+        ),
         (
             "Object.getPrototypeOf(function* () {}).constructor",
             "yield 1;",
             DynamicFunctionKind::Generator,
+            "created().next().value",
         ),
     ] {
-        lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-        let error = Engine::new(RealmBuilder::new().build())
-            .run_script(
-                &format!("var Base = {intrinsic}; class Created extends Base {{}} try {{ new Created({body:?} + '/*' + Math.random() + '*/'); }} catch (error) {{ print('caught'); }}"),
-                CompileOptions::default(),
-                RunOptions {
-                    backend: ExecutionBackend::WasmAot,
-                    timeout_ms: Some(30_000),
-                    ..RunOptions::default()
-                },
-            )
-            .expect_err("unprepared source remains a host capability rejection");
-        assert_eq!(
-            error.runtime_dynamic_source_operations(),
-            vec![DynamicSourceRuntimeOperation::Function(kind)],
-            "{error}"
-        );
-        assert!(error.parse_diagnostic().is_none(), "{error}");
-        assert!(error.ir_diagnostic().is_none(), "{error}");
+        for prefix in ["", "'use strict';"] {
+            let source = format!(
+                r#"
+{prefix}
+var Base = {intrinsic};
+class Created extends Base {{}}
+var trace = '';
+var created = new Created({{ get toString() {{ trace += 'get;'; return function() {{
+  trace += 'convert;'; return {body:?} + String.fromCharCode(47,42,114,117,110,116,105,109,101,42,47);
+}}; }} }});
+print({invoke});
+print(trace);
+print(Object.getPrototypeOf(created) === Created.prototype);
+print(created.toString().includes('/*runtime*/'));
+"#
+            );
+            let actual_body = format!("{body}/*runtime*/");
+            assert_unprepared_constructor_source(&source, kind, &[actual_body.as_str()]);
+            assert_function_trace(&source, &["1", "get;convert;", "true", "true"]);
+        }
     }
 }

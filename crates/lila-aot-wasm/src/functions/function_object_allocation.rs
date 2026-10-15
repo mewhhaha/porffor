@@ -3,9 +3,9 @@
 use super::*;
 use crate::gc_types::{
     BuiltinClosureCapture, Environment, ExecutableCode, FunctionContext, FunctionContextSchema,
-    FunctionObject, GcLocal, GcOperand, GcStackReference, NonNullable, Nullable,
-    PrivateElementTable, PrivateEnvironment, RealmRecord, StoredValue, StringValue, TemplateSource,
-    ValueArray, ValueLocals,
+    FunctionObject, FunctionProgramOwner, GcLocal, GcOperand, GcStackReference, NonNullable,
+    Nullable, PrivateElementTable, PrivateEnvironment, RealmRecord, StoredValue, StringValue,
+    TemplateSource, ValueArray, ValueLocals,
 };
 use crate::operations::PropertyKeyLocals;
 
@@ -14,6 +14,7 @@ mod metadata_publication;
 /// This is consumed by the actual allocation producer. Captures cannot be
 /// installed after another operation has obtained the FunctionObject.
 pub(super) struct FunctionAllocationInputs<'a> {
+    pub(super) program: FunctionProgramOwner<'a>,
     pub(super) realm: &'a GcLocal<RealmRecord>,
     pub(super) lexical_environment: &'a GcLocal<Environment, Nullable>,
     pub(super) private_environment: &'a GcLocal<PrivateEnvironment, Nullable>,
@@ -158,6 +159,7 @@ impl FunctionBuilder<'_> {
                 &call_this,
                 crate::function_entry::EntryArguments::new(arguments),
                 &caller_realm,
+                self.current_program(),
             ),
             schema,
             function,
@@ -301,6 +303,7 @@ impl FunctionBuilder<'_> {
         let result = self.emit_complete_function_record(
             meta,
             FunctionAllocationInputs {
+                program: FunctionProgramOwner::InheritCaller,
                 realm,
                 lexical_environment: &lexical_environment,
                 private_environment: &private_environment,
@@ -338,6 +341,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<GcStackReference<FunctionObject>, EmitError> {
         let schema = self.runtime_schema();
         let is_source = meta.standard_builtin.is_none() && meta.host_builtin.is_none();
+        let defining_program = is_source.then(|| self.capture_current_program(function));
         let lexical_environment = if is_source {
             schema
                 .reserve_gc_local::<Environment, Nullable>(function)
@@ -385,6 +389,10 @@ impl FunctionBuilder<'_> {
         let result = self.emit_source_function_record_from_captures(
             meta,
             FunctionAllocationInputs {
+                program: match &defining_program {
+                    Some(program) => FunctionProgramOwner::Defining(program),
+                    None => FunctionProgramOwner::InheritCaller,
+                },
                 realm,
                 lexical_environment: &lexical_environment,
                 private_environment: &private_environment,
@@ -408,6 +416,9 @@ impl FunctionBuilder<'_> {
         home_object.clear(function);
         private_environment.clear(function);
         lexical_environment.clear(function);
+        if let Some(program) = defining_program {
+            program.clear(function);
+        }
         Ok(result)
     }
 
@@ -463,6 +474,7 @@ impl FunctionBuilder<'_> {
                 self.emit_complete_function_record(
                     meta,
                     FunctionAllocationInputs {
+                        program: inputs.program,
                         realm: inputs.realm,
                         lexical_environment: &lexical_environment,
                         private_environment: inputs.private_environment,
@@ -500,6 +512,9 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<GcStackReference<FunctionObject>, EmitError> {
         let schema = self.runtime_schema();
+        let program_operand = inputs
+            .program
+            .capture_operand(meta.entry.executable_kind()?, schema)?;
         let object = schema.reserve_gc_local(function).initialize(
             self.emit_alloc_plain_object_with_prototype(Some(inputs.internal_prototype), function)?,
             function,
@@ -532,6 +547,7 @@ impl FunctionBuilder<'_> {
                     GcOperand::reference(inputs.template_source, schema),
                     GcOperand::reference(inputs.builtin_capture, schema),
                     GcOperand::reference(inputs.instance_private_methods, schema),
+                    program_operand,
                 ),
                 function,
             ),
@@ -567,6 +583,8 @@ impl FunctionBuilder<'_> {
                     GcOperand::boolean(meta.this_before_super),
                     GcOperand::boolean(meta.host_builtin == Some(HostBuiltinId::HTMLDDA)),
                     GcOperand::constant(inputs.typed_array_element_kind),
+                    GcOperand::null(schema),
+                    GcOperand::null(schema),
                 ),
                 function,
             ),

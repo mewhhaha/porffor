@@ -54,6 +54,109 @@ impl GatheredModules {
 }
 
 impl FunctionBuilder<'_> {
+    /// A Realm can retain several independently installed P instances. Its
+    /// cache list never interprets one program's record ordinals in another.
+    pub(super) fn emit_module_graph_in_realm(
+        &self,
+        realm: &GcLocal<RealmRecord>,
+        program: &ProgramInstanceLocals,
+        function: &mut Function,
+    ) -> GcLocal<ModuleGraph, Nullable> {
+        let schema = self.runtime_schema();
+        let graph = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<RealmRecord>()
+                .field(RealmRecordSchema::MODULES)
+                .read(realm, schema, function)
+                .reference(),
+            function,
+        );
+        function.instruction(&Instruction::Block(BlockType::Empty));
+        function.instruction(&Instruction::Loop(BlockType::Empty));
+        graph.load(schema, function).is_null(function);
+        function.instruction(&Instruction::BrIf(1));
+        schema
+            .struct_type::<ModuleGraph>()
+            .field(ModuleGraphSchema::PROGRAM)
+            .read(&graph, schema, function)
+            .reference();
+        program.reference(schema, function);
+        function.instruction(&Instruction::RefEq);
+        function.instruction(&Instruction::BrIf(1));
+        graph.replace(
+            schema
+                .struct_type::<ModuleGraph>()
+                .field(ModuleGraphSchema::NEXT)
+                .read(&graph, schema, function)
+                .reference(),
+            function,
+        );
+        function.instruction(&Instruction::Br(0));
+        function.instruction(&Instruction::End);
+        function.instruction(&Instruction::End);
+        graph
+    }
+
+    /// Module jobs retain a record and therefore the graph's immutable P.
+    /// Neither the queue drainer's frame nor the execution Realm selects it.
+    pub(super) fn emit_module_record_program(
+        &self,
+        record: &GcLocal<ModuleRecord>,
+        function: &mut Function,
+    ) -> ProgramInstanceLocals {
+        let schema = self.runtime_schema();
+        let graph = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<ModuleRecord>()
+                .field(ModuleRecordSchema::GRAPH)
+                .read(record, schema, function)
+                .reference(),
+            function,
+        );
+        let program = ProgramInstanceLocals::bind(
+            schema,
+            schema
+                .struct_type::<ModuleGraph>()
+                .field(ModuleGraphSchema::PROGRAM)
+                .read(&graph, schema, function)
+                .reference(),
+            function,
+        );
+        graph.clear(function);
+        program
+    }
+
+    /// An existing catalog uses its retained P. Before its first load, the
+    /// explicitly calling frame supplies P; initialization publishes that same
+    /// owner in this Realm without replacing any earlier graph.
+    pub(super) fn emit_realm_module_program(
+        &self,
+        realm: &GcLocal<RealmRecord>,
+        function: &mut Function,
+    ) -> ProgramInstanceLocals {
+        let schema = self.runtime_schema();
+        let program = schema
+            .reserve_gc_local(function)
+            .initialize(self.current_program().reference(schema, function), function);
+        let graph = self.emit_module_graph_in_realm(realm, self.current_program(), function);
+        graph.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        program.replace(
+            schema
+                .struct_type::<ModuleGraph>()
+                .field(ModuleGraphSchema::PROGRAM)
+                .read(&graph, schema, function)
+                .reference(),
+            function,
+        );
+        function.instruction(&Instruction::End);
+        let owner = ProgramInstanceLocals::bind(schema, program.load(schema, function), function);
+        graph.clear(function);
+        program.clear(function);
+        owner
+    }
+
     pub(crate) fn compile_module_runtime_operation(
         &mut self,
         operation: ModuleRuntimeOperation,
@@ -128,13 +231,15 @@ impl FunctionBuilder<'_> {
         let schema = self.runtime_schema();
         let slot = schema.reserve_gc_local(function);
         let count = schema.reserve_i64_local(function);
+        let program = self.emit_module_record_program(record, function);
         let modules = schema
             .call_helper(
-                ModuleGatherArguments::new(record),
+                ModuleGatherArguments::new(record, &program),
                 self.runtime_helper_base()?,
                 function,
             )
             .bind(schema, slot, count, function);
+        program.clear(function);
         Ok(GatheredModules { modules, count })
     }
 

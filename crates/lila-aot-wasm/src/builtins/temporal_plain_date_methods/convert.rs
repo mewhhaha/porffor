@@ -29,6 +29,7 @@ impl FunctionBuilder<'_> {
                     options,
                     context,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

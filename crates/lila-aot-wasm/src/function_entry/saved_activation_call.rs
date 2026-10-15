@@ -6,7 +6,8 @@ use crate::gc_types::{
     AsyncGeneratorActivationSchema, AsyncGeneratorCallable, CompletionLocals, ExecutableCode,
     ExecutableCodeSchema, FunctionContext, FunctionContextSchema, FunctionObject,
     FunctionObjectSchema, GcLocal, GeneratorActivation, GeneratorActivationSchema,
-    GeneratorCallable, InvocationFrame, InvocationFrameSchema, StoredValue, ValueArray,
+    GeneratorCallable, InvocationFrame, InvocationFrameSchema, ProgramInstanceLocals, StoredValue,
+    ValueArray,
 };
 
 macro_rules! saved_activation_call {
@@ -59,6 +60,19 @@ macro_rules! saved_activation_call {
                         .reference(),
                     function,
                 );
+                // Resumable roles are source entries. Their retained callable
+                // already owns the defining P even after the scheduling frame
+                // returned, so no ambient helper/caller owner is consulted.
+                let defining_program = ProgramInstanceLocals::bind(
+                    schema,
+                    schema
+                        .struct_type::<FunctionContext>()
+                        .field(FunctionContextSchema::DEFINING_PROGRAM)
+                        .read(&context, schema, function)
+                        .reference()
+                        .require_non_null(function),
+                    function,
+                );
                 let caller_realm = self.load_current_realm(function);
                 self.replace_current_realm(&realm, function);
                 let code = schema
@@ -95,11 +109,17 @@ macro_rules! saved_activation_call {
                         .reference(),
                     function,
                 );
-                $inputs::new(&this_value, activation, EntryArguments::new(&arguments))
-                    .emit(&callable, schema, function);
+                $inputs::new(
+                    &this_value,
+                    activation,
+                    EntryArguments::new(&arguments),
+                    &defining_program,
+                )
+                .emit(&callable, schema, function);
                 result.store_call(schema.call_reference(&code, function), function);
                 self.replace_current_realm(&caller_realm, function);
                 caller_realm.clear(function);
+                defining_program.clear(function);
                 realm.clear(function);
                 context.clear(function);
                 arguments.clear(function);

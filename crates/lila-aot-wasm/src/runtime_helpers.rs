@@ -9,6 +9,7 @@ use lila_ir::ToPrimitiveHint;
 use crate::code_sink::Function;
 use crate::gc_types::*;
 use crate::module::StaticSignature;
+use crate::program_hooks::InstalledHook;
 use crate::RuntimeErrorMessage;
 use wasm_encoder::Instruction;
 
@@ -291,6 +292,7 @@ impl RuntimeHelperOptionalValueParameter {
 
 mod helper_sealed {
     pub trait Arguments {}
+    pub trait HookArguments {}
     pub trait Parameters {}
 }
 
@@ -305,13 +307,13 @@ pub(crate) enum HelperOwner {
     Runtime,
     /// Program-generated; reached by plain `call` from program code only.
     Program,
-    /// Program-generated and reached from runtime code through its hook global
-    /// (null until `main` installs it), see [`RuntimeSchema::call_hook`].
+    /// Program-generated and reached through the selected ProgramInstance
+    /// typed field, see [`RuntimeSchema::call_hook`].
     Hook(ProgramHook),
 }
 
 /// Every place runtime code asks the program a question only the program can
-/// answer. Each hook is one mutable global typed by its helper row.
+/// answer. Each hook has an immutable ProgramInstance field typed by its helper row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum ProgramHook {
@@ -362,7 +364,7 @@ enum HelperRegion {
 }
 
 /// Signature ownership differs from body ownership: runtime hooks have
-/// program bodies, but R's typed globals and `call_ref` consume their ABI.
+/// program bodies, but the shared typed GC graph and `call_ref` consume their ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HelperTypeRegion {
     Core,
@@ -394,22 +396,39 @@ impl RuntimeHelperFunctionBase {
     }
 }
 
-/// How a call reaches its helper body.
-pub(crate) enum HelperRoute {
-    Direct(RuntimeHelperFunctionBase),
-    Hook,
+/// A hook's first ABI operand, rooted from that exact registered row. Only
+/// helper acquisition creates it; semantic hook arguments cannot supply it.
+pub(crate) struct HookProgramParameter<R: GcProgramHookRole> {
+    program: GcLocal<ProgramInstance>,
+    role: std::marker::PhantomData<fn() -> R>,
+}
+impl<R: GcProgramHookRole> HookProgramParameter<R> {
+    fn acquire(schema: &RuntimeSchema, function: &mut Function) -> Self {
+        Self {
+            program: schema.parameter_gc(0, function),
+            role: std::marker::PhantomData,
+        }
+    }
+    fn local(&self) -> &GcLocal<ProgramInstance> {
+        &self.program
+    }
+    fn release(self, function: &mut Function) {
+        self.program.clear(function);
+    }
 }
 
-/// Proof that the generated code tested a hook global for null on the path
-/// that holds this value. Minted only by
-/// `FunctionBuilder::emit_program_hook_dispatch`.
-pub(crate) struct InstalledHook {
-    hook: ProgramHook,
-}
-impl InstalledHook {
-    pub(crate) const fn mint(hook: ProgramHook) -> Self {
-        Self { hook }
-    }
+/// Closed separately from ordinary helpers: a hook cannot satisfy call_helper
+/// or return_call_helper, and its role must match the installed token's role.
+pub(crate) trait HookArguments: helper_sealed::HookArguments {
+    type Role: GcProgramHookRole;
+    type Result;
+    const ID: RuntimeHelperId;
+    fn emit_hook_call(
+        self,
+        schema: &RuntimeSchema,
+        hook: &InstalledHook<'_, Self::Role>,
+        function: &mut Function,
+    ) -> Self::Result;
 }
 
 pub(crate) trait HelperArguments: helper_sealed::Arguments {
@@ -419,7 +438,7 @@ pub(crate) trait HelperArguments: helper_sealed::Arguments {
     fn emit_call(
         self,
         schema: &RuntimeSchema,
-        route: HelperRoute,
+        base: RuntimeHelperFunctionBase,
         function: &mut Function,
     ) -> Self::Result;
 }
@@ -430,6 +449,7 @@ pub(crate) trait HelperParameters: helper_sealed::Parameters + Sized {
     fn caller_environment(&self) -> Option<&GcLocal<Environment, Nullable>>;
     fn caller_function_context(&self) -> Option<&GcLocal<FunctionContext>>;
     fn caller_execution_realm(&self) -> Option<&GcLocal<RealmRecord>>;
+    fn caller_program(&self) -> Option<&GcLocal<ProgramInstance>>;
 }
 
 pub(crate) struct HelperCompletion {
@@ -652,6 +672,23 @@ impl RealmInitializeIntrinsicsCallResult {
 }
 
 macro_rules! helper_field {
+    (@is_hook) => { false };
+    (@is_hook $role:ident) => { true };
+    (@program $self:ident;) => { None };
+    (@program $self:ident; caller_program:Program $(,$rest:ident:$shape:tt)*) => { Some(&$self.caller_program) };
+    (@program $self:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
+        helper_field!(@program $self; $($rest:$rest_shape),*)
+    };
+    (@hook_program $self:ident; ; $($field:ident:$shape:tt),*) => { helper_field!(@program $self; $($field:$shape),*) };
+    (@hook_program $self:ident; $role:ident; $($field:ident:$shape:tt),*) => { Some($self.program.local()) };
+    (@owner_abi $types:ident;) => {};
+    (@owner_abi $types:ident; $role:ident) => { $types.extend_from_slice(helper_field!(@abi Program)); };
+    (@owner_acquire $schema:ident, $index:ident, $function:ident;) => {};
+    (@owner_acquire $schema:ident, $index:ident, $function:ident; $role:ident) => {
+        $index = 1;
+    };
+    (@owner_release $self:ident, $function:ident;) => {};
+    (@owner_release $self:ident, $function:ident; $role:ident) => { $self.program.release($function); };
     (@realm $self:ident;) => { None };
     (@realm $self:ident; caller_execution_realm:(Ref RealmRecord NonNullable) $(,$rest:ident:$shape:tt)*) => { Some(&$self.caller_execution_realm) };
     (@realm $self:ident; $field:ident:$shape:tt $(,$rest:ident:$rest_shape:tt)*) => {
@@ -668,6 +705,7 @@ macro_rules! helper_field {
         helper_field!(@caller $self; $($rest:$rest_shape),*)
     };
 
+    (@argument Program) => { &'a ProgramInstanceLocals };
     (@argument Value) => { &'a ValueLocals };
     (@argument OptionalValue) => { Option<&'a ValueLocals> };
     (@argument Completion) => { &'a CompletionLocals };
@@ -675,6 +713,7 @@ macro_rules! helper_field {
     (@argument I32) => { I32Local };
     (@argument I64) => { I64Local };
     (@argument (Ref $ty:ident $null:ident)) => { &'a GcLocal<$ty, $null> };
+    (@parameter Program) => { GcLocal<ProgramInstance> };
     (@parameter Value) => { ValueLocals };
     (@parameter OptionalValue) => { RuntimeHelperOptionalValueParameter };
     (@parameter Completion) => { CompletionLocals };
@@ -682,6 +721,7 @@ macro_rules! helper_field {
     (@parameter I32) => { I32Local };
     (@parameter I64) => { I64Local };
     (@parameter (Ref $ty:ident $null:ident)) => { GcLocal<$ty, $null> };
+    (@abi Program) => { &[AbiType::Gc(GcLayout::ProgramInstance, GcNullability::NonNullable)] };
     (@abi Value) => { &[AbiType::I32, AbiType::I64, AbiType::EqRef] };
     (@abi OptionalValue) => { &[AbiType::I32, AbiType::I32, AbiType::I64, AbiType::EqRef] };
     (@abi Completion) => { &crate::module::COMPLETION_TYPES };
@@ -689,6 +729,7 @@ macro_rules! helper_field {
     (@abi I32) => { &[AbiType::I32] };
     (@abi I64) => { &[AbiType::I64] };
     (@abi (Ref $ty:ident $null:ident)) => { &[AbiType::Gc(GcLayout::$ty, GcNullability::$null)] };
+    (@emit $value:expr, $schema:ident, $function:ident, Program) => { { $value.reference($schema, $function); } };
     (@emit $value:expr, $schema:ident, $function:ident, Value) => { $value.emit($function) };
     (@emit $value:expr, $schema:ident, $function:ident, OptionalValue) => { RuntimeHelperOptionalValueParameter::emit_argument($value, $function) };
     (@emit $value:expr, $schema:ident, $function:ident, Completion) => { $value.emit($function) };
@@ -696,6 +737,7 @@ macro_rules! helper_field {
     (@emit $value:expr, $schema:ident, $function:ident, I32) => { $value.load($function) };
     (@emit $value:expr, $schema:ident, $function:ident, I64) => { $value.load($function) };
     (@emit $value:expr, $schema:ident, $function:ident, (Ref $ty:ident $null:ident)) => { { $value.load($schema, $function); } };
+    (@acquire $schema:ident, $index:ident, $function:ident, Program) => { $schema.parameter_gc::<ProgramInstance, NonNullable>($index, $function) };
     (@acquire $schema:ident, $index:ident, $function:ident, Value) => { $schema.parameter_value($index, $function) };
     (@acquire $schema:ident, $index:ident, $function:ident, OptionalValue) => {
         RuntimeHelperOptionalValueParameter {
@@ -712,6 +754,7 @@ macro_rules! helper_field {
     (@acquire $schema:ident, $index:ident, $function:ident, I32) => { $schema.parameter_i32($index, $function) };
     (@acquire $schema:ident, $index:ident, $function:ident, I64) => { $schema.parameter_i64($index, $function) };
     (@acquire $schema:ident, $index:ident, $function:ident, (Ref $ty:ident $null:ident)) => { $schema.parameter_gc::<$ty, $null>($index, $function) };
+    (@release $value:expr, $function:ident, Program) => { $value.clear($function) };
     (@release $value:expr, $function:ident, Value) => { $value.clear($function) };
     (@release $value:expr, $function:ident, OptionalValue) => { $value.release($function) };
     (@release $value:expr, $function:ident, Completion) => { $value.clear($function) };
@@ -790,10 +833,50 @@ macro_rules! helper_field {
     (@result RealmInitializeIntrinsics) => { RealmInitializeIntrinsicsCallResult { private: () } };
 }
 
+/// Generate exactly one caller trait per row. Hook rows never implement the
+/// direct-helper trait, including helpers whose semantic results are Completion.
+macro_rules! helper_arguments {
+    ($id:ident / $arguments:ident { $($field:ident:$shape:tt),* } => $result:tt;) => {
+        impl helper_sealed::Arguments for $arguments<'_> {}
+        impl HelperArguments for $arguments<'_> {
+            type Result = helper_field!(@result_type $result);
+            const ID: RuntimeHelperId = RuntimeHelperId::$id;
+            fn emit_arguments(&self, schema: &RuntimeSchema, function: &mut Function) {
+                $(helper_field!(@emit self.$field, schema, function, $shape);)*
+            }
+            fn emit_call(self, schema: &RuntimeSchema, base: RuntimeHelperFunctionBase, function: &mut Function) -> Self::Result {
+                self.emit_arguments(schema, function);
+                Self::ID.emit_invocation(base, function);
+                helper_field!(@result $result)
+            }
+        }
+    };
+    ($id:ident / $arguments:ident { $($field:ident:$shape:tt),* } => $result:tt; $role:ident) => {
+        const _: () = {
+            assert!(<$role as GcProgramHookRole>::HOOK.helper() as u32 == RuntimeHelperId::$id as u32);
+            assert!(<$role as GcFunctionRole>::SIGNATURE.type_index() == RuntimeHelperId::$id.type_index());
+        };
+        impl helper_sealed::HookArguments for $arguments<'_> {}
+        impl HookArguments for $arguments<'_> {
+            type Role = $role;
+            type Result = helper_field!(@result_type $result);
+            const ID: RuntimeHelperId = RuntimeHelperId::$id;
+            fn emit_hook_call(self, schema: &RuntimeSchema, hook: &InstalledHook<'_, Self::Role>, function: &mut Function) -> Self::Result {
+                // The owner is taken from the same token as the exact rooted callee.
+                let _ = hook.program_reference(schema, function);
+                $(helper_field!(@emit self.$field, schema, function, $shape);)*
+                let _ = hook.reference(function);
+                function.instruction(&Instruction::CallRef(Self::ID.type_index()));
+                helper_field!(@result $result)
+            }
+        }
+    };
+}
+
 /// One row owns helper identity, exact operand projection, result shape and
 /// registration order. There is no general seven-word helper signature.
 macro_rules! runtime_helper_domain {
-    ($( $id:ident / $arguments:ident / $parameters:ident / $debug:literal {
+    ($( $id:ident / $arguments:ident / $parameters:ident / $debug:literal $( @ $role:ident )? {
         $( $field:ident : $shape:tt ),* $(,)?
     } => $result:tt; )+) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -860,7 +943,7 @@ macro_rules! runtime_helper_domain {
             pub(crate) const fn debug_name(self) -> &'static str { match self { $(Self::$id => $debug),+ } }
             pub(crate) fn parameter_types(self) -> Vec<AbiType> {
                 match self { $( Self::$id => {
-                    let mut types = Vec::new(); $(types.extend_from_slice(helper_field!(@abi $shape));)* types
+                    let mut types = Vec::new(); helper_field!(@owner_abi types; $($role)?); $(types.extend_from_slice(helper_field!(@abi $shape));)* types
                 }),+ }
             }
             pub(crate) fn result_types(self) -> Vec<AbiType> {
@@ -871,6 +954,7 @@ macro_rules! runtime_helper_domain {
             }
         }
         $(
+            const _: () = assert!(matches!(RuntimeHelperId::$id.owner(), HelperOwner::Hook(_)) == helper_field!(@is_hook $($role)?));
             pub(crate) struct $arguments<'a> {
                 $( pub(crate) $field: helper_field!(@argument $shape), )*
                 lifetime: std::marker::PhantomData<&'a ()>,
@@ -880,20 +964,11 @@ macro_rules! runtime_helper_domain {
                     Self { $( $field, )* lifetime: std::marker::PhantomData }
                 }
             }
-            impl helper_sealed::Arguments for $arguments<'_> {}
-            impl HelperArguments for $arguments<'_> {
-                type Result = helper_field!(@result_type $result);
-                const ID: RuntimeHelperId = RuntimeHelperId::$id;
-                fn emit_arguments(&self, schema: &RuntimeSchema, function: &mut Function) {
-                    $(helper_field!(@emit self.$field, schema, function, $shape);)*
-                }
-                fn emit_call(self, schema: &RuntimeSchema, route: HelperRoute, function: &mut Function) -> Self::Result {
-                    self.emit_arguments(schema, function);
-                    Self::ID.emit_invocation(schema, route, function);
-                    helper_field!(@result $result)
-                }
+            helper_arguments!($id / $arguments { $($field:$shape),* } => $result; $($role)?);
+            pub(crate) struct $parameters {
+                $( pub(crate) program: HookProgramParameter<$role>, )?
+                $( pub(crate) $field: helper_field!(@parameter $shape), )*
             }
-            pub(crate) struct $parameters { $( pub(crate) $field: helper_field!(@parameter $shape), )* }
             impl helper_sealed::Parameters for $parameters {}
             impl HelperParameters for $parameters {
                 const ID: RuntimeHelperId = RuntimeHelperId::$id;
@@ -901,13 +976,16 @@ macro_rules! runtime_helper_domain {
                     let signature = Self::ID.definition(schema.layouts());
                     assert_eq!(function.parameter_types(), signature.parameters(), "helper parameter owner mismatch");
                     let mut index = 0u32;
+                    $(let program = HookProgramParameter::<$role>::acquire(schema, function);)?
+                    helper_field!(@owner_acquire schema, index, function; $($role)?);
                     $(let $field = helper_field!(@acquire schema, index, function, $shape);
                       index += helper_field!(@abi $shape).len() as u32;)*
                     debug_assert_eq!(index as usize, signature.parameters().len());
-                    Self { $($field),* }
+                    Self { $(program: { let _ = std::marker::PhantomData::<$role>; program },)? $($field),* }
                 }
                 fn release(self, function: &mut Function) {
                     helper_field!(@reverse_release self, function; $($field:$shape),*);
+                    helper_field!(@owner_release self, function; $($role)?);
                 }
                 fn caller_environment(&self) -> Option<&GcLocal<Environment, Nullable>> {
                     helper_field!(@caller self; $($field:$shape),*)
@@ -918,6 +996,9 @@ macro_rules! runtime_helper_domain {
                 fn caller_execution_realm(&self) -> Option<&GcLocal<RealmRecord>> {
                     helper_field!(@realm self; $($field:$shape),*)
                 }
+                fn caller_program(&self) -> Option<&GcLocal<ProgramInstance>> {
+                    helper_field!(@hook_program self; $($role)?; $($field:$shape),*)
+                }
             }
         )+
     };
@@ -927,9 +1008,9 @@ runtime_helper_domain! {
     TransientByteAlloc / TransientByteAllocArguments / TransientByteAllocParameters / "transient_byte_alloc" { size:I64 } => I64;
     ArrayIndexedPublish / ArrayIndexedPublishArguments / ArrayIndexedPublishParameters / "array_indexed_publish" { storage:(Ref ArrayIndexStorage NonNullable),index:I64,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
     ArrayIndexedDelete / ArrayIndexedDeleteArguments / ArrayIndexedDeleteParameters / "array_indexed_delete" { storage:(Ref ArrayIndexStorage NonNullable),index:I64 } => Void;
-    ObjectRead / ObjectReadArguments / ObjectReadParameters / "object_read" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectWrite / ObjectWriteArguments / ObjectWriteParameters / "object_write" { target:Value,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectDefineData / ObjectDefineDataArguments / ObjectDefineDataParameters / "object_define_data" { target:Value,key:Key,value:Value,writable:I32,enumerable:I32,configurable:I32,caller_environment:(Ref Environment Nullable) } => Completion;
+    ObjectRead / ObjectReadArguments / ObjectReadParameters / "object_read" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectWrite / ObjectWriteArguments / ObjectWriteParameters / "object_write" { target:Value,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectDefineData / ObjectDefineDataArguments / ObjectDefineDataParameters / "object_define_data" { target:Value,key:Key,value:Value,writable:I32,enumerable:I32,configurable:I32,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     OrdinaryPropertyFind / OrdinaryPropertyFindArguments / OrdinaryPropertyFindParameters / "ordinary_property_find" { object:(Ref OrdinaryObject NonNullable),key:Key } => (Ref PropertyEntry Nullable);
     OrdinaryPropertyAppend / OrdinaryPropertyAppendArguments / OrdinaryPropertyAppendParameters / "ordinary_property_append" { object:(Ref OrdinaryObject NonNullable),key:Key,descriptor:(Ref PropertyDescriptor NonNullable) } => Void;
     ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
@@ -937,30 +1018,30 @@ runtime_helper_domain! {
     ValueToObject / ValueToObjectArguments / ValueToObjectParameters / "value_to_object" { realm:(Ref RealmRecord NonNullable),input:Value } => Completion;
     FunctionMetadataPublish / FunctionMetadataPublishArguments / FunctionMetadataPublishParameters / "function_metadata_publish" { callable:(Ref FunctionObject NonNullable),length_bits:I64,name:(Ref StringValue NonNullable),configurable:I32,has_caller:I32,create_prototype:I32,constructor_back_reference:I32,prototype_parent:Value } => Void;
     RealmInitializeIntrinsics / RealmInitializeIntrinsicsArguments / RealmInitializeIntrinsicsParameters / "realm_initialize_intrinsics" { realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => RealmInitializeIntrinsics;
-    ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    ProxyConstruct / ProxyConstructArguments / ProxyConstructParameters / "proxy_construct" { callee:Value,new_target:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ProxyConstruct / ProxyConstructArguments / ProxyConstructParameters / "proxy_construct" { callee:Value,new_target:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     StringEquality / StringEqualityArguments / StringEqualityParameters / "string_equality" { left:(Ref StringValue NonNullable),right:(Ref StringValue NonNullable),ascii_fold:I32 } => I32;
     NumberToString / NumberToStringArguments / NumberToStringParameters / "number_to_string" { bits:I64 } => (Ref StringValue NonNullable);
     StringToNumber / StringToNumberArguments / StringToNumberParameters / "string_to_number" { input:(Ref StringValue NonNullable) } => I64;
-    ValueToString / ValueToStringArguments / ValueToStringParameters / "value_to_string" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToNumber / ValueToNumberArguments / ValueToNumberParameters / "value_to_number" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToNumeric / ValueToNumericArguments / ValueToNumericParameters / "value_to_numeric" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    CoerciveAdd / CoerciveAddArguments / CoerciveAddParameters / "coercive_add" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectGetPrototypeOf / ObjectGetPrototypeOfArguments / ObjectGetPrototypeOfParameters / "object_get_prototype_of" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectIsExtensible / ObjectIsExtensibleArguments / ObjectIsExtensibleParameters / "object_is_extensible" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectPreventExtensions / ObjectPreventExtensionsArguments / ObjectPreventExtensionsParameters / "object_prevent_extensions" { target:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectReadProxy / ObjectReadProxyArguments / ObjectReadProxyParameters / "object_read_proxy" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
+    ValueToString / ValueToStringArguments / ValueToStringParameters / "value_to_string" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToNumber / ValueToNumberArguments / ValueToNumberParameters / "value_to_number" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToNumeric / ValueToNumericArguments / ValueToNumericParameters / "value_to_numeric" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    CoerciveAdd / CoerciveAddArguments / CoerciveAddParameters / "coercive_add" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectGetPrototypeOf / ObjectGetPrototypeOfArguments / ObjectGetPrototypeOfParameters / "object_get_prototype_of" { target:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectIsExtensible / ObjectIsExtensibleArguments / ObjectIsExtensibleParameters / "object_is_extensible" { target:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectPreventExtensions / ObjectPreventExtensionsArguments / ObjectPreventExtensionsParameters / "object_prevent_extensions" { target:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectReadProxy / ObjectReadProxyArguments / ObjectReadProxyParameters / "object_read_proxy" { target:Value,receiver:Value,key:Key,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     RegExpMatcher / RegExpMatcherArguments / RegExpMatcherParameters / "regexp_matcher" { program:(Ref RegExpProgram NonNullable),input:(Ref StringValue NonNullable),start:I64,flags:I32,scratch:I64 } => RegExpMatch;
-    FunctionCall / FunctionCallArguments / FunctionCallParameters / "function_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    DynamicPropertyRead / DynamicPropertyReadArguments / DynamicPropertyReadParameters / "dynamic_property_read" { target:Value,receiver:Value,key:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    OrdinarySetDataOnReceiver / OrdinarySetDataOnReceiverArguments / OrdinarySetDataOnReceiverParameters / "ordinary_set_data_on_receiver" { receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    OrdinarySet / OrdinarySetArguments / OrdinarySetParameters / "ordinary_set" { target:Value,receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
+    FunctionCall / FunctionCallArguments / FunctionCallParameters / "function_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    DynamicPropertyRead / DynamicPropertyReadArguments / DynamicPropertyReadParameters / "dynamic_property_read" { target:Value,receiver:Value,key:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    OrdinarySetDataOnReceiver / OrdinarySetDataOnReceiverArguments / OrdinarySetDataOnReceiverParameters / "ordinary_set_data_on_receiver" { receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    OrdinarySet / OrdinarySetArguments / OrdinarySetParameters / "ordinary_set" { target:Value,receiver:Value,key:Key,value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     DecimalToBinary64 / DecimalToBinary64Arguments / DecimalToBinary64Parameters / "decimal_to_binary64" { input:(Ref StringValue NonNullable) } => I64;
     BigIntArithmetic / BigIntArithmeticArguments / BigIntArithmeticParameters / "bigint_arithmetic" { left:Value,right:Value,operation:I32 } => Completion;
     TemporalCalendarIsoDateProbe / TemporalCalendarIsoDateProbeArguments / TemporalCalendarIsoDateProbeParameters / "temporal_calendar_iso_date_probe" { input:(Ref StringValue NonNullable),rewrite:I32,caller_environment:(Ref Environment Nullable) } => Completion;
     TemporalCalendarIdentifier / TemporalCalendarIdentifierArguments / TemporalCalendarIdentifierParameters / "temporal_calendar_identifier" { input:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    TemporalZonedDateTimeConvert / TemporalZonedDateTimeConvertArguments / TemporalZonedDateTimeConvertParameters / "temporal_zoned_date_time_convert" { input:Value,options:Value,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    TemporalPlainDateConvert / TemporalPlainDateConvertArguments / TemporalPlainDateConvertParameters / "temporal_plain_date_convert" { input:Value,overflow_options:OptionalValue,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    TemporalZonedDateTimeConvert / TemporalZonedDateTimeConvertArguments / TemporalZonedDateTimeConvertParameters / "temporal_zoned_date_time_convert" { input:Value,options:Value,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    TemporalPlainDateConvert / TemporalPlainDateConvertArguments / TemporalPlainDateConvertParameters / "temporal_plain_date_convert" { input:Value,overflow_options:OptionalValue,caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     TemporalChineseYear / TemporalChineseYearArguments / TemporalChineseYearParameters / "temporal_chinese_year" { year:I64 } => EastAsianYear;
     TemporalDangiYear / TemporalDangiYearArguments / TemporalDangiYearParameters / "temporal_dangi_year" { year:I64 } => EastAsianYear;
     TemporalUmmAlQuraYear / TemporalUmmAlQuraYearArguments / TemporalUmmAlQuraYearParameters / "temporal_umalqura_year" { year:I64 } => I64;
@@ -970,63 +1051,63 @@ runtime_helper_domain! {
     TemporalCalendarDaysInMonth / TemporalCalendarDaysInMonthArguments / TemporalCalendarDaysInMonthParameters / "temporal_calendar_days_in_month" { calendar:I64,year:I64,month:I64 } => I64;
     TemporalCalendarBalanceYearMonth / TemporalCalendarBalanceYearMonthArguments / TemporalCalendarBalanceYearMonthParameters / "temporal_calendar_balance_year_month" { calendar:I64,year:I64,month:I64 } => CalendarYearMonth;
     TemporalCalendarDifferenceDate / TemporalCalendarDifferenceDateArguments / TemporalCalendarDifferenceDateParameters / "temporal_calendar_difference_date" { calendar:I64,left_year:I64,left_month:I64,left_day:I64,right_year:I64,right_month:I64,right_day:I64,largest:I64 } => CalendarDifference;
-    IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable) } => Completion;
-    IndexedElementWrite / IndexedElementWriteArguments / IndexedElementWriteParameters / "indexed_element_write" { target:Value,index:I64,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToPrimitiveDefault / ValueToPrimitiveDefaultArguments / ValueToPrimitiveDefaultParameters / "value_to_primitive_default" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToPrimitiveNumber / ValueToPrimitiveNumberArguments / ValueToPrimitiveNumberParameters / "value_to_primitive_number" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToPrimitiveString / ValueToPrimitiveStringArguments / ValueToPrimitiveStringParameters / "value_to_primitive_string" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ValueToPropertyKey / ValueToPropertyKeyArguments / ValueToPropertyKeyParameters / "value_to_property_key" { input:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectHasProperty / ObjectHasPropertyArguments / ObjectHasPropertyParameters / "object_has_property" { target:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
-    WithEnvironmentHasBinding / WithEnvironmentHasBindingArguments / WithEnvironmentHasBindingParameters / "with_environment_has_binding" { target:Value,name:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    WithEnvironmentGetBindingValueSloppy / WithEnvironmentGetBindingValueSloppyArguments / WithEnvironmentGetBindingValueSloppyParameters / "with_environment_get_binding_value_sloppy" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    WithEnvironmentGetBindingValueStrict / WithEnvironmentGetBindingValueStrictArguments / WithEnvironmentGetBindingValueStrictParameters / "with_environment_get_binding_value_strict" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    IndexedElementWrite / IndexedElementWriteArguments / IndexedElementWriteParameters / "indexed_element_write" { target:Value,index:I64,key:Key,value:Value,strict:I32,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToPrimitiveDefault / ValueToPrimitiveDefaultArguments / ValueToPrimitiveDefaultParameters / "value_to_primitive_default" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToPrimitiveNumber / ValueToPrimitiveNumberArguments / ValueToPrimitiveNumberParameters / "value_to_primitive_number" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToPrimitiveString / ValueToPrimitiveStringArguments / ValueToPrimitiveStringParameters / "value_to_primitive_string" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ValueToPropertyKey / ValueToPropertyKeyArguments / ValueToPropertyKeyParameters / "value_to_property_key" { input:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectHasProperty / ObjectHasPropertyArguments / ObjectHasPropertyParameters / "object_has_property" { target:Value,key:Key,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    WithEnvironmentHasBinding / WithEnvironmentHasBindingArguments / WithEnvironmentHasBindingParameters / "with_environment_has_binding" { target:Value,name:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    WithEnvironmentGetBindingValueSloppy / WithEnvironmentGetBindingValueSloppyArguments / WithEnvironmentGetBindingValueSloppyParameters / "with_environment_get_binding_value_sloppy" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    WithEnvironmentGetBindingValueStrict / WithEnvironmentGetBindingValueStrictArguments / WithEnvironmentGetBindingValueStrictParameters / "with_environment_get_binding_value_strict" { target:Value,name:(Ref StringValue NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     RegExpCompiler / RegExpCompilerArguments / RegExpCompilerParameters / "regexp_compiler" { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
-    ModuleInitialize / ModuleInitializeArguments / ModuleInitializeParameters / "module_initialize" { realm:(Ref RealmRecord NonNullable) } => Completion;
-    ModuleEvaluate / ModuleEvaluateArguments / ModuleEvaluateParameters / "module_evaluate" { module:(Ref ModuleRecord NonNullable) } => Completion;
-    ModuleReady / ModuleReadyArguments / ModuleReadyParameters / "module_ready" { module:(Ref ModuleRecord NonNullable) } => I32;
-    ModuleGather / ModuleGatherArguments / ModuleGatherParameters / "module_gather" { module:(Ref ModuleRecord NonNullable) } => ModuleGather;
-    ModuleExecute / ModuleExecuteArguments / ModuleExecuteParameters / "module_execute" { module:(Ref ModuleRecord NonNullable) } => Completion;
-    ModuleFulfilled / ModuleFulfilledArguments / ModuleFulfilledParameters / "module_fulfilled" { module:(Ref ModuleRecord NonNullable),value:Value } => Completion;
-    ModuleRejected / ModuleRejectedArguments / ModuleRejectedParameters / "module_rejected" { module:(Ref ModuleRecord NonNullable),reason:Value } => Completion;
-    ModuleDeferredImport / ModuleDeferredImportArguments / ModuleDeferredImportParameters / "module_deferred_import" { module:(Ref ModuleRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    PreparedDynamicFunction / PreparedDynamicFunctionArguments / PreparedDynamicFunctionParameters / "prepared_dynamic_function" { kind:I32,new_target:Value,sources:(Ref ValueArray NonNullable),caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => StatusCompletion;
-    PreparedScript / PreparedScriptArguments / PreparedScriptParameters / "prepared_script" { kind:I32,source:(Ref StringValue NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
-    RealmModuleImport / RealmModuleImportArguments / RealmModuleImportParameters / "realm_module_import" { realm:(Ref RealmRecord NonNullable),specifier:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => RealmImport;
-    ModuleBodyReaction / ModuleBodyReactionArguments / ModuleBodyReactionParameters / "module_body_reaction" { module:(Ref ModuleRecord NonNullable),rejected:I32,argument:Value } => Void;
-    RegExpProgramCandidate / RegExpProgramCandidateArguments / RegExpProgramCandidateParameters / "regexp_program_candidate" { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
+    ModuleInitialize / ModuleInitializeArguments / ModuleInitializeParameters / "module_initialize" { realm:(Ref RealmRecord NonNullable),caller_program:Program } => Completion;
+    ModuleEvaluate / ModuleEvaluateArguments / ModuleEvaluateParameters / "module_evaluate" { module:(Ref ModuleRecord NonNullable),caller_program:Program } => Completion;
+    ModuleReady / ModuleReadyArguments / ModuleReadyParameters / "module_ready" { module:(Ref ModuleRecord NonNullable),caller_program:Program } => I32;
+    ModuleGather / ModuleGatherArguments / ModuleGatherParameters / "module_gather" { module:(Ref ModuleRecord NonNullable),caller_program:Program } => ModuleGather;
+    ModuleExecute / ModuleExecuteArguments / ModuleExecuteParameters / "module_execute" { module:(Ref ModuleRecord NonNullable),caller_program:Program } => Completion;
+    ModuleFulfilled / ModuleFulfilledArguments / ModuleFulfilledParameters / "module_fulfilled" { module:(Ref ModuleRecord NonNullable),value:Value,caller_program:Program } => Completion;
+    ModuleRejected / ModuleRejectedArguments / ModuleRejectedParameters / "module_rejected" { module:(Ref ModuleRecord NonNullable),reason:Value,caller_program:Program } => Completion;
+    ModuleDeferredImport / ModuleDeferredImportArguments / ModuleDeferredImportParameters / "module_deferred_import" { module:(Ref ModuleRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    PreparedDynamicFunction / PreparedDynamicFunctionArguments / PreparedDynamicFunctionParameters / "prepared_dynamic_function" @ PreparedDynamicFunctionHook { kind:I32,new_target:Value,sources:(Ref ValueArray NonNullable),caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => StatusCompletion;
+    PreparedScript / PreparedScriptArguments / PreparedScriptParameters / "prepared_script" @ PreparedScriptHook { kind:I32,source:(Ref StringValue NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
+    RealmModuleImport / RealmModuleImportArguments / RealmModuleImportParameters / "realm_module_import" @ RealmModuleImportHook { realm:(Ref RealmRecord NonNullable),specifier:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => RealmImport;
+    ModuleBodyReaction / ModuleBodyReactionArguments / ModuleBodyReactionParameters / "module_body_reaction" @ ModuleBodyReactionHook { module:(Ref ModuleRecord NonNullable),rejected:I32,argument:Value } => Void;
+    RegExpProgramCandidate / RegExpProgramCandidateArguments / RegExpProgramCandidateParameters / "regexp_program_candidate" @ RegExpProgramCandidateHook { source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable) } => RegExpCompile;
     RuntimeErrorObject / RuntimeErrorObjectArguments / RuntimeErrorObjectParameters / "runtime_error_object" { prototype:Value,message:(Ref StringValue NonNullable) } => (Ref NativeErrorObject NonNullable);
-    PooledStringsInitialize / PooledStringsInitializeArguments / PooledStringsInitializeParameters / "pooled_strings_initialize" { program_strings:I32 } => Void;
-    ObjectSetPrototypeOf / ObjectSetPrototypeOfArguments / ObjectSetPrototypeOfParameters / "object_set_prototype_of" { target:Value,prototype:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    ObjectDelete / ObjectDeleteArguments / ObjectDeleteParameters / "object_delete" { target:Value,key:Key,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorStartBody / AsyncGeneratorStartBodyArguments / AsyncGeneratorStartBodyParameters / "async_generator_start_body" { activation:(Ref AsyncGeneratorActivation NonNullable),pending:Completion,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorDrainQueue / AsyncGeneratorDrainQueueArguments / AsyncGeneratorDrainQueueParameters / "async_generator_drain_queue" { activation:(Ref AsyncGeneratorActivation NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    PromiseDrainJobs / PromiseDrainJobsArguments / PromiseDrainJobsParameters / "promise_drain_jobs" { pending:Completion,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncAwaitReactions / AsyncAwaitReactionsArguments / AsyncAwaitReactionsParameters / "async_await_reactions" { activation:(Ref AsyncActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorAwaitReactions / AsyncGeneratorAwaitReactionsArguments / AsyncGeneratorAwaitReactionsParameters / "async_generator_await_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierReadSloppy / EnvironmentIdentifierReadSloppyArguments / EnvironmentIdentifierReadSloppyParameters / "environment_identifier_read_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierReadStrict / EnvironmentIdentifierReadStrictArguments / EnvironmentIdentifierReadStrictParameters / "environment_identifier_read_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierReadTypeofSloppy / EnvironmentIdentifierReadTypeofSloppyArguments / EnvironmentIdentifierReadTypeofSloppyParameters / "environment_identifier_read_typeof_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierReadTypeofStrict / EnvironmentIdentifierReadTypeofStrictArguments / EnvironmentIdentifierReadTypeofStrictParameters / "environment_identifier_read_typeof_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierResolve / EnvironmentIdentifierResolveArguments / EnvironmentIdentifierResolveParameters / "environment_identifier_resolve" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => EnvironmentIdentifierResolution;
-    EnvironmentIdentifierGetSloppy / EnvironmentIdentifierGetSloppyArguments / EnvironmentIdentifierGetSloppyParameters / "environment_identifier_get_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierGetStrict / EnvironmentIdentifierGetStrictArguments / EnvironmentIdentifierGetStrictParameters / "environment_identifier_get_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierTypeofSloppy / EnvironmentIdentifierTypeofSloppyArguments / EnvironmentIdentifierTypeofSloppyParameters / "environment_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierTypeofStrict / EnvironmentIdentifierTypeofStrictArguments / EnvironmentIdentifierTypeofStrictParameters / "environment_identifier_typeof_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierPutSloppy / EnvironmentIdentifierPutSloppyArguments / EnvironmentIdentifierPutSloppyParameters / "environment_identifier_put_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    EnvironmentIdentifierPutStrict / EnvironmentIdentifierPutStrictArguments / EnvironmentIdentifierPutStrictParameters / "environment_identifier_put_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    GlobalIdentifierReadSloppy / GlobalIdentifierReadSloppyArguments / GlobalIdentifierReadSloppyParameters / "global_identifier_read_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    GlobalIdentifierReadStrict / GlobalIdentifierReadStrictArguments / GlobalIdentifierReadStrictParameters / "global_identifier_read_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    GlobalIdentifierTypeofSloppy / GlobalIdentifierTypeofSloppyArguments / GlobalIdentifierTypeofSloppyParameters / "global_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    GlobalIdentifierTypeofStrict / GlobalIdentifierTypeofStrictArguments / GlobalIdentifierTypeofStrictParameters / "global_identifier_typeof_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    PooledStringsInitialize / PooledStringsInitializeArguments / PooledStringsInitializeParameters / "pooled_strings_initialize" {} => Void;
+    ObjectSetPrototypeOf / ObjectSetPrototypeOfArguments / ObjectSetPrototypeOfParameters / "object_set_prototype_of" { target:Value,prototype:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ObjectDelete / ObjectDeleteArguments / ObjectDeleteParameters / "object_delete" { target:Value,key:Key,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorStartBody / AsyncGeneratorStartBodyArguments / AsyncGeneratorStartBodyParameters / "async_generator_start_body" { activation:(Ref AsyncGeneratorActivation NonNullable),pending:Completion,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorDrainQueue / AsyncGeneratorDrainQueueArguments / AsyncGeneratorDrainQueueParameters / "async_generator_drain_queue" { activation:(Ref AsyncGeneratorActivation NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    PromiseDrainJobs / PromiseDrainJobsArguments / PromiseDrainJobsParameters / "promise_drain_jobs" { pending:Completion,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncAwaitReactions / AsyncAwaitReactionsArguments / AsyncAwaitReactionsParameters / "async_await_reactions" { activation:(Ref AsyncActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorAwaitReactions / AsyncGeneratorAwaitReactionsArguments / AsyncGeneratorAwaitReactionsParameters / "async_generator_await_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorYieldReactions / AsyncGeneratorYieldReactionsArguments / AsyncGeneratorYieldReactionsParameters / "async_generator_yield_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorYieldReturnReactions / AsyncGeneratorYieldReturnReactionsArguments / AsyncGeneratorYieldReturnReactionsParameters / "async_generator_yield_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    AsyncGeneratorAwaitReturnReactions / AsyncGeneratorAwaitReturnReactionsArguments / AsyncGeneratorAwaitReturnReactionsParameters / "async_generator_await_return_reactions" { activation:(Ref AsyncGeneratorActivation NonNullable),value:Value,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierReadSloppy / EnvironmentIdentifierReadSloppyArguments / EnvironmentIdentifierReadSloppyParameters / "environment_identifier_read_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierReadStrict / EnvironmentIdentifierReadStrictArguments / EnvironmentIdentifierReadStrictParameters / "environment_identifier_read_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierReadTypeofSloppy / EnvironmentIdentifierReadTypeofSloppyArguments / EnvironmentIdentifierReadTypeofSloppyParameters / "environment_identifier_read_typeof_sloppy" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierReadTypeofStrict / EnvironmentIdentifierReadTypeofStrictArguments / EnvironmentIdentifierReadTypeofStrictParameters / "environment_identifier_read_typeof_strict" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierResolve / EnvironmentIdentifierResolveArguments / EnvironmentIdentifierResolveParameters / "environment_identifier_resolve" { name:(Ref StringValue NonNullable),record:(Ref Environment Nullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => EnvironmentIdentifierResolution;
+    EnvironmentIdentifierGetSloppy / EnvironmentIdentifierGetSloppyArguments / EnvironmentIdentifierGetSloppyParameters / "environment_identifier_get_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierGetStrict / EnvironmentIdentifierGetStrictArguments / EnvironmentIdentifierGetStrictParameters / "environment_identifier_get_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierTypeofSloppy / EnvironmentIdentifierTypeofSloppyArguments / EnvironmentIdentifierTypeofSloppyParameters / "environment_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierTypeofStrict / EnvironmentIdentifierTypeofStrictArguments / EnvironmentIdentifierTypeofStrictParameters / "environment_identifier_typeof_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierPutSloppy / EnvironmentIdentifierPutSloppyArguments / EnvironmentIdentifierPutSloppyParameters / "environment_identifier_put_sloppy" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    EnvironmentIdentifierPutStrict / EnvironmentIdentifierPutStrictArguments / EnvironmentIdentifierPutStrictParameters / "environment_identifier_put_strict" { name:(Ref StringValue NonNullable),reference_kind:I32,record:(Ref Environment Nullable),entry:(Ref NamedBinding Nullable),cell:(Ref BindingCell Nullable),base:Value,assigned_value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalIdentifierReadSloppy / GlobalIdentifierReadSloppyArguments / GlobalIdentifierReadSloppyParameters / "global_identifier_read_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalIdentifierReadStrict / GlobalIdentifierReadStrictArguments / GlobalIdentifierReadStrictParameters / "global_identifier_read_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalIdentifierTypeofSloppy / GlobalIdentifierTypeofSloppyArguments / GlobalIdentifierTypeofSloppyParameters / "global_identifier_typeof_sloppy" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalIdentifierTypeofStrict / GlobalIdentifierTypeofStrictArguments / GlobalIdentifierTypeofStrictParameters / "global_identifier_typeof_strict" { name:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     LexicalBindingUninitialized / LexicalBindingUninitializedArguments / LexicalBindingUninitializedParameters / "lexical_binding_uninitialized" { caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
-    RelationalComparison / RelationalComparisonArguments / RelationalComparisonParameters / "relational_comparison" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
+    RelationalComparison / RelationalComparisonArguments / RelationalComparisonParameters / "relational_comparison" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     PrivateElementAdd / PrivateElementAddArguments / PrivateElementAddParameters / "private_element_add" { receiver:Value,element:(Ref PrivateElement NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
     PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
-    CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value } => Completion;
-    JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable) } => Completion;
+    CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value,caller_program:Program } => Completion;
+    JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable),caller_program:Program } => Completion;
 }
 
 impl RuntimeHelperId {
@@ -1266,32 +1347,14 @@ impl RuntimeHelperId {
     pub(crate) const fn is_program_owned(self) -> bool {
         matches!(self.owner().region(), HelperRegion::Program)
     }
-    /// Emits the call instruction for this helper's declared route.
-    ///
-    /// A hook is reached only through its global and a program-owned helper
-    /// only by `call`, so a mismatched route is a compiler bug, not input.
-    pub(crate) fn emit_invocation(
-        self,
-        schema: &RuntimeSchema,
-        route: HelperRoute,
-        function: &mut Function,
-    ) {
-        match (self.owner(), route) {
-            (HelperOwner::Runtime | HelperOwner::Program, HelperRoute::Direct(base)) => {
-                function.instruction(&Instruction::Call(self.index(base)));
-            }
-            (HelperOwner::Hook(hook), HelperRoute::Hook) => {
-                function.instruction(&Instruction::GlobalGet(schema.program_hook_global(hook)));
-                function.instruction(&Instruction::CallRef(self.type_index()));
-            }
-            (HelperOwner::Hook(_), HelperRoute::Direct(_)) => panic!(
-                "program hook `{}` must be called through its hook global",
-                self.debug_name()
-            ),
-            (HelperOwner::Runtime | HelperOwner::Program, HelperRoute::Hook) => {
-                panic!("helper `{}` is not a program hook", self.debug_name())
-            }
-        }
+    /// Direct helpers have a separate closed argument trait. Hook rows cannot
+    /// reach this route through call_helper or return_call_helper.
+    fn emit_invocation(self, base: RuntimeHelperFunctionBase, function: &mut Function) {
+        assert!(matches!(
+            self.owner(),
+            HelperOwner::Runtime | HelperOwner::Program
+        ));
+        function.instruction(&Instruction::Call(self.index(base)));
     }
     pub(crate) const fn is_conditional(self) -> bool {
         !self.is_emitted(RuntimeHelperEmission::NONE)
@@ -1319,7 +1382,7 @@ impl RuntimeSchema {
         base: RuntimeHelperFunctionBase,
         function: &mut Function,
     ) -> A::Result {
-        arguments.emit_call(self, HelperRoute::Direct(base), function)
+        arguments.emit_call(self, base, function)
     }
     /// Tail dispatch is available only to registered whole-Completion helpers.
     /// Scalar/reference-result helpers cannot satisfy this argument bound.
@@ -1337,20 +1400,15 @@ impl RuntimeSchema {
         function.instruction(&Instruction::ReturnCall(A::ID.index(base)));
     }
 
-    /// Calls a program hook through its global. The token proves the caller
-    /// branched on the hook being installed.
-    pub(crate) fn call_hook<A: HelperArguments>(
+    /// The token owns the actual installed function root and borrows its owner.
+    /// The associated role rules out exchanging hook kinds at a call site.
+    pub(crate) fn call_hook<A: HookArguments>(
         &self,
-        hook: &InstalledHook,
+        hook: &InstalledHook<'_, A::Role>,
         arguments: A,
         function: &mut Function,
     ) -> A::Result {
-        assert_eq!(
-            hook.hook.helper(),
-            A::ID,
-            "hook token must match its helper"
-        );
-        arguments.emit_call(self, HelperRoute::Hook, function)
+        arguments.emit_hook_call(self, hook, function)
     }
     pub(crate) fn helper_parameters<P: HelperParameters>(&self, function: &mut Function) -> P {
         P::acquire(self, function)
@@ -1429,6 +1487,97 @@ mod tests {
             .filter(|helper| matches!(helper.owner(), HelperOwner::Hook(_)))
             .count();
         assert_eq!(hooked, ProgramHook::ALL.len());
+    }
+
+    /// Positive type witnesses: every hook retains its actual role and result,
+    /// including the two non-Completion registered result shapes.
+    fn assert_hook_row<A, P, R, V>(id: RuntimeHelperId, result: Vec<AbiType>)
+    where
+        A: HookArguments<Role = R, Result = V>,
+        P: HelperParameters,
+        R: GcProgramHookRole,
+    {
+        assert_eq!(A::ID, id);
+        assert_eq!(P::ID, id);
+        assert_eq!(R::HOOK.helper(), id);
+        assert_eq!(R::SIGNATURE.type_index(), id.type_index());
+        assert_eq!(
+            id.parameter_types().first(),
+            Some(&AbiType::Gc(
+                GcLayout::ProgramInstance,
+                GcNullability::NonNullable,
+            ))
+        );
+        assert_eq!(id.result_types(), result);
+    }
+
+    #[test]
+    fn hook_rows_keep_typed_owner_roles_and_registered_results() {
+        assert_hook_row::<
+            PreparedDynamicFunctionArguments<'_>,
+            PreparedDynamicFunctionParameters,
+            PreparedDynamicFunctionHook,
+            StatusCompletionCallResult,
+        >(
+            RuntimeHelperId::PreparedDynamicFunction,
+            helper_field!(@result_abi StatusCompletion),
+        );
+        assert_hook_row::<
+            PreparedScriptArguments<'_>,
+            PreparedScriptParameters,
+            PreparedScriptHook,
+            StatusCompletionCallResult,
+        >(
+            RuntimeHelperId::PreparedScript,
+            helper_field!(@result_abi StatusCompletion),
+        );
+        assert_hook_row::<
+            RealmModuleImportArguments<'_>,
+            RealmModuleImportParameters,
+            RealmModuleImportHook,
+            RealmImportCallResult,
+        >(
+            RuntimeHelperId::RealmModuleImport,
+            helper_field!(@result_abi RealmImport),
+        );
+        assert_hook_row::<
+            ModuleBodyReactionArguments<'_>,
+            ModuleBodyReactionParameters,
+            ModuleBodyReactionHook,
+            (),
+        >(
+            RuntimeHelperId::ModuleBodyReaction,
+            helper_field!(@result_abi Void),
+        );
+        assert_hook_row::<
+            RegExpProgramCandidateArguments<'_>,
+            RegExpProgramCandidateParameters,
+            RegExpProgramCandidateHook,
+            RegExpCompileCallResult,
+        >(
+            RuntimeHelperId::RegExpProgramCandidate,
+            helper_field!(@result_abi RegExpCompile),
+        );
+    }
+
+    #[test]
+    fn direct_call_rows_append_an_explicit_program_operand() {
+        for id in [
+            RuntimeHelperId::FunctionCall,
+            RuntimeHelperId::ProxyCall,
+            RuntimeHelperId::ProxyConstruct,
+        ] {
+            assert_eq!(
+                id.parameter_types().last(),
+                Some(&AbiType::Gc(
+                    GcLayout::ProgramInstance,
+                    GcNullability::NonNullable,
+                ))
+            );
+        }
+        assert!(RuntimeHelperId::PooledStringsInitialize
+            .parameter_types()
+            .is_empty());
     }
 
     #[test]

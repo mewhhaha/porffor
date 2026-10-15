@@ -10,7 +10,7 @@ fn group_with_workers(workers: Vec<WasmAgentWorker>) -> WasmAgentGroup {
     let started_at = realm.host_clock().monotonic_instant();
     let memory = WasmtimeSharedMemory::new(&engine, wasmtime::MemoryType::shared(1, 1))
         .expect("one shared page for the lifecycle fixture");
-    let execution_control = WasmAgentExecutionControl::new();
+    let execution_control = Arc::new(WasmAgentExecutionControl::new());
     execution_control.arm(std::time::Instant::now(), None);
     WasmAgentGroup {
         engine,

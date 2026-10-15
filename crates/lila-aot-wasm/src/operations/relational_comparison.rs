@@ -27,6 +27,7 @@ impl FunctionBuilder<'_> {
                     &right,
                     &realm,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

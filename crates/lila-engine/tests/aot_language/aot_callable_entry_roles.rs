@@ -3,6 +3,85 @@ use lila_engine::{
     ObservedCompletion, ObservedJsValue, ObservedNumber, RealmBuilder, RunOptions,
 };
 
+// These are single-program entry-ABI regressions. They do not replace the
+// required retained two-program conflict and same-Store host compiler controls.
+#[test]
+fn program_entry_operands_preserve_native_proxy_bound_construct_and_tail_forwarding() {
+    assert_modes(
+        r#"
+let trace = '';
+const captured = 'source-owner';
+function read(value) { trace += 'R'; return captured + ':' + value; }
+if (read.call(null, 17) !== 'source-owner:17') throw 'native call';
+if (Reflect.apply(read, null, [19]) !== 'source-owner:19') throw 'native apply';
+const bound = read.bind(null, 23);
+const proxy = new Proxy(bound, {
+  apply(target, receiver, args) { trace += 'P'; return Reflect.apply(target, receiver, args); }
+});
+function tail(target) { 'use strict'; return target(); }
+if (tail(proxy) !== 'source-owner:23') throw 'bound proxy tail';
+function Constructor(value) { this.text = captured + ':' + value; this.target = new.target; }
+function NewTarget() {}
+const constructed = Reflect.construct(Constructor.bind(null, 29), [], NewTarget);
+if (constructed.text !== 'source-owner:29' || constructed.target !== NewTarget ||
+    Object.getPrototypeOf(constructed) !== NewTarget.prototype) throw 'construct operands';
+const proxiedConstructor = new Proxy(Constructor, {
+  construct(target, args, newTarget) { trace += 'C'; return Reflect.construct(target, args, newTarget); }
+});
+if (new proxiedConstructor(31).text !== 'source-owner:31') throw 'proxy construct';
+const empty = Function();
+if (empty() !== undefined || typeof new empty() !== 'object') throw 'R-generated empty source';
+const mapped = [37].map(value => read(value));
+if (mapped[0] !== 'source-owner:37' || trace !== 'RRPRCR') throw 'native callback';
+$262.gc();
+if (proxy() !== 'source-owner:23') throw 'retained source after GC';
+print('program-entry-forwarding:ok');
+262;
+"#,
+        "program-entry-forwarding:ok",
+    );
+}
+
+#[test]
+fn program_entry_operands_preserve_retained_generator_and_async_activations() {
+    assert_modes(
+        r#"
+const captured = 'resumed-source-owner';
+function* generator(value) {
+  yield captured + ':' + value;
+  return () => captured + ':returned';
+}
+const iterator = generator(41);
+$262.gc();
+if (iterator.next().value !== 'resumed-source-owner:41') throw 'generator entry';
+$262.gc();
+const returned = iterator.next();
+if (!returned.done || returned.value() !== 'resumed-source-owner:returned') throw 'generator owner';
+async function asynchronous(value) {
+  await Promise.resolve(0);
+  $262.gc();
+  return captured + ':' + value;
+}
+async function* asyncGenerator(value) {
+  await Promise.resolve(0);
+  yield captured + ':' + value;
+  return captured + ':done';
+}
+const asynchronousIterator = asyncGenerator(47);
+Promise.all([asynchronous(43), asynchronousIterator.next()]).then(values => {
+  if (values[0] !== 'resumed-source-owner:43' || values[1].value !== 'resumed-source-owner:47' ||
+      values[1].done) throw 'async entry operands';
+  return asynchronousIterator.next();
+}).then(value => {
+  if (!value.done || value.value !== 'resumed-source-owner:done') throw 'async retained owner';
+  print('program-entry-resumption:ok');
+});
+262;
+"#,
+        "program-entry-resumption:ok",
+    );
+}
+
 fn assert_modes(source: &str, expected: &str) {
     lila_engine::configure_compilation_jobs(1).expect("bounded compiler jobs");
     for directive in ["", "'use strict';\n"] {

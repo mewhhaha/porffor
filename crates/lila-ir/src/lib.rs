@@ -156,6 +156,10 @@ mod names;
 mod native_error;
 mod operations;
 mod prepared_function;
+mod runtime_function;
+pub use runtime_function::{
+    lower_runtime_function, RuntimeFunctionCompileError, RuntimeFunctionProgram,
+};
 mod robustness;
 pub use eval_environment::{
     EvalBindingDeclarationIr, EvalDeclarativeEnvironmentKindIr, EvalEnvironmentRoleIr,

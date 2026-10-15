@@ -361,6 +361,7 @@ impl FunctionBuilder<'_> {
                 crate::runtime_helpers::ObjectIsExtensibleArguments::new(
                     object,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -553,6 +554,7 @@ impl FunctionBuilder<'_> {
                     writable,
                     configurable,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -611,6 +613,7 @@ impl FunctionBuilder<'_> {
                     writable,
                     configurable,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

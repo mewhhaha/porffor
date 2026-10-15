@@ -66,6 +66,10 @@ def outcomes(text):
 
 def weight(name):
     # Scheduling estimates are never used to select, drop or retry a test.
+    # This measured Engine outlier dominates an otherwise balanced partition.
+    if name == ('runtime_regexp_compiler_tests::raw_utf16::'
+                'literal_prepared_and_static_constructor_patterns_share_actual_utf16_units'):
+        return 900
     if name.startswith('frontend_test262_subset::'):
         return 800
     if name.startswith('intl::'):

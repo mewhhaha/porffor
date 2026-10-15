@@ -241,6 +241,55 @@ impl Fixture {
     }
 }
 
+#[test]
+fn closure_requires_exact_fresh_worker_settings_and_snapshot_bound_sidecar() {
+    let mut fixture = Fixture::new();
+    fixture.config.worker_count = 4;
+    fixture.config.timeout_ms = 60_000;
+    fixture.config.reuse_case_workers = true;
+    let index = fixture.index("built-ins/Array");
+    let (entry, snapshot, path) = fixture.node(index, Some(123));
+    let compiler = snapshot
+        .provenance
+        .require_running("closure scheduling control")
+        .unwrap();
+    let check = || {
+        require_closure_settings(
+            &fixture.config,
+            NAME,
+            &fixture.matrix[index],
+            &entry,
+            compiler,
+        )
+    };
+    // The ordinary performance fixture records resume=true; it cannot close a
+    // fresh run even when every scheduling scalar otherwise agrees.
+    assert!(check().is_err());
+    let sidecar = timing_path(&path);
+    let mut valid: serde_json::Value =
+        serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+    valid["settings"]["resume_requested"] = false.into();
+    fs::write(&sidecar, serde_json::to_vec(&valid).unwrap()).unwrap();
+    check().unwrap();
+    for (field, value) in [
+        ("configured_workers", serde_json::json!(3)),
+        ("timeout_ms", serde_json::json!(1)),
+        ("reuse_case_workers", serde_json::json!(false)),
+        ("resume_requested", serde_json::json!(true)),
+    ] {
+        let mut changed = valid.clone();
+        changed["settings"][field] = value;
+        fs::write(&sidecar, serde_json::to_vec(&changed).unwrap()).unwrap();
+        assert!(check().is_err(), "{field}");
+    }
+    let mut changed = valid;
+    changed["snapshot_sha256"] = "0".repeat(64).into();
+    fs::write(&sidecar, serde_json::to_vec(&changed).unwrap()).unwrap();
+    assert!(check().is_err());
+    fs::remove_file(sidecar).unwrap();
+    assert!(check().is_err());
+}
+
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);

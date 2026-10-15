@@ -1,5 +1,6 @@
 //! DateTimeFormat's ordered observations, completed GC recipe and native provider boundary.
 use super::super::*;
+use super::intl_legacy_constructor::IntlLegacyFormatterKind;
 use super::intl_number::*;
 use super::intl_provider_wire::{IntlByteArrayBuilder, IntlByteArrayReader};
 use crate::functions::{
@@ -64,6 +65,10 @@ enum DtfReceiverOperation {
     FormatRangeToParts,
 }
 impl DtfReceiverOperation {
+    fn unwraps_legacy(self) -> bool {
+        matches!(self, Self::ResolvedOptions | Self::FormatGetter)
+    }
+
     fn error(self) -> RuntimeErrorMessage {
         match self {
  Self::ResolvedOptions=>RuntimeErrorMessage::INTL_DATETIMEFORMAT_PROTOTYPE_RESOLVEDOPTIONS_CALLED_ON_A_NON_INTL_DATETIMEFORMAT_OBJECT,
@@ -89,6 +94,16 @@ impl FunctionBuilder<'_> {
                 .this_value(),
             f,
         );
+        if operation.unwraps_legacy() {
+            let unwrapped = self.emit_intl_unwrap_legacy_formatter(
+                IntlLegacyFormatterKind::DateTimeFormat,
+                &value,
+                operation.error(),
+                f,
+            )?;
+            value.copy_from(&unwrapped, f);
+            unwrapped.clear(f);
+        }
         value.reference().load(f);
         f.instruction(&Instruction::RefTestNonNull(
             schema

@@ -190,3 +190,105 @@ caught && trace === 'nnl';
 "#,
     );
 }
+
+#[test]
+fn for_of_array_bindings_prepare_live_helper_eval_without_replacing_binding_values() {
+    for strict in ["", "'use strict';"] {
+        run_boolean(&format!(
+            r#"
+{strict}
+function evaluate(source) {{ var local = 40; return eval(source); }}
+var rows = [['local + 1', true], ['local + 2', false]];
+var sum = 0, flags = '';
+for (var [source, named] of rows) {{ sum += evaluate(source); flags += named ? 'T' : 'F'; }}
+for (let [source, named] of rows) {{ const read = () => source; sum += evaluate(read()); flags += named ? 'T' : 'F'; }}
+for (const [[source], named] of [[['local + 1'], true], [['local + 2'], false]]) {{
+    sum += evaluate(source); flags += named ? 'T' : 'F';
+}}
+var source = 'local - 1';
+var empty = [['local + 7']];
+empty[Symbol.iterator] = function() {{ return {{next() {{ return {{done: true}}; }}}}; }};
+for (var [source] of empty) {{ throw 'empty iterator entered its body'; }}
+sum === 249 && flags === 'TFTFTF' && evaluate(source) === 39;
+"#
+        ));
+    }
+}
+
+#[test]
+fn for_of_array_source_hints_preserve_iterator_defaults_and_reassignment_effects() {
+    for strict in ["", "'use strict';"] {
+        run_boolean(&format!(
+            r#"
+{strict}
+function evaluate(source) {{ var local = 40; return eval(source); }}
+var rows = [['local + 1', true], ['local + 2', false]];
+var trace = '', sum = 0, flags = '';
+rows[0][Symbol.iterator] = function() {{
+    trace += 'i';
+    var index = 0;
+    return {{
+        next() {{ trace += 'n'; return {{done: false, value: index++ === 0 ? 'local + 2' : false}}; }},
+        return() {{ trace += 'r'; return {{}}; }}
+    }};
+}};
+for (let [source, named] of rows) {{
+    trace += 'b'; sum += evaluate(source); flags += named ? 'T' : 'F';
+}}
+var defaults = 0;
+for (const [source = (defaults++, 'local + 3')] of [[undefined], ['local + 1']]) {{
+    sum += evaluate(source);
+}}
+for (let [source] of [['local + 1']]) {{ source = 'local + 4'; sum += evaluate(source); }}
+trace === 'innrbb' && sum === 212 && flags === 'FF' && defaults === 1;
+"#
+        ));
+    }
+}
+
+#[test]
+fn for_of_array_source_hints_reject_unprepared_reassigned_strings_at_the_existing_guard() {
+    use lila_engine::WasmExecutionFailureKind;
+    use lila_ir::DynamicSourceRuntimeOperation;
+
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    for strict in ["", "'use strict';"] {
+        let error = Engine::new(RealmBuilder::new().build())
+            .run_script(
+                &format!(
+                    r#"
+{strict}
+for (var [source] of [['40 + 2']]) {{
+    source = 'throw 997; /*' + Math.random() + '*/';
+    try {{ eval(source); }} catch (error) {{ throw 'capability rejection became catchable'; }}
+}}
+throw 'unprepared source continued';
+"#
+                ),
+                CompileOptions::default(),
+                RunOptions {
+                    backend: ExecutionBackend::WasmAot,
+                    timeout_ms: Some(30_000),
+                    ..RunOptions::default()
+                },
+            )
+            .expect_err("projection must not authorize an unmatched live source");
+        assert_eq!(
+            error.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::DynamicSource),
+            "{error}"
+        );
+        assert_eq!(
+            error.runtime_dynamic_source_operations(),
+            vec![DynamicSourceRuntimeOperation::Eval],
+            "{error}"
+        );
+        assert!(error.parse_diagnostic().is_none(), "{error}");
+        assert!(error.ir_diagnostic().is_none(), "{error}");
+        assert_eq!(
+            error.wasm_javascript_exception_constructor_name(),
+            None,
+            "{error}"
+        );
+    }
+}

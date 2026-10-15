@@ -53,6 +53,7 @@ impl FinalizedModuleSections {
             runtime: self.runtime,
             code: ModuleCode::new(first_wasm_index),
             main: None,
+            program_initialize: None,
             program_functions: Vec::new(),
             main_emitted_local_count: 0,
         }
@@ -72,6 +73,10 @@ pub(crate) struct CompiledModulePackage {
     runtime: FinalizedRuntimeModule,
     code: ModuleCode,
     main: Option<EmittedFunction>,
+    program_initialize: Option<(
+        crate::function_layout::ProgramInitializeIndex,
+        EmittedFunction,
+    )>,
     program_functions: Vec<EmittedFunction>,
     main_emitted_local_count: u32,
 }
@@ -85,6 +90,21 @@ impl CompiledModulePackage {
     pub(crate) fn runtime_global_types(&self) -> Vec<wasm_encoder::GlobalType> {
         self.runtime.globals().runtime_global_types()
     }
+    /// Complete the pure P bootstrap against this same package's actual schema.
+    pub(crate) fn compile_program_initialize(
+        &mut self,
+        compilation: crate::emit::ProgramInitializeCompilation<'_, '_>,
+    ) -> Result<(), EmitError> {
+        assert!(
+            self.main.is_none() && self.program_initialize.is_none(),
+            "P bootstrap precedes main and compiles once"
+        );
+        let completed = compilation.compile(self.runtime.globals())?;
+        let index = completed.index();
+        self.program_initialize = Some((index, EmittedFunction::program_initialize(completed)));
+        Ok(())
+    }
+
     /// Compiles and retains main against this package's own globals. Only final
     /// assembly can publish it, between the runtime and program functions.
     pub(crate) fn compile_main(
@@ -92,7 +112,9 @@ impl CompiledModulePackage {
         compilation: MainFunctionCompilation<'_>,
     ) -> Result<(), EmitError> {
         assert!(self.main.is_none(), "a module package compiles main once");
-        let (main, emitted_local_count) = compilation.compile(self.runtime.globals())?;
+        let initializer = self.program_initialize.as_ref().map(|(index, _)| *index);
+        let (main, emitted_local_count) =
+            compilation.compile(self.runtime.globals(), initializer)?;
         self.main = Some(main);
         self.main_emitted_local_count = emitted_local_count;
         Ok(())
@@ -124,11 +146,19 @@ impl CompiledModulePackage {
             runtime,
             mut code,
             main,
+            program_initialize,
             program_functions,
             main_emitted_local_count: _,
         } = self;
+        assert!(
+            program_initialize.is_none() || main.is_some(),
+            "a linked P bootstrap and main share their package"
+        );
         if let Some(main) = main {
             code.push(main);
+        }
+        if let Some((_, initialize)) = program_initialize {
+            code.push(initialize);
         }
         for function in program_functions {
             code.push(function);
@@ -234,6 +264,10 @@ const _: fn(
     Option<DataSection>,
     u32,
 ) -> ModuleAssemblySections = ModuleAssemblySections::new;
+const _: fn(
+    &mut CompiledModulePackage,
+    crate::emit::ProgramInitializeCompilation<'_, '_>,
+) -> Result<(), EmitError> = CompiledModulePackage::compile_program_initialize;
 const _: fn(&mut CompiledModulePackage, MainFunctionCompilation<'_>) -> Result<(), EmitError> =
     CompiledModulePackage::compile_main;
 const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>, Vec<EmittedFunction>) =

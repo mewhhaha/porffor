@@ -1,94 +1,115 @@
 # Active legacy function reflection
 
-Source-authored on 2026-10-14 against `32c19796850336aaa03e5962f2e9dbeb78b5a4ec`.
-This contract describes the optional policy and its authored controls. It does
-not claim a native, pinned-suite or full-suite passing checkpoint.
+This contract describes the runtime ownership rules for active legacy function
+reflection. Execution receipts separately record native acceptance, original
+pinned-fixture outcomes and retention of earlier passing IDs.
 
 ## Policy and specification boundary
 
-The earlier policy published an immutable own `caller` with value `null` on
-every ordinary non-strict function. It published no own `arguments`, so reads
-of that property reached the restricted Function.prototype accessor. This
-satisfied a permitted minimal policy but left the original legacy staging
-caller/arguments cluster failing.
+Ordinary non-strict function declarations/expressions and corresponding dynamic
+ordinary Functions initially publish own data properties `caller` and
+`arguments` with `writable: false`, `enumerable: false`, `configurable: true` and
+value `null`. Assignment retains its ordinary non-writable behavior. While an
+original property remains implementation-owned and unfrozen, `arguments` follows
+the innermost invocation's actual mapped or unmapped ArgumentsObject. `caller`
+follows the actual ordinary non-strict JavaScript caller, or `null` when the
+immediate caller is absent or opaque.
 
-The chosen optional extension publishes own non-writable, non-enumerable,
-non-configurable data properties `caller` and `arguments` on ordinary non-strict
-function declarations/expressions and corresponding dynamic ordinary Functions.
-Their inactive value is `null`. During the innermost active invocation,
-`arguments` is that invocation's real mapped or unmapped ArgumentsObject and
-`caller` is its actual ordinary non-strict JavaScript caller, or `null` when
-there is none or the immediate caller is opaque. The engine updates these
-private descriptor values; user assignment or incompatible DefineProperty
-still fails under the ordinary property rules.
+The former policy published these properties as already non-configurable and
+non-writable, then changed their values on activation entry and exit. That
+contradicts the pinned
+[essential internal-method invariants](https://github.com/tc39/ecma262/blob/5345883164f463e87f8b40aca4956157ecba8783/spec.html#L3284).
+Once a non-configurable, non-writable data property's value has been observed,
+future `[[GetOwnProperty]]` and `[[Get]]` operations must retain its SameValue.
+An implementation-selected extension cannot bypass that invariant. The initial
+configurability change permits active reflection without claiming that its
+changing value is already frozen.
 
-This is an implementation-selected extension, not a requirement that every
-ECMAScript implementation expose active legacy reflection. The specification's
-[Forbidden Extensions](https://tc39.es/ecma262/multipage/conformance.html#sec-forbidden-extensions)
-restrict adding these extension properties to the eligible legacy function
-forms. Strict functions, arrows, methods/accessors, class constructors,
-generators, async functions, async generators, bound functions, builtins and
-Function.prototype continue to inherit the same restricted accessor behavior.
-The defining realm's canonical ThrowTypeError getter/setter and the existing
-strict/unmapped ArgumentsObject `callee` poison remain unchanged. In particular,
-no strict function is returned through `caller`, and opaque callers are not
-skipped to reveal an older ordinary caller.
+Making either property non-configurable while it remains non-writable fixes its
+current value. `Reflect.defineProperty`, `Object.defineProperty`, `Object.seal`
+and `Object.freeze` therefore preserve an inactive `null` or an active snapshot.
+Nested calls, normal exits, abrupt exits and later activations cannot replace
+that value. Freezing a property whose value is an ArgumentsObject fixes the
+object's identity; it does not freeze that object's indexed elements or change
+its mapped-parameter semantics.
 
-Actual Function.prototype.call/apply, Reflect.apply and eval intrinsics are
-transparent forwarding operations. Bound dispatch resolves the target before
-entry. The exceptions use the actual ExecutableCode intrinsic identity, not
-public names or the source property used to retrieve a callable. Prepared eval
-Scripts have environment execution roles rather than FunctionObject entries
-and therefore create no fake callable frame. User replacements for a public
-`call`/`apply` property remain ordinary source functions with their own identity.
-Other native calls and native constructors are opaque boundaries; their user
-callbacks do not expose a builtin or an older source frame as `caller`.
+Deletion, data redefinition and accessor conversion leave the user's resulting
+descriptor in charge. A successful ordinary definition reconstructs the stored
+value record, including SameValue definitions; automatic publication then
+retires permanently for that property. Accessor getters are invoked only by
+ordinary property reads, never by the activation's ownership checks.
+
+This is an implementation-selected extension. The pinned
+[Forbidden Extensions](https://github.com/tc39/ecma262/blob/5345883164f463e87f8b40aca4956157ecba8783/spec.html#L30316)
+continue to restrict eligible function forms and automatic caller values.
+Strict functions, arrows, methods/accessors, class constructors, generators,
+async functions, async generators, bound functions, builtins and
+Function.prototype receive no new own properties. Their defining Realm's
+canonical ThrowTypeError accessor remains unchanged. Automatic publication
+never exposes a strict caller and never skips an opaque immediate caller to
+reveal an older ordinary caller.
+
+Actual Function.prototype.call/apply, Reflect.apply and eval intrinsics remain
+transparent forwarding operations. Bound dispatch resolves the actual target
+before entry. Prepared eval Scripts have environment execution roles and add no
+fake FunctionObject activation. User replacements for forwarding properties
+remain ordinary source functions. Other native calls and constructors are
+opaque boundaries.
 
 ## Ownership and exit ordering
 
-One typed nullable GC global retains the actual innermost call-boundary
-FunctionObject. Each source entry owns private Wasm locals saving the previous
-identity. Eligible ordinary sloppy entries also retain the exact own caller
-and arguments descriptors and their prior StoredValue references. Recursive
-entries therefore save the outer activation's values and restore them on
-completion, instead of sharing one mutable argument list or discarding an
-outer activation.
+The actual FunctionObject owns separate optional legacy-property state records.
+Each records the original descriptor and the last StoredValue reference written
+by automatic publication. Function allocation creates these states before the
+callable escapes; separate closures sharing one source body have separate states.
+No JavaScript name, property currently containing the callable, source shape or
+estimated call depth selects the owner.
 
-The entry installs its identity before instance initialization or parameter
-initializers can call user code. Arguments construction publishes the private
-actual object before parameter binding or body writes can replace the source
-`arguments` binding. Existing mapped environment cells, duplicate-parameter
-selection, index aliasing and non-simple unmapped construction are reused.
-The feature never reconstructs arguments from a JavaScript binding, a name,
-a source shape, a property currently containing the function, or an estimated
-stack depth.
+Both publication and restoration perform a fresh own-property lookup without
+calling getters. A write requires the same original descriptor, a data property
+which remains configurable or writable, and the same last automatically written
+StoredValue record. Generic DefineOwnProperty mutates descriptor records in
+place but constructs a fresh StoredValue; the value-record identity therefore
+detects redefinition that descriptor identity alone would miss. Generic property
+definition, descriptor flags and ordinary Get behavior need no special case.
 
-Normal fallthrough, explicit return, uncaught throw, suspension and initializer
-returns restore the saved descriptor values and caller identity. Proper tail
-calls evaluate all operands and conversions first, then retire the current
-source activation before dispatching the target. Native entries save/restore
-the boundary around the complete typed call, including all abrupt builtin
-leaves and constructors, rather than adding scattered builtin return hooks.
-Caught throws and finally bodies remain in their still-active source
-invocation until it actually exits. Restored global and descriptor values retain
-no ended activation; an ArgumentsObject explicitly saved by user source remains
-a normal live user value, with its original mapped-cell semantics.
+On an ownership mismatch or a frozen property, the state clears its descriptor
+and stored-value edges. No later activation revives it. An activation separately
+roots its saved prior value, actual object/key and state until its matching
+exit. Recursive publication updates the shared state's expected token; a normal
+unsealed nested return restores the outer value and token. A frozen inner
+snapshot survives every enclosing restoration instead. User-owned saved
+ArgumentsObjects remain ordinary live values after the source activation ends.
+
+The actual innermost call-boundary FunctionObject and source-depth budget still
+have their existing independent owners. Property retirement never disables
+their restoration. Entry remains before parameter/instance initializers;
+ArgumentsObject publication remains before a source binding can replace
+`arguments`. Normal return, uncaught throw, suspension, initializer returns,
+finally execution and proper-tail-call ordering retain their existing epilogue.
+Mapped cells, duplicate-parameter selection and non-simple unmapped arguments
+are unchanged.
 
 ## Authored controls and required replay
 
-The existing native test ID
-`aot_function_caller::legacy_caller_is_null_only_on_ordinary_sloppy_functions`
-is retained. Its inactive-null and strict/non-ordinary poison assertions remain,
-while its obsolete always-null active assertions now expect actual callers.
-The added native controls cover exact original identities after property
-replacement/deletion, recursive argument/caller restoration, caught throws and
-finally execution, source `arguments` reassignment/shadowing, mapped writes,
-non-simple unmapped poison, strict and non-ordinary barriers, native callbacks,
-user replacements for forwarding properties, and nested prepared eval.
+The authored inactive descriptor expectation now requires configurability, and
+its incompatible frozen redefinition explicitly freezes the function first.
+The existing recursion/restoration control now tests unsealed properties;
+freezing while expecting their data values to keep changing was contradictory.
+Its actual argument/caller identities and abrupt-restoration assertions remain.
 
-Ten unchanged pinned staging bodies are copied byte-for-byte as test fixtures
-with the canonical pinned sta/assert harness. They run in their original sloppy
-mode, plus the original strict execution of regress-584355, preserving all
-eleven execution inputs. Required acceptance remains the actual unchanged
-pinned execution replay and complete native inventory/pass retention; fixture
-copies and source checks cannot establish that acceptance.
+Four new Engine controls require inactive frozen consistency through active
+calls; inner/outer recursive and abrupt frozen snapshots; in-place user data
+definitions, accessors, deletion and recreation; and foreign arguments plus the
+actual cross-Realm caller across GC and later calls. Existing strict/non-ordinary
+poison, forwarding, private/mapped arguments, actual-caller and exit controls
+remain required. No IR source policy changes are involved.
+
+The exact pinned
+`built-ins/Object/internals/DefineOwnProperty/consistent-value-function-arguments.js`
+and `consistent-value-function-caller.js` fixtures remain unchanged. Required
+acceptance is their actual sloppy replay, the new Engine controls, the complete
+existing `aot_function_caller` module and broader retained native inventory.
+The ten original staging fixture copies still retain all eleven original
+execution inputs. Source review, formatting and unapplied-patch checks establish
+none of those execution results.

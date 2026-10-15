@@ -82,6 +82,7 @@ impl FunctionBuilder<'_> {
                             value,
                             &realm,
                             self.current_environment(),
+                            self.current_program(),
                         ),
                         base,
                         function,

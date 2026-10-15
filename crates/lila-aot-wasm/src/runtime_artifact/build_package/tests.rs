@@ -76,6 +76,41 @@ fn admitted_build_package_resolves_without_emission_or_a_disk_cache() {
 }
 
 #[test]
+fn previous_layout_build_package_falls_back_and_current_real_runtime_package_admits() {
+    let package = fixture();
+    let identity = minimal_identity();
+    let mut previous = package.package_bytes().to_vec();
+    let previous_version = 4u32;
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Preserve the actual current R, source, profile and runtime key while
+    // isolating the previous version field under a valid package checksum.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    resign(&mut previous);
+    assert!(decode(&previous, &identity, &SOURCE).is_none());
+    let emissions = Cell::new(0);
+    let replacement = RuntimeArtifactInputs::new(None)
+        .with_build_package(&previous, &SOURCE)
+        .load_or_emit(&identity, || {
+            emissions.set(emissions.get() + 1);
+            Ok(package.runtime.clone())
+        })
+        .expect("a previous-layout package falls back to the current producer");
+    assert_eq!(emissions.get(), 1);
+
+    let current = RuntimeArtifactInputs::new(None)
+        .with_build_package(package.package_bytes(), &SOURCE)
+        .load_or_emit(&identity, || {
+            panic!("the current real runtime package must admit directly")
+        })
+        .expect("the current real R passes raw package admission");
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.key(), package.key());
+        assert_eq!(admitted.bytes().as_ref(), package.wasm());
+        assert_eq!(admitted.layout(), package.runtime.layout());
+    }
+}
+
+#[test]
 fn build_package_rejects_source_profile_abi_content_and_pool_corruption() {
     let package = fixture();
     let identity = minimal_identity();

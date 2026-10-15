@@ -11,7 +11,7 @@ function inner() { return inner.caller; }
 function outer() { return inner(); }
 function strictOuter() { "use strict"; var result = inner(); return result; }
 var descriptor = Object.getOwnPropertyDescriptor(inner, 'caller');
-print(descriptor.value === null && !descriptor.writable && !descriptor.enumerable && !descriptor.configurable);
+print(descriptor.value === null && !descriptor.writable && !descriptor.enumerable && descriptor.configurable);
 print(inner.caller === null && outer() === outer && strictOuter() === null);
 print(outer.call(null) === outer && outer.apply(null) === outer && outer.bind(null)() === outer);
 print(Function().caller === null);
@@ -33,6 +33,7 @@ var poison = Object.getOwnPropertyDescriptor(Function.prototype, 'caller');
 print(typeof poison.get === 'function' && poison.get === poison.set
   && !poison.enumerable && poison.configurable);
 try { Function.prototype.caller; } catch (error) { print(error instanceof TypeError); }
+Object.freeze(inner);
 try { Object.defineProperty(inner, 'caller', { value: strictFunction }); }
 catch (error) { print(error instanceof TypeError && inner.caller === null); }
 void 0;
@@ -159,11 +160,8 @@ function recursive(depth, token) {
   assert.sameValue(active[1], token);
   assert.sameValue(active.callee, recursive);
   assert.sameValue(recursive.caller, depth === 2 ? outer : recursive);
-  // Legal SameValue redefinitions and freezing retain the actual descriptors;
-  // restoration must still remove the ended invocation's values.
-  Object.defineProperty(recursive, 'caller', {value: recursive.caller});
-  Object.defineProperty(recursive, 'arguments', {value: recursive.arguments});
-  Object.freeze(recursive);
+  // Unsealed implementation-owned properties follow every actual activation.
+  // Frozen snapshots and user-owned redefinitions have separate controls.
   if (depth) {
     var nested = recursive(depth - 1, token + 1);
     assert.sameValue(nested, token + 1);
@@ -541,5 +539,290 @@ if(outer.caller!==null || outer.arguments!==null) throw 'inactive outer';
 print('legacy-reflection-ok');
 "#,
         "source depth guard precedes owner admission and shared epilogue",
+    );
+}
+
+#[test]
+fn frozen_legacy_descriptors_keep_inactive_values_inside_later_calls() {
+    let body = r#"
+var token = {};
+function target(value) {
+  assert.sameValue(arguments[0], token);
+  assert.sameValue(arguments.callee, target);
+  for (var key of ['caller', 'arguments']) {
+    var descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+    assert.sameValue(descriptor.value, null);
+    assert.sameValue(descriptor.writable, false);
+    assert.sameValue(descriptor.configurable, false);
+    assert.sameValue(target[key], null);
+    assert.sameValue(Reflect.get(target, key), descriptor.value);
+  }
+  return arguments;
+}
+for (var key of ['caller', 'arguments']) {
+  var initial = Reflect.getOwnPropertyDescriptor(target, key);
+  assert.sameValue(initial.writable, false);
+  assert.sameValue(initial.configurable, true);
+  assert.sameValue(Reflect.defineProperty(target, key, {writable: false, configurable: false}), true);
+}
+function outer() { return target(token); }
+var actual = outer();
+assert.sameValue(actual[0], token);
+assert.sameValue(target.arguments, null);
+assert.sameValue(target.caller, null);
+function callerFrozen(value) {
+  assert.sameValue(callerFrozen.caller, null);
+  assert.sameValue(callerFrozen.arguments, arguments);
+  return arguments;
+}
+Reflect.defineProperty(callerFrozen, 'caller', {writable: false, configurable: false});
+function argumentsFrozen(value) {
+  assert.sameValue(argumentsFrozen.arguments, null);
+  assert.sameValue(argumentsFrozen.caller, selectiveCaller);
+  return arguments;
+}
+Reflect.defineProperty(argumentsFrozen, 'arguments', {writable: false, configurable: false});
+function selectiveCaller() {
+  assert.sameValue(callerFrozen(token)[0], token);
+  assert.sameValue(argumentsFrozen(token)[0], token);
+}
+selectiveCaller();
+assert.sameValue(callerFrozen.arguments, null);
+assert.sameValue(argumentsFrozen.caller, null);
+function frozen() {
+  assert.sameValue(frozen.arguments, null);
+  assert.sameValue(frozen.caller, null);
+  return arguments;
+}
+Object.freeze(frozen);
+var privateArguments = frozen(token);
+assert.sameValue(privateArguments[0], token);
+assert.sameValue(frozen.arguments, null);
+assert.sameValue(frozen.caller, null);
+print('legacy-reflection-ok');
+"#;
+    assert_reflection_script(
+        &format!("{REFLECTION_HARNESS}\n{body}"),
+        "inactive frozen data properties",
+    );
+}
+
+#[test]
+fn frozen_legacy_snapshots_survive_inner_and_outer_recursive_activation_exits() {
+    let body = r#"
+function make(freezeAt) {
+  var capture = {args: null, caller: null};
+  capture.fn = function reflected(depth, token) {
+    var actual = arguments;
+    assert.sameValue(actual[0], depth);
+    assert.sameValue(actual[1], token);
+    if (depth === freezeAt && capture.args === null) {
+      assert.sameValue(reflected.arguments, actual);
+      capture.args = actual;
+      capture.caller = reflected.caller;
+      Object.freeze(reflected);
+    }
+    if (depth) reflected(depth - 1, token + 1);
+    assert.sameValue(reflected.arguments, capture.args);
+    assert.sameValue(reflected.caller, capture.caller);
+    assert.sameValue(Reflect.getOwnPropertyDescriptor(reflected, 'arguments').value, capture.args);
+    assert.sameValue(Reflect.getOwnPropertyDescriptor(reflected, 'caller').value, capture.caller);
+    return actual;
+  };
+  return capture;
+}
+var outerFreeze = make(2), innerFreeze = make(0);
+function outer() { return [outerFreeze.fn(2, 30), innerFreeze.fn(2, 40)]; }
+var returned = outer();
+assert.sameValue(outerFreeze.args, returned[0]);
+assert.sameValue(outerFreeze.caller, outer);
+assert.sameValue(innerFreeze.args === returned[1], false);
+assert.sameValue(innerFreeze.args[0], 0);
+assert.sameValue(innerFreeze.args[1], 42);
+assert.sameValue(innerFreeze.caller, innerFreeze.fn);
+var later = outerFreeze.fn(0, 90);
+assert.sameValue(later === outerFreeze.args, false);
+assert.sameValue(later[1], 90);
+assert.sameValue(outerFreeze.fn.arguments, outerFreeze.args);
+assert.sameValue(outerFreeze.fn.caller, outer);
+var marker = {}, abruptArguments, abruptCaller;
+function abrupt() {
+  abruptArguments = arguments;
+  abruptCaller = abrupt.caller;
+  Object.freeze(abrupt);
+  throw marker;
+}
+function invokeAbrupt() { return abrupt(17); }
+var caught = false;
+try { invokeAbrupt(); } catch (error) { assert.sameValue(error, marker); caught = true; }
+assert.sameValue(caught, true);
+assert.sameValue(abrupt.arguments, abruptArguments);
+assert.sameValue(abrupt.arguments[0], 17);
+assert.sameValue(abrupt.caller, invokeAbrupt);
+assert.sameValue(abruptCaller, invokeAbrupt);
+print('legacy-reflection-ok');
+"#;
+    assert_reflection_script(
+        &format!("{REFLECTION_HARNESS}\n{body}"),
+        "active frozen recursive and abrupt snapshots",
+    );
+}
+
+#[test]
+fn user_legacy_property_definitions_and_deletions_survive_recursive_and_later_calls() {
+    let body = r#"
+var suppliedArguments = {}, suppliedCaller = {};
+function replaced(first) {
+  if (first) {
+    Object.defineProperty(replaced, 'arguments', {value: suppliedArguments});
+    Object.defineProperty(replaced, 'caller', {value: suppliedCaller});
+    replaced(false);
+  }
+  assert.sameValue(replaced.arguments, suppliedArguments);
+  assert.sameValue(replaced.caller, suppliedCaller);
+  assert.sameValue(Reflect.getOwnPropertyDescriptor(replaced, 'arguments').value, suppliedArguments);
+  assert.sameValue(Reflect.getOwnPropertyDescriptor(replaced, 'caller').value, suppliedCaller);
+  return arguments;
+}
+replaced(true);
+assert.sameValue(replaced(false)[0], false);
+assert.sameValue(replaced.arguments, suppliedArguments);
+assert.sameValue(replaced.caller, suppliedCaller);
+var sameValueSnapshot;
+function sameValue(first) {
+  if (first) {
+    sameValueSnapshot = arguments;
+    Object.defineProperty(sameValue, 'arguments', {value: sameValueSnapshot});
+    sameValue(false);
+  } else {
+    assert.sameValue(sameValue.caller, sameValue);
+    assert.sameValue(arguments === sameValueSnapshot, false);
+  }
+  assert.sameValue(sameValue.arguments, sameValueSnapshot);
+}
+sameValue(true);
+assert.sameValue(sameValue.arguments, sameValueSnapshot);
+assert.sameValue(sameValueSnapshot[0], true);
+assert.sameValue(sameValue.caller, null);
+var reads = 0;
+function accessor(first) {
+  if (first) {
+    Object.defineProperty(accessor, 'arguments', {get: function() { reads++; return suppliedArguments; }});
+    Object.defineProperty(accessor, 'caller', {get: function() { reads++; return suppliedCaller; }});
+    accessor(false);
+  }
+  return arguments;
+}
+accessor(true);
+accessor(false);
+assert.sameValue(reads, 0);
+assert.sameValue(typeof Reflect.getOwnPropertyDescriptor(accessor, 'arguments').get, 'function');
+assert.sameValue(typeof Reflect.getOwnPropertyDescriptor(accessor, 'caller').get, 'function');
+assert.sameValue(reads, 0);
+assert.sameValue(accessor.arguments, suppliedArguments);
+assert.sameValue(accessor.caller, suppliedCaller);
+assert.sameValue(reads, 2);
+function erased(first) {
+  if (first) {
+    assert.sameValue(delete erased.arguments, true);
+    assert.sameValue(delete erased.caller, true);
+    erased(false);
+  }
+  assert.sameValue(Reflect.getOwnPropertyDescriptor(erased, 'arguments'), undefined);
+  assert.sameValue(Reflect.getOwnPropertyDescriptor(erased, 'caller'), undefined);
+  return arguments;
+}
+erased(true);
+assert.sameValue(erased(false)[0], false);
+assert.throws(TypeError, function() { erased.arguments; });
+assert.throws(TypeError, function() { erased.caller; });
+function recreated(first) {
+  if (first) {
+    delete recreated.arguments;
+    delete recreated.caller;
+    Object.defineProperty(recreated, 'arguments', {value: suppliedArguments, configurable: true});
+    Object.defineProperty(recreated, 'caller', {value: suppliedCaller, configurable: true});
+    recreated(false);
+  }
+  assert.sameValue(recreated.arguments, suppliedArguments);
+  assert.sameValue(recreated.caller, suppliedCaller);
+  return arguments;
+}
+recreated(true);
+assert.sameValue(recreated(false)[0], false);
+assert.sameValue(recreated.arguments, suppliedArguments);
+assert.sameValue(recreated.caller, suppliedCaller);
+print('legacy-reflection-ok');
+"#;
+    assert_reflection_script(
+        &format!("{REFLECTION_HARNESS}\n{body}"),
+        "user-owned replacement descriptors",
+    );
+}
+
+#[test]
+fn frozen_legacy_snapshots_keep_foreign_arguments_and_actual_cross_realm_caller_identity() {
+    use lila_engine::HostSurfacePolicy;
+
+    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    let body = r#"
+var other = __lilaCreateRealm().global;
+var capture = {}, token = {};
+var target = other.Function('capture', `return function reflected(value) {
+  var actual = arguments;
+  if (!capture.args) {
+    capture.args = actual;
+    capture.caller = reflected.caller;
+    Object.freeze(reflected);
+  }
+  if (reflected.arguments !== capture.args || reflected.caller !== capture.caller)
+    throw 'foreign frozen snapshot changed';
+  return actual;
+};`)(capture);
+function outer() { return target(token); }
+var actual = outer();
+assert.sameValue(actual, capture.args);
+assert.sameValue(actual[0], token);
+assert.sameValue(actual.callee, target);
+assert.sameValue(Object.getPrototypeOf(actual), other.Object.prototype);
+assert.sameValue(capture.caller, outer);
+assert.sameValue(Object.getPrototypeOf(capture.caller), Function.prototype);
+gc();
+assert.sameValue(target.arguments, actual);
+assert.sameValue(target.caller, outer);
+assert.sameValue(Reflect.getOwnPropertyDescriptor(target, 'arguments').value, actual);
+assert.sameValue(other.Reflect.getOwnPropertyDescriptor(target, 'arguments').value, actual);
+assert.sameValue(Reflect.getOwnPropertyDescriptor(target, 'caller').value, outer);
+var later = target(23);
+assert.sameValue(later === actual, false);
+assert.sameValue(later[0], 23);
+assert.sameValue(target.arguments, actual);
+assert.sameValue(target.caller, outer);
+print('legacy-reflection-ok');
+"#;
+    let source = format!("{REFLECTION_HARNESS}\n{body}");
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .observe_script(
+            &source,
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                timeout_ms: Some(30_000),
+                ..RunOptions::default()
+            },
+        )
+        .expect("frozen legacy values retain actual cross-Realm identity through Wasm AOT");
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
+    assert!(
+        matches!(outcome.completion, ObservedCompletion::Normal(_)),
+        "{:?}",
+        outcome.completion
+    );
+    assert_eq!(
+        outcome.output_events,
+        vec![HostOutputEvent::PrintLine("legacy-reflection-ok".into())]
     );
 }

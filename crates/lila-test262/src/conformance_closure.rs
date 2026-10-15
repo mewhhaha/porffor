@@ -5,6 +5,9 @@
 
 use super::*;
 
+mod scheduling;
+use scheduling::ClosureScheduling;
+
 const FIRST_FAMILY: &str = "closure-first";
 const SECOND_FAMILY: &str = "closure-second";
 static WORKSPACE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -45,6 +48,7 @@ pub struct ClosureReport {
     schema_version: u32,
     execution_backend: String,
     reuse_case_workers: bool,
+    scheduling: ClosureScheduling,
     compiler_identity: CompilerProvenance,
     pinned_revisions: PinnedRevisions,
     manifest_hash: u64,
@@ -113,7 +117,10 @@ impl FreshWorkspace {
 
 /// Admit the actual product suite and its clean committed content. An alternate
 /// fixture root, working-tree pin, custom harness or worker role cannot close T26.
-fn admit_product_config(config: &SuiteConfig) -> Result<PinnedRevisions, String> {
+fn admit_product_config(
+    config: &SuiteConfig,
+    scheduling: &ClosureScheduling,
+) -> Result<PinnedRevisions, String> {
     let directory = std::env::current_dir()
         .map_err(|error| format!("cannot locate the current product checkout: {error}"))?;
     let checkout = git_capture(&directory, &["rev-parse", "--show-toplevel"])
@@ -131,10 +138,10 @@ fn admit_product_config(config: &SuiteConfig) -> Result<PinnedRevisions, String>
     }
     if config.local_harness != LocalHarnessSource::EmbeddedWasmAot
         || config.execution_role != CaseExecutionRole::Supervisor
-        || config.worker_count != 1
+        || config.worker_count != scheduling.configured_workers.get()
         || config.timeout_ms != SuiteConfig::default().timeout_ms
     {
-        return Err("closure requires the complete product harness, supervised serial cases and the standard release timeout".into());
+        return Err("closure requires the complete product harness, supervised explicitly bounded cases and the standard release timeout".into());
     }
     let selected = config
         .case_runner_bin
@@ -242,6 +249,13 @@ fn collect_complete_results(
             &verified.compiler_identity,
         )?
         .ok_or_else(|| format!("closure is missing node evidence {}", node.node_id))?;
+        performance_evidence::require_closure_settings(
+            config,
+            &verified.resolved_snapshot_name,
+            node,
+            entry,
+            &verified.compiler_identity,
+        )?;
         snapshot
             .provenance
             .require_running("closure case result set")?;
@@ -376,7 +390,25 @@ fn family_report(family: &str, evidence: &FreshFamilyEvidence) -> FamilyReport {
 /// first family still runs the second family. Interrupted or invalid evidence
 /// returns an error, retains its workspace, and never creates a passing receipt.
 pub fn run_closure(config: SuiteConfig) -> Result<ClosureReport, String> {
-    let pinned = admit_product_config(&config)?;
+    run_closure_selected(config, NonZeroUsize::MIN)
+}
+
+/// Explicitly select bounded case scheduling; selection, deadlines and verdicts
+/// are identical to the serial entry. Compiler jobs stay one for parallel cases.
+pub fn run_closure_with_workers(
+    mut config: SuiteConfig,
+    workers: NonZeroUsize,
+) -> Result<ClosureReport, String> {
+    config.worker_count = workers.get();
+    run_closure_selected(config, workers)
+}
+
+fn run_closure_selected(
+    config: SuiteConfig,
+    workers: NonZeroUsize,
+) -> Result<ClosureReport, String> {
+    let scheduling = ClosureScheduling::current(workers)?;
+    let pinned = admit_product_config(&config, &scheduling)?;
     let compiler = CompilerProvenance::current()?;
     let workspace = FreshWorkspace::create(&config.snapshot_dir)?;
     let result = (|| {
@@ -388,15 +420,19 @@ pub fn run_closure(config: SuiteConfig) -> Result<ClosureReport, String> {
             snapshot_dir: workspace.second.clone(),
             ..config.clone()
         };
+        scheduling.require_current_capacity()?;
         let first = run_fresh_family(&first_config, FIRST_FAMILY, &compiler, &pinned)?;
+        scheduling.require_current_capacity()?;
         let second = run_fresh_family(&second_config, SECOND_FAMILY, &compiler, &pinned)?;
+        scheduling.require_current_capacity()?;
         require_unchanged_suite(&config, &pinned)?;
         if first.verified.manifest_hash != second.verified.manifest_hash {
             return Err("closure full-suite manifests differ between the fresh runs".into());
         }
         let report = ClosureReport {
-            schema_version: 2,
+            schema_version: 3,
             reuse_case_workers: config.reuse_case_workers,
+            scheduling,
             execution_backend: ExecutionBackend::WasmAot.as_str().into(),
             compiler_identity: compiler,
             pinned_revisions: pinned,

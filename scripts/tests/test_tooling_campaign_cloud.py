@@ -16,6 +16,31 @@ GRAMMARS = ["integer-arithmetic-v1", "integer-bitwise-v2", "integer-product-v3",
 
 
 class CampaignCloudWrappers(unittest.TestCase):
+    def test_parallel_closure_is_explicit_cloud_case_scheduling_only(self):
+        for arguments in (["--cloud", "--threads", "4"],
+                          ["--reuse-case-workers", "--threads", "4", "--cloud"]):
+            with self.subTest(arguments=arguments):
+                result, calls = self.invoke("check-test262-closure.sh", arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2)
+                self.assertNotIn("--threads", calls[0])
+                self.assertNotIn("--cloud-worker-cpus", calls[0])
+                self.assertEqual(calls[1][1:5], ["--cloud", "--cloud-worker-cpus", "auto", "--"])
+                self.assertEqual(calls[1][calls[1].index("--threads") + 1], "4")
+                self.assertEqual(calls[1][calls[1].index("--jobs") + 1], "1")
+                self.assertEqual("--reuse-case-workers" in calls[1], "--reuse-case-workers" in arguments)
+                for flag in ("--resume", "--timeout-ms", "--max-matrix-nodes", "--suite-root"):
+                    self.assertNotIn(flag, calls[1])
+        for arguments in (["--threads", "4"], ["--cloud", "--threads"],
+                          ["--cloud", "--threads", "0"], ["--cloud", "--threads", "+4"],
+                          ["--cloud", "--threads", "-1"], ["--cloud", "--threads", "4.0"],
+                          ["--cloud", "--threads", "999999999999999999999999999999"],
+                          ["--cloud", "--threads", "4", "--threads", "2"]):
+            with self.subTest(arguments=arguments):
+                result, calls = self.invoke("check-test262-closure.sh", arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(calls, [])
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory(prefix="lila cloud campaign ")
         self.addCleanup(directory.cleanup)

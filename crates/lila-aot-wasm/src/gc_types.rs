@@ -389,7 +389,6 @@ impl RuntimeGcTypes {
         let collection_key_hash_counter = CollectionKeyHashCounterGlobal::declare(&mut globals);
         let atomics_async_waiters_head = GcRootGlobal::declare(&self.layouts, &mut globals);
         let atomics_async_waiters_tail = GcRootGlobal::declare(&self.layouts, &mut globals);
-        let program_hooks = ProgramHookGlobals::declare(&mut globals);
         let snapshot =
             snapshot.then(|| snapshot::SnapshotRoots::declare(&self.layouts, &mut globals));
         let module_guards_first = globals.len();
@@ -422,7 +421,6 @@ impl RuntimeGcTypes {
             collection_key_hash_counter,
             atomics_async_waiters_head,
             atomics_async_waiters_tail,
-            program_hooks,
             snapshot,
             module_guards: ModuleGuardGlobals {
                 first: module_guards_first,
@@ -617,40 +615,8 @@ pub(crate) struct RuntimeSchema {
     collection_key_hash_counter: CollectionKeyHashCounterGlobal,
     atomics_async_waiters_head: GcRootGlobal<AtomicsAsyncWaiter>,
     atomics_async_waiters_tail: GcRootGlobal<AtomicsAsyncWaiter>,
-    program_hooks: ProgramHookGlobals,
     snapshot: Option<snapshot::SnapshotRoots>,
     module_guards: ModuleGuardGlobals,
-}
-
-/// One mutable `(ref null $helper)` global per program hook, null until the
-/// program's `main` installs the hook. Declared for every program, in
-/// [`RuntimeHelperId`] order, so the runtime half never depends on which hooks
-/// a program provides.
-#[derive(Debug, PartialEq, Eq)]
-struct ProgramHookGlobals {
-    first: u32,
-}
-
-impl ProgramHookGlobals {
-    fn declare(globals: &mut GlobalLedger) -> Self {
-        use crate::runtime_helpers::ProgramHook;
-        let first = globals.len();
-        for hook in ProgramHook::ALL {
-            let heap_type = HeapType::Concrete(hook.helper().type_index());
-            globals.global(
-                GlobalType {
-                    val_type: ValType::Ref(RefType {
-                        nullable: true,
-                        heap_type,
-                    }),
-                    mutable: true,
-                    shared: false,
-                },
-                &ConstExpr::ref_null(heap_type),
-            );
-        }
-        Self { first }
-    }
 }
 
 /// The once-guard globals, declared after every root.
@@ -661,11 +627,6 @@ struct ModuleGuardGlobals {
 }
 
 impl RuntimeSchema {
-    /// The global holding `hook`'s function reference.
-    pub(crate) fn program_hook_global(&self, hook: crate::runtime_helpers::ProgramHook) -> u32 {
-        self.program_hooks.first + hook as u32
-    }
-
     pub(crate) fn module_unit_guard(
         &self,
         unit: u32,
@@ -872,10 +833,7 @@ mod tests {
                 };
                 assert_eq!(
                     finalized.globals.section.len(),
-                    existing_global_count
-                        + 17
-                        + crate::runtime_helpers::ProgramHook::ALL.len() as u32
-                        + snapshot_global_count,
+                    existing_global_count + 17 + snapshot_global_count,
                     "ordinary roots and opt-in typed inventory/witnesses share the actual section"
                 );
             }

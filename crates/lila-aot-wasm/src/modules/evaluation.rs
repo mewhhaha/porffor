@@ -892,16 +892,28 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Eqz);
         self.open_frame(ControlFrameKind::If, function);
         let base = self.runtime_helper_base()?;
+        let program = self.emit_module_record_program(&record, function);
         schema
-            .call_helper(ModuleExecuteArguments::new(&record), base, function)
+            .call_helper(
+                ModuleExecuteArguments::new(&record, &program),
+                base,
+                function,
+            )
             .store(&execution, function);
+        program.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::Else);
         let base = self.runtime_helper_base()?;
+        let program = self.emit_module_record_program(&record, function);
         schema
-            .call_helper(ModuleExecuteArguments::new(&record), base, function)
+            .call_helper(
+                ModuleExecuteArguments::new(&record, &program),
+                base,
+                function,
+            )
             .store(&execution, function);
+        program.clear(function);
         execution.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);

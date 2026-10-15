@@ -168,6 +168,46 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Fresh closure requires the executing node's actual scheduling record, bound
+/// to its exact admitted snapshot. Missing timing cannot become guessed policy.
+pub(super) fn require_closure_settings(
+    config: &SuiteConfig,
+    name: &str,
+    node: &RunMatrixNode,
+    entry: &TopLevelRunSummary,
+    compiler: &CompilerProvenance,
+) -> Result<(), String> {
+    let (path, _) = locate_node_snapshot(
+        config,
+        name,
+        node,
+        ExecutionBackend::WasmAot,
+        entry,
+        compiler,
+    )?
+    .ok_or("missing fresh closure node scheduling evidence")?;
+    let bytes = read_bounded(&path, SNAPSHOT_LIMIT)?;
+    let file = decode_snapshot_bytes(&bytes, &path)?;
+    file.require_compiler(compiler, &path)?;
+    let snapshot = snapshot_from_file(file)?;
+    validate_complete_node_contract(&snapshot, node, entry, &path)?;
+    let timing: NodeTiming =
+        serde_json::from_slice(&read_bounded(&timing_path(&path), TIMING_LIMIT)?)
+            .map_err(|error| format!("invalid fresh closure node scheduling: {error}"))?;
+    timing.admit(&snapshot, node, &bytes)?;
+    if timing.settings.resume_requested
+        || timing.settings.configured_workers != config.worker_count
+        || timing.settings.timeout_ms != config.timeout_ms
+        || timing.settings.reuse_case_workers != config.reuse_case_workers
+    {
+        return Err(
+            "fresh closure node scheduling differs from the requested workers/timeout/reuse policy"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 enum WallTiming {

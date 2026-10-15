@@ -4,7 +4,14 @@ use super::*;
 use crate::WasmRuntimeValueTag;
 
 mod compact_array_recipes;
+mod native_function_compiler;
 mod object_header_projection;
+mod program_initialize;
+mod program_instance;
+pub(crate) use program_instance::{
+    FunctionProgramOwner, ProgramInstanceHooks, ProgramInstanceImage, ProgramInstanceLocals,
+    ProgramLiteralIndex, ProgramLiteralRoots, ProgramMetadataBytes, ProgramMetadataView,
+};
 mod program_string_descriptors;
 pub(crate) use program_string_descriptors::ProgramStringDescriptorTable;
 mod weak_host;
@@ -672,6 +679,9 @@ impl<R: GcFunctionRole, N: GcFieldNullability> FunctionLocalSlot<R, N> {
     }
 }
 impl<R: GcFunctionRole> FunctionStackReference<R, Nullable> {
+    pub(crate) fn is_null(self, function: &mut Function) {
+        function.instruction(&Instruction::RefIsNull);
+    }
     pub(crate) fn require_non_null(self, function: &mut Function) -> FunctionStackReference<R> {
         function.instruction(&Instruction::RefAsNonNull);
         FunctionStackReference { shape: PhantomData }
@@ -692,6 +702,12 @@ impl<'a, R: GcFunctionRole> GcOperand<'a, GcFunctionRef<R>, Nullable> {
     pub(crate) fn null_function() -> Self {
         Self {
             source: OperandSource::Null(HeapType::Concrete(R::SIGNATURE.type_index())),
+            shape: PhantomData,
+        }
+    }
+    pub(crate) fn nullable_function_reference(value: &'a FunctionLocal<R, Nullable>) -> Self {
+        Self {
+            source: OperandSource::Local(value.index),
             shape: PhantomData,
         }
     }
@@ -1752,12 +1768,12 @@ impl RuntimeSchema {
             shape: PhantomData,
         }
     }
-    pub(crate) fn reference_entry<R: GcFunctionRole>(
+    pub(crate) fn reference_entry<R: GcEntryFunctionRole>(
         &self,
         entry: &crate::function_entry::PlannedFunctionEntry,
         function: &mut Function,
     ) -> Result<FunctionStackReference<R>, crate::EmitError> {
-        if entry.signature() != R::SIGNATURE {
+        if GcFunctionSignature::Entry(entry.signature()) != R::SIGNATURE {
             return Err(crate::EmitError::unsupported(
                 "compiler callable role does not match its registered signature",
             ));
@@ -1773,7 +1789,7 @@ impl RuntimeSchema {
         entry.emit_direct_call_instruction(function);
         GcCallResult::emitted()
     }
-    pub(crate) fn call_reference<R: GcFunctionRole>(
+    pub(crate) fn call_reference<R: GcEntryFunctionRole>(
         &self,
         callee: &FunctionLocal<R>,
         function: &mut Function,

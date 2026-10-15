@@ -255,7 +255,8 @@ impl FunctionBuilder<'_> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.emit_nf_record_from_receiver(function)?;
+        let record =
+            self.emit_nf_record_from_receiver(NfReceiverOperation::FormatToParts, function)?;
         let schema = self.runtime_schema();
         let value = schema.reserve_value_local(function);
         let out = schema.reserve_value_local(function);
@@ -281,7 +282,8 @@ impl FunctionBuilder<'_> {
         mode: NfFormatMode,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.emit_nf_record_from_receiver(function)?;
+        let record =
+            self.emit_nf_record_from_receiver(NfReceiverOperation::FormatRange, function)?;
         let schema = self.runtime_schema();
         let left = schema.reserve_value_local(function);
         let right = schema.reserve_value_local(function);
@@ -321,7 +323,8 @@ impl FunctionBuilder<'_> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.emit_nf_record_from_receiver(function)?;
+        let record =
+            self.emit_nf_record_from_receiver(NfReceiverOperation::FormatGetter, function)?;
         let schema = self.runtime_schema();
         let bound = schema
             .reserve_gc_local::<FunctionObject, Nullable>(function)

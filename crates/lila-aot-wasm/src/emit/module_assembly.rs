@@ -11,6 +11,10 @@ use wasm_encoder::{
 };
 
 mod metadata;
+mod program_entries;
+pub(crate) use program_entries::emit_runtime_function_module;
+pub(super) use program_entries::emit_script_module;
+use program_entries::ProgramExports;
 
 fn claim_optional_host_import_function_index(next: &mut u32) -> u32 {
     let index = *next;
@@ -18,15 +22,12 @@ fn claim_optional_host_import_function_index(next: &mut u32) -> u32 {
     index
 }
 
-/// Emits one module. A heap-backed script is split at the runtime/program
-/// boundary of the function space (see [`FunctionIndexLayout`]): the runtime
-/// module compiles every standard and host builtin and runtime helper, and a
-/// program module compiles only what the script owns, importing the rest.
-pub(super) fn emit_script_module(
+fn emit_script_module_with_factory(
     script: &ScriptIr,
     kind: ModuleKind<'_>,
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_selection: &IntlDataSelection,
+    factory: Option<&lila_ir::RuntimeFunctionProgram>,
 ) -> Result<EmittedModule, EmitError> {
     let uses_heap = kind.uses_heap();
     let compile_runtime = kind.compiles_runtime();
@@ -308,6 +309,7 @@ pub(super) fn emit_script_module(
         runtime_helper_count,
         source.program.len() + script.prepared_script_units().count(),
         program_helper_count,
+        kind,
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -323,6 +325,7 @@ pub(super) fn emit_script_module(
         script.prepared_scripts.clone(),
         crate::planning::ModuleGraphPlan::from_script(script)?,
     );
+    let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;
     let string_pool = StringPool::collect(
         script,
         function_metas.metas(),
@@ -350,8 +353,8 @@ pub(super) fn emit_script_module(
             mutable: true,
             shared: false,
         },
-        // The initial heap start still depends on the program's data size;
-        // main re-sets the cursor before any allocation.
+        // Linked modules share R's transient scratch cursor. P-owned immutable
+        // metadata is published in GC storage and never moves this cursor.
         &ConstExpr::i64_const(align_heap_start(if uses_heap {
             string_pool.compiler_owned_boundary().static_len()
         } else {
@@ -376,6 +379,17 @@ pub(super) fn emit_script_module(
         layout.first_program_index()
     };
     let mut module_package = module_sections.begin(first_defined_function);
+    if let Some(index) = layout.program_initialize_index() {
+        let image = ProgramInstanceImage::from_program_pool(&string_pool, kind)?;
+        module_package.compile_program_initialize(ProgramInitializeCompilation::new(
+            &image,
+            &string_pool,
+            &function_metas,
+            runtime_bootstrap_plan.clone(),
+            runtime_helper_base.expect("linked P has registered R helpers"),
+            index,
+        )?)?;
+    }
     if compile_program {
         module_package.compile_main(MainFunctionCompilation::new(
             script,
@@ -1383,7 +1397,7 @@ pub(super) fn emit_script_module(
                 );
                 builder.compile_program_hook(hook)?
             } else {
-                // Never installed, so never called: keep the slot dense.
+                // No ProgramInstance field selects this absent body: keep the slot dense.
                 let mut body = Function::new(LocalDeclarations::from_types([]));
                 body.instruction(&Instruction::Unreachable);
                 body.instruction(&Instruction::End);
@@ -1405,26 +1419,11 @@ pub(super) fn emit_script_module(
     // derives each matching declaration from the body identity at the push;
     // helper-index accessors and attribution use the same closed helper domain.
     let mut exports = ExportSection::new();
-    if compile_program {
-        exports.export("main", ExportKind::Func, layout.main_index());
-    }
-    // The host reads the throw diagnostics and the snapshot roots from the
-    // instance that owns the globals: the runtime module, or the whole module
-    // when there is no runtime to link. A module entry's program re-exports
-    // the status global it shares with the runtime.
-    if compile_program && script.module_entry_evaluation().is_some() {
-        exports.export(
-            MODULE_EVALUATION_STATUS_EXPORT,
-            ExportKind::Global,
-            MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
-        );
-    }
-    if kind.owns_globals() {
-        module_package
-            .schema()
-            .export_throw_diagnostics(&mut exports);
-        module_package.schema().export_snapshot_roots(&mut exports);
-    }
+    entry_exports.append(
+        module_package.schema(),
+        script.module_entry_evaluation().is_some(),
+        &mut exports,
+    );
 
     // Runtime helpers close the runtime half; program helpers follow the
     // program's callables.
@@ -1744,7 +1743,9 @@ pub(super) fn emit_script_module(
         format!("locals: {main_emitted_local_count}"),
         format!(
             "internal functions: {}",
-            layout.defined_functions().len() - 1 - function_table.runtime_helper_count()
+            layout.defined_functions().len()
+                - layout.program_prefix_count()
+                - function_table.runtime_helper_count()
         ),
         // Derived from the same table that owns the emitted helper bodies.
         format!(

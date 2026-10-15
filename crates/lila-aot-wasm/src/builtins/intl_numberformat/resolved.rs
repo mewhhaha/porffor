@@ -43,7 +43,8 @@ impl FunctionBuilder<'_> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let record = self.emit_nf_record_from_receiver(function)?;
+        let record =
+            self.emit_nf_record_from_receiver(NfReceiverOperation::ResolvedOptions, function)?;
         let schema = self.runtime_schema();
         let nf = schema.struct_type::<IntlNumberFormatObject>();
         let object = self.emit_intl_number_result_object(function)?;

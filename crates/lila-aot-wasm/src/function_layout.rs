@@ -1,7 +1,7 @@
 //! The one Wasm function index space.
 //!
 //! ```text
-//! [imports][runtime callables][runtime helpers][main][program callables][program helpers]
+//! [imports][runtime callables][runtime helpers][main][P initializer?][program callables][program helpers]
 //!           ^-- runtime half: identical for every program --^
 //!                                                 ^-- program half starts at `main`
 //! ```
@@ -16,7 +16,23 @@
 
 use lila_ir::{FunctionIr, ScriptIr};
 
+use crate::runtime_artifact::ModuleKind;
 use crate::runtime_helpers::RuntimeHelperFunctionBase;
+
+/// Only the linked-P layout can mint a callable initializer index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProgramInitializeIndex(u32);
+impl ProgramInitializeIndex {
+    pub(crate) const fn raw(self) -> u32 {
+        self.0
+    }
+    pub(crate) fn assert_body_index(self, actual: u32) {
+        assert_eq!(
+            self.0, actual,
+            "P initializer emitted outside its planned index"
+        );
+    }
+}
 
 /// The script's source functions split at the runtime/program boundary. Each
 /// list keeps the script's own order.
@@ -45,6 +61,7 @@ pub(crate) struct FunctionIndexLayout {
     standard: u32,
     host: u32,
     runtime_helpers: u32,
+    program_initialize: bool,
     program_callables: u32,
     program_helpers: u32,
 }
@@ -62,6 +79,7 @@ impl FunctionIndexLayout {
         runtime_helpers: usize,
         program_callables: usize,
         program_helpers: usize,
+        kind: ModuleKind<'_>,
     ) -> Self {
         let layout = Self {
             imported,
@@ -69,6 +87,7 @@ impl FunctionIndexLayout {
             standard: count(standard),
             host: count(host),
             runtime_helpers: count(runtime_helpers),
+            program_initialize: matches!(kind, ModuleKind::Program(_)),
             program_callables: count(program_callables),
             program_helpers: count(program_helpers),
         };
@@ -123,13 +142,27 @@ impl FunctionIndexLayout {
         self.first_program_index()
     }
 
+    pub(crate) fn program_initialize_index(&self) -> Option<ProgramInitializeIndex> {
+        self.program_initialize
+            .then(|| ProgramInitializeIndex(Self::add(self.main_index(), 1)))
+    }
+
+    /// Defined P prefix bodies, before source/prepared callables.
+    pub(crate) const fn program_prefix_count(&self) -> usize {
+        1 + self.program_initialize as usize
+    }
+
+    fn program_callable_first(&self) -> u32 {
+        Self::add(self.main_index(), self.program_prefix_count() as u32)
+    }
+
     pub(crate) fn program_callable_index(&self, position: usize) -> u32 {
         debug_assert!(position < self.program_callables as usize);
-        Self::add(self.main_index() + 1, count(position))
+        Self::add(self.program_callable_first(), count(position))
     }
 
     fn program_callable_end(&self) -> u32 {
-        Self::add(self.main_index() + 1, self.program_callables)
+        Self::add(self.program_callable_first(), self.program_callables)
     }
 
     fn program_helper_end(&self) -> u32 {

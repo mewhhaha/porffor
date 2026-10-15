@@ -17,6 +17,7 @@ mod aot_intl_datetime_range_endpoints;
 mod aot_intl_display_names;
 mod aot_intl_duration_format;
 mod aot_intl_keyword_aliases;
+mod aot_intl_legacy_constructor;
 mod aot_intl_list_format;
 mod aot_intl_locale_constructor;
 mod aot_intl_locale_host_import;

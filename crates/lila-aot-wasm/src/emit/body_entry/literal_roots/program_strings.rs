@@ -2,16 +2,29 @@ use super::*;
 use crate::gc_types::ProgramStringDescriptorTable;
 
 impl FunctionBuilder<'_> {
-    pub(super) fn initialize_program_string_roots(&self, function: &mut Function) {
-        let image = self.strings.program_string_descriptor_image();
-        if image.count() == 0 {
-            return;
-        }
+    pub(super) fn initialize_program_string_roots<'image, 'pool>(
+        &self,
+        image: &'image ProgramInstanceImage<'pool>,
+        function: &mut Function,
+    ) -> ProgramLiteralRoots<'image, 'pool> {
+        let descriptor_image = self.strings.program_string_descriptor_image();
+        assert_eq!(descriptor_image.count(), image.literal_count());
         let schema = self.schema;
-        let descriptors = ProgramStringDescriptorTable::from_image(schema, &image, function);
+        let length = schema.reserve_i32_local(function);
+        length.set_constant(image.literal_count() as i32, function);
         let pool = schema
             .reserve_gc_local::<PooledStringTable, NonNullable>(function)
-            .initialize(schema.pooled_string_table_reference(function), function);
+            .initialize(
+                schema.array_type::<PooledStringTable>().filled(
+                    GcOperand::null(schema),
+                    length,
+                    function,
+                ),
+                function,
+            );
+        schema.release_i32_local(length, function);
+        let descriptors =
+            ProgramStringDescriptorTable::from_image(schema, &descriptor_image, function);
         let row_index = schema.reserve_i32_local(function);
         row_index.set_constant(0, function);
         function.instruction(&Instruction::Block(BlockType::Empty));
@@ -32,7 +45,7 @@ impl FunctionBuilder<'_> {
             .initialize(construction.publish(schema, function), function);
         schema.array_type::<PooledStringTable>().write(
             &pool,
-            row.ordinal(),
+            row.literal_index(),
             GcOperand::nullable_reference(&string, schema),
             schema,
             function,
@@ -47,7 +60,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
         schema.release_i32_local(row_index, function);
-        pool.clear(function);
         descriptors.clear(function);
+        ProgramLiteralRoots::admit_complete_table(schema, image, pool, function)
     }
 }

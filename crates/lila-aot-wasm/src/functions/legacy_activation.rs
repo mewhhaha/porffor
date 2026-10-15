@@ -7,53 +7,12 @@
 use super::*;
 use crate::gc_types::{
     ArgumentsObject, ExecutableCode, ExecutableCodeSchema, FunctionObject, FunctionObjectSchema,
-    FunctionProtocolCode, GcI32Constant, GcLocal, GcOperand, NonNullable, Nullable, OrdinaryObject,
-    PropertyDescriptor, PropertyDescriptorSchema, RuntimeSchema, ScalarValue,
-    SourceActivationDepth, StoredValue, ValueLocals,
+    FunctionProtocolCode, GcI32Constant, GcLocal, LegacyReflectionPropertyState, Nullable,
+    ScalarValue, SourceActivationDepth,
 };
 
-struct ReflectionProperty {
-    descriptor: GcLocal<PropertyDescriptor>,
-    previous_value: GcLocal<StoredValue>,
-}
-
-impl ReflectionProperty {
-    fn publish(&self, value: &ValueLocals, schema: &RuntimeSchema, function: &mut Function) {
-        let stored = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(value, function),
-            function,
-        );
-        schema
-            .struct_type::<PropertyDescriptor>()
-            .field(PropertyDescriptorSchema::VALUE)
-            .write(
-                &self.descriptor,
-                GcOperand::reference(&stored, schema),
-                schema,
-                function,
-            );
-        stored.clear(function);
-    }
-
-    fn restore(&self, schema: &RuntimeSchema, function: &mut Function) {
-        schema
-            .struct_type::<PropertyDescriptor>()
-            .field(PropertyDescriptorSchema::VALUE)
-            .write(
-                &self.descriptor,
-                GcOperand::reference(&self.previous_value, schema),
-                schema,
-                function,
-            );
-    }
-
-    fn clear(self, function: &mut Function) {
-        self.previous_value.clear(function);
-        self.descriptor.clear(function);
-    }
-}
+mod property;
+use property::ReflectionProperty;
 
 struct LegacyReflection {
     caller: ReflectionProperty,
@@ -84,40 +43,6 @@ impl SourceActivation {
 }
 
 impl FunctionBuilder<'_> {
-    fn capture_legacy_reflection_property(
-        &mut self,
-        object: &GcLocal<OrdinaryObject>,
-        name: &str,
-        function: &mut Function,
-    ) -> Result<ReflectionProperty, EmitError> {
-        let schema = self.runtime_schema();
-        let key = self.emit_function_string_key(name, function)?;
-        let own = self.emit_ordinary_own_descriptor_reference(object, &key, function)?;
-        // Publication fixes both immutable own descriptors before the callable
-        // escapes. Their absence is a violated producer invariant, not a reason
-        // to consult Function.prototype's restricted accessor.
-        let descriptor = schema
-            .reserve_gc_local::<PropertyDescriptor, NonNullable>(function)
-            .initialize(
-                own.load(schema, function).require_non_null(function),
-                function,
-            );
-        let previous_value = schema.reserve_gc_local(function).initialize(
-            schema
-                .struct_type::<PropertyDescriptor>()
-                .field(PropertyDescriptorSchema::VALUE)
-                .read(&descriptor, schema, function)
-                .reference(),
-            function,
-        );
-        own.clear(function);
-        key.clear(function);
-        Ok(ReflectionProperty {
-            descriptor,
-            previous_value,
-        })
-    }
-
     pub(crate) fn emit_enter_source_activation(
         &mut self,
         function: &mut Function,
@@ -168,9 +93,28 @@ impl FunctionBuilder<'_> {
                     .reference(),
                 function,
             );
-            let caller = self.capture_legacy_reflection_property(&object, "caller", function)?;
+            let caller_state = schema
+                .reserve_gc_local::<LegacyReflectionPropertyState, Nullable>(function)
+                .initialize(
+                    schema
+                        .field(FunctionObjectSchema::LEGACY_CALLER)
+                        .read(&callable, schema, function)
+                        .reference(),
+                    function,
+                );
+            let caller =
+                ReflectionProperty::capture(self, &object, "caller", caller_state, function)?;
+            let arguments_state = schema
+                .reserve_gc_local::<LegacyReflectionPropertyState, Nullable>(function)
+                .initialize(
+                    schema
+                        .field(FunctionObjectSchema::LEGACY_ARGUMENTS)
+                        .read(&callable, schema, function)
+                        .reference(),
+                    function,
+                );
             let arguments =
-                self.capture_legacy_reflection_property(&object, "arguments", function)?;
+                ReflectionProperty::capture(self, &object, "arguments", arguments_state, function)?;
             object.clear(function);
             let value = schema.reserve_value_local(function);
             value.set_scalar(ScalarValue::Null, function);

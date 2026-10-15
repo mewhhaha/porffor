@@ -223,6 +223,7 @@ impl FunctionBuilder<'_> {
                                 &variable_environment,
                                 &private_environment,
                                 invocation.context(),
+                                self.current_program(),
                             ),
                             schema,
                             function,

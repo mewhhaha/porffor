@@ -400,6 +400,7 @@ impl FunctionBuilder<'_> {
                     arguments,
                     &caller_realm,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -447,6 +448,7 @@ impl FunctionBuilder<'_> {
             ));
         }
         let schema = self.runtime_schema();
+        let defining_program = self.capture_current_program(function);
         let global_environment = schema
             .reserve_gc_local::<Environment, Nullable>(function)
             .initialize(
@@ -484,6 +486,7 @@ impl FunctionBuilder<'_> {
         let result = self.emit_source_function_record_from_captures(
             meta,
             FunctionAllocationInputs {
+                program: crate::gc_types::FunctionProgramOwner::Defining(&defining_program),
                 realm,
                 lexical_environment: &global_environment,
                 private_environment: &private_environment,
@@ -505,6 +508,7 @@ impl FunctionBuilder<'_> {
         home.clear(function);
         private_environment.clear(function);
         global_environment.clear(function);
+        defining_program.clear(function);
         Ok(result)
     }
 }

@@ -98,6 +98,8 @@ pub use runtime_artifact::{
     runtime_artifact_with_inputs, RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactCacheKey,
     RuntimeArtifactInputs, RuntimeArtifactKey, RuntimeBuildArtifact, RUNTIME_IMPORT_NAMESPACE,
 };
+mod runtime_function;
+pub use runtime_function::{emit_runtime_function, RuntimeFunctionArtifact};
 mod runtime_helpers;
 use abi::*;
 use arguments_protocol::*;

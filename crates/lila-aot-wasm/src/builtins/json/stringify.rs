@@ -15,7 +15,14 @@ impl FunctionBuilder<'_> {
         let s = self.runtime_schema();
         let result = s.reserve_completion(f);
         s.call_helper(
-            JsonStringifyValueArguments::new(holder, key, context, indent, seen),
+            JsonStringifyValueArguments::new(
+                holder,
+                key,
+                context,
+                indent,
+                seen,
+                self.current_program(),
+            ),
             self.runtime_helper_base()?,
             f,
         )

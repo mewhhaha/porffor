@@ -29,6 +29,7 @@ mod intl_collator;
 mod intl_datetimeformat;
 mod intl_displaynames;
 mod intl_durationformat;
+mod intl_legacy_constructor;
 mod intl_listformat;
 mod intl_number;
 mod intl_provider_wire;

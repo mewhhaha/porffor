@@ -16,6 +16,10 @@ FUNCTIONS = [node for node in TREE.body if isinstance(node, ast.FunctionDef)
 NAMESPACE = {'re': re, 'hashlib': hashlib, 'os': os, 'Path': Path}
 exec(compile(ast.Module(body=FUNCTIONS, type_ignores=[]), str(SOURCE), 'exec'), NAMESPACE)
 
+ENGINE_UTF16_OUTLIER = (
+    'runtime_regexp_compiler_tests::raw_utf16::'
+    'literal_prepared_and_static_constructor_patterns_share_actual_utf16_units')
+
 
 class NativePartitionProofTests(unittest.TestCase):
     def test_four_way_partition_is_an_exact_disjoint_union_of_293_qualified_ids(self):
@@ -25,6 +29,36 @@ class NativePartitionProofTests(unittest.TestCase):
         self.assertEqual(Counter(flattened), Counter(original))
         self.assertTrue(all(groups))
         self.assertEqual(sorted(map(len, groups)), [73, 73, 73, 74])
+
+    def test_engine_outlier_runs_alone_in_a_complete_893_id_partition(self):
+        # Match the current Engine inventory size without depending on build artifacts.
+        original = [ENGINE_UTF16_OUTLIER] + [f'engine::control_{index:03}' for index in range(892)]
+        saved = list(original)
+        groups = NAMESPACE['partition_groups'](original, 4)
+        flattened = [name for group in groups for name in group]
+        self.assertEqual(Counter(flattened), Counter(original))
+        self.assertEqual(original, saved)
+        self.assertTrue(all(groups))
+        outlier_group = next(group for group in groups if ENGINE_UTF16_OUTLIER in group)
+        self.assertEqual(outlier_group, [ENGINE_UTF16_OUTLIER])
+        other_counts = [len(group) for group in groups if group is not outlier_group]
+        self.assertEqual(sum(other_counts), 892)
+        self.assertLessEqual(max(other_counts) - min(other_counts), 1)
+        self.assertEqual(groups, NAMESPACE['partition_groups'](list(reversed(original)), 4))
+
+    def test_engine_outlier_weight_is_exact_and_other_cost_classes_are_unchanged(self):
+        self.assertGreater(NAMESPACE['weight'](ENGINE_UTF16_OUTLIER), 3)
+        for name, expected in [
+            (ENGINE_UTF16_OUTLIER + '_other', 3),
+            ('other::' + ENGINE_UTF16_OUTLIER, 3),
+            ('runtime_regexp_compiler_tests::raw_utf16::other', 3),
+            ('frontend_test262_subset::slow', 800),
+            ('intl::collator', 25),
+            ('frontend::inspect', 1),
+            ('known_failures::one', 1),
+            ('aot_intl::control', 3),
+        ]:
+            self.assertEqual(NAMESPACE['weight'](name), expected, name)
 
     def test_weight_only_changes_scheduling_never_membership_or_original_order(self):
         original = ['frontend_test262_subset::slow', 'intl::collator',

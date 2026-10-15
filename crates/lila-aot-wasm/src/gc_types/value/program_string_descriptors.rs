@@ -1,9 +1,9 @@
 use super::*;
 use crate::data::{ProgramStringDescriptorImage, ProgramStringDescriptorWord};
 
-/// Only this read-only wrapper retains the private descriptor ByteArray.
+/// Only this read-only wrapper retains the published immutable descriptor bytes.
 pub(crate) struct ProgramStringDescriptorTable {
-    bytes: GcLocal<ByteArray>,
+    bytes: GcLocal<ImmutableByteArray>,
     count: u32,
 }
 
@@ -15,7 +15,7 @@ struct ProgramPooledCodeUnitLocals {
 }
 
 pub(crate) struct ProgramStringDescriptorRowLocals {
-    ordinal: I32Local,
+    literal_index: I32Local,
     literal: ProgramPooledCodeUnitLocals,
 }
 
@@ -27,7 +27,7 @@ impl ProgramStringDescriptorTable {
     ) -> Self {
         image.emit_bounds(function);
         function.instruction(&Instruction::ArrayNewData {
-            array_type_index: schema.array_type::<ByteArray>().type_index().raw(),
+            array_type_index: schema.array_type::<ImmutableByteArray>().type_index().raw(),
             array_data_index: ProgramStringDescriptorImage::DATA_SEGMENT,
         });
         Self {
@@ -62,7 +62,7 @@ impl ProgramStringDescriptorTable {
             function.instruction(&Instruction::I32Add);
             index.store(function);
             schema
-                .array_type::<ByteArray>()
+                .array_type::<ImmutableByteArray>()
                 .read(&self.bytes, index, schema, function)
                 .store(byte, function);
             byte.load(function);
@@ -78,7 +78,7 @@ impl ProgramStringDescriptorTable {
     }
 
     /// Caller emits one row < count loop guard. The validated image bounds all
-    /// row multiplication, byte accesses, target ordinals and UTF-16 spans.
+    /// row multiplication, byte accesses, P-local indexes and UTF-16 spans.
     pub(crate) fn read_row(
         &self,
         schema: &RuntimeSchema,
@@ -86,14 +86,17 @@ impl ProgramStringDescriptorTable {
         function: &mut Function,
     ) -> ProgramStringDescriptorRowLocals {
         let result = ProgramStringDescriptorRowLocals {
-            ordinal: schema.reserve_i32_local(function),
+            literal_index: schema.reserve_i32_local(function),
             literal: ProgramPooledCodeUnitLocals {
                 byte_offset: schema.reserve_i32_local(function),
                 length: schema.reserve_i32_local(function),
             },
         };
         for (word, output) in [
-            (ProgramStringDescriptorWord::Ordinal, result.ordinal),
+            (
+                ProgramStringDescriptorWord::LiteralIndex,
+                result.literal_index,
+            ),
             (
                 ProgramStringDescriptorWord::Utf16ByteOffset,
                 result.literal.byte_offset,
@@ -114,12 +117,16 @@ impl ProgramStringDescriptorTable {
 }
 
 impl ProgramStringDescriptorRowLocals {
-    pub(crate) fn ordinal(&self) -> I32Local {
-        self.ordinal
+    pub(crate) fn literal_index(&self) -> I32Local {
+        self.literal_index
     }
 
     pub(crate) fn release(self, schema: &RuntimeSchema, function: &mut Function) {
-        for local in [self.literal.length, self.literal.byte_offset, self.ordinal] {
+        for local in [
+            self.literal.length,
+            self.literal.byte_offset,
+            self.literal_index,
+        ] {
             schema.release_i32_local(local, function);
         }
     }

@@ -42,7 +42,9 @@ fn recipes_keep_parent_first_structure_holes_exact_number_bits_and_string_slots(
         rows[5],
         (
             CompactArrayOpcode::String.word(),
-            u64::from(pool.pooled_string_index(text).unwrap().ordinal())
+            PooledLiteralOperand::for_pool(&pool, pool.pooled_string_index(text).unwrap())
+                .unwrap()
+                .word()
         )
     );
     assert_eq!(rows.last(), Some(&(CompactArrayOpcode::End.word(), 0)));
@@ -74,4 +76,36 @@ fn reads_bigints_and_symbols_keep_the_existing_path_and_deep_pure_recipes_are_it
     let plan = CompactArrayPlan::of(&values).unwrap();
     assert_eq!(plan.depth, 257);
     assert_eq!(plan.nodes.len(), 515);
+}
+
+#[test]
+fn recipes_encode_runtime_and_program_literal_domains_without_combined_slots() {
+    let mut pool = StringPool::default();
+    pool.intern_string("runtime");
+    pool.compiler_owned = pool.boundary();
+    let values = (0..128)
+        .map(|index| {
+            literal(ExprIr::String(
+                if index % 2 == 0 { "runtime" } else { "P\0𝄞" }.into(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    pool.collect_expr(&literal(ExprIr::ArrayLiteral(values.clone())));
+    let recipe = pool.compact_array_recipe(&values).unwrap().unwrap();
+    let bytes = &pool.compact_array_recipes.bytes()
+        [recipe.offset() as usize..(recipe.offset() + recipe.bytes()) as usize];
+    let payloads = bytes
+        .chunks_exact(COMPACT_ARRAY_RECIPE_ROW_BYTES as usize)
+        .skip(1)
+        .take(128)
+        .map(|row| u64::from_le_bytes(row[8..16].try_into().unwrap()))
+        .collect::<Vec<_>>();
+    for (index, payload) in payloads.iter().enumerate() {
+        assert_eq!(*payload, if index % 2 == 0 { 0 } else { 1u64 << 32 });
+    }
+    assert_eq!(
+        pool.pooled_string_index("P\0𝄞").unwrap().ordinal(),
+        1,
+        "the serialized P operand is relative, not the combined ordinal"
+    );
 }

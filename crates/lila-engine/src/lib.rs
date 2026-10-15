@@ -93,8 +93,13 @@ use wasmtime_config::WASM_MAX_STACK_SIZE;
 use wasmtime_config::{
     WasmNativeCompilationMode, ENGINE_WORKER_STACK_SIZE, WASM_STORE_MEMORY_CAP_BYTES,
 };
+#[cfg(test)]
+mod native_function_compiler_tests;
+mod wasm_compilation_policy;
 mod wasm_gc_completion;
 mod wasm_gc_host;
+mod wasm_native_function_compiler;
+pub use wasm_compilation_policy::WasmCompilationPolicy;
 mod wasm_gc_intl_host;
 mod wasm_gc_weak_host;
 use wasm_gc_completion::GcMainCompletion;
@@ -462,11 +467,13 @@ struct ProgramWasmArtifact {
     bytes: Arc<[u8]>,
     runtime: Option<Arc<lila_aot_wasm::RuntimeArtifact>>,
     cached_entry: Option<ProgramWasmCacheEntry>,
+    compilation_policy: WasmCompilationPolicy,
 }
 
 impl ProgramWasmArtifact {
     fn program(&self) -> WasmProgramRef<'_> {
         WasmProgramRef::new(&self.bytes, self.runtime.as_ref())
+            .with_compilation_policy(&self.compilation_policy)
     }
 
     fn evict_if_invalid(&self, error: &EngineError) -> bool {
@@ -951,6 +958,7 @@ struct PreparedCompilation {
     ir: ProgramIr,
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: IntlCompilationProfile,
+    host_surface_policy: HostSurfacePolicy,
 }
 
 fn wasm_aot_program_is_cached(source: &str, goal: ParseGoal, options: &CompileOptions) -> bool {
@@ -1562,11 +1570,19 @@ pub struct Artifact {
     /// alone is then only the small program module; `None` means `bytes` is a
     /// standalone module. Always `None` for non-Wasm backends.
     pub runtime: Option<LinkedRuntime>,
+    /// Original lowering policy for execution-time native source compilation.
+    /// Raw externally constructed artifacts may leave this absent.
+    pub compilation_policy: Option<WasmCompilationPolicy>,
 }
 
 impl Artifact {
     fn program(&self) -> WasmProgramRef<'_> {
-        WasmProgramRef::new(&self.bytes, self.runtime.as_ref().map(|runtime| &runtime.0))
+        let program =
+            WasmProgramRef::new(&self.bytes, self.runtime.as_ref().map(|runtime| &runtime.0));
+        match &self.compilation_policy {
+            Some(policy) => program.with_compilation_policy(policy),
+            None => program,
+        }
     }
 }
 
@@ -1652,6 +1668,7 @@ pub struct CompilationUnit {
     module_loading_policy: ModuleLoadingPolicy,
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: IntlCompilationProfile,
+    host_surface_policy: HostSurfacePolicy,
 }
 
 fn require_default_intl_profile(
@@ -1929,6 +1946,9 @@ fn wasm_reject_runtime_semantics(operation_code: i64) -> wasmtime::Result<()> {
 
 pub struct Engine {
     realm: Realm,
+    #[cfg(test)]
+    native_function_compilation_observer:
+        Option<Arc<wasm_native_function_compiler::NativeFunctionCompilationObserver>>,
 }
 
 enum WasmExecutionMode {
@@ -2010,6 +2030,7 @@ impl WasmOutputEvents {
 
 struct WasmHostState {
     weak: wasm_gc_weak_host::WeakGcState,
+    native_function_compiler: Option<wasm_native_function_compiler::NativeFunctionCompilerContext>,
     realm: Realm,
     output_events: WasmOutputEvents,
     intl_kernel: Arc<IntlKernel<EmbeddedIntlProvider>>,
@@ -2180,7 +2201,7 @@ struct WasmAgentGroup {
     prelude: Arc<str>,
     compile_policy: WasmAgentCompilePolicy,
     timeout_ms: Option<u64>,
-    execution_control: WasmAgentExecutionControl,
+    execution_control: Arc<WasmAgentExecutionControl>,
     started_at: MonotonicClockInstant,
     reports: Mutex<VecDeque<Vec<u8>>>,
     worker_artifacts: Mutex<HashMap<String, ProgramWasmArtifact>>,
@@ -2413,7 +2434,11 @@ impl WasmAgentGroup {
 
 impl Engine {
     pub fn new(realm: Realm) -> Self {
-        Self { realm }
+        Self {
+            realm,
+            #[cfg(test)]
+            native_function_compilation_observer: None,
+        }
     }
 
     pub fn shell_name(&self) -> &str {
@@ -2848,6 +2873,7 @@ impl Engine {
             Some(ProgramWasmArtifact {
                 bytes,
                 runtime,
+                compilation_policy: WasmCompilationPolicy::from_options(options),
                 cached_entry: Some(ProgramWasmCacheEntry {
                     cache: Arc::clone(cache),
                     key,
@@ -2915,6 +2941,7 @@ impl Engine {
             bytes: Arc::from(artifact.bytes),
             runtime: artifact.runtime.map(|runtime| runtime.0),
             cached_entry: None,
+            compilation_policy: WasmCompilationPolicy::from_unit(&unit),
         })
     }
 
@@ -2955,6 +2982,7 @@ impl Engine {
                 Ok(Artifact {
                     kind: ArtifactKind::Wasm,
                     runtime: wasm.runtime().cloned().map(LinkedRuntime),
+                    compilation_policy: Some(WasmCompilationPolicy::from_unit(unit)),
                     bytes: wasm.bytes,
                     description: wasm.invariant_note.to_string(),
                     debug_dump: wasm.debug_dump,
@@ -2974,6 +3002,7 @@ impl Engine {
                 // The C backend produces no self-description today.
                 debug_dump: String::new(),
                 runtime: None,
+                compilation_policy: None,
             }),
             Err(err) => Err(EngineError::new(err)),
         })
@@ -2997,6 +3026,7 @@ impl Engine {
                     // The native backend produces no self-description today.
                     debug_dump: String::new(),
                     runtime: None,
+                    compilation_policy: None,
                 }),
                 Err(err) => Err(EngineError::new(err)),
             },
@@ -3173,6 +3203,7 @@ impl Engine {
             ir,
             promise_rejection_policy: options.promise_rejection_policy,
             intl_profile: options.intl_profile.clone(),
+            host_surface_policy: options.host_surface_policy,
         })
     }
 
@@ -3187,6 +3218,7 @@ impl Engine {
             ir,
             promise_rejection_policy,
             intl_profile,
+            host_surface_policy,
         } = prepared;
         let module_loading_policy = match modules {
             PreparedModuleCompilation::Embedded { owner, .. } => {
@@ -3220,6 +3252,7 @@ impl Engine {
             module_loading_policy,
             promise_rejection_policy,
             intl_profile,
+            host_surface_policy,
         })
     }
 
@@ -3423,8 +3456,10 @@ impl Engine {
             eprintln!("lila wasm trace: artifact debug:\n{}", artifact.debug_dump);
         }
         trace_phase("emit", emit_started);
+        let compilation_policy = WasmCompilationPolicy::from_unit(unit);
         self.run_with_wasm_bytes_inner(
-            WasmProgramRef::new(&artifact.bytes, artifact.runtime()),
+            WasmProgramRef::new(&artifact.bytes, artifact.runtime())
+                .with_compilation_policy(&compilation_policy),
             timeout_ms,
             can_block,
             WasmModuleMemoryCachePolicy::Retain,
@@ -3704,6 +3739,12 @@ impl Engine {
                 })
                 .transpose()?
         };
+        // This same authority is armed at the original execution-start point.
+        // Agent workers inherit it; native source compilation cannot reset it.
+        let execution_control = agent_execution
+            .as_ref()
+            .map(|execution| Arc::clone(&execution.group.execution_control))
+            .unwrap_or_else(|| Arc::new(WasmAgentExecutionControl::new()));
         let root_agent_group = match (agent_harness, shared_memory_backing.as_ref()) {
             (Some(agent_harness), Some(shared_memory_backing)) => Some(Arc::new(WasmAgentGroup {
                 engine: engine.clone(),
@@ -3713,7 +3754,7 @@ impl Engine {
                 prelude: agent_harness.prelude,
                 compile_policy: agent_harness.compile_policy,
                 timeout_ms,
-                execution_control: WasmAgentExecutionControl::new(),
+                execution_control: Arc::clone(&execution_control),
                 started_at: self.realm.host_clock().monotonic_instant(),
                 reports: Mutex::new(VecDeque::new()),
                 worker_artifacts: Mutex::new(HashMap::new()),
@@ -3734,6 +3775,7 @@ impl Engine {
             &engine,
             WasmHostState {
                 weak: wasm_gc_weak_host::WeakGcState::default(),
+                native_function_compiler: None,
                 realm: self.realm.clone(),
                 output_events: WasmOutputEvents::for_mode(mode),
                 intl_kernel,
@@ -3983,13 +4025,23 @@ impl Engine {
             Default::default()
         };
         let execution_started = std::time::Instant::now();
-        if let Some(group) = &root_agent_group {
-            group.execution_control.arm(execution_started, timeout_ms);
+        if agent_execution.is_none() {
+            execution_control.arm(execution_started, timeout_ms);
         }
-        let execution_budget = match &agent_execution {
-            Some(execution) => execution.group.execution_control.remaining()?,
-            None => timeout_ms.map(std::time::Duration::from_millis),
-        };
+        if let (Some(runtime), Some(policy)) = (program.runtime, program.compilation_policy) {
+            let context = wasm_native_function_compiler::NativeFunctionCompilerContext::new(
+                &linker,
+                Arc::clone(runtime),
+                policy.intl_profile().clone(),
+                policy.host_surface_policy(),
+                Arc::clone(&execution_control),
+            );
+            #[cfg(test)]
+            let context =
+                context.with_test_observer(self.native_function_compilation_observer.clone());
+            store.data_mut().native_function_compiler = Some(context);
+        }
+        let execution_budget = execution_control.remaining()?;
         let epoch_deadline_ticks = match execution_budget {
             // The ticker's phase is independent of this Store. One guard
             // tick ensures the deadline cannot expire before the requested
@@ -7052,6 +7104,7 @@ Number.isNaN(Math.atanh(2)) && Number.isNaN(Math.atanh(-2)) && Number.isNaN(Math
             &wasm_engine,
             WasmHostState {
                 weak: wasm_gc_weak_host::WeakGcState::default(),
+                native_function_compiler: None,
                 realm: engine.realm.clone(),
                 output_events: WasmOutputEvents::DelegateOnly,
                 intl_kernel: shared_embedded_intl_kernel()

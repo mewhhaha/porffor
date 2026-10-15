@@ -37,22 +37,38 @@ fn candidate_rows_preserve_gc_string_ordinals_and_all_closed_outcomes() {
     for (row, kind) in rows.iter().zip(RuntimeRegExpEntryKind::ALL) {
         assert_eq!(
             row[RUNTIME_REGEXP_RECORD_SOURCE_WORD],
-            u64::from(pool.pooled_string_index(source).unwrap().ordinal())
+            PooledLiteralOperand::for_pool(&pool, pool.pooled_string_index(source).unwrap())
+                .unwrap()
+                .word()
         );
         assert_eq!(
             row[RUNTIME_REGEXP_RECORD_FLAGS_WORD],
-            u64::from(pool.pooled_string_index(flags).unwrap().ordinal())
+            PooledLiteralOperand::for_pool(&pool, pool.pooled_string_index(flags).unwrap())
+                .unwrap()
+                .word()
         );
         assert_eq!(row[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD], kind.word());
     }
     assert_eq!(
         rows[0][RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD],
-        reference.payload()
+        ProgramMetadataSpan::for_pool(
+            &pool,
+            (reference.payload() >> 32) as u32,
+            reference.payload() as u32
+        )
+        .unwrap()
+        .packed()
     );
     assert_eq!(rows[1][RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD], 0);
     assert_eq!(rows[2][RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD], 0);
     let descriptor = rows[0][RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD];
-    let start = (descriptor >> 32) as usize - STATIC_DATA_OFFSET as usize;
+    assert_eq!(
+        rows[0][RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD],
+        RUNTIME_REGEXP_DESCRIPTOR_PROGRAM_DOMAIN
+    );
+    assert_eq!(rows[1][RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD], 0);
+    assert_eq!(rows[2][RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD], 0);
+    let start = pool.compiler_owned_boundary().static_len() + (descriptor >> 32) as usize;
     let length = descriptor as u32 as usize;
     assert_eq!(
         &pool.bytes[start..start + length],
@@ -104,4 +120,67 @@ fn candidate_cache_compiles_semantic_units_instead_of_string_pool_marker_text() 
             );
         }
     }
+}
+
+#[test]
+fn candidate_runtime_descriptor_dedup_copies_into_program_relative_metadata() {
+    let mut pool = StringPool::default();
+    let source = "(?<name>Ā)";
+    let program = RegExpProgram::compile(source, "u").unwrap();
+    pool.intern_string(source);
+    pool.intern_string("u");
+    pool.queue_regexp_program(&program);
+    pool.append_regexp_programs();
+    let reference = pool.regexp_program(&program);
+    pool.compiler_owned = pool.boundary();
+    let runtime_bytes = pool.bytes.clone();
+    let prefix = pool.compiler_owned.static_len();
+    pool.intern_string("a different P string");
+    pool.runtime_regexp_programs = vec![(
+        source.into(),
+        "u".into(),
+        RuntimeRegExpEntry::Program(reference),
+    )];
+    pool.append_runtime_regexp_program_table();
+    let table = pool.runtime_regexp_table().unwrap();
+    let table_span = table.metadata_span(&pool).unwrap();
+    let offset = prefix + table_span.start() as usize;
+    let word = |index| {
+        u64::from_le_bytes(
+            pool.bytes[offset + index * 8..offset + index * 8 + 8]
+                .try_into()
+                .unwrap(),
+        )
+    };
+    let descriptor = word(RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD);
+    let start = prefix + (descriptor >> 32) as usize;
+    let length = descriptor as u32 as usize;
+    assert_eq!(
+        &pool.bytes[..prefix],
+        runtime_bytes.as_slice(),
+        "R bytes remain immutable"
+    );
+    assert_eq!(
+        word(RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD),
+        RUNTIME_REGEXP_DESCRIPTOR_PROGRAM_DOMAIN
+    );
+    assert!(start >= prefix && start + length <= offset);
+    assert_eq!(
+        &pool.bytes[start..start + length],
+        ValidatedRegExpProgram::from_program(&program)
+            .unwrap()
+            .bytes()
+    );
+    assert_eq!(
+        word(RUNTIME_REGEXP_RECORD_SOURCE_WORD),
+        PooledLiteralOperand::for_pool(&pool, pool.pooled_string_index(source).unwrap())
+            .unwrap()
+            .word()
+    );
+    assert_eq!(
+        word(RUNTIME_REGEXP_RECORD_FLAGS_WORD),
+        PooledLiteralOperand::for_pool(&pool, pool.pooled_string_index("u").unwrap())
+            .unwrap()
+            .word()
+    );
 }

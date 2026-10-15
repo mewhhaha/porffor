@@ -1,17 +1,19 @@
 //! Runtime-to-program hooks.
 //!
-//! Runtime bodies are identical for every program, so anything they need to
-//! learn from the program goes through a [`ProgramHook`]: a mutable
-//! `(ref null $helper)` global that is null until `main` installs the
-//! program's own body for it. Runtime code branches on the global and takes
-//! its unprepared path when it is null, so a program without the matching
-//! prepared data behaves exactly as if the hook did not exist.
+//! Each frame has an explicit ProgramInstance owner. Runtime code reads the
+//! selected owner's immutable typed hook field and preserves its absent path.
+//! A dispatch token roots that exact callee and borrows the same owner through
+//! the registered hook call; another program's entry cannot replace either.
 
 use super::*;
 use crate::emit::{ControlFrameKind, FunctionBuilder};
-use crate::runtime_helpers::{InstalledHook, ProgramHook};
+use crate::gc_types::{
+    FunctionLocal, FunctionStackReference, GcProgramHookRole, GcStackReference, NonNullable,
+    ProgramInstance, ProgramInstanceLocals, RuntimeSchema,
+};
+use crate::runtime_helpers::ProgramHook;
 
-/// The hooks a program has data for. Only these are installed.
+/// The hooks a program has data for. Only these fields are non-null.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProvidedHooks(u32);
 
@@ -43,43 +45,82 @@ impl ProvidedHooks {
     }
 }
 
+/// Minted only in the installed branch below. The private typed function root
+/// and owner borrow cannot be fabricated from an enum or independent operand.
+/// The token cannot escape its dispatch owner or be cloned across branches.
+pub(crate) struct InstalledHook<'owner, R: GcProgramHookRole> {
+    program: &'owner ProgramInstanceLocals,
+    callee: FunctionLocal<R>,
+}
+impl<R: GcProgramHookRole> InstalledHook<'_, R> {
+    pub(crate) fn program_reference(
+        &self,
+        schema: &RuntimeSchema,
+        function: &mut Function,
+    ) -> GcStackReference<ProgramInstance> {
+        self.program.reference(schema, function)
+    }
+    pub(crate) fn reference(&self, function: &mut Function) -> FunctionStackReference<R> {
+        self.callee.load(function)
+    }
+    fn clear(self, function: &mut Function) {
+        self.callee.clear(function);
+    }
+}
+
 impl FunctionBuilder<'_> {
-    /// Emits `if hook installed { installed } else { absent }`. Only the
-    /// installed arm receives the token that permits calling the hook.
-    pub(crate) fn emit_program_hook_dispatch(
+    /// The installed branch receives the exact non-null reference read from
+    /// this frame's ProgramInstance. Both roots outlive the callback.
+    pub(crate) fn emit_program_hook_dispatch<R: GcProgramHookRole>(
         &mut self,
-        hook: ProgramHook,
-        installed: impl FnOnce(&mut Self, &InstalledHook, &mut Function) -> Result<(), EmitError>,
+        installed: impl FnOnce(&mut Self, &InstalledHook<'_, R>, &mut Function) -> Result<(), EmitError>,
+        absent: impl FnOnce(&mut Self, &mut Function) -> Result<(), EmitError>,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let program = self.capture_current_program(function);
+        let result =
+            self.emit_owned_program_hook_dispatch::<R>(&program, installed, absent, function);
+        program.clear(function);
+        result
+    }
+
+    /// Retained continuations select their own code/data owner, independently
+    /// of the frame that drains the job. The token still binds the exact
+    /// immutable typed hook and the same owner for the entire callback.
+    pub(crate) fn emit_owned_program_hook_dispatch<R: GcProgramHookRole>(
+        &mut self,
+        owner: &ProgramInstanceLocals,
+        installed: impl FnOnce(&mut Self, &InstalledHook<'_, R>, &mut Function) -> Result<(), EmitError>,
         absent: impl FnOnce(&mut Self, &mut Function) -> Result<(), EmitError>,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        function.instruction(&Instruction::GlobalGet(schema.program_hook_global(hook)));
-        function.instruction(&Instruction::RefIsNull);
+        // Own a separate root so the token never borrows self across the
+        // installed callback, which may reenter arbitrary JavaScript.
+        let program =
+            ProgramInstanceLocals::bind(schema, owner.reference(schema, function), function);
+        let candidate = program.hook::<R>(schema, function);
+        candidate.load(function).is_null(function);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
-        installed(self, &InstalledHook::mint(hook), function)?;
+        let callee = schema
+            .reserve_function_local::<R, NonNullable>(function)
+            .initialize(
+                candidate.load(function).require_non_null(function),
+                function,
+            );
+        let hook = InstalledHook {
+            program: &program,
+            callee,
+        };
+        installed(self, &hook, function)?;
+        hook.clear(function);
         function.instruction(&Instruction::Else);
         absent(self, function)?;
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        Ok(())
-    }
-
-    /// `main` publishes the program's bodies before any runtime code can ask.
-    pub(crate) fn emit_install_program_hooks(
-        &mut self,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        let schema = self.runtime_schema();
-        let provided = ProvidedHooks::of(self.functions, self.strings);
-        let base = self.runtime_helper_base()?;
-        for hook in ProgramHook::ALL {
-            if provided.provides(hook) {
-                function.instruction(&Instruction::RefFunc(hook.helper().index(base)));
-                function.instruction(&Instruction::GlobalSet(schema.program_hook_global(hook)));
-            }
-        }
+        candidate.clear(function);
+        program.clear(function);
         Ok(())
     }
 

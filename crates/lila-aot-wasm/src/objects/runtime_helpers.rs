@@ -64,6 +64,7 @@ impl FunctionBuilder<'_> {
                 crate::runtime_helpers::ObjectGetPrototypeOfArguments::new(
                     object,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -100,6 +101,7 @@ impl FunctionBuilder<'_> {
                     object,
                     prototype,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -141,6 +143,7 @@ impl FunctionBuilder<'_> {
                     object,
                     key,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -178,6 +181,7 @@ impl FunctionBuilder<'_> {
                 crate::runtime_helpers::ObjectIsExtensibleArguments::new(
                     object,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,
@@ -212,6 +216,7 @@ impl FunctionBuilder<'_> {
                 crate::runtime_helpers::ObjectPreventExtensionsArguments::new(
                     object,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 self.runtime_helper_base()?,
                 function,

@@ -101,14 +101,23 @@ impl FunctionBuilder<'_> {
         InitializedIntlNumberFormatObjectLocal(record)
     }
     pub(super) fn emit_publish_intl_number_format_object(
-        &self,
+        &mut self,
         initialized: InitializedIntlNumberFormatObjectLocal,
         function: &mut Function,
-    ) {
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let fresh = schema.reserve_value_local(function);
+        fresh.set_reference(&initialized.0, schema, function);
+        let returned = self.emit_intl_chain_legacy_constructor(
+            IntlLegacyFormatterKind::NumberFormat,
+            &fresh,
+            function,
+        )?;
         self.completion().initialize(function);
-        self.completion()
-            .value()
-            .set_reference(&initialized.0, self.runtime_schema(), function);
+        self.completion().value().copy_from(&returned, function);
+        returned.clear(function);
+        fresh.clear(function);
         initialized.0.clear(function);
+        Ok(())
     }
 }

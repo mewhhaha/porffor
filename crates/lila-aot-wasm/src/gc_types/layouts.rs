@@ -500,18 +500,65 @@ where
     }
 }
 
-pub(crate) trait GcFunctionRole: sealed::Sealed + 'static {
-    const SIGNATURE: crate::module::StaticSignature;
+/// Concrete function references retain the registry that owns their signature.
+/// Program hooks reuse their helper row; they do not copy it into StaticSignature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GcFunctionSignature {
+    Entry(crate::module::StaticSignature),
+    ProgramHook(crate::runtime_helpers::ProgramHook),
 }
+impl GcFunctionSignature {
+    pub(crate) const fn type_index(self) -> u32 {
+        match self {
+            Self::Entry(signature) => signature.type_index(),
+            Self::ProgramHook(hook) => hook.helper().type_index(),
+        }
+    }
+}
+pub(crate) trait GcFunctionRole: sealed::Sealed + 'static {
+    const SIGNATURE: GcFunctionSignature;
+}
+/// Only JavaScript/native entry roles produce the ordinary Completion ABI.
+/// Hook roles retain their registered helper-specific result shape instead.
+pub(crate) trait GcEntryFunctionRole: GcFunctionRole {}
 macro_rules! callable_roles {
     ($($role:ident => $signature:ident),+ $(,)?) => { $(
         pub(crate) enum $role {}
         impl sealed::Sealed for $role {}
-        impl GcFunctionRole for $role { const SIGNATURE: crate::module::StaticSignature = crate::module::StaticSignature::$signature; }
+        impl GcFunctionRole for $role { const SIGNATURE: GcFunctionSignature = GcFunctionSignature::Entry(crate::module::StaticSignature::$signature); }
+        impl GcEntryFunctionRole for $role {}
     )+ };
 }
 callable_roles!(OrdinaryCallable => JavaScriptFunction, GeneratorCallable => GeneratorFunction,
     AsyncCallable => AsyncFunction, AsyncGeneratorCallable => AsyncGeneratorFunction);
+
+/// Only the five closed hook roles can select one ProgramInstance hook field.
+pub(crate) trait GcProgramHookRole: GcFunctionRole + Sized {
+    const HOOK: crate::runtime_helpers::ProgramHook;
+    fn field() -> GcField<ProgramInstance, GcFunctionRef<Self>, Immutable, Nullable>;
+}
+macro_rules! program_hook_roles {
+    ($($role:ident => $hook:ident, $field:ident);+ $(;)?) => { $(
+        pub(crate) enum $role {}
+        impl sealed::Sealed for $role {}
+        impl GcFunctionRole for $role {
+            const SIGNATURE: GcFunctionSignature = GcFunctionSignature::ProgramHook(crate::runtime_helpers::ProgramHook::$hook);
+        }
+        impl GcProgramHookRole for $role {
+            const HOOK: crate::runtime_helpers::ProgramHook = crate::runtime_helpers::ProgramHook::$hook;
+            fn field() -> GcField<ProgramInstance, GcFunctionRef<Self>, Immutable, Nullable> {
+                ProgramInstanceSchema::$field
+            }
+        }
+    )+ };
+}
+program_hook_roles! {
+    PreparedDynamicFunctionHook => PreparedDynamicFunction, PREPARED_DYNAMIC_FUNCTION;
+    PreparedScriptHook => PreparedScript, PREPARED_SCRIPT;
+    RealmModuleImportHook => RealmModuleImport, REALM_MODULE_IMPORT;
+    ModuleBodyReactionHook => ModuleBodyReaction, MODULE_BODY_REACTION;
+    RegExpProgramCandidateHook => RegExpProgramCandidate, REGEXP_PROGRAM_CANDIDATE;
+}
 pub(crate) struct GcFunctionRef<R: GcFunctionRole>(PhantomData<fn() -> R>);
 impl<R: GcFunctionRole> sealed::Sealed for GcFunctionRef<R> {}
 impl<O: GcHeapType, R: GcFunctionRole, N: GcFieldNullability> GcFieldValue<O, N>
@@ -841,6 +888,29 @@ gc_layout_registry! {
             THIS_BEFORE_SUPER: bool, Immutable, NonNullable;
             IS_HTMLDDA: bool, Immutable, NonNullable;
             TYPED_ARRAY_ELEMENT_KIND: Option<crate::module::TypedArrayElementKind>, Immutable, NonNullable;
+            LEGACY_CALLER: GcRef<LegacyReflectionPropertyState>, Mutable, Nullable;
+            LEGACY_ARGUMENTS: GcRef<LegacyReflectionPropertyState>, Mutable, Nullable;
+        }
+        // Only the original optional legacy data properties own publication.
+        // Their last StoredValue is a mutation token, not a JavaScript value
+        // proof. A successful user definition rebuilds it; deletion changes
+        // the selected descriptor. Retiring both edges is permanent.
+        struct LegacyReflectionPropertyState => LegacyReflectionPropertyStateSchema {
+            DESCRIPTOR: GcRef<PropertyDescriptor>, Mutable, Nullable;
+            EXPECTED_VALUE: GcRef<StoredValue>, Mutable, Nullable;
+        }
+        // One physical P instance's code/data owner. These references are never
+        // published through the shared runtime's mutable program globals.
+        struct ProgramInstance => ProgramInstanceSchema {
+            PREPARED_DYNAMIC_FUNCTION: GcFunctionRef<PreparedDynamicFunctionHook>, Immutable, Nullable;
+            PREPARED_SCRIPT: GcFunctionRef<PreparedScriptHook>, Immutable, Nullable;
+            REALM_MODULE_IMPORT: GcFunctionRef<RealmModuleImportHook>, Immutable, Nullable;
+            MODULE_BODY_REACTION: GcFunctionRef<ModuleBodyReactionHook>, Immutable, Nullable;
+            REGEXP_PROGRAM_CANDIDATE: GcFunctionRef<RegExpProgramCandidateHook>, Immutable, Nullable;
+            LITERAL_STRINGS: GcRef<PooledStringTable>, Immutable, NonNullable;
+            LITERAL_BASE: I32Value, Immutable, NonNullable;
+            LITERAL_COUNT: I32Value, Immutable, NonNullable;
+            METADATA: GcRef<ImmutableByteArray>, Immutable, NonNullable;
         }
         // Completed captures are immutable. The actual function/context cycle
         // is closed only after function allocation, so its back edge is mutable.
@@ -854,6 +924,9 @@ gc_layout_registry! {
             TEMPLATE_SOURCE: GcRef<TemplateSource>, Immutable, Nullable;
             BUILTIN_CAPTURE: GcRef<BuiltinClosureCapture>, Immutable, Nullable;
             INSTANCE_PRIVATE_METHODS: GcRef<PrivateElementTable>, Immutable, Nullable;
+            // JavaScript captures Some(defining P); R-native code explicitly
+            // inherits the caller's effective program operand on each entry.
+            DEFINING_PROGRAM: GcRef<ProgramInstance>, Immutable, Nullable;
         }
         struct BoundFunction => BoundFunctionSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
@@ -1180,7 +1253,7 @@ gc_layout_registry! {
             GLOBAL_ENVIRONMENT: GcRef<Environment>, Mutable, Nullable;
             INTRINSICS: GcRef<IntrinsicTable>, Immutable, NonNullable;
             HOST_HOOKS: GcRef<HostResource>, Immutable, Nullable;
-            MODULES: GcRef<ModuleRegistry>, Mutable, Nullable;
+            MODULES: GcRef<ModuleGraph>, Mutable, Nullable;
             TEMPLATE_REGISTRY: GcRef<TemplateSource>, Mutable, Nullable;
             REGEXP_LEGACY: GcRef<RegExpLegacyState>, Immutable, NonNullable;
         }
@@ -1635,6 +1708,8 @@ gc_layout_registry! {
             NEXT_ASYNC_ORDER: I64Value, Mutable, NonNullable;
             PARENT_BUDGET: I64Value, Immutable, NonNullable;
             PARENT_COUNT: I64Value, Mutable, NonNullable;
+            PROGRAM: GcRef<ProgramInstance>, Immutable, NonNullable;
+            NEXT: GcRef<ModuleGraph>, Immutable, Nullable;
         }
         struct ModuleRequest => ModuleRequestSchema {
             PHASE: crate::heap::ModuleRequestPhase, Immutable, NonNullable;

@@ -509,8 +509,23 @@ impl FunctionBuilder<'_> {
         self.emit_builtin_arg_to_value(1, &options, f);
         let record =
             self.emit_dtf_complete_initialization(header, &purpose, &locales, &options, None, f)?;
+        let fresh = schema.reserve_value_local(f);
+        fresh.set_reference(&record, schema, f);
+        let returned = if matches!(&purpose, IntlDateTimeFormatPurpose::Constructor) {
+            self.emit_intl_chain_legacy_constructor(
+                IntlLegacyFormatterKind::DateTimeFormat,
+                &fresh,
+                f,
+            )?
+        } else {
+            let returned = schema.reserve_value_local(f);
+            returned.copy_from(&fresh, f);
+            returned
+        };
         self.completion().initialize(f);
-        self.completion().value().set_reference(&record, schema, f);
+        self.completion().value().copy_from(&returned, f);
+        returned.clear(f);
+        fresh.clear(f);
         record.clear(f);
         options.clear(f);
         locales.clear(f);

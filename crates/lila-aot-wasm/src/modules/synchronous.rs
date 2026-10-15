@@ -60,13 +60,13 @@ impl FunctionBuilder<'_> {
             ));
         }
         let schema = self.runtime_schema();
+        let graph = self.emit_module_graph_in_realm(realm, self.current_program(), function);
         let records = schema.reserve_gc_local(function).initialize(
             schema
-                .struct_type::<RealmRecord>()
-                .field(RealmRecordSchema::MODULES)
-                .read(realm, schema, function)
-                .reference()
-                .require_non_null(function),
+                .struct_type::<ModuleGraph>()
+                .field(ModuleGraphSchema::MODULES)
+                .read(&graph, schema, function)
+                .reference(),
             function,
         );
         let index = schema.reserve_i32_local(function);
@@ -82,6 +82,7 @@ impl FunctionBuilder<'_> {
         );
         schema.release_i32_local(index, function);
         records.clear(function);
+        graph.clear(function);
         Ok(record)
     }
 
@@ -333,6 +334,13 @@ impl FunctionBuilder<'_> {
         }
         let schema = self.runtime_schema();
         let realm = self.load_current_realm(function);
+        let existing = self.emit_module_graph_in_realm(&realm, self.current_program(), function);
+        existing.load(schema, function).is_null(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
+        existing.clear(function);
         let length = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(graph.record_count() as i32));
         length.store(function);
@@ -342,6 +350,17 @@ impl FunctionBuilder<'_> {
                 .filled(GcOperand::null(schema), length, function),
             function,
         );
+        let previous = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<RealmRecord>()
+                .field(RealmRecordSchema::MODULES)
+                .read(&realm, schema, function)
+                .reference(),
+            function,
+        );
+        let program = schema
+            .reserve_gc_local(function)
+            .initialize(self.current_program().reference(schema, function), function);
         let graph_record = schema.reserve_gc_local(function).initialize(
             schema.struct_type::<ModuleGraph>().construct(
                 (
@@ -355,11 +374,15 @@ impl FunctionBuilder<'_> {
                             })?,
                     ),
                     GcOperand::i64(0),
+                    GcOperand::reference(&program, schema),
+                    GcOperand::reference(&previous, schema),
                 ),
                 function,
             ),
             function,
         );
+        program.clear(function);
+        previous.clear(function);
         let undefined = schema.reserve_value_local(function);
         undefined.set_undefined(function);
         let error = schema.reserve_gc_local(function).initialize(
@@ -422,7 +445,7 @@ impl FunctionBuilder<'_> {
             .field(RealmRecordSchema::MODULES)
             .write(
                 &realm,
-                GcOperand::nullable_reference(&records, schema),
+                GcOperand::nullable_reference(&graph_record, schema),
                 schema,
                 function,
             );
@@ -664,13 +687,15 @@ impl FunctionBuilder<'_> {
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let pending = schema.reserve_completion(function);
+        let program = self.emit_module_record_program(&record, function);
         schema
             .call_helper(
-                ModuleEvaluateArguments::new(&record),
+                ModuleEvaluateArguments::new(&record, &program),
                 self.runtime_helper_base()?,
                 function,
             )
             .store(&pending, function);
+        program.clear(function);
         record.clear(function);
         self.completion().copy_from(&pending, function);
         output.copy_from(pending.value(), function);
@@ -709,13 +734,15 @@ impl FunctionBuilder<'_> {
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let pending = schema.reserve_completion(function);
+        let program = self.emit_module_record_program(&record, function);
         schema
             .call_helper(
-                ModuleDeferredImportArguments::new(&record, self.current_environment()),
+                ModuleDeferredImportArguments::new(&record, self.current_environment(), &program),
                 self.runtime_helper_base()?,
                 function,
             )
             .store(&pending, function);
+        program.clear(function);
         record.clear(function);
         self.completion().copy_from(&pending, function);
         output.copy_from(pending.value(), function);
@@ -734,9 +761,10 @@ impl FunctionBuilder<'_> {
         let record = self.module_record_local(plan.module(), function)?;
         let ready = schema.reserve_i32_local(function);
         let pending = schema.reserve_completion(function);
+        let program = self.emit_module_record_program(&record, function);
         schema
             .call_helper(
-                ModuleReadyArguments::new(&record),
+                ModuleReadyArguments::new(&record, &program),
                 self.runtime_helper_base()?,
                 function,
             )
@@ -756,11 +784,12 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         schema
             .call_helper(
-                ModuleEvaluateArguments::new(&record),
+                ModuleEvaluateArguments::new(&record, &program),
                 self.runtime_helper_base()?,
                 function,
             )
             .store(&pending, function);
+        program.clear(function);
         self.completion().copy_from(&pending, function);
         self.emit_propagate_current_throw_if_needed(function);
         let promise = schema.reserve_gc_local(function).initialize(

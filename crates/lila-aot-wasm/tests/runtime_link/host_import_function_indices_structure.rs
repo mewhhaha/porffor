@@ -415,7 +415,7 @@ fn authority_has_twenty_six_scalar_roles_and_one_required_role_plus_gc_imports()
     }
     let host = rust_code(GC_HOST_SOURCE).normalized;
     let domain = bounded(&host, "gc_host_imports!{", "}");
-    assert_eq!(domain.matches("=>(").count(), 34);
+    assert_eq!(domain.matches("=>(").count(), 35);
     for marker in [
         "CollectGc=>(\"collect_gc\",HostCollectGc)",
         "ByteArrayAllocate=>(\"byte_array_allocate\",HostByteArrayAllocate)",
@@ -451,6 +451,7 @@ fn authority_has_twenty_six_scalar_roles_and_one_required_role_plus_gc_imports()
         "FinalizationTokenMatches=>(\"finalization_token_matches\",HostFinalizationTokenMatches)",
         "FinalizationCellRemove=>(\"finalization_cell_remove\",HostFinalizationCellRemove)",
         "ReportCleanupException=>(\"report_cleanup_exception\",HostReportCleanupException)",
+        "CompileDynamicFunction=>(\"compile_dynamic_function\",HostCompileDynamicFunction)",
     ] {
         assert!(domain.contains(marker), "GC import {marker}");
     }

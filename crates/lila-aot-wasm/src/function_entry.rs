@@ -36,7 +36,6 @@ enum EntryOrigin {
     },
     StandardBuiltin(StandardBuiltinId),
     HostBuiltin(HostBuiltinId),
-    EmptyOrdinaryFunction,
 }
 
 /// The planner owns the protocol and declared Wasm entry together. Its index
@@ -83,24 +82,6 @@ impl PlannedFunctionEntry {
         }
     }
 
-    /// The zero-source Function constructor shares Function.prototype's
-    /// ordinary body, while its newly materialized callable is constructable.
-    pub(crate) fn empty_ordinary_function(&self) -> Result<Self, EmitError> {
-        match self.origin {
-            EntryOrigin::StandardBuiltin(StandardBuiltinId::FunctionPrototype) => Ok(Self {
-                origin: EntryOrigin::EmptyOrdinaryFunction,
-                ..self.clone()
-            }),
-            EntryOrigin::User { .. }
-            | EntryOrigin::PreparedScript { .. }
-            | EntryOrigin::StandardBuiltin(_)
-            | EntryOrigin::HostBuiltin(_)
-            | EntryOrigin::EmptyOrdinaryFunction => Err(entry_error(
-                "empty Function allocation shares only Function.prototype's body",
-            )),
-        }
-    }
-
     /// Only a genuine source callable contributes a reflection activation.
     /// Prepared eval Scripts and native forwarding bodies are transparent.
     pub(crate) fn has_source_activation(&self) -> bool {
@@ -108,8 +89,7 @@ impl PlannedFunctionEntry {
             EntryOrigin::User { .. } => true,
             EntryOrigin::PreparedScript { .. }
             | EntryOrigin::StandardBuiltin(_)
-            | EntryOrigin::HostBuiltin(_)
-            | EntryOrigin::EmptyOrdinaryFunction => false,
+            | EntryOrigin::HostBuiltin(_) => false,
         }
     }
 
@@ -135,7 +115,6 @@ impl PlannedFunctionEntry {
         match &self.origin {
             EntryOrigin::User { protocol, .. } => *protocol,
             EntryOrigin::PreparedScript { .. } => FunctionProtocolIr::OrdinaryCallOnly,
-            EntryOrigin::EmptyOrdinaryFunction => FunctionProtocolIr::OrdinaryCallAndConstruct,
             EntryOrigin::StandardBuiltin(builtin) => {
                 if builtin.constructable() {
                     FunctionProtocolIr::OrdinaryCallAndConstruct
@@ -172,9 +151,7 @@ impl PlannedFunctionEntry {
                     PlannedBodyEntry::AsyncGenerator(AsyncGeneratorBodyEntry(self))
                 }
             },
-            EntryOrigin::StandardBuiltin(_)
-            | EntryOrigin::HostBuiltin(_)
-            | EntryOrigin::EmptyOrdinaryFunction => {
+            EntryOrigin::StandardBuiltin(_) | EntryOrigin::HostBuiltin(_) => {
                 PlannedBodyEntry::Ordinary(OrdinaryBodyEntry(self))
             }
         }
@@ -228,9 +205,6 @@ impl PlannedFunctionEntry {
             },
             EntryOrigin::StandardBuiltin(id) => FunctionIdentity::StandardBuiltin(*id),
             EntryOrigin::HostBuiltin(id) => FunctionIdentity::HostBuiltin(*id),
-            EntryOrigin::EmptyOrdinaryFunction => {
-                FunctionIdentity::StandardBuiltin(StandardBuiltinId::FunctionPrototype)
-            }
         }
     }
 
@@ -255,6 +229,18 @@ pub(crate) enum PlannedBodyEntry<'a> {
     Async(AsyncBodyEntry<'a>),
     AsyncGenerator(AsyncGeneratorBodyEntry<'a>),
     PreparedScript(PreparedScriptEntry<'a>),
+}
+
+impl PlannedBodyEntry<'_> {
+    /// ABI6 appends the program owner after each role's existing operands.
+    /// It never occupies a JS value, activation, Realm or eval-context slot.
+    pub(super) fn program_parameter_index(&self) -> u32 {
+        match self {
+            Self::Ordinary(_) => 10,
+            Self::Generator(_) | Self::Async(_) | Self::AsyncGenerator(_) => 7,
+            Self::PreparedScript(_) => 12,
+        }
+    }
 }
 
 pub(crate) struct OrdinaryBodyEntry<'a>(&'a PlannedFunctionEntry);

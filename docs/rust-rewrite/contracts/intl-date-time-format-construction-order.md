@@ -127,3 +127,11 @@ The first two were subsequently supplied by the shared Realm authority. This
 lifecycle contract does not add locale, CLDR or time-zone data, another Intl
 service, or a green DateTimeFormat/Intl subtree; its dated verification receipts
 remain limited to the checks actually recorded.
+
+The later prepared [legacy formatter component](intl-legacy-formatter-construction.md)
+adds the normative optional `ChainDateTimeFormat`/`UnwrapDateTimeFormat`
+algorithms after complete initialization, using the actual executing Realm and
+a shared per-Realm hidden Symbol. Only the format getter and resolvedOptions
+unwrap; parts and range methods retain their direct brand requirement. Its
+new source and four Engine controls are pending native verification and do not
+extend the historical lifecycle receipt above.

@@ -71,6 +71,40 @@ print('ok');
     );
 }
 #[test]
+fn locale_collations_reserved_languages_use_the_unmatched_root_profiles() {
+    assert_lists(
+        r#"
+for (var tag of ['abcde','abcdef','abcdefg','abcdefgh','abcde-Latn-DE-u-ca-gregory','abcdefgh-DE-t-de-u-rg-dezzzz-x-phonebk']) {
+ var locale=new Intl.Locale(tag), before=locale.toString(), names=locale.getCollations();
+ if(names.join(',')!=='emoji,eor'||locale.toString()!==before)throw 'reserved language fallback';
+ names[0]='changed';if(locale.getCollations().join(',')!=='emoji,eor')throw 'fresh unmatched result';
+}
+print('ok');
+"#,
+        HostSurfacePolicy::default(),
+    );
+}
+#[test]
+fn locale_collations_reserved_transform_language_preserves_base_and_explicit_slot() {
+    assert_lists(
+        r#"
+var de=new Intl.Locale('de').getCollations().join(',');
+if(!de.includes('phonebk'))throw 'genuine matched profile';
+for(var tag of ['de-t-abcde','de-t-abcdefgh-latn-us-u-ca-buddhist','de-a-foobar-t-abcde-u-rg-uszzzz-x-co-search','de-u-ca-buddhist-x-u-co-phonebk']) {
+ if(new Intl.Locale(tag).getCollations().join(',')!==de)throw 'matched base';
+}
+for(var tag of ['abcde','abcdefgh','de-t-abcde']) {
+ for(var value of ['phonebk','foobar','search','']) {
+  var locale=new Intl.Locale(tag+'-u-co'+(value?'-'+value:'')), names=locale.getCollations();
+  if(names.length!==1||names[0]!==value)throw 'explicit slot';
+ }
+}
+print('ok');
+"#,
+        HostSurfacePolicy::default(),
+    );
+}
+#[test]
 fn locale_calendars_and_collations_preserve_complete_open_explicit_slots() {
     assert_lists(
         r#"

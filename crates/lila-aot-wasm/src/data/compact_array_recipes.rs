@@ -38,7 +38,7 @@ pub(crate) enum CompactArrayNode<'a> {
 impl CompactArrayNode<'_> {
     fn encoded(
         &self,
-        string_index: impl FnOnce(&str) -> Result<PooledStringIndex, EmitError>,
+        string_index: impl FnOnce(&str) -> Result<PooledLiteralOperand, EmitError>,
     ) -> Result<(CompactArrayOpcode, u64), EmitError> {
         Ok(match self {
             Self::Begin(length) => (CompactArrayOpcode::Begin, u64::from(*length)),
@@ -48,10 +48,7 @@ impl CompactArrayNode<'_> {
             Self::Null => (CompactArrayOpcode::Null, 0),
             Self::Boolean(value) => (CompactArrayOpcode::Boolean, u64::from(*value)),
             Self::Number(bits) => (CompactArrayOpcode::Number, *bits),
-            Self::String(value) => (
-                CompactArrayOpcode::String,
-                u64::from(string_index(value)?.ordinal()),
-            ),
+            Self::String(value) => (CompactArrayOpcode::String, string_index(value)?.word()),
         })
     }
 }
@@ -107,7 +104,7 @@ impl<'a> CompactArrayPlan<'a> {
     }
     fn encode(
         &self,
-        mut string_index: impl FnMut(&str) -> Result<PooledStringIndex, EmitError>,
+        mut string_index: impl FnMut(&str) -> Result<PooledLiteralOperand, EmitError>,
     ) -> Result<Vec<u8>, EmitError> {
         let mut bytes =
             Vec::with_capacity(self.nodes.len() * COMPACT_ARRAY_RECIPE_ROW_BYTES as usize);
@@ -147,7 +144,7 @@ impl CompactArrayRecipes {
     pub(super) fn collect(
         &mut self,
         plan: &CompactArrayPlan<'_>,
-        string_index: impl FnMut(&str) -> Result<PooledStringIndex, EmitError>,
+        string_index: impl FnMut(&str) -> Result<PooledLiteralOperand, EmitError>,
     ) {
         let result = (|| {
             let key = plan.encode(string_index)?;
@@ -182,7 +179,7 @@ impl CompactArrayRecipes {
     pub(super) fn find(
         &self,
         plan: &CompactArrayPlan<'_>,
-        string_index: impl FnMut(&str) -> Result<PooledStringIndex, EmitError>,
+        string_index: impl FnMut(&str) -> Result<PooledLiteralOperand, EmitError>,
     ) -> Result<CompactArrayRecipe, EmitError> {
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -210,8 +207,9 @@ impl StringPool {
     ) -> Result<Option<CompactArrayRecipe>, EmitError> {
         CompactArrayPlan::of(elements)
             .map(|plan| {
-                self.compact_array_recipes
-                    .find(&plan, |text| self.pooled_string_index(text))
+                self.compact_array_recipes.find(&plan, |text| {
+                    PooledLiteralOperand::for_pool(self, self.pooled_string_index(text)?)
+                })
             })
             .transpose()
     }

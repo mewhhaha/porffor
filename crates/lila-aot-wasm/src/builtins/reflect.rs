@@ -168,6 +168,7 @@ impl FunctionBuilder<'_> {
                                     target.0,
                                     &key,
                                     builder.current_environment(),
+                                    builder.current_program(),
                                 ),
                                 builder.runtime_helper_base()?,
                                 function,

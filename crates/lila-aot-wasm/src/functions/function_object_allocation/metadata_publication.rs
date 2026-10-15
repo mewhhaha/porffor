@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::gc_types::{
-    FunctionObjectSchema, I32Local, OrdinaryObject, OrdinaryObjectSchema, ScalarValue,
+    FunctionObjectSchema, I32Local, LegacyReflectionPropertyState, OrdinaryObject,
+    OrdinaryObjectSchema, PropertyDescriptor, PropertyDescriptorSchema, ScalarValue,
 };
 use crate::runtime_helpers::HelperParameters;
 
@@ -148,17 +149,66 @@ impl FunctionBuilder<'_> {
         parameters.has_caller.load(function);
         self.open_frame(ControlFrameKind::If, function);
         value.set_scalar(ScalarValue::Null, function);
-        self.emit_define_function_runtime_metadata_property(
-            &object, "caller", &value, zero, zero, function,
-        )?;
-        self.emit_define_function_runtime_metadata_property(
-            &object,
-            "arguments",
-            &value,
-            zero,
-            zero,
-            function,
-        )?;
+        let configurable = schema.reserve_i32_local(function);
+        configurable.set_constant(1, function);
+        for (name, field) in [
+            ("caller", FunctionObjectSchema::LEGACY_CALLER),
+            ("arguments", FunctionObjectSchema::LEGACY_ARGUMENTS),
+        ] {
+            // Active reflection is permitted only while this data property
+            // remains unfrozen. Assignment still sees writable: false.
+            self.emit_define_function_runtime_metadata_property(
+                &object,
+                name,
+                &value,
+                zero,
+                configurable,
+                function,
+            )?;
+            let key = self.emit_function_string_key(name, function)?;
+            let own = self.emit_ordinary_own_descriptor_reference(&object, &key, function)?;
+            let descriptor = schema
+                .reserve_gc_local::<PropertyDescriptor, NonNullable>(function)
+                .initialize(
+                    own.load(schema, function).require_non_null(function),
+                    function,
+                );
+            let stored = schema
+                .reserve_gc_local::<StoredValue, NonNullable>(function)
+                .initialize(
+                    schema
+                        .field(PropertyDescriptorSchema::VALUE)
+                        .read(&descriptor, schema, function)
+                        .reference(),
+                    function,
+                );
+            let state = schema
+                .reserve_gc_local::<LegacyReflectionPropertyState, NonNullable>(function)
+                .initialize(
+                    schema
+                        .struct_type::<LegacyReflectionPropertyState>()
+                        .construct(
+                            (
+                                GcOperand::nullable_reference(&descriptor, schema),
+                                GcOperand::nullable_reference(&stored, schema),
+                            ),
+                            function,
+                        ),
+                    function,
+                );
+            schema.field(field).write(
+                &parameters.callable,
+                GcOperand::nullable_reference(&state, schema),
+                schema,
+                function,
+            );
+            state.clear(function);
+            stored.clear(function);
+            descriptor.clear(function);
+            own.clear(function);
+            key.clear(function);
+        }
+        schema.release_i32_local(configurable, function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 

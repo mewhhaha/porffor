@@ -19,6 +19,7 @@ impl<'a> FunctionBuilder<'a> {
         if let Some(entry) = self.body_entry_locals.take() {
             entry.clear(self.schema, function);
         }
+        self.clear_entry_program(function);
         self.current_private_environment
             .set_null(self.schema, function);
         self.current_environment.set_null(self.schema, function);

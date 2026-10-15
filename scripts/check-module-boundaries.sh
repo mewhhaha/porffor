@@ -3125,7 +3125,24 @@ if [[ "$package_global_finalizer_code" != *'self,globals:ModuleGlobalSectionBuil
   fail 'global finalization must consume registered types and the actual ledger into the same sealed package, retaining snapshot and module-guard policies'
 fi
 require_fixed_string_count crates/lila-aot-wasm/src/emit/module_assembly.rs \
-  'module_package.schema().export_snapshot_roots(&mut exports);' 1 'package-owned opt-in snapshot exports'
+  'entry_exports.append(' 1 'package-owned typed entry export plan'
+wasm_program_entries="crates/lila-aot-wasm/src/emit/module_assembly/program_entries.rs"
+require_file "$wasm_program_entries"
+require_exact_line_count crates/lila-aot-wasm/src/emit/module_assembly.rs 'mod program_entries;' 1 'private typed program-export and entry owner'
+program_exports_append="$(braced_rust_item_source "$wasm_program_entries" '^pub[(]super[)] fn append[(]')"
+program_exports_append_code="$(printf '%s\n' "$program_exports_append" | tr -d '[:space:]')"
+program_exports_new="$(braced_rust_item_source "$wasm_program_entries" '^pub[(]super[)] fn new[(]')"
+if [[ "$program_exports_append_code" != *'ifself.owns_globals{schema.export_throw_diagnostics(exports);schema.export_snapshot_roots(exports);}'* ]] \
+  || ! grep -Fq 'owns_globals: kind.owns_globals(),' <<<"$program_exports_new"; then
+  fail 'the typed ProgramExports plan must gate snapshot exports on actual module global ownership'
+fi
+require_fixed_string_count "$wasm_program_entries" 'schema.export_snapshot_roots(exports);' 1 'package-owned opt-in snapshot exports'
+require_tree_regex_count crates/lila-aot-wasm/src '[.]export_snapshot_roots[(]' 1 'sole typed opt-in snapshot export consumer'
+require_fixed_string_count crates/lila-aot-wasm/src/emit/module_assembly.rs 'export_snapshot_roots(' 0 'no copied snapshot export implementation in assembly'
+program_exports_assembly_code="$(tr -d '[:space:]' < crates/lila-aot-wasm/src/emit/module_assembly.rs)"
+if [[ "$program_exports_assembly_code" != *'entry_exports.append(module_package.schema(),script.module_entry_evaluation().is_some(),&mutexports,);'* ]]; then
+  fail 'the typed ProgramExports plan must consume the same finalized module package schema'
+fi
 # Body compilation and entry roots are independent private owners, while the
 # assembly owner consumes their planned bodies and the finalized module package.
 wasm_emit_parent="crates/lila-aot-wasm/src/emit.rs"
@@ -3161,7 +3178,10 @@ require_fixed_string_count "$wasm_body_entry" 'pub(crate) fn begin_helper_body('
 require_fixed_string_count "$wasm_emit_parent" 'fn begin_helper_body(' 0 'no parent helper entry copy'
 require_fixed_string_count "$wasm_body_entry" 'FunctionModuleState::RuntimeOperation(actual) if actual == helper' 1 'helper entry matches its registered body'
 require_fixed_string_count "$wasm_body_compilation" 'self.clear_body_entry_roots(&mut function);' 2 'source and native root retirement consumers'
-require_fixed_string_count "$wasm_module_assembly" 'pub(super) fn emit_script_module(' 1 'private physical module assembly entry'
+require_fixed_string_count "$wasm_program_entries" 'pub(crate) fn emit_script_module(' 1 'canonical physical module assembly entry'
+require_exact_line_count "$wasm_module_assembly" 'pub(super) use program_entries::emit_script_module;' 1 'private assembly entry re-export'
+require_fixed_string_count "$wasm_module_assembly" 'fn emit_script_module(' 0 'no assembly entry implementation copy'
+require_tree_regex_count crates/lila-aot-wasm/src '^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+emit_script_module[[:space:]]*[(]' 1 'sole physical module assembly entry owner'
 require_fixed_string_count "$wasm_emit_parent" 'module_assembly::emit_script_module(' 2 'runtime and program assembly consumers'
 require_fixed_string_count "$wasm_emit_parent" 'fn emit_script_module(' 0 'no parent assembly implementation copy'
 program_module_emission="$(braced_rust_item_source "$wasm_emit_parent" '^fn emit_script[(]')"
@@ -3182,12 +3202,46 @@ check_raw_line_budget "$wasm_body_entry" 600
 wasm_literal_roots="crates/lila-aot-wasm/src/emit/body_entry/literal_roots.rs"
 require_file "$wasm_literal_roots"
 require_exact_line_count "$wasm_body_entry" 'mod literal_roots;' 1 'private literal-root initialization owner'
-for literal_root_entry in initialize_gc_literal_roots emit_pooled_string_slot compile_pooled_strings_initialize_helper; do
-  require_fixed_string_count "$wasm_literal_roots" "fn ${literal_root_entry}(" 1 'literal-root algorithm owner'
-  require_fixed_string_count "$wasm_body_entry" "fn ${literal_root_entry}(" 0 'no parent literal-root algorithm copy'
+wasm_runtime_string_roots="crates/lila-aot-wasm/src/emit/body_entry/literal_roots/runtime_strings.rs"
+require_file "$wasm_runtime_string_roots"
+require_exact_line_count "$wasm_literal_roots" 'mod runtime_strings;' 1 'private R string algorithm owner'
+require_fixed_string_count "$wasm_literal_roots" 'fn initialize_runtime_literal_roots(' 1 'literal-root runtime algorithm owner'
+for literal_root_entry in emit_pooled_string_slot compile_pooled_strings_initialize_helper; do
+  require_fixed_string_count "$wasm_runtime_string_roots" "fn ${literal_root_entry}(" 1 'literal-root R string algorithm owner'
 done
-require_fixed_string_count "$wasm_literal_roots" 'pub(in crate::emit) fn initialize_gc_literal_roots(' 1 'literal-root entry stays inside emission'
-require_fixed_string_count "$wasm_body_compilation" 'self.initialize_gc_literal_roots(&mut function)?;' 1 'source body consumes the canonical literal-root initializer'
+for literal_root_entry in initialize_runtime_literal_roots emit_pooled_string_slot compile_pooled_strings_initialize_helper; do
+  require_fixed_string_count "$wasm_body_entry" "fn ${literal_root_entry}(" 0 'no parent literal-root algorithm copy'
+  require_tree_regex_count crates/lila-aot-wasm/src "^[[:space:]]*(pub(\([^)]*\))?[[:space:]]+)?fn[[:space:]]+${literal_root_entry}[[:space:]]*[(]" 1 'sole canonical literal-root algorithm owner'
+done
+require_tree_regex_count crates/lila-aot-wasm/src 'fn[[:space:]]+initialize_gc_literal_roots[[:space:]]*[(]' 0 'no retired combined R/P literal-root entry'
+require_regex_count "$wasm_runtime_string_roots" '^[[:space:]]+fn emit_pooled_string_slot[(]' 1 'private runtime pooled-string slot implementation'
+require_fixed_string_count "$wasm_runtime_string_roots" 'pub(crate) fn compile_pooled_strings_initialize_helper(' 1 'registered runtime helper implementation visibility'
+for literal_root_entry in produce_program_literal_roots emit_pooled_string_reference; do
+  require_fixed_string_count "$wasm_literal_roots" "fn ${literal_root_entry}" 1 'actual literal-root algorithm owner'
+  require_fixed_string_count "$wasm_body_entry" "fn ${literal_root_entry}" 0 'no parent literal-root algorithm copy'
+done
+for runtime_string_entry in emit_pooled_string_slot compile_pooled_strings_initialize_helper; do
+  require_fixed_string_count "$wasm_literal_roots" "fn ${runtime_string_entry}(" 0 'no copied R string algorithm in literal owner'
+done
+require_fixed_string_count "$wasm_literal_roots" 'pub(in crate::emit) fn produce_program_literal_roots' 1 'one fresh P producer inside emission'
+require_fixed_string_count "$wasm_literal_roots" 'PooledStringsInitializeArguments::new()' 1 'R bootstrap has no implicit or dummy P operand'
+check_no_inline_legacy_includes "$wasm_runtime_string_roots"
+require_fixed_string_count "$wasm_literal_roots" 'pub(in crate::emit) fn initialize_runtime_literal_roots(' 1 'literal-root entry stays inside emission'
+wasm_program_initialize="crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs"
+require_file "$wasm_program_initialize"
+require_exact_line_count "$wasm_body_compilation" 'mod program_initialize;' 1 'private typed P bootstrap compiler'
+program_initialize_compiler="$(braced_rust_item_source "$wasm_program_initialize" '^pub[(]crate[)] fn compile[(]')"
+require_text_regex_count "$program_initialize_compiler" 'builder[.]initialize_runtime_literal_roots[(]&mut function[)][?];' 1 'typed P bootstrap consumes the canonical R literal-root initializer'
+require_text_regex_count "$program_initialize_compiler" 'builder[.]produce_program_literal_roots[(]self.image, &mut function[)][?];' 1 'typed P bootstrap consumes its checked P literal image'
+require_fixed_string_count "$wasm_body_compilation" 'initialize_gc_literal_roots(' 0 'no retired source-body literal initialization bypass'
+require_fixed_string_count crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs 'builder.initialize_runtime_literal_roots(&mut function)?;' 1 'pure bootstrap owns R-only initialization'
+require_fixed_string_count crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs 'builder.produce_program_literal_roots(' 1 'pure bootstrap owns unconditional P publication'
+source_body_compiler="$(braced_rust_item_source "$wasm_body_compilation" '^fn compile_javascript_body[(]')"
+source_body_compiler_code="$(printf '%s\n' "$source_body_compiler" | tr -d '[:space:]')"
+if [[ "$source_body_compiler_code" != *'ifself.is_main(){letindex=initializer.expect('* ]] \
+  || [[ "$source_body_compiler_code" != *'letprogram=self.runtime_schema().call_program_initialize(index,&mutfunction);self.bind_entry_program(program);'* ]]; then
+  fail 'heap source main must bind the P returned by its typed initializer before executing source'
+fi
 require_fixed_string_count "$wasm_module_assembly" 'compile_pooled_strings_initialize_helper' 1 'runtime assembly consumes the canonical pooled-string helper'
 module_assembly_code="$(tr -d '[:space:]' < "$wasm_module_assembly")"
 if [[ "$module_assembly_code" != *'register_runtime_helper!(PooledStringsInitialize,compile_pooled_strings_initialize_helper);'* ]]; then
@@ -3205,11 +3259,20 @@ for program_string_owner in "$wasm_program_string_roots" "$wasm_program_string_d
   require_file "$program_string_owner"
   check_no_inline_legacy_includes "$program_string_owner"
 done
-require_fixed_string_count "$wasm_literal_roots" 'self.initialize_program_string_roots(function);' 1 'bounded program-string bootstrap consumer'
+require_fixed_string_count "$wasm_literal_roots" 'self.initialize_program_string_roots(image, function);' 1 'checked P-image string bootstrap consumer'
+program_literal_producer="$(braced_rust_item_source "$wasm_literal_roots" '^pub[(]in crate::emit[)] fn produce_program_literal_roots')"
+require_text_regex_count "$program_literal_producer" 'image[.]require_pool[(]self.strings[)][?];' 1 'P literal producer admits its matching pool image'
+require_text_regex_count "$program_literal_producer" 'self[.]initialize_program_string_roots[(]image, function[)];' 1 'bounded program-string bootstrap consumer'
+program_string_initializer="$(braced_rust_item_source "$wasm_program_string_roots" '^pub[(]super[)] fn initialize_program_string_roots')"
+require_text_regex_count "$program_string_initializer" 'function[.]instruction[(]&Instruction::Loop[(]BlockType::Empty[)][)];' 1 'one bounded descriptor-loop bootstrap'
+require_text_regex_count "$program_string_initializer" 'ProgramLiteralRoots::admit_complete_table[(]schema, image, pool, function[)]' 1 'image-owned completed literal table result'
+require_tree_regex_count crates/lila-aot-wasm/src/emit/body_entry/literal_roots 'program_pooled_string_initializers[(][)]' 0 'no unrolled program-string bootstrap in child owners'
 require_fixed_string_count "$wasm_literal_roots" 'program_pooled_string_initializers()' 0 'no unrolled program-string bootstrap'
 check_raw_line_budget "$wasm_program_string_roots" 100
 check_raw_line_budget "$wasm_program_string_descriptors" 180
 check_raw_line_budget "$wasm_gc_program_string_descriptors" 180
+# New native/ordinary entry and typed export planning live in program_entries;
+# the existing assembly owner's 1950-line cap remains unchanged.
 check_raw_line_budget "$wasm_module_assembly" 1950
 wasm_module_metadata="crates/lila-aot-wasm/src/emit/module_assembly/metadata.rs"
 require_file "$wasm_module_metadata"
@@ -3232,8 +3295,8 @@ package_assembly_code="$(printf '%s\n' "$package_assembly" | tr -d '[:space:]')"
 if ! grep -Fq "Main(&'a FinalizedModuleGlobals, PromiseRejectionPolicy)" "$wasm_emit_parent" \
   || ! grep -Fq 'module_package.compile_main(MainFunctionCompilation::new(' "$wasm_module_assembly" \
   || [[ "$package_main_compiler_code" != *"&mutself,compilation:MainFunctionCompilation<'_>,)->Result<(),EmitError>"* ]] \
-  || [[ "$package_main_compiler_code" != *'compilation.compile(self.runtime.globals())?;self.main=Some(main);'* ]] \
-  || [[ "$package_assembly_code" != *'ifletSome(main)=main{code.push(main);}forfunctioninprogram_functions{code.push(function);}let(functions,code,function_table)=code.finish();'* ]] \
+  || [[ "$package_main_compiler_code" != *'letinitializer=self.program_initialize.as_ref().map(|(index,_)|*index);let(main,emitted_local_count)=compilation.compile(self.runtime.globals(),initializer)?;self.main=Some(main);'* ]] \
+  || [[ "$package_assembly_code" != *'ifletSome(main)=main{code.push(main);}ifletSome((_,initialize))=program_initialize{code.push(initialize);}forfunctioninprogram_functions{code.push(function);}let(functions,code,function_table)=code.finish();'* ]] \
   || ! grep -Fq 'CompiledModulePackage::compile_main;' "$compiled_module_package" \
   || ! grep -Fq 'CompiledModulePackage::append_functions;' "$compiled_module_package"; then
   fail 'main must compile against its own finalized globals and stay in that package until ordered code publication'
@@ -3241,6 +3304,9 @@ fi
 compiled_package_state="$(braced_rust_item_source "$compiled_module_package" '^pub[(]crate[)] struct CompiledModulePackage[[:space:]]*[{]')"
 require_text_regex_count "$compiled_package_state" '^    main: Option<EmittedFunction>,$' 1 'privately retained compiled main'
 require_text_regex_count "$compiled_package_state" '^    program_functions: Vec<EmittedFunction>,$' 1 'privately retained post-main program bodies'
+require_text_regex_count "$compiled_package_state" '^    program_initialize: Option<[(]$' 1 'privately retained typed bootstrap index/body pair'
+require_fixed_string_count "$compiled_module_package" 'let completed = compilation.compile(self.runtime.globals())?;' 1 'bootstrap compiles against its package-owned schema'
+require_fixed_string_count "$compiled_module_package" 'CompiledModulePackage::compile_program_initialize;' 1 'typed bootstrap lifecycle gate'
 require_text_regex_count "$compiled_package_state" '^[[:space:]]+pub([[:space:]]|[(])' 0 'no public replaceable module-package state'
 compiled_package_code="$(tr -d '[:space:]' < "$compiled_module_package")"
 if [[ "$compiled_package_code" != *"const_:fn(&mutCompiledModulePackage,MainFunctionCompilation<'_>)->Result<(),EmitError>=CompiledModulePackage::compile_main;"* ]] \
@@ -6850,6 +6916,88 @@ check_raw_line_budget crates/lila-engine/src/wasm_gc_byte_array_host.rs 180
 check_no_inline_legacy_includes crates/lila-engine/src/wasm_gc_byte_array_host.rs
 require_fixed_string_count crates/lila-engine/src/wasm_gc_host.rs \
   'wasm_gc_byte_array_host::link(linker, module)?;' 1 'current collector allocation linker'
+
+# ABI6 native Function adapter and typed P bootstrap ownership.
+for native_owner in runtime_function.rs runtime_function/runtime_profile.rs runtime_function/tests.rs runtime_function/runtime_profile/tests.rs emit/body_compilation/program_initialize.rs gc_types/value/program_initialize.rs builtins/function/dynamic_constructor/native_compiler.rs emitted_function/program_initialize_tests.rs; do
+  require_file "crates/lila-aot-wasm/src/$native_owner"
+  check_no_inline_legacy_includes "crates/lila-aot-wasm/src/$native_owner"
+done
+require_module_decl crates/lila-aot-wasm/src/lib.rs runtime_function
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs program_initialize
+require_module_decl "$wasm_body_compilation" program_initialize
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_function.rs 180
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_function/runtime_profile.rs 120
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_function/tests.rs 260
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_function/runtime_profile/tests.rs 120
+check_raw_line_budget crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs 180
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_initialize.rs 80
+check_raw_line_budget crates/lila-aot-wasm/src/builtins/function/dynamic_constructor/native_compiler.rs 180
+check_raw_line_budget crates/lila-aot-wasm/src/emitted_function/program_initialize_tests.rs 260
+require_fixed_string_count "$wasm_body_compilation" 'self.bind_entry_program(program);' 1 'main binds the returned explicit P before Realm entry'
+for removed_writer in legacy_static_data install_program_static_data ensure_heap_ptr_after_static_data 'Instruction::MemoryInit' PRIVATE_BYTE_CURSOR_GLOBAL_INDEX; do
+  require_fixed_string_count "$wasm_body_compilation" "$removed_writer" 0 'P initialization cannot install bytes or reset R scratch'
+  require_fixed_string_count crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs "$removed_writer" 0 'pure P bootstrap cannot install bytes or reset R scratch'
+done
+if [[ -e crates/lila-aot-wasm/src/emit/body_compilation/legacy_static_data.rs ]]; then
+  fail 'removed P linear metadata writer must not remain as detached source'
+fi
+require_fixed_string_count crates/lila-aot-wasm/src/emitted_function.rs 'pub(crate) fn program_initialize(body: crate::emit::CompletedProgramInitializeBody)' 1 'bootstrap declaration requires its completed typed owner'
+require_fixed_string_count crates/lila-aot-wasm/src/builtins/function/dynamic_constructor.rs 'self.emit_native_dynamic_function_compile(' 1 'one native compile path after prepared miss'
+
+
+# Coherent ABI6 literal/metadata/entry owner attachments.
+require_module_decl "$wasm_module_assembly" program_entries
+require_file crates/lila-aot-wasm/src/emit/module_assembly/program_entries.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/emit/module_assembly/program_entries.rs
+check_raw_line_budget crates/lila-aot-wasm/src/emit/module_assembly/program_entries.rs 180
+require_file crates/lila-aot-wasm/src/data/pooled_literal_domain.rs
+require_module_decl crates/lila-aot-wasm/src/data.rs pooled_literal_domain
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/data/pooled_literal_domain.rs
+check_raw_line_budget crates/lila-aot-wasm/src/data/pooled_literal_domain.rs 140
+require_file crates/lila-aot-wasm/src/data/program_metadata.rs
+require_module_decl crates/lila-aot-wasm/src/data.rs program_metadata
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/data/program_metadata.rs
+check_raw_line_budget crates/lila-aot-wasm/src/data/program_metadata.rs 180
+require_file crates/lila-aot-wasm/src/data/program_string_descriptors/tests.rs
+require_module_decl crates/lila-aot-wasm/src/data/program_string_descriptors.rs tests
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/data/program_string_descriptors/tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/data/program_string_descriptors/tests.rs 160
+require_file crates/lila-aot-wasm/src/emit/body_entry/literal_roots/runtime_strings.rs
+require_module_decl crates/lila-aot-wasm/src/emit/body_entry/literal_roots.rs runtime_strings
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/emit/body_entry/literal_roots/runtime_strings.rs
+check_raw_line_budget crates/lila-aot-wasm/src/emit/body_entry/literal_roots/runtime_strings.rs 160
+require_file crates/lila-aot-wasm/src/functions/legacy_activation/property.rs
+require_module_decl crates/lila-aot-wasm/src/functions/legacy_activation.rs property
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/functions/legacy_activation/property.rs
+check_raw_line_budget crates/lila-aot-wasm/src/functions/legacy_activation/property.rs 280
+require_file crates/lila-aot-wasm/src/gc_types/value/native_function_compiler.rs
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs native_function_compiler
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/gc_types/value/native_function_compiler.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/native_function_compiler.rs 70
+require_file crates/lila-aot-wasm/src/gc_types/value/program_instance.rs
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs program_instance
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/gc_types/value/program_instance.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_instance.rs 420
+require_file crates/lila-aot-wasm/src/gc_types/value/program_instance/literal_index.rs
+require_module_decl crates/lila-aot-wasm/src/gc_types/value/program_instance.rs literal_index
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/gc_types/value/program_instance/literal_index.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_instance/literal_index.rs 60
+require_file crates/lila-aot-wasm/src/gc_types/value/program_instance/metadata.rs
+require_module_decl crates/lila-aot-wasm/src/gc_types/value/program_instance.rs metadata
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/gc_types/value/program_instance/metadata.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_instance/metadata.rs 320
+require_file crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs
+require_module_decl crates/lila-aot-wasm/src/module/static_signature.rs program_ownership_tests
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs 100
+require_fixed_string_count crates/lila-aot-wasm/src/runtime_helpers.rs 'Self::Runtime | Self::Hook(_) => HelperTypeRegion::Core' 1 'hook signatures share the core GC recursion group'
+require_fixed_string_count crates/lila-aot-wasm/src/runtime_helpers.rs 'Self::Program => HelperTypeRegion::Program' 1 'ordinary P signatures remain outside core recursion'
+require_fixed_string_count "$wasm_gc_types" 'struct ProgramHookGlobals' 0 'no shared mutable P hook globals'
+require_fixed_string_count "$wasm_gc_types" 'fn program_hook_global(' 0 'no ambient P hook lookup'
+require_fixed_string_count crates/lila-aot-wasm/src/program_hooks.rs 'owner.reference(schema, function)' 1 'explicit retained hook owner supplies its actual rooted P'
+require_fixed_string_count crates/lila-aot-wasm/src/gc_types/type_registration_tests.rs 'instance_group.contains(&(helper.type_index() as usize))' 1 'actual serialized hook/ProgramInstance recursion-group control'
+require_fixed_string_count "$wasm_gc_values" 'ProgramMetadataView' 1 'actual bounded metadata reader is reexported'
+require_fixed_string_count crates/lila-aot-wasm/src/lib.rs 'pub use runtime_function::{emit_runtime_function, RuntimeFunctionArtifact};' 1 'actual public AOT native Function adapter'
 
 if [ "$failures" -ne 0 ]; then
   exit 1

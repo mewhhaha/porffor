@@ -8,21 +8,7 @@ impl FunctionBuilder<'_> {
         &mut self,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        let mut empty = self
-            .functions
-            .get(&StandardBuiltinId::FunctionPrototype.function_id())
-            .cloned()
-            .ok_or_else(|| {
-                EmitError::unsupported("missing planned Function.prototype empty body")
-            })?;
-        empty.name = "anonymous".to_string();
-        empty.to_string_value = "function anonymous(\n) {\n\n}".to_string();
-        empty.entry = empty.entry.empty_ordinary_function()?;
-        empty.strict = false;
-        empty.standard_builtin = None;
-        empty.host_builtin = None;
-        empty.is_named_expression = false;
-        self.emit_dynamic_constructor_body(DynamicFunctionKind::Ordinary, &empty, function)
+        self.emit_dynamic_constructor_body(DynamicFunctionKind::Ordinary, function)
     }
 
     /// The constructor's `newTarget`, defaulting to the active function.

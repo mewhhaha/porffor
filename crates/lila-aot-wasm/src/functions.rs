@@ -47,6 +47,7 @@ mod indirect_call;
 mod iterator_close;
 mod legacy_activation;
 pub(crate) use legacy_activation::SourceActivation;
+mod intl_fallback_symbol;
 mod proxy_creation_execution_realm;
 mod proxy_execution_realm;
 mod realm_intrinsic;
@@ -589,7 +590,8 @@ impl FunctionBuilder<'_> {
         );
         let count = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(
-            NonArrayRealmIntrinsicSlot::TABLE_LENGTH as i32,
+            (NonArrayRealmIntrinsicSlot::TABLE_LENGTH
+                + intl_fallback_symbol::PRIVATE_REALM_INTRINSIC_COUNT) as i32,
         ));
         count.store(function);
         let intrinsics = schema.reserve_gc_local(function).initialize(
@@ -743,6 +745,7 @@ impl FunctionBuilder<'_> {
                     arguments,
                     &caller_realm,
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,

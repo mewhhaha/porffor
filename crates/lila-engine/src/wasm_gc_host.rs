@@ -223,6 +223,7 @@ pub(super) fn link(
         )
         .map_err(bind_error)?;
     wasm_gc_byte_array_host::link(linker, module)?;
+    wasm_native_function_compiler::link(linker, module)?;
     wasm_gc_intl_host::link(linker, module)?;
     wasm_gc_weak_host::link(linker)?;
     Ok(())

@@ -11,6 +11,7 @@ import re
 import sys
 
 PROOFS = {
+    'abi6-native-repairs-20261015.json': ('abi6-source-and-focused-native-publication-v1', None),
     'abi6-five-crate-metadata-eb1ca63c9-20261015.json': ('unapplied-abi6-five-crate-metadata-proof-v1', None),
     'abi6-prepared-ownership-eb1ca63c9-20261015.json': ('unapplied-abi6-prepared-ownership-proof-v1', None),
     'all-features-workspace-8e9a8c82-native-checkpoint-20261015.json': ('portable-real-next-workspace-v1-20261015', None),
@@ -53,6 +54,7 @@ PROOFS = {
     'workspace8429-open-failures-20261014.json': ('four_closed_RED_scopes_with_open_workspace_v1', None),
 }
 READERS = {
+    'verify-abi6-native-repairs-20261015.py': 'd3327c5957dbe9d83bed820bbe480785b4cc25c0c6e9cd3819dd3ff619e152d8',
     'verify-dynamic-aot-diagnostic-eb1ca63c9-20261015.py': '338bc0cfdb1da3aa57c237086b2fc8a82d0cf32ba8eafef047d069a044032ae2',
     'verify-focused-native-fb3a1235-20261015.py': 'eca14aa652f812e365007a2f17296b4f2a9eac8327f205a4fd0a0009e9ed3e5e',
     'verify-guarded-publication-handoff-8e9a8c82-20261015.py': 'eb96acf1501d66c1c4c38ce5d40f2ea7307e372065492a52d286c97ca697ea7d',

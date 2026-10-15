@@ -567,3 +567,176 @@ fn shadow_realm_evaluate_preparation_separates_strict_lifetime_and_deferred_synt
         );
     }
 }
+
+#[test]
+fn repeated_template_cell_hints_prepare_captured_eval_and_function_sources() {
+    let program = lower_script(
+        r#"
+function direct(text) {
+    function captured() { return text; }
+    return eval(`'${text}${text}${text}${text}${text}${text}${text}${text}${text}';`);
+}
+function constructor(text) {
+    function captured() { return text; }
+    return Function(`return '${text}${text}${text}${text}${text}${text}${text}${text}${text}';`);
+}
+direct('a'); direct('b'); direct('c');
+constructor('a'); constructor('b'); constructor('c');
+"#,
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("Script IR");
+    for text in ["a", "b", "c"] {
+        let repeated = text.repeat(9);
+        assert!(
+            script.prepared_scripts.iter().any(|entry| {
+                matches!(entry.kind, PreparedScriptKind::DirectEval(_))
+                    && entry.source == format!("'{repeated}';")
+                    && entry.admission == PreparedScriptAdmission::RuntimeCandidate
+                    && matches!(entry.outcome, PreparedScriptOutcome::Executable(_))
+            }),
+            "missing captured direct source for {text}"
+        );
+        assert!(
+            script.prepared_dynamic_functions.iter().any(|entry| {
+                entry.arguments == [format!("return '{repeated}';")]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )
+            }),
+            "missing captured Function source for {text}"
+        );
+    }
+}
+
+#[test]
+fn repeated_template_hints_keep_independent_cells_and_the_256_choice_limit() {
+    let values = (0..16)
+        .map(|index| format!("'{index}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let program = lower_script(&format!(
+        "for (const left of [{values}]) for (const right of [{values}]) \
+         Function(`return '${{left}}:${{right}}:${{left}}:${{right}}';`);"
+    ));
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let functions = &program
+        .script
+        .as_ref()
+        .expect("Script IR")
+        .prepared_dynamic_functions;
+    for left in 0..16 {
+        for right in 0..16 {
+            let body = format!("return '{left}:{right}:{left}:{right}';");
+            assert!(
+                functions
+                    .iter()
+                    .any(|entry| entry.arguments == [body.clone()]
+                        && matches!(
+                            entry.outcome,
+                            PreparedDynamicFunctionOutcome::Compiled { .. }
+                        )),
+                "independent cells lost {left}/{right}"
+            );
+        }
+    }
+    assert_eq!(functions.len(), 256);
+
+    let overflowing = lower_script(&format!(
+        "Function('return 997;'); \
+         for (const left of [{values},'16']) for (const right of [{values}]) \
+         Function(`return '${{left}}:${{right}}:${{left}}:${{right}}';`);"
+    ));
+    assert!(
+        overflowing.is_wasm_supported(),
+        "{:?}",
+        overflowing.diagnostics
+    );
+    let functions = &overflowing
+        .script
+        .as_ref()
+        .expect("Script IR")
+        .prepared_dynamic_functions;
+    assert!(functions
+        .iter()
+        .any(|entry| entry.arguments == ["return 997;"]));
+    assert!(functions
+        .iter()
+        .all(|entry| !entry.arguments.iter().any(|source| source.contains(':'))));
+}
+
+#[test]
+fn fitting_template_cartesian_sources_keep_reassignment_alternatives() {
+    let program = lower_script(
+        r#"
+for (let text of ['a', 'b']) {
+    Function(`return '${text}${(text = text === 'a' ? 'b' : 'a', '')}${text}';`);
+}
+"#,
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let functions = &program
+        .script
+        .as_ref()
+        .expect("Script IR")
+        .prepared_dynamic_functions;
+    for text in ["aa", "ab", "ba", "bb"] {
+        let body = format!("return '{text}';");
+        assert!(
+            functions
+                .iter()
+                .any(|entry| entry.arguments == [body.clone()]
+                    && matches!(
+                        entry.outcome,
+                        PreparedDynamicFunctionOutcome::Compiled { .. }
+                    )),
+            "a fitting pre-existing Cartesian source was lost: {text}"
+        );
+    }
+}
+
+#[test]
+fn repeated_template_hints_do_not_cross_shadowed_owner_cells() {
+    let program = lower_script(
+        r#"
+function outer(text) {
+    Function(`return 'outer:${text}${text}${text}${text}${text}${text}${text}${text}${text}';`);
+    function inner(text) {
+        return Function(`return 'inner:${text}${text}${text}${text}${text}${text}${text}${text}${text}';`);
+    }
+    inner('x'); inner('y'); inner('z');
+}
+outer('a'); outer('b'); outer('c');
+"#,
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let functions = &program
+        .script
+        .as_ref()
+        .expect("Script IR")
+        .prepared_dynamic_functions;
+    for (owner, values, foreign) in [
+        ("outer", ["a", "b", "c"], ["x", "y", "z"]),
+        ("inner", ["x", "y", "z"], ["a", "b", "c"]),
+    ] {
+        for text in values {
+            let body = format!("return '{owner}:{}';", text.repeat(9));
+            assert!(
+                functions
+                    .iter()
+                    .any(|entry| entry.arguments == [body.clone()]),
+                "{body}"
+            );
+        }
+        for text in foreign {
+            let body = format!("return '{owner}:{}';", text.repeat(9));
+            assert!(
+                functions
+                    .iter()
+                    .all(|entry| entry.arguments != [body.clone()]),
+                "borrowed {body}"
+            );
+        }
+    }
+}

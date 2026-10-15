@@ -37,6 +37,7 @@ impl FunctionBuilder<'_> {
                     activation,
                     self.completion(),
                     self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,
