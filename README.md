@@ -11,9 +11,19 @@ Persistent Test262 cases now use their existing sized worker thread and retain
 only immutable runtime modules in the bounded LRU. Per-case program modules
 bypass memory retention; each request still creates fresh instances, Store and
 Realm. The matched preceding 20-case warm sample already retained runtime code,
-so no speed gain is claimed. The batch adds 24 native controls; Rust compilation,
-focused controls, complete suites and genuine CLI replay are pending. The prior
-verified checkpoints below remain their own source-bound evidence.
+so no speed gain is claimed. The batch adds 24 native controls. Its first
+focused run at `da180627` has 2,876 passing tests and one failed new assertion:
+a literal source correctly uses intrinsic admission, whereas the assertion
+required runtime-candidate admission. The unchanged product source passes the
+425-test Test262 library, 1,526-test IR library, 892-test Engine library,
+12-test ShadowRealm scope and four worker-stack controls. The exact corrected
+18-test IR integration scope passes at `691ad228`; the original failed run
+remains recorded. Complete suites and genuine CLI replay remain pending.
+
+The [compiler iteration measurements](docs/rust-rewrite/compiler-iteration-measurements-20261015.md)
+record the 627.657-second ordinary CLI build and actual twenty-case warm-worker
+diagnostic. The prior verified checkpoints below remain their own source-bound
+evidence.
 
 ## Genuine ordinary CLI subclass checkpoint — 2026-10-14
 
