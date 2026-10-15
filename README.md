@@ -1,50 +1,40 @@
 # Lila
 
-## Prepared prototype-reader grammar hypotheses — 2026-10-15
+## Complete default workspace checkpoint — 2026-10-15
 
-The next source correction retains constructor grammar hypotheses for named
-functions read through unshadowed Object/Reflect prototype-reader aliases after
-ordinary property writes. These hints remain separate from live callable facts
-and pass the existing resource-free source gate. The preceding full-harness
-Engine witness still rejected `GeneratorFunction('yield 1')`; this correction and
-its strengthened same-ID controls are prepared and unexecuted. Historical
-acceptance results remain unchanged. See the
-[contract](docs/rust-rewrite/contracts/prepared-function-global-constructor-hints.md).
+Compiler source `8e9a8c82` passes all **107 default workspace scopes**:
+**9,161 passed, zero failed, zero ignored**. Exact retention keeps every one
+of the **9,127 preceding passing IDs**. All **104 required controls** pass,
+including the 34 new ShadowRealm, worker-retention and prepared-constructor
+controls. The unchanged GeneratorFunction runtime fixture executes successfully
+in both modes. All **539 Python tooling tests** also pass.
 
-## Prepared Function global constructor hints — 2026-10-15
+The single complete workspace run exits zero in **3524.462 seconds**, with
+unchanged source, test bodies, deadlines and cache limits. The standalone fake
+publisher passes its complete 191-execution measurement and artifact checks.
+Earlier failed focused attempts remain separate from this accepted run.
 
-A separate source change carries bounded constructor grammar hints from Script
-global variables into independently prepared Function bodies. Runtime global
-reads, callees, conversions and Realms remain live. Supplemental bodies that can
-discover nested source or imports retain the explicit capability boundary. The
-new controls, including both unchanged generator runtime fixture modes, are
-prepared but unexecuted; the historical results below remain unchanged. See the
-[contract](docs/rust-rewrite/contracts/prepared-function-global-constructor-hints.md).
+The [portable default checkpoint](docs/rust-rewrite/default-workspace-8e9a8c82-native-checkpoint-20261015.json)
+preserves exact qualified IDs, Cargo/runtime provenance, source bindings and
+lossless raw transcripts. Verify it offline with:
 
-## Bounded ShadowRealm sources and runtime-only worker retention — 2026-10-15
+```sh
+python3 docs/rust-rewrite/verify-workspace-8e9a8c82-20261015.py \
+  docs/rust-rewrite/default-workspace-8e9a8c82-native-checkpoint-20261015.json \
+  --audit-sha256 d2183481edd71c532beca6a2a5e00ab14999823c4f802146cc2cd8c300c3d017
+```
 
-The current source batch discovers bounded template/String/filter source hints
-and finite argument hints for returned ShadowRealm callables. Actual callees,
-property reads, arguments, conversions, exceptions and Realm environments remain
-live. Unknown source keeps the explicit Wasm-AOT capability boundary.
+The source adds bounded ShadowRealm template/String/filter and returned-callable
+hints, runtime-only worker module retention, and prepared Function global
+constructor grammar hints. Runtime callees, conversions, shadowing and Realms
+remain live; supplemental source admission remains resource-free. See the
+[prepared-constructor contract](docs/rust-rewrite/contracts/prepared-function-global-constructor-hints.md).
+The prior twenty-case warm-worker sample already retained runtime code; no
+retention speed gain is claimed before the matched after measurement.
 
-Persistent Test262 cases now use their existing sized worker thread and retain
-only immutable runtime modules in the bounded LRU. Per-case program modules
-bypass memory retention; each request still creates fresh instances, Store and
-Realm. The matched preceding 20-case warm sample already retained runtime code,
-so no speed gain is claimed. The batch adds 24 native controls. Its first
-focused run at `da180627` has 2,876 passing tests and one failed new assertion:
-a literal source correctly uses intrinsic admission, whereas the assertion
-required runtime-candidate admission. The unchanged product source passes the
-425-test Test262 library, 1,526-test IR library, 892-test Engine library,
-12-test ShadowRealm scope and four worker-stack controls. The exact corrected
-18-test IR integration scope passes at `691ad228`; the original failed run
-remains recorded. Complete suites and genuine CLI replay remain pending.
-
-The [compiler iteration measurements](docs/rust-rewrite/compiler-iteration-measurements-20261015.md)
-record the 627.657-second ordinary CLI build and actual twenty-case warm-worker
-diagnostic. The prior verified checkpoints below remain their own source-bound
-evidence.
+The complete 108-scope all-features run is active on the same frozen source.
+Genuine ordinary CLI53, historical 5,365-ID retention, full pinned Test262 and
+task acceptance remain pending. `CONTINUE.md` and `tasks/` remain open.
 
 ## Genuine ordinary CLI subclass checkpoint — 2026-10-14
 
