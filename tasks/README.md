@@ -2,17 +2,16 @@
 
 ## Current verification and remaining gates — 2026-10-15
 
-Source `fb3a1235` passes all 1,556 selected RegExp/label native tests, retaining
+Earlier source `fb3a1235` passes all 1,556 selected RegExp/label native tests, retaining
 all 1,551 preceding passes, repairing both recorded failures and adding three
 activation-binding controls. The [portable focused proof](../docs/rust-rewrite/focused-native-fb3a1235-20261015.json)
 preserves the earlier failures and current source-bound results. All 546 Python
 tooling tests pass, retaining every one of the earlier 539 IDs. Formatting,
 module boundaries, host ABI and product interpreter-exclusion checks pass.
 
-The full 107-scope default and 108-scope all-features workspace runs are queued
-on that same frozen source. Their accepted predecessors on `8e9a8c82` contain
-9,161 and 9,254 passing IDs respectively; every eligible previous ID must remain
-passing. Ordinary CLI55, historical 5,365-ID retention and the fresh complete
+Current source `eb1ca63c9` also passes all 547 Python tooling tests, retaining all 546 preceding IDs. The complete all-features workspace run is in progress and remains pending.
+
+Completed workspace verification: the default run on `eb1ca63c9` passes all 9,176 tests across 107 scopes, with all 17 RegExp/label controls and exact predecessor retention verified. See the [completed default checkpoint](../docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json). Ordinary CLI55, historical 5,365-ID retention and the fresh complete
 pinned Test262 runs remain pending. The earlier `8e9a8c82` Test262 runs are
 [closed partial results](../docs/rust-rewrite/incomplete-publication-closure-8e9a8c82-20261015.json),
 with 16,071 distinct prior passing IDs required by the next complete replay.

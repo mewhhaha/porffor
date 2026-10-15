@@ -1,5 +1,24 @@
 # Current continuation — 2026-10-15
 
+## Complete default workspace at source eb1ca63c9 — 2026-10-15
+
+Compiler source `eb1ca63c9` passes all **107 default workspace scopes: 9,176 passed, zero failed, zero ignored**. All **9,161 preceding default passes** are retained. All **17 RegExp and labelled-scope regression controls** pass, including the three direct-eval activation regressions.
+
+The [completed checkpoint](docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json) preserves exact native IDs, Cargo/runtime provenance, raw transcripts and the four-CPU, one-job policy. Verify it with:
+
+```sh
+python3 docs/rust-rewrite/verify-workspace-eb1ca63c9-20261015.py \
+  docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json \
+  --prior-default docs/rust-rewrite/default-workspace-8e9a8c82-native-checkpoint-20261015.json
+```
+
+The same source passes **547 Python tooling tests**, retaining all **546 preceding IDs**, including all **539 earlier IDs**. Formatting, module boundaries, Test262 host ABI and product/oracle dependency checks pass; [sealed raw evidence](docs/rust-rewrite/workspace-tooling-eb1ca63c9-20261015.json) records those separate checks and preserves the initial static exit1 and exact committed CI restoration.
+
+All-features verification on this source is running; its result is pending. The [source revalidation record](docs/rust-rewrite/workspace-source-revalidation-eb1ca63c9-20261015.json) preserves the original and post-run source snapshots. All prepared files, Git blobs and controls match; only Git index cache bytes changed. Its complete logical index reconstructs the committed source tree. The source revalidation happened after the native run; the native run was not repeated.
+
+Earlier failed and partial runs remain recorded below. This workspace checkpoint does not close the separate Test262 or task gates.
+
+
 ## Workspace verification repair — 2026-10-15
 
 The complete `fb3a1235` default run closed with **102 passing scopes**,
