@@ -1,5 +1,9 @@
 # Current continuation — 2026-10-15
 
+Private ABI9 candidate checkpoint (2026-10-16): all **six targeted real Test262 executions pass**, repairing two JSON, two ModuleSource and two Reflect cases. A same-profile 96-evaluation diagnostic reduces execution-and-completion time from **5.686 s to 1.386 s (4.10×)**; its separate cold module compilation takes 31.424 s, and the huge-eval performance target remains unmet.
+
+The full IR unit suite remains **red: 1,577 passed, five failed**; IR integration remains **red: 732 passed, two failed**. The [portable checkpoint](docs/rust-rewrite/candidate-progress-20261016.json) preserves every failure and the [offline reader](docs/rust-rewrite/verify-candidate-progress-20261016.py) verifies its lossless raw evidence. Seven assertion repairs are authored and unrun; five other unit harnesses and 13 other integration harnesses are unrun at this checkpoint. This does not establish ordinary Cargo, combined published-source, full-suite or task acceptance. Generated status numbers are unchanged.
+
 Unapplied repair checkpoint (2026-10-15): the fresh ABI6 runtime passes all
 **four prepared same-Store ownership cases**, including conflicting function
 rows, both installation orders, forced GC and typed reentry. Reentry returns

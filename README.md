@@ -1,5 +1,9 @@
 # Lila
 
+Private ABI9 candidate checkpoint (2026-10-16): all **six targeted real Test262 executions pass**, repairing two JSON, two ModuleSource and two Reflect cases. A same-profile 96-evaluation diagnostic reduces execution-and-completion time from **5.686 s to 1.386 s (4.10×)**; its separate cold module compilation takes 31.424 s, and the huge-eval performance target remains unmet.
+
+The full IR unit suite remains **red: 1,577 passed, five failed**; IR integration remains **red: 732 passed, two failed**. The [portable checkpoint](docs/rust-rewrite/candidate-progress-20261016.json) preserves every failure and the [offline reader](docs/rust-rewrite/verify-candidate-progress-20261016.py) verifies its lossless raw evidence. Seven assertion repairs are authored and unrun; five other unit harnesses and 13 other integration harnesses are unrun at this checkpoint. This does not establish ordinary Cargo, combined published-source, full-suite or task acceptance. Generated status numbers are unchanged.
+
 ABI6 repair (2026-10-15): the native Rust Function compiler follows the JavaScript → Wasm path. The optimized diagnostic compiler passes all **24 focused real Test262 executions** (98.415 seconds). The [native checkpoint](docs/rust-rewrite/abi6-native-repairs-20261015.json) records exact control IDs, source bindings and preserved failed owners. Broader retention, full suites and verification of the combined published source identity remain pending.
 
 CI contract repair (2026-10-15): the required Cargo formatting check passes after correcting one test import order. The identity audit now recognizes narrowly bounded historical paths in registered evidence while continuing to reject retired product identifiers. All **12 identity regressions**, Cargo formatting and the full selected-source identity audit pass. [Validation](docs/rust-rewrite/ci-contract-check-20261015.json) records the scope; hosted and native acceptance gates remain pending.
