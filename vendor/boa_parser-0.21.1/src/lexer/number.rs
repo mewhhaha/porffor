@@ -1,6 +1,8 @@
 //! This module implements lexing for number literals (123, 787) used in ECMAScript.
 
-use crate::lexer::{Cursor, Error, Token, TokenKind, Tokenizer, token::Numeric};
+use crate::lexer::{
+    Cursor, Error, Token, TokenKind, Tokenizer, is_identifier_start, token::Numeric,
+};
 use crate::source::ReadChar;
 use boa_ast::PositionGroup;
 use boa_interner::Interner;
@@ -170,9 +172,12 @@ fn check_after_numeric_literal<R>(cursor: &mut Cursor<R>) -> Result<(), Error>
 where
     R: ReadChar,
 {
-    if cursor.next_is_ascii_pred(&|ch| ch.is_ascii_alphanumeric() || ch == '$' || ch == '_')? {
+    if cursor
+        .peek_char()?
+        .is_some_and(|ch| is_identifier_start(ch) || matches!(ch, 0x30..=0x39))
+    {
         Err(Error::syntax(
-            "a numeric literal must not be followed by an alphanumeric, $ or _ characters",
+            "a numeric literal must not be followed by IdentifierStart or DecimalDigit",
             cursor.pos(),
         ))
     } else {
@@ -255,6 +260,7 @@ impl<R> Tokenizer<R> for NumberLiteral {
                     // n
                     0x006E => {
                         cursor.next_char()?.expect("n character vanished");
+                        check_after_numeric_literal(cursor)?;
 
                         // DecimalBigIntegerLiteral '0n'
                         return Ok(Token::new_by_position_group(

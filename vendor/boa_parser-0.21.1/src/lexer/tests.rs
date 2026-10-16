@@ -602,7 +602,7 @@ fn numbers() {
         TokenKind::numeric_literal(1),
         TokenKind::numeric_literal(2),
         TokenKind::numeric_literal(52),
-        TokenKind::numeric_literal(46),
+        TokenKind::numeric_literal(Numeric::LegacyOctal(46)),
         TokenKind::numeric_literal(7.89),
         TokenKind::numeric_literal(42),
         TokenKind::numeric_literal(5000),
@@ -635,7 +635,7 @@ fn numbers_with_separators() {
         TokenKind::numeric_literal(10),
         TokenKind::numeric_literal(20),
         TokenKind::numeric_literal(52),
-        TokenKind::numeric_literal(46),
+        TokenKind::numeric_literal(Numeric::LegacyOctal(46)),
         TokenKind::numeric_literal(7.89),
         TokenKind::numeric_literal(42),
         TokenKind::numeric_literal(5000),
@@ -698,7 +698,7 @@ fn implicit_octal_edge_case() {
     let interner = &mut Interner::default();
 
     let expected = [
-        TokenKind::numeric_literal(36),
+        TokenKind::numeric_literal(Numeric::LegacyOctal(36)),
         TokenKind::numeric_literal(0.5),
         TokenKind::numeric_literal(94.5),
     ];
@@ -1024,18 +1024,40 @@ fn string_codepoint_with_no_braces() {
 }
 
 #[test]
-#[ignore = "Need to assert if this test is valid"]
 fn illegal_code_point_following_numeric_literal() {
-    // Checks as per https://tc39.es/ecma262/#sec-literals-numeric-literals that a NumericLiteral cannot
-    // be immediately followed by an IdentifierStart where the IdentifierStart
+    // U+2764 is not IdentifierStart: the number ends before the invalid token.
+    // Reject the complete input without requiring numeric lookahead to lex it.
+    assert!(!crate::lexer::is_identifier_start(0x2764));
     let mut lexer = Lexer::from("17.4\u{2764}".as_bytes());
     let interner = &mut Interner::default();
-
+    assert_eq!(
+        lexer.next(interner).unwrap().unwrap().kind(),
+        &TokenKind::numeric_literal(17.4)
+    );
     assert!(
         lexer.next(interner).is_err(),
-        "{}",
-        r"IdentifierStart \u{2764} following NumericLiteral not rejected as expected"
+        "Invalid code point after the numeric token must be rejected"
     );
+
+    // A real Unicode IdentifierStart must be rejected by numeric lookahead.
+    for suffix in ['\u{03bb}', '\u{10400}'] {
+        assert!(crate::lexer::is_identifier_start(u32::from(suffix)));
+        for prefix in ["17.4", "1", "0x1", "0b1", "0o1", "1n", "0n"] {
+            let source = format!("{prefix}{suffix}");
+            let mut lexer = Lexer::from(source.as_bytes());
+            assert!(
+                lexer.next(interner).is_err(),
+                "Unicode IdentifierStart immediately after {prefix} must be rejected"
+            );
+        }
+    }
+    for source in ["0na", "0n1", "0n$", "0n_"] {
+        let mut lexer = Lexer::from(source.as_bytes());
+        assert!(
+            lexer.next(interner).is_err(),
+            "The zero BigInt fast path must reject an adjacent identifier or digit"
+        );
+    }
 }
 
 #[test]
