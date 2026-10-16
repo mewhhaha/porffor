@@ -100,12 +100,10 @@ fn lookup_prefix_uses_the_matched_german_profile() {
 #[test]
 fn matched_locale_does_not_receive_the_global_sort_union() {
     let profiles = embedded_collator_profiles().unwrap();
-    assert!(
-        profiles
-            .available_collations()
-            .iter()
-            .any(|name| name.as_ref() == "phonebk")
-    );
+    assert!(profiles
+        .available_collations()
+        .iter()
+        .any(|name| name.as_ref() == "phonebk"));
     assert!(names("de").iter().any(|name| name == "phonebk"));
     assert!(!names("en").iter().any(|name| name == "phonebk"));
 }
@@ -123,11 +121,9 @@ fn all_admitted_locale_results_are_unique_sorted_sort_purpose_names() {
     for locale in profiles.available_locales() {
         let result = names(locale.as_str());
         assert!(result.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(
-            result
-                .iter()
-                .all(|name| !matches!(name.as_str(), "standard" | "search" | "searchjl"))
-        );
+        assert!(result
+            .iter()
+            .all(|name| !matches!(name.as_str(), "standard" | "search" | "searchjl")));
         assert!(result.iter().all(|name| {
             union_before
                 .iter()
@@ -156,10 +152,8 @@ fn locale_profile_requires_collation_data_without_granting_collator_service() {
     use crate::{IntlDataCapability, IntlProfilePlan, IntlService, IntlServiceSet};
     let profile =
         IntlProfilePlan::minimal(IntlServiceSet::EMPTY.with(IntlService::Locale)).unwrap();
-    assert!(
-        profile
-            .capabilities()
-            .contains(IntlDataCapability::Collation)
-    );
+    assert!(profile
+        .capabilities()
+        .contains(IntlDataCapability::Collation));
     assert!(!profile.services().contains(IntlService::Collator));
 }
