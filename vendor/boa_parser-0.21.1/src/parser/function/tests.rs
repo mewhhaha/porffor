@@ -1246,3 +1246,27 @@ fn check_arrow_assignment_3arg_nobrackets() {
         interner,
     );
 }
+
+#[test]
+fn contextual_let_is_a_sloppy_expression_binding_name() {
+    for prefix in ["function", "function*", "async function", "async function*"] {
+        for name in ["let", "\\u006cet"] {
+            let source = format!("({prefix} {name}() {{}});");
+            crate::Parser::new(crate::Source::from_bytes(source.as_bytes()))
+                .parse_script(
+                    &boa_ast::scope::Scope::new_global(),
+                    &mut Interner::default(),
+                )
+                .unwrap_or_else(|error| panic!("rejected contextual binding {source:?}: {error}"));
+        }
+    }
+}
+
+#[test]
+fn contextual_let_expression_names_still_reject_inherited_strictness() {
+    for prefix in ["function", "function*", "async function", "async function*"] {
+        for name in ["let", "\\u006cet"] {
+            check_invalid_script(&format!("'use strict'; ({prefix} {name}() {{}});"));
+        }
+    }
+}

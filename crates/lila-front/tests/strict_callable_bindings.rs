@@ -240,3 +240,83 @@ fn original_generator_syntax_inputs_keep_all_invalid_and_valid_controls() {
         include_str!("../../../test262/vendor/test262/test/staging/sm/generators/syntax.js");
     parse_script_utf16(&units(original)).expect("unchanged original outer fixture remains valid");
 }
+
+#[test]
+fn contextual_let_names_are_valid_for_all_sloppy_function_expression_goals() {
+    for prefix in ["function", "function*", "async function", "async function*"] {
+        for name in ["let", "\\u006cet"] {
+            let source = format!("var selected = ({prefix} {name}() {{}});");
+            parse(&source, ParseOptions::script()).unwrap();
+            parse_script_utf16(&units(&source)).unwrap();
+            for context in [
+                EvalParseContext::Indirect,
+                EvalParseContext::Direct(DirectEvalParseContext {
+                    strict_caller: false,
+                    invocation: EvalInvocationContext::Function,
+                    private_names: vec![],
+                }),
+            ] {
+                prepare_eval_source(source.clone(), &context).unwrap();
+                prepare_eval_source_utf16(&units(&source), &context).unwrap();
+            }
+            prepare_dynamic_function(FunctionParseKind::Ordinary, &[source.clone()]).unwrap();
+            prepare_dynamic_function_utf16(FunctionParseKind::Ordinary, &[units(&source)]).unwrap();
+        }
+    }
+}
+
+#[test]
+fn contextual_let_expression_names_retain_inherited_and_own_strict_rejections() {
+    for prefix in ["function", "function*", "async function", "async function*"] {
+        for name in ["let", "\\u006cet"] {
+            let source = format!("({prefix} {name}() {{}});");
+            let strict_source = format!("'use strict'; {source}");
+            syntax_error(&parse(&strict_source, ParseOptions::script()).unwrap_err());
+            syntax_error(&parse_script_utf16(&units(&strict_source)).unwrap_err());
+            syntax_error(&parse(&source, ParseOptions::module()).unwrap_err());
+            let strict_caller = EvalParseContext::Direct(DirectEvalParseContext {
+                strict_caller: true,
+                invocation: EvalInvocationContext::Function,
+                private_names: vec![],
+            });
+            syntax_error(&prepare_eval_source(source, &strict_caller).unwrap_err());
+            let own_strict = format!("({prefix} {name}() {{ 'use strict'; }});");
+            typed_strict_error(&parse(&own_strict, ParseOptions::script()).unwrap_err());
+            typed_strict_error(&parse_script_utf16(&units(&own_strict)).unwrap_err());
+            typed_strict_error(
+                &prepare_eval_source_utf16(&units(&own_strict), &EvalParseContext::Indirect)
+                    .unwrap_err(),
+            );
+            typed_strict_error(
+                &prepare_dynamic_function(FunctionParseKind::Ordinary, &[own_strict.clone()])
+                    .unwrap_err(),
+            );
+        }
+    }
+}
+
+#[test]
+fn contextual_name_admission_preserves_anonymous_and_reserved_name_boundaries() {
+    for prefix in ["function", "function*", "async function", "async function*"] {
+        parse(&format!("({prefix}() {{}});"), ParseOptions::script()).unwrap();
+        for name in [
+            "class", "const", "enum", "export", "extends", "import", "super",
+        ] {
+            syntax_error(
+                &parse(
+                    &format!("({prefix} {name}() {{}});"),
+                    ParseOptions::script(),
+                )
+                .unwrap_err(),
+            );
+        }
+    }
+    for source in [
+        "(function* yield() {});",
+        "(async function await() {});",
+        "(async function* yield() {});",
+        "(async function* await() {});",
+    ] {
+        syntax_error(&parse(source, ParseOptions::script()).unwrap_err());
+    }
+}

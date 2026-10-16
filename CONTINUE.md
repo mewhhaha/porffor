@@ -1,5 +1,9 @@
 # Current continuation — 2026-10-15
 
+Parser correction (2026-10-16): sloppy function expressions accept `let` as a name across ordinary, generator, async and async-generator forms; strict bindings still reject it. All **five new native checks pass**, and the captured Front harness passes **11/11**.
+
+The captured parser harness remains **red: 296 passed, four earlier lexer assertions failed**. The [checkpoint](docs/rust-rewrite/contextual-let-parser-checkpoint-20261017.json) retains all raw results and proves that the resulting 85-input normal parser/Front graph matches the compiled source. Unicode numeric-lookahead changes and broader acceptance are outside this patch. Generated status numbers are unchanged.
+
 Private ABI9 candidate checkpoint (2026-10-16): all **six targeted real Test262 executions pass**, repairing two JSON, two ModuleSource and two Reflect cases. A same-profile 96-evaluation diagnostic reduces execution-and-completion time from **5.686 s to 1.386 s (4.10×)**; its separate cold module compilation takes 31.424 s, and the huge-eval performance target remains unmet.
 
 The full IR unit suite remains **red: 1,577 passed, five failed**; IR integration remains **red: 732 passed, two failed**. The [portable checkpoint](docs/rust-rewrite/candidate-progress-20261016.json) preserves every failure and the [offline reader](docs/rust-rewrite/verify-candidate-progress-20261016.py) verifies its lossless raw evidence. Seven assertion repairs are authored and unrun; five other unit harnesses and 13 other integration harnesses are unrun at this checkpoint. This does not establish ordinary Cargo, combined published-source, full-suite or task acceptance. Generated status numbers are unchanged.
