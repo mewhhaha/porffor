@@ -20,8 +20,10 @@ MIB = 1024 * 1024
 DEFAULT_MEMORY_MIB = 4096
 MAX_RETAINED_MODULES = 1
 MAX_RETAINED_MODULE_IMAGE_BYTES = 64 * MIB
-CLOUD_RETAINED_MODULES = 2
-CLOUD_RETAINED_MODULE_IMAGE_BYTES = 256 * MIB
+CLOUD_MAX_RETAINED_MODULES = 512
+CLOUD_MODULE_ENTRY_BUDGET_BYTES = 64 * MIB
+CLOUD_MAX_RETAINED_MODULE_IMAGE_BYTES = 2 * 1024 * MIB
+CLOUD_MODULE_IMAGE_BUDGET_DIVISOR = 8
 
 
 def positive_mib(value: str) -> int:
@@ -40,6 +42,19 @@ def inherited_limit(environment: dict, name: str, ceiling: int) -> int:
     return min(int(raw), ceiling)
 
 
+def cloud_module_cache_limits(cloud_budget: int) -> tuple[int, int]:
+    """Bound retained modules to a small, measured share of the machine cap."""
+    entries = min(
+        CLOUD_MAX_RETAINED_MODULES,
+        max(1, cloud_budget // CLOUD_MODULE_ENTRY_BUDGET_BYTES),
+    )
+    image_bytes = min(
+        CLOUD_MAX_RETAINED_MODULE_IMAGE_BYTES,
+        max(1, cloud_budget // CLOUD_MODULE_IMAGE_BUDGET_DIVISOR),
+    )
+    return entries, image_bytes
+
+
 def limited_environment(*, cloud_budget: int | None = None,
                         native_jobs: int | None = None) -> dict:
     environment = dict(os.environ)
@@ -53,11 +68,14 @@ def limited_environment(*, cloud_budget: int | None = None,
         # run-watched invokes capped.sh, whose local default halves affinity.
         # The cloud quota already bounded this set; retain an explicit share.
         environment.setdefault("LILA_CPU_PERCENT", "100")
-    # R's native image exceeds the local 64-MiB retention ceiling. A cloud
-    # process may keep R and P together, still below a measured finite cap.
-    entries = MAX_RETAINED_MODULES if cloud_budget is None else CLOUD_RETAINED_MODULES
-    image_bytes = (MAX_RETAINED_MODULE_IMAGE_BYTES if cloud_budget is None else
-                   min(CLOUD_RETAINED_MODULE_IMAGE_BYTES, max(1, cloud_budget // 8)))
+    # R's native image exceeds the local 64-MiB retention ceiling. Scale the
+    # cloud cache with its inherited finite cap so repeated dynamic programs
+    # remain hot without allowing retained images above one eighth of the
+    # machine budget. The entry limit reserves no memory by itself.
+    if cloud_budget is None:
+        entries, image_bytes = MAX_RETAINED_MODULES, MAX_RETAINED_MODULE_IMAGE_BYTES
+    else:
+        entries, image_bytes = cloud_module_cache_limits(cloud_budget)
     for name, ceiling in (
         ("LILA_MODULE_MEMORY_CACHE_ENTRIES", entries),
         ("LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES", image_bytes),

@@ -1544,7 +1544,10 @@ shared-core probe proves that two retained modules within
 measure about 24 ms instead of 130 ms; all three native controls pass in each
 configuration; all 28 current launcher controls pass. This is diagnostic evidence,
 not a general performance benchmark. Cloud retention is additionally bounded to
-one eighth of the inherited cap. Watched commands wake immediately when the
+one eighth of the inherited cap, with at most 512 entries and 2 GiB of retained
+images. A 4 GiB cloud cap permits 64 entries/512 MiB; a 32 GiB cap permits
+512 entries/2 GiB. Explicit stricter settings remain effective. All 37 launcher
+controls pass for this scaling change. Watched commands wake immediately when the
 supervised process exits; log growth and stall limits remain periodically
 checked. For complete Rust test sweeps, keep the test child on one CPU even when
 Cargo compilation uses auto affinity: the engine library's first default pool

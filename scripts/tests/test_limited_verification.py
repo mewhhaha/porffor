@@ -146,12 +146,12 @@ class CloudBudgetTests(unittest.TestCase):
             self.assertEqual(launcher.os.sched_getaffinity(0), {2})
             for name in ("CARGO_BUILD_JOBS", "LILA_JOBS", "RUST_TEST_THREADS", "RAYON_NUM_THREADS"):
                 self.assertEqual(environment[name], "1")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "2")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "268435456")
+            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
 
     def test_cloud_cache_ceilings_preserve_stricter_explicit_limits(self):
         for entries, image_bytes, expected in (
-            ("64", "536870912", ("2", "268435456")),
+            ("64", "536870912", ("64", "536870912")),
             ("1", "1048576", ("1", "1048576")),
         ):
             with self.subTest(entries=entries, image_bytes=image_bytes), self.cloud(), \
@@ -175,8 +175,18 @@ class CloudBudgetTests(unittest.TestCase):
             with self.assertRaises(PayloadWouldStart):
                 launcher.main(["--cloud", "--", "payload"])
             environment = execute.call_args.args[2]
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "2")
+            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "8")
             self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "67108864")
+
+    def test_cloud_cache_ceilings_scale_with_the_machine_budget(self):
+        for budget, expected in (
+            (512 * launcher.MIB, (8, 64 * launcher.MIB)),
+            (4 * 1024 * launcher.MIB, (64, 512 * launcher.MIB)),
+            (8 * 1024 * launcher.MIB, (128, 1024 * launcher.MIB)),
+            (32 * 1024 * launcher.MIB, (512, 2 * 1024 * launcher.MIB)),
+        ):
+            with self.subTest(budget=budget):
+                self.assertEqual(launcher.cloud_module_cache_limits(budget), expected)
 
     def test_cloud_uses_tightest_visible_ancestor(self):
         with self.cloud("/machine/task", {
@@ -241,8 +251,8 @@ class CloudCpuBudgetTests(unittest.TestCase):
                 self.assertEqual(environment[name], "1")
             for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
                 self.assertEqual(environment[name], "4")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "2")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "268435456")
+            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
 
     def test_native_parallelism_avoids_nested_default_halving_and_preserves_explicit_share(self):
         for supplied, expected in (({}, "100"), ({"LILA_CPU_PERCENT": "37"}, "37")):
@@ -380,8 +390,8 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
                 for name, value in supplied.items():
                     self.assertEqual(environment[name], value)
                 self.assertEqual(environment["LILA_CPU_PERCENT"], expected_share)
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "2")
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "268435456")
+                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
                 self.assertEqual(dict(launcher.os.environ), before)
                 self.assertIn("3 CPU(s)", output.getvalue())
                 self.assertIn("native compilation defaults up to 1 jobs", output.getvalue())

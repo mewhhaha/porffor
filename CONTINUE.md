@@ -1,3 +1,23 @@
+## Cloud cache progress and active compiler repair — 2026-10-17
+
+Cloud verification now scales retained modules within the actual machine cap:
+at most 512 entries and the smaller of 2 GiB or one eighth of inherited memory.
+Explicit stricter settings and local limits remain effective. All 37 launcher
+controls pass. Profiling of one remaining dynamic-source timeout found that
+compiled-module lookup dominates; increasing retention from two to 512 entries
+raised observed template cache hits from 23% to 64%, but the original case still
+timed out. This tooling change alone does not close that failure.
+
+The active compiler candidate combines empty-statement storage reduction,
+for-in initializer environment discovery and fewer native-template scans.
+Seven optimized template tests pass, including reference retention coverage.
+The ordinary production build stopped with a full filesystem before completing;
+no new production or full-suite acceptance is claimed. New unused test-graph
+outputs are preserved in a verified lossless archive to recover build space.
+Next finish a source-bound incremental build, rerun the exact timeout/crash and
+large empty-block modes, compare every prior passing ID, then complete the
+remaining broad suites and task gates. Keep this file/tasks until those pass.
+
 # Current continuation — 2026-10-15
 
 Numeric lexer correction (2026-10-16): numeric literals reject a following Unicode IdentifierStart, and lexer checks retain the actual LegacyOctal token classification. All **311 captured native checks pass**: 300 parser checks and 11 Front checks. The same 311 IDs retain **307 previous passes** and repair the **four earlier failing assertions**.
