@@ -27,7 +27,10 @@ jobs:
           set -euo pipefail
           [[ "$JOB_ID" =~ ^[0-9]+$ ]] || { echo 'job_id must be numeric'; exit 2; }
           log="$RUNNER_TEMP/completed-job.log"
-          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JOB_ID/logs" > "$log"
+          if ! gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JOB_ID/logs" > "$log" 2> "$RUNNER_TEMP/log-retrieval.stderr"; then
+            python3 -c 'import pathlib,re,sys; s=pathlib.Path(sys.argv[1]).read_text()[:8192]; s=re.sub(r"https?://[^\s\"<>]+", "[redacted URL]", s); s=s.replace("%","%25").replace("\r","%0D").replace("\n","%0A"); print("::error title=CI log retrieval failed::"+s)' "$RUNNER_TEMP/log-retrieval.stderr"
+            exit 1
+          fi
           {
             printf '### Completed job %s diagnostics\n\n```text\n' "$JOB_ID"
             tail -n 200 "$log" | cut -c1-1500
