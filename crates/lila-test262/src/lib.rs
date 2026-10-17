@@ -29145,25 +29145,30 @@ assert.sameValue(bytes[3], 0);
     #[test]
     fn agent_failures_never_satisfy_expected_root_runtime_exceptions() {
         let preludes = real_wasm_aot_host_only_preludes();
-        let eval_worker = "var holder = { invoke: eval }; \
-            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";
-        let runtime_direct_eval = "eval('1/*' + Math.random() + '*/');";
-        let function_worker = "var holder = { invoke: Function }; \
-            var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1/*' + Math.random() + '*/');";
+        // Native source compilation supports eval and Function. Throw from
+        // each compiled body so this test still observes actual worker failures.
+        let eval_worker = r#"var holder = { invoke: eval };
+            var hook = new Proxy(function() {}, {}); hook();
+            holder.invoke("throw new TypeError('eval worker marker');/*" + Math.random() + '*/');"#;
+        let runtime_direct_eval =
+            r#"eval("throw new TypeError('direct worker marker');/*" + Math.random() + '*/');"#;
+        let function_worker = r#"var holder = { invoke: Function };
+            var hook = new Proxy(function() {}, {}); hook();
+            holder.invoke("throw new TypeError('function worker marker');/*" + Math.random() + '*/')();"#;
         for (source, kind, outcome) in [
             (
                 format!(
                     "$262.agent.start({eval_worker:?}); $262.agent.start({function_worker:?});"
                 ),
-                FailureKind::Unsupported,
-                OutcomeKind::NotImplemented,
+                FailureKind::Runtime,
+                OutcomeKind::Bug,
             ),
             (
                 format!(
                     "$262.agent.start({eval_worker:?}); $262.agent.start({runtime_direct_eval:?});"
                 ),
-                FailureKind::Unsupported,
-                OutcomeKind::NotImplemented,
+                FailureKind::Runtime,
+                OutcomeKind::Bug,
             ),
             (
                 format!("$262.agent.start({eval_worker:?}); throw new TypeError('root marker');"),
@@ -29190,6 +29195,7 @@ assert.sameValue(bytes[3], 0);
                 assert_eq!(failure.kind, kind, "{failure:?}");
                 assert_eq!(failure.outcome, outcome, "{failure:?}");
                 assert_eq!(failure.origin, FailureOrigin::Unknown, "{failure:?}");
+                assert!(failure.detail.contains("worker marker"), "{failure:?}");
             }
         }
     }

@@ -1,11 +1,12 @@
-Native verification (2026-10-17): full Engine960/960, Runtime33/33 and CLI
-library82/82 pass. The actual CLI passes7 entry-point controls and all3 tests
-in its selected cache/product-artifact integration targets. Default Test262
-tooling improves from353pass/82fail to434pass/1fail after restoring its complete
-runtime fixtures and checking independent global-Script helpers correctly.
-[Raw results](docs/rust-rewrite/native-cli-and-test262-fixture-checkpoint-20261017.json)
-retain the remaining stale agent-fixture failure. Ordinary Cargo, other CLI
-integrations, all-feature, full pinned conformance and task gates remain open.
+Native verification (2026-10-17): full Engine960/960, Runtime33/33,
+Test262-tooling435/435 and CLI82/82 inventories pass, with no filters or ignored
+tests. All434 previous Test262-tooling passes remain; actual dynamic worker
+throws repair its final ownership fixture. The real CLI entry point and selected
+integration targets also pass. [Raw evidence](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json)
+records24Success/3Crash in the original27 real Test262 executions, retaining all23
+previous passes. Three timeouts, broader integrations, ordinary Cargo/all-feature,
+two full pinned families and task criteria remain open. Generated pinned-suite
+status numbers below are unchanged.
 
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement

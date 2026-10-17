@@ -1,28 +1,34 @@
 # Current native verification — 2026-10-17
 
-Full current-source native Engine960/960, Runtime33/33 and CLI library82/82
-inventories pass without filters or ignored tests. The actual product CLI
-entry point passes7 controls, including exact Script/Function/eval/Module
-transcripts and error exits; its selected cache and product-artifact integration
-targets pass all3 tests. This is direct native evidence; ordinary Cargo and
-other CLI integration targets remain separate open gates.
+Full native library inventories pass: Engine960/960, Runtime33/33,
+Test262-tooling435/435 and CLI82/82 (1510 tests; zero ignored or filtered).
+All434 previous tooling-library passes remain. Its final agent fixture now
+throws from actual native eval/Function bodies and requires worker messages,
+Runtime/Bug classification and unknown root provenance for both negative forms.
+The prior storage-interrupted run is not acceptance; its separate successor
+checks disk headroom, reuses the byte-verified binary and executes all435 IDs.
+The actual CLI entry point passes7 controls and all3 tests in the selected cache
+and product-artifact targets. Earlier complete IR1598/AOT401 results remain in
+their source checkpoint. See the [current evidence](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json).
 
-The complete default Test262-tooling inventory improves from353pass/82fail
-to434pass/1fail after using all57417 runtime-fixture files through complete
-directory roots. Its global-harness assertion now checks the exact entry body,
-actual separate lenient helper and metadata for both backends. The remaining
-agent fixture expects eval/Function to be unsupported even though its workers
-now succeed. Replace those workers with actual throws, retaining all root
-negative-ownership checks; that repair is not accepted yet. One oracle-feature
-test remains explicitly deferred to its enabled-feature inventory.
+The original27 real Test262 executions now report24Success/3Crash under the
+same60000ms deadlines, one worker and512-entry/2GiB memory cache. All23 previous
+passes remain. Sloppy object-literal-__proto__ passes at57150ms; treat that
+near-deadline extra pass as an observation until repeated cleanly. Both class
+default modes and strict object-literal-__proto__ still time out.
 
-See the [current raw evidence](docs/rust-rewrite/native-cli-and-test262-fixture-checkpoint-20261017.json)
-and [Engine/Runtime inventory evidence](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json).
-Compiler fingerprint remains1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9;
-only an exact cfg(test) assertion changed. Keep remaining203/historical5365,
-ordinary Cargo/default/all-feature, other CLI targets, supported hosts,
-shard/resume, two full pinned families and T22/task criteria open. Keep this
-file and tasks until their actual completion criteria pass. Older notes below
+The compiler/native fingerprints remain unchanged; only cfg(test) fixtures
+changed. The test harness now compiles at opt0 (14.6s versus about69s previously)
+while the compiler dependencies remain optimized. This matches the intended
+test harness profile, not ordinary Cargo acceptance. Current diagnostic IR/AOT
+dependencies still use opt1; ordinary test profiles specify opt2 and release
+uses opt3, which is a measured next performance hill before redesigning types.
+
+Keep ordinary Cargo/default/all-feature, other integration targets, remaining203
+and historical5365, supported hosts, shard/resume, two complete pinned families,
+T22 accepted Temporal authority and all task criteria open. One oracle-only
+selector is explicitly deferred to its enabled-feature inventory. Keep this
+file and tasks until the actual completion criteria pass. Older notes below
 are historical.
 
 # Compiler and retention checkpoint — 2026-10-17
