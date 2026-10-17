@@ -40,8 +40,10 @@ conformance and task closure remain open.
 
 ## Verification discipline
 
-Use `scripts/limited_verification.py --cloud -- …` under the inherited finite
-machine budget. Preserve explicit worker counts, deadlines and bounded caches.
+Before heavy runs, use `python3 scripts/check-scratch-space.py --scratch /tmp
+--minimum-free-mib 512 -- python3 scripts/limited_verification.py --cloud -- …`
+under the inherited finite machine budget. Choose capacity for the command
+peak; the helper checks available space before launch. Preserve explicit worker counts, deadlines and bounded caches.
 Keep product compilation separate from test-harness optimization. Ensure scratch
 space before heavy runs; archive only inactive outputs after lossless verification.
 Completed production snapshots can be re-admitted after recording an interrupted

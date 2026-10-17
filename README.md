@@ -10,6 +10,11 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Verification scratch admission (2026-10-17): prefix heavy commands with
+`python3 scripts/check-scratch-space.py --scratch /tmp --minimum-free-mib 512 --`
+to reject insufficient headroom before compilation or replay starts.
+[Controls and lossless archive consolidation](docs/rust-rewrite/scratch-admission-checkpoint-20261017.json).
+
 Current compiler checkpoint (2026-10-17): checked per-program string counts
 and ordinals now bind through fresh immutable globals in shared native templates.
 All404 AOT tests and all6 native-template Engine integration tests pass. The
