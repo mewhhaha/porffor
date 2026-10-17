@@ -1,16 +1,14 @@
-RegExp constructor repair (2026-10-17): the live constructor now consults
-its typed ProgramInstance candidate hook and uses the runtime compiler on a
-cache miss. Coercion order, cached syntax errors and calling-program ownership
-are covered by a passing native Engine regression. Current-source runtime-link
-30/30 and Intl/Temporal89/89 integrations pass, retaining their117 previous passes.
-Full Engine961/961 passes, retaining all960 previous passes.
-[Complete Engine evidence](docs/rust-rewrite/full-engine-regexp-owner-hook-retention-20261017.json) includes every test result. [Raw evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json)
-records the fresh24-stage build and exact published compiler fingerprint.
-The previous source's complete1510 library tests remain documented in its
-[checkpoint](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json).
-Other current-source integrations, ordinary Cargo/all-features, original deadline
-replays, full pinned suites and task criteria remain open. Generated pinned
-status numbers below are unchanged.
+Repaired compiler verification (2026-10-17): **2,492 native tests pass**
+with zero failures, ignores or filtered tests: Engine961, Runtime33, AOT401,
+Test262 tooling435, CLI82, and seven priority integration targets580.
+Every earlier pass is retained; the two earlier integration failures are repaired
+and the Engine suite adds one RegExp ownership regression. The constructor now
+uses its typed current ProgramInstance candidate hook before runtime fallback.
+The [complete checkpoint](docs/rust-rewrite/complete-repaired-source-native-inventories-20261017.json)
+preserves exact inventories, raw output and the published compiler identity.
+These native inventories leave ordinary Cargo/all-features, other integration
+targets, original deadline replays, full pinned suites and task gates open.
+Generated pinned status numbers below are unchanged.
 
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement

@@ -1,3 +1,21 @@
+# Complete repaired-source native checkpoint — 2026-10-17
+
+The current compiler passes2,492 native tests with0failures/ignores/filtered:
+Engine961/Runtime33/AOT401/Test262435/CLI82 plus all7priority integrations580.
+Literal complete inventories retain every earlier pass, repair both previous
+integration failures, and add the Engine RegExp ownership regression. Evidence:
+[portable complete checkpoint](docs/rust-rewrite/complete-repaired-source-native-inventories-20261017.json).
+All results bind compiler1181725580ab80195edccabbec2dbd9738bdcaa84f9a8023f8dc6c3c732c08a6
+and nativepolicyb4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30.
+
+Next: current actualCLI entrypoint and exact original27 retention at unchanged
+60000ms/worker1/512entries/2GiB, measured cache outcomes for remaining deadlines,
+remaining203/historical5365, ordinaryCargo/default/allfeature/alltargets,
+supportedhosts, shard/resume, two complete pinned families and all task gates.
+No full-workspace or literal100%claim is made. Keep CONTINUE/tasks until the
+actual criteria pass. Older notes below are historical and retain their original
+source identities and publication-time snapshots.
+
 # RegExp owner-hook repair — 2026-10-17
 
 Currentcompiler1181725580ab80195edccabbec2dbd9738bdcaa84f9a8023f8dc6c3c732c08a6;
