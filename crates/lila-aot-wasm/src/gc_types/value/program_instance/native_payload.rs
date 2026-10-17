@@ -3,14 +3,17 @@ impl ProgramInstanceLocals {
     pub(super) fn fresh_native_payload_slot(
         schema: &RuntimeSchema,
         function: &mut Function,
-    ) -> GcLocal<ImmutableByteArray, NonNullable> {
+    ) -> GcLocal<NativeSourcePayloadArray, NonNullable> {
         function.native_program_payload_slot();
         function.instruction(&Instruction::ArrayNewFixed {
-            array_type_index: schema.array_type::<ImmutableByteArray>().type_index().raw(),
+            array_type_index: schema
+                .array_type::<NativeSourcePayloadArray>()
+                .type_index()
+                .raw(),
             array_size: 0,
         });
         schema
-            .reserve_gc_local::<ImmutableByteArray, NonNullable>(function)
+            .reserve_gc_local::<NativeSourcePayloadArray, NonNullable>(function)
             .initialize(GcStackReference::new(), function)
     }
 
@@ -20,7 +23,10 @@ impl ProgramInstanceLocals {
     fn native_context_schema(schema: &RuntimeSchema) -> crate::native_program_contexts::Schema {
         crate::native_program_contexts::Schema {
             program_type: schema.struct_type::<ProgramInstance>().type_index().raw(),
-            payload_type: schema.array_type::<ImmutableByteArray>().type_index().raw(),
+            payload_type: schema
+                .array_type::<NativeSourcePayloadArray>()
+                .type_index()
+                .raw(),
             payload_field: ProgramInstanceSchema::NATIVE_SOURCE_PAYLOAD.ordinal().raw(),
         }
     }

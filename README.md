@@ -1,7 +1,7 @@
 Unverified instance-reuse repair (2026-10-17, authored): native source data
 moves into a dedicated immutable ProgramInstance field under ABI10. The raw artifact keeps
 its parameterless initializer; its checked native template accepts the fresh
-payload explicitly. Store-owned instance reuse requires identical code, Engine
+payload explicitly, using a physically immutable byte-array type. Store-owned instance reuse requires identical code, Engine
 and execution authority, and excludes defined Wasm state. Saved functions read
 from their defining P; arrays remain fresh. Original metadata bounds, Store
 limits, deadlines and cache settings are unchanged. The AOT library and its test code pass Rust type/borrow checks. Emitted Wasm,
