@@ -10,6 +10,16 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Serial compilation checkpoint (2026-10-17): the focused cold replay now
+passes strict object-literal `__proto__` at the unchanged60000ms deadline;
+sloppy still times out (1Success/1Crash). Four new native dispatch/stack tests
+pass. Serial jobs reuse an admitted64MiB engine stack; parallel and unmarked
+callers retain the compiler pool. [Complete scoped evidence](docs/rust-rewrite/serial-native-compilation-checkpoint-20261017.json)
+also records runtime-cache reuse (bundle2.18s vs earlier cold54s) and reduced
+runtime input inventories. Repeatability, full original27 retention and the current complete
+native inventory remain pending; the2492-pass checkpoint below is for the
+preceding compiler source. Full conformance and task cleanup remain open.
+
 Original deadline replay (2026-10-17) remains **red:23Success/4Crash**.
 It retains23 of24 earlier successes; sloppy object-literal `__proto__` now times
 out at the unchanged60000ms budget. The other three timeouts remain. Broader

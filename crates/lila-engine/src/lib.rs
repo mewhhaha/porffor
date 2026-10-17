@@ -95,6 +95,9 @@ use wasmtime_config::{
     WasmNativeCompilationMode, ENGINE_WORKER_STACK_SIZE, WASM_STORE_MEMORY_CAP_BYTES,
 };
 #[cfg(test)]
+#[path = "../tests/unit/native_compilation_dispatch.rs"]
+mod native_compilation_dispatch_tests;
+#[cfg(test)]
 mod native_direct_eval_compiler_tests;
 #[cfg(test)]
 mod native_function_compiler_tests;
@@ -376,6 +379,32 @@ const WASM_MATH_UNARY_IMPORTS: [(&str, fn(f64) -> f64); 19] = [
     (WASM_HOST_IMPORT_MATH_TAN, wasm_math_tan),
     (WASM_HOST_IMPORT_MATH_TANH, wasm_math_tanh),
 ];
+thread_local! {
+    static ENGINE_WORKER_STACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Admission is scoped to an owned worker or the documented current-thread API.
+/// Restoring the previous state also handles nested entry and unwinding.
+struct EngineWorkerStackGuard {
+    previous: bool,
+    thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+impl EngineWorkerStackGuard {
+    fn enter() -> Self {
+        Self {
+            previous: ENGINE_WORKER_STACK_ACTIVE.replace(true),
+            thread: std::marker::PhantomData,
+        }
+    }
+}
+
+impl Drop for EngineWorkerStackGuard {
+    fn drop(&mut self) {
+        ENGINE_WORKER_STACK_ACTIVE.set(self.previous);
+    }
+}
+
 /// Runs `f` on a dedicated worker thread with `ENGINE_WORKER_STACK_SIZE`
 /// bytes of stack, then joins and returns its result.
 ///
@@ -390,7 +419,10 @@ where
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(ENGINE_WORKER_STACK_SIZE)
-            .spawn_scoped(scope, f)
+            .spawn_scoped(scope, move || {
+                let _stack = EngineWorkerStackGuard::enter();
+                f()
+            })
             .expect("lila-engine worker thread should spawn")
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
@@ -1042,6 +1074,21 @@ fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {
     result.as_ref().map_err(|err| EngineError::new(err.clone()))
 }
 
+fn on_native_compilation_thread<T: Send>(
+    jobs: usize,
+    compile: impl FnOnce() -> T + Send,
+) -> Result<T, EngineError> {
+    if jobs == 1 && ENGINE_WORKER_STACK_ACTIVE.get() {
+        // The caller already owns the full compiler stack. Avoid creating an
+        // idle Rayon worker whose backoff competes with emission on one CPU.
+        Ok(compile())
+    } else {
+        // Unmarked callers may have a small stack; parallel compilation also
+        // retains its process-wide, bounded Rayon registry.
+        Ok(compilation_pool()?.install(compile))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum WasmModuleMemoryCachePolicy {
     Retain,
@@ -1255,8 +1302,7 @@ fn compile_wasm_module(
     engine: &WasmtimeEngine,
     bytes: &[u8],
 ) -> Result<WasmtimeModule, EngineError> {
-    compilation_pool()?
-        .install(|| WasmtimeModule::new(engine, bytes))
+    on_native_compilation_thread(compilation_jobs(), || WasmtimeModule::new(engine, bytes))?
         .map_err(|err| {
             let message = format!("wasmtime module validation failed: {err:#}");
             // Cranelift's per-function limits are the one failure class whose
@@ -2648,6 +2694,7 @@ impl Engine {
         timeout_ms: Option<u64>,
         can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
+        let _stack = EngineWorkerStackGuard::enter();
         self.run_source_with_cached_wasm_on_current_thread(
             source,
             ParseGoal::Script,
@@ -2678,6 +2725,7 @@ impl Engine {
         })
     }
 
+    /// The caller must provide at least 64MiB of stack, as for the script API.
     #[doc(hidden)]
     pub fn run_wasm_aot_script_with_agents_on_current_thread(
         &self,
@@ -2687,6 +2735,7 @@ impl Engine {
         can_block: bool,
         agent_prelude: String,
     ) -> Result<RunOutcome, EngineError> {
+        let _stack = EngineWorkerStackGuard::enter();
         let agent_compile_policy = WasmAgentCompilePolicy::from_root(&options);
         let cache = program_wasm_cache();
         let artifact = self.load_or_compile_program_wasm_on_current_thread(
@@ -2743,6 +2792,7 @@ impl Engine {
         timeout_ms: Option<u64>,
         can_block: bool,
     ) -> Result<RunOutcome, EngineError> {
+        let _stack = EngineWorkerStackGuard::enter();
         self.run_source_with_cached_wasm_on_current_thread(
             source,
             ParseGoal::Module,

@@ -1,3 +1,30 @@
+# Serial compiler dispatch: focused strict pass observed — 2026-10-17
+
+CurrentCPP1a9e425ed20728e5c0fdfe90fe73af8028500a11419362abe59d64727209ee63;
+nativeFPb4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30.
+The same-profile cold proto2 replay is1Success/1Crash: strict succeeds;
+sloppy still times out. All deadlines60000ms/worker1/512entries/2GiB are intact.
+Four new native dispatch/stack tests pass; all24 product build stages pass.
+The previous complete2492-pass native checkpoint remains scoped to its prior
+source. Run full original27 literal retention and current Engine965 inventory
+next; do not infer either from focused results. Keep every failure visible.
+
+Serial jobs avoid Rayon handoff only on explicitly admitted64MiB engine stacks.
+Unmarked callers and parallel jobs preserve the bounded pool. Fresh nativeR
+bytes match exactly; seeding a private cache by value reduces measured bundle
+production from~54s to2.18s. Runtime scopes now bind complete current CPP/NFP
+sources and actual ELF/shared-image/test inputs, plus immutable build provenance,
+without recursively rehashing unused historical build outputs. The byte-verified
+Linux archived-test loader avoids restoring a183MB unit ELF to a full tmpfs.
+It is unsuitable for integration binaries that spawn themselves by pathname.
+
+[Portable scoped results and raw evidence](docs/rust-rewrite/serial-native-compilation-checkpoint-20261017.json).
+Strict proto and both class-default timeouts, ordinaryCargo/features/hosts,
+remaining203/historical5365/fullpinned/shard-resume and all task gates remain open.
+T22 Apia still needs accepted normative/test authority; issue3310 and draft
+PR3318/5044 do not resolve it. Do not delete CONTINUE.md or tasks yet.
+Older publication-time notes follow.
+
 # Deadline retention failed — 2026-10-17
 
 Stop broader current-source replay until the lost success is restored. Actual
