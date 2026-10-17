@@ -1,3 +1,11 @@
+Current Engine verification (2026-10-17): all965 Engine tests pass with the
+empty-strict-body compiler, retaining every prior literal test ID. Zero tests fail,
+are ignored or filtered. Product dependencies retain their selected optimized
+profiles; the complete unfiltered test run took 986.1s.
+[Exact inventory and raw evidence](docs/rust-rewrite/empty-strict-body-engine-inventory-20261017.json) bind this result to the same compiler as
+the407 AOT tests,8 template integration tests and retained1,599-test IR evidence.
+Remaining conformance cohorts, ordinary Cargo and task closure remain open.
+
 # Continue Lila — 2026-10-17
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
