@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use wasmparser::{CompositeInnerType, DataKind, Operator, Parser, Payload, StorageType, TypeRef};
+mod indices;
 mod literal_operands;
 mod sites;
 pub(super) use sites::Site;
@@ -17,6 +18,9 @@ pub(super) struct Plan {
     pub factory_types: Vec<u32>,
     pub sites: BTreeMap<usize, Site>,
     pub suppressed: BTreeSet<usize>,
+    pub contexts: Option<super::contexts::OwnedContexts>,
+    pub defined_functions: u32,
+    pub reusable: bool,
     arrays: BTreeMap<u32, NativeProgramArrayWidth>,
     segments: Vec<Vec<u8>>,
     segment_images: BTreeMap<u32, u32>,
@@ -35,6 +39,9 @@ impl Plan {
             factory_types: Vec::new(),
             sites: BTreeMap::new(),
             suppressed: BTreeSet::new(),
+            contexts: None,
+            defined_functions: 0,
+            reusable: true,
             arrays: BTreeMap::new(),
             segments: Vec::new(),
             segment_images: BTreeMap::new(),
@@ -44,6 +51,7 @@ impl Plan {
         let mut has_types = false;
         let mut has_imports = false;
         let mut declared_operands = None;
+        let mut declared_contexts = None;
         for payload in Parser::new(0).parse_all(bytes) {
             match payload.map_err(invalid)? {
                 Payload::TypeSection(reader) => {
@@ -94,11 +102,37 @@ impl Plan {
                         result.segments.push(data.data.to_vec());
                     }
                 }
-                Payload::TableSection(reader) => referenced.tables(reader)?,
-                Payload::GlobalSection(reader) => referenced.globals(reader)?,
+                Payload::TableSection(reader) => {
+                    result.reusable &= reader.count() == 0;
+                    referenced.tables(reader)?;
+                }
+                Payload::MemorySection(reader) => result.reusable &= reader.count() == 0,
+                Payload::GlobalSection(reader) => {
+                    result.reusable &= reader.count() == 0;
+                    referenced.globals(reader)?;
+                }
+                Payload::FunctionSection(reader) => result.defined_functions = reader.count(),
                 Payload::ExportSection(reader) => referenced.exports(reader)?,
-                Payload::ElementSection(reader) => referenced.elements(reader)?,
+                Payload::ElementSection(reader) => {
+                    for element in reader.clone() {
+                        result.reusable &= matches!(
+                            element.map_err(invalid)?.kind,
+                            wasmparser::ElementKind::Declared
+                        );
+                    }
+                    referenced.elements(reader)?;
+                }
                 Payload::CodeSectionEntry(body) => bodies.push(body),
+                Payload::CustomSection(section)
+                    if section.name() == crate::native_program_contexts::SECTION_NAME =>
+                {
+                    if declared_contexts.is_some() {
+                        return Err(invalid("duplicate native program context section"));
+                    }
+                    declared_contexts = Some(
+                        crate::native_program_contexts::read(section.data()).map_err(invalid)?,
+                    );
+                }
                 Payload::CustomSection(section)
                     if section.name() == crate::program_literal_operands::SECTION_NAME =>
                 {
@@ -178,6 +212,15 @@ impl Plan {
             result.collect_literal_operand_sites(body_index, &operators, &mut declared)?;
         }
         let referenced = referenced.into_inner();
+        if let Some(contexts) = declared_contexts {
+            result.contexts = super::contexts::OwnedContexts::read(
+                bytes,
+                contexts,
+                &bodies,
+                &result.sites,
+                &result.literal_sites,
+            )?;
+        }
         let mut next = 0;
         for original in 0..result.imported_functions {
             if referenced.contains(&original) {
@@ -189,63 +232,5 @@ impl Plan {
             .map(|n| result.types + 1 + n as u32)
             .collect();
         Ok(Some(result))
-    }
-    pub fn retained_functions(&self) -> u32 {
-        self.function_map.len() as u32
-    }
-    pub fn function(&self, old: u32) -> Option<u32> {
-        if old < self.imported_functions {
-            self.function_map.get(&old).copied()
-        } else {
-            Some(
-                old - self.imported_functions
-                    + self.retained_functions()
-                    + self.factories.len() as u32,
-            )
-        }
-    }
-    pub fn data_type(&self) -> u32 {
-        self.types
-    }
-    fn image(&mut self, bytes: Vec<u8>) -> u32 {
-        let index = self.images.len() as u32;
-        self.images.push(NativeProgramDataImage {
-            name: format!("image.{index}"),
-            bytes: bytes.into(),
-        });
-        index
-    }
-    fn segment(&mut self, segment: u32) -> Result<u32, NativeProgramTemplateError> {
-        if let Some(image) = self.segment_images.get(&segment) {
-            return Ok(*image);
-        }
-        let bytes = self
-            .segments
-            .get(segment as usize)
-            .ok_or_else(|| invalid("unknown data segment"))?
-            .clone();
-        let image = self.image(bytes);
-        self.segment_images.insert(segment, image);
-        Ok(image)
-    }
-    fn factory(
-        &mut self,
-        target: u32,
-        width: NativeProgramArrayWidth,
-        construction: NativeProgramArrayConstruction,
-    ) -> u32 {
-        if let Some(index) = self.factories.iter().position(|f| {
-            f.target_array_type == target && f.width == width && f.construction == construction
-        }) {
-            return index as u32;
-        }
-        let index = self.factories.len() as u32;
-        self.factories.push(NativeProgramArrayFactory {
-            name: format!("allocate.{index}"),
-            width,
-            construction,
-            target_array_type: target,
-        });
-        index
     }
 }

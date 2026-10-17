@@ -54,6 +54,11 @@ impl Plan {
                         continue;
                     };
                     let count = *count as usize;
+                    if count == 0 {
+                        // No source operands to relocate; retain the original
+                        // fresh zero-length allocation at its actual Wasm site.
+                        continue;
+                    }
                     if count > index {
                         continue;
                     }

@@ -177,6 +177,7 @@ pub(crate) struct Function {
     free_locals: Vec<u32>,
     operator_count: u32,
     literal_operands: Vec<crate::program_literal_operands::FunctionSite>,
+    native_program_context: Option<crate::native_program_contexts::FunctionContext>,
 }
 
 impl Clone for Function {
@@ -191,6 +192,7 @@ impl Clone for Function {
             free_locals: self.free_locals.clone(),
             operator_count: self.operator_count,
             literal_operands: self.literal_operands.clone(),
+            native_program_context: self.native_program_context,
         }
     }
 }
@@ -214,6 +216,7 @@ impl Function {
             free_locals: Vec::new(),
             operator_count: 0,
             literal_operands: Vec::new(),
+            native_program_context: None,
         }
     }
 
@@ -405,6 +408,59 @@ impl Function {
 
     pub(crate) fn literal_operands(&self) -> &[crate::program_literal_operands::FunctionSite] {
         &self.literal_operands
+    }
+
+    pub(crate) fn native_program_context(
+        &self,
+    ) -> Option<crate::native_program_contexts::FunctionContext> {
+        self.native_program_context
+    }
+
+    pub(crate) fn bind_native_program_context(
+        &mut self,
+        schema: crate::native_program_contexts::Schema,
+        local: u32,
+    ) {
+        assert!(
+            self.native_program_context.is_none(),
+            "one effective program binding per body"
+        );
+        self.native_program_context =
+            Some(crate::native_program_contexts::FunctionContext::Program {
+                schema,
+                local,
+                ready: self.operator_count,
+            });
+    }
+
+    pub(crate) fn bind_native_bootstrap_context(
+        &mut self,
+        schema: crate::native_program_contexts::Schema,
+    ) {
+        assert!(self.native_program_context.is_none() && self.operator_count == 0);
+        self.native_program_context =
+            Some(crate::native_program_contexts::FunctionContext::Bootstrap {
+                schema,
+                payload_operator: None,
+            });
+    }
+
+    pub(crate) fn native_program_payload_slot(&mut self) {
+        if self.native_program_context.is_none() {
+            return;
+        }
+        let Some(crate::native_program_contexts::FunctionContext::Bootstrap {
+            payload_operator,
+            ..
+        }) = &mut self.native_program_context
+        else {
+            panic!("source payload construction belongs to the explicit program bootstrap");
+        };
+        assert!(
+            payload_operator.is_none(),
+            "one original source payload slot per bootstrap"
+        );
+        *payload_operator = Some(self.operator_count);
     }
 
     /// Capture immediately after opening the frame that will be targeted.

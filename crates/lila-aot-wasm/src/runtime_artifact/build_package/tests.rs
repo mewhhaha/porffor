@@ -259,6 +259,12 @@ fn abi8_build_package_falls_back_before_host_prototype_layout_is_admitted() {
     assert_previous_build_package_replaced(previous_version);
 }
 
+#[test]
+fn abi9_artifact_is_replaced_before_program_payload_layout_is_admitted() {
+    let previous_version = 9u32;
+    assert_previous_build_package_replaced(previous_version);
+}
+
 fn assert_previous_build_package_replaced(previous_version: u32) {
     let package = fixture();
     let identity = minimal_identity();

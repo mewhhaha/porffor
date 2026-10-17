@@ -44,7 +44,8 @@ pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
 // Version 7 adds the distinct typed native global-Script compiler core import.
 // Version 8 adds native direct eval, its caller context and instance-element hook.
 // Version 9 retains the per-Realm host ModuleSource prototype in its own intrinsic slot.
-const LAYOUT_VERSION: u32 = 9;
+// Version 10 gives native P immutable source operands in a dedicated owner field.
+const LAYOUT_VERSION: u32 = 10;
 
 /// A checked current envelope, or the compiler's own current emission.
 /// Decoding a raw payload cannot silently mint its version authority.

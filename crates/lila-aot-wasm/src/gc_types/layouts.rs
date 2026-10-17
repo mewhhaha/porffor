@@ -923,6 +923,7 @@ gc_layout_registry! {
             LITERAL_COUNT: I32Value, Immutable, NonNullable;
             METADATA: GcRef<ImmutableByteArray>, Immutable, NonNullable;
             LANGUAGE_FEATURE_POLICY: lila_ir::LanguageFeaturePolicy, Immutable, NonNullable;
+            NATIVE_SOURCE_PAYLOAD: GcRef<ImmutableByteArray>, Immutable, NonNullable;
         }
         // Completed captures are immutable. The actual function/context cycle
         // is closed only after function allocation, so its back edge is mutable.

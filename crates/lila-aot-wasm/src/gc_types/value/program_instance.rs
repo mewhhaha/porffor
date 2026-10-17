@@ -1,7 +1,7 @@
-//! UNAPPLIED ABI6 component. Allocation/entry/hook/data integration is required
-//! before this owner can replace the existing single-P globals.
+//! Frame-local code, hook and immutable data ownership for compiled programs.
 
 use super::*;
+mod native_payload;
 use crate::data::{PooledStringIndex, StringPool};
 use crate::program_hooks::ProvidedHooks;
 use crate::runtime_artifact::ModuleKind;
@@ -233,6 +233,7 @@ impl ProgramInstanceLocals {
                 "ProgramInstance resources belong to different P images",
             ));
         }
+        let source_payload = Self::fresh_native_payload_slot(schema, function);
         let owner = schema.reserve_gc_local(function).initialize(
             schema.struct_type::<ProgramInstance>().construct(
                 (
@@ -246,11 +247,13 @@ impl ProgramInstanceLocals {
                     GcOperand::program_literal_count(image.literal_count_operand()),
                     GcOperand::reference(&metadata.bytes, schema),
                     GcOperand::constant(image.language_features),
+                    GcOperand::reference(&source_payload, schema),
                 ),
                 function,
             ),
             function,
         );
+        source_payload.clear(function);
         hooks.dynamic_function.clear(function);
         hooks.script.clear(function);
         hooks.realm_module_import.clear(function);

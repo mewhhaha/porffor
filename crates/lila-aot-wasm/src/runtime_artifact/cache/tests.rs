@@ -459,6 +459,12 @@ fn abi8_runtime_cache_entry_is_replaced_before_host_prototype_layout_is_reused()
     assert_previous_runtime_cache_entry_replaced(previous_version);
 }
 
+#[test]
+fn abi9_artifact_is_replaced_before_program_payload_layout_is_admitted() {
+    let previous_version = 9u32;
+    assert_previous_runtime_cache_entry_replaced(previous_version);
+}
+
 fn assert_previous_runtime_cache_entry_replaced(previous_version: u32) {
     let identity = identity();
     let cache = MemoryCache::new();

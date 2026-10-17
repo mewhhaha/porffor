@@ -1919,6 +1919,9 @@ fn emit_script_module_with_factory(
         data: Cow::Owned(vec![kind.source_compilation_profile().wire()]),
     });
     metadata::append_function_name_and_check_budget(&mut module, &mut debug_dump, &function_table)?;
+    if let Some(section) = factory.and_then(|_| function_table.native_program_context_section()) {
+        module.section(&section);
+    }
 
     let runtime_layout = matches!(kind, ModuleKind::Runtime(_)).then(|| {
         RuntimeLayout::new(

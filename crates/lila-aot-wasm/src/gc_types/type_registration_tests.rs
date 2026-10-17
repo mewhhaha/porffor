@@ -130,7 +130,7 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
     let CompositeInnerType::Struct(instance) = &core[instance_index].composite_type.inner else {
         panic!("ProgramInstance must be an actual GC struct");
     };
-    assert_eq!(instance.fields.len(), 10);
+    assert_eq!(instance.fields.len(), 11);
     let policy_index = ProgramInstanceSchema::LANGUAGE_FEATURE_POLICY
         .ordinal()
         .raw() as usize;

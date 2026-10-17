@@ -1,3 +1,12 @@
+Unverified instance-reuse repair (2026-10-17, authored): native source data
+moves into a dedicated immutable ProgramInstance field under ABI10. The raw artifact keeps
+its parameterless initializer; its checked native template accepts the fresh
+payload explicitly. Store-owned instance reuse requires identical code, Engine
+and execution authority, and excludes defined Wasm state. Saved functions read
+from their defining P; arrays remain fresh. Original metadata bounds, Store
+limits, deadlines and cache settings are unchanged. Type, native and actual CLI
+verification of this candidate remain pending; published status is unchanged.
+
 Unverified compiler checkpoint (2026-10-17): long runs of identical identifier
 read statements use a counted Wasm loop while performing every original live
 read, completion update and abrupt dispatch. This targets the 10,000-statement
