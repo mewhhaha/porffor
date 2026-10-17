@@ -264,7 +264,7 @@ fn binding_transition_moves_the_protocol_and_presence_cannot_recover_it() {
         bounded(
             ARGUMENTS_SOURCE,
             "pub(crate) fn take_for_binding(",
-            "pub(crate) const fn present(",
+            "pub(crate) fn take_empty_strict_body(",
         ),
         true,
     );
@@ -273,7 +273,7 @@ fn binding_transition_moves_the_protocol_and_presence_cannot_recover_it() {
         &[
             "&mutself)->Result<ArgumentsBindingProtocol,EmitError>{",
             "matchcore::mem::replace(&mutself.0,FunctionArgumentsState::BoundAbsent)",
-            "Pending(FunctionArgumentsKind::Absent)",
+            "Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_),)",
             "ArgumentsBindingProtocol(None)",
             "Pending(FunctionArgumentsKind::Present(protocol))",
             "self.0=FunctionArgumentsState::BoundPresent",
@@ -286,16 +286,12 @@ fn binding_transition_moves_the_protocol_and_presence_cannot_recover_it() {
     assert_eq!(exact_identifier_count(&transition, "cloned"), 0);
 
     let presence = rust_code(
-        bounded(
-            ARGUMENTS_SOURCE,
-            "pub(crate) const fn present(",
-            "impl ArgumentsBindingProtocol",
-        ),
+        bounded(ARGUMENTS_SOURCE, "pub(crate) const fn present(", "\n}\n"),
         true,
     );
     assert_eq!(
         presence,
-        "&self)->Option<()>{match&self.0{FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent)|FunctionArgumentsState::BoundAbsent=>None,FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))|FunctionArgumentsState::BoundPresent=>Some(()),}}}"
+        "&self)->Option<()>{match&self.0{FunctionArgumentsState::Pending(FunctionArgumentsKind::Absent|FunctionArgumentsKind::EmptyStrictBody(_),)|FunctionArgumentsState::BoundAbsent=>None,FunctionArgumentsState::Pending(FunctionArgumentsKind::Present(_))|FunctionArgumentsState::BoundPresent=>Some(()),}}"
     );
 }
 
@@ -348,7 +344,7 @@ fn parameter_binding_consumes_authority_before_owned_initialization() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "take_for_binding"),
-        4
+        5
     );
     assert_eq!(
         count_identifier_in_rust_sources(&source_root, "into_present"),
