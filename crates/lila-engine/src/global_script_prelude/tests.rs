@@ -63,6 +63,7 @@ fn prelude_errors_cannot_claim_entry_negative_provenance() {
         )
         .unwrap_err();
         assert!(error.is_global_prelude_failure());
+        assert!(error.message().contains("harness"), "{error}");
         assert_eq!(
             error.wasm_execution_failure_kind(),
             Some(WasmExecutionFailureKind::JavaScriptException)

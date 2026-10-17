@@ -26,18 +26,20 @@ pub(super) fn completion_error(
     store: &mut impl AsContextMut<Data = WasmHostState>,
     completion: GcMainCompletion,
 ) -> Result<EngineError, EngineError> {
-    let (tag, kind, _) = wasm_gc_completion::observe(&mut *store, completion)
+    let (tag, kind, value) = wasm_gc_completion::observe(&mut *store, completion)
         .map_err(EngineError::in_global_prelude)?
         .into_parts();
     let error = match kind {
         WasmTopLevelCompletionKind::Throw => {
             let text = ThrownErrorText::read(instance, &mut *store, tag.value_kind())
                 .map_err(EngineError::in_global_prelude)?;
+            let note = wasm_gc_completion::render_value(tag, &value, text.message());
+            let prefix = text.name_prefix();
             EngineError::from_execution_failure(
                 EngineExecutionFailure::JavaScriptException {
                     constructor_name: text.constructor_name,
                 },
-                "independent global Script prelude threw before entry evaluation",
+                format!("uncaught throw: {prefix}{note}"),
             )
         }
         WasmTopLevelCompletionKind::Normal => EngineError::from_execution_failure(

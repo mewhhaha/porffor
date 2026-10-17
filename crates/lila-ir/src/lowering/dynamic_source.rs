@@ -425,6 +425,20 @@ impl ScriptLowerer<'_> {
         arguments: &[&Expression],
         admission: PreparedScriptAdmission,
     ) -> bool {
+        // A syntactic non-String literal cannot become source text during
+        // callee evaluation. Eval returns it unchanged; Realm evalScript still
+        // performs ToString. Leave mutable values to runtime admission.
+        if kind == PreparedScriptKind::IndirectEval
+            && arguments.first().is_some_and(|argument| {
+                matches!(
+                    Self::unwrap_parenthesized_expr(argument),
+                    Expression::Literal(literal)
+                        if !matches!(literal.kind(), LiteralKind::String(_))
+                )
+            })
+        {
+            return false;
+        }
         let Some(sources) = self.finite_first_argument_text_candidates(
             arguments,
             FirstArgumentTextPurpose::ScriptCompilation,

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use lila_engine::{
     CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
-    ObservedCompletion, RealmBuilder, RunOptions,
+    ObservedCompletion, RealmBuilder, RunOptions, WasmExecutionFailureKind,
 };
 
 struct Modules(PathBuf);
@@ -422,9 +422,9 @@ print('prelude');
 #[test]
 fn throwing_global_script_prevents_module_evaluation() {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    let observed = Engine::new(RealmBuilder::new().build())
+    let failure = Engine::new(RealmBuilder::new().build())
         .observe_module(
-            "print('module body must not run');",
+            "throw new RangeError('module body must not run');",
             CompileOptions {
                 module_prelude: Some("print('prelude throw'); throw 7;".into()),
                 host_surface_policy: HostSurfacePolicy::Test262,
@@ -436,12 +436,15 @@ fn throwing_global_script_prevents_module_evaluation() {
                 ..RunOptions::default()
             },
         )
-        .expect("prelude abrupt completion remains a language throw");
-    assert!(matches!(observed.completion, ObservedCompletion::Throw(_)));
+        .expect_err("an independent prelude failure retains setup provenance");
+    assert!(failure.is_global_prelude_failure());
     assert_eq!(
-        observed.output_events,
-        [HostOutputEvent::PrintLine("prelude throw".into())]
+        failure.wasm_execution_failure_kind(),
+        Some(WasmExecutionFailureKind::JavaScriptException)
     );
+    assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
+    assert!(failure.message().contains('7'), "{failure}");
+    assert!(!failure.message().contains("module body must not run"));
 }
 
 #[test]

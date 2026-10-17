@@ -32,6 +32,30 @@ const POLICIES: [PromiseRejectionPolicy; 2] = [
 ];
 
 #[test]
+fn prelude_failure_never_claims_a_rooted_entry_snapshot() {
+    for (reason, rendered) in [("7", "7"), ("undefined", "undefined"), ("({})", "object")] {
+        let failure = engine()
+            .observe_module(
+                "throw new RangeError('entry must not execute');",
+                CompileOptions {
+                    module_prelude: Some(format!("throw {reason};")),
+                    ..CompileOptions::default()
+                },
+                execution(),
+            )
+            .expect_err("prelude is setup, before entry observation");
+        assert!(failure.is_global_prelude_failure());
+        assert_eq!(
+            failure.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::JavaScriptException)
+        );
+        assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
+        assert!(failure.message().contains(rendered), "{failure}");
+        assert!(!failure.message().contains("entry must not execute"));
+    }
+}
+
+#[test]
 fn synchronous_and_fulfilled_async_entries_return_only_undefined() {
     for policy in POLICIES {
         for source in ["42;", "await 0; 42;", "await Promise.resolve(42); 99;"] {
