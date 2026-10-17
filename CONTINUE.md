@@ -14,6 +14,13 @@ strict class destructuring case still times out at the original60000ms deadline.
 from the earlier complete2,496-test native checkpoint. OrdinaryCargo, full pinned
 conformance and task closure remain open.
 
+Current Engine verification (2026-10-17): all965 native Engine tests pass at
+the literal-operands compiler fingerprint, retaining every prior Engine test ID.
+Zero tests are ignored or filtered. The harness compiled in9.9s at opt-level0;
+product dependencies retain their selected optimized profiles. [Exact results
+and raw evidence](docs/rust-rewrite/current-native-engine-checkpoint-20261017.json) keep this scoped native result separate from
+ordinaryCargo and complete pinned conformance.
+
 ## Immediate work
 
 1. Fix `strict-script:staging/sm/expressions/destructuring-array-default-class.js`

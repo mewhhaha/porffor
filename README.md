@@ -15,6 +15,13 @@ Verification scratch admission (2026-10-17): prefix heavy commands with
 to reject insufficient headroom before compilation or replay starts.
 [Controls and lossless archive consolidation](docs/rust-rewrite/scratch-admission-checkpoint-20261017.json).
 
+Current Engine verification (2026-10-17): all965 native Engine tests pass at
+the literal-operands compiler fingerprint, retaining every prior Engine test ID.
+Zero tests are ignored or filtered. The harness compiled in9.9s at opt-level0;
+product dependencies retain their selected optimized profiles. [Exact results
+and raw evidence](docs/rust-rewrite/current-native-engine-checkpoint-20261017.json) keep this scoped native result separate from
+ordinaryCargo and complete pinned conformance.
+
 Current compiler checkpoint (2026-10-17): checked per-program string counts
 and ordinals now bind through fresh immutable globals in shared native templates.
 All404 AOT tests and all6 native-template Engine integration tests pass. The
