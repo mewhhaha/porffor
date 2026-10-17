@@ -4,8 +4,8 @@ its parameterless initializer; its checked native template accepts the fresh
 payload explicitly. Store-owned instance reuse requires identical code, Engine
 and execution authority, and excludes defined Wasm state. Saved functions read
 from their defining P; arrays remain fresh. Original metadata bounds, Store
-limits, deadlines and cache settings are unchanged. Type, native and actual CLI
-verification of this candidate remain pending; published status is unchanged.
+limits, deadlines and cache settings are unchanged. The AOT library and its test code pass Rust type/borrow checks. Emitted Wasm,
+native and actual CLI verification remain pending; published status is unchanged.
 
 Unverified compiler checkpoint (2026-10-17): long runs of identical identifier
 read statements use a counted Wasm loop while performing every original live

@@ -3490,6 +3490,7 @@ for sealed_section in types globals code; do
       ! -path "$runtime_cache_fixture_source" \
       ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
       "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
       | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
@@ -3508,6 +3509,7 @@ global_section_constructor_escapes="$(
     ! -path "$runtime_cache_fixture_source" \
     ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
 )"
