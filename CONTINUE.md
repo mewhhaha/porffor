@@ -1,35 +1,41 @@
-# Current native verification — 2026-10-17
+# RegExp owner-hook repair — 2026-10-17
 
-Full native library inventories pass: Engine960/960, Runtime33/33,
-Test262-tooling435/435 and CLI82/82 (1510 tests; zero ignored or filtered).
-All434 previous tooling-library passes remain. Its final agent fixture now
-throws from actual native eval/Function bodies and requires worker messages,
-Runtime/Bug classification and unknown root provenance for both negative forms.
-The prior storage-interrupted run is not acceptance; its separate successor
-checks disk headroom, reuses the byte-verified binary and executes all435 IDs.
-The actual CLI entry point passes7 controls and all3 tests in the selected cache
-and product-artifact targets. Earlier complete IR1598/AOT401 results remain in
-their source checkpoint. See the [current evidence](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json).
+Currentcompiler1181725580ab80195edccabbec2dbd9738bdcaa84f9a8023f8dc6c3c732c08a6;
+nativepolicyb4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30.
+The live RegExp constructor previously bypassed its typed P-owned candidate hook.
+It now validates flags, selects the exact current ProgramInstance hook, retains
+cached syntax failures, and calls the real runtime compiler only on a null miss.
+Completion/error precedence, GC roots and nonnull success remain checked.
+The five-hook Wasm assertion remains intact and now passes. A runtime regression
+covers conversion order, invalid flags/patterns, computed misses, an intervening
+eval program and retained-caller matching. The Temporal source witness follows
+its actual tests.rs owner, preserving every existing assertion.
 
-The original27 real Test262 executions now report24Success/3Crash under the
-same60000ms deadlines, one worker and512-entry/2GiB memory cache. All23 previous
-passes remain. Sloppy object-literal-__proto__ passes at57150ms; treat that
-near-deadline extra pass as an observation until repeated cleanly. Both class
-default modes and strict object-literal-__proto__ still time out.
+Current-source runtime-link30/30 and Intl/Temporal89/89 pass; all117 previous
+passes remain. The previous complete7-target baseline was578/580; other five
+current-source targets still need replay. FullEngine961 remains running; all960 previous IDs are present.
+The new exact RegExp regression and both cache regressions pass. Prior-source
+Engine960/Runtime33/Test262435/CLI82 full inventories are historical acceptance,
+not automatic current-source full-suite acceptance.
 
-The compiler/native fingerprints remain unchanged; only cfg(test) fixtures
-changed. The test harness now compiles at opt0 (14.6s versus about69s previously)
-while the compiler dependencies remain optimized. This matches the intended
-test harness profile, not ordinary Cargo acceptance. Current diagnostic IR/AOT
-dependencies still use opt1; ordinary test profiles specify opt2 and release
-uses opt3, which is a measured next performance hill before redesigning types.
+The fresh24-stage native build passes with10 exact unchanged typed dependencies
+retained and14 fresh stages. Full source guards, all14 official generators and
+whole selected Rust formatting pass. Source-composer bookkeeping incorrectly
+expected a changed native policy fingerprint after all actual checks; the
+explicit completion receipt preserves that failed parent assertion and verifies
+the unchanged native inputs and changed compiler-source identity. No failed
+source check or historical receipt was rewritten. Publication writes no separate
+full Git index and reproduces all2689 compiler and1052 native inputs from the
+actual Git tree. See [portable evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json).
 
-Keep ordinary Cargo/default/all-feature, other integration targets, remaining203
-and historical5365, supported hosts, shard/resume, two complete pinned families,
-T22 accepted Temporal authority and all task criteria open. One oracle-only
-selector is explicitly deferred to its enabled-feature inventory. Keep this
-file and tasks until the actual completion criteria pass. Older notes below
-are historical.
+Next: collect full961Engine retention, run the other five integrations and full
+AOT/Test262/CLI units on this closure, replay original27 retaining all24 prior
+observations, then remaining203/historical5365 and actual ordinary Cargo/default/
+all-feature/host/shard-resume/two full pinned-family/task gates. Three previous
+60000ms timeouts remain unclaimed. Do not remove this file or tasks until real
+completion. The old module-lookup trace includes validation and Cranelift work;
+it does not establish GC type-prefix dominance. Rerun existing trace with actual
+cache outcomes before redesigning types. Older notes below are historical.
 
 # Compiler and retention checkpoint — 2026-10-17
 

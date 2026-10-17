@@ -749,3 +749,42 @@ clone.source === original.source && clone.flags === 'gi';
 }
 
 mod raw_utf16;
+
+#[test]
+fn regexp_candidate_hook_retains_coercion_errors_and_fallback() {
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_script(
+            r#"
+var events = "";
+var source = { toString() { events += "source;"; return "^a+$"; } };
+var flags = { toString() { events += "flags;"; return "i"; } };
+var cached = new RegExp(source, flags).test("AA");
+var uncatalogued = new RegExp(["^", "b+", "$"].join("")).test("bb");
+var invalidFlags = false;
+try {
+  new RegExp({ toString() { events += "invalid;"; return "("; } }, "gg");
+} catch (error) { invalidFlags = error instanceof SyntaxError; }
+var invalidPattern = false;
+try { new RegExp("("); }
+catch (error) { invalidPattern = error instanceof SyntaxError; }
+var intervening = eval("new RegExp('^z+$').test('zz')");
+var retained = new RegExp("^a+$", "i").test("AA");
+[events, cached, uncatalogued, invalidFlags, invalidPattern, intervening, retained].join("|");
+"#,
+            CompileOptions::default(),
+            RunOptions {
+                backend: ExecutionBackend::WasmAot,
+                ..RunOptions::default()
+            },
+        )
+        .expect(
+            "RegExp candidates retain conversion order, errors, misses and the calling program",
+        );
+    assert!(
+        outcome
+            .note
+            .contains("string(source;flags;invalid;|true|true|true|true|true|true)"),
+        "note: {}",
+        outcome.note
+    );
+}

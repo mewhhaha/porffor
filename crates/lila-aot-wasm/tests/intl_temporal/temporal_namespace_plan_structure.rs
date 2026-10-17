@@ -3,7 +3,7 @@ const SHAPES_SOURCE: &str = include_str!("../../../lila-ir/src/lowering/builtin_
 const PLANNING_SOURCE: &str = include_str!("../../src/planning.rs");
 const TEMPORAL_PLAN_SOURCE: &str = include_str!("../../src/planning/temporal_namespace.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../../src/builtins/bootstrap.rs");
-const ENGINE_SOURCE: &str = include_str!("../../../lila-engine/src/lib.rs");
+const ENGINE_TEST_SOURCE: &str = include_str!("../../../lila-engine/src/tests.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -237,13 +237,13 @@ fn temporal_bootstrap_requires_the_witness_and_installs_without_partial_guards()
     assert!(!bootstrap_gate.contains("runtime_bootstrap_plan.temporal_object"));
 
     assert_eq!(
-        ENGINE_SOURCE
+        ENGINE_TEST_SOURCE
             .matches("fn wasm_backend_exposes_complete_temporal_namespace_from_a_bare_reference()",)
             .count(),
         1
     );
     let runtime_witness = bounded(
-        ENGINE_SOURCE,
+        ENGINE_TEST_SOURCE,
         "fn wasm_backend_exposes_complete_temporal_namespace_from_a_bare_reference()",
         "fn wasm_backend_reads_the_wall_clock_through_temporal_now()",
     );

@@ -1,11 +1,14 @@
-Native verification (2026-10-17): full Engine960/960, Runtime33/33,
-Test262-tooling435/435 and CLI82/82 inventories pass, with no filters or ignored
-tests. All434 previous Test262-tooling passes remain; actual dynamic worker
-throws repair its final ownership fixture. The real CLI entry point and selected
-integration targets also pass. [Raw evidence](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json)
-records24Success/3Crash in the original27 real Test262 executions, retaining all23
-previous passes. Three timeouts, broader integrations, ordinary Cargo/all-feature,
-two full pinned families and task criteria remain open. Generated pinned-suite
+RegExp constructor repair (2026-10-17): the live constructor now consults
+its typed ProgramInstance candidate hook and uses the runtime compiler on a
+cache miss. Coercion order, cached syntax errors and calling-program ownership
+are covered by a passing native Engine regression. Current-source runtime-link
+30/30 and Intl/Temporal89/89 integrations pass, retaining their117 previous passes.
+FullEngine961 remains running; all960 previous IDs are present. [Raw evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json)
+records the fresh24-stage build and exact published compiler fingerprint.
+The previous source's complete1510 library tests remain documented in its
+[checkpoint](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json).
+Other current-source integrations, ordinary Cargo/all-features, original deadline
+replays, full pinned suites and task criteria remain open. Generated pinned
 status numbers below are unchanged.
 
 Compiler source checkpoint (2026-10-17): native source compilation now shares

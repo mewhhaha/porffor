@@ -1,6 +1,8 @@
 use super::*;
 use crate::functions::{NonArrayRealmIntrinsicSlot, OrdinaryDefaultPrototype};
-use crate::runtime_helpers::{RegExpCompilerArguments, RegExpCompilerStatus};
+use crate::runtime_helpers::{
+    RegExpCompilerArguments, RegExpCompilerStatus, RegExpProgramCandidateArguments,
+};
 
 #[derive(Clone, Copy)]
 pub(super) enum NativeRegExpFlag {
@@ -311,6 +313,34 @@ impl FunctionBuilder<'_> {
         let cursor = s.reserve_i64_local(f);
         let detail = s.reserve_i64_local(f);
         let compiled = s
+            .reserve_gc_local::<RegExpProgram, Nullable>(f)
+            .initialize_null(s, f);
+        status.set_constant(RegExpCompilerStatus::Compiled.abi_word() as i32, f);
+        self.emit_program_hook_dispatch::<crate::gc_types::RegExpProgramCandidateHook>(
+            |_, hook, f| {
+                let candidate = s
+                    .call_hook(hook, RegExpProgramCandidateArguments::new(source, flags), f)
+                    .bind(
+                        s,
+                        s.reserve_gc_local::<RegExpProgram, Nullable>(f),
+                        status,
+                        cursor,
+                        detail,
+                        f,
+                    );
+                compiled.replace(candidate.load(s, f), f);
+                candidate.clear(f);
+                Ok(())
+            },
+            |_, _| Ok(()),
+            f,
+        )?;
+        // A cached syntax/resource failure is an outcome, not a cache miss.
+        self.emit_native_regexp_compiler_failures(status, output, exit, f)?;
+        compiled.load(s, f);
+        f.instruction(&Instruction::RefIsNull);
+        self.open_frame(ControlFrameKind::If, f);
+        let fallback = s
             .call_helper(
                 RegExpCompilerArguments::new(source, flags),
                 self.runtime_helper_base()?,
@@ -324,20 +354,11 @@ impl FunctionBuilder<'_> {
                 detail,
                 f,
             );
-        for outcome in RegExpCompilerStatus::ALL {
-            let error=match outcome {
-                RegExpCompilerStatus::Compiled=>None,
-                RegExpCompilerStatus::SyntaxError=>Some((NativeErrorKind::SyntaxError,RuntimeErrorMessage::INVALID_REGULAR_EXPRESSION_PATTERN)),
-                RegExpCompilerStatus::ResourceExhausted=>Some((NativeErrorKind::RangeError,RuntimeErrorMessage::REGEXP_RUNTIME_COMPILER_EXCEEDED_ITS_ADDRESSABLE_RESOURCE_LIMIT)),
-                RegExpCompilerStatus::CorruptProgram=>Some((NativeErrorKind::Error,RuntimeErrorMessage::REGEXP_RUNTIME_COMPILER_PRODUCED_AN_INVALID_PROGRAM)),
-            };
-            if let Some((kind, message)) = error {
-                status.load(f);
-                f.instruction(&Instruction::I32Const(outcome.abi_word() as i32));
-                f.instruction(&Instruction::I32Eq);
-                self.emit_native_string_error_if(message, kind, output, exit, f)?;
-            }
-        }
+        compiled.replace(fallback.load(s, f), f);
+        fallback.clear(f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        self.emit_native_regexp_compiler_failures(status, output, exit, f)?;
         status.load(f);
         f.instruction(&Instruction::I32Const(
             RegExpCompilerStatus::Compiled.abi_word() as i32,
@@ -361,6 +382,30 @@ impl FunctionBuilder<'_> {
         s.release_i64_local(cursor, f);
         s.release_i32_local(status, f);
         Ok(program)
+    }
+
+    fn emit_native_regexp_compiler_failures(
+        &mut self,
+        status: I32Local,
+        output: &CompletionLocals,
+        exit: ControlTarget,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
+        for outcome in RegExpCompilerStatus::ALL {
+            let error=match outcome {
+                RegExpCompilerStatus::Compiled=>None,
+                RegExpCompilerStatus::SyntaxError=>Some((NativeErrorKind::SyntaxError,RuntimeErrorMessage::INVALID_REGULAR_EXPRESSION_PATTERN)),
+                RegExpCompilerStatus::ResourceExhausted=>Some((NativeErrorKind::RangeError,RuntimeErrorMessage::REGEXP_RUNTIME_COMPILER_EXCEEDED_ITS_ADDRESSABLE_RESOURCE_LIMIT)),
+                RegExpCompilerStatus::CorruptProgram=>Some((NativeErrorKind::Error,RuntimeErrorMessage::REGEXP_RUNTIME_COMPILER_PRODUCED_AN_INVALID_PROGRAM)),
+            };
+            if let Some((kind, message)) = error {
+                status.load(f);
+                f.instruction(&Instruction::I32Const(outcome.abi_word() as i32));
+                f.instruction(&Instruction::I32Eq);
+                self.emit_native_string_error_if(message, kind, output, exit, f)?;
+            }
+        }
+        Ok(())
     }
 
     fn emit_native_regexp_string_argument(
