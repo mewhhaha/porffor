@@ -124,7 +124,10 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     let root_finalizers = compact(root_finalizers);
     assert_eq!(
         root_finalizers
-            .matches("FinalizedModuleGlobals{section:globals,runtime_schema,}")
+            .matches(concat!(
+                "FinalizedModuleGlobals{global_prelude_phase:None,",
+                "section:globals,runtime_schema,}"
+            ))
             .count(),
         1,
         "one construction seals the actual section with its matching schema"
@@ -243,8 +246,10 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     assert_eq!(push.matches(declaration).count(), 1);
     assert_eq!(push.matches(body).count(), 1);
     assert!(push.find(declaration).unwrap() < push.find(body).unwrap());
-    assert!(code_owner
-        .contains("fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable)"));
+    assert!(
+        code_owner
+            .contains("fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable)")
+    );
 
     for ownership_gate in [
         "FinalizedModuleSections::begin;",
@@ -265,8 +270,10 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     assert!(OWNER_SOURCE.contains(concat!(
         "const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>, Vec<EmittedFunction>)"
     )));
-    assert!(OWNER_SOURCE
-        .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)"));
+    assert!(
+        OWNER_SOURCE
+            .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)")
+    );
 }
 
 #[test]
@@ -290,16 +297,24 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     ] {
         assert_eq!(EMIT_SOURCE.matches(call).count(), count, "{call}");
     }
-    assert!(compact(EMIT_SOURCE)
-        .contains("ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("));
+    assert!(
+        compact(EMIT_SOURCE).contains(
+            "ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("
+        )
+    );
     assert!(!EMIT_SOURCE.contains("let main_function ="));
     assert!(EMIT_SOURCE.contains("program_functions.extend(program_helpers);"));
     assert_eq!(
-        EMIT_SOURCE.matches("let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;").count(),
+        EMIT_SOURCE
+            .matches(
+                "let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;"
+            )
+            .count(),
         1,
     );
     assert!(compact(EMIT_SOURCE).contains(concat!(
         "entry_exports.append(module_package.schema(),",
+        "module_package.global_prelude_phase(),",
         "script.module_entry_evaluation().is_some(),&mutexports,);"
     )));
     let export_plan = bounded(
