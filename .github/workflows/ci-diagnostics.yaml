@@ -37,8 +37,15 @@ jobs:
             tail -n 200 "$log" | cut -c1-1500
             printf '\n```\n'
           } >> "$GITHUB_STEP_SUMMARY"
-          diagnostic="$(tail -n 160 "$log" | cut -c1-300)"
-          diagnostic="${diagnostic//'%'/'%25'}"
-          diagnostic="${diagnostic//$'\r'/'%0D'}"
-          diagnostic="${diagnostic//$'\n'/'%0A'}"
-          printf '::warning title=Completed job compiler diagnostics::%s\n' "$diagnostic"
+          python3 - "$log" <<'PY'
+          import pathlib, re, sys
+          lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
+          pattern = re.compile(r"\berror(?:\[[A-Z][0-9]+\])?:|could not compile|No space left|LLVM ERROR|process didn't exit successfully", re.I)
+          indices = [i for i, line in enumerate(lines) if pattern.search(line)]
+          blocks = ["\n".join(line[:500] for line in lines[max(0, i-2):i+11])[:3500] for i in indices]
+          if not blocks:
+              blocks = ["No matching compiler error line found. Final log lines:\n" + "\n".join(lines[-12:])[:3000]]
+          for number, block in enumerate(blocks[:12], 1):
+              block = block.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::warning title=Completed job error block {number}::{block}")
+          PY
