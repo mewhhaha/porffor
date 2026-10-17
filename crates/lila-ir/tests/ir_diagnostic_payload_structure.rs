@@ -37,7 +37,7 @@ fn diagnostic_stores_one_private_closed_payload() {
     ));
     assert_eq!(
         diagnostic,
-        "payload:IrDiagnosticPayload,pubspan:Option<SourceSpan>,pubmessage:String,}"
+        "payload:IrDiagnosticPayload,global_prelude:bool,pubspan:Option<SourceSpan>,pubmessage:String,}"
     );
 
     let payload = normalized(
@@ -110,6 +110,7 @@ fn constructors_project_only_their_owned_classification() {
         "duplicate prototype",
         None,
     );
+    assert!(!rejected.is_global_prelude_failure());
     assert_eq!(rejected.kind(), IrDiagnosticKind::EarlyError);
     assert_eq!(rejected.code(), Some(EarlyErrorCode::ObjectDuplicateProto));
     assert_eq!(rejected.unsupported_feature(), None);
@@ -117,6 +118,7 @@ fn constructors_project_only_their_owned_classification() {
     assert_eq!(rejected.error_type(), Some(NativeErrorKind::SyntaxError));
 
     let unsupported = IrDiagnostic::unsupported("compiler gap");
+    assert!(!unsupported.is_global_prelude_failure());
     assert_eq!(unsupported.kind(), IrDiagnosticKind::Unsupported);
     assert_eq!(unsupported.code(), None);
     assert_eq!(unsupported.unsupported_feature(), None);
@@ -125,6 +127,7 @@ fn constructors_project_only_their_owned_classification() {
 
     let gap = DynamicSourceGap::runtime_source(DynamicSourceKind::DirectEval);
     let unsupported_feature = IrDiagnostic::unsupported_dynamic_source(gap);
+    assert!(!unsupported_feature.is_global_prelude_failure());
     assert_eq!(unsupported_feature.kind(), IrDiagnosticKind::Unsupported);
     assert_eq!(unsupported_feature.code(), None);
     assert_eq!(
@@ -135,6 +138,7 @@ fn constructors_project_only_their_owned_classification() {
     assert_eq!(unsupported_feature.error_type(), None);
 
     let lowering = IrDiagnostic::lowering("lowering failed");
+    assert!(!lowering.is_global_prelude_failure());
     assert_eq!(lowering.kind(), IrDiagnosticKind::Lowering);
     assert_eq!(lowering.code(), None);
     assert_eq!(lowering.unsupported_feature(), None);
