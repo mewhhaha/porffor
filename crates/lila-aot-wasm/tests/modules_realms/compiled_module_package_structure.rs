@@ -246,10 +246,8 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     assert_eq!(push.matches(declaration).count(), 1);
     assert_eq!(push.matches(body).count(), 1);
     assert!(push.find(declaration).unwrap() < push.find(body).unwrap());
-    assert!(
-        code_owner
-            .contains("fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable)")
-    );
+    assert!(code_owner
+        .contains("fn finish(self) -> (FunctionSection, CodeSection, ModuleFunctionTable)"));
 
     for ownership_gate in [
         "FinalizedModuleSections::begin;",
@@ -270,10 +268,8 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     assert!(OWNER_SOURCE.contains(concat!(
         "const _: fn(&mut CompiledModulePackage, Vec<EmittedFunction>, Vec<EmittedFunction>)"
     )));
-    assert!(
-        OWNER_SOURCE
-            .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)")
-    );
+    assert!(OWNER_SOURCE
+        .contains("const _: fn(CompiledModulePackage, &mut Module, ModuleAssemblySections)"));
 }
 
 #[test]
@@ -297,11 +293,8 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     ] {
         assert_eq!(EMIT_SOURCE.matches(call).count(), count, "{call}");
     }
-    assert!(
-        compact(EMIT_SOURCE).contains(
-            "ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("
-        )
-    );
+    assert!(compact(EMIT_SOURCE)
+        .contains("ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("));
     assert!(!EMIT_SOURCE.contains("let main_function ="));
     assert!(EMIT_SOURCE.contains("program_functions.extend(program_helpers);"));
     assert_eq!(
