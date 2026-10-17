@@ -61,8 +61,26 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
+
       - name: Check workspace
-        run: cargo xc
+        shell: bash
+        run: |
+          set +e
+          cargo xc 2>&1 | tee "$RUNNER_TEMP/lila-workspace-check.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              printf '### Workspace check failed\n\n```text\n'
+              tail -n 200 "$RUNNER_TEMP/lila-workspace-check.log" | cut -c1-1500
+              printf '\n```\n\n'
+              df -h / "$RUNNER_TEMP"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
       - name: Test AOT compiler library and discovered test targets
         run: cargo test --release --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
