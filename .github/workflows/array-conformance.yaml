@@ -30,26 +30,7 @@ jobs:
           cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
 
       - name: Execute the complete nonempty engine regression inventory
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo test --locked -p lila-engine --test aot_builtins -- aot_flat_map:: --list | tee /tmp/flatmap-inventory.txt
-          cargo test --locked -p lila-engine --test aot_builtins -- aot_flat_map:: --test-threads=1 | tee /tmp/flatmap-engine.txt
-          python3 - <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-          sys.path.insert(0, 'scripts')
-          from run_aot_unit_shard import parse_inventory
-          names = parse_inventory(Path('/tmp/flatmap-inventory.txt').read_text())
-          summaries = re.findall(
-              r'^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;',
-              Path('/tmp/flatmap-engine.txt').read_text(), re.MULTILINE)
-          expected = [(str(len(names)), '0', '0', '0', '0')]
-          if summaries != expected:
-              raise SystemExit(f'incomplete execution: {summaries!r}; expected {expected!r}')
-          print(f'Executed all {len(names)} compiled engine regressions')
-          PY
+        run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_flat_map --output-dir /tmp/flatmap-engine
 
       - name: Execute retained flatMap CLI fixtures
         shell: bash
@@ -74,6 +55,7 @@ jobs:
           name: flatmap-conformance-evidence
           path: |
             /tmp/flatmap-*.txt
+            /tmp/flatmap-engine
             /tmp/flatmap-test262
           retention-days: 7
 
