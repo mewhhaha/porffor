@@ -140,6 +140,9 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RegExpProgramCandidate
             | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::PooledStringsInitialize
+            | RuntimeHelperId::GlobalLexicalDeclarationCheck
+            | RuntimeHelperId::GlobalVarDeclarationCheck
+            | RuntimeHelperId::GlobalVarDeclarationInstall
             | RuntimeHelperId::JsonStringifyValue
             | RuntimeHelperId::CompactArrayLiteral
             | RuntimeHelperId::InitializeInstanceElements

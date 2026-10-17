@@ -3,6 +3,8 @@ use crate::gc_types::{NamedBinding, PropertyDescriptor, PropertyDescriptorSchema
 use crate::operations::PropertyKeyLocals;
 use lila_ir::{PreparedScriptKind, PreparedScriptUnit};
 
+mod shared_checks;
+
 #[derive(Clone, Copy)]
 enum GlobalDeclarationAdmission {
     Function,
@@ -24,6 +26,7 @@ struct ValidatedGlobalDeclarationInstantiation<'a> {
     unit: &'a PreparedScriptUnit,
     environment: GcLocal<Environment>,
     object: ValueLocals,
+    realm: GcLocal<RealmRecord>,
 }
 
 impl FunctionBuilder<'_> {
@@ -91,8 +94,9 @@ impl FunctionBuilder<'_> {
         let environment = self.emit_source_global_environment_to_local(function);
         let object = schema.reserve_value_local(function);
         self.emit_execution_global_object_to_locals(&object, function);
+        let realm = self.emit_execution_realm(function);
         let validated =
-            self.emit_validate_global_declarations(unit, environment, object, function)?;
+            self.emit_validate_global_declarations(unit, environment, object, realm, function)?;
         self.emit_install_global_declarations(validated, function)
     }
 
@@ -101,6 +105,7 @@ impl FunctionBuilder<'_> {
         unit: &'a PreparedScriptUnit,
         environment: GcLocal<Environment>,
         object: ValueLocals,
+        realm: GcLocal<RealmRecord>,
         function: &mut Function,
     ) -> Result<ValidatedGlobalDeclarationInstantiation<'a>, EmitError> {
         let schema = self.runtime_schema();
@@ -130,7 +135,7 @@ impl FunctionBuilder<'_> {
                         self.emit_interned_string_reference(name, function)?,
                         function,
                     );
-                self.emit_reject_existing_global_lexical(&key, &entry, function)?;
+                self.emit_reject_existing_global_lexical(&key, &environment, &realm, function)?;
                 let property_key = PropertyKeyLocals::from_string(schema, &key, function);
                 let descriptor =
                     self.emit_direct_own_descriptor_fact(&object, &property_key, function)?;
@@ -170,7 +175,7 @@ impl FunctionBuilder<'_> {
                     self.emit_interned_string_reference(name, function)?,
                     function,
                 );
-            self.emit_reject_existing_global_lexical(&key, &entry, function)?;
+            self.emit_reject_existing_global_lexical(&key, &environment, &realm, function)?;
             key.clear(function);
         }
         for declaration in &plan.functions_in_reverse_order {
@@ -186,6 +191,7 @@ impl FunctionBuilder<'_> {
                 &object,
                 &property_key,
                 admitted,
+                &realm,
                 function,
             )?;
             admitted.load(function);
@@ -220,6 +226,7 @@ impl FunctionBuilder<'_> {
                 &object,
                 &property_key,
                 admitted,
+                &realm,
                 function,
             )?;
             admitted.load(function);
@@ -262,6 +269,7 @@ impl FunctionBuilder<'_> {
                 &object,
                 &property_key,
                 admitted,
+                &realm,
                 function,
             )?;
             self.pop_control(ControlFrameKind::If);
@@ -282,24 +290,8 @@ impl FunctionBuilder<'_> {
             unit,
             environment,
             object,
+            realm,
         })
-    }
-
-    fn emit_reject_existing_global_lexical(
-        &mut self,
-        key: &GcLocal<StringValue>,
-        entry: &GcLocal<NamedBinding, Nullable>,
-        function: &mut Function,
-    ) -> Result<(), EmitError> {
-        self.emit_global_lexical_entry_to_local(key, entry, function);
-        entry.load(self.runtime_schema(), function);
-        function.instruction(&Instruction::RefIsNull);
-        function.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, function);
-        self.emit_global_declaration_failure(GlobalDeclarationFailure::ExistingLexical, function)?;
-        self.pop_control(ControlFrameKind::If);
-        function.instruction(&Instruction::End);
-        Ok(())
     }
 
     /// Called only inside a non-null descriptor branch; absence is never a
@@ -321,7 +313,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I64Ne);
     }
 
-    fn emit_can_declare_global(
+    fn emit_can_declare_global_inline(
         &mut self,
         admission: GlobalDeclarationAdmission,
         object: &ValueLocals,
@@ -416,6 +408,7 @@ impl FunctionBuilder<'_> {
             unit,
             environment,
             object,
+            realm,
         } = validated;
         let schema = self.runtime_schema();
         let plan = &unit.declarations;
@@ -447,7 +440,13 @@ impl FunctionBuilder<'_> {
                         function,
                     );
                 let property_key = PropertyKeyLocals::from_string(schema, &key, function);
-                self.emit_create_global_var_binding(&object, &property_key, deletable, function)?;
+                self.emit_create_global_var_binding(
+                    &object,
+                    &property_key,
+                    deletable,
+                    &realm,
+                    function,
+                )?;
                 property_key.clear(function);
                 key.clear(function);
             }
@@ -513,21 +512,28 @@ impl FunctionBuilder<'_> {
                     function,
                 );
             let property_key = PropertyKeyLocals::from_string(schema, &key, function);
-            self.emit_create_global_var_binding(&object, &property_key, deletable, function)?;
+            self.emit_create_global_var_binding(
+                &object,
+                &property_key,
+                deletable,
+                &realm,
+                function,
+            )?;
             property_key.clear(function);
             key.clear(function);
         }
         value.clear(function);
         object.clear(function);
         environment.clear(function);
+        realm.clear(function);
         Ok(())
     }
 
-    fn emit_create_global_var_binding(
+    fn emit_create_global_var_binding_inline(
         &mut self,
         object: &ValueLocals,
         key: &PropertyKeyLocals,
-        deletable: bool,
+        deletable: I32Local,
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
@@ -541,7 +547,7 @@ impl FunctionBuilder<'_> {
         let configurable = schema.reserve_i32_local(function);
         function.instruction(&Instruction::I32Const(1));
         writable.store(function);
-        function.instruction(&Instruction::I32Const(i32::from(deletable)));
+        deletable.load(function);
         configurable.store(function);
         let pending = schema.reserve_completion(function);
         schema

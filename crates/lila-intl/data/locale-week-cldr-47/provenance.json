@@ -59,9 +59,9 @@
         "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
       },
       {
-        "bytes": 80212,
+        "bytes": 80644,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "c766fd5c20043fa76513786b500946878a684ba932f16a5b6ab3b859e8b04bd9"
+        "sha256": "de56d5c4a5f57e3e1fa3f9e26bc1260a8a1471222b7ae4dcd370d08759e229bb"
       },
       {
         "bytes": 87003,
@@ -91,7 +91,7 @@
       {
         "bytes": 31039,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "6a359a74a91368c60cfe96c82935bada7fbb7898a2c351bc215f1237a17dc496"
+        "sha256": "761297f687ca1a82f83df96500a547606bb8c6288cb1f47dbaac8edf169d5687"
       },
       {
         "bytes": 34690,
@@ -161,7 +161,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "0c153d683a24af99702d24357291c9b125aac136aa0afca65d3336b9494f68f9"
+        "sha256": "e9ccd10c49d276c1b535b6456e7ece8da81df4b2da46b12aed47ec45d7e95b7e"
       },
       {
         "bytes": 4101,
@@ -270,7 +270,7 @@
       }
     ]
   },
-  "kernel_sha256": "02167fe6a3de87f4e7717be8871f2ebc0e9994c8ec760d6bbfde1b2753b98882",
+  "kernel_sha256": "bc1a44d24656339e2f2ebc0ae35a62a096896d26ccede9539b754e79d8f74f7d",
   "kernel_source_closure": "explicit production module inventory; missing/added production modules reject",
   "minimalDays_exposed": false,
   "primary_manifest_path": "crates/lila-intl/data/datetime-cldr-47/manifest.json",

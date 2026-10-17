@@ -4,7 +4,14 @@ The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes. Native subsets and focused Test262 inventories do not establish full
 pinned conformance. Push verified progress to main continuously.
 
-Current focused checkpoint (2026-10-17): all230 original stress executions have
+Current recovery work: the cloud replacement lost temporary build outputs and
+unpublished repairs. The coherent declaration, inert-frame, indirect-eval and
+prelude-diagnostic batch is reconstructed in the checkout and checkpointed to
+`codex/cloud-recovery-20261017`. Fresh ordinary Cargo verification, original
+13-failure replay, and exact 197-prior-pass retention are pending. Do not carry
+interrupted or lost-machine results as fresh acceptance.
+
+Last published focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
 are retained. These are a focused inventory, not full pinned Test262 acceptance.
@@ -15,7 +22,7 @@ the1,599-test IR evidence is retained after exact input checks, not rerun.
 repairs target oversized Unicode declaration bodies and repeated native eval
 exhausting Wasmtime's10,000-instance Store limit. Task closure remains open.
 
-The current product compiler fingerprint is
+The last published baseline compiler fingerprint is
 `9a5ccae64da4b8ef001b37da6ee75e0c5a33abd732c00caa25fc0aa74478cc6b`.
 The native support fingerprint is unchanged:
 `b4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30`.

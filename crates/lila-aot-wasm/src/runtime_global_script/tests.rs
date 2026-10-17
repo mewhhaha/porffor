@@ -32,6 +32,38 @@ fn request(kind: RuntimeGlobalScriptKind, source: &str) -> RuntimeGlobalScriptPr
 }
 
 #[test]
+fn declaration_only_global_scripts_share_checks_and_do_not_allocate_var_frame_caches() {
+    let source = (0..1200)
+        .map(|index| format!("var declared_{index};"))
+        .collect::<String>();
+    let program = request(RuntimeGlobalScriptKind::RealmScript, &source);
+    let runtime = minimal_runtime();
+    let artifact =
+        emit_runtime_global_script(&program, &runtime, &IntlCompilationProfile::Minimal).unwrap();
+    Validator::new_with_features(WasmFeatures::all())
+        .validate_all(artifact.bytes())
+        .unwrap();
+    for payload in Parser::new(0).parse_all(artifact.bytes()) {
+        if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+            let locals = body
+                .get_locals_reader()
+                .unwrap()
+                .into_iter()
+                .map(|row| row.unwrap().0)
+                .sum::<u32>();
+            assert!(
+                locals < 512,
+                "bare global declarations retained {locals} frame locals"
+            );
+            assert!(
+                body.range().len() < 256 * 1024,
+                "declaration checks were expanded at every source name"
+            );
+        }
+    }
+}
+
+#[test]
 fn native_script_factory_witness_rejects_source_kind_nested_id_and_deferred_substitution() {
     let program = request(
         RuntimeGlobalScriptKind::IndirectEval,

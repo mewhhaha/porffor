@@ -1111,6 +1111,9 @@ runtime_helper_domain! {
     PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value,caller_program:Program } => Completion;
     InitializeInstanceElements / InitializeInstanceElementsArguments / InitializeInstanceElementsParameters / "initialize_instance_elements" { caller_program:Program,caller_function_context:(Ref FunctionContext NonNullable),receiver:Value } => Completion;
+    GlobalLexicalDeclarationCheck / GlobalLexicalDeclarationCheckArguments / GlobalLexicalDeclarationCheckParameters / "global_lexical_declaration_check" { key:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalVarDeclarationCheck / GlobalVarDeclarationCheckArguments / GlobalVarDeclarationCheckParameters / "global_var_declaration_check" { object:Value,key:Key,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalVarDeclarationInstall / GlobalVarDeclarationInstallArguments / GlobalVarDeclarationInstallParameters / "global_var_declaration_install" { object:Value,key:Key,deletable:I32,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable),caller_program:Program } => Completion;
 }
 
@@ -1236,6 +1239,9 @@ impl RuntimeHelperId {
             Self::GlobalIdentifierTypeofStrict => HelperOwner::Runtime,
             Self::PrivateElementAdd => HelperOwner::Runtime,
             Self::PrivateFieldDefine => HelperOwner::Runtime,
+            Self::GlobalLexicalDeclarationCheck => HelperOwner::Runtime,
+            Self::GlobalVarDeclarationCheck => HelperOwner::Runtime,
+            Self::GlobalVarDeclarationInstall => HelperOwner::Runtime,
             Self::JsonStringifyValue => HelperOwner::Runtime,
             Self::CompactArrayLiteral => HelperOwner::Program,
             Self::InitializeInstanceElements => HelperOwner::ContextHook,
@@ -1345,6 +1351,9 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReactions => true,
             Self::AsyncGeneratorYieldReturnReactions => true,
             Self::AsyncGeneratorAwaitReturnReactions => true,
+            Self::GlobalLexicalDeclarationCheck => true,
+            Self::GlobalVarDeclarationCheck => true,
+            Self::GlobalVarDeclarationInstall => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
             Self::CompactArrayLiteral => true,
             Self::InitializeInstanceElements => true,
