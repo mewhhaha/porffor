@@ -108,9 +108,26 @@ fn strict_sloppy_and_raw_modes_retain_original_source_and_declared_harness() {
         .source
         .starts_with("\"use strict\";\n"));
     for seed in [&strict, &sloppy] {
-        let source = &ready(&seed.wire.wasm_aot).source;
-        assert!(source.ends_with(original));
-        assert!(source.contains("var bridgeHelper = 17;"));
+        for materialization in [&seed.wire.wasm_aot, &seed.wire.spec_exec] {
+            let actual = ready(materialization);
+            let expected_source =
+                if seed.wire.execution_id.mode() == crate::TestExecutionMode::StrictScript {
+                    format!("\"use strict\";\n{original}")
+                } else {
+                    original.to_owned()
+                };
+            assert_eq!(actual.source, expected_source);
+            let prelude = actual
+                .module_prelude
+                .as_deref()
+                .expect("declared helper remains an independent global Script");
+            assert!(prelude.contains("var bridgeHelper = 17;"));
+            assert!(!prelude.starts_with("\"use strict\";"));
+            assert!(actual
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "bridgeHelper.js"));
+        }
         assert_eq!(seed.wire.includes, ["bridgeHelper.js"]);
         assert_ne!(seed.wire.original_failure.ownership.owner().as_str(), "");
     }

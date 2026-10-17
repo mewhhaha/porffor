@@ -1,20 +1,29 @@
 # Current native verification — 2026-10-17
 
-Full unfiltered current-source native inventories pass: Engine 960/960, Runtime 33/33.
-Every listed inventory has zero failures, ignored tests and filters; complete
-literal inventory and source/input guards pass. The960-test Engine inventory
-improves from938pass/22fail to960pass/0fail. Raw prior failures remain in
-the previous cache-fixture checkpoint. See the [full native evidence](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json).
+Full current-source native Engine960/960, Runtime33/33 and CLI library82/82
+inventories pass without filters or ignored tests. The actual product CLI
+entry point passes7 controls, including exact Script/Function/eval/Module
+transcripts and error exits; its selected cache and product-artifact integration
+targets pass all3 tests. This is direct native evidence; ordinary Cargo and
+other CLI integration targets remain separate open gates.
 
-Compiler fingerprint 1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9.
-The24-stage native build and exact unchanged-dependency reuse proofs remain
-in the [source/build checkpoint](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json).
-This is direct native evidence. Ordinary Cargo/default/all-feature, actual CLI
-entry point/integrations, remaining203/historical5365, supported hosts,
-shard/resume, two complete pinned families and T22/task-specific gates remain
-open. The prior27 Test262 result is23Success/4Crash and has not yet been
-replayed under this identity. Keep CONTINUE.md and tasks until their actual
-completion criteria pass. Older checkpoints below are historical.
+The complete default Test262-tooling inventory improves from353pass/82fail
+to434pass/1fail after using all57417 runtime-fixture files through complete
+directory roots. Its global-harness assertion now checks the exact entry body,
+actual separate lenient helper and metadata for both backends. The remaining
+agent fixture expects eval/Function to be unsupported even though its workers
+now succeed. Replace those workers with actual throws, retaining all root
+negative-ownership checks; that repair is not accepted yet. One oracle-feature
+test remains explicitly deferred to its enabled-feature inventory.
+
+See the [current raw evidence](docs/rust-rewrite/native-cli-and-test262-fixture-checkpoint-20261017.json)
+and [Engine/Runtime inventory evidence](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json).
+Compiler fingerprint remains1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9;
+only an exact cfg(test) assertion changed. Keep remaining203/historical5365,
+ordinary Cargo/default/all-feature, other CLI targets, supported hosts,
+shard/resume, two full pinned families and T22/task criteria open. Keep this
+file and tasks until their actual completion criteria pass. Older notes below
+are historical.
 
 # Compiler and retention checkpoint — 2026-10-17
 

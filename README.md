@@ -1,8 +1,11 @@
-Native verification (2026-10-17): **Engine 960/960, Runtime 33/33** pass with zero failures,
-ignored tests or filters. The Engine inventory improves from938/960 to960/960.
-[Complete raw results](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json)
-bind the current compiler/runtime and all verified inputs. Ordinary Cargo,
-the real CLI entry point, remaining conformance and task gates are open.
+Native verification (2026-10-17): full Engine960/960, Runtime33/33 and CLI
+library82/82 pass. The actual CLI passes7 entry-point controls and all3 tests
+in its selected cache/product-artifact integration targets. Default Test262
+tooling improves from353pass/82fail to434pass/1fail after restoring its complete
+runtime fixtures and checking independent global-Script helpers correctly.
+[Raw results](docs/rust-rewrite/native-cli-and-test262-fixture-checkpoint-20261017.json)
+retain the remaining stale agent-fixture failure. Ordinary Cargo, other CLI
+integrations, all-feature, full pinned conformance and task gates remain open.
 
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement
