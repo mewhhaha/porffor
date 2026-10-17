@@ -10,6 +10,14 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Original deadline replay (2026-10-17) remains **red:23Success/4Crash**.
+It retains23 of24 earlier successes; sloppy object-literal `__proto__` now times
+out at the unchanged60000ms budget. The other three timeouts remain. Broader
+replay is stopped while this retention failure is investigated. The actual CLI
+passes its entry checks and both named integration targets. [Raw evidence](docs/rust-rewrite/current-replay-retention-checkpoint-20261017.json)
+includes all27 results and a bounded cache-outcome trace. Native2492 acceptance
+above does not establish conformance or deadline retention.
+
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement
 storage, and discovers for-in initializer environments before lowering. The

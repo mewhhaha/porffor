@@ -1,3 +1,23 @@
+# Deadline retention failed — 2026-10-17
+
+Stop broader current-source replay until the lost success is restored. Actual
+original27 replay completed23Success/4Crash, retaining23 of24 earlier successes.
+The sloppy object-literal `__proto__` case now times out; both class-default modes
+and strict `__proto__` still time out. All remain in the denominator, unchanged
+60000ms/worker1/512entries/2GiB. Exact causal source/profile attribution is not
+established; run matched old/new cold-cache samples before changing code.
+[Complete literal evidence](docs/rust-rewrite/current-replay-retention-checkpoint-20261017.json)
+also records the passing actualCLI entrypoint and both CLI integration targets.
+
+The bounded actual-source trace observes582cachemiss/993cachehit; first212 paired
+lookups contain94misses taking5.749s and118hits taking0.004665s. It is diagnostic,
+not acceptance or proof of GCtype-prefix cost. Consider a measured coherent
+optimizedIR/AOT closure (ordinaryrelease3/test2; this native diagnostic isopt1),
+retaining exact source/fingerprint/typed dependency and freshRbyte checks.
+The complete native2492 checkpoint remains valid for its own scope. Original
+retention, ordinaryCargo/features/hosts/fullpinned/shard-resume/T22/alltasks remain
+open. Do notdeleteCONTINUE/tasks. Older publication-time notes follow.
+
 # Complete repaired-source native checkpoint — 2026-10-17
 
 The current compiler passes2,492 native tests with0failures/ignores/filtered:
