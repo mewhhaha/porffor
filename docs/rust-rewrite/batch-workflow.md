@@ -1,5 +1,20 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Retain test binaries when disk space permits — 2026-10-17
+
+Add `--preserve-test-artifacts` to the workspace runner to keep completed native
+test executables and unselected Cargo siblings. Their exact paths, sizes and
+hashes remain in the receipt; unselected outputs have no execution verdict.
+Ordinary Cargo decides whether a later invocation can reuse an output. The
+default still removes these files, and incremental-cache policy is unchanged.
+The six retention controls cover the default, explicit preservation, unchanged
+failed verdicts, changed executable rejection and profile-path boundaries.
+No measured build-time speedup is claimed from these controls alone.
+
+```sh
+python3 -B -m unittest scripts.tests.test_workspace_artifact_retention
+```
+
 ## Test-only compiler identity inputs — 2026-10-15
 
 The production fingerprint and build-script rerun inventory exclude only

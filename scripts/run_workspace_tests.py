@@ -15,7 +15,7 @@ root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
 from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
 from workspace_test_storage import storage_snapshot
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -87,7 +87,7 @@ if args.only_targets:
     assert set(partition_native_targets) <= requested, 'Explicit native partitions must be selected by --only-targets'
     cases=[c for c in cases if c['package']+':'+c['target'] in requested]
 
-result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets}
+result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets,'preserve_test_artifacts':args.preserve_test_artifacts}
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
@@ -99,6 +99,7 @@ if args.retry_from:
     assert previous.get('isolated_test_packages',[])==isolated_packages
     assert previous.get('partition_native_targets',[])==partition_native_targets, 'Retry native partition policy changed'
     assert previous.get('partition_cli',args.partition_cli)==args.partition_cli, 'Retry CLI partition policy changed'
+    assert previous.get('preserve_test_artifacts',False)==args.preserve_test_artifacts, 'Retry artifact retention policy changed'
     previous_source=json.loads((args.retry_from.parent/'source-start.json').read_text())
     assert previous_source==source
     rejected={(c['package'],c['target'],c['kind']):c for c in previous['cases'] if c.get('state') is None or (args.retry_interrupted and c.get('state') in ('interrupted','storage-deferred'))}
@@ -320,6 +321,18 @@ def forward_progress():
         print("PROGRESS",json.dumps(changed,sort_keys=True),flush=True)
         last_progress_sizes.update(changed);last_progress_at=time.monotonic()
 
+def finish_unselected_artifacts(artifacts,wanted):
+    retired=[];preserved=[]
+    for key,path in artifacts.items():
+        if key in wanted:continue
+        assert path.parent.resolve()==(profile_root/'deps').resolve()
+        row={'package_id':key[0],'target':key[1],'kind':key[2],'path':evidence_path(path),
+             'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+             'reason':'Unselected Cargo output; no native execution or verdict claimed.'}
+        if args.preserve_test_artifacts:preserved.append(row)
+        else:path.unlink();retired.append(row)
+    return retired,preserved
+
 def complete(cpu):
     entry=active[cpu];run=entry['run'];status=run.poll()
     if status is None:return False
@@ -351,7 +364,10 @@ def complete(cpu):
     if executable is not None:
         assert executable.parent.resolve()==(profile_root/'deps').resolve()
         assert hashlib.sha256(executable.read_bytes()).hexdigest()==case['executable_sha256'], 'Native artifact changed during execution'
-        executable.unlink();case['executable_released']=True
+        if args.preserve_test_artifacts:
+            case['executable_released']=False
+        else:
+            executable.unlink();case['executable_released']=True
         # No build is active in this orchestrator. Serialize cache cleanup with
         # any other Cargo producer; running test ELFs do not read incremental.
         with (profile_root/'.cargo-lock').open('a+b') as lock:
@@ -582,13 +598,9 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
                                   'bytes':producer.stat().st_size,'sha256':hashlib.sha256(producer.read_bytes()).hexdigest()})
             build_groups[group_name]['build_script_artifacts']=producers
             wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if group_key(c)==group}
-            retired_siblings=[]
-            for key,path in artifact_cohorts[group].items():
-                if key not in wanted:
-                    assert path.parent.resolve()==(profile_root/'deps').resolve()
-                    retired_siblings.append({'package_id':key[0],'target':key[1],'kind':key[2],'path':evidence_path(path),'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'reason':'Unselected already-completed sibling rebuilt by stable workspace selector; no native admission or verdict claimed.'})
-                    path.unlink()
+            retired_siblings,preserved_siblings=finish_unselected_artifacts(artifact_cohorts[group],wanted)
             build_groups[group_name]['unselected_artifacts_retired']=retired_siblings
+            build_groups[group_name]['unselected_artifacts_preserved']=preserved_siblings
         case['build_group']=group_name
         if args.shared_runtime_linker:
             # PATH is deliberately outside Cargo's compilation fingerprints.

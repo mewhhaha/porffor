@@ -8,6 +8,9 @@ This recovered batch awaits fresh Cargo and exact stress-replay verification.
 The last published 230-case baseline remains 197 Success, 16 Bug and 17 Crash.
 Full pinned conformance and task acceptance remain open.
 
+The workspace runner offers `--preserve-test-artifacts` for machines with enough
+disk space; it retains verified binaries for subsequent ordinary Cargo reuse.
+
 # Lila
 
 Numeric lexer correction (2026-10-16): numeric literals reject a following Unicode IdentifierStart, and lexer checks retain the actual LegacyOctal token classification. All **311 captured native checks pass**: 300 parser checks and 11 Front checks. The same 311 IDs retain **307 previous passes** and repair the **four earlier failing assertions**.
