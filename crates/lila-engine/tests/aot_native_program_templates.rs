@@ -95,3 +95,6 @@ mod annex_b_arguments;
 
 #[path = "aot_native_program_templates/unobserved_arguments.rs"]
 mod unobserved_arguments;
+
+#[path = "aot_native_program_templates/repeated_identifier_reads.rs"]
+mod repeated_identifier_reads;

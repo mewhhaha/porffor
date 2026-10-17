@@ -1,3 +1,10 @@
+Unverified compiler checkpoint (2026-10-17): long runs of identical identifier
+read statements use a counted Wasm loop while performing every original live
+read, completion update and abrupt dispatch. This targets the 10,000-statement
+native-eval timeout found during retention verification. A body-size/validation
+guard and three native semantic controls are authored; compilation, execution
+and exact prior-pass retention remain pending.
+
 Compiler throughput batch (2026-10-17, authored): full bootstrap catalogue plans
 share immutable storage, typed-local lookup uses indexed declaration runs, and
 native factory modules compile their initializer and factory without an unused
