@@ -1,15 +1,52 @@
 """Identity checks ignore local recovery files but still reject product drift."""
 
 from pathlib import Path
+import hashlib
+import importlib.util
 import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts/check-lila-identity.sh"
 RETIRED_NAME = "por" + "ffor"
+
+spec = importlib.util.spec_from_file_location(
+    "identity_provenance", REPO / "scripts/identity_provenance.py",
+)
+provenance = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(provenance)
+
+
+class FrozenProofTests(unittest.TestCase):
+    def test_frozen_admission_changes_only_host_paths_and_preserves_product_tokens(self):
+        raw = (
+            '{"cwd":"/workspace/' + RETIRED_NAME + '-next",'
+            '"product":"' + RETIRED_NAME + '-cli"}\n'
+        ).encode()
+        name = "closed-test-proof.json"
+        with patch.dict(provenance.PROOFS, {name: (None, hashlib.sha256(raw).hexdigest())}):
+            actual = provenance.audit_source(Path("docs/rust-rewrite") / name, raw)
+            expected = raw.replace(
+                ("/workspace/" + RETIRED_NAME + "-next").encode(),
+                b"/workspace/HISTORICAL_CHECKOUT",
+            )
+            self.assertEqual(actual, expected)
+            self.assertIn((RETIRED_NAME + "-cli").encode(), actual)
+            self.assertEqual(provenance.audit_source(Path("crates/lila-cli") / name, raw), raw)
+            self.assertEqual(provenance.audit_source(Path("docs/rust-rewrite/unknown.json"), raw), raw)
+
+    def test_any_changed_frozen_proof_byte_is_rejected(self):
+        raw = b'{"schema":"same","value":1}\n'
+        name = "closed-test-proof.json"
+        with patch.dict(provenance.PROOFS, {name: (None, hashlib.sha256(raw).hexdigest())}):
+            for changed in (raw + b" ", raw.replace(b"1", b"2")):
+                with self.subTest(changed=changed):
+                    with self.assertRaisesRegex(ValueError, "frozen historical proof changed"):
+                        provenance.audit_source(Path("docs/rust-rewrite") / name, changed)
 
 
 class IdentityTests(unittest.TestCase):

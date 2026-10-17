@@ -11,6 +11,11 @@ import re
 import sys
 
 PROOFS = {
+    # Closed reports keep their literal host paths; admission binds every byte.
+    'complete-current-native-inventories-20261017.json': (None, '5230af16e2631be1771e2970de9b724fcb662ec3d34533ef06933eaa8a2e6dbb'),
+    'native-cache-fixture-checkpoint-20261017.json': (None, '65a6d06daf286205b238e1c568740402f73888206b4e536d7d9baca8b29f4c49'),
+    'native-workspace-032d2f5c7-20261012.json': (None, 'e5655325520b6d30ef2908c053c0c7c6f7f8292ad5c94361cbfdfb29d6ada03b'),
+    'native-workspace-successor-20261012.json': (None, '4f3d4e347adb0890fae883a2eef5bbfa6cb6326702435a1f1fe696822c643b45'),
     'abi6-native-repairs-20261015.json': ('abi6-source-and-focused-native-publication-v1', None),
     'abi6-five-crate-metadata-eb1ca63c9-20261015.json': ('unapplied-abi6-five-crate-metadata-proof-v1', None),
     'abi6-prepared-ownership-eb1ca63c9-20261015.json': ('unapplied-abi6-prepared-ownership-proof-v1', None),
@@ -91,7 +96,7 @@ def audit_source(path, raw):
             raise ValueError("historical proof must be an object")
         if frozen_sha:
             if hashlib.sha256(raw).hexdigest() != frozen_sha:
-                raise ValueError("schema-less historical proof changed")
+                raise ValueError("frozen historical proof changed")
         elif value.get("schema") != schema:
             raise ValueError("historical proof schema differs")
     elif name in READERS:
