@@ -96,4 +96,4 @@ if __name__ == "__main__":
         print(error, file=sys.stderr)
     if errors:
         raise SystemExit(1)
-    print("ModuleSource Realm prototype/layout9 source controls passed")
+    print("ModuleSource Realm prototype/ABI10 source controls passed")

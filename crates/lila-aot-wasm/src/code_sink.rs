@@ -437,7 +437,7 @@ impl Function {
         &mut self,
         schema: crate::native_program_contexts::Schema,
     ) {
-        assert!(self.native_program_context.is_none() && self.operator_count == 0);
+        assert!(self.native_program_context.is_none());
         self.native_program_context =
             Some(crate::native_program_contexts::FunctionContext::Bootstrap {
                 schema,

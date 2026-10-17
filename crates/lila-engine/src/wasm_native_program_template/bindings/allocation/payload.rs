@@ -1,5 +1,5 @@
 use super::*;
-pub(super) fn fresh_from_payload<T>(
+pub(crate) fn fresh_from_payload<T>(
     store: &mut impl AsContextMut<Data = T>,
     inputs: &[Val],
     outputs: &mut [Val],

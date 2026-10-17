@@ -9,7 +9,8 @@ C = E + 'wasm_native_source_compiler.rs'
 T = E + 'wasm_native_source_compiler/trace.rs'
 N = E + 'wasm_native_program_template.rs'
 KINDS = {'function': 'Function', 'global_script': 'GlobalScript', 'direct_eval': 'DirectEval'}
-FILES = (C, T, N) + tuple(E + 'wasm_native_' + k + '_compiler' + tail
+I = E + 'wasm_native_program_template/instance.rs'
+FILES = (C, T, N, I) + tuple(E + 'wasm_native_' + k + '_compiler' + tail
     for k in KINDS for tail in ('.rs', '/factory.rs'))
 
 def compact(source):
@@ -61,7 +62,7 @@ def check(root, overrides=None):
              'instantiate(&mut*store,engine,context,&template,trace,)?' in factory and
              factory.find('Phase::FactoryInvoke') < factory.find('initialize.call(') < factory.find('factory.call('),
              'natural artifact/template/invoke boundaries retain actual execution: ' + kind)
-    binder = c[N]
+    binder = c[N] + c[I]
     need('trace:Option<&CallbackTrace' in binder and
          all('Phase::' + phase in binder for phase in ('CompiledModuleLookup', 'BindImports', 'Instantiate')) and
          binder.find('Phase::CompiledModuleLookup') < binder.find('cache::module(') < binder.find('drop(lookup)') and

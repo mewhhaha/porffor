@@ -193,7 +193,7 @@
     {
       "bytes": 12549,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "81d260277869ab16cf62f937059e9214a538bd623d7531457e5610442d38cf86"
+      "sha256": "fed6392a524e530dd28ce2400e197c9f525c3af7e040285839c54db04fdd6895"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "77c3868a7d66e7062179dc1893912db5dc76e6d9bbe0c9a4f026285c85f9c0e8"
+      "sha256": "762138917307d50d2bc452f84acbaa2cc5d7da79bc8a2866b8b4b9adf7df0c3c"
     },
     {
       "bytes": 5033,
@@ -1033,7 +1033,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "d87426ee4e172ad8b82d551ecf70a8c14223840ed1a5d6fe33a8601987c7b44a",
+  "provider_data_sha256": "6dcf06e6aad081a1dc3ca2be8bf5e4147791771828affea7effbc1cdaad7ab91",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

@@ -14,6 +14,7 @@ pub(super) fn store() -> WasmtimeStore<WasmHostState> {
         WasmHostState {
             weak: wasm_gc_weak_host::WeakGcState::default(),
             native_source_compiler: None,
+            native_template_instances: Default::default(),
             monotonic_clock_origin: realm.host_clock().monotonic_instant(),
             realm,
             output_events: WasmOutputEvents::DelegateOnly,

@@ -23,6 +23,7 @@ pub(super) fn store() -> WasmtimeStore<WasmHostState> {
             agent_commands: None,
             agent_leaving: None,
             native_source_compiler: None,
+            native_template_instances: Default::default(),
             limits: WasmtimeStoreLimitsBuilder::new()
                 .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
                 .build(),
