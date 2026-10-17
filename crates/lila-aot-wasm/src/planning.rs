@@ -7,6 +7,7 @@ use lila_ir::{
     ObjectDestructuringPatternIr, OptionalChainOperationIr, SyncDisposableScopeExecutionIr,
 };
 pub(crate) use module_graph::ModuleGraphPlan;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone)]
 pub(crate) struct WasmFunctionMeta {
@@ -90,6 +91,7 @@ mod tests {
             source.program.len() + script.prepared_script_units().count(),
             0,
             crate::runtime_artifact::ModuleKind::Standalone,
+            crate::function_layout::ModuleEntryRole::Main,
         );
         build_function_metas(&source, script.prepared_script_units(), &[], &[], &layout)
     }
@@ -1280,6 +1282,29 @@ mod temporal_namespace;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeBootstrapPlan {
+    shared: Arc<RuntimeBootstrapPlanData>,
+}
+
+impl std::ops::Deref for RuntimeBootstrapPlan {
+    type Target = RuntimeBootstrapPlanData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
+}
+
+impl std::ops::DerefMut for RuntimeBootstrapPlan {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.shared)
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/unit/bootstrap_plan_sharing.rs"]
+mod bootstrap_plan_sharing_tests;
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RuntimeBootstrapPlanData {
     pub(crate) full_standard_globals: bool,
     pub(crate) standard_roots: BTreeSet<StandardBuiltinId>,
     pub(crate) reflect_object: bool,
@@ -1328,6 +1353,13 @@ impl RuntimeBootstrapPlan {
     /// `RealmInitializeIntrinsics` helper is the same for every program; the
     /// script's own global bindings are installed by main.
     pub(crate) fn full() -> Self {
+        // The closed catalogue plan contains no Script, Realm or Store state.
+        // Builders share it immutably; partial-plan mutation remains copy-on-write.
+        static FULL: OnceLock<RuntimeBootstrapPlan> = OnceLock::new();
+        FULL.get_or_init(Self::build_full).clone()
+    }
+
+    fn build_full() -> Self {
         let mut plan = Self::default();
         plan.full_standard_globals = true;
         for builtin in StandardBuiltinId::all_functions() {

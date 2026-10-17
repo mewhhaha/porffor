@@ -1,9 +1,9 @@
 //! The one Wasm function index space.
 //!
 //! ```text
-//! [imports][runtime callables][runtime helpers][main][P initializer?][program callables][program helpers]
+//! [imports][runtime callables][runtime helpers][main?][P initializer?][program callables][program helpers]
 //!           ^-- runtime half: identical for every program --^
-//!                                                 ^-- program half starts at `main`
+//!                                                 ^-- program half starts with its actual entry prefix
 //! ```
 //!
 //! Runtime callables are the compiler-owned source bodies, every standard
@@ -11,13 +11,30 @@
 //! functions followed by its prepared script units. Program helpers are the
 //! helper bodies generated from the script (module operations and the runtime
 //! hooks, see `HelperOwner`). Every index is derived
-//! here, so the runtime/program boundary is [`Self::first_program_index`]
+//! Native factory modules have an initializer prefix; ordinary programs also
+//! have main. Every index is derived here, so the runtime/program boundary is [`Self::first_program_index`]
 //! and no other module does position arithmetic.
 
 use lila_ir::{FunctionIr, ScriptIr};
 
 use crate::runtime_artifact::ModuleKind;
 use crate::runtime_helpers::RuntimeHelperFunctionBase;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModuleEntryRole {
+    RuntimeOnly,
+    Main,
+    NativeFactory,
+}
+
+impl ModuleEntryRole {
+    pub(crate) const fn for_module(kind: ModuleKind<'_>) -> Self {
+        match kind {
+            ModuleKind::Runtime(_) => Self::RuntimeOnly,
+            ModuleKind::Standalone | ModuleKind::Program(_) => Self::Main,
+        }
+    }
+}
 
 /// Only the linked-P layout can mint a callable initializer index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +78,7 @@ pub(crate) struct FunctionIndexLayout {
     standard: u32,
     host: u32,
     runtime_helpers: u32,
+    entry_role: ModuleEntryRole,
     program_initialize: bool,
     program_callables: u32,
     program_helpers: u32,
@@ -80,13 +98,27 @@ impl FunctionIndexLayout {
         program_callables: usize,
         program_helpers: usize,
         kind: ModuleKind<'_>,
+        entry_role: ModuleEntryRole,
     ) -> Self {
+        assert!(
+            matches!(
+                (kind, entry_role),
+                (ModuleKind::Runtime(_), ModuleEntryRole::RuntimeOnly)
+                    | (ModuleKind::Standalone, ModuleEntryRole::Main)
+                    | (
+                        ModuleKind::Program(_),
+                        ModuleEntryRole::Main | ModuleEntryRole::NativeFactory
+                    )
+            ),
+            "entry role belongs to the actual module kind"
+        );
         let layout = Self {
             imported,
             runtime_owned: count(runtime_owned),
             standard: count(standard),
             host: count(host),
             runtime_helpers: count(runtime_helpers),
+            entry_role,
             program_initialize: matches!(kind, ModuleKind::Program(_)),
             program_callables: count(program_callables),
             program_helpers: count(program_helpers),
@@ -133,27 +165,38 @@ impl FunctionIndexLayout {
         RuntimeHelperFunctionBase::at(self.runtime_helper_first(), self.program_callable_end())
     }
 
-    /// First index of the program half; `main` itself.
+    /// First index of the program half, before its actual entry prefix.
     pub(crate) fn first_program_index(&self) -> u32 {
         Self::add(self.runtime_helper_first(), self.runtime_helpers)
     }
 
-    pub(crate) fn main_index(&self) -> u32 {
-        self.first_program_index()
+    pub(crate) const fn entry_role(&self) -> ModuleEntryRole {
+        self.entry_role
+    }
+
+    pub(crate) fn main_index(&self) -> Option<u32> {
+        matches!(self.entry_role, ModuleEntryRole::Main).then(|| self.first_program_index())
     }
 
     pub(crate) fn program_initialize_index(&self) -> Option<ProgramInitializeIndex> {
-        self.program_initialize
-            .then(|| ProgramInitializeIndex(Self::add(self.main_index(), 1)))
+        self.program_initialize.then(|| {
+            ProgramInitializeIndex(Self::add(
+                self.first_program_index(),
+                u32::from(self.main_index().is_some()),
+            ))
+        })
     }
 
     /// Defined P prefix bodies, before source/prepared callables.
     pub(crate) const fn program_prefix_count(&self) -> usize {
-        1 + self.program_initialize as usize
+        matches!(self.entry_role, ModuleEntryRole::Main) as usize + self.program_initialize as usize
     }
 
     fn program_callable_first(&self) -> u32 {
-        Self::add(self.main_index(), self.program_prefix_count() as u32)
+        Self::add(
+            self.first_program_index(),
+            self.program_prefix_count() as u32,
+        )
     }
 
     pub(crate) fn program_callable_index(&self, position: usize) -> u32 {

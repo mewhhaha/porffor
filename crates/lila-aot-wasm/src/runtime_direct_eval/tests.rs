@@ -195,6 +195,11 @@ fn emitted_direct_eval_factory_retains_full_witness_exact_r_and_valid_typed_hook
         }
     }
     assert_eq!(imported, expected_imports.len());
+    assert!(!exports.contains_key("main"));
+    assert_eq!(
+        exports[artifact.program_initialize_export()],
+        imported as u32
+    );
     assert!(
         !exports.contains_key(crate::runtime_global_script::RUNTIME_GLOBAL_SCRIPT_FACTORY_EXPORT)
     );
