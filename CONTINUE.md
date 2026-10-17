@@ -4,12 +4,33 @@ The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes. Native subsets and focused Test262 inventories do not establish full
 pinned conformance. Push verified progress to main continuously.
 
-Current recovery work: the cloud replacement lost temporary build outputs and
-unpublished repairs. The coherent declaration, inert-frame, indirect-eval and
-prelude-diagnostic batch is reconstructed in the checkout and checkpointed to
-`codex/cloud-recovery-20261017`. Fresh ordinary Cargo verification, original
-13-failure replay, and exact 197-prior-pass retention are pending. Do not carry
-interrupted or lost-machine results as fresh acceptance.
+Current recovery work is checkpointed to `codex/cloud-recovery-20261017`.
+The declaration-table repair passes all13 original Unicode failures through the
+actual Cargo-built public CLI at compiler identity
+`e74f8d553509a1dc15d6cd8923af9b0a10ac1b4189f59dba5a00efb53ef974be`.
+The197-prior-pass replay was deliberately stopped at a saved110-case checkpoint:
+105Success/5deadlineCrash,87 IDs unaccepted. Every input remains in the next
+full197 replay; this is not a new230 aggregate or accepted retention result.
+[Exact CLI checkpoint](docs/rust-rewrite/direct-eval-cli-checkpoint-20261017.json).
+
+Four complete native targets pass: AOT411, IR1599, IR integration740 and
+Engine965. The fullRealm target completed427passes/1failure in a new incorrect
+constructor-name assertion; its corrected six-case function passes focused
+native execution. The original rejected receipt is preserved in
+[native evidence](docs/rust-rewrite/rejected-prelude-native-20261017.json).
+Separate complete Front177 and Runtime33 native tests also pass. Current-source
+ordinaryCargo/wholeRealm verification remains required after the next batch.
+
+The coherent next batch is applied: shared immutable full bootstrap plans,
+indexed local declarations, omission of unused native-factory Main, the prelude
+assertion correction, and counted loops for identical live identifier reads.
+Type checking and18 non-executing emission/validation controls pass; the largest
+body for five10,000-read variants falls from1.9MB to under6KB while preserving
+the original reads and completion path. Runtime Wasm bytes are unchanged.
+Actual Cargo/native/CLI and timing acceptance remain pending. Build selected
+native scopes together once, then run complete affected scopes and all13+197
+literal CLI IDs before promoting this compiler batch to main. Avoid an extra
+wholeRealm rebuild for the already-rejected intermediate compiler.
 
 The recovered f9ff55f5a probe passed all 1,599 IR unit and 740 IR integration
 checks, retaining every earlier integration ID. AOT was red: 407 passed and the
@@ -47,13 +68,13 @@ The last published baseline compiler fingerprint is
 The native support fingerprint is unchanged:
 `b4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30`.
 
-## Known current failures
+## Known failures and unaccepted scopes
 
-The exact230-case inventory contains33 nonpasses:
+The last completed230-case baseline contained33 nonpasses. Its current-source
+subsets have the following status; do not manufacture a new aggregate:
 
-- 13 Unicode identifier executions fail Wasm function-body validation. A raw
-  fixture control emits a2.50MB main body and validates; measure the actual
-  production-materialized case before attributing the larger failing body.
+- All13 Unicode identifier executions now pass at the identity recorded above.
+  Retain them when verifying the next compiler identity.
 - 14 dynamic eval stress executions exhaust the Store instance count at10,001.
   Compiled-module reuse still creates a fresh Instance for every invocation.
   Any instance-sharing repair must preserve every source's immutable data,
@@ -65,6 +86,10 @@ The exact230-case inventory contains33 nonpasses:
   mapping. CLDR aliases and a cross-country remap are not accepted authority.
 - 1 staging Annex B labelled-function fixture conflicts with the accepted
   label-chain boundary. Keep its literal failure pending authoritative resolution.
+- Five previously passing executions timed out in the interrupted197 replay:
+  both modes of `destructuring-array-default-simple.js` and
+  `object-literal-__proto__.js`, and sloppy `regress-563221.js`. The throughput
+  and large-body repairs are applied but their actual retention is unverified.
 
 The unchanged deadline is60000ms, compile allowance300000ms, and worker count1.
 The official Annex B implicit-arguments regression now passes. The typed empty

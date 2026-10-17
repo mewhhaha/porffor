@@ -1,9 +1,30 @@
+Recovery verification checkpoint (2026-10-17): all **13 original Unicode
+failures pass** through the actual Cargo-built public CLI. The 197-case retention
+run was deliberately stopped after **105 Success and five deadline Crash** at
+its 110-case checkpoint; the other 87 IDs remain unaccepted. A fresh complete
+197-case replay is required after the pending throughput repairs. The
+[CLI checkpoint](docs/rust-rewrite/direct-eval-cli-checkpoint-20261017.json)
+preserves the exact IDs, unchanged limits, interruption and raw evidence.
+
+Four complete native targets pass: AOT **411**, IR **1,599**, IR integration
+**740** and Engine **965**. Realm completed **427 passes and one failure** in a
+new assertion that contradicted the documented thrown-value constructor-name
+contract. The exact corrected assertion passes six focused native cases;
+the [original red run](docs/rust-rewrite/rejected-prelude-native-20261017.json)
+is preserved. Separate complete Front and Runtime targets pass **177** and **33**
+tests. None of these results establishes full workspace or pinned conformance.
+
 Unverified compiler checkpoint (2026-10-17): long runs of identical identifier
 read statements use a counted Wasm loop while performing every original live
 read, completion update and abrupt dispatch. This targets the 10,000-statement
 native-eval timeout found during retention verification. A body-size/validation
-guard and three native semantic controls are authored; compilation, execution
-and exact prior-pass retention remain pending.
+guard and three native semantic controls are authored. Rust type checking,
+native AOT code generation and **18 non-executing emission/validator controls**
+pass. In five large-source variants the largest emitted body falls from
+**1,924,213–1,955,436 bytes to 4,428–5,654 bytes**; the shared runtime Wasm is
+byte-identical. The [structural evidence](docs/rust-rewrite/repeated-identifier-reads-emission-20261017.json)
+does not claim execution or timing gains. Actual Cargo, native semantics and
+exact prior-pass retention remain pending.
 
 Compiler throughput batch (2026-10-17, authored): full bootstrap catalogue plans
 share immutable storage, typed-local lookup uses indexed declaration runs, and
