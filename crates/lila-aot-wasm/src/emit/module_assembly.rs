@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::function_layout::ModuleEntryRole;
 use crate::runtime_artifact::{EmittedModule, ModuleKind, RuntimeLayout};
 use crate::runtime_helpers::ProgramHook;
 
@@ -314,6 +315,11 @@ fn emit_script_module_with_factory(
         source.program.len() + script.prepared_script_units().count(),
         program_helper_count,
         kind,
+        if factory.is_some() {
+            ModuleEntryRole::NativeFactory
+        } else {
+            ModuleEntryRole::for_module(kind)
+        },
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -401,7 +407,7 @@ fn emit_script_module_with_factory(
     } else {
         layout.first_program_index()
     };
-    let mut module_package = module_sections.begin(first_defined_function);
+    let mut module_package = module_sections.begin(first_defined_function, layout.entry_role());
     if let Some(index) = layout.program_initialize_index() {
         let image =
             ProgramInstanceImage::from_program_pool(&string_pool, kind, script.language_features)?;
@@ -414,7 +420,7 @@ fn emit_script_module_with_factory(
             index,
         )?)?;
     }
-    if compile_program {
+    if layout.main_index().is_some() {
         module_package.compile_main(MainFunctionCompilation::new(
             script,
             promise_rejection_policy,
@@ -1724,7 +1730,7 @@ fn emit_script_module_with_factory(
     );
     let mut debug_dump = vec![
         "module: js-aot".to_string(),
-        "export func: main -> tag/scalar/reference/kind/target".to_string(),
+        entry_exports.debug_entry().to_string(),
         format!("static result kind: {}", script.result_kind().as_str()),
         format!("locals: {main_emitted_local_count}"),
         format!(

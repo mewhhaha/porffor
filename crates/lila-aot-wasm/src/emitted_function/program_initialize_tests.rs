@@ -1,7 +1,8 @@
 //! Index/declaration controls use synthetic bodies, without claiming Wasm execution.
 use super::*;
 use crate::{
-    code_sink::LocalDeclarations, function_layout::FunctionIndexLayout,
+    code_sink::LocalDeclarations,
+    function_layout::{FunctionIndexLayout, ModuleEntryRole},
     runtime_artifact::ModuleKind,
 };
 use wasm_encoder::Instruction;
@@ -46,24 +47,33 @@ fn runtime_program_and_standalone_layouts_match_actual_emission_order() {
                         source_count,
                         p_helpers,
                         kind,
+                        ModuleEntryRole::for_module(kind),
                     );
                     let boundary = imported + r_count as u32 + r_helpers as u32;
                     assert_eq!(layout.first_program_index(), boundary);
                     let linked = matches!(kind, ModuleKind::Program(_));
                     assert_eq!(layout.program_initialize_index().is_some(), linked);
-                    assert_eq!(layout.program_prefix_count(), 1 + usize::from(linked));
+                    let main_count = usize::from(kind.compiles_program());
+                    assert_eq!(
+                        layout.program_prefix_count(),
+                        main_count + usize::from(linked)
+                    );
                     if let Some(initialize) = layout.program_initialize_index() {
                         assert_eq!(initialize.raw(), boundary + 1);
                     }
                     if source_count > 0 {
                         assert_eq!(
                             layout.program_callable_index(0),
-                            boundary + 1 + u32::from(linked)
+                            boundary + main_count as u32 + u32::from(linked)
                         );
                     }
                     assert_eq!(
                         layout.defined_functions().end,
-                        boundary + 1 + u32::from(linked) + source_count as u32 + p_helpers as u32
+                        boundary
+                            + main_count as u32
+                            + u32::from(linked)
+                            + source_count as u32
+                            + p_helpers as u32
                     );
                     let first = if kind.compiles_runtime() {
                         imported
@@ -136,15 +146,86 @@ fn runtime_program_and_standalone_layouts_match_actual_emission_order() {
 }
 
 #[test]
+fn native_factory_layout_starts_with_its_typed_initializer_without_main() {
+    let runtime = crate::runtime_artifact(&lila_intl::IntlDataSelection::new(
+        lila_intl::IntlCompilationProfile::Minimal,
+    ))
+    .unwrap();
+    let layout = FunctionIndexLayout::new(
+        3,
+        2,
+        4,
+        6,
+        8,
+        2,
+        3,
+        ModuleKind::Program(&runtime),
+        ModuleEntryRole::NativeFactory,
+    );
+    let boundary = 3 + 2 + 4 + 6 + 8;
+    assert_eq!(layout.main_index(), None);
+    assert_eq!(layout.program_prefix_count(), 1);
+    let initialize = layout.program_initialize_index().unwrap();
+    assert_eq!(initialize.raw(), boundary);
+    assert_eq!(layout.program_callable_index(0), boundary + 1);
+    assert_eq!(layout.defined_functions().end, boundary + 1 + 2 + 3);
+    let mut code = ModuleCode::new(boundary);
+    let mut body = EmittedFunction::new(FunctionIdentity::ProgramInitialize, body());
+    body.declaration = FunctionDeclaration::ProgramInitialize(initialize);
+    code.push(body);
+    let (_, _, table) = code.finish();
+    assert_eq!(
+        table.records()[0].identity,
+        FunctionIdentity::ProgramInitialize
+    );
+    assert_eq!(table.records()[0].wasm_index, boundary);
+    assert_eq!(
+        table.type_indices(),
+        [StaticSignature::ProgramInitialize.type_index()]
+    );
+}
+
+#[test]
+fn only_a_linked_program_can_have_a_native_factory_entry() {
+    for kind in [
+        ModuleKind::Standalone,
+        ModuleKind::Runtime(crate::RuntimeSourceCompilationProfile::NativeHost),
+    ] {
+        assert!(std::panic::catch_unwind(|| FunctionIndexLayout::new(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            kind,
+            ModuleEntryRole::NativeFactory,
+        ))
+        .is_err());
+    }
+}
+
+#[test]
 #[should_panic(expected = "P initializer emitted outside its planned index")]
 fn a_bootstrap_body_cannot_be_published_at_main_position() {
     let runtime = crate::runtime_artifact(&lila_intl::IntlDataSelection::new(
         lila_intl::IntlCompilationProfile::Minimal,
     ))
     .unwrap();
-    let layout = FunctionIndexLayout::new(0, 0, 0, 0, 0, 0, 0, ModuleKind::Program(&runtime));
+    let layout = FunctionIndexLayout::new(
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        ModuleKind::Program(&runtime),
+        ModuleEntryRole::Main,
+    );
     let index = layout.program_initialize_index().unwrap();
     let mut initialize = EmittedFunction::new(FunctionIdentity::ProgramInitialize, body());
     initialize.declaration = FunctionDeclaration::ProgramInitialize(index);
-    ModuleCode::new(layout.main_index()).push(initialize);
+    ModuleCode::new(layout.main_index().unwrap()).push(initialize);
 }

@@ -49,6 +49,16 @@ pub(super) struct ProgramExports {
 }
 
 impl ProgramExports {
+    pub(super) fn debug_entry(&self) -> &'static str {
+        if self.factory.is_some() {
+            "export funcs: program initializer and native source factory"
+        } else if self.main.is_some() {
+            "export func: main -> tag/scalar/reference/kind/target"
+        } else {
+            "export funcs: shared runtime"
+        }
+    }
+
     pub(super) fn new(
         kind: ModuleKind<'_>,
         layout: &FunctionIndexLayout,
@@ -71,7 +81,7 @@ impl ProgramExports {
             None
         };
         Ok(Self {
-            main: kind.compiles_program().then(|| layout.main_index()),
+            main: layout.main_index(),
             initialize: layout.program_initialize_index(),
             factory,
             owns_globals: kind.owns_globals(),
@@ -90,16 +100,6 @@ impl ProgramExports {
                 phase.export(exports);
             }
             exports.export("main", ExportKind::Func, main);
-            if let Some(index) = self.initialize {
-                exports.export(
-                    crate::runtime_function::PROGRAM_INITIALIZE_EXPORT,
-                    ExportKind::Func,
-                    index.raw(),
-                );
-            }
-            if let Some((index, name)) = self.factory {
-                exports.export(name, ExportKind::Func, index);
-            }
             if has_module_entry {
                 exports.export(
                     MODULE_EVALUATION_STATUS_EXPORT,
@@ -107,6 +107,16 @@ impl ProgramExports {
                     MODULE_EVALUATION_STATUS_GLOBAL_INDEX,
                 );
             }
+        }
+        if let Some(index) = self.initialize {
+            exports.export(
+                crate::runtime_function::PROGRAM_INITIALIZE_EXPORT,
+                ExportKind::Func,
+                index.raw(),
+            );
+        }
+        if let Some((index, name)) = self.factory {
+            exports.export(name, ExportKind::Func, index);
         }
         // Diagnostics/snapshot roots remain in the instance owning the globals.
         if self.owns_globals {

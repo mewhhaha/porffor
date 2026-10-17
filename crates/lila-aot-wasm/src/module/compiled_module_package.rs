@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use wasm_encoder::{ElementSection, Elements};
 
 use super::*;
+use crate::function_layout::ModuleEntryRole;
 use crate::gc_types::FinalizedRuntimeModule;
 
 /// The one type section and the typed indices assigned while constructing it.
@@ -53,7 +54,11 @@ pub(crate) struct FinalizedModuleSections {
 }
 
 impl FinalizedModuleSections {
-    pub(crate) fn begin(self, first_wasm_index: u32) -> CompiledModulePackage {
+    pub(crate) fn begin(
+        self,
+        first_wasm_index: u32,
+        entry_role: ModuleEntryRole,
+    ) -> CompiledModulePackage {
         CompiledModulePackage {
             runtime: self.runtime,
             code: ModuleCode::new(first_wasm_index),
@@ -61,6 +66,7 @@ impl FinalizedModuleSections {
             program_initialize: None,
             program_functions: Vec::new(),
             main_emitted_local_count: 0,
+            entry_role,
         }
     }
 }
@@ -84,6 +90,7 @@ pub(crate) struct CompiledModulePackage {
     )>,
     program_functions: Vec<EmittedFunction>,
     main_emitted_local_count: u32,
+    entry_role: ModuleEntryRole,
 }
 
 impl CompiledModulePackage {
@@ -121,6 +128,11 @@ impl CompiledModulePackage {
         compilation: MainFunctionCompilation<'_>,
     ) -> Result<(), EmitError> {
         assert!(self.main.is_none(), "a module package compiles main once");
+        assert_eq!(
+            self.entry_role,
+            ModuleEntryRole::Main,
+            "only a main entry compiles JavaScript main"
+        );
         let initializer = self.program_initialize.as_ref().map(|(index, _)| *index);
         let (main, emitted_local_count) =
             compilation.compile(self.runtime.globals(), initializer)?;
@@ -158,11 +170,21 @@ impl CompiledModulePackage {
             program_initialize,
             program_functions,
             main_emitted_local_count: _,
+            entry_role,
         } = self;
-        assert!(
-            program_initialize.is_none() || main.is_some(),
-            "a linked P bootstrap and main share their package"
-        );
+        match entry_role {
+            ModuleEntryRole::RuntimeOnly => assert!(
+                main.is_none() && program_initialize.is_none(),
+                "runtime modules have no P entry"
+            ),
+            ModuleEntryRole::Main => {
+                assert!(main.is_some(), "main and its globals share their package")
+            }
+            ModuleEntryRole::NativeFactory => assert!(
+                main.is_none() && program_initialize.is_some(),
+                "native factories publish a P without JavaScript main"
+            ),
+        }
         if let Some(main) = main {
             code.push(main);
         }

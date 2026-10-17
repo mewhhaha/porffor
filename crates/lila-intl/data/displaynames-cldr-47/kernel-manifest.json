@@ -11,9 +11,9 @@
       "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
     },
     {
-      "bytes": 80644,
+      "bytes": 80844,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "de56d5c4a5f57e3e1fa3f9e26bc1260a8a1471222b7ae4dcd370d08759e229bb"
+      "sha256": "57a5dc15dc012007e91ab98f899e97247e9aab5270d8e2f999097d70866e0cf9"
     },
     {
       "bytes": 33803,
@@ -608,7 +608,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "5b7a798794109599594f74ea3fe5ce1468eee577bba3ae6d162af35e27c5ddea",
+  "provider_data_sha256": "c6de37fd0812fa5f688507ae4465fe5e599535d7330768ce22e40ccb04aa0810",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

@@ -78,81 +78,86 @@ impl Frame {
 /// The body owns this declaration from construction onward. Typed allocation
 /// appends exact scalar or reference types, and reuse accepts only the same
 /// declared type; publication emits that complete declaration.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct LocalRun {
+    end: u32,
+    ty: ValType,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct LocalDeclarations {
-    runs: Vec<(u32, ValType)>,
-    count: u32,
+    runs: Vec<LocalRun>,
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/local_declaration_index.rs"]
+mod local_declaration_index_tests;
 
 impl LocalDeclarations {
     pub(crate) fn from_types<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = ValType>,
     {
-        let mut runs: Vec<(u32, ValType)> = Vec::new();
-        let mut count = 0_u32;
-        for local_type in locals {
-            count = count.checked_add(1).expect("Wasm local count exceeds u32");
-            if let Some((run_count, run_type)) = runs.last_mut() {
-                if *run_type == local_type {
-                    *run_count += 1;
-                    continue;
-                }
-            }
-            runs.push((1, local_type));
+        let mut result = Self { runs: Vec::new() };
+        for ty in locals {
+            result.push(ty);
         }
-        Self { runs, count }
+        result
     }
 
-    /// Preserve deliberately ungrouped declarations used by decoder fixtures.
+    /// Preserve deliberately ungrouped declarations used by decoder fixtures,
+    /// including zero-length runs, without expanding their local count.
     #[cfg(test)]
     pub(crate) fn from_runs<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = (u32, ValType)>,
     {
-        let runs: Vec<_> = locals.into_iter().collect();
-        let count = runs.iter().fold(0_u32, |count, (run_count, _)| {
-            count
-                .checked_add(*run_count)
-                .expect("Wasm local count exceeds u32")
-        });
-        Self { runs, count }
+        let mut result = Self { runs: Vec::new() };
+        for (count, ty) in locals {
+            let end = result
+                .count()
+                .checked_add(count)
+                .expect("Wasm local count exceeds u32");
+            result.runs.push(LocalRun { end, ty });
+        }
+        result
+    }
+
+    fn count(&self) -> u32 {
+        self.runs.last().map_or(0, |run| run.end)
     }
 
     fn push(&mut self, ty: ValType) {
-        self.count = self
-            .count
+        let end = self
+            .count()
             .checked_add(1)
             .expect("Wasm local count exceeds u32");
-        if let Some((count, last)) = self.runs.last_mut() {
-            if *last == ty {
-                *count += 1;
+        if let Some(last) = self.runs.last_mut() {
+            if last.ty == ty {
+                last.end = end;
                 return;
             }
         }
-        self.runs.push((1, ty));
+        self.runs.push(LocalRun { end, ty });
     }
 
     fn type_at(&self, index: u32) -> Option<ValType> {
-        let mut offset = index;
-        for (count, ty) in &self.runs {
-            if offset < *count {
-                return Some(*ty);
-            }
-            offset -= count;
-        }
-        None
+        self.runs
+            .get(self.runs.partition_point(|run| run.end <= index))
+            .map(|run| run.ty)
     }
 
     fn encode_body(&self) -> wasm_encoder::Function {
-        wasm_encoder::Function::new(self.runs.iter().copied())
+        wasm_encoder::Function::new(self.runs.iter().enumerate().map(|(index, run)| {
+            let previous = index.checked_sub(1).map_or(0, |index| self.runs[index].end);
+            (run.end - previous, run.ty)
+        }))
     }
 
     /// Only cloning a complete body may fork its private declaration plan.
     fn fork_for_body(&self) -> Self {
         Self {
             runs: self.runs.clone(),
-            count: self.count,
         }
     }
 }
@@ -196,7 +201,7 @@ impl Function {
     }
 
     pub(crate) fn with_parameters(locals: LocalDeclarations, parameters: Vec<ValType>) -> Self {
-        let initial_local_count = locals.count;
+        let initial_local_count = locals.count();
         let body = locals.encode_body();
         let initial_prefix_len = body.byte_len();
         Self {
@@ -219,7 +224,7 @@ impl Function {
         &self.parameters
     }
     pub(crate) fn allocated_local_count(&self) -> u32 {
-        self.locals.count
+        self.locals.count()
     }
 
     pub(crate) fn reserve_typed_local(&mut self, ty: ValType) -> u32 {
@@ -234,7 +239,7 @@ impl Function {
         }
         let index = u32::try_from(self.parameters.len())
             .expect("parameter count overflow")
-            .checked_add(self.locals.count)
+            .checked_add(self.locals.count())
             .expect("local index overflow");
         self.locals.push(ty);
         index
@@ -243,7 +248,7 @@ impl Function {
     pub(crate) fn release_typed_local(&mut self, index: u32) {
         let base = u32::try_from(self.parameters.len()).expect("parameter count overflow");
         assert!(
-            index >= base + self.initial_local_count && index < base + self.locals.count,
+            index >= base + self.initial_local_count && index < base + self.locals.count(),
             "only this body's dynamically reserved locals can be released"
         );
         assert!(!self.free_locals.contains(&index), "local released twice");

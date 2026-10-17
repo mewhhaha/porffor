@@ -1,3 +1,9 @@
+Compiler throughput batch (2026-10-17, authored): full bootstrap catalogue plans
+share immutable storage, typed-local lookup uses indexed declaration runs, and
+native factory modules compile their initializer and factory without an unused
+JavaScript main. Focused local-layout controls pass; ordinary Cargo, actual CLI,
+performance comparison and conformance verification of this batch remain pending.
+
 Development checkpoint (2026-10-17): prepared global declarations use packed,
 program-owned name tables and ordered validation/installation loops. A structural
 proof omits unused frame caches for bare global vars and literal string statements,

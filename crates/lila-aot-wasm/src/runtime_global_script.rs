@@ -9,7 +9,7 @@ use std::sync::Arc;
 pub(crate) const RUNTIME_GLOBAL_SCRIPT_FACTORY_EXPORT: &str = "lila.runtime_global_script_factory";
 
 /// Only successful emission against this exact R can mint the artifact. The
-/// host must invoke init/factory in the same Store, never this P's main export.
+/// host invokes its typed initializer and factory in the same Store.
 #[derive(Debug)]
 pub struct RuntimeGlobalScriptArtifact {
     bytes: Arc<[u8]>,

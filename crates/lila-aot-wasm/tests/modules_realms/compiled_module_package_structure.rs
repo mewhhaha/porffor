@@ -281,7 +281,10 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
             "module_types.finalize_globals(globals, uses_heap, module_guard_count)",
             1,
         ),
-        ("module_sections.begin(first_defined_function)", 1),
+        (
+            "module_sections.begin(first_defined_function, layout.entry_role())",
+            1,
+        ),
         ("module_package.compile_main(", 1),
         (
             "module_package.append_functions(compiled_functions, program_functions)",

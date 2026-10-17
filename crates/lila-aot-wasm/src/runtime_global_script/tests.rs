@@ -192,7 +192,8 @@ fn emitted_native_global_scripts_are_fresh_valid_p_with_owned_hook_factory_and_i
             assert_eq!(imported as usize, expected_imports.len());
             let initialize = exports[artifact.program_initialize_export()];
             let factory = exports[artifact.factory_export()];
-            let main = exports["main"];
+            assert!(!exports.contains_key("main"));
+            assert_eq!(initialize, imported);
             assert!(!exports.contains_key(crate::runtime_function::RUNTIME_FUNCTION_FACTORY_EXPORT));
             assert_eq!(
                 function_types[initialize as usize],
@@ -223,7 +224,6 @@ fn emitted_native_global_scripts_are_fresh_valid_p_with_owned_hook_factory_and_i
                 .position(|index| *index == RuntimeHelperId::PooledStringsInitialize.type_index())
                 .unwrap() as u32;
             assert_eq!(calls[&initialize], [r_init]);
-            assert!(!calls[&initialize].contains(&main));
         }
     }
 }
