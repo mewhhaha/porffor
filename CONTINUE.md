@@ -1,3 +1,22 @@
+# Complete current Engine retention — 2026-10-17
+
+This block supersedes older publication-time notes below.
+
+Complete current Engine verification (2026-10-17):965/965 native tests
+pass, with all961 previous passes retained and zero ignored or filtered tests.
+The exact archived ELF runs from writable scratch; the earlier checkout-storage
+failure is preserved in the preceding checkpoint. No Rust fixture patch was
+needed. [Complete results and raw evidence](docs/rust-rewrite/serial-dispatch-complete-engine-and-storage-20261017.json) also record
+lossless shared compression of30 closed native artifacts: every original byte
+and original compressed frame was hash-verified before unlink, and exact restore
+plus changed-bundle rejection controls pass. This recovers408MiB
+for builds. The original27 single-CPU replay remains24Success/3Crash with a prior
+sloppy proto success lost. A separate supported multi-CPU compiler experiment
+is pending. Other current native scopes, ordinaryCargo and full conformance
+remain open; keep CONTINUE.md and tasks.
+
+Older notes follow.
+
 # Current native verification and literal retention — 2026-10-17
 
 This block supersedes the older publication-time notes below.

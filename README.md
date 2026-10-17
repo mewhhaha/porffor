@@ -10,6 +10,19 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Complete current Engine verification (2026-10-17):965/965 native tests
+pass, with all961 previous passes retained and zero ignored or filtered tests.
+The exact archived ELF runs from writable scratch; the earlier checkout-storage
+failure is preserved in the preceding checkpoint. No Rust fixture patch was
+needed. [Complete results and raw evidence](docs/rust-rewrite/serial-dispatch-complete-engine-and-storage-20261017.json) also record
+lossless shared compression of30 closed native artifacts: every original byte
+and original compressed frame was hash-verified before unlink, and exact restore
+plus changed-bundle rejection controls pass. This recovers408MiB
+for builds. The original27 single-CPU replay remains24Success/3Crash with a prior
+sloppy proto success lost. A separate supported multi-CPU compiler experiment
+is pending. Other current native scopes, ordinaryCargo and full conformance
+remain open; keep CONTINUE.md and tasks.
+
 Current retention and reuse measurement (2026-10-17): original27 is
 24Success/3Crash, with strict proto newly passing and the prior sloppy proto
 success lost. Literal retention is still red; both class-default variants also
