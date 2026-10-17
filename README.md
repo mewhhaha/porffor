@@ -23,6 +23,10 @@ Full pinned conformance and task acceptance remain open.
 
 The workspace runner offers `--preserve-test-artifacts` for machines with enough
 disk space; it retains verified binaries for subsequent ordinary Cargo reuse.
+For bounded selections, `--build-selected-together` builds their native selectors
+in one Cargo graph while retaining each target's separate test inventory and
+verdict. Isolated test packages retain their own graph. Tooling controls and an
+actual Cargo fixture pass; full compiler build-time savings remain unmeasured.
 
 Numeric lexer correction (2026-10-16): numeric literals reject a following Unicode IdentifierStart, and lexer checks retain the actual LegacyOctal token classification. All **311 captured native checks pass**: 300 parser checks and 11 Front checks. The same 311 IDs retain **307 previous passes** and repair the **four earlier failing assertions**.
 

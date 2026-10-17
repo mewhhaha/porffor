@@ -81,7 +81,21 @@ historical broad library carry cannot cross these separate graphs. Documentation
 uses a complete normal cohort plus each isolated package's own cohort, sealing
 every selected package inventory and retaining completed siblings separately.
 Build-time savings require actual Cargo measurements; helper checks alone do
-not establish a gain. Every qualified native ID is inventoried; the CLI partitioner checks
+not establish a gain. For a bounded selection, `--build-selected-together`
+builds the union of its normal native selectors in one Cargo invocation. For
+example, the five-target core selection combines `--lib`, `--test aot_realm_modules`
+and `--test lila_ir_integration` on the same workspace roots. This avoids switching
+between separate library and integration dependency graphs. Isolated packages
+and documentation keep their own cohorts. Same-selector unselected siblings
+remain explicitly unexecuted; each selected target retains its original
+inventory, execution and verdict. Retry requires the same original exact target
+inventory and selector union; dropping a same-selector package sibling rejects.
+Continuation inputs must seal that original inventory before narrowing pending work, and
+historical library carry cannot cross this build policy. The option can retain
+more binaries at once, so use the existing storage preflight and measure actual
+build reuse before claiming a saving.
+
+Every qualified native ID is inventoried; the CLI partitioner checks
 four disjoint exact native lists before any body runs and retains each original
 transcript. Each native process has one CPU and one test thread. Cargo stays
 serial. When every active native wrapper exits during a build, the build process

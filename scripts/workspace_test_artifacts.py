@@ -15,8 +15,30 @@ def package_selection(packages=None, excluded=()):
     return [word for package in selected for word in ("-p", package)]
 
 
-def selector_key(case, isolated_packages=()):
+def selected_cohort_selectors(cases, isolated_packages=()):
+    """Union selected native selectors without merging isolated test roots.
+
+    Cargo may also emit unselected same-selector siblings. The runner still
+    admits those by their full package/target/kind identity and records them as
+    unexecuted. This list changes builds, never the selected execution list.
+    """
+    return [list(selector) for selector in sorted({tuple(case['selector'])
+        for case in cases if case['kind'] != 'doc'
+        and case['package'] not in isolated_packages})]
+
+
+def selected_target_members(cases):
+    """Seal the original coverage before a continuation narrows pending work."""
+    return [{key: case[key] for key in ('package', 'target', 'kind', 'selector')}
+            for case in sorted(cases, key=lambda c: (c['package'], c['target'], c['kind']))]
+
+
+def selector_key(case, isolated_packages=(), combined_selectors=()):
     """Isolated packages retain their own cohort even for same-name targets."""
+    if (combined_selectors and case['kind'] != 'doc'
+            and case['package'] not in isolated_packages
+            and case['selector'] in combined_selectors):
+        return ('selected-native', '*')
     target = "*" if case["kind"] == "lib" else case["target"]
     if isolated_packages and case["package"] in isolated_packages:
         target = case["package"] + "::" + target
