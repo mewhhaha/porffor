@@ -38,6 +38,15 @@ conformance and task closure remain open.
 7. Generate canonical real-suite status through the publisher, commit exact
    pins and source-bound closure artifacts, then remove this file and `tasks/`.
 
+## Rejected performance trials
+
+Keep the current compiler and cache defaults. A bounded native stencil memory
+cache removed repeated disk-read opens but replayed25/27 original cases and
+lost the previous sloppy-class pass. A128MiB function disk cache and native
+parallelism also failed their retention trials. These are failed experiments,
+not fixes or task closure. See [exact results and raw traces](docs/rust-rewrite/rejected-native-cache-experiments-20261017.json).
+Measure native compilation internals before repeating cache-size changes.
+
 ## Verification discipline
 
 Before heavy runs, use `python3 scripts/check-scratch-space.py --scratch /tmp
