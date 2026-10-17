@@ -18,18 +18,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check repository contracts
-        run: |
-          ./scripts/conformance_owners.py
-          ./scripts/tests/check-readme-status-artifacts.sh
-          ./scripts/tests/audit-test262-shortcut-scanner.sh
-          ./scripts/check-module-boundaries.sh
-          ./scripts/audit-test262-shortcuts.sh --check
-          ./scripts/check-test262-host-abi.sh
-          python3 -B scripts/check_conformance_source_pins.py
-          python3 -B -m unittest scripts.tests.test_conformance_source_pins
-          ./scripts/check-no-legacy-js.sh
-          ./scripts/check-lila-identity.sh
+      - name: Check conformance ownership registry
+        run: ./scripts/conformance_owners.py
+
+      - name: Test README status artifact guard
+        run: ./scripts/tests/check-readme-status-artifacts.sh
+
+      - name: Test Test262 shortcut scanner
+        run: ./scripts/tests/audit-test262-shortcut-scanner.sh
+
+      - name: Check module boundaries
+        run: ./scripts/check-module-boundaries.sh
+
+      - name: Audit Test262 shortcuts
+        run: ./scripts/audit-test262-shortcuts.sh --check
+
+      - name: Check Test262 host ABI
+        run: ./scripts/check-test262-host-abi.sh
+
+      - name: Check conformance source pins
+        run: python3 -B scripts/check_conformance_source_pins.py
+
+      - name: Test conformance source pin guard
+        run: python3 -B -m unittest scripts.tests.test_conformance_source_pins
+
+      - name: Check retired JavaScript boundaries
+        run: ./scripts/check-no-legacy-js.sh
+
+      - name: Check canonical Lila identities
+        run: ./scripts/check-lila-identity.sh
 
       - name: Check pinned Intl source identities
         run: |
