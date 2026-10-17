@@ -239,19 +239,17 @@ fn prelude_imports_retain_the_explicit_reject_all_loader() {
 #[test]
 fn embedded_entry_admission_uses_original_script_bytes_with_independent_prelude() {
     let source = "harnessAnswer;";
-    let graph = Arc::new(
-        EmbeddedModuleGraph::try_new(
-            EmbeddedModuleEntryInput {
-                goal: EmbeddedModuleGoal::Script,
-                identity: "case/entry.js".into(),
-                source: source.into(),
-                meta_url: "lila://script-prelude/entry.js".into(),
-            },
-            vec![],
-            vec![],
-        )
-        .unwrap(),
-    );
+    let graph = EmbeddedModuleGraph::try_new(
+        EmbeddedModuleEntryInput {
+            goal: EmbeddedModuleGoal::Script,
+            identity: "case/entry.js".into(),
+            source: source.into(),
+            meta_url: "lila://script-prelude/entry.js".into(),
+        },
+        vec![],
+        vec![],
+    )
+    .unwrap();
     let outcome = observe_script_with_prelude(
         source,
         Some("case/entry.js"),
