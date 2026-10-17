@@ -1,0 +1,40 @@
+name: CI job diagnostics
+run-name: CI diagnostics for job ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Completed job whose final diagnostics should be summarized
+        required: true
+        type: string
+
+permissions:
+  actions: read
+
+jobs:
+  summarize:
+    name: Summarize completed CI job
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish bounded job diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$JOB_ID" =~ ^[0-9]+$ ]] || { echo 'job_id must be numeric'; exit 2; }
+          log="$RUNNER_TEMP/completed-job.log"
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$JOB_ID/logs" > "$log"
+          {
+            printf '### Completed job %s diagnostics\n\n```text\n' "$JOB_ID"
+            tail -n 200 "$log" | cut -c1-1500
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+          diagnostic="$(tail -n 160 "$log" | cut -c1-300)"
+          diagnostic="${diagnostic//'%'/'%25'}"
+          diagnostic="${diagnostic//$'\r'/'%0D'}"
+          diagnostic="${diagnostic//$'\n'/'%0A'}"
+          printf '::warning title=Completed job compiler diagnostics::%s\n' "$diagnostic"
