@@ -1,7 +1,9 @@
 """Cargo identity controls for same-name workspace native test selectors."""
 
+import ast
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 
 SOURCE = Path(__file__).resolve().parents[1] / "workspace_test_artifacts.py"
@@ -24,6 +26,67 @@ def producer(package="runtime-id", name="build-script-build", kind="custom-build
 
 
 class WorkspaceTestArtifactTests(unittest.TestCase):
+    @staticmethod
+    def case(package, kind, target):
+        return {'package': package, 'kind': kind, 'target': target,
+                'selector': ['--' + kind] if kind in ('lib', 'doc') else ['--' + kind, target]}
+
+    def test_combined_build_retains_unselected_same_selector_package_siblings(self):
+        selected = [self.case('a', 'lib', 'a'), self.case('b', 'test', 'shared')]
+        inventory = [*selected, self.case('b', 'lib', 'b'),
+                     self.case('a', 'test', 'shared'), self.case('a', 'test', 'other')]
+        selectors = artifacts.selected_cohort_selectors(selected)
+        self.assertEqual(selectors, [['--lib'], ['--test', 'shared']])
+        expected = {(c['package'], c['target'], c['kind']) for c in inventory
+                    if artifacts.selector_key(c, (), selectors) == ('selected-native', '*')}
+        self.assertEqual(expected, {('a', 'a', 'lib'), ('b', 'b', 'lib'),
+                                    ('a', 'shared', 'test'), ('b', 'shared', 'test')})
+        found = artifacts.test_artifacts([message(p, t, k) for p, t, k in expected], expected)
+        self.assertEqual(set(found), expected)
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(artifacts.selector_key(inventory[-1], (), selectors), ('test', 'other'))
+
+    def test_combined_build_keeps_isolated_native_and_doc_cohorts_separate(self):
+        normal = self.case('a', 'lib', 'a')
+        isolated = self.case('intl', 'test', 'shared')
+        docs = self.case('a', 'doc', 'doc')
+        selected = [normal, isolated, docs]
+        self.assertEqual(artifacts.selected_cohort_selectors(selected, ['intl']), [['--lib']])
+        self.assertEqual(artifacts.selected_cohort_selectors([isolated, docs], ['intl']), [])
+        selectors = [['--lib'], ['--test', 'shared']]
+        self.assertEqual(artifacts.selector_key(isolated, ['intl'], selectors), ('test', 'intl::shared'))
+        self.assertEqual(artifacts.selector_key(docs, ['intl'], selectors), ('doc', 'doc'))
+
+    def test_retry_members_detect_removed_sibling_with_the_same_cargo_selector(self):
+        first = self.case('a', 'test', 'shared')
+        second = self.case('b', 'test', 'shared')
+        both = [first, second]
+        self.assertEqual(artifacts.selected_cohort_selectors(both),
+                         artifacts.selected_cohort_selectors([first]))
+        self.assertNotEqual(artifacts.selected_target_members(both),
+                            artifacts.selected_target_members([first]))
+        self.assertEqual(artifacts.selected_target_members(both),
+                         artifacts.selected_target_members(list(reversed(both))))
+
+    def test_combined_runner_commands_keep_feature_profile_and_package_boundaries(self):
+        source = SOURCE.with_name('run_workspace_tests.py')
+        nodes = [node for node in ast.parse(source.read_text()).body
+                 if isinstance(node, ast.FunctionDef) and node.name in ['group_key', 'cargo_test_base']]
+        namespace = {'selector_key': artifacts.selector_key,
+                     'package_selection': artifacts.package_selection,
+                     'combined_selectors': [['--lib'], ['--test', 'shared']],
+                     'isolated_packages': ['intl'], 'profile_flags': ['--release'],
+                     'args': SimpleNamespace(all_features=True, packages=None)}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+        command = namespace['cargo_test_base']
+        self.assertEqual(command(self.case('a', 'lib', 'a')), [
+            'cargo', 'test', '--locked', '--offline', '--release', '--workspace',
+            '--exclude', 'intl', '--all-features', '--lib', '--test', 'shared'])
+        self.assertEqual(command(self.case('intl', 'lib', 'intl')), [
+            'cargo', 'test', '--locked', '--offline', '--release', '-p', 'intl', '--all-features', '--lib'])
+        self.assertEqual(command(self.case('a', 'doc', 'doc')), [
+            'cargo', 'test', '--locked', '--offline', '--release', '-p', 'a', '--all-features', '--doc'])
+
     def test_custom_build_uses_single_filename_with_null_executable(self):
         rows = [producer(), producer("unrelated-id"), {"reason": "build-finished", "success": True}]
         selected = artifacts.build_script_artifact(rows, "runtime-id", "build-script-build")

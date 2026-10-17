@@ -15,7 +15,8 @@ root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
 from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
 from workspace_test_storage import storage_snapshot
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');args=parser.parse_args()
+from workspace_test_artifacts import build_script_artifact, doc_cohorts, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -48,6 +49,7 @@ if args.packages:
 isolated_packages=sorted(set(args.isolate_test_package))
 assert set(isolated_packages)<={p['name'] for p in packages}, 'Isolated test packages must belong to the selected workspace'
 assert not isolated_packages or not args.reuse_library_build_from, 'Broad historical library carry cannot cross an isolated Cargo graph'
+assert not (args.build_selected_together and args.reuse_library_build_from), 'Historical library carry cannot cross a combined native build graph'
 cases=[];disabled_targets=[]
 for p in packages:
     enabled=set(p['features']) if args.all_features else set()
@@ -87,7 +89,11 @@ if args.only_targets:
     assert set(partition_native_targets) <= requested, 'Explicit native partitions must be selected by --only-targets'
     cases=[c for c in cases if c['package']+':'+c['target'] in requested]
 
+combined_selectors=selected_cohort_selectors(cases,isolated_packages) if args.build_selected_together else []
 result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets,'preserve_test_artifacts':args.preserve_test_artifacts}
+result['build_selected_together']=args.build_selected_together
+result['selected_build_selectors']=combined_selectors
+result['selected_target_members']=selected_target_members(cases)
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
@@ -99,6 +105,9 @@ if args.retry_from:
     assert previous.get('isolated_test_packages',[])==isolated_packages
     assert previous.get('partition_native_targets',[])==partition_native_targets, 'Retry native partition policy changed'
     assert previous.get('partition_cli',args.partition_cli)==args.partition_cli, 'Retry CLI partition policy changed'
+    assert previous.get('build_selected_together',False)==args.build_selected_together, 'Retry combined build policy changed'
+    assert previous.get('selected_build_selectors',[])==combined_selectors, 'Retry combined build selector graph changed'
+    assert previous.get('selected_target_members')==result['selected_target_members'], 'Retry selected target inventory changed'
     assert previous.get('preserve_test_artifacts',False)==args.preserve_test_artifacts, 'Retry artifact retention policy changed'
     previous_source=json.loads((args.retry_from.parent/'source-start.json').read_text())
     assert previous_source==source
@@ -179,13 +188,13 @@ result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'test_threads_per_process':1,'cargo_jobs':1,'strip_test_debug':args.strip_test_debug,
  'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
 active={}
-from workspace_test_artifacts import build_script_artifact, doc_cohorts, package_selection, selector_key, test_artifacts
 from workspace_build_cpus import expand_build_tree
-def group_key(case):return selector_key(case,isolated_packages)
+def group_key(case):return selector_key(case,isolated_packages,combined_selectors)
 def cargo_test_base(case):
     flags=['--all-features'] if args.all_features else []
     selection=['-p',case['package']] if case['kind']=='doc' or case['package'] in isolated_packages else package_selection(args.packages,isolated_packages)
-    return ['cargo','test','--locked','--offline',*profile_flags,*selection,*flags,*case['selector']]
+    selectors=[word for selector in combined_selectors for word in selector] if group_key(case)==('selected-native','*') else case['selector']
+    return ['cargo','test','--locked','--offline',*profile_flags,*selection,*flags,*selectors]
 def profile_test_artifacts(messages,expected):
     outputs=test_artifacts(messages,expected)
     assert all(path.parent.resolve()==(profile_root/'deps').resolve() for path in outputs.values()), 'Cargo-selected native output belongs to another profile or target directory'
