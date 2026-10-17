@@ -21,6 +21,16 @@ uses P-owned packed name tables for the three ordered phases and also permits
 literal strings in the no-frame proof. Its fresh native/CLI verification is
 pending; it has not repaired any real-suite verdict yet.
 
+The 3f33caf46e native probe passed the 1,200-name size guard, all 1,599 IR
+unit tests and all 740 IR integration tests. AOT completed 408 passes and two
+failures because sloppy direct eval's runtime global branch had no collected
+table. Engine reproduced that defect before the rejected run was stopped;
+Realm and CLI replay were unexecuted. The collector now includes sloppy direct
+eval without changing its caller-local frame proof. A dedicated strict/sloppy
+collection control and fresh native/CLI verification are pending.
+[Rejected-probe evidence](docs/rust-rewrite/rejected-packed-global-plan-probe-20261017.json)
+preserves the failure and partial-run scope.
+
 Last published focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes

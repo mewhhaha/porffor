@@ -1,6 +1,6 @@
 //! Ordered declaration names in the actual P's immutable metadata image.
 use super::*;
-use lila_ir::PreparedScriptUnit;
+use lila_ir::{PreparedScriptKind, PreparedScriptUnit};
 
 /// Only collection of a complete declaration plan can mint these word rows.
 #[derive(Clone, Copy, Debug)]
@@ -22,7 +22,16 @@ impl StringPool {
         &mut self,
         unit: &PreparedScriptUnit,
     ) -> Result<(), EmitError> {
-        if !unit.has_global_variable_environment() {
+        // Sloppy direct eval selects its actual variable environment at runtime;
+        // its global branch needs the same tables as an independent Script.
+        // This is broader than the proof used to elide a global source frame.
+        let uses_global_declarations = match &unit.kind {
+            PreparedScriptKind::RealmScript => true,
+            PreparedScriptKind::DirectEval(_)
+            | PreparedScriptKind::IndirectEval
+            | PreparedScriptKind::ShadowRealmEvaluate => !unit.strict,
+        };
+        if !uses_global_declarations {
             return Ok(());
         }
         if self.global_var_declarations.contains_key(&unit.id) {

@@ -68,3 +68,43 @@ fn a_collected_empty_plan_is_distinct_from_a_missing_plan() {
     assert!(words(&pool, table.lexical_checks).is_empty());
     assert!(words(&pool, table.variable_bindings).is_empty());
 }
+
+#[test]
+fn sloppy_direct_eval_collects_global_branch_names_without_becoming_a_global_frame() {
+    let mut descriptor = b"LILADE01".to_vec();
+    descriptor.extend_from_slice(&[0, 1, 0, 0]);
+    descriptor.extend_from_slice(&0_u64.to_le_bytes());
+    let caller = lila_ir::RuntimeDirectEvalCaller::validate(
+        lila_ir::RuntimeDirectEvalCallerDescriptor::decode(&descriptor).unwrap(),
+        [],
+    )
+    .unwrap();
+    for (source, strict) in [("var direct;", false), ("'use strict'; var direct;", true)] {
+        let program = lila_ir::lower_runtime_direct_eval(
+            &caller,
+            &source.encode_utf16().collect::<Vec<_>>(),
+            HostSurfacePolicy::default(),
+        )
+        .unwrap();
+        let unit = program
+            .program()
+            .script
+            .as_ref()
+            .unwrap()
+            .prepared_script_units()
+            .find(|unit| unit.id == program.script_id())
+            .unwrap();
+        assert!(matches!(&unit.kind, PreparedScriptKind::DirectEval(_)));
+        assert_eq!(unit.strict, strict);
+        assert!(!unit.has_global_variable_environment());
+        let mut pool = StringPool::default();
+        pool.collect_global_var_declarations(unit).unwrap();
+        if strict {
+            assert!(pool.global_var_declaration_tables(unit).is_err());
+        } else {
+            let table = pool.global_var_declaration_tables(unit).unwrap();
+            assert_eq!(words(&pool, table.lexical_checks), vec![1_u64 << 32]);
+            assert_eq!(words(&pool, table.variable_bindings), vec![1_u64 << 32]);
+        }
+    }
+}

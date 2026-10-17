@@ -5,7 +5,11 @@ while preserving their completion values. Indirect eval avoids preparing source
 for non-string literals; independent prelude errors retain setup provenance and
 the actual thrown reason.
 
-This recovered batch awaits fresh Cargo and exact stress-replay verification.
+The 1,200-name size guard passes. Native verification exposed two direct-eval
+emitter failures: sloppy eval can choose the global declaration path at runtime.
+Table collection now includes that path while keeping its caller-local frame.
+The [rejected probe](docs/rust-rewrite/rejected-packed-global-plan-probe-20261017.json)
+retains all results. This correction awaits fresh Cargo and exact stress-replay verification.
 The last published 230-case baseline remains 197 Success, 16 Bug and 17 Crash.
 Full pinned conformance and task acceptance remain open.
 
