@@ -34,7 +34,7 @@ fn direct_eval_native_compilation_and_execution_keep_the_original_parent_timeout
     let unit = engine
         .compile_script(&source, CompileOptions::default())
         .unwrap();
-    let artifact = engine.emit_wasm(&unit).unwrap();
+    let artifact = emit_native_artifact(&engine, &unit);
     let error = run_on_sized_stack(|| {
         engine.execute_with_wasm_bytes_inner(
             artifact.program(),

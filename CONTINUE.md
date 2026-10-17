@@ -9,7 +9,11 @@ class/prototype staging timeouts remain. No requested ID was skipped.
 
 The complete IR library inventory passes1598/1598, none ignored or filtered.
 The full AOT library inventory also passes401/401, none ignored or filtered.
-Full Engine library verification is in progress.
+The native-source Engine group passes69/69 (891 other tests filtered).
+Three test-only emission sites now select NativeHost for the same inspected
+IR; they previously used the portable export profile. The original failure
+diagnostic remains in the portable checkpoint. The full960-test Engine run
+is still collecting results; full Engine acceptance is not claimed.
 Its empty for-await assertion now checks the optimized Empty representation
 and absence of a lexical frame while retaining binding and iterator checks.
 The earlier1597/1 result and recorder errors remain in raw evidence. See the

@@ -78,7 +78,18 @@ fn assert_native_trace(
             .any(|s| matches!(s, lila_ir::StatementIr::ForOfIterator { .. })));
     }
     // Reuse this exact inspected IR and emit once; do not compile the outer source again.
-    let artifact = engine.emit_wasm(&unit).unwrap();
+    let artifact = run_on_sized_stack(|| {
+        engine.emit_wasm_with_cache_on_current_thread(
+            &unit,
+            None,
+            lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+        )
+    })
+    .unwrap();
+    assert_eq!(
+        lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(&artifact.bytes).unwrap(),
+        lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost
+    );
     let outcome = run_on_sized_stack(|| {
         engine
             .execute_with_wasm_bytes_inner(

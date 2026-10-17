@@ -22,6 +22,24 @@ fn units(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()
 }
 
+fn emit_native_artifact(engine: &Engine, unit: &CompilationUnit) -> Artifact {
+    // Keep the inspected IR, selecting the same host profile as native execution.
+    // Public emit_wasm deliberately produces a portable artifact instead.
+    let artifact = run_on_sized_stack(|| {
+        engine.emit_wasm_with_cache_on_current_thread(
+            unit,
+            None,
+            lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+        )
+    })
+    .unwrap();
+    assert_eq!(
+        lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(&artifact.bytes).unwrap(),
+        lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost
+    );
+    artifact
+}
+
 fn assert_trace(
     source: &str,
     expected: &[&str],
@@ -53,7 +71,7 @@ fn assert_trace(
             "request must miss the actual finite direct-eval guard: {source:?}"
         );
     }
-    let artifact = engine.emit_wasm(&unit).unwrap();
+    let artifact = emit_native_artifact(&engine, &unit);
     let outcome = run_on_sized_stack(|| {
         engine
             .execute_with_wasm_bytes_inner(
