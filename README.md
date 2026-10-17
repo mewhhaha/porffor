@@ -126,6 +126,9 @@ contains literal native results, retained passes and outstanding verification.
 
 # Lila
 
+The workspace runner offers `--preserve-test-artifacts` for machines with enough
+disk space; it retains verified binaries for subsequent ordinary Cargo reuse.
+
 Numeric lexer correction (2026-10-16): numeric literals reject a following Unicode IdentifierStart, and lexer checks retain the actual LegacyOctal token classification. All **311 captured native checks pass**: 300 parser checks and 11 Front checks. The same 311 IDs retain **307 previous passes** and repair the **four earlier failing assertions**.
 
 The [checkpoint](docs/rust-rewrite/unicode-numeric-parser-checkpoint-20261017.json) preserves complete raw output and proves that the resulting 85-input normal parser/Front graph matches the compiled source. The earlier red checkpoint remains intact. This focused result does not establish ordinary Cargo, real Test262 or full-product acceptance. Generated status numbers are unchanged.
