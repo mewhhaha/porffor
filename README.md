@@ -1,15 +1,13 @@
-Development checkpoint (2026-10-17): prepared global declarations share Runtime-owned
-validation and installation kernels. A narrow structural proof omits unused frame
-caches for bare, uninitialized global vars. Indirect eval avoids preparing source
+Development checkpoint (2026-10-17): prepared global declarations use packed,
+program-owned name tables and ordered validation/installation loops. A structural
+proof omits unused frame caches for bare global vars and literal string statements,
+while preserving their completion values. Indirect eval avoids preparing source
 for non-string literals; independent prelude errors retain setup provenance and
 the actual thrown reason.
 
 This recovered batch awaits fresh Cargo and exact stress-replay verification.
 The last published 230-case baseline remains 197 Success, 16 Bug and 17 Crash.
 Full pinned conformance and task acceptance remain open.
-
-The workspace runner offers `--preserve-test-artifacts` for machines with enough
-disk space; it retains verified binaries for subsequent ordinary Cargo reuse.
 
 # Lila
 

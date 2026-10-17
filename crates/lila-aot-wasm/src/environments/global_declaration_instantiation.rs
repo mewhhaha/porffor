@@ -3,6 +3,7 @@ use crate::gc_types::{NamedBinding, PropertyDescriptor, PropertyDescriptorSchema
 use crate::operations::PropertyKeyLocals;
 use lila_ir::{PreparedScriptKind, PreparedScriptUnit};
 
+mod name_loop;
 mod shared_checks;
 
 #[derive(Clone, Copy)]
@@ -24,6 +25,7 @@ enum GlobalDeclarationFailure {
 #[must_use]
 struct ValidatedGlobalDeclarationInstantiation<'a> {
     unit: &'a PreparedScriptUnit,
+    names: crate::data::GlobalVarDeclarationTables,
     environment: GcLocal<Environment>,
     object: ValueLocals,
     realm: GcLocal<RealmRecord>,
@@ -110,6 +112,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<ValidatedGlobalDeclarationInstantiation<'a>, EmitError> {
         let schema = self.runtime_schema();
         let plan = &unit.declarations;
+        let names = self.strings.global_var_declaration_tables(unit)?;
         for candidate in &plan.annex_b_candidates {
             self.binding_scopes
                 .last_mut()
@@ -163,12 +166,8 @@ impl FunctionBuilder<'_> {
                 key.clear(function);
             }
         }
-        for name in plan
-            .functions_in_reverse_order
-            .iter()
-            .map(|declaration| &declaration.name)
-            .chain(plan.var_names.iter())
-        {
+        for declaration in &plan.functions_in_reverse_order {
+            let name = &declaration.name;
             let key = schema
                 .reserve_gc_local::<StringValue, NonNullable>(function)
                 .initialize(
@@ -178,6 +177,13 @@ impl FunctionBuilder<'_> {
             self.emit_reject_existing_global_lexical(&key, &environment, &realm, function)?;
             key.clear(function);
         }
+        self.emit_global_var_name_loop(
+            names.lexical_checks,
+            function,
+            |builder, key, function| {
+                builder.emit_reject_existing_global_lexical(key, &environment, &realm, function)
+            },
+        )?;
         for declaration in &plan.functions_in_reverse_order {
             let key = schema
                 .reserve_gc_local::<StringValue, NonNullable>(function)
@@ -206,41 +212,32 @@ impl FunctionBuilder<'_> {
             property_key.clear(function);
             key.clear(function);
         }
-        for name in &plan.var_names {
-            if plan
-                .functions_in_reverse_order
-                .iter()
-                .any(|declaration| &declaration.name == name)
-            {
-                continue;
-            }
-            let key = schema
-                .reserve_gc_local::<StringValue, NonNullable>(function)
-                .initialize(
-                    self.emit_interned_string_reference(name, function)?,
+        self.emit_global_var_name_loop(
+            names.variable_bindings,
+            function,
+            |builder, key, function| {
+                let property_key = PropertyKeyLocals::from_string(schema, key, function);
+                builder.emit_can_declare_global(
+                    GlobalDeclarationAdmission::Var,
+                    &object,
+                    &property_key,
+                    admitted,
+                    &realm,
                     function,
-                );
-            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
-            self.emit_can_declare_global(
-                GlobalDeclarationAdmission::Var,
-                &object,
-                &property_key,
-                admitted,
-                &realm,
-                function,
-            )?;
-            admitted.load(function);
-            function.instruction(&Instruction::I32Eqz);
-            self.open_frame(ControlFrameKind::If, function);
-            self.emit_global_declaration_failure(
-                GlobalDeclarationFailure::VarNotDefinable,
-                function,
-            )?;
-            self.pop_control(ControlFrameKind::If);
-            function.instruction(&Instruction::End);
-            property_key.clear(function);
-            key.clear(function);
-        }
+                )?;
+                admitted.load(function);
+                function.instruction(&Instruction::I32Eqz);
+                builder.open_frame(ControlFrameKind::If, function);
+                builder.emit_global_declaration_failure(
+                    GlobalDeclarationFailure::VarNotDefinable,
+                    function,
+                )?;
+                builder.pop_control(ControlFrameKind::If);
+                function.instruction(&Instruction::End);
+                property_key.clear(function);
+                Ok(())
+            },
+        )?;
         for candidate in &plan.annex_b_candidates {
             if matches!(&unit.kind, PreparedScriptKind::DirectEval(_)) {
                 let initialized =
@@ -288,6 +285,7 @@ impl FunctionBuilder<'_> {
         entry.clear(function);
         Ok(ValidatedGlobalDeclarationInstantiation {
             unit,
+            names,
             environment,
             object,
             realm,
@@ -406,6 +404,7 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         let ValidatedGlobalDeclarationInstantiation {
             unit,
+            names,
             environment,
             object,
             realm,
@@ -497,31 +496,22 @@ impl FunctionBuilder<'_> {
             key.clear(function);
             callable.clear(function);
         }
-        for name in &plan.var_names {
-            if plan
-                .functions_in_reverse_order
-                .iter()
-                .any(|declaration| &declaration.name == name)
-            {
-                continue;
-            }
-            let key = schema
-                .reserve_gc_local::<StringValue, NonNullable>(function)
-                .initialize(
-                    self.emit_interned_string_reference(name, function)?,
+        self.emit_global_var_name_loop(
+            names.variable_bindings,
+            function,
+            |builder, key, function| {
+                let property_key = PropertyKeyLocals::from_string(schema, key, function);
+                builder.emit_create_global_var_binding(
+                    &object,
+                    &property_key,
+                    deletable,
+                    &realm,
                     function,
-                );
-            let property_key = PropertyKeyLocals::from_string(schema, &key, function);
-            self.emit_create_global_var_binding(
-                &object,
-                &property_key,
-                deletable,
-                &realm,
-                function,
-            )?;
-            property_key.clear(function);
-            key.clear(function);
-        }
+                )?;
+                property_key.clear(function);
+                Ok(())
+            },
+        )?;
         value.clear(function);
         object.clear(function);
         environment.clear(function);

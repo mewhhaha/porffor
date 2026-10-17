@@ -1,8 +1,9 @@
 use super::*;
 
 impl FunctionBuilder<'_> {
-    /// A prepared global Script with only bare var declarations has no frame
-    /// reads or writes. Its declaration plan still creates every global binding.
+    /// Bare global declarations and literal string statements never read or
+    /// write a source frame. String completions, including strict directives,
+    /// still execute normally; the declaration plan creates every binding.
     pub(super) fn source_frame_var_names(&self) -> Vec<String> {
         let FunctionModuleState::PreparedScript(unit, _) = self.module_state else {
             return self.hoisted_vars.clone();
@@ -20,6 +21,9 @@ impl FunctionBuilder<'_> {
                 .iter()
                 .all(|statement| match statement {
                     StatementIr::Empty => true,
+                    StatementIr::Expression(expression) => {
+                        matches!(&expression.expr, ExprIr::String(_))
+                    }
                     StatementIr::Var(declarations) => declarations
                         .iter()
                         .all(|declaration| declaration.init.is_none()),

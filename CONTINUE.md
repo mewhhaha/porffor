@@ -11,6 +11,16 @@ prelude-diagnostic batch is reconstructed in the checkout and checkpointed to
 13-failure replay, and exact 197-prior-pass retention are pending. Do not carry
 interrupted or lost-machine results as fresh acceptance.
 
+The recovered f9ff55f5a probe passed all 1,599 IR unit and 740 IR integration
+checks, retaining every earlier integration ID. AOT was red: 407 passed and the
+new 1,200-name body-size guard failed. Diagnostic emission measured 907,642 body
+bytes for bare declarations and 971,170 bytes / 4,838 locals with a strict
+directive. The Realm target was not executed; the rejected batch stopped at a
+completed IR dependency boundary, preserving its outputs. The current repair
+uses P-owned packed name tables for the three ordered phases and also permits
+literal strings in the no-frame proof. Its fresh native/CLI verification is
+pending; it has not repaired any real-suite verdict yet.
+
 Last published focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
