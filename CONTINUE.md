@@ -1,26 +1,20 @@
 # Current native verification — 2026-10-17
 
-The current source/runtime build passes all24 stages, reusing12 exact unchanged
-production dependencies and rebuilding12 affected stages. Its staged Git tree
-reproduces compiler fingerprint1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9
-and the unchanged native backend identity. The raw runtime Wasm and optimized
-native image are byte-identical to the predecessor; the package binds the new
-compiler identity.
+Full unfiltered current-source native inventories pass: Engine 960/960, Runtime 33/33.
+Every listed inventory has zero failures, ignored tests and filters; complete
+literal inventory and source/input guards pass. The960-test Engine inventory
+improves from938pass/22fail to960pass/0fail. Raw prior failures remain in
+the previous cache-fixture checkpoint. See the [full native evidence](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json).
 
-Both cache regressions pass with physical Portable-profile fixtures. All12
-fingerprint controls pass, including the new exact test-file lifecycle case;
-static guards reject an ungated test owner and unregistered exclusions. The
-previous full Engine run recorded938/960, with20 native-profile fixture failures
-covered by the passing69-test group and2 cache issues now repaired. The new
-unfiltered960-test Engine run is in progress, followed by full Runtime, Test262
-and CLI inventories. See the [current evidence](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json).
-
-The previous27 Test262 replay remains23Success/4Crash, retaining all19 old
-passes; it has not yet been replayed under this new identity. A1024-entry cloud
-cache trial did not resolve the prototype timeout and is not being shipped.
-Keep the remaining203/historical5365, actual Cargo/CLI/default/all-feature,
-supported-host/shard/resume, full pinned families and task-specific gates open.
-Keep this file and tasks until their completion criteria actually pass.
+Compiler fingerprint 1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9.
+The24-stage native build and exact unchanged-dependency reuse proofs remain
+in the [source/build checkpoint](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json).
+This is direct native evidence. Ordinary Cargo/default/all-feature, actual CLI
+entry point/integrations, remaining203/historical5365, supported hosts,
+shard/resume, two complete pinned families and T22/task-specific gates remain
+open. The prior27 Test262 result is23Success/4Crash and has not yet been
+replayed under this identity. Keep CONTINUE.md and tasks until their actual
+completion criteria pass. Older checkpoints below are historical.
 
 # Compiler and retention checkpoint — 2026-10-17
 

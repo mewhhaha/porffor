@@ -1,8 +1,8 @@
-Native verification checkpoint (2026-10-17): cache fixtures carry their actual
-portable source profile, and the exact test-only fingerprint scope is registered.
-[Recorded results](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json)
-include the source/runtime build and focused regressions. Broader verification
-is running.
+Native verification (2026-10-17): **Engine 960/960, Runtime 33/33** pass with zero failures,
+ignored tests or filters. The Engine inventory improves from938/960 to960/960.
+[Complete raw results](docs/rust-rewrite/native-unit-verification-checkpoint-20261017.json)
+bind the current compiler/runtime and all verified inputs. Ordinary Cargo,
+the real CLI entry point, remaining conformance and task gates are open.
 
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement
