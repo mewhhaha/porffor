@@ -1,10 +1,13 @@
-Current Engine verification (2026-10-17): all965 Engine tests pass with the
-empty-strict-body compiler, retaining every prior literal test ID. Zero tests fail,
-are ignored or filtered. Product dependencies retain their selected optimized
-profiles; the complete unfiltered test run took 986.1s.
-[Exact inventory and raw evidence](docs/rust-rewrite/empty-strict-body-engine-inventory-20261017.json) bind this result to the same compiler as
-the407 AOT tests,8 template integration tests and retained1,599-test IR evidence.
-Remaining conformance cohorts, ordinary Cargo and task closure remain open.
+Current focused checkpoint (2026-10-17): all230 original stress executions have
+completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
+The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
+are retained. These are a focused inventory, not full pinned Test262 acceptance.
+All74 tests in the repaired `modules_realms` Cargo target pass unfiltered.
+The current compiler also has965 Engine,407 AOT and8 template integration passes;
+the1,599-test IR evidence is retained after exact input checks, not rerun.
+[Literal outcomes and raw evidence](docs/rust-rewrite/current-conformance-230-and-module-realms-20261017.json) preserve every failure. The next compiler
+repairs target oversized Unicode declaration bodies and repeated native eval
+exhausting Wasmtime's10,000-instance Store limit. Task closure remains open.
 
 Current compiler checkpoint (2026-10-17): the official Annex B implicit-
 arguments regression passes through Wasm-AOT. All26 earlier stress passes are
