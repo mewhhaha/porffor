@@ -8,6 +8,8 @@ the large empty-block tests complete within their original deadlines. Four
 class/prototype staging timeouts remain. No requested ID was skipped.
 
 The complete IR library inventory passes1598/1598, none ignored or filtered.
+The full AOT library inventory also passes401/401, none ignored or filtered.
+Full Engine library verification is in progress.
 Its empty for-await assertion now checks the optimized Empty representation
 and absence of a lexical frame while retaining binding and iterator checks.
 The earlier1597/1 result and recorder errors remain in raw evidence. See the
@@ -16,7 +18,7 @@ The earlier1597/1 result and recorder errors remain in raw evidence. See the
 Compiler source fingerprint25893417103a16e9ab5fa913e5c0e4338aef0ada012738e1c798b8badb568f49.
 The staged Git tree reproduces all2690 compiler inputs and1052 native inputs
 byte-for-byte. This is an opt1 direct build, separate from ordinary Cargo/CLI
-acceptance. Full AOT/Engine and remaining integration inventories are next.
+acceptance. Full Engine and remaining integration inventories are next.
 
 Cloud verification retains at most512 modules and the smaller of2GiB or one
 eighth of inherited memory, preserving stricter explicit/local settings; all37
