@@ -10,6 +10,17 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Current compiler checkpoint (2026-10-17): checked per-program string counts
+and ordinals now bind through fresh immutable globals in shared native templates.
+All404 AOT tests and all6 native-template Engine integration tests pass. The
+same1,836-request compile-only workload needs500 distinct templates instead of600.
+The original27-case replay improves to26Success/1Crash and retains all25 cases
+that passed in either previous checkpoint. Both prototype cases now pass; the
+strict class destructuring case still times out at the original60000ms deadline.
+[Exact results and raw evidence](docs/rust-rewrite/native-literal-operands-checkpoint-20261017.json) distinguish these current-source checks
+from the earlier complete2,496-test native checkpoint. OrdinaryCargo, full pinned
+conformance and task closure remain open.
+
 Current native verification checkpoint (2026-10-17): all2496 tests pass
 across five library inventories (Engine965, Runtime33, AOT401, Test262435,
 CLI82) and seven integration inventories (580). Literal test-ID comparison

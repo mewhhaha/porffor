@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 use wasmparser::{CompositeInnerType, DataKind, Operator, Parser, Payload, StorageType, TypeRef};
+mod literal_operands;
 mod sites;
 pub(super) use sites::Site;
 
@@ -11,6 +12,8 @@ pub(super) struct Plan {
     pub function_map: BTreeMap<u32, u32>,
     pub images: Vec<NativeProgramDataImage>,
     pub factories: Vec<NativeProgramArrayFactory>,
+    pub literal_operands: Vec<NativeProgramLiteralOperand>,
+    pub literal_sites: BTreeMap<usize, u32>,
     pub factory_types: Vec<u32>,
     pub sites: BTreeMap<usize, Site>,
     pub suppressed: BTreeSet<usize>,
@@ -27,6 +30,8 @@ impl Plan {
             function_map: BTreeMap::new(),
             images: Vec::new(),
             factories: Vec::new(),
+            literal_operands: Vec::new(),
+            literal_sites: BTreeMap::new(),
             factory_types: Vec::new(),
             sites: BTreeMap::new(),
             suppressed: BTreeSet::new(),
@@ -38,6 +43,7 @@ impl Plan {
         let mut referenced = super::references::References::default();
         let mut has_types = false;
         let mut has_imports = false;
+        let mut declared_operands = None;
         for payload in Parser::new(0).parse_all(bytes) {
             match payload.map_err(invalid)? {
                 Payload::TypeSection(reader) => {
@@ -93,6 +99,16 @@ impl Plan {
                 Payload::ExportSection(reader) => referenced.exports(reader)?,
                 Payload::ElementSection(reader) => referenced.elements(reader)?,
                 Payload::CodeSectionEntry(body) => bodies.push(body),
+                Payload::CustomSection(section)
+                    if section.name() == crate::program_literal_operands::SECTION_NAME =>
+                {
+                    if declared_operands.is_some() {
+                        return Err(invalid("duplicate literal operand section"));
+                    }
+                    declared_operands = Some(
+                        crate::program_literal_operands::read(section.data()).map_err(invalid)?,
+                    );
+                }
                 Payload::StartSection { .. } => {
                     return Err(invalid("native P may not have a start"))
                 }
@@ -102,6 +118,9 @@ impl Plan {
         // Native P normally has both sections. Other valid modules retain the
         // self-contained path rather than synthesizing a different section order.
         if !has_types || !has_imports {
+            if declared_operands.is_some() {
+                return Err(invalid("literal operands require a native P module"));
+            }
             return Ok(None);
         }
         // Checked artifact producers are the only callers. Development builds
@@ -121,7 +140,15 @@ impl Plan {
                 .validate_all(bytes)
                 .map_err(invalid)?;
         }
-        for body in &bodies {
+        let declared_operands = declared_operands.unwrap_or_default();
+        if declared_operands
+            .last()
+            .is_some_and(|site| site.body as usize >= bodies.len())
+        {
+            return Err(invalid("literal operand body is out of range"));
+        }
+        let mut declared = declared_operands.iter().peekable();
+        for (body_index, body) in bodies.iter().enumerate() {
             let mut reader = body.get_operators_reader().map_err(invalid)?;
             let mut operators = Vec::new();
             while !reader.eof() {
@@ -148,6 +175,7 @@ impl Plan {
                 }
             }
             result.collect_sites(&operators)?;
+            result.collect_literal_operand_sites(body_index, &operators, &mut declared)?;
         }
         let referenced = referenced.into_inner();
         let mut next = 0;

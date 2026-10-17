@@ -282,3 +282,6 @@ fn every_runtime_function_reference_site_is_retained_in_the_initial_scan() {
         [0, 1, 2, 3, 4]
     );
 }
+
+#[path = "tests/literal_operands.rs"]
+mod literal_operand_tests;

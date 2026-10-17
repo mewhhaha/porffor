@@ -28,7 +28,7 @@ impl Reencode for Encoder<'_> {
         Ok(if index < self.plan.imported_globals {
             index
         } else {
-            index + self.plan.images.len() as u32
+            index + self.plan.images.len() as u32 + self.plan.literal_operands.len() as u32
         })
     }
     fn data_count(&mut self, _: u32) -> Result<u32, reencode::Error<String>> {
@@ -40,6 +40,16 @@ impl Reencode for Encoder<'_> {
         _: wasmparser::DataSectionReader<'_>,
     ) -> Result<(), reencode::Error<String>> {
         Ok(())
+    }
+    fn parse_custom_section(
+        &mut self,
+        module: &mut wasm_encoder::Module,
+        section: wasmparser::CustomSectionReader<'_>,
+    ) -> Result<(), reencode::Error<String>> {
+        if section.name() == crate::program_literal_operands::SECTION_NAME {
+            return Ok(());
+        }
+        reencode::utils::parse_custom_section(self, module, section)
     }
     fn parse_type_section(
         &mut self,
@@ -98,6 +108,17 @@ impl Reencode for Encoder<'_> {
                 }),
             );
         }
+        for operand in &self.plan.literal_operands {
+            imports.import(
+                NATIVE_PROGRAM_DATA_MODULE,
+                &operand.name,
+                EntityType::Global(GlobalType {
+                    val_type: ValType::I32,
+                    mutable: false,
+                    shared: false,
+                }),
+            );
+        }
         Ok(())
     }
     fn parse_function_body(
@@ -113,7 +134,11 @@ impl Reencode for Encoder<'_> {
             if self.plan.suppressed.contains(&offset) {
                 continue;
             }
-            if let Some(site) = self.plan.sites.get(&offset) {
+            if let Some(index) = self.plan.literal_sites.get(&offset) {
+                function.instruction(&Instruction::GlobalGet(
+                    self.plan.imported_globals + self.plan.images.len() as u32 + index,
+                ));
+            } else if let Some(site) = self.plan.sites.get(&offset) {
                 // Slice offset/length are already on the operand stack. Whole
                 // construction derives the exact length from this data image.
                 function.instruction(&Instruction::GlobalGet(

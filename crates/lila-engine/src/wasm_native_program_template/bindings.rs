@@ -18,6 +18,31 @@ pub(super) fn data_import(
     template: &NativeProgramTemplate,
     import: &ImportType<'_>,
 ) -> wasmtime::Result<Extern> {
+    if import.name().starts_with("literal.") {
+        let operand = import
+            .name()
+            .rsplit('.')
+            .next()
+            .and_then(|ordinal| ordinal.parse::<usize>().ok())
+            .and_then(|index| template.literal_operands().get(index))
+            .filter(|operand| operand.import_name() == import.name())
+            .ok_or_else(|| wasmtime::Error::msg("unknown native literal operand"))?;
+        let ExternType::Global(global) = import.ty() else {
+            return Err(wasmtime::Error::msg(
+                "native literal operand is not a Global",
+            ));
+        };
+        if global.mutability() != Mutability::Const || !matches!(global.content(), ValType::I32) {
+            return Err(wasmtime::Error::msg(
+                "native literal operand requires an immutable i32 Global",
+            ));
+        }
+        return Ok(Extern::Global(Global::new(
+            &mut *store,
+            global,
+            Val::I32(operand.value()),
+        )?));
+    }
     if let Some(image) = template
         .data_images()
         .iter()

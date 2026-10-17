@@ -329,6 +329,7 @@ pub(crate) struct EmittedFunction {
     /// would, so this is byte-identical to pushing the `Function` itself, and it
     /// keeps attribution bound to the exact encoded body.
     raw_body: Vec<u8>,
+    literal_operands: Vec<crate::program_literal_operands::FunctionSite>,
     body_bytes: FunctionBodySize,
     declared_locals: FunctionLocalCount,
 }
@@ -360,12 +361,14 @@ impl EmittedFunction {
         // an anonymous wasmtime validation error inside whichever Test262 case
         // happened to compile it.
         let declared_locals = FunctionLocalCount::of(&body);
+        let literal_operands = body.literal_operands().to_vec();
         let raw_body = body.into_body_named(&identity.wasm_name()).into_raw_body();
         let body_bytes = FunctionBodySize::of(&raw_body);
         Self {
             declaration: FunctionDeclaration::NonCallable,
             identity,
             raw_body,
+            literal_operands,
             body_bytes,
             declared_locals,
         }
@@ -391,6 +394,7 @@ pub(crate) struct ModuleCode {
     functions: FunctionSection,
     section: CodeSection,
     records: Vec<EmittedFunctionRecord>,
+    literal_operands: Vec<crate::program_literal_operands::ModuleSite>,
     type_indices: Vec<u32>,
     next_wasm_index: u32,
 }
@@ -404,6 +408,7 @@ impl ModuleCode {
             functions: FunctionSection::new(),
             section: CodeSection::new(),
             records: Vec::new(),
+            literal_operands: Vec::new(),
             type_indices: Vec::new(),
             next_wasm_index: first_wasm_index,
         }
@@ -426,6 +431,13 @@ impl ModuleCode {
         self.functions.function(type_index);
         self.type_indices.push(type_index);
         self.section.raw(&function.raw_body);
+        let body = u32::try_from(self.records.len()).expect("code body count overflow");
+        self.literal_operands.extend(
+            function
+                .literal_operands
+                .into_iter()
+                .map(|site| crate::program_literal_operands::ModuleSite::new(body, site)),
+        );
         self.records.push(EmittedFunctionRecord {
             wasm_index,
             identity: function.identity,
@@ -440,6 +452,7 @@ impl ModuleCode {
             self.section,
             ModuleFunctionTable {
                 records: self.records,
+                literal_operands: self.literal_operands,
                 type_indices: self.type_indices,
             },
         )
@@ -450,10 +463,15 @@ impl ModuleCode {
 #[derive(Debug, Clone)]
 pub(crate) struct ModuleFunctionTable {
     records: Vec<EmittedFunctionRecord>,
+    literal_operands: Vec<crate::program_literal_operands::ModuleSite>,
     type_indices: Vec<u32>,
 }
 
 impl ModuleFunctionTable {
+    pub(crate) fn literal_operand_section(&self) -> Option<wasm_encoder::CustomSection<'static>> {
+        crate::program_literal_operands::section(&self.literal_operands)
+    }
+
     pub(crate) fn records(&self) -> &[EmittedFunctionRecord] {
         &self.records
     }

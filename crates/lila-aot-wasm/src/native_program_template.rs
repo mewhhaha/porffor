@@ -4,9 +4,11 @@ use crate::{
     RuntimeGlobalScriptArtifact,
 };
 use std::sync::Arc;
+mod literal_operands;
 mod plan;
 mod reencode;
 mod references;
+pub use literal_operands::NativeProgramLiteralOperand;
 #[cfg(test)]
 mod tests;
 
@@ -74,6 +76,7 @@ pub struct NativeProgramTemplate {
     runtime: Arc<RuntimeArtifact>,
     images: Vec<NativeProgramDataImage>,
     factories: Vec<NativeProgramArrayFactory>,
+    literal_operands: Vec<NativeProgramLiteralOperand>,
 }
 impl NativeProgramTemplate {
     pub fn for_function(
@@ -101,6 +104,7 @@ impl NativeProgramTemplate {
                 runtime: Arc::clone(runtime),
                 images: Vec::new(),
                 factories: Vec::new(),
+                literal_operands: Vec::new(),
             });
         };
         let module = reencode::encode(bytes, &plan)?;
@@ -109,6 +113,7 @@ impl NativeProgramTemplate {
             runtime: Arc::clone(runtime),
             images: plan.images,
             factories: plan.factories,
+            literal_operands: plan.literal_operands,
         })
     }
     pub fn bytes(&self) -> &[u8] {
@@ -119,6 +124,9 @@ impl NativeProgramTemplate {
     }
     pub fn data_images(&self) -> &[NativeProgramDataImage] {
         &self.images
+    }
+    pub fn literal_operands(&self) -> &[NativeProgramLiteralOperand] {
+        &self.literal_operands
     }
     pub fn array_factories(&self) -> &[NativeProgramArrayFactory] {
         &self.factories

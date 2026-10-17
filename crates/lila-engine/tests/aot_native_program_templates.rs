@@ -51,6 +51,28 @@ fn function_template_data_preserves_each_to_string_source_and_later_calls() {
     "#,
     );
 }
+
+#[test]
+fn literal_table_lengths_and_ordinals_remain_owned_by_each_native_program() {
+    succeeds(
+        r#"
+      var a = Function('var value = "first"; return "first";');
+      var b = Function('var value = "second"; return "third";');
+      var c = Function('var value = "fourth"; return "fourth";');
+      for (var i = 0; i < 3; i++) {
+        if (a() !== 'first' || b() !== 'third' || c() !== 'fourth') throw new Error('P literal ownership');
+      }
+      if (a.toString().indexOf('first') < 0 || b.toString().indexOf('third') < 0) throw new Error('P source ownership');
+      var one = Function('return 1;'), two = Function('return 2;');
+      if (one() !== 1 || two() !== 2 || one() !== 1) throw new Error('numeric code identity');
+      function evaluate(text) { return eval(text); }
+      if (evaluate('var text="eval-first"; "eval-first";') !== 'eval-first') throw new Error('eval first');
+      if (evaluate('var text="eval-second"; "eval-third";') !== 'eval-third') throw new Error('eval third');
+      if (evaluate('var text="eval-fourth"; "eval-fourth";') !== 'eval-fourth') throw new Error('eval fourth');
+      1;
+    "#,
+    );
+}
 #[test]
 fn global_script_template_data_uses_actual_realm_and_keeps_each_payload() {
     succeeds(

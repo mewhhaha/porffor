@@ -170,6 +170,8 @@ pub(crate) struct Function {
     initial_local_count: u32,
     initial_prefix_len: usize,
     free_locals: Vec<u32>,
+    operator_count: u32,
+    literal_operands: Vec<crate::program_literal_operands::FunctionSite>,
 }
 
 impl Clone for Function {
@@ -182,6 +184,8 @@ impl Clone for Function {
             initial_local_count: self.initial_local_count,
             initial_prefix_len: self.initial_prefix_len,
             free_locals: self.free_locals.clone(),
+            operator_count: self.operator_count,
+            literal_operands: self.literal_operands.clone(),
         }
     }
 }
@@ -203,6 +207,8 @@ impl Function {
             initial_local_count,
             initial_prefix_len,
             free_locals: Vec::new(),
+            operator_count: 0,
+            literal_operands: Vec::new(),
         }
     }
 
@@ -367,7 +373,33 @@ impl Function {
             _ => {}
         }
         self.body.instruction(instruction);
+        self.operator_count = self
+            .operator_count
+            .checked_add(1)
+            .expect("operator count overflow");
         self
+    }
+
+    pub(crate) fn program_literal_count(&mut self, value: crate::gc_types::ProgramLiteralCount) {
+        self.literal_operands
+            .push(crate::program_literal_operands::FunctionSite::count(
+                self.operator_count,
+                value,
+            ));
+        self.instruction(&Instruction::I32Const(value.value() as i32));
+    }
+
+    pub(crate) fn program_literal_index(&mut self, value: crate::gc_types::ProgramLiteralIndex) {
+        self.literal_operands
+            .push(crate::program_literal_operands::FunctionSite::index(
+                self.operator_count,
+                value,
+            ));
+        self.instruction(&Instruction::I32Const(value.ordinal() as i32));
+    }
+
+    pub(crate) fn literal_operands(&self) -> &[crate::program_literal_operands::FunctionSite] {
+        &self.literal_operands
     }
 
     /// Capture immediately after opening the frame that will be targeted.

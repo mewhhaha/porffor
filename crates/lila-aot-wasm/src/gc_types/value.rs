@@ -13,7 +13,8 @@ mod program_initialize;
 mod program_instance;
 pub(crate) use program_instance::{
     FunctionProgramOwner, ProgramInstanceHooks, ProgramInstanceImage, ProgramInstanceLocals,
-    ProgramLiteralIndex, ProgramLiteralRoots, ProgramMetadataBytes, ProgramMetadataView,
+    ProgramLiteralCount, ProgramLiteralIndex, ProgramLiteralRoots, ProgramMetadataBytes,
+    ProgramMetadataView,
 };
 mod program_string_descriptors;
 pub(crate) use program_string_descriptors::ProgramStringDescriptorTable;
@@ -2001,6 +2002,7 @@ impl RuntimeSchema {
 #[derive(Clone, Copy)]
 enum OperandSource {
     I32(i32),
+    ProgramLiteralCount(ProgramLiteralCount),
     I64(i64),
     F64(f64),
     Local(u32),
@@ -2027,6 +2029,10 @@ impl<V: sealed::Sealed, N: GcFieldNullability> GcOperand<'_, V, N> {
     pub(super) fn emit(self, function: &mut Function) {
         let instruction = match self.source {
             OperandSource::I32(value) => Instruction::I32Const(value),
+            OperandSource::ProgramLiteralCount(value) => {
+                function.program_literal_count(value);
+                return;
+            }
             OperandSource::I64(value) => Instruction::I64Const(value),
             OperandSource::F64(value) => Instruction::F64Const(value.into()),
             OperandSource::Local(index) => Instruction::LocalGet(index),
@@ -2350,6 +2356,12 @@ impl GcOperand<'_, crate::heap::DescriptorWord, NonNullable> {
 }
 pub(crate) trait GcF64Field: sealed::Sealed {}
 impl<V: GcNumericI32Field> GcOperand<'_, V, NonNullable> {
+    pub(crate) fn program_literal_count(value: ProgramLiteralCount) -> Self {
+        Self {
+            source: OperandSource::ProgramLiteralCount(value),
+            shape: PhantomData,
+        }
+    }
     pub(crate) fn i32(value: i32) -> Self {
         Self {
             source: OperandSource::I32(value),

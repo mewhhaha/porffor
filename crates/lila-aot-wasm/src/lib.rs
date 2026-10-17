@@ -4248,8 +4248,9 @@ if (!caught) throw "revoked proxy missing TypeError";"#,
 }
 
 mod native_program_template;
+mod program_literal_operands;
 pub use native_program_template::{
     NativeProgramArrayConstruction, NativeProgramArrayFactory, NativeProgramArrayWidth,
-    NativeProgramDataImage, NativeProgramTemplate, NativeProgramTemplateError,
-    NATIVE_PROGRAM_DATA_MODULE,
+    NativeProgramDataImage, NativeProgramLiteralOperand, NativeProgramTemplate,
+    NativeProgramTemplateError, NATIVE_PROGRAM_DATA_MODULE,
 };

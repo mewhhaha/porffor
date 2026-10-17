@@ -11,7 +11,8 @@ impl FunctionBuilder<'_> {
         assert_eq!(descriptor_image.count(), image.literal_count());
         let schema = self.schema;
         let length = schema.reserve_i32_local(function);
-        length.set_constant(image.literal_count() as i32, function);
+        function.program_literal_count(image.literal_count_operand());
+        length.store(function);
         let pool = schema
             .reserve_gc_local::<PooledStringTable, NonNullable>(function)
             .initialize(
@@ -30,7 +31,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         row_index.load(function);
-        function.instruction(&Instruction::I32Const(descriptors.count() as i32));
+        function.program_literal_count(image.literal_count_operand());
         function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
         let row = descriptors.read_row(schema, row_index, function);

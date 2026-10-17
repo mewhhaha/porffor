@@ -3073,11 +3073,16 @@ for sole_owner in ModuleTypeRegistry FinalizedModuleSections CompiledModulePacka
     fail "$sole_owner must be owned only by $compiled_module_package"
   fi
 done
-# Native template binary fixtures have one exact statically test-only owner.
+# Native template binary fixtures have exact statically test-only owners.
 native_template_fixture_source="crates/lila-aot-wasm/src/native_program_template/tests.rs"
 require_file "$native_template_fixture_source"
 if [[ "$(head -n 1 "$native_template_fixture_source")" != '#![cfg(test)]' ]]; then
   fail 'native template binary fixtures must be compiled only for tests'
+fi
+native_template_literal_fixture_source="crates/lila-aot-wasm/src/native_program_template/tests/literal_operands.rs"
+require_file "$native_template_literal_fixture_source"
+if [[ "$(head -n 1 "$native_template_literal_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'native literal operand binary fixtures must be compiled only for tests'
 fi
 gc_instruction_escapes="$(
   rg -n 'Instruction::(Struct(New|Get|Set)|Array(New|Get|Set|Fill|Copy|Len))' \
@@ -3483,6 +3488,7 @@ for sealed_section in types globals code; do
       ! -path "$compiled_module_package" \
       ! -path "$runtime_cache_fixture_source" \
       ! -path "$native_template_fixture_source" \
+      ! -path "$native_template_literal_fixture_source" \
       "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
       | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
@@ -3500,6 +3506,7 @@ global_section_constructor_escapes="$(
     ! -path "$compiled_module_package" \
     ! -path "$runtime_cache_fixture_source" \
     ! -path "$native_template_fixture_source" \
+      ! -path "$native_template_literal_fixture_source" \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
 )"

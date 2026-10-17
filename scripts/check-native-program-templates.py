@@ -9,7 +9,10 @@ T = A + 'native_program_template'
 N = E + 'wasm_native_program_template'
 M = E + 'memory_module_cache/native_templates'
 CAPS = {
-    T + '.rs': 160, T + '/plan.rs': 240, T + '/plan/sites.rs': 120,
+    A + 'program_literal_operands.rs': 180,
+    T + '/literal_operands.rs': 50, T + '/plan/literal_operands.rs': 80,
+    T + '/tests/literal_operands.rs': 260,
+    T + '.rs': 160, T + '/plan.rs': 260, T + '/plan/sites.rs': 120,
     T + '/references.rs': 110, T + '/reencode.rs': 200,
     T + '/reencode/names.rs': 80, T + '/tests.rs': 300,
     N + '.rs': 90, N + '/cache.rs': 50, N + '/bindings.rs': 180,
@@ -29,11 +32,11 @@ def check(sources):
         if not ok: failures.append(key)
     c = {name: compact(text) for name, text in sources.items()}
     owner = c[T + '.rs']
-    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,}' in owner and
+    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,literal_operands:Vec<NativeProgramLiteralOperand>,}' in owner and
          'fnfrom_native(' in owner and 'pubfnfrom_native(' not in owner and
          all('pubfnfor_' + kind + '(artifact:&Runtime' + {'function':'Function','global_script':'GlobalScript','direct_eval':'DirectEval'}[kind] + 'Artifact' in owner for kind in KINDS), 'typed_artifact_only')
     need(sources[T + '/tests.rs'].splitlines()[0] == '#![cfg(test)]' and
-         '#[cfg(test)]modtests;' in owner, 'exact_fixture_owner_is_statically_test_only')
+         '#[cfg(test)]modtests;' in owner and sources[T + '/tests/literal_operands.rs'].splitlines()[0] == '#![cfg(test)]' and '[path="tests/literal_operands.rs"]modliteral_operand_tests;' in c[T + '/tests.rs'], 'exact_fixture_owner_is_statically_test_only')
     need('runtime:Arc::clone(runtime)' in owner and 'NativeProgramTemplateError(String)' in owner and
          'EmitError::unsupported' not in owner, 'opaque_owner_and_error_domain')
     plan = c[T + '/plan.rs']
@@ -110,6 +113,25 @@ def check(sources):
          'modwasm_native_program_template;' in c[E + 'lib.rs'] and
          'modnative_templates;' in c[E + 'memory_module_cache.rs'] and
          'native_compilation_mode:WasmNativeCompilationMode' in c[E + 'wasm_native_source_compiler.rs'], 'private_owner_declarations')
+    declarations = c[A + 'program_literal_operands.rs']
+    scalar_sites = c[T + '/plan/literal_operands.rs']
+    need('value:ProgramLiteralCount' in declarations and 'value:ProgramLiteralIndex' in declarations and
+         'word(0)!=VERSION' in declarations and 'prior>=(body,operator)' in declarations and
+         'Kind::Count' in declarations and 'Kind::Index' in declarations and
+         'literaloperandrecordlengthmismatch' in declarations, 'closed_literal_operand_transport')
+    need('Operator::I32Const{value}' in scalar_sites and '*value!=site.expected' in scalar_sites and
+         'self.suppressed.contains(offset)' in scalar_sites and 'self.sites.contains_key(offset)' in scalar_sites and
+         'site.operatorasusize' in scalar_sites and 'literaloperandbodyisoutofrange' in plan,
+         'literal_relocations_check_exact_operators_and_disjoint_data_sites')
+    need('section.name()==crate::program_literal_operands::SECTION_NAME' in encoder and
+         'self.plan.images.len()asu32+self.plan.literal_operands.len()asu32' in encoder and
+         'val_type:ValType::I32,mutable:false,shared:false' in encoder and
+         'self.plan.literal_sites.get(&offset)' in encoder,
+         'literal_operands_are_immutable_globals_and_marker_is_consumed')
+    need(".rsplit('.')" in data and '.literal_operands().get(index)' in data and
+         'operand.import_name()==import.name()' in data and
+         '!matches!(global.content(),ValType::I32)' in data and 'Val::I32(operand.value())' in data,
+         'fresh_exact_scalar_binding_with_constant_time_ordinal_lookup')
     for name, maximum in CAPS.items():
         need(len(sources[name].splitlines()) <= maximum, 'owner_cap:' + name)
     return failures

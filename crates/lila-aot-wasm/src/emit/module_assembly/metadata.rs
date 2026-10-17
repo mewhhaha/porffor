@@ -77,6 +77,9 @@ pub(super) fn append_function_name_and_check_budget(
     // do not participate in `largest_wasm_code_body_size`, so this does not
     // move the engine's size-optimized routing threshold.
     module.section(&function_table.name_section());
+    if let Some(section) = function_table.literal_operand_section() {
+        module.section(&section);
+    }
     debug_dump.push(format!(
         "name section: {} named functions",
         function_table.records().len()

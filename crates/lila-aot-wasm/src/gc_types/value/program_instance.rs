@@ -60,11 +60,24 @@ impl<'pool> ProgramInstanceImage<'pool> {
         self.literal_count
     }
 
+    pub(crate) fn literal_count_operand(&self) -> ProgramLiteralCount {
+        ProgramLiteralCount(self.literal_count)
+    }
+
     pub(crate) fn literal_index(
         &self,
         index: PooledStringIndex,
     ) -> Result<ProgramLiteralIndex, EmitError> {
         ProgramLiteralIndex::for_pool(self.strings, index)
+    }
+}
+
+/// A table length minted only by the checked P image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProgramLiteralCount(u32);
+impl ProgramLiteralCount {
+    pub(crate) const fn value(self) -> u32 {
+        self.0
     }
 }
 
@@ -89,7 +102,7 @@ impl<'image, 'pool> ProgramLiteralRoots<'image, 'pool> {
         schema
             .array_type::<PooledStringTable>()
             .length(&table, schema, function);
-        function.instruction(&Instruction::I32Const(image.literal_count as i32));
+        function.program_literal_count(image.literal_count_operand());
         function.instruction(&Instruction::I32Ne);
         trap_if_true(function);
         let row = schema.reserve_i32_local(function);
@@ -97,7 +110,7 @@ impl<'image, 'pool> ProgramLiteralRoots<'image, 'pool> {
         function.instruction(&Instruction::Block(BlockType::Empty));
         function.instruction(&Instruction::Loop(BlockType::Empty));
         row.load(function);
-        function.instruction(&Instruction::I32Const(image.literal_count as i32));
+        function.program_literal_count(image.literal_count_operand());
         function.instruction(&Instruction::I32GeU);
         function.instruction(&Instruction::BrIf(1));
         schema
@@ -230,7 +243,7 @@ impl ProgramInstanceLocals {
                     GcOperand::nullable_function_reference(&hooks.regexp_candidate),
                     GcOperand::reference(&literals.table, schema),
                     GcOperand::i32(image.literal_base as i32),
-                    GcOperand::i32(image.literal_count as i32),
+                    GcOperand::program_literal_count(image.literal_count_operand()),
                     GcOperand::reference(&metadata.bytes, schema),
                     GcOperand::constant(image.language_features),
                 ),
@@ -331,7 +344,8 @@ impl ProgramInstanceLocals {
             function,
         );
         let ordinal = schema.reserve_i32_local(function);
-        ordinal.set_constant(index.0 as i32, function);
+        function.program_literal_index(index);
+        ordinal.store(function);
         let string = schema
             .array_type::<PooledStringTable>()
             .read(&table, ordinal, schema, function)
