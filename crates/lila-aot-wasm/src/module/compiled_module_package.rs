@@ -284,7 +284,8 @@ impl ModuleAssemblySections {
 // only borrow the one compiled package. A future edit that weakens those
 // ownership transitions no longer matches these function types and fails to
 // compile.
-const _: fn(FinalizedModuleSections, u32) -> CompiledModulePackage = FinalizedModuleSections::begin;
+const _: fn(FinalizedModuleSections, u32, ModuleEntryRole) -> CompiledModulePackage =
+    FinalizedModuleSections::begin;
 const _: fn(crate::runtime_artifact::ModuleKind<'_>) -> ModuleTypeRegistry =
     ModuleTypeRegistry::new;
 const _: fn(
