@@ -3,7 +3,8 @@ its typed ProgramInstance candidate hook and uses the runtime compiler on a
 cache miss. Coercion order, cached syntax errors and calling-program ownership
 are covered by a passing native Engine regression. Current-source runtime-link
 30/30 and Intl/Temporal89/89 integrations pass, retaining their117 previous passes.
-FullEngine961 remains running; all960 previous IDs are present. [Raw evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json)
+Full Engine961/961 passes, retaining all960 previous passes.
+[Complete Engine evidence](docs/rust-rewrite/full-engine-regexp-owner-hook-retention-20261017.json) includes every test result. [Raw evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json)
 records the fresh24-stage build and exact published compiler fingerprint.
 The previous source's complete1510 library tests remain documented in its
 [checkpoint](docs/rust-rewrite/complete-native-tooling-checkpoint-20261017.json).

@@ -13,7 +13,8 @@ its actual tests.rs owner, preserving every existing assertion.
 
 Current-source runtime-link30/30 and Intl/Temporal89/89 pass; all117 previous
 passes remain. The previous complete7-target baseline was578/580; other five
-current-source targets still need replay. FullEngine961 remains running; all960 previous IDs are present.
+current-source targets still need replay. Full Engine961/961 passes; all960 previous passes are retained.
+[Complete Engine evidence](docs/rust-rewrite/full-engine-regexp-owner-hook-retention-20261017.json) preserves the finished receipt and raw output.
 The new exact RegExp regression and both cache regressions pass. Prior-source
 Engine960/Runtime33/Test262435/CLI82 full inventories are historical acceptance,
 not automatic current-source full-suite acceptance.
@@ -28,7 +29,7 @@ source check or historical receipt was rewritten. Publication writes no separate
 full Git index and reproduces all2689 compiler and1052 native inputs from the
 actual Git tree. See [portable evidence](docs/rust-rewrite/regexp-owner-hook-native-checkpoint-20261017.json).
 
-Next: collect full961Engine retention, run the other five integrations and full
+Next: run the other five integrations and full
 AOT/Test262/CLI units on this closure, replay original27 retaining all24 prior
 observations, then remaining203/historical5365 and actual ordinary Cargo/default/
 all-feature/host/shard-resume/two full pinned-family/task gates. Three previous
