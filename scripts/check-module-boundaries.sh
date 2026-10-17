@@ -7557,6 +7557,31 @@ require_file scripts/check-empty-statement-list-storage.py
 check_raw_line_budget scripts/check-empty-statement-list-storage.py 120
 python3 -B scripts/check-empty-statement-list-storage.py
 
+# Unobserved arguments are omitted only for inert, empty strict ordinary bodies.
+arguments_protocol=crates/lila-aot-wasm/src/arguments_protocol.rs
+check_raw_line_budget "$arguments_protocol" 500
+require_fixed_string_count "$arguments_protocol" 'if arguments_are_unobservable(function)' 1 'checked arguments materialization decision'
+for condition in 'function.strict' 'FunctionExecutionKind::Ordinary' 'FunctionProtocolIr::ClassConstructor' 'function.captured_bindings.is_empty()' 'function.body.statements.is_empty()' 'has_simple_parameter_list(function)'; do
+  require_fixed_string_present "$arguments_protocol" "$condition" 'conservative arguments observability proof'
+done
+require_fixed_string_present "$arguments_protocol" 'fn eval_visible_empty_strict_methods_have_no_arguments_observer()' 'actual eval-visible lowering regression'
+require_file crates/lila-engine/tests/aot_native_program_templates/unobserved_arguments.rs
+check_raw_line_budget crates/lila-engine/tests/aot_native_program_templates/unobserved_arguments.rs 100
+require_module_decl crates/lila-engine/tests/aot_native_program_templates.rs unobserved_arguments
+require_fixed_string_present crates/lila-engine/tests/aot_native_program_templates/unobserved_arguments.rs 'fn strict_empty_methods_and_observed_arguments_keep_their_actual_semantics()' 'actual native argument ownership regression'
+
+
+# The typed empty-body path preserves callable entry, activation and root exit.
+empty_strict_body=crates/lila-aot-wasm/src/emit/body_compilation/empty_strict.rs
+require_file "$empty_strict_body"
+check_raw_line_budget "$empty_strict_body" 90
+require_module_decl "$wasm_body_compilation" empty_strict
+require_fixed_string_count "$wasm_body_compilation" 'self.function_arguments_protocol.take_empty_strict_body()' 1 'consumed typed empty-body admission'
+require_fixed_string_present "$arguments_protocol" 'pub(crate) struct EmptyStrictBody' 'private-constructible empty-body witness'
+for lifecycle in 'self.take_owned_body()' 'self.init_template_source_execution(' 'self.emit_enter_source_activation(' 'self.open_source_activation_epilogue(' 'self.finish_source_activation_epilogue(' 'self.completion.emit(' 'self.clear_body_entry_roots(' 'execution.clear(' 'self.finish_function('; do
+  require_fixed_string_count "$empty_strict_body" "$lifecycle" 1 'empty body retains callable lifecycle'
+done
+
 if [ "$failures" -ne 0 ]; then
   exit 1
 fi
@@ -7566,3 +7591,8 @@ printf 'check-module-boundaries: ok\n'
 # Native-only code templates retain fresh source/data allocations and actual owners.
 require_file scripts/check-native-program-templates.py
 python3 scripts/check-native-program-templates.py
+
+# Native regression for FunctionDeclarationInstantiation arguments ownership.
+require_file crates/lila-engine/tests/aot_native_program_templates/annex_b_arguments.rs
+check_raw_line_budget crates/lila-engine/tests/aot_native_program_templates/annex_b_arguments.rs 100
+require_module_decl crates/lila-engine/tests/aot_native_program_templates.rs annex_b_arguments

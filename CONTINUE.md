@@ -3,23 +3,28 @@
 The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes; native subsets and inventories do not establish full conformance.
 
-Current compiler checkpoint (2026-10-17): checked per-program string counts
-and ordinals now bind through fresh immutable globals in shared native templates.
-All404 AOT tests and all6 native-template Engine integration tests pass. The
-same1,836-request compile-only workload needs500 distinct templates instead of600.
-The original27-case replay improves to26Success/1Crash and retains all25 cases
-that passed in either previous checkpoint. Both prototype cases now pass; the
-strict class destructuring case still times out at the original60000ms deadline.
-[Exact results and raw evidence](docs/rust-rewrite/native-literal-operands-checkpoint-20261017.json) distinguish these current-source checks
-from the earlier complete2,496-test native checkpoint. OrdinaryCargo, full pinned
-conformance and task closure remain open.
+Current compiler checkpoint (2026-10-17): the official Annex B implicit-
+arguments regression passes through Wasm-AOT. All26 earlier stress passes are
+retained across the original27 executions at the unchanged60000ms deadline:
+26Success/1Crash. The strict class case passes in the isolated two-case check but still
+times out in the mixed campaign; its reliable repair remains open.
+Typed empty strict source bodies omit unobservable binding setup while retaining
+call-entry validation, activation tracking and cleanup. A representative generated
+module shrinks from92,562 to79,132 bytes (14.5%).
+All407 AOT tests and8 native-template integration tests pass without ignored or
+filtered tests. The earlier1,599-test IR pass is reused after verifying every398
+consumed source files and11 typed extern dependencies are unchanged; it was not
+rerun. [Exact results and raw evidence](docs/rust-rewrite/empty-strict-body-and-annex-b-checkpoint-20261017.json) bind these scoped results to the
+current compiler. Full Engine and other current native inventories, ordinary Cargo,
+full pinned conformance and task closure remain open. CI now caches unchanged
+workspace artifacts as well as dependencies; measured CI timing is still pending.
 
-Current Engine verification (2026-10-17): all965 native Engine tests pass at
-the literal-operands compiler fingerprint, retaining every prior Engine test ID.
-Zero tests are ignored or filtered. The harness compiled in9.9s at opt-level0;
-product dependencies retain their selected optimized profiles. [Exact results
-and raw evidence](docs/rust-rewrite/current-native-engine-checkpoint-20261017.json) keep this scoped native result separate from
-ordinaryCargo and complete pinned conformance.
+The earlier literal-operands compiler passed all965 Engine tests; that complete
+Engine result retains its earlier compiler identity. The preceding complete2,496-test
+native inventory and template-count measurements also remain earlier checkpoints.
+The original27-case replay retains all26 earlier passes; the strict class case still
+needs a reliable deadline repair. Remaining203 and historical5365 executions and
+all full acceptance gates still require completion.
 
 ## Immediate work
 

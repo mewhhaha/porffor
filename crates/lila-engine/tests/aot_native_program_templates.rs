@@ -89,3 +89,9 @@ fn global_script_template_data_uses_actual_realm_and_keeps_each_payload() {
 
 #[path = "aot_native_program_templates/catalog_overlays.rs"]
 mod catalog_overlays;
+
+#[path = "aot_native_program_templates/annex_b_arguments.rs"]
+mod annex_b_arguments;
+
+#[path = "aot_native_program_templates/unobserved_arguments.rs"]
+mod unobserved_arguments;

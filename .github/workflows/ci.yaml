@@ -61,10 +61,19 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Cache Cargo dependencies
+      - name: Cache Cargo dependencies and workspace artifacts
+        id: cargo-cache
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: v1-rust-workspace
+          cache-workspace-crates: "true"
           cache-on-failure: "true"
+
+      - name: Seed workspace cache from prior dependency cache
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: "false"
 
       - name: Check workspace
         shell: bash

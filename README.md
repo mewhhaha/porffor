@@ -1,4 +1,20 @@
-Repaired compiler verification (2026-10-17): **2,492 native tests pass**
+Current compiler checkpoint (2026-10-17): the official Annex B implicit-
+arguments regression passes through Wasm-AOT. All26 earlier stress passes are
+retained across the original27 executions at the unchanged60000ms deadline:
+26Success/1Crash. The strict class case passes in the isolated two-case check but still
+times out in the mixed campaign; its reliable repair remains open.
+Typed empty strict source bodies omit unobservable binding setup while retaining
+call-entry validation, activation tracking and cleanup. A representative generated
+module shrinks from92,562 to79,132 bytes (14.5%).
+All407 AOT tests and8 native-template integration tests pass without ignored or
+filtered tests. The earlier1,599-test IR pass is reused after verifying every398
+consumed source files and11 typed extern dependencies are unchanged; it was not
+rerun. [Exact results and raw evidence](docs/rust-rewrite/empty-strict-body-and-annex-b-checkpoint-20261017.json) bind these scoped results to the
+current compiler. Full Engine and other current native inventories, ordinary Cargo,
+full pinned conformance and task closure remain open. CI now caches unchanged
+workspace artifacts as well as dependencies; measured CI timing is still pending.
+
+Earlier compiler verification (2026-10-17): **2,492 native tests pass**
 with zero failures, ignores or filtered tests: Engine961, Runtime33, AOT401,
 Test262 tooling435, CLI82, and seven priority integration targets580.
 Every earlier pass is retained; the two earlier integration failures are repaired
@@ -15,14 +31,14 @@ Verification scratch admission (2026-10-17): prefix heavy commands with
 to reject insufficient headroom before compilation or replay starts.
 [Controls and lossless archive consolidation](docs/rust-rewrite/scratch-admission-checkpoint-20261017.json).
 
-Current Engine verification (2026-10-17): all965 native Engine tests pass at
+Earlier Engine verification (2026-10-17): all965 native Engine tests pass at
 the literal-operands compiler fingerprint, retaining every prior Engine test ID.
 Zero tests are ignored or filtered. The harness compiled in9.9s at opt-level0;
 product dependencies retain their selected optimized profiles. [Exact results
 and raw evidence](docs/rust-rewrite/current-native-engine-checkpoint-20261017.json) keep this scoped native result separate from
 ordinaryCargo and complete pinned conformance.
 
-Current compiler checkpoint (2026-10-17): checked per-program string counts
+Earlier compiler checkpoint (2026-10-17): checked per-program string counts
 and ordinals now bind through fresh immutable globals in shared native templates.
 All404 AOT tests and all6 native-template Engine integration tests pass. The
 same1,836-request compile-only workload needs500 distinct templates instead of600.

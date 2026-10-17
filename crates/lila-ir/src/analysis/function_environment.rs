@@ -17,6 +17,25 @@ fn parameters_contain_expression(parameters: &[FormalParameter]) -> bool {
     })
 }
 
+/// FunctionDeclarationInstantiation's argumentsObjectNeeded decision. The
+/// storage sentinel alone is insufficient when a body declaration shadows it.
+pub(super) fn creates_implicit_arguments_binding(
+    function: &PendingFunction<'_>,
+    root_functions: &[PendingFunction<'_>],
+    interner: &Interner,
+) -> bool {
+    function.protocol.flavor() == FunctionFlavor::Ordinary
+        && !eval_environment::parameter_names(interner, function.parameters.as_ref())
+            .contains("arguments")
+        && (parameters_contain_expression(function.parameters.as_ref())
+            || (!root_functions
+                .iter()
+                .any(|function| function.name == "arguments")
+                && !lexically_declared_names(function.body)
+                    .into_iter()
+                    .any(|name| interner.resolve_expect(name).to_string() == "arguments")))
+}
+
 impl<'a> AnalysisBuilder<'a> {
     pub(super) fn body_environment_cursor(&self, owner_id: &str) -> EnvironmentCursor {
         let owner = &self.owner_plans[owner_id];

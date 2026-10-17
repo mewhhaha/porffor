@@ -1,5 +1,6 @@
 use super::*;
 use crate::function_layout::ProgramInitializeIndex;
+mod empty_strict;
 mod program_initialize;
 pub(crate) use program_initialize::{CompletedProgramInitializeBody, ProgramInitializeCompilation};
 
@@ -83,6 +84,15 @@ impl<'a> FunctionBuilder<'a> {
             return Err(EmitError::unsupported(
                 "private module activation requires its validated execution graph",
             ));
+        }
+        if self.uses_heap
+            && self
+                .planned_entry()
+                .is_some_and(|entry| entry.has_source_activation())
+        {
+            if let Some(plan) = self.function_arguments_protocol.take_empty_strict_body() {
+                return self.compile_empty_strict_body(plan);
+            }
         }
         let mut function = self.take_owned_body();
 

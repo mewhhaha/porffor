@@ -574,6 +574,10 @@ fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() 
         ("function owner(f) { { function f() {} } return f; }", 0),
         (
             "function owner() { { function arguments() {} } return arguments; }",
+            0,
+        ),
+        (
+            "function owner() { function arguments() {} { function arguments() {} } return arguments; }",
             1,
         ),
     ] {
@@ -593,19 +597,11 @@ fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() 
         if expected_copies != 0 {
             assert_eq!(
                 copies[0].2,
-                AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
-                    name: "arguments".into(),
+                AnnexBFunctionCopyTargetIr::OwnerBinding {
+                    storage_name: "arguments".into(),
                 }
             );
-            let owner = script
-                .functions
-                .iter()
-                .find(|function| function.name == "owner")
-                .unwrap();
-            assert!(!owner
-                .owned_env_bindings
-                .iter()
-                .any(|binding| binding.name == "arguments"));
+
         }
     }
 }
@@ -631,14 +627,7 @@ fn annex_b_arguments_formals_block_copy_and_parameter_expressions_keep_late_crea
         .iter()
         .find(|function| function.name == "owner")
         .unwrap();
-    let copies = collect_annex_b_copies(&owner.body);
-    assert_eq!(copies.len(), 1);
-    assert_eq!(
-        copies[0].2,
-        AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
-            name: "arguments".into()
-        }
-    );
+    assert!(collect_annex_b_copies(&owner.body).is_empty());
     let body = owner
         .body
         .statements
@@ -1151,5 +1140,42 @@ fn case_block_instantiates_all_hoistable_forms_once_before_case_selection() {
     for source_name in ["plain", "gen", "task", "stream"] {
         assert_eq!(declarations.iter().filter(|declaration| matches!(declaration, StatementIr::Lexical { name, init, .. }
             if name.ends_with(&format!(".{source_name}")) && matches!(&init.expr, ExprIr::FunctionValue(_)))).count(), 1);
+    }
+}
+
+#[test]
+fn annex_b_implicit_arguments_exclusion_obeys_parameter_expression_precedence() {
+    for (source, copies) in [
+        ("function owner(x) { { function arguments() {} } }", 0),
+        ("function owner(...rest) { { function arguments() {} } }", 0),
+        (
+            "function owner(x = 1) { function arguments() {} { function arguments() {} } }",
+            0,
+        ),
+        (
+            "function owner() { function arguments() {} { function arguments() {} } }",
+            1,
+        ),
+        ("const owner = () => { { function arguments() {} } };", 1),
+    ] {
+        let program = lower_script(source);
+        assert!(
+            program.is_wasm_supported(),
+            "{source}: {:?}",
+            program.diagnostics
+        );
+        let owner = program
+            .script
+            .as_ref()
+            .unwrap()
+            .functions
+            .iter()
+            .find(|function| function.name == "owner")
+            .unwrap();
+        assert_eq!(
+            collect_annex_b_copies(&owner.body).len(),
+            copies,
+            "{source}"
+        );
     }
 }
