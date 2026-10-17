@@ -58,6 +58,7 @@ const TEST_ONLY_INPUTS: &[&str] = &[
     "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
     "crates/lila-engine/src/embedded_runtime/tests.rs",
     "crates/lila-engine/src/wasm_runtime_link/tests.rs",
+    "crates/lila-engine/src/wasm_compilation_policy/tests.rs",
     "crates/lila-engine/src/tests.rs",
     "crates/lila-engine/src/regexp_program_boundary_tests.rs",
     "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",

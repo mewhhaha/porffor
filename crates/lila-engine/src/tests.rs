@@ -1,5 +1,22 @@
 use super::*;
 
+/// An authority-bearing cache fixture, never an executable compiler result.
+pub(super) fn portable_cache_fixture() -> Vec<u8> {
+    let name = lila_aot_wasm::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION.as_bytes();
+    let payload_len = 1 + name.len() + 1;
+    assert!(payload_len < 128);
+    let mut module = b"\0asm\x01\0\0\0".to_vec();
+    module.extend_from_slice(&[0, payload_len as u8, name.len() as u8]);
+    module.extend_from_slice(name);
+    module.push(0); // Portable profile; no native compiler imports.
+    wasmparser::Validator::new().validate_all(&module).unwrap();
+    assert_eq!(
+        lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(&module).unwrap(),
+        lila_aot_wasm::RuntimeSourceCompilationProfile::Portable
+    );
+    module
+}
+
 const TEST262_AGENT_PRELUDE: &str = r#"
 var $262 = {
   agent: {
@@ -1679,16 +1696,20 @@ fn program_wasm_cache_evicts_only_invalid_cached_artifacts() {
         cache::FunctionCache::new(cache_root.clone(), 1024)
             .expect("program cache should initialize"),
     );
-    // Parse-once preparation deliberately precedes the cache lookup, so a
-    // cache entry can never mask an invalid source program. Use valid
-    // source here and make only the cached artifact invalid.
+    // Cache admission now rejects malformed headers before an artifact exists.
+    // Use an admitted empty module to test eviction's error classification;
+    // these fixture bytes are never executed or counted as compiler acceptance.
     let source = "true;";
     let options = CompileOptions::default();
     let key = program_wasm_cache_key(source, ParseGoal::Script, &options)
         .expect("loaded test compiler identity");
+    let malformed =
+        wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(&[0, 1, 2, 3]));
+    assert!(wasm_runtime_link::decode_standalone_cache_entry(&malformed).is_none());
+    let bytes = portable_cache_fixture();
     assert!(cache.write(
         &key,
-        wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(&[0, 1, 2, 3], None)),
+        wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(&bytes)),
     ));
 
     let artifact = engine()
@@ -1699,7 +1720,8 @@ fn program_wasm_cache_evicts_only_invalid_cached_artifacts() {
             Some(Arc::clone(&cache)),
         )
         .expect("cache hit should return the stored artifact");
-    assert_eq!(artifact.bytes.as_ref(), &[0, 1, 2, 3]);
+    assert!(artifact.cached_entry.is_some());
+    assert_eq!(artifact.bytes.as_ref(), bytes.as_slice());
     assert!(
         !artifact.evict_if_invalid(&EngineError::new("wasmtime execution trapped: unreachable"))
     );
@@ -1710,7 +1732,7 @@ fn program_wasm_cache_evicts_only_invalid_cached_artifacts() {
     assert!(!cache.contains(&key));
     assert!(cache.write(
         &key,
-        wasm_runtime_link::encode_cache_entry(WasmProgramRef::new(&[0, 1, 2, 3], None)),
+        wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(&bytes)),
     ));
     assert!(
         artifact.evict_if_invalid(&EngineError::from_intl_artifact_identity(

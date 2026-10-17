@@ -43,7 +43,7 @@ fn cache_adoption_preserves_the_exact_requested_policy_in_the_execution_ref() {
     let engine = Engine::new(RealmBuilder::new().build());
     // This valid empty module exercises cache ownership only; it is never
     // executed and does not stand in for a native Function acceptance result.
-    let bytes = b"\0asm\x01\0\0\0";
+    let bytes = crate::tests::portable_cache_fixture();
     let mut keys = Vec::new();
     for options in [
         CompileOptions::default(),
@@ -59,7 +59,7 @@ fn cache_adoption_preserves_the_exact_requested_policy_in_the_execution_ref() {
         let key = crate::program_wasm_cache_key("0;", ParseGoal::Script, &options).unwrap();
         assert!(cache.write(
             &key,
-            wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(bytes))
+            wasm_runtime_link::encode_cache_entry(WasmProgramRef::standalone(&bytes))
         ));
         let artifact = engine
             .load_or_compile_program_wasm_on_current_thread(
@@ -70,7 +70,7 @@ fn cache_adoption_preserves_the_exact_requested_policy_in_the_execution_ref() {
             )
             .unwrap();
         assert!(artifact.cached_entry.is_some());
-        assert_eq!(artifact.bytes.as_ref(), bytes);
+        assert_eq!(artifact.bytes.as_ref(), bytes.as_slice());
         let expected = WasmCompilationPolicy::from_options(&options);
         assert_eq!(artifact.compilation_policy, expected);
         assert_eq!(artifact.program().compilation_policy, Some(&expected));

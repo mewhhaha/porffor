@@ -1,3 +1,27 @@
+# Current native verification — 2026-10-17
+
+The current source/runtime build passes all24 stages, reusing12 exact unchanged
+production dependencies and rebuilding12 affected stages. Its staged Git tree
+reproduces compiler fingerprint1d0642391a09d2a0176636fb13a7adbc3aa9fe84ddba6300cc8348c3a37a0fc9
+and the unchanged native backend identity. The raw runtime Wasm and optimized
+native image are byte-identical to the predecessor; the package binds the new
+compiler identity.
+
+Both cache regressions pass with physical Portable-profile fixtures. All12
+fingerprint controls pass, including the new exact test-file lifecycle case;
+static guards reject an ungated test owner and unregistered exclusions. The
+previous full Engine run recorded938/960, with20 native-profile fixture failures
+covered by the passing69-test group and2 cache issues now repaired. The new
+unfiltered960-test Engine run is in progress, followed by full Runtime, Test262
+and CLI inventories. See the [current evidence](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json).
+
+The previous27 Test262 replay remains23Success/4Crash, retaining all19 old
+passes; it has not yet been replayed under this new identity. A1024-entry cloud
+cache trial did not resolve the prototype timeout and is not being shipped.
+Keep the remaining203/historical5365, actual Cargo/CLI/default/all-feature,
+supported-host/shard/resume, full pinned families and task-specific gates open.
+Keep this file and tasks until their completion criteria actually pass.
+
 # Compiler and retention checkpoint — 2026-10-17
 
 The current source has a complete source-bound native compiler/runtime build.

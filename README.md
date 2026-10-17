@@ -1,3 +1,9 @@
+Native verification checkpoint (2026-10-17): cache fixtures carry their actual
+portable source profile, and the exact test-only fingerprint scope is registered.
+[Recorded results](docs/rust-rewrite/native-cache-fixture-checkpoint-20261017.json)
+include the source/runtime build and focused regressions. Broader verification
+is running.
+
 Compiler source checkpoint (2026-10-17): native source compilation now shares
 program code with fresh per-instance data, discards validated empty-statement
 storage, and discovers for-in initializer environments before lowering. The
