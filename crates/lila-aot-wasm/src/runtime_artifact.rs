@@ -21,8 +21,17 @@ use crate::EmitError;
 mod build_package;
 mod cache;
 mod residency;
-pub use build_package::{build_runtime_artifact, RuntimeArtifactInputs, RuntimeBuildArtifact};
+mod source_compilation;
+pub use source_compilation::{
+    RuntimeSourceCompilationProfile, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+};
+mod validated_profile;
+pub use build_package::{
+    build_runtime_artifact, build_runtime_artifact_with_source_compilation_profile,
+    RuntimeArtifactInputs, RuntimeBuildArtifact,
+};
 pub use cache::{RuntimeArtifactCache, RuntimeArtifactCacheKey};
+pub use validated_profile::ValidatedRuntimeArtifact;
 
 /// Module namespace under which a program module imports runtime exports.
 pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
@@ -32,7 +41,23 @@ pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
 // Version 4 keeps direct program-helper signatures outside the stable core GC group.
 // Version 5 adds per-FunctionObject legacy-reflection ownership and its GC state record.
 // Version 6 gives each P instance its own typed hook/data owner and function captures.
-const LAYOUT_VERSION: u32 = 6;
+// Version 7 adds the distinct typed native global-Script compiler core import.
+// Version 8 adds native direct eval, its caller context and instance-element hook.
+// Version 9 retains the per-Realm host ModuleSource prototype in its own intrinsic slot.
+const LAYOUT_VERSION: u32 = 9;
+
+/// A checked current envelope, or the compiler's own current emission.
+/// Decoding a raw payload cannot silently mint its version authority.
+#[derive(Debug, Clone, Copy)]
+struct CurrentRuntimeLayoutVersion(u32);
+impl CurrentRuntimeLayoutVersion {
+    fn admit(encoded: u32) -> Option<Self> {
+        (encoded == LAYOUT_VERSION).then_some(Self(encoded))
+    }
+    const fn emitted_current() -> Self {
+        Self(LAYOUT_VERSION)
+    }
+}
 
 fn function_export_name(index: u32) -> String {
     format!("f{index}")
@@ -141,23 +166,31 @@ pub(crate) enum ModuleKind<'r> {
     /// A program without a heap: one self-contained module.
     Standalone,
     /// The program-independent runtime module.
-    Runtime,
+    Runtime(RuntimeSourceCompilationProfile),
     /// A program module that links against exactly this runtime.
     Program(&'r Arc<RuntimeArtifact>),
 }
 
 impl ModuleKind<'_> {
+    pub(crate) fn source_compilation_profile(self) -> RuntimeSourceCompilationProfile {
+        match self {
+            Self::Standalone => RuntimeSourceCompilationProfile::Portable,
+            Self::Runtime(profile) => profile,
+            Self::Program(runtime) => runtime.source_compilation_profile(),
+        }
+    }
+
     pub(crate) const fn uses_heap(&self) -> bool {
         match self {
             Self::Standalone => false,
-            Self::Runtime | Self::Program(_) => true,
+            Self::Runtime(_) | Self::Program(_) => true,
         }
     }
 
     /// Whether this module defines the runtime half of the function space.
     pub(crate) const fn compiles_runtime(&self) -> bool {
         match self {
-            Self::Runtime => true,
+            Self::Runtime(_) => true,
             Self::Standalone | Self::Program(_) => false,
         }
     }
@@ -166,7 +199,7 @@ impl ModuleKind<'_> {
     pub(crate) const fn compiles_program(&self) -> bool {
         match self {
             Self::Standalone | Self::Program(_) => true,
-            Self::Runtime => false,
+            Self::Runtime(_) => false,
         }
     }
 
@@ -174,7 +207,7 @@ impl ModuleKind<'_> {
     /// Intl data images.
     pub(crate) const fn owns_globals(&self) -> bool {
         match self {
-            Self::Standalone | Self::Runtime => true,
+            Self::Standalone | Self::Runtime(_) => true,
             Self::Program(_) => false,
         }
     }
@@ -191,16 +224,45 @@ pub struct RuntimeArtifact {
     bytes: Arc<[u8]>,
     wasm_sha256: [u8; 32],
     layout: RuntimeLayout,
+    layout_admission: Option<CurrentRuntimeLayoutVersion>,
+    source_compilation_profile: RuntimeSourceCompilationProfile,
+    compiler_owned_pool: OnceLock<Result<Arc<crate::data::CompilerOwnedPool>, EmitError>>,
 }
 
 impl RuntimeArtifact {
-    fn new(bytes: Arc<[u8]>, layout: RuntimeLayout) -> Self {
+    fn new(
+        bytes: Arc<[u8]>,
+        layout: RuntimeLayout,
+        version: CurrentRuntimeLayoutVersion,
+        source_compilation_profile: RuntimeSourceCompilationProfile,
+    ) -> Self {
         Self {
             key: runtime_key(&bytes),
             wasm_sha256: Sha256::digest(&bytes).into(),
             bytes,
             layout,
+            layout_admission: Some(version),
+            source_compilation_profile,
+            compiler_owned_pool: OnceLock::new(),
         }
+    }
+
+    /// Synthetic cache/residency fixtures carry no product layout authority.
+    #[cfg(test)]
+    fn unadmitted_fixture(bytes: Arc<[u8]>, layout: RuntimeLayout) -> Self {
+        Self {
+            key: runtime_key(&bytes),
+            wasm_sha256: Sha256::digest(&bytes).into(),
+            bytes,
+            layout,
+            layout_admission: None,
+            source_compilation_profile: RuntimeSourceCompilationProfile::Portable,
+            compiler_owned_pool: OnceLock::new(),
+        }
+    }
+
+    pub const fn source_compilation_profile(&self) -> RuntimeSourceCompilationProfile {
+        self.source_compilation_profile
     }
 
     pub fn key(&self) -> RuntimeArtifactKey {
@@ -264,7 +326,7 @@ pub fn runtime_artifact_with_inputs(
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
     static RUNTIMES: OnceLock<Mutex<residency::RuntimeResidency>> = OnceLock::new();
     let admission_started = std::time::Instant::now();
-    let identity = cache::RuntimeIdentity::admit(selection)?;
+    let identity = cache::RuntimeIdentity::admit(selection, inputs.source_compilation_profile())?;
     if std::env::var_os("LILA_WASM_TRACE").is_some() {
         eprintln!(
             "lila wasm trace: runtime-data admission: {:?}",
@@ -280,7 +342,11 @@ pub fn runtime_artifact_with_inputs(
     // Initialization can compile a large module. Other profiles must not wait
     // for it under the cache lock; concurrent callers of this profile share it.
     let result = slot
-        .get_or_init(|| inputs.load_or_emit(&identity, || emit_runtime_artifact(selection)))
+        .get_or_init(|| {
+            inputs.load_or_emit(&identity, || {
+                emit_runtime_artifact(selection, inputs.source_compilation_profile())
+            })
+        })
         .clone();
     runtimes
         .lock()
@@ -291,18 +357,24 @@ pub fn runtime_artifact_with_inputs(
 
 fn emit_runtime_artifact(
     selection: &lila_intl::IntlDataSelection,
+    source_compilation_profile: RuntimeSourceCompilationProfile,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
     let parsed = lila_front::parse(";", lila_front::ParseOptions::script())
         .map_err(|_| EmitError::unsupported("the empty runtime script must parse"))?;
     let script = lila_ir::lower(&parsed)
         .script
         .ok_or_else(|| EmitError::unsupported("the empty runtime script must lower"))?;
-    let module = crate::emit::emit_runtime_module(&script, selection)?;
+    let module = crate::emit::emit_runtime_module(&script, selection, source_compilation_profile)?;
     let layout = module
         .runtime_layout
         .ok_or_else(|| EmitError::unsupported("the runtime module must describe its layout"))?;
     let bytes: Arc<[u8]> = Arc::from(module.artifact.bytes);
-    Ok(Arc::new(RuntimeArtifact::new(bytes, layout)))
+    Ok(Arc::new(RuntimeArtifact::new(
+        bytes,
+        layout,
+        CurrentRuntimeLayoutVersion::emitted_current(),
+        source_compilation_profile,
+    )))
 }
 
 fn runtime_key(bytes: &[u8]) -> RuntimeArtifactKey {

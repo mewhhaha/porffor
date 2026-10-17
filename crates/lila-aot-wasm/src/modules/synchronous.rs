@@ -113,9 +113,9 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<GcLocal<BindingCell>, EmitError> {
         let module = match target {
-            ModuleCellIr::Binding { module, .. } | ModuleCellIr::Namespace { module, .. } => {
-                *module
-            }
+            ModuleCellIr::Binding { module, .. }
+            | ModuleCellIr::Namespace { module, .. }
+            | ModuleCellIr::ModuleSource { module } => *module,
         };
         let schema = self.runtime_schema();
         let record = self.module_record_local(module, function)?;
@@ -136,6 +136,9 @@ impl FunctionBuilder<'_> {
             }
             ModuleCellIr::Namespace { mode, .. } => {
                 self.module_namespace_cell(&record, *mode, function)
+            }
+            ModuleCellIr::ModuleSource { module } => {
+                self.module_source_cell(&record, *module, function)?
             }
         };
         record.clear(function);
@@ -397,6 +400,12 @@ impl FunctionBuilder<'_> {
                 self.emit_allocate_environment_cell(&undefined, false, false, true, function);
             let deferred =
                 self.emit_allocate_environment_cell(&undefined, false, false, true, function);
+            let source =
+                self.emit_allocate_environment_cell(&undefined, false, false, true, function);
+            let is_source = graph
+                .source_records()
+                .iter()
+                .any(|source| source.module() == module);
             let record = schema.reserve_gc_local(function).initialize(
                 schema.struct_type::<ModuleRecord>().construct(
                     (
@@ -406,15 +415,28 @@ impl FunctionBuilder<'_> {
                         GcOperand::null(schema),
                         GcOperand::reference(&namespace, schema),
                         GcOperand::reference(&deferred, schema),
+                        GcOperand::reference(&source, schema),
                         GcOperand::constant(ModuleActivationKind::Synchronous),
                         GcOperand::null(schema),
                         GcOperand::null(schema),
                         GcOperand::null(schema),
                         GcOperand::null(schema),
                         GcOperand::null(schema),
-                        GcOperand::constant(ModuleEvaluationState::Linked),
-                        GcOperand::constant(ModuleEvaluationCompletion::Empty),
-                        GcOperand::constant(ModuleBodyState::NotStarted),
+                        GcOperand::constant(if is_source {
+                            ModuleEvaluationState::Evaluated
+                        } else {
+                            ModuleEvaluationState::Linked
+                        }),
+                        GcOperand::constant(if is_source {
+                            ModuleEvaluationCompletion::Normal
+                        } else {
+                            ModuleEvaluationCompletion::Empty
+                        }),
+                        GcOperand::constant(if is_source {
+                            ModuleBodyState::Completed
+                        } else {
+                            ModuleBodyState::NotStarted
+                        }),
                         GcOperand::reference(&error, schema),
                         GcOperand::i64(0),
                         GcOperand::i64(0),
@@ -427,6 +449,17 @@ impl FunctionBuilder<'_> {
                 ),
                 function,
             );
+            if is_source {
+                schema
+                    .struct_type::<ModuleRecord>()
+                    .field(ModuleRecordSchema::REALM)
+                    .write(
+                        &record,
+                        GcOperand::nullable_reference(&realm, schema),
+                        schema,
+                        function,
+                    );
+            }
             function.instruction(&Instruction::I32Const(module as i32));
             index.store(function);
             schema.array_type::<ModuleRegistry>().write(
@@ -437,6 +470,7 @@ impl FunctionBuilder<'_> {
                 function,
             );
             record.clear(function);
+            source.clear(function);
             deferred.clear(function);
             namespace.clear(function);
         }
@@ -451,6 +485,7 @@ impl FunctionBuilder<'_> {
             );
         let pending = schema.reserve_completion(function);
         pending.initialize(function);
+        self.emit_module_source_namespaces(graph, function)?;
         for activation in graph.activations() {
             let target = self.module_record_local(activation.module(), function)?;
             let meta = self
@@ -684,6 +719,9 @@ impl FunctionBuilder<'_> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_module_evaluation_capability_rejection(plan.module(), output, function) {
+            return Ok(());
+        }
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let pending = schema.reserve_completion(function);
@@ -710,6 +748,9 @@ impl FunctionBuilder<'_> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_module_evaluation_capability_rejection(plan.module(), output, function) {
+            return Ok(());
+        }
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let gathered = self.emit_module_gather_call(&record, function)?;
@@ -731,6 +772,9 @@ impl FunctionBuilder<'_> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_module_evaluation_capability_rejection(plan.module(), output, function) {
+            return Ok(());
+        }
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let pending = schema.reserve_completion(function);
@@ -757,6 +801,9 @@ impl FunctionBuilder<'_> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        if self.emit_module_evaluation_capability_rejection(plan.module(), output, function) {
+            return Ok(());
+        }
         let schema = self.runtime_schema();
         let record = self.module_record_local(plan.module(), function)?;
         let ready = schema.reserve_i32_local(function);

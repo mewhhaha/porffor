@@ -404,3 +404,36 @@ fn text_wire_roundtrips_exact_strings_and_rejects_binary_payloads() {
         assert!(DifferentialCase::from_json(&invalid.to_string()).is_err());
     }
 }
+
+#[test]
+fn native_module_source_wire_roundtrips_kind_tag_and_complete_host_owner() {
+    let wire = serde_json::json!({
+        "schema_version":4, "id":"native-source-wire", "observation_contract":"primitive_completion_print_transcript", "timeout_ms":5000,
+        "module_graph": {
+            "entry":{"goal":"module", "identity":"entry.js", "source":"import source value from 'host-source';", "meta_url":"lila://entry"},
+            "modules":[{"kind":"module_source", "identity":"native/source", "source":"源🌐", "meta_url":"lila://native/source"}],
+            "resolutions":[{"referrer":{"kind":"module", "identity":"entry.js"}, "specifier":"host-source", "attributes":[], "target":"native/source"}]
+        }
+    });
+    let case = decode(&wire.to_string());
+    let roundtrip = decode(&case.to_pretty_json().unwrap());
+    assert_eq!(case, roundtrip);
+    let graph = roundtrip.module_graph().unwrap();
+    let target = graph
+        .module(
+            "native/source",
+            lila_engine::EmbeddedModuleKind::ModuleSource,
+        )
+        .unwrap();
+    assert_eq!(target.source_text(), None);
+    assert_eq!(target.payload_bytes(), "源🌐".as_bytes());
+    let mut changed = wire.clone();
+    changed["module_graph"]["modules"][0]["source"] = serde_json::json!("changed");
+    assert_ne!(
+        case_fingerprint(&case),
+        case_fingerprint(&decode(&changed.to_string()))
+    );
+    let mut invalid = wire;
+    invalid["module_graph"]["modules"][0]["bytes"] = serde_json::json!([1]);
+    assert!(DifferentialCase::from_json(&invalid.to_string()).is_err());
+}

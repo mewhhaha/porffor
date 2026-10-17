@@ -206,6 +206,9 @@ fn link_admitted_graph(
             });
         };
         let record = match &source.parse {
+            ModuleParse::ModuleSource { source_tag } => Ok(
+                super::record::ModuleRecordIr::module_source(source_tag, id, source.key().clone()),
+            ),
             ModuleParse::Json(parsed) => Ok(super::record::ModuleRecordIr::json(
                 parsed,
                 id,
@@ -344,6 +347,13 @@ fn link_admitted_graph(
                     continue;
                 };
                 if request.phase() == ImportPhaseIr::Source {
+                    if records[target as usize]
+                        .as_ref()
+                        .is_ok_and(|record| record.module_source_tag().is_some())
+                    {
+                        admitted.insert(target);
+                        continue;
+                    }
                     let message = match &records[target as usize] {
                         Ok(_) => ModuleLinkErrorIr::SourceUnavailable {
                             referrer,

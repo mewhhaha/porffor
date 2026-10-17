@@ -889,10 +889,7 @@ impl<'a> ScriptLowerer<'a> {
         let clear_if_alias_is_reachable =
             |possible_kinds: KindSet,
              function_targets: &FunctionTargetKnowledge,
-             shape: &mut Option<Box<HeapShape>>| {
-                let Some(root_shape) = shape.as_deref() else {
-                    return;
-                };
+             root_shape: &mut HeapShape| {
                 let function_target_relation = exact_function_target_relation(
                     possible_kinds,
                     function_targets,
@@ -902,17 +899,13 @@ impl<'a> ScriptLowerer<'a> {
                 let direct_alias = possible_kinds.intersects(base.possible_kinds)
                     && (function_target_relation == ExactFunctionTargetRelation::Overlapping
                         || (function_target_relation == ExactFunctionTargetRelation::Unknown
-                            && base.heap_shape.as_deref() == Some(root_shape)));
+                            && base.heap_shape.as_deref() == Some(&*root_shape)));
                 if direct_alias {
-                    *shape = None;
-                    return;
+                    return false;
                 }
-                let root_shape = shape
-                    .as_deref_mut()
-                    .expect("checked live root shape must still exist");
                 match invalidate_nested_aliases(root_shape, base, &canonical_targets) {
-                    PrototypeChain::Described => {}
-                    PrototypeChain::Unknown => *shape = None,
+                    PrototypeChain::Described => true,
+                    PrototypeChain::Unknown => false,
                 }
             };
         self.visit_live_heap_shape_roots(clear_if_alias_is_reachable);

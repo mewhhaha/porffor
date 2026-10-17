@@ -102,7 +102,6 @@ fn lower_graph(
         .get(sources.entry as usize)
         .map_or(0, |module| module.source_text().len());
     let mut stages = vec![LoweringStage::ParsedSource];
-
     let invalid_goal = sources.modules.iter().enumerate().find(|(index, source)| {
         let expected = if *index == sources.entry as usize && entry_is_script {
             ParseGoal::Script
@@ -152,7 +151,6 @@ fn lower_graph(
     };
     stages.push(LoweringStage::ModuleGraphLoaded);
     stages.push(LoweringStage::ModuleGraphLinked);
-
     // The whole graph is merged into one Script-goal source, in evaluation
     // order, and lowered once. See `modules::link` for why the merge happens on
     // source text and what it still declines to link.
@@ -166,7 +164,6 @@ fn lower_graph(
             return program;
         }
     };
-
     let definitions = linked.definitions;
     let linked = match lila_front::parse(
         linked.source.source_text,
@@ -189,12 +186,13 @@ fn lower_graph(
             return program;
         }
     };
-
     let mut allocations = AnalysisAllocationState::default();
     allocations.prepared_sources = session.prepared_sources.clone();
     allocations.script_import_origin = entry_is_script
         .then_some(crate::direct_eval_context::ScriptImportOrigin::LoadedRecord(graph.entry));
-    let instantiation = if prelude.is_some() {
+    let instantiation = if prelude.is_some() && entry_is_script {
+        ScriptInstantiation::GlobalScriptAfterPrelude
+    } else if prelude.is_some() {
         ScriptInstantiation::ModuleAfterGlobalScript
     } else {
         ScriptInstantiation::FreshEntry
@@ -210,6 +208,9 @@ fn lower_graph(
         &mut allocations,
         instantiation,
     );
+    if prelude.is_some() && entry_is_script {
+        super::global_script_prelude::retain_global_script_entry(&mut program, &mut allocations);
+    }
     if let Some(prelude) = prelude {
         compile_module_prelude(&mut program, prelude, host_surface_policy, &mut allocations);
     }

@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::linked_bodies::module_bodies;
-use lila_aot_wasm::{WasmArtifact, RUNTIME_IMPORT_NAMESPACE};
+use lila_aot_wasm::{GcHostLayout, WasmArtifact, RUNTIME_IMPORT_NAMESPACE};
 use lila_front::{parse, ParseOptions};
 use wasmparser::{
-    CompositeInnerType, ExternalKind, GlobalType, HeapType, Operator, Parser, Payload, SubType,
-    TypeRef, ValType, Validator, WasmFeatures,
+    CompositeInnerType, ExternalKind, GlobalType, HeapType, Operator, Parser, Payload, StorageType,
+    SubType, TypeRef, ValType, Validator, WasmFeatures,
 };
 
 #[derive(Default)]
@@ -17,6 +17,7 @@ struct ModuleShape {
     exports: BTreeMap<String, (ExternalKind, u32)>,
     reference_calls: BTreeSet<u32>,
     global_reference_calls: Vec<(u32, u32)>,
+    owner_reference_calls: Vec<(u32, u32, u32)>,
 }
 
 fn shape(bytes: &[u8]) -> ModuleShape {
@@ -65,18 +66,50 @@ fn shape(bytes: &[u8]) -> ModuleShape {
             }
             Payload::CodeSectionEntry(body) => {
                 let mut previous = None;
+                let mut reference_origin = None;
+                let mut local_origins = BTreeMap::new();
                 for operator in body.get_operators_reader().unwrap() {
                     let operator = operator.unwrap();
                     if let Operator::CallRef { type_index }
                     | Operator::ReturnCallRef { type_index } = &operator
                     {
                         shape.reference_calls.insert(*type_index);
+                        if let Some((owner, field)) = reference_origin {
+                            shape
+                                .owner_reference_calls
+                                .push((owner, field, *type_index));
+                        }
                         if let Some(Operator::GlobalGet { global_index }) = previous {
                             shape
                                 .global_reference_calls
                                 .push((global_index, *type_index));
                         }
                     }
+                    // Track only direct typed field/local moves. An unrelated
+                    // instruction drops provenance rather than guessing a callee.
+                    reference_origin = match &operator {
+                        Operator::StructGet {
+                            struct_type_index,
+                            field_index,
+                        } => Some((*struct_type_index, *field_index)),
+                        Operator::LocalGet { local_index } => {
+                            local_origins.get(local_index).copied()
+                        }
+                        Operator::LocalSet { local_index } | Operator::LocalTee { local_index } => {
+                            if let Some(origin) = reference_origin {
+                                local_origins.insert(*local_index, origin);
+                            } else {
+                                local_origins.remove(local_index);
+                            }
+                            if matches!(&operator, Operator::LocalTee { .. }) {
+                                reference_origin
+                            } else {
+                                None
+                            }
+                        }
+                        Operator::RefAsNonNull => reference_origin,
+                        _ => None,
+                    };
                     previous = Some(operator);
                 }
             }
@@ -141,43 +174,94 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                 .iter()
                 .all(|index| (*index as usize) < core_type_count));
             let core_types = core.groups.iter().flatten().collect::<Vec<_>>();
-            let hook_types = core
+            let global_function_references = core
                 .globals
                 .iter()
-                .enumerate()
-                .filter_map(|(global_index, global)| {
+                .filter(|global| {
                     let ValType::Ref(reference) = global.content_type else {
-                        return None;
+                        return false;
                     };
                     let HeapType::Concrete(index) = reference.heap_type() else {
-                        return None;
+                        return false;
                     };
-                    let index = index
-                        .as_module_index()
-                        .expect("encoded core reference uses its module index");
                     matches!(
-                        &core_types[index as usize].composite_type.inner,
+                        &core_types[index.as_module_index().unwrap() as usize]
+                            .composite_type
+                            .inner,
                         CompositeInnerType::Func(_)
                     )
-                    .then_some((global_index as u32, index))
                 })
-                .collect::<BTreeMap<_, _>>();
+                .count();
             assert_eq!(
-                hook_types.len(),
-                5,
-                "all five typed hook globals remain present"
+                global_function_references, 0,
+                "program hooks must not be stored in shared R globals"
             );
             assert!(
-                !core.global_reference_calls.is_empty(),
-                "R actually calls its typed program hooks"
+                core.global_reference_calls.is_empty(),
+                "typed hook calls may not select a shared global owner"
             );
-            for &(global_index, type_index) in &core.global_reference_calls {
-                assert_eq!(
-                    hook_types.get(&global_index),
-                    Some(&type_index),
-                    "the actual GlobalGet operand and call_ref use the same core hook ABI"
-                );
+            assert_eq!(GcHostLayout::ProgramInstance.field_count(), Some(10));
+            let mut owners = Vec::new();
+            let mut group_base = 0u32;
+            for group in &core.groups {
+                for (ordinal, ty) in group.iter().enumerate() {
+                    let CompositeInnerType::Struct(owner) = &ty.composite_type.inner else {
+                        continue;
+                    };
+                    if owner.fields.len() != 10 || owner.fields.iter().any(|field| field.mutable) {
+                        continue;
+                    }
+                    let mut hooks = BTreeMap::new();
+                    for (field_index, field) in owner.fields.iter().take(5).enumerate() {
+                        let StorageType::Val(ValType::Ref(reference)) = field.element_type else {
+                            break;
+                        };
+                        let HeapType::Concrete(index) = reference.heap_type() else {
+                            break;
+                        };
+                        let index = index
+                            .as_module_index()
+                            .or_else(|| index.as_rec_group_index().map(|index| group_base + index))
+                            .expect("encoded core hook uses a module/rec-group index");
+                        if !reference.is_nullable()
+                            || !matches!(
+                                &core_types[index as usize].composite_type.inner,
+                                CompositeInnerType::Func(_)
+                            )
+                        {
+                            break;
+                        }
+                        hooks.insert(field_index as u32, index);
+                    }
+                    if hooks.len() == 5 {
+                        owners.push((group_base + ordinal as u32, hooks));
+                    }
+                }
+                group_base += group.len() as u32;
             }
+            assert_eq!(
+                owners.len(),
+                1,
+                "one immutable ProgramInstance owns all five typed nullable hook fields"
+            );
+            let (owner_type, hook_types) = owners.pop().unwrap();
+            let mut called_fields = BTreeSet::new();
+            for &(owner, field, type_index) in &core.owner_reference_calls {
+                if owner != owner_type {
+                    continue;
+                }
+                assert_eq!(
+                    hook_types.get(&field),
+                    Some(&type_index),
+                    "the actual ProgramInstance field and call_ref retain the same hook ABI"
+                );
+                called_fields.insert(field);
+            }
+            assert_eq!(
+                called_fields,
+                BTreeSet::from([0, 1, 2, 3, 4]),
+                "R actually calls each typed hook through its selected P owner"
+            );
             assert!(
                 module_bodies(runtime.bytes())
                     .iter()
@@ -200,6 +284,10 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                     "program signatures are independent suffix types"
                 );
                 assert!(!program.runtime_imports.is_empty());
+                assert!(
+                    program.global_reference_calls.is_empty(),
+                    "P must not recover hook authority from shared globals"
+                );
                 for (name, import) in &program.runtime_imports {
                     let &(kind, index) = core
                         .exports

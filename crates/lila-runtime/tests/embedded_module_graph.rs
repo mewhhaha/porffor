@@ -672,3 +672,77 @@ fn text_payload_identity_preserves_exact_strings_and_mixed_self_records() {
         .is_err());
     }
 }
+
+#[test]
+fn opaque_module_source_records_bind_actual_kind_tag_and_exact_resolution() {
+    use lila_runtime::{EmbeddedModuleContents, EmbeddedModuleSourceValueInput};
+    let make = |tag: &str| {
+        EmbeddedModuleGraph::try_new_typed(
+            entry(EmbeddedModuleGoal::Script),
+            vec![EmbeddedModuleInput::ModuleSource(
+                EmbeddedModuleSourceValueInput {
+                    identity: "host/source".into(),
+                    source_tag: tag.into(),
+                    meta_url: "lila://host/source".into(),
+                },
+            )],
+            vec![edge(
+                EmbeddedModuleReferrer::Script("case/entry.js".into()),
+                "virtual-source",
+                Vec::new(),
+                "host/source",
+            )],
+        )
+        .unwrap()
+    };
+    let graph = make("源🌐");
+    let target = graph
+        .resolve(
+            &EmbeddedModuleReferrer::Script("case/entry.js".into()),
+            &request("virtual-source", Vec::new()),
+        )
+        .unwrap();
+    assert_eq!(target.kind(), EmbeddedModuleKind::ModuleSource);
+    assert_eq!(
+        graph.resolutions()[0].target_kind(),
+        EmbeddedModuleKind::ModuleSource
+    );
+    assert_eq!(target.source_text(), None);
+    assert!(
+        matches!(target.contents(), EmbeddedModuleContents::ModuleSource { source_tag } if source_tag == "源🌐")
+    );
+    assert_eq!(target.payload_bytes(), "源🌐".as_bytes());
+    assert_ne!(graph.fingerprint(), make("changed").fingerprint());
+    assert!(graph
+        .resolve(
+            &EmbeddedModuleReferrer::Realm,
+            &request("virtual-source", Vec::new())
+        )
+        .is_none());
+}
+
+#[test]
+fn untyped_target_cannot_silently_select_between_source_text_and_native_source() {
+    use lila_runtime::EmbeddedModuleSourceValueInput;
+    let result = EmbeddedModuleGraph::try_new_typed(
+        entry(EmbeddedModuleGoal::Script),
+        vec![
+            EmbeddedModuleInput::SourceText(module("host/source", "export default 7;")),
+            EmbeddedModuleInput::ModuleSource(EmbeddedModuleSourceValueInput {
+                identity: "host/source".into(),
+                source_tag: "Source".into(),
+                meta_url: "lila://host/source".into(),
+            }),
+        ],
+        vec![edge(
+            EmbeddedModuleReferrer::Script("case/entry.js".into()),
+            "virtual-source",
+            Vec::new(),
+            "host/source",
+        )],
+    );
+    assert!(matches!(
+        result,
+        Err(EmbeddedModuleGraphError::RecordKindMismatch { .. })
+    ));
+}

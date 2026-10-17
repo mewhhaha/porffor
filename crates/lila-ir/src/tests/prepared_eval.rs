@@ -360,15 +360,16 @@ fn realm_eval_script_is_a_test262_only_typed_host_capability() {
     );
     let optional_runtime_test262 =
         lower_test262_script(&format!("{name}?.(String(unknownSource));"));
-    assert!(optional_runtime_test262
-        .diagnostics
-        .iter()
-        .any(|diagnostic| {
-            diagnostic.unsupported_feature()
-                == Some(UnsupportedFeature::DynamicSource(
-                    DynamicSourceGap::runtime_source(DynamicSourceKind::RealmEvalScript),
-                ))
-        }));
+    assert!(
+        optional_runtime_test262.is_wasm_supported(),
+        "{:?}",
+        optional_runtime_test262.diagnostics
+    );
+    let runtime_script = optional_runtime_test262.script.as_ref().expect("Script IR");
+    assert!(runtime_script.prepared_scripts.is_empty());
+    assert!(runtime_script
+        .host_builtins
+        .contains(&HostBuiltinId::RealmEvalScript));
 
     let product = lower_script(&source);
     assert!(!product.diagnostics.iter().any(|diagnostic| {

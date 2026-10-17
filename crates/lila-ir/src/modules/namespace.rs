@@ -209,9 +209,9 @@ pub fn namespace_target_reference(target: &ResolvedBindingIr) -> Option<MergedNa
             binding: ModuleBindingNameIr::Namespace(mode),
         } => Some(MergedName::minted(*module, mode.cell_role())),
         ResolvedBindingIr::Resolved {
+            module,
             binding: ModuleBindingNameIr::ModuleSource,
-            ..
-        } => None,
+        } => Some(MergedName::minted(*module, UnitCellRole::ModuleSource)),
         ResolvedBindingIr::Resolved {
             module,
             binding: ModuleBindingNameIr::Name(name),
@@ -1450,9 +1450,14 @@ mod tests {
             diagnostics[0].code(),
             Some(EarlyErrorCode::ModuleSourceUnavailable)
         );
+        // Keep the historical selector: this SourceText record has no
+        // materializable source object or namespace. A typed source binding
+        // still has a reserved source-cell name; that name does not bypass the
+        // ModuleSourceUnavailable rejection checked above.
+        assert!(graph.units.iter().all(|unit| unit.namespaces.is_empty()));
         assert_eq!(
             namespace_target_reference(&graph.units[1].resolved_imports[0]),
-            None
+            Some(MergedName::minted(0, UnitCellRole::ModuleSource))
         );
     }
 

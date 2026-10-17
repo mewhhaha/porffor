@@ -14,7 +14,7 @@ pub use embedded_module_graph::{
     EmbeddedModuleEntryInput, EmbeddedModuleGoal, EmbeddedModuleGraph, EmbeddedModuleGraphError,
     EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer, EmbeddedModuleRequest,
     EmbeddedModuleResolution, EmbeddedModuleResolutionInput, EmbeddedModuleSource,
-    EmbeddedModuleSourceInput,
+    EmbeddedModuleSourceInput, EmbeddedModuleSourceValueInput,
 };
 
 static NEXT_REALM_ID: AtomicU64 = AtomicU64::new(1);

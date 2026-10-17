@@ -37,8 +37,9 @@ fn module_unit_has_one_private_owner_and_narrow_public_facade() {
         .1;
     assert_eq!(
         code_without_whitespace(methods),
-        "pub(super)fnpayload_bytes(&self)->&[u8]{self.record.bytes_source()\
-         .unwrap_or_else(||self.source_text.as_bytes())}}"
+        "pub(super)fnpayload_bytes(&self)->&[u8]{\
+         ifletSome(tag)=self.record.module_source_tag(){returntag.as_bytes();}\
+         self.record.bytes_source().unwrap_or_else(||self.source_text.as_bytes())}}"
     );
     assert_eq!(LIB_SOURCE.matches("ModuleUnitIr").count(), 1);
 }

@@ -25,7 +25,11 @@ fn fixture() -> &'static RuntimeBuildArtifact {
 }
 
 fn minimal_identity() -> cache::RuntimeIdentity {
-    cache::RuntimeIdentity::admit(&IntlDataSelection::new(IntlCompilationProfile::Minimal)).unwrap()
+    cache::RuntimeIdentity::admit(
+        &IntlDataSelection::new(IntlCompilationProfile::Minimal),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    )
+    .unwrap()
 }
 
 fn resign(package: &mut [u8]) {
@@ -40,6 +44,14 @@ fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
     let identity = minimal_identity();
     let admitted = decode(package.package_bytes(), &identity, &SOURCE)
         .expect("all actual Intl sections/imports/data/layout admit");
+    assert_eq!(
+        admitted.source_compilation_profile(),
+        crate::RuntimeSourceCompilationProfile::Portable
+    );
+    assert_eq!(
+        crate::RuntimeSourceCompilationProfile::from_module(package.wasm()).unwrap(),
+        crate::RuntimeSourceCompilationProfile::Portable
+    );
     assert_eq!(admitted.key(), package.key());
     assert_eq!(admitted.bytes().as_ref(), package.wasm());
     assert_eq!(admitted.layout(), package.runtime.layout());
@@ -47,7 +59,11 @@ fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
         .name("runtime-build-package-target-parity".to_owned())
         .stack_size(64 * 1024 * 1024)
         .spawn(|| {
-            emit_runtime_artifact(&IntlDataSelection::new(IntlCompilationProfile::Minimal)).unwrap()
+            emit_runtime_artifact(
+                &IntlDataSelection::new(IntlCompilationProfile::Minimal),
+                crate::RuntimeSourceCompilationProfile::Portable,
+            )
+            .unwrap()
         })
         .unwrap()
         .join()
@@ -110,11 +126,53 @@ fn previous_layout_build_package_falls_back_and_current_real_runtime_package_adm
     }
 }
 
+// Envelope controls preserve current payload/checksum; no old-schema native proof.
+#[test]
+fn abi6_build_package_envelope_is_rejected_before_abi7_real_runtime_admission() {
+    let package = fixture();
+    let identity = minimal_identity();
+    let mut previous = package.package_bytes().to_vec();
+    let previous_version = 6u32;
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Preserve the actual current R, source, profile and runtime key while
+    // isolating the previous version field under a valid package checksum.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    resign(&mut previous);
+    assert!(decode(&previous, &identity, &SOURCE).is_none());
+    let emissions = Cell::new(0);
+    let replacement = RuntimeArtifactInputs::new(None)
+        .with_build_package(&previous, &SOURCE)
+        .load_or_emit(&identity, || {
+            emissions.set(emissions.get() + 1);
+            Ok(package.runtime.clone())
+        })
+        .expect("a previous-layout package falls back to the current producer");
+    assert_eq!(emissions.get(), 1);
+
+    let current = RuntimeArtifactInputs::new(None)
+        .with_build_package(package.package_bytes(), &SOURCE)
+        .load_or_emit(&identity, || {
+            panic!("the current real runtime package must admit directly")
+        })
+        .expect("the current real R passes raw package admission");
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.key(), package.key());
+        assert_eq!(admitted.bytes().as_ref(), package.wasm());
+        assert_eq!(admitted.layout(), package.runtime.layout());
+    }
+}
+
 #[test]
 fn build_package_rejects_source_profile_abi_content_and_pool_corruption() {
     let package = fixture();
     let identity = minimal_identity();
     assert!(decode(package.package_bytes(), &identity, &[20; 32]).is_none());
+    let native_identity = cache::RuntimeIdentity::admit(
+        &IntlDataSelection::new(IntlCompilationProfile::Minimal),
+        crate::RuntimeSourceCompilationProfile::NativeHost,
+    )
+    .unwrap();
+    assert!(decode(package.package_bytes(), &native_identity, &SOURCE).is_none());
     let profile = CustomIntlProfile::new(
         CustomProfileId::parse("build-runtime-alternative").unwrap(),
         Some(&["en-US"]),
@@ -148,9 +206,10 @@ fn build_package_rejects_source_profile_abi_content_and_pool_corruption() {
     let mut trailing = package.package_bytes().to_vec();
     trailing.push(0);
     assert!(decode(&trailing, &identity, &SOURCE).is_none());
-    let other = cache::RuntimeIdentity::admit(&IntlDataSelection::new(
-        IntlCompilationProfile::CustomProjection(profile),
-    ))
+    let other = cache::RuntimeIdentity::admit(
+        &IntlDataSelection::new(IntlCompilationProfile::CustomProjection(profile)),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    )
     .unwrap();
     assert!(decode(package.package_bytes(), &other, &SOURCE).is_none());
     for (offset, checked_digest) in [
@@ -185,5 +244,50 @@ fn build_package_rejects_source_profile_abi_content_and_pool_corruption() {
             .unwrap_err()
             .to_string()
             .contains("expected safe fallback"));
+    }
+}
+
+#[test]
+fn abi7_build_package_falls_back_and_current_real_runtime_package_admits() {
+    let previous_version = 7u32;
+    assert_previous_build_package_replaced(previous_version);
+}
+
+#[test]
+fn abi8_build_package_falls_back_before_host_prototype_layout_is_admitted() {
+    let previous_version = 8u32;
+    assert_previous_build_package_replaced(previous_version);
+}
+
+fn assert_previous_build_package_replaced(previous_version: u32) {
+    let package = fixture();
+    let identity = minimal_identity();
+    let mut previous = package.package_bytes().to_vec();
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Preserve the actual current R, source, profile and runtime key while
+    // isolating the previous version field under a valid package checksum.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    resign(&mut previous);
+    assert!(decode(&previous, &identity, &SOURCE).is_none());
+    let emissions = Cell::new(0);
+    let replacement = RuntimeArtifactInputs::new(None)
+        .with_build_package(&previous, &SOURCE)
+        .load_or_emit(&identity, || {
+            emissions.set(emissions.get() + 1);
+            Ok(package.runtime.clone())
+        })
+        .expect("a previous-layout package falls back to the current producer");
+    assert_eq!(emissions.get(), 1);
+
+    let current = RuntimeArtifactInputs::new(None)
+        .with_build_package(package.package_bytes(), &SOURCE)
+        .load_or_emit(&identity, || {
+            panic!("the current real runtime package must admit directly")
+        })
+        .expect("the current real R passes raw package admission");
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.key(), package.key());
+        assert_eq!(admitted.bytes().as_ref(), package.wasm());
+        assert_eq!(admitted.layout(), package.runtime.layout());
     }
 }

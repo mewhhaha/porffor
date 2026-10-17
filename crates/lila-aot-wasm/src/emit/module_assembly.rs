@@ -10,24 +10,27 @@ use wasm_encoder::{
     MemoryType, Module,
 };
 
+mod import_indices;
 mod metadata;
+use import_indices::claim_optional_host_import_function_index;
+mod native_program;
 mod program_entries;
+mod program_helper_bodies;
+use native_program::NativeProgramFactory;
+pub(crate) use native_program::{
+    emit_runtime_direct_eval_module, emit_runtime_global_script_module,
+};
 pub(crate) use program_entries::emit_runtime_function_module;
 pub(super) use program_entries::emit_script_module;
 use program_entries::ProgramExports;
-
-fn claim_optional_host_import_function_index(next: &mut u32) -> u32 {
-    let index = *next;
-    *next += 1;
-    index
-}
 
 fn emit_script_module_with_factory(
     script: &ScriptIr,
     kind: ModuleKind<'_>,
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_selection: &IntlDataSelection,
-    factory: Option<&lila_ir::RuntimeFunctionProgram>,
+    factory: Option<NativeProgramFactory<'_>>,
+    validated_runtime: Option<&crate::ValidatedRuntimeArtifact>,
 ) -> Result<EmittedModule, EmitError> {
     let uses_heap = kind.uses_heap();
     let compile_runtime = kind.compiles_runtime();
@@ -243,6 +246,7 @@ fn emit_script_module_with_factory(
         uses_intl_host,
         uses_system_time_zone,
         uses_heap,
+        kind.source_compilation_profile(),
     );
     let uses_json_stringify =
         compiled_standard_builtins.contains(&StandardBuiltinId::JsonStringify);
@@ -326,20 +330,39 @@ fn emit_script_module_with_factory(
         crate::planning::ModuleGraphPlan::from_script(script)?,
     );
     let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;
-    let string_pool = StringPool::collect(
-        script,
-        function_metas.metas(),
-        &compiled_standard_builtins,
-        uses_temporal_calendar,
-        intl_selection,
-    )?;
+    let string_pool = match (kind, validated_runtime) {
+        (ModuleKind::Program(runtime), Some(validated))
+            if std::sync::Arc::ptr_eq(runtime, validated.runtime()) =>
+        {
+            StringPool::collect_with_validated_runtime(
+                script,
+                function_metas.metas(),
+                &compiled_standard_builtins,
+                uses_temporal_calendar,
+                validated,
+            )?
+        }
+        (_, None) => StringPool::collect(
+            script,
+            function_metas.metas(),
+            &compiled_standard_builtins,
+            uses_temporal_calendar,
+            intl_selection,
+        )?,
+        _ => {
+            return Err(EmitError::unsupported(
+                "native pool proof must retain its exact linked runtime",
+            ))
+        }
+    };
     match kind {
         ModuleKind::Standalone => {}
-        ModuleKind::Runtime => string_pool.require_runtime_only()?,
+        ModuleKind::Runtime(_) => string_pool.require_runtime_only()?,
         ModuleKind::Program(runtime) => runtime.layout().require_pool(&string_pool)?,
     }
     let provided_hooks = ProvidedHooks::of(&function_metas, &string_pool);
-    let module_types = ModuleTypeRegistry::new(kind);
+    let module_types = ModuleTypeRegistry::new(kind)
+        .with_global_prelude(compile_program && script.module_prelude.is_some());
     let module_guard_count = module_unit_guard_count(script);
 
     // Only numeric byte-scratch state and module status are scalar globals
@@ -380,7 +403,8 @@ fn emit_script_module_with_factory(
     };
     let mut module_package = module_sections.begin(first_defined_function);
     if let Some(index) = layout.program_initialize_index() {
-        let image = ProgramInstanceImage::from_program_pool(&string_pool, kind)?;
+        let image =
+            ProgramInstanceImage::from_program_pool(&string_pool, kind, script.language_features)?;
         module_package.compile_program_initialize(ProgramInitializeCompilation::new(
             &image,
             &string_pool,
@@ -1344,67 +1368,16 @@ fn emit_script_module_with_factory(
         );
     }
     if compile_program_helpers {
-        let compact_array_body = if string_pool.has_compact_array_recipes() {
-            let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                module_package.schema(),
-                RuntimeHelperId::CompactArrayLiteral,
-                &string_pool,
-                &function_metas,
-                uses_heap,
-                runtime_bootstrap_plan.clone(),
-                runtime_helper_base,
-            );
-            builder.compile_compact_array_literal_helper()?
-        } else {
-            let mut body = Function::new(LocalDeclarations::from_types([]));
-            body.instruction(&Instruction::Unreachable);
-            body.instruction(&Instruction::End);
-            body
-        };
-        helper_bodies.insert(RuntimeHelperId::CompactArrayLiteral, compact_array_body);
-        for operation in crate::modules::ModuleRuntimeOperation::ALL {
-            let body = if function_metas.module_graph().is_some() {
-                let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                    module_package.schema(),
-                    operation.helper(),
-                    &string_pool,
-                    &function_metas,
-                    uses_heap,
-                    runtime_bootstrap_plan.clone(),
-                    runtime_helper_base,
-                );
-                builder.compile_module_runtime_operation(operation)?
-            } else {
-                // No trusted module operation may occur without its graph witness.
-                // Keep indices stable without rooting unused async execution machinery.
-                let mut body = Function::new(LocalDeclarations::from_types([]));
-                body.instruction(&Instruction::Unreachable);
-                body.instruction(&Instruction::End);
-                body
-            };
-            helper_bodies.insert(operation.helper(), body);
-        }
-        for hook in ProgramHook::ALL {
-            let body = if provided_hooks.provides(hook) {
-                let mut builder = FunctionBuilder::new_runtime_operation_helper(
-                    module_package.schema(),
-                    hook.helper(),
-                    &string_pool,
-                    &function_metas,
-                    uses_heap,
-                    runtime_bootstrap_plan.clone(),
-                    runtime_helper_base,
-                );
-                builder.compile_program_hook(hook)?
-            } else {
-                // No ProgramInstance field selects this absent body: keep the slot dense.
-                let mut body = Function::new(LocalDeclarations::from_types([]));
-                body.instruction(&Instruction::Unreachable);
-                body.instruction(&Instruction::End);
-                body
-            };
-            helper_bodies.insert(hook.helper(), body);
-        }
+        program_helper_bodies::compile_program_helper_bodies(
+            module_package.schema(),
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            &runtime_bootstrap_plan,
+            runtime_helper_base,
+            provided_hooks,
+            &mut helper_bodies,
+        )?;
     }
     if compile_runtime {
         if let Some(json_stringify_value_helper_function) = json_stringify_value_helper_function {
@@ -1421,6 +1394,7 @@ fn emit_script_module_with_factory(
     let mut exports = ExportSection::new();
     entry_exports.append(
         module_package.schema(),
+        module_package.global_prelude_phase(),
         script.module_entry_evaluation().is_some(),
         &mut exports,
     );
@@ -1703,7 +1677,7 @@ fn emit_script_module_with_factory(
                     string_pool.bytes.iter().copied(),
                 );
             }
-            ModuleKind::Runtime => string_pool.append_runtime_data(&mut section),
+            ModuleKind::Runtime(_) => string_pool.append_runtime_data(&mut section),
             ModuleKind::Program(_) => string_pool.append_program_data(&mut section),
         }
         data = Some(section);
@@ -1732,7 +1706,7 @@ fn emit_script_module_with_factory(
             data,
             match kind {
                 ModuleKind::Program(_) => runtime_global_types.len() as u32,
-                ModuleKind::Standalone | ModuleKind::Runtime => 0,
+                ModuleKind::Standalone | ModuleKind::Runtime(_) => 0,
             },
         ),
     );
@@ -1922,9 +1896,13 @@ fn emit_script_module_with_factory(
         }
     }
 
+    module.section(&wasm_encoder::CustomSection {
+        name: Cow::Borrowed(crate::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION),
+        data: Cow::Owned(vec![kind.source_compilation_profile().wire()]),
+    });
     metadata::append_function_name_and_check_budget(&mut module, &mut debug_dump, &function_table)?;
 
-    let runtime_layout = matches!(kind, ModuleKind::Runtime).then(|| {
+    let runtime_layout = matches!(kind, ModuleKind::Runtime(_)).then(|| {
         RuntimeLayout::new(
             layout.defined_functions().start,
             function_table.type_indices().to_vec(),
@@ -1940,7 +1918,7 @@ fn emit_script_module_with_factory(
         gc_host_imports: function_metas.gc_host_imports().imports().collect(),
         runtime: match kind {
             ModuleKind::Program(runtime) => Some(runtime.clone()),
-            ModuleKind::Standalone | ModuleKind::Runtime => None,
+            ModuleKind::Standalone | ModuleKind::Runtime(_) => None,
         },
     };
     Ok(EmittedModule {

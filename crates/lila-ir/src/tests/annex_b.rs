@@ -1099,3 +1099,57 @@ fn labelled_case_chains_do_not_reserve_activation_cells_visible_to_direct_eval()
         },
     );
 }
+
+#[test]
+fn all_block_hoistable_forms_have_captured_eval_visible_lexical_bindings() {
+    for source in [
+        "'use strict'; function owner() { { eval('0'); function plain() {} function* gen() { yield 1; } async function task() {} async function* stream() { yield 2; } function read() { return [plain, gen, task, stream]; } } }",
+        "'use strict'; function owner() { switch (0) { case 0: eval('0'); function plain() {} function* gen() { yield 1; } async function task() {} async function* stream() { yield 2; } function read() { return [plain, gen, task, stream]; } } }",
+    ] {
+        with_script_analysis(source, |analysis| {
+            let reader = analysis.function_plans.values().find(|function| function.name == "read").expect("reader owner");
+            for name in ["plain", "gen", "task", "stream"] {
+                assert!(reader.captures.values().any(|capture| capture.source_name == name), "missing capture {name}: {source}");
+            }
+            let environment = analysis.environment_plans.values().find(|environment| {
+                matches!(environment.kind, EnvironmentKind::Block | EnvironmentKind::SwitchCaseBlock)
+                    && environment.binding_storage_names.iter().any(|name| name.ends_with(".gen"))
+            }).expect("generator's actual lexical environment");
+            let Some(EvalEnvironmentRoleIr::Declarative { bindings, .. }) = &environment.eval_environment else {
+                panic!("all hoistable bindings must remain visible to eval");
+            };
+            for name in ["plain", "gen", "task", "stream"] {
+                assert!(bindings.iter().any(|binding| binding.source_name == name), "missing runtime binding {name}: {source}");
+            }
+        });
+    }
+}
+
+#[test]
+fn case_block_instantiates_all_hoistable_forms_once_before_case_selection() {
+    let program = lower_script("'use strict'; function owner() { switch (0) { case 0: gen(); task(); stream(); break; case 1: function plain() {} function* gen() { yield 1; } async function task() {} async function* stream() { yield 2; } } }");
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.as_ref().expect("script IR");
+    let owner = script
+        .functions
+        .iter()
+        .find(|function| function.name == "owner")
+        .expect("owner IR");
+    let declarations = owner
+        .body
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            StatementIr::Switch {
+                lexical_declarations,
+                ..
+            } => Some(lexical_declarations),
+            _ => None,
+        })
+        .expect("switch IR");
+    assert_eq!(declarations.len(), 4);
+    for source_name in ["plain", "gen", "task", "stream"] {
+        assert_eq!(declarations.iter().filter(|declaration| matches!(declaration, StatementIr::Lexical { name, init, .. }
+            if name.ends_with(&format!(".{source_name}")) && matches!(&init.expr, ExprIr::FunctionValue(_)))).count(), 1);
+    }
+}

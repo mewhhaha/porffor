@@ -376,6 +376,52 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
+    /// The opt-in proposal observes IsExtensible before any insertion/duplicate
+    /// test. Method batches call this once; fields call after each initializer.
+    /// Base ECMA-262 performs no check and never invokes a proxy trap here.
+    pub(crate) fn emit_private_element_extensibility_check(
+        &mut self,
+        receiver: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        result.initialize(function);
+        self.current_program()
+            .emit_nonextensible_private_elements_enabled(self.runtime_schema(), function);
+        self.open_frame(ControlFrameKind::If, function);
+        let exit = self.open_frame(ControlFrameKind::Block, function);
+        self.emit_is_heap_object_like_tag_i32(receiver.tag(), function);
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_FIELD_ACCESS_ON_WRONG_OBJECT,
+            result,
+            function,
+        )?;
+        self.emit_branch_to_target(exit, function);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.emit_object_is_extensible(receiver, result, function)?;
+        self.emit_object_operation_abrupt_exit(result, result, exit, function);
+        self.compile_truthy_tagged_i32(result.value(), function)?;
+        function.instruction(&Instruction::I32Eqz);
+        self.open_frame(ControlFrameKind::If, function);
+        self.emit_throw_runtime_error(
+            NativeErrorKind::TypeError,
+            RuntimeErrorMessage::PRIVATE_ELEMENT_CANNOT_BE_INSTALLED_ON_NON_EXTENSIBLE_OBJECT,
+            result,
+            function,
+        )?;
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
+        Ok(())
+    }
+
     /// One call per private field definition: name resolution, Field row
     /// construction and PrivateElementAdd all live in the helper body.
     pub(crate) fn emit_private_field_define(
@@ -404,6 +450,8 @@ impl<'a> FunctionBuilder<'a> {
                     ordinal,
                     value,
                     &realm,
+                    self.current_environment(),
+                    self.current_program(),
                 ),
                 base,
                 function,
@@ -420,6 +468,14 @@ impl<'a> FunctionBuilder<'a> {
         let parameters = self.helper_parameters::<PrivateFieldDefineParameters>(&mut function);
         self.push_scope();
         let schema = self.runtime_schema();
+        let result = schema.reserve_completion(&mut function);
+        let exit = self.open_frame(ControlFrameKind::Block, &mut function);
+        self.emit_private_element_extensibility_check(
+            &parameters.receiver,
+            &result,
+            &mut function,
+        )?;
+        self.emit_object_operation_abrupt_exit(&result, &result, exit, &mut function);
         // A missing declared name throws through the helper's own completion.
         let name = self.emit_private_name_token_resolve(
             PrivateNameSelector::Runtime {
@@ -449,13 +505,14 @@ impl<'a> FunctionBuilder<'a> {
             ),
             &mut function,
         );
-        let result = schema.reserve_completion(&mut function);
         self.emit_private_element_add_body(&parameters.receiver, &element, &result, &mut function)?;
-        self.completion().copy_from(&result, &mut function);
-        result.clear(&mut function);
         element.clear(&mut function);
         stored.clear(&mut function);
         name.clear(&mut function);
+        self.pop_control(ControlFrameKind::Block);
+        function.instruction(&Instruction::End);
+        self.completion().copy_from(&result, &mut function);
+        result.clear(&mut function);
         self.pop_scope();
         self.clear_helper_execution_realm(&mut function);
         parameters.release(&mut function);

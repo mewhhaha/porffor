@@ -17,7 +17,8 @@ impl ScriptLowerer<'_> {
         } else {
             None
         };
-        let value = match modules::lower_import_call(call, specifier, options, None) {
+        let referrer = self.prepared_literal_import_referrer(call);
+        let value = match modules::lower_import_call(call, specifier, options, referrer) {
             Ok(value) => value,
             Err(error) => {
                 self.unsupported_with_message(error);

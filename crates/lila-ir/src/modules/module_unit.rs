@@ -41,6 +41,9 @@ pub struct ModuleUnitIr {
 
 impl ModuleUnitIr {
     pub(super) fn payload_bytes(&self) -> &[u8] {
+        if let Some(tag) = self.record.module_source_tag() {
+            return tag.as_bytes();
+        }
         self.record
             .bytes_source()
             .unwrap_or_else(|| self.source_text.as_bytes())

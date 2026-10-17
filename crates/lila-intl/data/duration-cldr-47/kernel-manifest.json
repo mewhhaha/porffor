@@ -11,14 +11,14 @@
       "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
     },
     {
-      "bytes": 86365,
+      "bytes": 87003,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "2dcd354cb546d37000ee503b93b07132e6edf6b62d409ba4d15cfc8cbd472189"
+      "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
     },
     {
-      "bytes": 81425,
+      "bytes": 80212,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "6f5774614d23e3791448f14690d1032c688f7884a742c60f3949635fa93c0a13"
+      "sha256": "c766fd5c20043fa76513786b500946878a684ba932f16a5b6ab3b859e8b04bd9"
     },
     {
       "bytes": 33803,
@@ -193,7 +193,7 @@
     {
       "bytes": 12549,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "f442115531f8383164e98b16c6d467e7cf51e69e662db1fc827bff02dcd56bcf"
+      "sha256": "6d38b26543b8134bba3deafd396cafd9da5ad4324e8bf0cbdf32b2884a3a6f93"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "381dde79e1c39ac3eccaf2fba39aecaabb0122d9db52d357aff3643df3c68393"
+      "sha256": "8c9d89205fe75cf1fa88ec82c8574768b04965b2fc91511348450f6cd30ea310"
     },
     {
       "bytes": 5033,
@@ -1033,7 +1033,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "b19f88f098fb2344f6fe4e81f3d67ae7fc9b27d999b41a9bad1a66ecda232972",
+  "provider_data_sha256": "8ec6edafc5ee7f65e88d5f7a769a62cab405a1b6d97089ffb904a9575241ed4d",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

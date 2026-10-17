@@ -11,12 +11,21 @@ pub enum GcHostLayout {
     BigInt,
     BigIntLimbs,
     ByteArray,
+    ImmutableByteArray,
+    PrivateNameTable,
+    PrivateEnvironment,
+    FunctionObject,
+    DirectEvalExecutionContext,
+    DirectEvalDerivedBindings,
+    BindingCell,
+    PrivateName,
     StoredValue,
     Completion,
     ValueArray,
     FunctionContext,
     Environment,
     ProgramInstance,
+    RealmRecord,
 }
 
 impl GcHostLayout {
@@ -29,7 +38,20 @@ impl GcHostLayout {
             Self::FunctionContext => Some(FunctionContext::FIELD_COUNT),
             Self::Environment => Some(Environment::FIELD_COUNT),
             Self::ProgramInstance => Some(ProgramInstance::FIELD_COUNT),
-            Self::CodeUnits | Self::BigIntLimbs | Self::ByteArray | Self::ValueArray => None,
+            Self::RealmRecord => Some(RealmRecord::FIELD_COUNT),
+            Self::PrivateEnvironment => Some(PrivateEnvironment::FIELD_COUNT),
+            Self::FunctionObject => Some(FunctionObject::FIELD_COUNT),
+            Self::DirectEvalExecutionContext => Some(DirectEvalExecutionContext::FIELD_COUNT),
+            Self::DirectEvalDerivedBindings => Some(DirectEvalDerivedBindings::FIELD_COUNT),
+            Self::BindingCell => Some(BindingCell::FIELD_COUNT),
+            Self::PrivateName => Some(PrivateName::FIELD_COUNT),
+
+            Self::CodeUnits
+            | Self::BigIntLimbs
+            | Self::ByteArray
+            | Self::ValueArray
+            | Self::ImmutableByteArray
+            | Self::PrivateNameTable => None,
         }
     }
 
@@ -44,6 +66,12 @@ impl GcHostLayout {
             Self::ByteArray => {
                 Some(<<ByteArray as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE)
             }
+            Self::ImmutableByteArray => Some(
+                <<ImmutableByteArray as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE,
+            ),
+            Self::PrivateNameTable => Some(
+                <<PrivateNameTable as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE,
+            ),
             Self::ValueArray => {
                 Some(<<ValueArray as GcArrayHeapType>::Mutability as GcFieldMutability>::MUTABLE)
             }
@@ -53,7 +81,14 @@ impl GcHostLayout {
             | Self::Completion
             | Self::FunctionContext
             | Self::Environment
-            | Self::ProgramInstance => None,
+            | Self::ProgramInstance
+            | Self::RealmRecord
+            | Self::PrivateEnvironment
+            | Self::FunctionObject
+            | Self::DirectEvalExecutionContext
+            | Self::DirectEvalDerivedBindings
+            | Self::BindingCell
+            | Self::PrivateName => None,
         }
     }
 
@@ -69,13 +104,24 @@ impl GcHostLayout {
                 Some(<<ByteArray as GcArrayHeapType>::Element as HostFieldStorage>::HOST_STORAGE)
             }
             Self::ValueArray => Some(reference_array_element::<ValueArray, StoredValue>()),
+            Self::ImmutableByteArray => Some(
+                <<ImmutableByteArray as GcArrayHeapType>::Element as HostFieldStorage>::HOST_STORAGE,
+            ),
+            Self::PrivateNameTable => Some(reference_array_element::<PrivateNameTable, PrivateName>()),
             Self::String
             | Self::BigInt
             | Self::StoredValue
             | Self::Completion
             | Self::FunctionContext
             | Self::Environment
-            | Self::ProgramInstance => None,
+            | Self::ProgramInstance
+            | Self::RealmRecord
+            | Self::PrivateEnvironment
+            | Self::FunctionObject
+            | Self::DirectEvalExecutionContext
+            | Self::DirectEvalDerivedBindings
+            | Self::BindingCell
+            | Self::PrivateName => None,
         }
     }
 }
@@ -87,6 +133,9 @@ pub enum GcHostStorage {
     PackedU8,
     PackedU16,
     NullableEqRef,
+    FunctionReference {
+        nullable: bool,
+    },
     Reference {
         layout: GcHostLayout,
         nullable: bool,
@@ -105,7 +154,14 @@ host_targets!(StringValue => String, CodeUnitArray => CodeUnits,
     BigIntValue => BigInt, BigIntLimbArray => BigIntLimbs, ByteArray => ByteArray,
     StoredValue => StoredValue, CompletionRecord => Completion,
     ValueArray => ValueArray, FunctionContext => FunctionContext,
-    Environment => Environment, ProgramInstance => ProgramInstance);
+    Environment => Environment, ProgramInstance => ProgramInstance, RealmRecord => RealmRecord,
+    ImmutableByteArray => ImmutableByteArray, PrivateNameTable => PrivateNameTable,
+    PrivateEnvironment => PrivateEnvironment,
+    FunctionObject => FunctionObject,
+    DirectEvalExecutionContext => DirectEvalExecutionContext,
+    DirectEvalDerivedBindings => DirectEvalDerivedBindings,
+    BindingCell => BindingCell,
+    PrivateName => PrivateName);
 
 const fn reference_array_element<A, T>() -> GcHostStorage
 where
@@ -161,6 +217,24 @@ pub enum GcHostField {
     CompletionNext,
     CompletionReturnStage,
     ContextDefiningProgram,
+    ContextInstanceElementsInitializer,
+    PrivateEnvironmentParent,
+    PrivateEnvironmentClassScope,
+    PrivateEnvironmentNames,
+    PrivateNameDescription,
+    DirectEvalClassContext,
+    DirectEvalHomeObject,
+    DirectEvalDerivedBindings,
+    DirectEvalThisSnapshot,
+    DirectEvalNewTargetSnapshot,
+    DerivedThisCell,
+    DerivedThisStatusCell,
+    DerivedNewTargetCell,
+    DerivedActiveFunctionCell,
+    BindingCellValue,
+    ContextActiveFunction,
+    FunctionObjectContext,
+    FunctionObjectDerivedConstructor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,9 +290,30 @@ where
         mutable: M::MUTABLE,
     }
 }
+const fn function_field<O, R, M, N>(
+    field: &GcField<O, GcFunctionRef<R>, M, N>,
+) -> GcHostFieldDefinition
+where
+    O: GcStructHeapType + HostTarget,
+    R: GcFunctionRole,
+    M: GcFieldMutability,
+    N: GcFieldNullability,
+{
+    GcHostFieldDefinition {
+        layout: O::HOST_LAYOUT,
+        index: field.ordinal().raw(),
+        storage: GcHostStorage::FunctionReference {
+            nullable: N::NULLABLE,
+        },
+        mutable: M::MUTABLE,
+    }
+}
 impl GcHostField {
     pub const fn definition(self) -> GcHostFieldDefinition {
         match self {
+            Self::ContextInstanceElementsInitializer => {
+                function_field(&FunctionContextSchema::INSTANCE_ELEMENTS_INITIALIZER)
+            }
             Self::StringCodeUnits => reference_field(&StringValueSchema::CODE_UNITS),
             Self::BigIntNegative => scalar_field(&BigIntValueSchema::NEGATIVE),
             Self::BigIntLimbs => reference_field(&BigIntValueSchema::LIMBS),
@@ -230,6 +325,43 @@ impl GcHostField {
             Self::CompletionTarget => scalar_field(&CompletionRecordSchema::TARGET),
             Self::CompletionNext => reference_field(&CompletionRecordSchema::NEXT),
             Self::CompletionReturnStage => scalar_field(&CompletionRecordSchema::RETURN_STAGE),
+            Self::PrivateEnvironmentParent => reference_field(&PrivateEnvironmentSchema::PARENT),
+            Self::PrivateEnvironmentClassScope => {
+                scalar_field(&PrivateEnvironmentSchema::CLASS_SCOPE)
+            }
+            Self::PrivateEnvironmentNames => reference_field(&PrivateEnvironmentSchema::NAMES),
+            Self::PrivateNameDescription => reference_field(&PrivateNameSchema::DESCRIPTION),
+            Self::DirectEvalClassContext => {
+                reference_field(&DirectEvalExecutionContextSchema::CLASS_CONTEXT)
+            }
+            Self::DirectEvalHomeObject => {
+                reference_field(&DirectEvalExecutionContextSchema::HOME_OBJECT)
+            }
+            Self::DirectEvalDerivedBindings => {
+                reference_field(&DirectEvalExecutionContextSchema::DERIVED_BINDINGS)
+            }
+            Self::DirectEvalThisSnapshot => {
+                reference_field(&DirectEvalExecutionContextSchema::THIS_SNAPSHOT)
+            }
+            Self::DirectEvalNewTargetSnapshot => {
+                reference_field(&DirectEvalExecutionContextSchema::NEW_TARGET_SNAPSHOT)
+            }
+            Self::DerivedThisCell => reference_field(&DirectEvalDerivedBindingsSchema::THIS_CELL),
+            Self::DerivedThisStatusCell => {
+                reference_field(&DirectEvalDerivedBindingsSchema::THIS_STATUS_CELL)
+            }
+            Self::DerivedNewTargetCell => {
+                reference_field(&DirectEvalDerivedBindingsSchema::NEW_TARGET_CELL)
+            }
+            Self::DerivedActiveFunctionCell => {
+                reference_field(&DirectEvalDerivedBindingsSchema::ACTIVE_FUNCTION_CELL)
+            }
+            Self::BindingCellValue => reference_field(&BindingCellSchema::VALUE),
+            Self::ContextActiveFunction => reference_field(&FunctionContextSchema::ACTIVE_FUNCTION),
+            Self::FunctionObjectContext => reference_field(&FunctionObjectSchema::CONTEXT),
+            Self::FunctionObjectDerivedConstructor => {
+                scalar_field(&FunctionObjectSchema::DERIVED_CONSTRUCTOR)
+            }
             Self::ContextDefiningProgram => {
                 reference_field(&FunctionContextSchema::DEFINING_PROGRAM)
             }
@@ -380,6 +512,8 @@ gc_host_imports! {
     FinalizationCellRemove => ("finalization_cell_remove", HostFinalizationCellRemove),
     ReportCleanupException => ("report_cleanup_exception", HostReportCleanupException),
     CompileDynamicFunction => ("compile_dynamic_function", HostCompileDynamicFunction),
+    CompileGlobalScript => ("compile_global_script", HostCompileGlobalScript),
+    CompileDirectEval => ("compile_direct_eval", HostCompileDirectEval),
 }
 
 /// Only declaration assigns a function index, together with its closed import
@@ -419,11 +553,13 @@ impl DeclaredGcHostImport {
 
 pub(crate) struct GcHostImports {
     declarations: Vec<DeclaredGcHostImport>,
+    source_compilation_profile: crate::RuntimeSourceCompilationProfile,
 }
 impl GcHostImports {
     pub(crate) const fn empty() -> Self {
         Self {
             declarations: Vec::new(),
+            source_compilation_profile: crate::RuntimeSourceCompilationProfile::Portable,
         }
     }
     pub(crate) fn plan(
@@ -435,13 +571,17 @@ impl GcHostImports {
         intl_provider: bool,
         system_time_zone: bool,
         weak: bool,
+        source_compilation_profile: crate::RuntimeSourceCompilationProfile,
     ) -> Self {
         let mut declarations = Vec::new();
         for import in GcHostImport::ALL {
             let needed = match import {
-                GcHostImport::CollectGc
-                | GcHostImport::ByteArrayAllocate
-                | GcHostImport::CompileDynamicFunction => true,
+                GcHostImport::CollectGc | GcHostImport::ByteArrayAllocate => true,
+                GcHostImport::CompileDynamicFunction
+                | GcHostImport::CompileGlobalScript
+                | GcHostImport::CompileDirectEval => {
+                    source_compilation_profile == crate::RuntimeSourceCompilationProfile::NativeHost
+                }
                 GcHostImport::SharedBufferAllocate
                 | GcHostImport::SharedBufferBase
                 | GcHostImport::SharedBufferLength
@@ -484,7 +624,15 @@ impl GcHostImports {
                     .expect("native GC import function-index overflow");
             }
         }
-        Self { declarations }
+        Self {
+            declarations,
+            source_compilation_profile,
+        }
+    }
+    pub(crate) const fn source_compilation_profile(
+        &self,
+    ) -> crate::RuntimeSourceCompilationProfile {
+        self.source_compilation_profile
     }
     pub(crate) fn get(&self, import: GcHostImport) -> Option<DeclaredGcHostImport> {
         self.declarations

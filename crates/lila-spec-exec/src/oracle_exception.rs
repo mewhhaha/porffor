@@ -98,6 +98,7 @@ pub(super) fn thrown(
     ExecutionError {
         message,
         entry_syntax_rejection: false,
+        global_prelude_failure: false,
         javascript_exception: kind.map(|kind| (phase, kind)),
     }
 }

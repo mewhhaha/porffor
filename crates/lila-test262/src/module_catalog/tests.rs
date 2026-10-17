@@ -458,3 +458,61 @@ fn prepared_script_discovery_covers_nested_escaped_and_parenthesized_direct_eval
         }
     }
 }
+
+#[test]
+fn pinned_source_export_fixture_catalog_declares_one_shared_virtual_host_record() {
+    const ENTRY: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-source-and-export.js");
+    const ONE: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-1_FIXTURE.js");
+    const TWO: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-2_FIXTURE.js");
+    const STAR: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-reexport_FIXTURE.js");
+    let directory = Directory::new();
+    let entry = directory.0.join("entry.js");
+    fs::write(&entry, ENTRY).unwrap();
+    for (name, text) in [
+        ("namespace-import-source-and-export-1_FIXTURE.js", ONE),
+        ("namespace-import-source-and-export-2_FIXTURE.js", TWO),
+        (
+            "namespace-import-source-and-export-reexport_FIXTURE.js",
+            STAR,
+        ),
+    ] {
+        fs::write(directory.0.join(name), text).unwrap();
+    }
+    let graph = declare(&entry, EmbeddedModuleGoal::Module, ENTRY, ENTRY)
+        .unwrap()
+        .unwrap()
+        .graph;
+    let source_rows: Vec<_> = graph
+        .resolutions()
+        .iter()
+        .filter(|row| row.request().specifier() == "<module source>")
+        .collect();
+    assert_eq!(source_rows.len(), 2);
+    assert_eq!(source_rows[0].target(), source_rows[1].target());
+    for row in source_rows {
+        let target = graph.resolve(row.referrer(), row.request()).unwrap();
+        assert_eq!(target.kind(), EmbeddedModuleKind::ModuleSource);
+        assert_eq!(target.source_text(), None);
+        assert!(
+            matches!(target.contents(), EmbeddedModuleContents::ModuleSource { source_tag } if source_tag == "ModuleSource")
+        );
+    }
+}
+
+#[test]
+fn virtual_source_host_contract_does_not_accept_other_names_or_data_attributes() {
+    let directory = Directory::new();
+    let source = "import source x from '<module source>'; import source y from '<module source>-other'; import z from '<module source>' with {type:'json'};";
+    let entry = directory.0.join("entry.js");
+    fs::write(&entry, source).unwrap();
+    let graph = declare(&entry, EmbeddedModuleGoal::Module, source, source)
+        .unwrap()
+        .unwrap()
+        .graph;
+    assert_eq!(graph.resolutions().len(), 1);
+    assert_eq!(
+        graph.resolutions()[0].request().specifier(),
+        "<module source>"
+    );
+    assert!(graph.resolutions()[0].request().attributes().is_empty());
+}

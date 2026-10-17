@@ -48,14 +48,15 @@ impl ScriptLowerer<'_> {
             let owner = &self.analysis.owner_plans[id];
             if owner.lexical_super_owner_role == LexicalSuperOwnerRole::DerivedConstructorActivation
             {
-                derived_constructor_owner = Some(id.to_string());
+                derived_constructor_owner =
+                    Some(crate::DirectEvalDerivedOwner::LocalFunction(id.to_string()));
                 break;
             }
             if id == SCRIPT_OWNER_ID {
                 if let ScriptInstantiation::Prepared(PreparedScriptKind::DirectEval(context)) =
                     &self.analysis.script_instantiation
                 {
-                    derived_constructor_owner = context.derived_constructor_owner().cloned();
+                    derived_constructor_owner = context.derived_owner().cloned();
                 }
                 break;
             }
@@ -85,18 +86,27 @@ impl ScriptLowerer<'_> {
             self.reference_strictness(),
             self.analysis.owner_plans[&self.current_owner_id].eval_invocation,
             private_names,
-            derived_constructor_owner,
+            None,
         )
+        .with_derived_owner(derived_constructor_owner)
         .with_script_import_origin(origin)
     }
 
     pub(super) fn prepared_literal_import_referrer(
         &mut self,
         call: &boa_ast::expression::ImportCall,
-    ) -> Option<ModuleUnitId> {
+    ) -> crate::ImportCallSourceOriginIr {
+        use crate::direct_eval_context::ScriptImportOrigin;
+        use crate::ImportCallSourceOriginIr;
         let ScriptInstantiation::Prepared(kind) = &self.analysis.script_instantiation else {
-            return None;
+            return ImportCallSourceOriginIr::Local(None);
         };
+        if let PreparedScriptKind::DirectEval(context) = kind {
+            if let Some(ScriptImportOrigin::ExternalCaller(origin)) = context.script_import_origin()
+            {
+                return ImportCallSourceOriginIr::ExternalCaller(origin);
+            }
+        }
         let referrer = match kind {
             PreparedScriptKind::DirectEval(context)
                 if matches!(Self::unwrap_parenthesized_expr(call.argument()), Expression::Literal(literal)
@@ -126,7 +136,7 @@ impl ScriptLowerer<'_> {
                     DynamicSourceGap::aot_known_source(kind),
                 ));
         }
-        referrer
+        ImportCallSourceOriginIr::Local(referrer)
     }
 
     pub(super) fn register_direct_eval_source(

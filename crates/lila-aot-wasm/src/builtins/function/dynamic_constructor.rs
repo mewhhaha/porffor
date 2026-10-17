@@ -265,13 +265,27 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
 
-        self.emit_native_dynamic_function_compile(
-            kind_word,
-            &new_target,
-            &sources,
-            &outcome,
-            function,
-        )?;
+        match self
+            .functions
+            .gc_host_imports()
+            .source_compilation_profile()
+        {
+            crate::RuntimeSourceCompilationProfile::Portable => {
+                self.emit_reject_dynamic_source(
+                    lila_ir::DynamicSourceRuntimeOperation::Function(kind),
+                    function,
+                );
+            }
+            crate::RuntimeSourceCompilationProfile::NativeHost => {
+                self.emit_native_dynamic_function_compile(
+                    kind_word,
+                    &new_target,
+                    &sources,
+                    &outcome,
+                    function,
+                )?;
+            }
+        }
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         schema.release_i32_local(kind_word, function);

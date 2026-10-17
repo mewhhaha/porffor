@@ -76,13 +76,13 @@ fn synchronous_deferred_modules_have_private_owners_and_canonical_environment_sl
     let program = module_program(&[
         (
             "entry.js",
-            "import defer * as first from './first.js'; print(first.value);",
+            "{}; import defer * as first from './first.js'; print(first.value); {};",
         ),
         (
             "first.js",
             "import { value as next } from './last.js'; export let value = next; export function read() { return next; }",
         ),
-        ("last.js", "export const { value } = { value: 3 };"),
+        ("last.js", "{}; export const { value } = { value: 3 }; {};"),
     ]);
     let modules = program.modules.as_ref().expect("linked graph");
     assert_eq!(modules.evaluation_mode(0), ModuleEvaluationModeIr::Eager);
@@ -172,7 +172,7 @@ fn tla_and_script_graphs_use_private_owners_and_static_source_rejects() {
     let asynchronous = module_program(&[
         (
             "entry.js",
-            "import defer * as ns from './value.js'; await 0; print(ns.value);",
+            "{}; import defer * as ns from './value.js'; {}; await 0; print(ns.value); {};",
         ),
         ("value.js", "export const value = 2;"),
     ]);

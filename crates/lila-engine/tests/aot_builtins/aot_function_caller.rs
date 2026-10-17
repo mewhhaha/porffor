@@ -258,7 +258,7 @@ var descriptor = Object.getOwnPropertyDescriptor(overwritten, 'arguments');
 assert.sameValue(descriptor.value, null);
 assert.sameValue(descriptor.writable, false);
 assert.sameValue(descriptor.enumerable, false);
-assert.sameValue(descriptor.configurable, false);
+assert.sameValue(descriptor.configurable, true);
 print('legacy-reflection-ok');
 "#;
     assert_reflection_script(

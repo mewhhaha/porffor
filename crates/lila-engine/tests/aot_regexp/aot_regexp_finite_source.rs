@@ -2,7 +2,6 @@ use lila_engine::{
     CompileOptions, Engine, ExecutionBackend, HostSurfacePolicy, ObservedCompletion,
     ObservedJsValue, RealmBuilder, RunOptions,
 };
-use lila_ir::DynamicSourceRuntimeOperation;
 
 fn assert_modes(source: &str) {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
@@ -158,22 +157,34 @@ trace === 'GP';
 
 #[test]
 fn unprepared_patterns_and_changed_getter_results_remain_typed_eval_limitations() {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    for directive in ["", "'use strict';\n"] {
-        for source in [
-            "var pattern = 'z' + Math.random(); eval('/' + new RegExp(pattern).source + '/');",
-            "var regexp = /a/; Object.defineProperty(regexp, 'source', { get() { return 'z' + Math.random(); } }); eval('/' + regexp.source + '/');",
-        ] {
-            let error = Engine::new(RealmBuilder::new().build()).observe_script(
-                &format!("{directive}{source}"),
-                CompileOptions { host_surface_policy: HostSurfacePolicy::Test262, ..CompileOptions::default() },
-                RunOptions { backend: ExecutionBackend::WasmAot, timeout_ms: Some(60_000), ..RunOptions::default() },
-            ).expect_err("a finite source hint cannot admit an unmatched runtime string");
-            assert_eq!(error.runtime_dynamic_source_operations(), vec![DynamicSourceRuntimeOperation::Eval], "{error}");
-            assert!(error.parse_diagnostic().is_none(), "{error}");
-            assert!(error.ir_diagnostic().is_none(), "{error}");
-        }
-    }
+    // Historical selector retained; valid native misses no longer report eval debt.
+    assert_modes(
+        r#"
+var pattern = 'z' + Math.random(), trace = '';
+var patternArgument = { toString() { trace += 'P'; return pattern; } };
+var flagsArgument = { toString() { trace += 'F'; return ''; } };
+function caller() {
+    var local = {};
+    var result = eval('({regexp: /' + new RegExp(patternArgument, flagsArgument).source + '/, caller: local})');
+    return result.caller === local && result.regexp.source === pattern && result.regexp.test(pattern);
+}
+caller() && trace === 'PF';
+"#,
+    );
+    assert_modes(
+        r#"
+var regexp = /a/, pattern, trace = '';
+Object.defineProperty(regexp, 'source', { get() {
+    trace += 'G'; pattern = 'z' + Math.random(); return pattern;
+} });
+function caller() {
+    var local = {};
+    var result = eval('({regexp: /' + regexp.source + '/, caller: local})');
+    return result.caller === local && result.regexp.source === pattern && result.regexp.test(pattern);
+}
+caller() && trace === 'G';
+"#,
+    );
 }
 
 #[test]

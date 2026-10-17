@@ -28,11 +28,12 @@ pub(super) fn prepare_source_catalog(
                 (ParsedSource::Script(_), None, None) => {
                     session.lower_source(source, options.host_surface_policy)
                 }
-                (ParsedSource::Script(_), None, Some(_)) => {
-                    unreachable!("preparation rejects a Module prelude for a Script entry")
+                (ParsedSource::Script(_), None, Some(prelude)) => {
+                    session.lower_source_with_prelude(source, prelude, options.host_surface_policy)
                 }
             },
         };
+        let ir = ir.with_language_features(options.language_features);
         if let PreparedModuleCompilation::Embedded { graph, .. } = modules {
             let sites = session.prepared_script_import_sites();
             if sites.is_empty()
@@ -260,7 +261,7 @@ export const value = 1;
         .unwrap();
         for (source, mut options) in [("function {", options.clone()), ("true;", options)] {
             if source == "true;" {
-                options.module_prelude = Some("var supplied = 1;".into());
+                options.module_prelude = Some("export {};".into());
             }
             let key = program_cache_key_for_role(
                 source,

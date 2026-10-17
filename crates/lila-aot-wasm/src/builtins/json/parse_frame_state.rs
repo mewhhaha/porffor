@@ -1,5 +1,15 @@
 //! Closed frame fields and consuming container completion replace linear stacks.
 use super::*;
+
+/// Object keys may repeat. A parser-owned array ordinal is fresh because the
+/// private frame increments it exactly once after each completed element.
+/// Keep the distinction at the insertion boundary rather than accepting a flag
+/// that could silently disable duplicate replacement for an object property.
+pub(super) enum JsonParseChildKey<'a> {
+    ObjectKey(&'a GcLocal<StringValue>),
+    FreshArrayIndex(I64Local),
+}
+
 impl FunctionBuilder<'_> {
     pub(super) fn emit_json_parse_frame(
         &mut self,
@@ -70,10 +80,19 @@ impl FunctionBuilder<'_> {
     pub(super) fn emit_json_parse_child(
         &mut self,
         frame: &GcLocal<JsonParseFrame>,
-        key: &GcLocal<StringValue>,
+        key: JsonParseChildKey<'_>,
         record: &GcLocal<JsonParseRecord>,
         f: &mut Function,
     ) -> Result<(), EmitError> {
+        let key = match key {
+            JsonParseChildKey::ObjectKey(key) => key,
+            JsonParseChildKey::FreshArrayIndex(index) => {
+                let key = self.emit_json_index_key(index, f)?;
+                self.emit_json_parse_prepend_child(frame, &key, record, f);
+                key.clear(f);
+                return Ok(());
+            }
+        };
         let s = self.runtime_schema();
         let found = s.reserve_i32_local(f);
         json_i32(found, 0, f);
@@ -132,6 +151,30 @@ impl FunctionBuilder<'_> {
         found.load(f);
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
+        self.emit_json_parse_prepend_child(frame, key, record, f);
+        self.pop_control(ControlFrameKind::If);
+        f.instruction(&Instruction::End);
+        cursor.clear(f);
+        head.clear(f);
+        s.release_i32_local(found, f);
+        Ok(())
+    }
+
+    fn emit_json_parse_prepend_child(
+        &self,
+        frame: &GcLocal<JsonParseFrame>,
+        key: &GcLocal<StringValue>,
+        record: &GcLocal<JsonParseRecord>,
+        f: &mut Function,
+    ) {
+        let s = self.runtime_schema();
+        let head = s.reserve_gc_local(f).initialize(
+            s.struct_type::<JsonParseFrame>()
+                .field(JsonParseFrameSchema::CHILDREN)
+                .read(frame, s, f)
+                .reference(),
+            f,
+        );
         let child = s.reserve_gc_local(f).initialize(
             s.struct_type::<JsonParseChild>().construct(
                 (
@@ -147,11 +190,6 @@ impl FunctionBuilder<'_> {
             .field(JsonParseFrameSchema::CHILDREN)
             .write(frame, GcOperand::nullable_reference(&child, s), s, f);
         child.clear(f);
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
-        cursor.clear(f);
         head.clear(f);
-        s.release_i32_local(found, f);
-        Ok(())
     }
 }

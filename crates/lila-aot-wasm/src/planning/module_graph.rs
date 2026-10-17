@@ -1,6 +1,7 @@
 //! One canonical compiled graph, reusable against any Realm's module cache.
 
 use super::*;
+mod evaluation_capability;
 
 /// Only a source callable with no caller captures can be materialized by
 /// the independent global-environment factory. Construction stays private.
@@ -106,6 +107,12 @@ impl ModuleGraphPlan {
 
     pub(crate) fn record_count(&self) -> u32 {
         self.graph.record_count()
+    }
+    pub(crate) fn source_record(&self, module: u32) -> Option<&lila_ir::ModuleSourceRecordIr> {
+        self.graph
+            .source_records()
+            .iter()
+            .find(|source| source.module() == module)
     }
     pub(crate) fn initializer(&self) -> &FunctionId {
         self.graph

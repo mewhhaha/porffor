@@ -228,6 +228,7 @@ closed_scalar_storage!(
     SetIterationKind,
     ArrayIterationKind,
     PrivateElementKind,
+    lila_ir::LanguageFeaturePolicy,
     AwaitCompletionKind,
     AsyncGeneratorReturnStage,
     GeneratorDelegatePending,
@@ -506,12 +507,14 @@ where
 pub(crate) enum GcFunctionSignature {
     Entry(crate::module::StaticSignature),
     ProgramHook(crate::runtime_helpers::ProgramHook),
+    ContextHook(crate::runtime_helpers::RuntimeHelperId),
 }
 impl GcFunctionSignature {
     pub(crate) const fn type_index(self) -> u32 {
         match self {
             Self::Entry(signature) => signature.type_index(),
             Self::ProgramHook(hook) => hook.helper().type_index(),
+            Self::ContextHook(helper) => helper.type_index(),
         }
     }
 }
@@ -558,6 +561,14 @@ program_hook_roles! {
     RealmModuleImportHook => RealmModuleImport, REALM_MODULE_IMPORT;
     ModuleBodyReactionHook => ModuleBodyReaction, MODULE_BODY_REACTION;
     RegExpProgramCandidateHook => RegExpProgramCandidate, REGEXP_PROGRAM_CANDIDATE;
+}
+/// A constructor retains this P-owned initializer independently of its caller.
+pub(crate) enum InitializeInstanceElementsHook {}
+impl sealed::Sealed for InitializeInstanceElementsHook {}
+impl GcFunctionRole for InitializeInstanceElementsHook {
+    const SIGNATURE: GcFunctionSignature = GcFunctionSignature::ContextHook(
+        crate::runtime_helpers::RuntimeHelperId::InitializeInstanceElements,
+    );
 }
 pub(crate) struct GcFunctionRef<R: GcFunctionRole>(PhantomData<fn() -> R>);
 impl<R: GcFunctionRole> sealed::Sealed for GcFunctionRef<R> {}
@@ -911,6 +922,7 @@ gc_layout_registry! {
             LITERAL_BASE: I32Value, Immutable, NonNullable;
             LITERAL_COUNT: I32Value, Immutable, NonNullable;
             METADATA: GcRef<ImmutableByteArray>, Immutable, NonNullable;
+            LANGUAGE_FEATURE_POLICY: lila_ir::LanguageFeaturePolicy, Immutable, NonNullable;
         }
         // Completed captures are immutable. The actual function/context cycle
         // is closed only after function allocation, so its back edge is mutable.
@@ -927,6 +939,7 @@ gc_layout_registry! {
             // JavaScript captures Some(defining P); R-native code explicitly
             // inherits the caller's effective program operand on each entry.
             DEFINING_PROGRAM: GcRef<ProgramInstance>, Immutable, Nullable;
+            INSTANCE_ELEMENTS_INITIALIZER: GcFunctionRef<InitializeInstanceElementsHook>, Immutable, Nullable;
         }
         struct BoundFunction => BoundFunctionSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
@@ -1271,6 +1284,7 @@ gc_layout_registry! {
             ENVIRONMENT: GcRef<Environment>, Mutable, Nullable;
             NAMESPACE_CELL: GcRef<BindingCell>, Immutable, NonNullable;
             DEFERRED_NAMESPACE_CELL: GcRef<BindingCell>, Immutable, NonNullable;
+            SOURCE_CELL: GcRef<BindingCell>, Immutable, NonNullable;
             ACTIVATION_KIND: crate::heap::ModuleActivationKind, Mutable, NonNullable;
             GENERATOR: GcRef<GeneratorActivation>, Mutable, Nullable;
             ASYNC_ACTIVATION: GcRef<AsyncActivation>, Mutable, Nullable;
@@ -1768,6 +1782,13 @@ gc_layout_registry! {
             PROMISE: GcRef<PromiseObject>, Immutable, NonNullable;
             THENABLE: GcRef<StoredValue>, Immutable, NonNullable;
             THEN_METHOD: GcRef<StoredValue>, Immutable, NonNullable;
+        }
+        // The private brand retains the actual host record and its defining Realm.
+        struct ModuleSourceObject => ModuleSourceObjectSchema {
+            OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;
+            MODULE: GcRef<ModuleRecord>, Immutable, NonNullable;
+            REALM: GcRef<RealmRecord>, Immutable, NonNullable;
+            SOURCE_TAG: GcRef<StringValue>, Immutable, NonNullable;
         }
         struct ModuleNamespaceObject => ModuleNamespaceObjectSchema {
             OBJECT: GcRef<OrdinaryObject>, Immutable, NonNullable;

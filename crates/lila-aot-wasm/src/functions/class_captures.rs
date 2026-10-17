@@ -225,6 +225,8 @@ impl FunctionBuilder<'_> {
                     GcOperand::null(schema),
                     GcOperand::null(schema),
                     GcOperand::reference(&defining_program, schema),
+                    // Static execution contexts are not constructor contexts.
+                    GcOperand::null_function(),
                 ),
                 function,
             ),
@@ -499,6 +501,10 @@ impl FunctionBuilder<'_> {
         // Constructor [[PrivateMethods]] holds completed method/accessor rows.
         // The names are identities, independent of their receiver's definitions.
         if !plan.private_method_brands.is_empty() {
+            // The proposal checks once before the whole nonempty method batch,
+            // not once per row. This may execute/reenter through a Proxy trap.
+            self.emit_private_element_extensibility_check(receiver, &element_result, function)?;
+            self.emit_bind_metadata_abrupt_exit(&element_result, &result, exit, function);
             let definitions = schema.reserve_gc_local(function).initialize(
                 schema
                     .struct_type::<FunctionContext>()

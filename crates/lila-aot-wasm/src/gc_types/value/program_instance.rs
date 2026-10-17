@@ -8,6 +8,7 @@ use crate::runtime_artifact::ModuleKind;
 use crate::runtime_helpers::RuntimeHelperFunctionBase;
 use crate::EmitError;
 
+mod language_features;
 mod literal_index;
 mod metadata;
 pub(crate) use metadata::ProgramMetadataView;
@@ -19,12 +20,14 @@ pub(crate) struct ProgramInstanceImage<'pool> {
     literal_base: u32,
     literal_count: u32,
     metadata_bytes: u32,
+    language_features: lila_ir::LanguageFeaturePolicy,
 }
 
 impl<'pool> ProgramInstanceImage<'pool> {
     pub(crate) fn from_program_pool(
         strings: &'pool StringPool,
         kind: ModuleKind<'_>,
+        language_features: lila_ir::LanguageFeaturePolicy,
     ) -> Result<Self, EmitError> {
         let ModuleKind::Program(runtime) = kind else {
             return Err(EmitError::unsupported(
@@ -49,6 +52,7 @@ impl<'pool> ProgramInstanceImage<'pool> {
             literal_base,
             literal_count,
             metadata_bytes,
+            language_features,
         })
     }
 
@@ -228,6 +232,7 @@ impl ProgramInstanceLocals {
                     GcOperand::i32(image.literal_base as i32),
                     GcOperand::i32(image.literal_count as i32),
                     GcOperand::reference(&metadata.bytes, schema),
+                    GcOperand::constant(image.language_features),
                 ),
                 function,
             ),

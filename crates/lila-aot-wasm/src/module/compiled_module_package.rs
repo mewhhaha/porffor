@@ -17,6 +17,11 @@ impl ModuleTypeRegistry {
         }
     }
 
+    pub(crate) fn with_global_prelude(mut self, present: bool) -> Self {
+        self.registered = self.registered.with_global_prelude(present);
+        self
+    }
+
     /// Consumes every scalar/dynamic global and returns the sealed section with
     /// the runtime schema derived from its actual final scalar index.
     ///
@@ -82,6 +87,10 @@ pub(crate) struct CompiledModulePackage {
 }
 
 impl CompiledModulePackage {
+    pub(crate) fn global_prelude_phase(&self) -> Option<crate::gc_types::GlobalScriptPreludePhase> {
+        self.runtime.globals().global_prelude_phase()
+    }
+
     pub(crate) fn schema(&self) -> &crate::gc_types::RuntimeSchema {
         self.runtime.globals().schema()
     }

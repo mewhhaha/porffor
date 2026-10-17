@@ -375,6 +375,64 @@ pub(crate) fn lexically_scoped_statement_list_item_function_declaration(
     }
 }
 
+/// Every HoistableDeclaration participating in BlockDeclarationInstantiation.
+/// Keeping the four source forms together prevents a block environment or its
+/// initialization pass from quietly treating only ordinary functions as names.
+pub(crate) enum BlockHoistableDeclaration<'a> {
+    Ordinary(&'a FunctionDeclaration),
+    Generator(&'a GeneratorDeclaration),
+    Async(&'a AsyncFunctionDeclaration),
+    AsyncGenerator(&'a AsyncGeneratorDeclaration),
+}
+
+impl<'a> BlockHoistableDeclaration<'a> {
+    pub(crate) fn from_item(item: &'a StatementListItem) -> Option<Self> {
+        match item {
+            StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+                Declaration::FunctionDeclaration(function) => Some(Self::Ordinary(function)),
+                Declaration::GeneratorDeclaration(function) => Some(Self::Generator(function)),
+                Declaration::AsyncFunctionDeclaration(function) => Some(Self::Async(function)),
+                Declaration::AsyncGeneratorDeclaration(function) => {
+                    Some(Self::AsyncGenerator(function))
+                }
+                Declaration::Lexical(_) | Declaration::ClassDeclaration(_) => None,
+            },
+            StatementListItem::Statement(statement) => match statement.as_ref() {
+                Statement::Labelled(labelled) => {
+                    lexically_scoped_labelled_function_declaration(labelled).map(Self::Ordinary)
+                }
+                _ => None,
+            },
+        }
+    }
+
+    pub(crate) fn source_name(&self, interner: &Interner) -> String {
+        let symbol = match self {
+            Self::Ordinary(function) => function.name().sym(),
+            Self::Generator(function) => function.name().sym(),
+            Self::Async(function) => function.name().sym(),
+            Self::AsyncGenerator(function) => function.name().sym(),
+        };
+        interner.resolve_expect(symbol).to_string()
+    }
+
+    pub(crate) fn name_span(&self) -> boa_ast::Span {
+        match self {
+            Self::Ordinary(function) => function.name().span(),
+            Self::Generator(function) => function.name().span(),
+            Self::Async(function) => function.name().span(),
+            Self::AsyncGenerator(function) => function.name().span(),
+        }
+    }
+
+    pub(crate) fn ordinary(&self) -> Option<&'a FunctionDeclaration> {
+        match self {
+            Self::Ordinary(function) => Some(function),
+            Self::Generator(_) | Self::Async(_) | Self::AsyncGenerator(_) => None,
+        }
+    }
+}
+
 pub(crate) fn annex_b_block_storage_name(
     function: &FunctionDeclaration,
     source_name: &str,

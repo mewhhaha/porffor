@@ -94,6 +94,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
         "ScriptEntry(ParsedScript)",
         "Json(lila_front::ParsedJson)",
         "Bytes(Vec<u8>)",
+        "ModuleSource{source_tag:String,}",
         "JsonRejected{source_text:String,error:lila_front::JsonParseError",
         "Rejected{source:SourceUnit,error:lila_front::ParseError,}",
     ] {
@@ -117,6 +118,7 @@ fn module_source_keeps_private_parse_state_and_the_exact_public_method_inventory
         "new",
         "json",
         "bytes",
+        "module_source",
         "record_key",
         "payload_bytes",
         "from_parsed",

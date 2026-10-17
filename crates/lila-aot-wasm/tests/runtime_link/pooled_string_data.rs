@@ -52,6 +52,41 @@ fn named_function_body(bytes: &[u8], name: &str) -> Vec<u8> {
     bytes[range.clone()].to_vec()
 }
 
+fn array_data_initializers(body: &[u8]) -> [usize; 4] {
+    let parsed = wasmparser::FunctionBody::new(wasmparser::BinaryReader::new(body, 0));
+    let mut initializers = [0; 4];
+    for operator in parsed.get_operators_reader().expect("body opens") {
+        if let Operator::ArrayNewData {
+            array_data_index, ..
+        } = operator.expect("body decodes")
+        {
+            *initializers
+                .get_mut(array_data_index as usize)
+                .expect("only the four declared P images may initialize GC data") += 1;
+        }
+    }
+    initializers
+}
+
+fn passive_program_images(bytes: &[u8]) -> Vec<Vec<u8>> {
+    let mut images = Vec::new();
+    for payload in Parser::new(0).parse_all(bytes) {
+        if let Payload::DataSection(reader) = payload.expect("program decodes") {
+            assert!(images.is_empty(), "one program data section");
+            for row in reader {
+                let row = row.expect("program image decodes");
+                assert!(
+                    matches!(row.kind, DataKind::Passive),
+                    "P images stay passive"
+                );
+                images.push(row.data.to_vec());
+            }
+        }
+    }
+    assert_eq!(images.len(), 4, "UTF-16, metadata, descriptors and recipes");
+    images
+}
+
 fn emit_literal(length: usize, marker: &str) -> (WasmArtifact, u32, Vec<u8>) {
     let source = format!(
         "const marker = '{marker}'; const text = '{}\\u0000\\uD800\\uDC00\\uD800'; text.length;",
@@ -92,41 +127,23 @@ fn literal_length_grows_passive_data_without_expanding_bootstrap_code() {
                         .validate_all(bytes)
                         .expect("runtime and program GC literal data and their counts validate");
                 }
-                let mut passive_image = None;
-                let mut initializations = 0;
-                let mut descriptor_initializations = 0;
-                for payload in Parser::new(0).parse_all(&artifact.bytes) {
-                    match payload.expect("module decodes") {
-                        Payload::DataSection(reader) => {
-                            let first = reader.into_iter().next().expect("literal data exists")
-                                .expect("literal data decodes");
-                            assert!(matches!(first.kind, DataKind::Passive));
-                            passive_image = Some(first.data);
-                        }
-                        Payload::CodeSectionEntry(body) => {
-                            for operator in body.get_operators_reader().expect("body opens") {
-                                if let Operator::ArrayNewData { array_data_index, .. } =
-                                    operator.expect("operator decodes")
-                                {
-                                    match array_data_index {
-                                        0 => initializations += 1,
-                                        2 => descriptor_initializations += 1,
-                                        _ => panic!("unexpected pooled literal data segment {array_data_index}"),
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                assert!(initializations > 0, "the literal image must initialize real GC arrays");
-                assert_eq!(descriptor_initializations, 1, "one private program descriptor image");
+                let images = passive_program_images(&artifact.bytes);
+                let initializer = named_function_body(&artifact.bytes, "lila::program_init");
+                assert_eq!(array_data_initializers(&initializer), [1, 1, 1, 0],
+                    "P bootstrap initializes UTF-16 strings, metadata and descriptor GC arrays");
+                let main = named_function_body(&artifact.bytes, "lila::main");
+                assert_eq!(array_data_initializers(&main), [0; 4],
+                    "JavaScript main consumes its completed P owner without image initialization");
+                assert!(images[3].is_empty(), "a literal-only program has no compact recipes");
                 let expected = [0u16, 0xd800, 0xdc00, 0xd800]
                     .into_iter().flat_map(u16::to_le_bytes).collect::<Vec<_>>();
-                assert!(passive_image.expect("passive literal image")
-                    .windows(expected.len()).any(|units| units == expected),
+                assert!(images[0].windows(expected.len()).any(|units| units == expected),
                     "NUL, a surrogate pair and an isolated surrogate retain their exact UTF-16 units");
             }
+            let short_initialize = named_function_body(&short.bytes, "lila::program_init").len();
+            let long_initialize = named_function_body(&long.bytes, "lila::program_init").len();
+            assert!(long_initialize <= short_initialize + 128,
+                "literal contents must not unroll the separate P initializer");
             eprintln!("pooled literal bootstrap: {short_main} -> {long_main} bytes");
             assert!(long_main <= short_main + 128,
                 "literal contents must grow data, not instructions: {short_main} -> {long_main}");
@@ -157,36 +174,30 @@ fn literal_count_grows_descriptor_data_without_expanding_main_initialization() {
                 Validator::new_with_features(WasmFeatures::all())
                     .validate_all(&artifact.bytes).expect("program descriptor module validates");
                 let body = named_function_body(&artifact.bytes, "lila::main");
-                let parsed_body = wasmparser::FunctionBody::new(wasmparser::BinaryReader::new(&body, 0));
-                let mut data_initializers = [0; 4];
-                for operator in parsed_body.get_operators_reader().expect("main opens") {
-                    if let Operator::ArrayNewData { array_data_index, .. } = operator.expect("main decodes") {
-                        data_initializers[array_data_index as usize] += 1;
-                    }
-                }
-                assert_eq!(data_initializers, [1, 0, 1, 0],
-                    "one dynamic string creation and one private descriptor table, independent of count");
-                let segments = Parser::new(0).parse_all(&artifact.bytes)
-                    .find_map(|payload| match payload.expect("program decodes") {
-                        Payload::DataSection(reader) => Some(reader.into_iter()
-                            .map(|row| row.expect("passive segment decodes").data.to_vec())
-                            .collect::<Vec<_>>()),
-                        _ => None,
-                    }).expect("program passive images exist");
-                assert_eq!(segments.len(), 4);
+                let initializer = named_function_body(&artifact.bytes, "lila::program_init");
+                assert_eq!(array_data_initializers(&body), [0; 4],
+                    "main does not initialize the P passive images");
+                assert_eq!(array_data_initializers(&initializer), [1, 1, 1, 0],
+                    "one string-construction site and immutable metadata/descriptor arrays, independent of count");
+                let segments = passive_program_images(&artifact.bytes);
                 assert!(segments[3].is_empty());
                 assert_eq!(segments[2].len() % 12, 0);
                 assert!(segments[2].len() >= count * 12,
                     "every unique source literal needs its descriptor row");
-                (artifact, body.len(), segments[2].len())
+                (artifact, body.len(), initializer.len(), segments[2].len())
             };
-            let (empty, empty_main, _) = emit(0);
-            let (small, small_main, small_descriptors) = emit(16);
-            let (large, large_main, large_descriptors) = emit(2048);
+            let (empty, empty_main, empty_initialize, _) = emit(0);
+            let (small, small_main, small_initialize, small_descriptors) = emit(16);
+            let (large, large_main, large_initialize, large_descriptors) = emit(2048);
             assert_eq!(empty.runtime().unwrap().bytes(), small.runtime().unwrap().bytes());
             assert_eq!(small.runtime().unwrap().bytes(), large.runtime().unwrap().bytes(),
                 "program string count must preserve the complete shared runtime");
             assert!(large_descriptors >= small_descriptors + (2048 - 16) * 12);
+            assert!(small_initialize <= empty_initialize + 128
+                && large_initialize <= empty_initialize + 128,
+                "P initialization remains bounded independently of descriptor count");
+            assert!(large_initialize <= small_initialize + 64,
+                "descriptor count grows data rather than unrolling the P initializer");
             assert!(large.bytes.len() > small.bytes.len() + 32 * 1024);
             eprintln!("pooled string count main body: {small_main} -> {large_main} bytes");
             assert!(small_main <= empty_main + 128 && large_main <= empty_main + 128,

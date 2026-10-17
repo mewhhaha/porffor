@@ -42,6 +42,20 @@ impl FunctionBuilder<'_> {
             true,
             function,
         )?;
+        // The host source kind has one stable prototype in this defining Realm.
+        // Its parent is the abstract intrinsic, not Object.prototype.
+        let source_prototype = schema.reserve_gc_local(function).initialize(
+            self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
+            function,
+        );
+        prototype.set_reference(&source_prototype, schema, function);
+        self.emit_store_non_array_realm_intrinsic(
+            realm.realm(),
+            NonArrayRealmIntrinsicSlot::ModuleSourcePrototype,
+            &prototype,
+            function,
+        );
+        source_prototype.clear(function);
         constructor.clear(function);
         prototype.clear(function);
         object.clear(function);

@@ -21,6 +21,21 @@ impl LoweredStatementListItemIr {
             result_kind,
         }
     }
+
+    /// A bare Empty is the StatementList UpdateEmpty identity. Discard it only
+    /// after lowering, which first resolves compiler-owned module boundaries.
+    /// Resource, declaration and control owners retain their complete IR.
+    pub(super) fn into_statement_list_entry(self) -> Option<Self> {
+        match self {
+            Self::Statement {
+                statement: StatementIr::Empty,
+                ..
+            } => None,
+            item @ Self::Statement { .. }
+            | item @ Self::SyncDisposableScope { .. }
+            | item @ Self::AsyncDisposableScope(_) => Some(item),
+        }
+    }
 }
 
 /// Lowering-only classification of the resource-bearing for-of heads.

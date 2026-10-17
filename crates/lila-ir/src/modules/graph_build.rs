@@ -85,6 +85,9 @@ fn assemble_sources(
         };
         remap.push(id);
         let record = match &source.parse {
+            ModuleParse::ModuleSource { source_tag } => Ok(
+                super::record::ModuleRecordIr::module_source(source_tag, id, source.key().clone()),
+            ),
             ModuleParse::Json(parsed) => Ok(super::record::ModuleRecordIr::json(
                 parsed,
                 id,

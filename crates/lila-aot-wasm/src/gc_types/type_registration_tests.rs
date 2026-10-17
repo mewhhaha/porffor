@@ -41,7 +41,16 @@ fn declarations(bytes: &[u8]) -> (Vec<SubType>, Vec<usize>, Vec<wasmparser::Glob
 
 #[test]
 fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_types() {
-    let (runtime, runtime_bytes) = encoded(ModuleKind::Runtime);
+    let (runtime, runtime_bytes) = encoded(ModuleKind::Runtime(
+        crate::RuntimeSourceCompilationProfile::Portable,
+    ));
+    let (_, native_bytes) = encoded(ModuleKind::Runtime(
+        crate::RuntimeSourceCompilationProfile::NativeHost,
+    ));
+    assert_eq!(
+        runtime_bytes, native_bytes,
+        "source compiler authority cannot change the core GC schema"
+    );
     let (_, program_bytes) = encoded(ModuleKind::Standalone);
     let (core, core_groups, core_globals) = declarations(&runtime_bytes);
     let (program, program_groups, program_globals) = declarations(&program_bytes);
@@ -95,7 +104,7 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
             "{helper:?} results"
         );
         match helper.owner() {
-            HelperOwner::Runtime | HelperOwner::Hook(_) => {
+            HelperOwner::Runtime | HelperOwner::Hook(_) | HelperOwner::ContextHook => {
                 assert!(index < core_end && core_indexes.insert(index));
                 assert_eq!(core[index], program[index]);
             }
@@ -121,7 +130,16 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
     let CompositeInnerType::Struct(instance) = &core[instance_index].composite_type.inner else {
         panic!("ProgramInstance must be an actual GC struct");
     };
-    assert_eq!(instance.fields.len(), 9);
+    assert_eq!(instance.fields.len(), 10);
+    let policy_index = ProgramInstanceSchema::LANGUAGE_FEATURE_POLICY
+        .ordinal()
+        .raw() as usize;
+    assert_eq!(policy_index, 9);
+    assert_eq!(
+        instance.fields[policy_index].element_type,
+        wasmparser::StorageType::Val(wasmparser::ValType::I32)
+    );
+    assert!(!instance.fields[policy_index].mutable);
     let mut next_group_start = 0;
     let instance_group = core_groups
         .iter()

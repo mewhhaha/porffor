@@ -40,6 +40,7 @@ pub enum EmbeddedModuleKind {
     Json,
     Bytes,
     Text,
+    ModuleSource,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,15 @@ pub enum EmbeddedModuleInput {
     Json(EmbeddedModuleSourceInput),
     Text(EmbeddedModuleSourceInput),
     Bytes(EmbeddedModuleBytesInput),
+    ModuleSource(EmbeddedModuleSourceValueInput),
+}
+
+/// A host-provided opaque native module source; never JavaScript source text.
+#[derive(Debug)]
+pub struct EmbeddedModuleSourceValueInput {
+    pub identity: String,
+    pub source_tag: String,
+    pub meta_url: String,
 }
 
 /// Untrusted raw payload: no text decoding or grammar selection is implied.
@@ -64,6 +74,7 @@ pub enum EmbeddedModuleContents {
     Json(String),
     Text(String),
     Bytes(Vec<u8>),
+    ModuleSource { source_tag: String },
 }
 
 /// A referrer role is distinct from its locator. In particular a Script can
@@ -186,6 +197,7 @@ impl EmbeddedModuleSource {
             EmbeddedModuleContents::Json(_) => EmbeddedModuleKind::Json,
             EmbeddedModuleContents::Text(_) => EmbeddedModuleKind::Text,
             EmbeddedModuleContents::Bytes(_) => EmbeddedModuleKind::Bytes,
+            EmbeddedModuleContents::ModuleSource { .. } => EmbeddedModuleKind::ModuleSource,
         }
     }
     pub fn identity(&self) -> &str {
@@ -199,7 +211,7 @@ impl EmbeddedModuleSource {
             EmbeddedModuleContents::SourceText(text)
             | EmbeddedModuleContents::Json(text)
             | EmbeddedModuleContents::Text(text) => Some(text),
-            EmbeddedModuleContents::Bytes(_) => None,
+            EmbeddedModuleContents::Bytes(_) | EmbeddedModuleContents::ModuleSource { .. } => None,
         }
     }
     pub fn payload_bytes(&self) -> &[u8] {
@@ -208,6 +220,7 @@ impl EmbeddedModuleSource {
             | EmbeddedModuleContents::Json(text)
             | EmbeddedModuleContents::Text(text) => text.as_bytes(),
             EmbeddedModuleContents::Bytes(bytes) => bytes,
+            EmbeddedModuleContents::ModuleSource { source_tag } => source_tag.as_bytes(),
         }
     }
     pub fn meta_url(&self) -> &str {
@@ -220,9 +233,14 @@ pub struct EmbeddedModuleResolution {
     referrer: EmbeddedModuleReferrer,
     request: EmbeddedModuleRequest,
     target: String,
+    target_kind: EmbeddedModuleKind,
 }
 
 impl EmbeddedModuleResolution {
+    pub const fn target_kind(&self) -> EmbeddedModuleKind {
+        self.target_kind
+    }
+
     pub fn referrer(&self) -> &EmbeddedModuleReferrer {
         &self.referrer
     }
@@ -293,6 +311,13 @@ impl EmbeddedModuleGraph {
                     module.meta_url,
                     EmbeddedModuleContents::Text(module.source),
                 ),
+                EmbeddedModuleInput::ModuleSource(module) => (
+                    module.identity,
+                    module.meta_url,
+                    EmbeddedModuleContents::ModuleSource {
+                        source_tag: module.source_tag,
+                    },
+                ),
                 EmbeddedModuleInput::Bytes(module) => (
                     module.identity,
                     module.meta_url,
@@ -352,11 +377,26 @@ impl EmbeddedModuleGraph {
             validate_identity(&resolution.target)?;
             let request =
                 EmbeddedModuleRequest::try_new(resolution.specifier, resolution.attributes)?;
-            let target = find_module(
+            let ordinary = find_module(
                 &completed_modules,
                 &resolution.target,
                 request.module_kind(),
             );
+            let native_source = (request.module_kind() == EmbeddedModuleKind::SourceText)
+                .then(|| {
+                    find_module(
+                        &completed_modules,
+                        &resolution.target,
+                        EmbeddedModuleKind::ModuleSource,
+                    )
+                })
+                .flatten();
+            if ordinary.is_some() && native_source.is_some() {
+                return Err(EmbeddedModuleGraphError::RecordKindMismatch {
+                    identity: resolution.target,
+                });
+            }
+            let target = ordinary.or(native_source);
             if target.is_none() {
                 return Err(
                     if completed_modules
@@ -384,6 +424,7 @@ impl EmbeddedModuleGraph {
             completed_resolutions.push(EmbeddedModuleResolution {
                 referrer: resolution.referrer,
                 request,
+                target_kind: target.expect("checked declared target").kind(),
                 target: resolution.target,
             });
         }
@@ -458,7 +499,8 @@ impl EmbeddedModuleGraph {
                     .then_with(|| resolution.request.cmp(request))
             })
             .ok()?;
-        self.module(&self.resolutions[index].target, request.module_kind())
+        let resolution = &self.resolutions[index];
+        self.module(&resolution.target, resolution.target_kind)
     }
 
     /// SHA-256 of the complete canonical, length-framed source policy. Unused
@@ -618,7 +660,7 @@ fn fingerprint(
     resolutions: &[EmbeddedModuleResolution],
 ) -> Result<[u8; 32], EmbeddedModuleGraphError> {
     let mut hash = Sha256::new();
-    hash.update(b"lila-embedded-module-graph-v3");
+    hash.update(b"lila-embedded-module-graph-v4");
     hash.update([match entry.goal {
         EmbeddedModuleGoal::Script => 0,
         EmbeddedModuleGoal::Module => 1,
@@ -633,6 +675,7 @@ fn fingerprint(
             EmbeddedModuleKind::Json => 1,
             EmbeddedModuleKind::Bytes => 2,
             EmbeddedModuleKind::Text => 3,
+            EmbeddedModuleKind::ModuleSource => 4,
         }]);
         hash_field(&mut hash, &module.identity)?;
         hash_count(&mut hash, module.payload_bytes().len())?;
@@ -660,6 +703,13 @@ fn fingerprint(
             hash_field(&mut hash, value)?;
         }
         hash_field(&mut hash, &resolution.target)?;
+        hash.update([match resolution.target_kind {
+            EmbeddedModuleKind::SourceText => 0,
+            EmbeddedModuleKind::Json => 1,
+            EmbeddedModuleKind::Bytes => 2,
+            EmbeddedModuleKind::Text => 3,
+            EmbeddedModuleKind::ModuleSource => 4,
+        }]);
     }
     Ok(hash.finalize().into())
 }

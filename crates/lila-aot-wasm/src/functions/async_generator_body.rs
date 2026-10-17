@@ -240,6 +240,14 @@ impl FunctionBuilder<'_> {
             AsyncGeneratorReturnStage::Awaited,
         )));
         function.instruction(&Instruction::I32Eq);
+        // Source `return;` reaches the body with an actual undefined value and
+        // no Await obligation. Expression returns have already performed their
+        // mandatory IR Await, even when that expression evaluates to undefined.
+        // External .return(value) keeps its separate queue/yield-return Await.
+        body.value().tag().load(function);
+        function.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::I32Or);
         self.open_frame(ControlFrameKind::If, function);
         body.set_normal(body.value(), function);
         self.emit_complete_async_generator_step(

@@ -253,15 +253,10 @@ fn a_native_broadcast_wait_and_worker_sleep_share_the_parent_timeout() {
 #[test]
 fn structured_root_throw_and_worker_capability_keep_both_failures() {
     configure_compilation_jobs(1).expect("one bounded compilation worker");
-    // The same source and options as the integration regression
-    // (`EVAL_WORKER` in tests/aot_realm_modules/aot_dynamic_source_capability.rs) reuse its cached
-    // module while exercising the private structured agent seam. The source
-    // must stay unknown until run time: a literal such as `'1'` is now an
-    // AOT-known indirect-eval source that the worker compiles and runs
-    // successfully, which would leave no worker failure to retain.
-    let worker = "var holder = { invoke: eval }; \
-        var hook = new Proxy(function() {}, {}); hook(); \
-        holder.invoke('1/*' + Math.random() + '*/');";
+    // Match CAPABILITY_WORKER in the integration regression. Unknown eval
+    // strings now compile natively; the remaining ShadowRealm source boundary
+    // supplies a genuine worker capability failure alongside the root throw.
+    let worker = "new ShadowRealm().evaluate('1/*' + Math.random() + '*/');";
     let source = format!("__lilaAgentStart({worker:?}); throw new TypeError('root marker');");
     let engine = Engine::new(RealmBuilder::new().build());
     let options = CompileOptions {
@@ -299,7 +294,7 @@ fn structured_root_throw_and_worker_capability_keep_both_failures() {
     );
     assert_eq!(
         failure.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval]
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate]
     );
     assert_eq!(failure.wasm_javascript_exception_constructor_name(), None);
     assert!(failure

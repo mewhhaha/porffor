@@ -36,6 +36,8 @@ pub(crate) mod direct_eval_invocation;
 mod eval_intrinsic;
 mod function_name;
 mod function_object_allocation;
+mod native_direct_eval;
+mod native_direct_eval_factory;
 mod source_callable_factories;
 use function_object_allocation::FunctionAllocationInputs;
 mod function_realm;
@@ -44,6 +46,7 @@ pub(crate) use function_name::FunctionNamePrefix;
 use generator_instance_prototype::GeneratorInstanceFamily;
 mod constructability;
 mod indirect_call;
+mod instance_elements_hook;
 mod iterator_close;
 mod legacy_activation;
 pub(crate) use legacy_activation::SourceActivation;
@@ -95,6 +98,7 @@ pub(crate) enum NonArrayRealmIntrinsicSlot {
     ShadowRealmPrototype,
     AbstractModuleSourceConstructor,
     AbstractModuleSourcePrototype,
+    ModuleSourcePrototype,
     ArrayPrototypeValues,
     ThrowTypeError,
     TypeErrorPrototype,
@@ -356,7 +360,7 @@ error_message_constructor_kinds! {
 /// actual caller.
 impl NonArrayRealmIntrinsicSlot {
     pub(crate) const ARRAY_INDEX: u32 = 0;
-    pub(crate) const TABLE_LENGTH: u32 = 158;
+    pub(crate) const TABLE_LENGTH: u32 = 159;
 
     pub(crate) const fn typed_array_constructor_identity(kind: TypedArrayElementKind) -> Self {
         match kind {
@@ -398,6 +402,7 @@ impl NonArrayRealmIntrinsicSlot {
             Self::ShadowRealmPrototype => 157,
             Self::AbstractModuleSourceConstructor => 154,
             Self::AbstractModuleSourcePrototype => 155,
+            Self::ModuleSourcePrototype => 158,
             Self::ArrayPrototypeValues => 1,
             Self::ThrowTypeError => 2,
             Self::TypeErrorPrototype => 3,
@@ -816,40 +821,7 @@ impl FunctionBuilder<'_> {
         let error = schema.reserve_value_local(function);
         self.emit_bind_derived_this_from_locals(result.value(), &error, function)?;
         error.clear(function);
-        let owner = self
-            .direct_eval_derived_constructor_owner()
-            .cloned()
-            .or_else(|| {
-                self.lexical_derived_activation
-                    .map(|activation| activation.owner_function_id.clone())
-            })
-            .ok_or_else(|| {
-                EmitError::unsupported("super call requires its validated constructor owner")
-            })?;
-        let meta =
-            self.functions.get(&owner).cloned().ok_or_else(|| {
-                EmitError::unsupported("derived constructor owner is not planned")
-            })?;
-        if meta.class_instance_element_plan.is_some() {
-            let active = schema.reserve_value_local(function);
-            self.emit_get_derived_active_function_to_locals(&active, function)?;
-            let callable = schema.reserve_gc_local(function).initialize(
-                active.cast_reference::<crate::gc_types::FunctionObject>(schema, function),
-                function,
-            );
-            let context = schema.reserve_gc_local(function).initialize(
-                schema
-                    .struct_type::<crate::gc_types::FunctionObject>()
-                    .field(crate::gc_types::FunctionObjectSchema::CONTEXT)
-                    .read(&callable, schema, function)
-                    .reference(),
-                function,
-            );
-            self.emit_initialize_instance_elements(&meta, &context, result.value(), function)?;
-            context.clear(function);
-            callable.clear(function);
-            active.clear(function);
-        }
+        self.emit_initialize_super_instance_elements(result.value(), function)?;
         self.completion().initialize(function);
         result.set_normal(result.value(), function);
         Ok(())

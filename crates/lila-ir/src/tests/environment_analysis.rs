@@ -198,25 +198,50 @@ fn resumable_function_capture_of_with_object_environment_is_explicitly_rejected(
     );
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
     let script = program.script.as_ref().unwrap();
-    let function = script.functions.iter().find(|function| function.name == "generator").unwrap();
-    assert_eq!(function.protocol.execution_kind(), FunctionExecutionKind::Generator);
-    let capture = function.captured_bindings.iter().find(|binding| binding.name.starts_with("$with.object."))
+    let function = script
+        .functions
+        .iter()
+        .find(|function| function.name == "generator")
+        .unwrap();
+    assert_eq!(
+        function.protocol.execution_kind(),
+        FunctionExecutionKind::Generator
+    );
+    let capture = function
+        .captured_bindings
+        .iter()
+        .find(|binding| binding.name.starts_with("$with.object."))
         .expect("the generator retains the original hidden Object Environment cell");
-    assert!(block_environment_owns_binding(&script.body, &capture.name, capture.slot));
-    assert_eq!(function.generator_plan.as_ref().unwrap().suspension_points.len(), 1);
+    assert!(block_environment_owns_binding(
+        &script.body,
+        &capture.name,
+        capture.slot
+    ));
+    assert_eq!(
+        function
+            .generator_plan
+            .as_ref()
+            .unwrap()
+            .suspension_points
+            .len(),
+        1
+    );
     let mut statements = Vec::new();
     identifier_reference_rows(&function.body.statements, &mut statements);
-    assert!(statements.into_iter().any(|statement| {
-        let value = match statement {
-            StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => init,
-            StatementIr::GeneratorYield { value, .. } => value,
-            _ => return false,
-        };
-        matches!(&value.expr, ExprIr::Conditional { condition, .. }
+    assert!(
+        statements.into_iter().any(|statement| {
+            let value = match statement {
+                StatementIr::Lexical { init, .. } | StatementIr::Expression(init) => init,
+                StatementIr::GeneratorYield { value, .. } => value,
+                _ => return false,
+            };
+            matches!(&value.expr, ExprIr::Conditional { condition, .. }
             if matches!(&condition.expr, ExprIr::SpecOperation {
                 operation: SpecOperationIr::WithEnvironmentHasBinding, operands,
             } if matches!(&operands[0].expr, ExprIr::Identifier(name) if name == &capture.name)))
-    }), "resumed reads use the captured original Object Environment");
+        }),
+        "resumed reads use the captured original Object Environment"
+    );
 }
 
 #[test]
@@ -530,4 +555,59 @@ fn analysis_stamps_root_and_block_function_definition_cursors() {
                 );
             },
         );
+}
+
+#[test]
+fn analysis_empty_blocks_never_allocate_eval_visible_environments() {
+    for prefix in ["", "'use strict';"] {
+        let source = format!("{prefix} eval(0); {}", "{}".repeat(4096));
+        with_script_analysis(&source, |analysis| {
+            assert!(analysis.block_environment_ids.is_empty());
+            assert!(analysis
+                .environment_plans
+                .values()
+                .all(|environment| environment.kind != EnvironmentKind::Block));
+        });
+    }
+}
+
+#[test]
+fn analysis_empty_control_and_try_blocks_keep_only_their_enclosing_owners() {
+    with_script_analysis(
+        "eval(0); empty: {} if (flag) {} else {} while (flag) {} for (;flag;) {} \
+         do {} while (flag); try {} catch (error) {} finally {}",
+        |analysis| {
+            assert!(analysis.block_environment_ids.is_empty());
+            assert!(analysis
+                .environment_plans
+                .values()
+                .all(|environment| environment.kind != EnvironmentKind::Block));
+            assert_eq!(analysis.catch_parameter_environment_ids.len(), 1);
+            assert_eq!(
+                environment_with_binding_suffix(analysis, ".error").kind,
+                EnvironmentKind::SimpleCatchParameter
+            );
+        },
+    );
+}
+
+#[test]
+fn analysis_nonempty_blocks_retain_eval_visibility_and_binding_ownership() {
+    for source in ["eval(0); { ; }", "{ let retained = 17; eval(0); }"] {
+        with_script_analysis(source, |analysis| {
+            assert_eq!(analysis.block_environment_ids.len(), 1);
+            let environment = &analysis.environment_plans
+                [analysis.block_environment_ids.values().next().unwrap()];
+            assert_eq!(environment.kind, EnvironmentKind::Block);
+            assert!(environment.eval_visible);
+            assert!(analysis.environment_has_runtime_storage(environment));
+            if source.contains("retained") {
+                assert_physical_binding_owner(
+                    analysis,
+                    binding_with_suffix(environment, ".retained"),
+                    environment,
+                );
+            }
+        });
+    }
 }

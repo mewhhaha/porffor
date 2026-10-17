@@ -10,6 +10,12 @@ impl<'a> ScriptLowerer<'a> {
         let mut lowered = match statement {
             Statement::Expression(expression) => self.lower_expression_statement(expression),
             Statement::Empty => (StatementIr::Empty, ValueKind::Undefined),
+            Statement::Block(block) if block.statement_list().statements().is_empty() => {
+                // Block : { } has an empty completion and creates no environment.
+                // Keeping it as Empty also preserves the enclosing UpdateEmpty
+                // value rather than manufacturing an `undefined` expression.
+                (StatementIr::Empty, ValueKind::Undefined)
+            }
             Statement::Block(block) => {
                 // The Block's declarative Environment Record (14.3.1.2 step 1)
                 // is pushed and popped by `lower_block`'s

@@ -84,6 +84,7 @@ impl IrDiagnosticKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IrDiagnostic {
     payload: IrDiagnosticPayload,
+    global_prelude: bool,
     pub span: Option<SourceSpan>,
     pub message: String,
 }
@@ -103,6 +104,14 @@ enum IrDiagnosticPayload {
 }
 
 impl IrDiagnostic {
+    pub(crate) fn in_global_prelude(mut self) -> Self {
+        self.global_prelude = true;
+        self
+    }
+    pub const fn is_global_prelude_failure(&self) -> bool {
+        self.global_prelude
+    }
+
     /// The **only** constructor that can produce a coded diagnostic: this
     /// program is rejected before any construct evaluates, under this condition.
     ///
@@ -119,6 +128,7 @@ impl IrDiagnostic {
         span: Option<SourceSpan>,
     ) -> Self {
         Self {
+            global_prelude: false,
             payload: IrDiagnosticPayload::Rejected(code),
             span,
             message: message.into(),
@@ -155,6 +165,7 @@ impl IrDiagnostic {
 
     pub fn unsupported(message: impl Into<String>) -> Self {
         Self {
+            global_prelude: false,
             payload: IrDiagnosticPayload::Unsupported,
             span: None,
             message: message.into(),
@@ -163,6 +174,7 @@ impl IrDiagnostic {
 
     pub(crate) fn unsupported_parser_feature(message: impl Into<String>) -> Self {
         Self {
+            global_prelude: false,
             payload: IrDiagnosticPayload::UnsupportedParserFeature,
             span: None,
             message: message.into(),
@@ -185,6 +197,7 @@ impl IrDiagnostic {
     /// human-readable diagnostic text.
     pub fn unsupported_dynamic_source(gap: DynamicSourceGap) -> Self {
         Self {
+            global_prelude: false,
             payload: IrDiagnosticPayload::UnsupportedFeature(UnsupportedFeature::DynamicSource(
                 gap,
             )),
@@ -200,6 +213,7 @@ impl IrDiagnostic {
 
     pub fn lowering(message: impl Into<String>) -> Self {
         Self {
+            global_prelude: false,
             payload: IrDiagnosticPayload::Lowering,
             span: None,
             message: message.into(),

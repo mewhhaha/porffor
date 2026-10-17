@@ -1,5 +1,4 @@
-//! Cargo-only producer: fresh checked raw R, current-source package/manifest,
-//! and exact-Wasm native compilation through Wasmtime's bounded cache.
+//! Cargo producer: checked R/package/manifest and bounded exact-Wasm native compilation.
 
 #[path = "compile.rs"]
 mod compile;
@@ -43,21 +42,24 @@ pub(crate) fn write_bundle(
                     lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal);
                 println!("build runtime native dependency identity: {native_identity}");
                 let started = std::time::Instant::now();
-                let runtime = lila_aot_wasm::build_runtime_artifact(&selection, &source)
+                let runtime =
+                    lila_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
+                        &selection,
+                        &source,
+                        lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+                    )
                     .expect("the compiler emits and admits its exact build runtime");
                 println!(
                     "build runtime fresh emission/admission: {:?}",
                     started.elapsed()
                 );
                 let started = std::time::Instant::now();
-                // R is immutable build output. Optimize it once without moving
-                // ordinary P compilation off its existing Fast setting.
+                // Optimize immutable R once; ordinary P compilation retains Fast.
                 let mut config = base_config(
                     manifest::COMPILATION_MODES.runtime,
                     WasmBacktraceDetails::Disable,
                 );
-                // Spend allocator work once on immutable R. Ordinary P retains
-                // base_config's SinglePass allocator and Fast compilation.
+                // Ordinary P retains base_config's SinglePass allocator and Fast mode.
                 config.cranelift_regalloc_algorithm(
                     manifest::COMPILATION_MODES.register_allocation.algorithm(),
                 );
@@ -67,8 +69,7 @@ pub(crate) fn write_bundle(
                     .expect("supported target has a native compiler");
                 config.parallel_compilation(false);
                 // Cranelift's bounded function store also warms module misses.
-                // Both native caches remain independent of the full current
-                // source identity in the freshly published package/manifest.
+                // Native caches remain independent of current source identity in the package.
                 let function_cache = crate::cache::FunctionCache::new(
                     crate::cache::function_cache_directory(),
                     crate::cache::function_cache_limit_bytes(),

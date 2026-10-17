@@ -26,7 +26,8 @@ fn runtime_program_and_standalone_layouts_match_actual_emission_order() {
     ))
     .unwrap();
     for kind in [
-        ModuleKind::Runtime,
+        ModuleKind::Runtime(crate::RuntimeSourceCompilationProfile::Portable),
+        ModuleKind::Runtime(crate::RuntimeSourceCompilationProfile::NativeHost),
         ModuleKind::Program(&runtime),
         ModuleKind::Standalone,
     ] {
@@ -122,7 +123,7 @@ fn runtime_program_and_standalone_layouts_match_actual_emission_order() {
                             StaticSignature::ProgramInitialize.type_index()
                         );
                     }
-                    if matches!(kind, ModuleKind::Runtime) {
+                    if matches!(kind, ModuleKind::Runtime(_)) {
                         assert_eq!(table.records().len(), r_count + r_helpers);
                     }
                     if matches!(kind, ModuleKind::Standalone) {

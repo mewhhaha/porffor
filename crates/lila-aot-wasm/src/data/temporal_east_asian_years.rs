@@ -3,7 +3,7 @@
 //! Each worker copies the immutable retained rows instead of reconstructing
 //! 16,714 provider years. Emitted helpers and their Wasm data are unchanged.
 
-use super::{EmitError, StringPool, STATIC_DATA_OFFSET};
+use super::{EmitError, PoolBytes, StringPool, STATIC_DATA_OFFSET};
 #[cfg(test)]
 mod construction;
 mod format;
@@ -66,7 +66,10 @@ impl TemporalEastAsianCalendarImage {
         self.header.anchors.upper_solstice_millis
     }
 
-    fn append(bytes: &mut Vec<u8>, image: &[u8; CALENDAR_IMAGE_BYTES]) -> Result<Self, EmitError> {
+    fn append(
+        bytes: &mut PoolBytes,
+        image: &[u8; CALENDAR_IMAGE_BYTES],
+    ) -> Result<Self, EmitError> {
         let rows_ptr = STATIC_DATA_OFFSET
             .checked_add(u32::try_from(bytes.len()).map_err(|_| image_range())?)
             .ok_or_else(image_range)?;
@@ -99,7 +102,7 @@ impl TemporalEastAsianYearImage {
         }
     }
 
-    fn append_to(bytes: &mut Vec<u8>) -> Result<Self, EmitError> {
+    fn append_to(bytes: &mut PoolBytes) -> Result<Self, EmitError> {
         let alignment = EAST_ASIAN_YEAR_ROW_BYTES as usize;
         let padding = (alignment - bytes.len() % alignment) % alignment;
         let aligned = bytes.len().checked_add(padding).ok_or_else(image_range)?;
@@ -140,6 +143,10 @@ impl StringPool {
     pub(crate) fn temporal_east_asian_year_image(&self) -> &TemporalEastAsianYearImage {
         self.temporal_east_asian_year_image
             .as_ref()
+            .or_else(|| {
+                self.runtime_prefix()
+                    .and_then(|prefix| prefix.temporal_east_asian_year_image.as_ref())
+            })
             .expect("Temporal calendar compiler requires its checked year image")
     }
 }
@@ -157,7 +164,7 @@ mod tests {
         }
         // Exercise the actual pool append at every possible starting alignment.
         for prefix in 0..EAST_ASIAN_YEAR_ROW_BYTES as usize {
-            let mut bytes = vec![0xA5; prefix];
+            let mut bytes = PoolBytes::from(vec![0xA5; prefix]);
             let image = TemporalEastAsianYearImage::append_to(&mut bytes).unwrap();
             let start = if prefix == 0 {
                 0

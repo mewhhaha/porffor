@@ -609,21 +609,12 @@ impl ScriptLowerer<'_> {
         let mut merged_vars = before_vars.clone();
         let mut merged_globals = before_globals.clone();
         let lowered = (|| -> Option<(StatementIr, ValueKind)> {
-            let mut last_function_by_name = BTreeMap::new();
-            for case in switch.cases() {
-                for item in case.body().statements() {
-                    if let Some(function) =
-                        lexically_scoped_statement_list_item_function_declaration(item)
-                    {
-                        last_function_by_name
-                            .insert(function_name(self.interner, function, None), function);
-                    }
-                }
-            }
-            let lexical_declarations = last_function_by_name
-                .into_values()
-                .map(|function| self.lower_function_declaration(function))
-                .collect::<Vec<_>>();
+            let lexical_declarations = self.lower_block_function_declarations(
+                switch
+                    .cases()
+                    .iter()
+                    .flat_map(|case| case.body().statements()),
+            );
 
             let mut conditions = Vec::with_capacity(switch.cases().len());
             for (case, range) in switch.cases().iter().zip(P::selectors(&states)) {

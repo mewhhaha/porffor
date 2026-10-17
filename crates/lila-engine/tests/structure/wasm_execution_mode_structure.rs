@@ -3,6 +3,12 @@ use std::path::Path;
 
 const ENGINE_SOURCE: &str = include_str!("../../src/lib.rs");
 const GRAPH_SOURCE: &str = include_str!("../../src/graph_observation.rs");
+const NATIVE_DIRECT_EVAL_TEST_SOURCE: &str =
+    include_str!("../../src/native_direct_eval_compiler_tests.rs");
+const NATIVE_DIRECT_EVAL_OWNERSHIP_TEST_SOURCE: &str =
+    include_str!("../../src/native_direct_eval_compiler_tests/ownership.rs");
+const NATIVE_GLOBAL_SCRIPT_TEST_SOURCE: &str =
+    include_str!("../../src/native_global_script_compiler_tests.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -42,12 +48,34 @@ fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
 
 #[test]
 fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
+    let fields = bounded(
+        ENGINE_SOURCE,
+        "pub struct Engine {",
+        "\n}\n\nenum WasmExecutionMode {",
+    );
+    // Test observers disappear from the product struct. Preserve the original
+    // production-state restriction without coupling it to observer field names.
+    let mut production_fields = String::new();
+    let mut test_field = false;
+    for line in fields.lines() {
+        if line.trim() == "#[cfg(test)]" {
+            assert!(
+                !test_field,
+                "a test field must end before the next attribute"
+            );
+            test_field = true;
+        } else if test_field {
+            if line.trim_end().ends_with(',') {
+                test_field = false;
+            }
+        } else {
+            production_fields.push_str(line);
+        }
+    }
+    assert!(!test_field, "every test-only field is complete");
+    assert_eq!(normalized(&production_fields), "realm:Realm,");
     assert_eq!(
-        ENGINE_SOURCE
-            .matches(
-                "pub struct Engine {\n    realm: Realm,\n}\n\nenum WasmExecutionMode {\n    Legacy,\n    Structured,\n    Graph(SnapshotLimits),\n}\n\nenum WasmExecutionOutcome {"
-            )
-            .count(),
+        ENGINE_SOURCE.matches("\nenum WasmExecutionMode {").count(),
         1
     );
     let declaration = bounded(
@@ -68,7 +96,62 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
     assert_eq!(production.matches("WasmExecutionMode").count(), 18);
     assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 20);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "WasmExecutionMode"), 25);
+    for module in [
+        "native_direct_eval_compiler_tests",
+        "native_global_script_compiler_tests",
+    ] {
+        let declaration = format!("\n#[cfg(test)]\nmod {module};");
+        assert_eq!(ENGINE_SOURCE.matches(declaration.as_str()).count(), 1);
+    }
+    let native_test_consumers = [
+        (
+            NATIVE_DIRECT_EVAL_TEST_SOURCE,
+            "assert_trace",
+            "fn assert_trace(source: &str, expected: &[&str], unmatched: &[Vec<u16>],
+                counts: (usize, usize, usize),) -> NativeDirectEvalCompilationSnapshot",
+            "30_000",
+        ),
+        (
+            NATIVE_DIRECT_EVAL_OWNERSHIP_TEST_SOURCE,
+            "direct_eval_native_compilation_and_execution_keep_the_original_parent_timeout",
+            "fn direct_eval_native_compilation_and_execution_keep_the_original_parent_timeout()",
+            "500",
+        ),
+        (
+            NATIVE_GLOBAL_SCRIPT_TEST_SOURCE,
+            "assert_native_trace",
+            "fn assert_native_trace(source: &str, expected: &[&str],
+                unmatched: &[(PreparedScriptKind, Vec<u16>)], iterator: bool,
+                counts: NativeGlobalScriptCompilationSnapshot, function_factories: usize,)",
+            "30_000",
+        ),
+    ];
+    let mut native_test_mode_uses = 0;
+    for (source, name, signature, timeout) in native_test_consumers {
+        let marker = format!("\nfn {name}(");
+        assert_eq!(source.matches(marker.as_str()).count(), 1);
+        let function = bounded(source, &marker, "\n}");
+        let (declaration, _) = function
+            .split_once('{')
+            .expect("private test function body");
+        assert_eq!(
+            normalized(&format!("fn {name}({declaration}")),
+            normalized(signature)
+        );
+        assert_eq!(source.matches("WasmExecutionMode").count(), 1);
+        assert_eq!(function.matches("WasmExecutionMode").count(), 1);
+        let route = format!(
+            "engine.execute_with_wasm_bytes_inner(artifact.program(),Some({timeout}),false,\
+                WasmModuleMemoryCachePolicy::Retain,&WasmExecutionMode::Structured,)"
+        );
+        assert_eq!(normalized(function).matches(route.as_str()).count(), 1);
+        native_test_mode_uses += 1;
+    }
+    // The three named cfg(test) consumers add no production execution mode.
+    assert_eq!(
+        count_in_rust_sources(&source_root, "WasmExecutionMode"),
+        25 + native_test_mode_uses
+    );
     for forbidden in [
         "pub enum WasmExecutionMode",
         "impl WasmExecutionMode",

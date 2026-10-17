@@ -63,6 +63,11 @@ pub struct RuntimeFunctionProgram {
 }
 
 impl RuntimeFunctionProgram {
+    pub fn with_language_features(mut self, policy: crate::LanguageFeaturePolicy) -> Self {
+        self.program = self.program.with_language_features(policy);
+        self
+    }
+
     pub fn program(&self) -> &ProgramIr {
         &self.program
     }

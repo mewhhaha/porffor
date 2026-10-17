@@ -141,7 +141,9 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::PooledStringsInitialize
             | RuntimeHelperId::JsonStringifyValue
-            | RuntimeHelperId::CompactArrayLiteral => {}
+            | RuntimeHelperId::CompactArrayLiteral
+            | RuntimeHelperId::InitializeInstanceElements
+            | RuntimeHelperId::NativeDirectEvalFactory => {}
         }
         self.take_owned_body()
     }

@@ -3,6 +3,7 @@ use std::path::Path;
 
 const REPLACER_SOURCE: &str = include_str!("../../src/builtins/json/stringify_replacer.rs");
 const STRINGIFY_SOURCE: &str = include_str!("../../src/builtins/json/stringify.rs");
+const HELPER_SOURCE: &str = include_str!("../../src/runtime_helpers.rs");
 const JSON_SOURCE: &str = include_str!("../../src/builtins/json.rs");
 const CLI_SOURCE: &str = include_str!("../../../lila-cli/tests/cli/language_numerics.rs");
 const FIXTURE: &str = include_str!(
@@ -310,7 +311,13 @@ fn sole_serialize_property_producer_constructs_roles_for_every_holder() {
         );
     }
     // Array/object share one container walk; it and the root wrapper use the same helper.
-    assert!(source.contains("JsonStringifyValueArguments::new(holder,key,context,indent,seen)"));
+    assert!(source.contains(
+        "JsonStringifyValueArguments::new(holder,key,context,indent,seen,self.current_program(),)"
+    ));
+    let helpers = rust_code(HELPER_SOURCE).normalized;
+    assert!(helpers.contains(
+        "JsonStringifyValue/JsonStringifyValueArguments/JsonStringifyValueParameters/\"json_stringify_value\"{holder:Value,key:(RefStringValueNonNullable),context:(RefJsonStringifyContextNonNullable),indent:I64,seen:(RefValueArrayNonNullable),caller_program:Program}=>Completion;"
+    ));
     assert!(
         source.contains("self.emit_json_serialize_property(&parameters.holder,&parameters.key,")
     );

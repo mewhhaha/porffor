@@ -378,10 +378,7 @@ impl<'a> FunctionBuilder<'a> {
                 output.clear(function);
             }
             StandardBuiltinId::AbstractModuleSourcePrototypeToStringTagGetter => {
-                // The current host loads only Source Text Modules, whose
-                // [[ModuleSource]] is empty. No supported object is a module
-                // source, so HostGetModuleSourceModuleRecord returns not-a-source.
-                self.completion().initialize(function);
+                self.emit_module_source_to_string_tag_builtin(function)?;
             }
             StandardBuiltinId::TypedArrayConstructor => {
                 self.emit_typed_array_abstract_constructor_builtin(function)?;

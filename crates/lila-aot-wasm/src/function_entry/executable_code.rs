@@ -7,6 +7,11 @@ use crate::gc_types::{
 };
 
 impl PlannedFunctionEntry {
+    /// P-local immutable declaration identity; only its defining P may dispatch it.
+    pub(crate) fn source_id(&self) -> i64 {
+        i64::from(self.wasm_index)
+    }
+
     /// The same planned kind validates required allocation ownership and code
     /// publication. Every actual source body uses defining program ownership.
     pub(crate) fn executable_kind(&self) -> Result<ExecutableCodeKind, EmitError> {
@@ -33,9 +38,9 @@ impl PlannedFunctionEntry {
             EntryOrigin::User { .. } | EntryOrigin::PreparedScript { .. } => (None, None),
         };
         let metadata = ExecutableCodeMetadata {
-            // This identifies the declaration for diagnostics. It is never a
-            // value reference, dispatch index or object identity.
-            source_id: i64::from(self.wasm_index),
+            // This P-local identity also selects constructor plans inside that
+            // P's retained instance-elements hook. Foreign Ps never look it up.
+            source_id: self.source_id(),
             kind,
             standard_builtin,
             host_builtin,

@@ -1,3 +1,9 @@
+Compiler source checkpoint (2026-10-17): native source compilation now shares
+program code with fresh per-instance data, discards validated empty-statement
+storage, and discovers for-in initializer environments before lowering. The
+[focused checkpoint](docs/rust-rewrite/compiler-source-regression-checkpoint-20261017.json)
+contains literal native results, retained passes and outstanding verification.
+
 # Lila
 
 Numeric lexer correction (2026-10-16): numeric literals reject a following Unicode IdentifierStart, and lexer checks retain the actual LegacyOctal token classification. All **311 captured native checks pass**: 300 parser checks and 11 Front checks. The same 311 IDs retain **307 previous passes** and repair the **four earlier failing assertions**.

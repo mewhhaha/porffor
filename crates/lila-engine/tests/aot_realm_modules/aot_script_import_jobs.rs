@@ -562,13 +562,40 @@ fn unproved_eval_imports_keep_typed_capability_rejection_with_catalogued_targets
     for (module, body) in [
         (
             false,
-            r#"void import('./target.js'); var specifier = './target.js'; try { eval('import(specifier)'); } catch (_) {} true;"#,
+            r#"void import('./target.js'); var specifier = './target.js'; try { eval('import(specifier)/*' + Math.random() + '*/'); } catch (_) {} true;"#,
         ),
         (
             true,
-            r#"void import('./target.js'); try { eval('import("./target.js")'); } catch (_) {}"#,
+            r#"void import('./target.js'); try { eval('import("./target.js")/*' + Math.random() + '*/'); } catch (_) {}"#,
         ),
     ] {
+        // Merely authoring a nested import stays executable, and an abrupt
+        // specifier operand keeps its exact caller throw before capability11.
+        let idle = r#"void import('./target.js'); var marker = {}, side = 0;
+var escaped = eval('({caller:marker,later:function(){return import("./target.js");}})/*' + Math.random() + '*/');
+if (escaped.caller !== marker || typeof escaped.later !== 'function') throw 'unused import lost caller';
+try { eval('import((function(){throw marker})(), side++)/*' + Math.random() + '*/'); throw 'missing operand throw'; }
+catch (error) { if (error !== marker || side !== 0) throw 'operand effects preceded actual import boundary'; }
+true;"#;
+        std::fs::write(fixture.0.join("entry.js"), idle).unwrap();
+        let engine = Engine::new(RealmBuilder::new().build());
+        let idle_options = CompileOptions {
+            filename: Some(fixture.0.join("entry.js").to_str().unwrap().into()),
+            module_root: Some(fixture.0.to_str().unwrap().into()),
+            ..CompileOptions::default()
+        };
+        let idle_run = RunOptions {
+            backend: ExecutionBackend::WasmAot,
+            timeout_ms: Some(30_000),
+            ..RunOptions::default()
+        };
+        let idle_result = if module {
+            engine.run_module(idle, idle_options, idle_run)
+        } else {
+            engine.run_script(idle, idle_options, idle_run)
+        }
+        .expect("unexecuted external import and actual operand throw preserve caller semantics");
+        assert_eq!(idle_result.backend_used, ExecutionBackend::WasmAot);
         std::fs::write(fixture.0.join("entry.js"), body).unwrap();
         let engine = Engine::new(RealmBuilder::new().build());
         let options = CompileOptions {
@@ -588,11 +615,20 @@ fn unproved_eval_imports_keep_typed_capability_rejection_with_catalogued_targets
         };
         let error = result
             .expect_err("unknown import operands/origins cannot become catchable JS failures");
-        assert_eq!(
-            error.runtime_dynamic_source_operations(),
-            vec![lila_ir::DynamicSourceRuntimeOperation::Eval],
+        assert!(
+            error.runtime_dynamic_source_operations().is_empty(),
             "{error}"
         );
+        assert_eq!(
+            error.runtime_unavailable_capabilities(),
+            vec![lila_ir::RuntimeUnavailableCapability::ExternalCallerImport],
+            "{error}"
+        );
+        assert_eq!(
+            error.wasm_execution_failure_kind(),
+            Some(lila_engine::WasmExecutionFailureKind::UnavailableCapability)
+        );
+        assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
         assert!(error.parse_diagnostic().is_none(), "{error}");
         assert!(error.ir_diagnostic().is_none(), "{error}");
     }

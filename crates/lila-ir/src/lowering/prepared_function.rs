@@ -173,6 +173,9 @@ pub(super) fn record_prepared_compilation_stage(program: &mut ProgramIr) {
 }
 
 pub(super) fn append_prepared_unit(script: &mut ScriptIr, mut unit: ScriptIr) {
+    // A prepared unit can be the sole user of a canonical standard global.
+    // Existing source declarations/overrides in an ordinary entry stay intact.
+    super::builtin_catalog::retain_canonical_standard_globals(&mut script.global_bindings);
     script.functions.append(&mut unit.functions);
     script
         .prepared_dynamic_functions

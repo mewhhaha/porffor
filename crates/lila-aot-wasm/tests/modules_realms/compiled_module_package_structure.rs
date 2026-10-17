@@ -1,12 +1,15 @@
 const MODULE_SOURCE: &str = include_str!("../../src/module.rs");
 const OWNER_SOURCE: &str = include_str!("../../src/module/compiled_module_package.rs");
 const EMIT_SOURCE: &str = include_str!("../../src/emit/module_assembly.rs");
+const ENTRY_EXPORTS_SOURCE: &str =
+    include_str!("../../src/emit/module_assembly/program_entries.rs");
 const EMITTER_FAMILY: &str = concat!(
     include_str!("../../src/emit.rs"),
     include_str!("../../src/emit/body_compilation.rs"),
     include_str!("../../src/emit/body_entry.rs"),
     include_str!("../../src/emit/body_entry/literal_roots.rs"),
     include_str!("../../src/emit/module_assembly.rs"),
+    include_str!("../../src/emit/module_assembly/program_entries.rs"),
     include_str!("../../src/emit/module_assembly/metadata.rs"),
 );
 const CODE_SOURCE: &str = include_str!("../../src/emitted_function.rs");
@@ -166,7 +169,29 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
         "&mutself,compilation:MainFunctionCompilation<'_>,)->Result<(),EmitError>"
     )));
     assert!(compile_main.contains("assert!(self.main.is_none()"));
-    assert!(compile_main.contains("compilation.compile(self.runtime.globals())?"));
+    assert!(compact(compile_main).contains(concat!(
+        "letinitializer=self.program_initialize.as_ref().map(|(index,_)|*index);",
+        "let(main,emitted_local_count)=compilation.compile(self.runtime.globals(),initializer)?;",
+        "self.main=Some(main);self.main_emitted_local_count=emitted_local_count;"
+    )));
+    let main_plan = compact(bounded(
+        EMITTER_FAMILY,
+        "impl<'a> MainFunctionCompilation<'a> {",
+        "pub(crate) enum CompletionKind",
+    ));
+    let compile_plan = main_plan.split_once("pub(crate)fncompile(").unwrap().1;
+    assert!(compile_plan.starts_with(concat!(
+        "self,module_globals:&FinalizedModuleGlobals,",
+        "program_initialize:Option<crate::function_layout::ProgramInitializeIndex>,",
+        ")->Result<(EmittedFunction,u32),EmitError>"
+    )));
+    assert_eq!(compile_plan.matches("module_globals,").count(), 1);
+    assert_eq!(
+        compile_plan
+            .matches("builder.compile_main_with_program_initialize(program_initialize)?")
+            .count(),
+        1
+    );
     assert!(compile_main.contains("self.main = Some(main);"));
     let append_bodies = bounded(
         OWNER_SOURCE,
@@ -184,9 +209,11 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
     );
     assert!(compact(publish).contains(concat!(
         "ifletSome(main)=main{code.push(main);}",
+        "ifletSome((_,initialize))=program_initialize{code.push(initialize);}",
         "forfunctioninprogram_functions{code.push(function);}",
         "let(functions,code,function_table)=code.finish();"
     )));
+    assert!(compact(publish).contains("assert!(program_initialize.is_none()||main.is_some(),"));
     assert!(publish.contains("runtime.globals().defined_section(imported_globals)"));
     assert!(OWNER_SOURCE.contains("let (functions, code, function_table) = code.finish();"));
 
@@ -268,10 +295,40 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     assert!(!EMIT_SOURCE.contains("let main_function ="));
     assert!(EMIT_SOURCE.contains("program_functions.extend(program_helpers);"));
     assert_eq!(
-        EMIT_SOURCE
-            .matches("module_package.schema().export_snapshot_roots(&mut exports);")
+        EMIT_SOURCE.matches("let entry_exports = ProgramExports::new(kind, &layout, factory, &function_metas)?;").count(),
+        1,
+    );
+    assert!(compact(EMIT_SOURCE).contains(concat!(
+        "entry_exports.append(module_package.schema(),",
+        "script.module_entry_evaluation().is_some(),&mutexports,);"
+    )));
+    let export_plan = bounded(
+        ENTRY_EXPORTS_SOURCE,
+        "pub(super) fn new(",
+        "pub(super) fn append(",
+    );
+    assert_eq!(
+        export_plan
+            .matches("owns_globals: kind.owns_globals(),")
             .count(),
         1
+    );
+    let append_exports = ENTRY_EXPORTS_SOURCE
+        .split_once("pub(super) fn append(")
+        .expect("typed entry export consumer")
+        .1;
+    assert_eq!(
+        append_exports
+            .matches("schema.export_snapshot_roots(exports);")
+            .count(),
+        1
+    );
+    assert!(
+        compact(append_exports).contains(concat!(
+            "ifself.owns_globals{schema.export_throw_diagnostics(exports);",
+            "schema.export_snapshot_roots(exports);}"
+        )),
+        "only the instance owning the supplied package schema exports its roots"
     );
 
     for escaped_append in [

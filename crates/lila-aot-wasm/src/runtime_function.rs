@@ -1,11 +1,13 @@
 //! A fresh native Function program linked to the caller's exact immutable R.
 use std::sync::Arc;
 
-use lila_intl::{IntlCompilationProfile, IntlDataSelection};
+use lila_intl::IntlCompilationProfile;
+#[cfg(test)]
+use lila_intl::IntlDataSelection;
 use lila_ir::RuntimeFunctionProgram;
 
-use crate::{EmitError, RuntimeArtifact};
-mod runtime_profile;
+use crate::{EmitError, RuntimeArtifact, ValidatedRuntimeArtifact};
+pub(crate) mod runtime_profile;
 #[cfg(test)]
 mod tests;
 
@@ -42,9 +44,29 @@ pub fn emit_runtime_function(
     if let Some(diagnostic) = program.program().wasm_blocking_diagnostic() {
         return Err(EmitError::unsupported(diagnostic.message.clone()));
     }
-    let selection = IntlDataSelection::new(intl_profile.clone());
-    runtime_profile::require_runtime_profile(runtime.bytes(), &selection)?;
-    let emitted = crate::emit::emit_runtime_function_module(program, runtime, &selection)?;
+    let validated = ValidatedRuntimeArtifact::new(Arc::clone(runtime), intl_profile.clone())?;
+    emit_validated(program, &validated)
+}
+
+/// Emit P against an immutable R whose current layout and selected Intl image
+/// were admitted once. The proof retains the exact R Arc; Wasm linking still
+/// checks the actual graph when the native host instantiates this P.
+pub fn emit_runtime_function_with_validated_runtime(
+    program: &RuntimeFunctionProgram,
+    validated: &ValidatedRuntimeArtifact,
+) -> Result<RuntimeFunctionArtifact, EmitError> {
+    if let Some(diagnostic) = program.program().wasm_blocking_diagnostic() {
+        return Err(EmitError::unsupported(diagnostic.message.clone()));
+    }
+    emit_validated(program, validated)
+}
+
+fn emit_validated(
+    program: &RuntimeFunctionProgram,
+    validated: &ValidatedRuntimeArtifact,
+) -> Result<RuntimeFunctionArtifact, EmitError> {
+    let runtime = validated.runtime();
+    let emitted = crate::emit::emit_runtime_function_module(program, validated)?;
     if emitted.runtime_layout.is_some()
         || !emitted
             .artifact

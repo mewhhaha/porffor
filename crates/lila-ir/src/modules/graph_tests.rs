@@ -1502,7 +1502,7 @@ fn a_source_phase_import_rejects_a_source_text_module() {
     );
     assert_eq!(
         namespace_target_reference(&graph.units[0].resolved_imports[0]),
-        None
+        Some(MergedName::minted(target, UnitCellRole::ModuleSource))
     );
 }
 
@@ -2185,3 +2185,6 @@ fn the_unit_id_cap_is_inclusive() {
     )
     .is_ok_and(|id| id <= MAX_LINKABLE_MODULE_UNIT_ID));
 }
+
+#[path = "graph_source_phase_export_tests.rs"]
+mod source_phase_exports;

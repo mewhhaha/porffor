@@ -4,19 +4,12 @@ use lila_engine::{
 };
 use lila_ir::{DynamicFunctionKind, DynamicSourceRuntimeOperation};
 
-fn assert_runtime_capability_rejection(
-    intrinsic: &str,
-    source: &str,
-    expected: DynamicSourceRuntimeOperation,
-) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+fn assert_native_invocation(intrinsic: &str, source: &str, expected: &str) {
+    lila_engine::configure_compilation_jobs(1).unwrap();
     let script = format!(
-        "var holder = {{ invoke: {intrinsic} }}; \
-         var hook = new Proxy(function() {{}}, {{}}); hook(); \
-         try {{ holder.invoke({source:?} + '/*' + Math.random() + '*/'); }} catch (error) {{ print('caught'); }} \
-         print('continued');"
+        "var holder={{invoke:{intrinsic}}};var hook=new Proxy(function(){{}},{{}});hook();var actual=holder.invoke({source:?}+'/*'+Math.random()+'*/');{expected};"
     );
-    let error = Engine::new(RealmBuilder::new().build())
+    let outcome = Engine::new(RealmBuilder::new().build())
         .run_script(
             &script,
             CompileOptions {
@@ -28,24 +21,15 @@ fn assert_runtime_capability_rejection(
                 ..RunOptions::default()
             },
         )
-        .expect_err("a dynamic source capability rejection cannot be caught by JavaScript");
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![expected],
-        "{error}"
-    );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
+        .expect("actual late native source invocation executes");
+    assert!(outcome.note.contains("boolean(true)"), "{}", outcome.note);
 }
 
+// Historical selector retained; these two global-source operations now compile natively.
 #[test]
 fn late_eval_intrinsic_rejections_keep_the_runtime_operation() {
-    assert_runtime_capability_rejection("eval", "1", DynamicSourceRuntimeOperation::Eval);
-    assert_runtime_capability_rejection(
-        "__lilaRealmEvalScript",
-        "1",
-        DynamicSourceRuntimeOperation::RealmEvalScript,
-    );
+    assert_native_invocation("eval", "1", "actual===1");
+    assert_native_invocation("__lilaRealmEvalScript", "1", "actual===1");
 }
 
 #[test]
@@ -212,9 +196,7 @@ referenceErrorBeforeArguments;
 #[test]
 fn agent_runtime_capability_failure_keeps_its_typed_reason() {
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
-    let worker = "var holder = { invoke: eval }; \
-                  var hook = new Proxy(function() {}, {}); hook(); \
-                  try { holder.invoke('1/*' + Math.random() + '*/'); } catch (error) {}";
+    let worker = "new ShadowRealm().evaluate('1/*' + Math.random() + '*/');";
     let error = Engine::new(RealmBuilder::new().build())
         .run_wasm_aot_script_with_agents(
             &format!("__lilaAgentStart({worker:?});"),
@@ -229,7 +211,7 @@ fn agent_runtime_capability_failure_keeps_its_typed_reason() {
         .expect_err("the owner must retain a worker's dynamic source capability failure");
     assert_eq!(
         error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate],
         "{error}"
     );
     assert!(error.ir_diagnostic().is_none(), "{error}");
@@ -252,77 +234,82 @@ fn agent_script_error(source: &str) -> EngineError {
         .expect_err("root and worker failures must remain observable")
 }
 
-const RUNTIME_DIRECT_EVAL: &str = "eval('1/*' + Math.random() + '*/');";
-const COMPILE_UNSUPPORTED_REALM_SCRIPT: &str = "__lilaRealmEvalScript(globalThis.unknownSource);";
-const RUNTIME_INDIRECT_EVAL: &str = "globalThis.unknownSource = '1/*' + Math.random() + '*/'; \
-     eval.call(undefined, globalThis.unknownSource);";
+const RUNTIME_DIRECT_EVAL: &str = "function caller(){var marker={value:41},seen;var actual=eval('seen=marker;marker.value+=1;marker;/*'+Math.random()+'*/');if(actual!==marker||seen!==marker||marker.value!==42)throw 'native direct caller identity/effects';}caller();";
+const COMPILE_UNSUPPORTED_REALM_SCRIPT: &str =
+    "__lilaRealmEvalScript(\"import(globalThis.moduleSpecifier);\");";
+const RUNTIME_INDIRECT_EVAL: &str =
+    "globalThis.unknownSource = 'globalThis.nativeAgentValue=42;42;/*' + Math.random() + '*/'; \
+     var nativeAgentResult=eval.call(undefined,globalThis.unknownSource);";
 
-const EVAL_WORKER: &str = "var holder = { invoke: eval }; \
-    var hook = new Proxy(function() {}, {}); hook(); holder.invoke('1/*' + Math.random() + '*/');";
+const CAPABILITY_WORKER: &str = "new ShadowRealm().evaluate('1/*' + Math.random() + '*/');";
 
 #[test]
 fn direct_eval_worker_reports_runtime_source_rejection_after_compilation() {
-    let error = agent_script_error(&format!("__lilaAgentStart({RUNTIME_DIRECT_EVAL:?});"));
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
-        "{error}"
-    );
-    assert_eq!(
-        error.wasm_execution_failure_kind(),
-        Some(WasmExecutionFailureKind::DynamicSource)
-    );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
+    // Historical selector retained; valid worker direct eval now enters native P2.
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_wasm_aot_script_with_agents(
+            &format!("__lilaAgentStart({RUNTIME_DIRECT_EVAL:?});"),
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            Some(120_000),
+            true,
+            String::new(),
+        )
+        .expect("worker direct source executes and validates actual caller references/effects");
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
 }
 
+// Historical selector retained; worker indirect eval now uses the real native compiler.
 #[test]
 fn indirect_eval_worker_reports_runtime_source_rejection_after_compilation() {
-    let error = agent_script_error(&format!("__lilaAgentStart({RUNTIME_INDIRECT_EVAL:?});"));
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
-        "{error}"
+    lila_engine::configure_compilation_jobs(1).unwrap();
+    let worker = format!(
+        "{RUNTIME_INDIRECT_EVAL} if(nativeAgentResult!==42||globalThis.nativeAgentValue!==42)throw new Error('native source did not execute');"
     );
-    assert_eq!(
-        error.wasm_execution_failure_kind(),
-        Some(WasmExecutionFailureKind::DynamicSource),
-        "{error}"
-    );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
-    assert_eq!(
-        error.wasm_javascript_exception_constructor_name(),
-        None,
-        "{error}"
-    );
+    let outcome = Engine::new(RealmBuilder::new().build())
+        .run_wasm_aot_script_with_agents(
+            &format!("__lilaAgentStart({worker:?});"),
+            CompileOptions {
+                host_surface_policy: HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            Some(120_000),
+            true,
+            String::new(),
+        )
+        .expect("worker actual indirect source executes natively");
+    assert_eq!(outcome.backend_used, ExecutionBackend::WasmAot);
 }
 
 #[test]
 fn multiple_workers_retain_distinct_runtime_capability_reasons() {
-    let function_worker = "var holder = { invoke: Function }; \
-        var hook = new Proxy(function() {}, {}); hook(); holder.invoke('return 1/*' + Math.random() + '*/');";
+    let import_worker = "eval('import(\"missing-bridge\")/*'+Math.random()+'*/');";
     let error = agent_script_error(&format!(
-        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart({function_worker:?});"
+        "__lilaAgentStart({import_worker:?}); __lilaAgentStart({CAPABILITY_WORKER:?});"
     ));
     assert_eq!(
         error.runtime_dynamic_source_operations(),
-        vec![
-            DynamicSourceRuntimeOperation::Eval,
-            DynamicSourceRuntimeOperation::Function(DynamicFunctionKind::Ordinary),
-        ],
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate],
+        "{error}"
+    );
+    assert_eq!(
+        error.runtime_unavailable_capabilities(),
+        vec![lila_ir::RuntimeUnavailableCapability::ExternalCallerImport],
         "{error}"
     );
     assert_eq!(
         error.wasm_execution_failure_kind(),
-        Some(WasmExecutionFailureKind::DynamicSource)
+        Some(WasmExecutionFailureKind::UnavailableCapability)
     );
 }
 
 #[test]
 fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
     let error = agent_script_error(&format!(
-        "__lilaAgentStart({EVAL_WORKER:?}); __lilaAgentStart({COMPILE_UNSUPPORTED_REALM_SCRIPT:?});"
+        "__lilaAgentStart({CAPABILITY_WORKER:?}); __lilaAgentStart({COMPILE_UNSUPPORTED_REALM_SCRIPT:?});"
     ));
     assert_eq!(
         error.wasm_execution_failure_kind(),
@@ -331,7 +318,7 @@ fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
     );
     assert_eq!(
         error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate],
         "{error}"
     );
     assert_eq!(error.wasm_javascript_exception_constructor_name(), None);
@@ -342,13 +329,13 @@ fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
         "{error}"
     );
     let compile_gap = lila_ir::IrDiagnostic::unsupported_dynamic_source(
-        lila_ir::DynamicSourceGap::runtime_source(lila_ir::DynamicSourceKind::RealmEvalScript),
+        lila_ir::DynamicSourceGap::aot_known_source(lila_ir::DynamicSourceKind::RealmEvalScript),
     );
     assert!(error.message().contains(&compile_gap.message), "{error}");
     assert!(
         error
             .message()
-            .contains(&DynamicSourceRuntimeOperation::Eval.to_string()),
+            .contains(&DynamicSourceRuntimeOperation::ShadowRealmEvaluate.to_string()),
         "{error}"
     );
 }
@@ -356,7 +343,7 @@ fn worker_compile_and_runtime_capabilities_remain_unsupported_together() {
 #[test]
 fn root_js_exception_and_worker_capability_keep_both_failures() {
     let error = agent_script_error(&format!(
-        "__lilaAgentStart({EVAL_WORKER:?}); throw new TypeError('root marker');"
+        "__lilaAgentStart({CAPABILITY_WORKER:?}); throw new TypeError('root marker');"
     ));
     assert_eq!(
         error.wasm_execution_failure_kind(),
@@ -364,7 +351,7 @@ fn root_js_exception_and_worker_capability_keep_both_failures() {
     );
     assert_eq!(
         error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval]
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate]
     );
     assert!(error.message().contains("root marker"), "{error}");
     assert!(error.message().contains("dynamic-source"), "{error}");
@@ -373,7 +360,7 @@ fn root_js_exception_and_worker_capability_keep_both_failures() {
 #[test]
 fn mixed_worker_exceptions_and_capabilities_are_not_root_js_exceptions() {
     let error = agent_script_error(&format!(
-        "__lilaAgentStart(\"throw new TypeError('worker marker');\"); __lilaAgentStart({EVAL_WORKER:?});"
+        "__lilaAgentStart(\"throw new TypeError('worker marker');\"); __lilaAgentStart({CAPABILITY_WORKER:?});"
     ));
     assert_eq!(
         error.wasm_execution_failure_kind(),
@@ -382,7 +369,7 @@ fn mixed_worker_exceptions_and_capabilities_are_not_root_js_exceptions() {
     );
     assert_eq!(
         error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval]
+        vec![DynamicSourceRuntimeOperation::ShadowRealmEvaluate]
     );
     assert!(error.message().contains("worker marker"), "{error}");
 }

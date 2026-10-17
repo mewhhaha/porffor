@@ -454,7 +454,7 @@ const realm = new ShadowRealm();
                         statement,
                         crate::StatementIr::Expression(crate::TypedExpr {
                             expr: crate::ExprIr::DynamicImport {
-                                referrer: Some(0),
+                                referrer: crate::ImportCallSourceOriginIr::Local(Some(0)),
                                 ..
                             },
                             ..

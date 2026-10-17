@@ -81,6 +81,9 @@ impl<'a> ScriptLowerer<'a> {
                 Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
+                Some(ResolvedDynamicSourceCall::RealmScriptInvocation(proof)) => {
+                    pass_through_results.insert(function_id.clone(), proof.into_result_info());
+                }
                 Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
                     pass_through_results.insert(function_id.clone(), proof.into_result_info());
                 }
@@ -452,6 +455,7 @@ impl<'a> ScriptLowerer<'a> {
                 None => {}
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(_))
                 | Some(ResolvedDynamicSourceCall::IndirectEvalInvocation(_))
+                | Some(ResolvedDynamicSourceCall::RealmScriptInvocation(_))
                 | Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(_))
                 | Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(_)) => {
                     unreachable!("source-evaluation intrinsics are not constructable")

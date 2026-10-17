@@ -45,7 +45,17 @@ fn cache_adoption_preserves_the_exact_requested_policy_in_the_execution_ref() {
     // executed and does not stand in for a native Function acceptance result.
     let bytes = b"\0asm\x01\0\0\0";
     let mut keys = Vec::new();
-    for options in [CompileOptions::default(), selected_options()] {
+    for options in [
+        CompileOptions::default(),
+        selected_options(),
+        CompileOptions {
+            language_features: crate::LanguageFeaturePolicy::default()
+                .with_private_element_extensibility(
+                    crate::PrivateElementExtensibility::NonExtensibleAppliesToPrivate,
+                ),
+            ..CompileOptions::default()
+        },
+    ] {
         let key = crate::program_wasm_cache_key("0;", ParseGoal::Script, &options).unwrap();
         assert!(cache.write(
             &key,
@@ -67,5 +77,36 @@ fn cache_adoption_preserves_the_exact_requested_policy_in_the_execution_ref() {
         keys.push(key);
     }
     assert_ne!(keys[0], keys[1]);
+    assert_ne!(keys[0], keys[2]);
+    assert_ne!(keys[1], keys[2]);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn language_feature_policy_survives_lowering_emission_cache_and_agent_handoff() {
+    let base = CompileOptions::default();
+    let enabled = CompileOptions {
+        language_features: crate::LanguageFeaturePolicy::default()
+            .with_private_element_extensibility(
+                crate::PrivateElementExtensibility::NonExtensibleAppliesToPrivate,
+            ),
+        ..CompileOptions::default()
+    };
+    assert_ne!(
+        crate::program_wasm_cache_key("0;", ParseGoal::Script, &base),
+        crate::program_wasm_cache_key("0;", ParseGoal::Script, &enabled),
+    );
+    for options in [base, enabled] {
+        let expected = WasmCompilationPolicy::from_options(&options);
+        let worker = crate::WasmAgentCompilePolicy::from_root(&options).worker_options();
+        assert_eq!(worker.language_features, options.language_features);
+        let unit = Engine::new(RealmBuilder::new().build())
+            .compile_script("0;", options)
+            .unwrap();
+        assert_eq!(WasmCompilationPolicy::from_unit(&unit), expected);
+        let artifact = Engine::new(RealmBuilder::new().build())
+            .emit_wasm(&unit)
+            .unwrap();
+        assert_eq!(artifact.compilation_policy.as_ref(), Some(&expected));
+    }
 }

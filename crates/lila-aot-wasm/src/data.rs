@@ -1,5 +1,9 @@
 use super::*;
 mod program_metadata;
+mod shared_pool_storage;
+pub(crate) use shared_pool_storage::PoolBytes;
+use shared_pool_storage::PoolStringRefs;
+mod compiler_owned_pool;
 pub(crate) use program_metadata::{
     PooledLiteralOperand, ProgramMetadataSpan, POOLED_LITERAL_PROGRAM_DOMAIN,
     POOLED_LITERAL_RUNTIME_DOMAIN,
@@ -372,14 +376,15 @@ impl PoolBoundary {
 #[derive(Debug, Default)]
 pub(crate) struct StringPool {
     compiler_owned: PoolBoundary,
+    shared_prefix: Option<std::sync::Arc<CompilerOwnedPool>>,
     intl_supported_values: Option<Result<CompiledSupportedValuesTables, SupportedValuesPoolError>>,
     intl_default_locale: Option<lila_intl::CanonicalLocaleId>,
-    pub(crate) bytes: Vec<u8>,
+    pub(crate) bytes: PoolBytes,
     module_bytes: BTreeMap<lila_ir::ModuleUnitId, PooledModuleBytes>,
     compact_array_recipes: compact_array_recipes::CompactArrayRecipes,
     numeric_call_tables: crate::call_rows::NumericCallTables,
-    pooled_code_unit_bytes: Vec<u8>,
-    refs: BTreeMap<String, StringRef>,
+    pooled_code_unit_bytes: PoolBytes,
+    refs: PoolStringRefs,
     source_runtime_error_messages: BTreeMap<String, i64>,
     script_string_literals: BTreeSet<String>,
     runtime_regexp_candidate_literals: BTreeSet<String>,
@@ -434,6 +439,10 @@ impl StringPool {
     pub(crate) fn intl_default_locale(&self) -> Result<&lila_intl::CanonicalLocaleId, EmitError> {
         self.intl_default_locale
             .as_ref()
+            .or_else(|| {
+                self.runtime_prefix()
+                    .and_then(|prefix| prefix.intl_default_locale.as_ref())
+            })
             .ok_or_else(|| EmitError::unsupported("missing selected Unicode case DefaultLocale"))
     }
 
@@ -472,7 +481,8 @@ fn is_runtime_owned_function(id: &str, meta: &WasmFunctionMeta) -> bool {
 ///
 /// Only this type can start script collection, so script-derived strings and
 /// bytes always land after every constant builtin bodies can reference.
-struct CompilerOwnedPool(StringPool);
+#[derive(Debug)]
+pub(crate) struct CompilerOwnedPool(StringPool);
 
 impl CompilerOwnedPool {
     fn collect(
@@ -3052,8 +3062,13 @@ impl StringPool {
                 self.uses_heap = true;
                 self.collect_expr(entry.evaluation());
             }
-            ExprIr::ModuleExecutionGraph(_)
-            | ExprIr::ModuleBindingRead(_)
+            ExprIr::ModuleExecutionGraph(graph) => {
+                self.uses_heap = true;
+                for source in graph.source_records() {
+                    self.intern_string(source.source_tag());
+                }
+            }
+            ExprIr::ModuleBindingRead(_)
             | ExprIr::ModuleEvaluate(_)
             | ExprIr::DeferredModuleEvaluate(_)
             | ExprIr::ModuleHasAsyncDependencies(_)
@@ -4078,6 +4093,9 @@ impl StringPool {
         let key = RegExpProgramStaticKey::from_program(program);
         if self.regexp_programs.contains_key(&key)
             || self
+                .runtime_prefix()
+                .is_some_and(|prefix| prefix.regexp_programs.contains_key(&key))
+            || self
                 .pending_regexp_programs
                 .iter()
                 .any(|pending| pending == &key)
@@ -4190,6 +4208,10 @@ impl StringPool {
                         *self
                             .regexp_programs
                             .get(&key)
+                            .or_else(|| {
+                                self.runtime_prefix()
+                                    .and_then(|prefix| prefix.regexp_programs.get(&key))
+                            })
                             .expect("queued runtime RegExp program must have static data"),
                     ),
                     CandidateOutcome::Rejected => RuntimeRegExpEntry::Rejected,
@@ -4319,7 +4341,7 @@ impl StringPool {
 
     fn append_regexp_case_folding_tables(&mut self) {
         for folding in self.needed_regexp_case_folding.clone() {
-            if self.regexp_case_folding_tables.contains_key(&folding) {
+            if self.regexp_case_folding_table(folding).is_some() {
                 continue;
             }
             let mappings = folding.mappings();
@@ -4343,7 +4365,13 @@ impl StringPool {
         &self,
         folding: RegExpCaseFolding,
     ) -> Option<RegExpCaseFoldingTable> {
-        self.regexp_case_folding_tables.get(&folding).copied()
+        self.regexp_case_folding_tables
+            .get(&folding)
+            .or_else(|| {
+                self.runtime_prefix()
+                    .and_then(|prefix| prefix.regexp_case_folding_tables.get(&folding))
+            })
+            .copied()
     }
 
     pub(crate) fn runtime_bytes_for_string(value: &str) -> Vec<u8> {
@@ -4452,17 +4480,12 @@ impl StringPool {
     /// shared linear memory. Compact recipes use their P module's passive image.
     pub(crate) fn append_program_data(&self, section: &mut wasm_encoder::DataSection) {
         assert_eq!(section.len(), PooledCodeUnits::DATA_SEGMENT);
-        let boundary = self.compiler_owned;
-        section.passive(
-            self.pooled_code_unit_bytes[boundary.code_unit_bytes..]
-                .iter()
-                .copied(),
-        );
-        section.passive(self.bytes[boundary.static_bytes..].iter().copied());
+        section.passive(self.program_utf16_bytes().iter().copied());
+        section.passive(self.program_metadata_bytes().iter().copied());
         self.program_string_descriptor_image()
             .append_passive(section);
         assert_eq!(section.len(), COMPACT_ARRAY_RECIPE_SEGMENT);
-        section.passive(self.compact_array_recipes.bytes().iter().copied());
+        section.passive(self.program_recipe_bytes().iter().copied());
     }
 
     /// Segment index of the program's passive static bytes.
@@ -4488,7 +4511,7 @@ impl StringPool {
     ) -> impl Iterator<Item = (PooledStringIndex, PooledCodeUnits)> + '_ {
         let boundary = self.compiler_owned;
         self.refs
-            .values()
+            .program_values()
             .filter(move |reference| reference.index.ordinal() >= boundary.strings)
             .map(move |reference| {
                 (
@@ -4577,6 +4600,13 @@ impl StringPool {
         *self
             .regexp_programs
             .get(&RegExpProgramStaticKey::from_program(program))
+            .or_else(|| {
+                self.runtime_prefix().and_then(|prefix| {
+                    prefix
+                        .regexp_programs
+                        .get(&RegExpProgramStaticKey::from_program(program))
+                })
+            })
             .expect("collected RegExp literal program must have static data")
     }
 

@@ -83,7 +83,7 @@ fn assert_pool_matches_reference(reference: &NormalizationTables, prefix: usize)
     use super::super::StringPool;
     let mut expected = vec![0xa5; prefix];
     let mut pool = StringPool {
-        bytes: expected.clone(),
+        bytes: expected.clone().into(),
         ..StringPool::default()
     };
     let canonical_sequences =

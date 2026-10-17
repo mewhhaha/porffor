@@ -826,7 +826,7 @@ impl ScriptLowerer<'_> {
         }
     }
 
-    fn merge_signature_propagation(&mut self, propagated: BTreeMap<FunctionId, FunctionSignature>) {
+    fn merge_signature_propagation(&mut self, propagated: FunctionSignatures) {
         let function_ids = self.analysis.function_order.clone();
         for function_id in function_ids {
             let Some(propagated_signature) = propagated.get(&function_id) else {

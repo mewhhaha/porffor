@@ -244,8 +244,8 @@ fn wasm_aot_execution_stack_is_the_exact_private_no_capability_domain() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(
         count_in_rust_sources(&source_root, "WasmAotExecutionStack"),
-        8,
-        "one declaration, one parameter, two produced choices and four exhaustive arms own the authority"
+        9,
+        "one declaration, two private routing parameters, two produced choices and four exhaustive arms own the authority"
     );
     assert_eq!(
         count_in_rust_sources(&source_root, "WasmAotExecutionStack::DedicatedWorker"),
@@ -426,11 +426,27 @@ fn both_execution_entry_points_produce_their_exact_stack_authority() {
 
 #[test]
 fn execution_stack_is_borrowed_exhaustively_before_exact_ordered_engine_routes() {
-    let routing = bounded(
+    let dispatch_owner = bounded(
         OWNER_SOURCE,
-        "        let run_result = ",
-        "\n\n        if let Some(lines) = &async_output {",
+        "fn execute_materialized_case(",
+        "fn run_one_case_with_execution(",
     );
+    let routing = bounded(
+        dispatch_owner,
+        "    let agent_prelude = materialized.agent_prelude.clone();\n\n",
+        "\n}\n",
+    );
+    let wrapper = bounded(
+        OWNER_SOURCE,
+        "fn run_one_case_with_wasm_aot_execution(",
+        "fn execute_materialized_case(",
+    );
+    assert!(lexically_normalized_code(wrapper).contains(
+        "execute_materialized_case(engine,materialized,compile_options,run_options,wasm_aot_execution_stack,)"
+    ));
+    assert!(OWNER_SOURCE.contains(
+        "let run_result = execute(&engine, &materialized, compile_options, run_options);"
+    ));
     // Reported async failures are retained between the engine route and the
     // negative-expectation check, so an expected throw cannot hide them.
     let async_retention = bounded(
@@ -442,60 +458,61 @@ fn execution_stack_is_borrowed_exhaustively_before_exact_ordered_engine_routes()
     assert!(async_retention.contains("return Err(classify_failure_with_outcome("));
     assert!(!async_retention.contains("_ =>"));
     let expected = r#"if execution_backend == ExecutionBackend::WasmAot
-            && !materialized.execution_mode().is_module()
-            && agent_prelude.is_some()
-            && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
-                WasmAotExecutionStack::DedicatedWorker => false,
-                WasmAotExecutionStack::PersistentTest262Worker => true,
-            }) {
-            engine.run_wasm_aot_script_with_agents_on_current_thread(
+        && !materialized.execution_mode().is_module()
+        && agent_prelude.is_some()
+        && (match &wasm_aot_execution_stack {
+            #[cfg(test)]
+            WasmAotExecutionStack::DedicatedWorker => false,
+            WasmAotExecutionStack::PersistentTest262Worker => true,
+        })
+    {
+        engine.run_wasm_aot_script_with_agents_on_current_thread(
+            &materialized.source,
+            compile_options,
+            run_options.timeout_ms,
+            run_options.can_block,
+            agent_prelude
+                .clone()
+                .expect("agent prelude was checked above"),
+        )
+    } else if execution_backend == ExecutionBackend::WasmAot
+        && !materialized.execution_mode().is_module()
+        && agent_prelude.is_some()
+    {
+        engine.run_wasm_aot_script_with_agents(
+            &materialized.source,
+            compile_options,
+            run_options.timeout_ms,
+            run_options.can_block,
+            agent_prelude.expect("agent prelude was checked above"),
+        )
+    } else if execution_backend == ExecutionBackend::WasmAot
+        && (match &wasm_aot_execution_stack {
+            #[cfg(test)]
+            WasmAotExecutionStack::DedicatedWorker => false,
+            WasmAotExecutionStack::PersistentTest262Worker => true,
+        })
+    {
+        if materialized.execution_mode().is_module() {
+            engine.run_wasm_aot_module_on_current_thread(
                 &materialized.source,
                 compile_options,
                 run_options.timeout_ms,
                 run_options.can_block,
-                agent_prelude
-                    .clone()
-                    .expect("agent prelude was checked above"),
             )
-        } else if execution_backend == ExecutionBackend::WasmAot
-            && !materialized.execution_mode().is_module()
-            && agent_prelude.is_some()
-        {
-            engine.run_wasm_aot_script_with_agents(
-                &materialized.source,
-                compile_options,
-                run_options.timeout_ms,
-                run_options.can_block,
-                agent_prelude.expect("agent prelude was checked above"),
-            )
-        } else if execution_backend == ExecutionBackend::WasmAot
-            && (match &wasm_aot_execution_stack {
-                #[cfg(test)]
-                WasmAotExecutionStack::DedicatedWorker => false,
-                WasmAotExecutionStack::PersistentTest262Worker => true,
-            })
-        {
-            if materialized.execution_mode().is_module() {
-                engine.run_wasm_aot_module_on_current_thread(
-                    &materialized.source,
-                    compile_options,
-                    run_options.timeout_ms,
-                    run_options.can_block,
-                )
-            } else {
-                engine.run_wasm_aot_script_on_current_thread(
-                    &materialized.source,
-                    compile_options,
-                    run_options.timeout_ms,
-                    run_options.can_block,
-                )
-            }
-        } else if materialized.execution_mode().is_module() {
-            engine.run_module(&materialized.source, compile_options, run_options)
         } else {
-            engine.run_script(&materialized.source, compile_options, run_options)
-        };"#;
+            engine.run_wasm_aot_script_on_current_thread(
+                &materialized.source,
+                compile_options,
+                run_options.timeout_ms,
+                run_options.can_block,
+            )
+        }
+    } else if materialized.execution_mode().is_module() {
+        engine.run_module(&materialized.source, compile_options, run_options)
+    } else {
+        engine.run_script(&materialized.source, compile_options, run_options)
+    }"#;
     assert_eq!(
         trimmed_nonempty_lines(routing),
         trimmed_nonempty_lines(expected)

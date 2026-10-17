@@ -7,14 +7,12 @@ use lila_intl::{
 use std::{collections::BTreeMap, sync::Arc};
 use wasmparser::{Parser, Payload};
 
-pub(super) fn require_runtime_profile(
+pub(crate) fn require_runtime_profile(
     bytes: &[u8],
     selection: &IntlDataSelection,
 ) -> Result<(), EmitError> {
     let selected = selection.selected().map_err(|error| {
-        EmitError::unsupported(format!(
-            "failed to select native Function Intl data: {error}"
-        ))
+        EmitError::unsupported(format!("failed to select native source Intl data: {error}"))
     })?;
     let mut expected: BTreeMap<&str, Arc<[u8]>> =
         selected.component_sections().into_iter().collect();
@@ -39,7 +37,7 @@ pub(super) fn require_runtime_profile(
                     .is_some_and(|value| value.as_ref() == section.data())
                 {
                     return Err(EmitError::unsupported(
-                        "native Function Intl data differs from the actual current runtime",
+                        "native source Intl data differs from the actual current runtime",
                     ));
                 }
             }
@@ -47,7 +45,7 @@ pub(super) fn require_runtime_profile(
     }
     if !expected.is_empty() {
         return Err(EmitError::unsupported(
-            "current runtime omits the selected native Function Intl data",
+            "current runtime omits the selected native source Intl data",
         ));
     }
     Ok(())

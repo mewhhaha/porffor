@@ -21,7 +21,10 @@ fn descriptor_rows_keep_only_program_local_slots_and_utf16_spans() {
     pool.intern_string("name");
     let image = pool.program_string_descriptor_image();
     assert_eq!(image.count(), 5);
-    assert_eq!(&pool.pooled_code_unit_bytes[..runtime.len()], runtime);
+    assert_eq!(
+        &pool.pooled_code_unit_bytes[..runtime.len()],
+        runtime.as_slice()
+    );
     let program = &pool.pooled_code_unit_bytes[runtime.len()..];
     let mut decoded = BTreeMap::new();
     for row in image

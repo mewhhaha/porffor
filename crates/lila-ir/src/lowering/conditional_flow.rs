@@ -10,7 +10,7 @@ pub(super) struct ConditionalFlowFacts {
     var_bindings: BTreeMap<String, VarBindingInfo>,
     current_this_binding: CurrentThisBinding,
     current_construct_this_info: Option<ValueInfo>,
-    global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    global_properties: GlobalProperties,
     well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
     nested_script_global_value_infos: BTreeMap<String, ValueInfo>,
     array_prototype_mutated: bool,
@@ -321,20 +321,36 @@ impl<'a> ScriptLowerer<'a> {
 
     pub(super) fn merge_global_properties(
         &self,
-        left: &BTreeMap<String, GlobalPropertyInfo>,
-        right: &BTreeMap<String, GlobalPropertyInfo>,
-    ) -> BTreeMap<String, GlobalPropertyInfo> {
-        let mut merged = BTreeMap::new();
-        for name in left.keys().chain(right.keys()) {
-            if merged.contains_key(name) {
-                continue;
-            }
-            let (Some(left_info), Some(right_info)) = (left.get(name), right.get(name)) else {
+        left: &GlobalProperties,
+        right: &GlobalProperties,
+    ) -> GlobalProperties {
+        // An unchanged baseline fact joins with itself. Visit only deviations
+        // when both branches share that immutable recipe catalog.
+        let shared = left.same_baseline(right);
+        let mut merged = if shared {
+            left.empty_changes()
+        } else {
+            GlobalProperties::default()
+        };
+        let names = if shared {
+            left.changed_keys()
+                .chain(right.changed_keys())
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        } else {
+            left.keys()
+                .chain(right.keys())
+                .cloned()
+                .collect::<BTreeSet<_>>()
+        };
+        for name in names {
+            let (Some(left_info), Some(right_info)) = (left.get(&name), right.get(&name)) else {
+                merged.set_effective(name, None);
                 continue;
             };
-            merged.insert(
-                name.clone(),
-                GlobalPropertyInfo {
+            merged.set_effective(
+                name,
+                Some(GlobalPropertyInfo {
                     value_info: self.merge_value_infos(
                         left_info.value_info.clone(),
                         right_info.value_info.clone(),
@@ -346,7 +362,7 @@ impl<'a> ScriptLowerer<'a> {
                     } else {
                         GlobalPropertySource::Merged
                     },
-                },
+                }),
             );
         }
         merged

@@ -14,6 +14,9 @@ pub(super) enum ModuleExecutionEntry {
 /// An ultimate module environment cell, resolved before Wasm emission.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleCellIr {
+    ModuleSource {
+        module: ModuleUnitId,
+    },
     Binding {
         module: ModuleUnitId,
         slot: u32,
@@ -22,6 +25,24 @@ pub enum ModuleCellIr {
         module: ModuleUnitId,
         mode: ModuleNamespaceModeIr,
     },
+}
+
+/// An actual host-owned source record; its identity is the graph's unit id.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleSourceRecordIr {
+    module: ModuleUnitId,
+    source_tag: String,
+}
+impl ModuleSourceRecordIr {
+    pub(super) fn new(module: ModuleUnitId, source_tag: String) -> Self {
+        Self { module, source_tag }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+    pub fn source_tag(&self) -> &str {
+        &self.source_tag
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +117,7 @@ impl ModuleActivationIr {
 pub struct ModuleExecutionGraphIr {
     record_count: u32,
     activations: Vec<ModuleActivationIr>,
+    source_records: Vec<ModuleSourceRecordIr>,
     initializer: Option<FunctionId>,
     realm_requests:
         std::collections::BTreeMap<super::ModuleRequestKeyIr, super::RealmModuleResolutionIr>,
@@ -108,6 +130,7 @@ impl ModuleExecutionGraphIr {
     pub(super) fn new(
         record_count: u32,
         activations: Vec<ModuleActivationIr>,
+        source_records: Vec<ModuleSourceRecordIr>,
         entry: ModuleExecutionEntry,
     ) -> Self {
         let functions: std::collections::BTreeSet<_> = activations
@@ -126,9 +149,24 @@ impl ModuleExecutionGraphIr {
             activations.len(),
             "a module has one activation"
         );
+        let native_modules: std::collections::BTreeSet<_> = source_records
+            .iter()
+            .map(ModuleSourceRecordIr::module)
+            .collect();
+        assert_eq!(
+            native_modules.len(),
+            source_records.len(),
+            "a native source record has one descriptor"
+        );
+        assert!(
+            native_modules
+                .iter()
+                .all(|module| *module < record_count && !modules.contains(module)),
+            "native source records own valid non-activation identities"
+        );
         match entry {
             ModuleExecutionEntry::Module(module) => assert!(
-                modules.contains(&module),
+                (modules.contains(&module) || native_modules.contains(&module)),
                 "a Module entry owns a compiled activation"
             ),
             ModuleExecutionEntry::Script(script) => {
@@ -137,7 +175,7 @@ impl ModuleExecutionGraphIr {
                     "the Script belongs to the loaded graph"
                 );
                 assert!(
-                    !modules.contains(&script),
+                    !modules.contains(&script) && !native_modules.contains(&script),
                     "a Script entry never becomes a module activation"
                 );
             }
@@ -150,12 +188,14 @@ impl ModuleExecutionGraphIr {
             activations
                 .iter()
                 .flat_map(ModuleActivationIr::requests)
-                .all(|request| modules.contains(&request.target())),
+                .all(|request| modules.contains(&request.target())
+                    || native_modules.contains(&request.target())),
             "every requested module has an activation"
         );
         Self {
             record_count,
             activations,
+            source_records,
             initializer: None,
             realm_requests: Default::default(),
             realm_import_dispatcher: None,
@@ -192,10 +232,14 @@ impl ModuleExecutionGraphIr {
     ) -> Self {
         assert!(
             requests.values().all(|resolution| match resolution {
-                super::RealmModuleResolutionIr::Loaded(module) => self
-                    .activations
-                    .iter()
-                    .any(|activation| activation.module() == *module),
+                super::RealmModuleResolutionIr::Loaded(module) =>
+                    self.activations
+                        .iter()
+                        .any(|activation| activation.module() == *module)
+                        || self
+                            .source_records
+                            .iter()
+                            .any(|source| source.module() == *module),
                 super::RealmModuleResolutionIr::Rejected(_) => true,
             }),
             "every successful Realm request owns a compiled activation"
@@ -238,6 +282,9 @@ impl ModuleExecutionGraphIr {
     }
     pub fn realm_import_dispatcher(&self) -> Option<&FunctionId> {
         self.realm_import_dispatcher.as_ref()
+    }
+    pub fn source_records(&self) -> &[ModuleSourceRecordIr] {
+        &self.source_records
     }
     pub const fn record_count(&self) -> u32 {
         self.record_count
@@ -300,6 +347,7 @@ mod tests {
                 ModuleActivationKindIr::Async,
                 requests.clone(),
             )],
+            Vec::new(),
             ModuleExecutionEntry::Module(0),
         );
         assert_eq!(graph.activations()[0].requests(), requests);
@@ -319,18 +367,20 @@ mod tests {
                     1,
                 )],
             )],
+            Vec::new(),
             ModuleExecutionEntry::Module(0),
         );
     }
     #[test]
     #[should_panic(expected = "a Module entry owns a compiled activation")]
     fn a_module_execution_graph_cannot_be_empty() {
-        ModuleExecutionGraphIr::new(1, Vec::new(), ModuleExecutionEntry::Module(0));
+        ModuleExecutionGraphIr::new(1, Vec::new(), Vec::new(), ModuleExecutionEntry::Module(0));
     }
 
     #[test]
     fn a_script_with_only_rejected_imports_owns_no_module_activation() {
-        let graph = ModuleExecutionGraphIr::new(1, Vec::new(), ModuleExecutionEntry::Script(0));
+        let graph =
+            ModuleExecutionGraphIr::new(1, Vec::new(), Vec::new(), ModuleExecutionEntry::Script(0));
         assert_eq!(graph.record_count(), 1);
         assert!(graph.activations().is_empty());
     }
@@ -346,6 +396,7 @@ mod tests {
                 ModuleActivationKindIr::Synchronous,
                 Vec::new(),
             )],
+            Vec::new(),
             ModuleExecutionEntry::Script(0),
         );
     }
@@ -369,7 +420,66 @@ mod tests {
                     Vec::new(),
                 ),
             ],
+            Vec::new(),
             ModuleExecutionEntry::Module(0),
+        );
+    }
+    #[test]
+    fn native_source_owner_is_retained_without_a_javascript_activation() {
+        let graph = ModuleExecutionGraphIr::new(
+            2,
+            vec![ModuleActivationIr::new(
+                0,
+                "entry".into(),
+                ModuleActivationKindIr::Synchronous,
+                vec![ModuleExecutionRequestIr::new(
+                    ModuleRequestPhaseIr::Evaluation,
+                    1,
+                )],
+            )],
+            vec![ModuleSourceRecordIr::new(1, "源🌐".into())],
+            ModuleExecutionEntry::Module(0),
+        );
+        assert_eq!(graph.activations().len(), 1);
+        assert_eq!(graph.source_records()[0].module(), 1);
+        assert_eq!(graph.source_records()[0].source_tag(), "源🌐");
+        assert!(graph.initializer().is_none());
+        assert_eq!(
+            graph
+                .clone()
+                .initialize_with("initialize".into())
+                .source_records(),
+            graph.source_records()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "native source records own valid non-activation identities")]
+    fn native_source_descriptor_cannot_steal_a_javascript_activation_owner() {
+        ModuleExecutionGraphIr::new(
+            1,
+            vec![ModuleActivationIr::new(
+                0,
+                "entry".into(),
+                ModuleActivationKindIr::Synchronous,
+                Vec::new(),
+            )],
+            vec![ModuleSourceRecordIr::new(0, "Source".into())],
+            ModuleExecutionEntry::Module(0),
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a native source record has one descriptor")]
+    fn native_source_record_cannot_have_competing_host_tag_descriptors() {
+        ModuleExecutionGraphIr::new(
+            2,
+            Vec::new(),
+            vec![
+                ModuleSourceRecordIr::new(1, "First".into()),
+                ModuleSourceRecordIr::new(1, "Second".into()),
+            ],
+            ModuleExecutionEntry::Script(0),
         );
     }
 }

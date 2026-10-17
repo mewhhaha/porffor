@@ -13,16 +13,23 @@ use wasm_encoder::{
 fn immutable_minimal_identity_matches_full_frames_without_aliasing_custom_profiles() {
     let minimal = lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal);
     let selected = minimal.selected().unwrap();
-    let full = RuntimeIdentity::from_selected(selected);
-    let cached = RuntimeIdentity::admit(&minimal).unwrap();
-    let again = RuntimeIdentity::admit(&lila_intl::IntlDataSelection::new(
-        lila_intl::IntlCompilationProfile::Minimal,
-    ))
+    let full =
+        RuntimeIdentity::from_selected(selected, crate::RuntimeSourceCompilationProfile::Portable);
+    let cached =
+        RuntimeIdentity::admit(&minimal, crate::RuntimeSourceCompilationProfile::Portable).unwrap();
+    let again = RuntimeIdentity::admit(
+        &lila_intl::IntlDataSelection::new(lila_intl::IntlCompilationProfile::Minimal),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    )
     .unwrap();
     assert_eq!(full.digest(), cached.digest());
     assert_eq!(full.sections, cached.sections);
     assert_eq!(full.cache_key(&[17; 32]), cached.cache_key(&[17; 32]));
     assert_ne!(cached.cache_key(&[17; 32]), cached.cache_key(&[18; 32]));
+    let native =
+        RuntimeIdentity::admit(&minimal, crate::RuntimeSourceCompilationProfile::NativeHost)
+            .unwrap();
+    assert_ne!(cached.cache_key(&[17; 32]), native.cache_key(&[17; 32]));
     for (name, bytes) in &cached.sections {
         assert!(Arc::ptr_eq(bytes, &again.sections[name]));
     }
@@ -34,8 +41,13 @@ fn immutable_minimal_identity_matches_full_frames_without_aliasing_custom_profil
     let selection = lila_intl::IntlDataSelection::new(
         lila_intl::IntlCompilationProfile::CustomProjection(custom),
     );
-    let custom = RuntimeIdentity::admit(&selection).unwrap();
-    let custom_full = RuntimeIdentity::from_selected(selection.selected().unwrap());
+    let custom =
+        RuntimeIdentity::admit(&selection, crate::RuntimeSourceCompilationProfile::Portable)
+            .unwrap();
+    let custom_full = RuntimeIdentity::from_selected(
+        selection.selected().unwrap(),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    );
     assert_eq!(custom.digest(), custom_full.digest());
     assert_eq!(custom.sections, custom_full.sections);
     assert_ne!(custom.digest(), cached.digest());
@@ -78,10 +90,19 @@ impl RuntimeArtifactCache for MemoryCache {
 }
 
 fn identity() -> RuntimeIdentity {
-    RuntimeIdentity::from_sections(BTreeMap::from([(
-        INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
-        Arc::<[u8]>::from(&b"checked fixture"[..]),
-    )]))
+    RuntimeIdentity::from_sections(
+        BTreeMap::from([
+            (
+                INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
+                Arc::<[u8]>::from(&b"checked fixture"[..]),
+            ),
+            (
+                crate::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+                Arc::<[u8]>::from(&[0][..]),
+            ),
+        ]),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -167,8 +188,12 @@ fn fixture(defect: Defect) -> Arc<RuntimeArtifact> {
         }
         .into(),
     });
+    module.section(&CustomSection {
+        name: crate::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION.into(),
+        data: (&[0][..]).into(),
+    });
     let bytes: Arc<[u8]> = Arc::from(module.finish());
-    Arc::new(RuntimeArtifact::new(
+    Arc::new(RuntimeArtifact::unadmitted_fixture(
         bytes,
         RuntimeLayout::new(
             1,
@@ -186,6 +211,16 @@ fn runtime_cache_round_trip_reconstructs_the_encoded_types_and_pool() {
     let key = identity.cache_key(cache.compiler_identity());
     let runtime = fixture(Defect::None);
     let restored = decode(&encode(&runtime, key), key, &identity).expect("valid entry");
+    assert!(runtime.layout_admission.is_none());
+    assert_eq!(restored.layout_admission.unwrap().0, LAYOUT_VERSION);
+    assert_eq!(
+        restored.source_compilation_profile(),
+        crate::RuntimeSourceCompilationProfile::Portable
+    );
+    assert_eq!(
+        crate::RuntimeSourceCompilationProfile::from_module(restored.bytes()).unwrap(),
+        restored.source_compilation_profile()
+    );
     assert_eq!(restored.bytes, runtime.bytes);
     assert_eq!(restored.key, runtime.key);
     assert_eq!(restored.layout, runtime.layout);
@@ -203,6 +238,45 @@ fn previous_layout_runtime_cache_entry_is_replaced_before_current_entry_is_reuse
     let runtime = fixture(Defect::None);
     let mut previous = encode(&runtime, key);
     let previous_version = 4u32;
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Keep the current valid payload and key, and repair the checksum, so the
+    // previous-version rejection cannot be supplied by another broken field.
+    // This is an envelope control, not an old-GC-schema admission assertion.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    let digest_offset = previous.len() - DIGEST_BYTES;
+    let digest = Sha256::digest(&previous[..digest_offset]);
+    previous[digest_offset..].copy_from_slice(&digest);
+    assert!(decode(&previous, key, &identity).is_none());
+    cache.store(key, previous);
+
+    let emissions = Cell::new(0);
+    let replacement = load_or_emit(&identity, Some(&cache), || {
+        emissions.set(emissions.get() + 1);
+        Ok(runtime.clone())
+    })
+    .expect("a previous-layout entry falls back to the current producer");
+    let current = load_or_emit(&identity, Some(&cache), || {
+        panic!("the replacement is a valid current-layout cache hit")
+    })
+    .expect("the current-layout replacement admits without another emission");
+    assert_eq!(emissions.get(), 1);
+    assert_eq!(cache.removals.get(), 1);
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.bytes, runtime.bytes);
+        assert_eq!(admitted.key, runtime.key);
+        assert_eq!(admitted.layout, runtime.layout);
+    }
+}
+
+// Envelope controls preserve current payload/checksum; no old-schema native proof.
+#[test]
+fn abi6_runtime_cache_envelope_is_replaced_before_abi7_reuse() {
+    let identity = identity();
+    let cache = MemoryCache::new();
+    let key = identity.cache_key(cache.compiler_identity());
+    let runtime = fixture(Defect::None);
+    let mut previous = encode(&runtime, key);
+    let previous_version = 6u32;
     assert_ne!(LAYOUT_VERSION, previous_version);
     // Keep the current valid payload and key, and repair the checksum, so the
     // previous-version rejection cannot be supplied by another broken field.
@@ -289,12 +363,18 @@ fn runtime_cache_identity_binds_compiler_and_exact_admitted_sections() {
         INTL_SERVICE_SELECTION_CUSTOM_SECTION,
         Arc::from(&b"services"[..]),
     );
-    let services = RuntimeIdentity::from_sections(changed_sections.clone());
+    let services = RuntimeIdentity::from_sections(
+        changed_sections.clone(),
+        crate::RuntimeSourceCompilationProfile::Portable,
+    );
     changed_sections.insert(
         INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
         Arc::from(&b"new data"[..]),
     );
-    let data = RuntimeIdentity::from_sections(changed_sections);
+    let data = RuntimeIdentity::from_sections(
+        changed_sections,
+        crate::RuntimeSourceCompilationProfile::Portable,
+    );
     assert_ne!(first.cache_key(&[17; 32]), first.cache_key(&[18; 32]));
     assert_ne!(first.cache_key(&[17; 32]), services.cache_key(&[17; 32]));
     assert_ne!(services.cache_key(&[17; 32]), data.cache_key(&[17; 32]));
@@ -337,9 +417,16 @@ fn runtime_cache_round_trips_real_minimal_and_selected_custom_runtimes_without_e
                 lila_intl::IntlCompilationProfile::CustomProjection(custom),
             ] {
                 let selection = lila_intl::IntlDataSelection::new(profile);
-                let identity = RuntimeIdentity::admit(&selection).expect("Intl selection admitted");
-                let emitted =
-                    super::super::emit_runtime_artifact(&selection).expect("actual runtime emits");
+                let identity = RuntimeIdentity::admit(
+                    &selection,
+                    crate::RuntimeSourceCompilationProfile::Portable,
+                )
+                .expect("Intl selection admitted");
+                let emitted = super::super::emit_runtime_artifact(
+                    &selection,
+                    crate::RuntimeSourceCompilationProfile::Portable,
+                )
+                .expect("actual runtime emits");
                 let cache = MemoryCache::new();
                 let first = load_or_emit(&identity, Some(&cache), || Ok(emitted.clone())).unwrap();
                 let second = load_or_emit(&identity, Some(&cache), || {
@@ -358,4 +445,52 @@ fn runtime_cache_round_trips_real_minimal_and_selected_custom_runtimes_without_e
         .unwrap()
         .join()
         .unwrap();
+}
+
+#[test]
+fn abi7_runtime_cache_entry_is_replaced_before_current_entry_is_reused() {
+    let previous_version = 7u32;
+    assert_previous_runtime_cache_entry_replaced(previous_version);
+}
+
+#[test]
+fn abi8_runtime_cache_entry_is_replaced_before_host_prototype_layout_is_reused() {
+    let previous_version = 8u32;
+    assert_previous_runtime_cache_entry_replaced(previous_version);
+}
+
+fn assert_previous_runtime_cache_entry_replaced(previous_version: u32) {
+    let identity = identity();
+    let cache = MemoryCache::new();
+    let key = identity.cache_key(cache.compiler_identity());
+    let runtime = fixture(Defect::None);
+    let mut previous = encode(&runtime, key);
+    assert_ne!(LAYOUT_VERSION, previous_version);
+    // Keep the current valid payload and key, and repair the checksum, so the
+    // previous-version rejection cannot be supplied by another broken field.
+    // This is an envelope control, not an old-GC-schema admission assertion.
+    previous[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&previous_version.to_le_bytes());
+    let digest_offset = previous.len() - DIGEST_BYTES;
+    let digest = Sha256::digest(&previous[..digest_offset]);
+    previous[digest_offset..].copy_from_slice(&digest);
+    assert!(decode(&previous, key, &identity).is_none());
+    cache.store(key, previous);
+
+    let emissions = Cell::new(0);
+    let replacement = load_or_emit(&identity, Some(&cache), || {
+        emissions.set(emissions.get() + 1);
+        Ok(runtime.clone())
+    })
+    .expect("a previous-layout entry falls back to the current producer");
+    let current = load_or_emit(&identity, Some(&cache), || {
+        panic!("the replacement is a valid current-layout cache hit")
+    })
+    .expect("the current-layout replacement admits without another emission");
+    assert_eq!(emissions.get(), 1);
+    assert_eq!(cache.removals.get(), 1);
+    for admitted in [&replacement, &current] {
+        assert_eq!(admitted.bytes, runtime.bytes);
+        assert_eq!(admitted.key, runtime.key);
+        assert_eq!(admitted.layout, runtime.layout);
+    }
 }

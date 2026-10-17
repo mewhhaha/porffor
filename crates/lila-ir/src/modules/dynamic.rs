@@ -158,9 +158,9 @@ impl ModuleGraphIr {
 /// Neither is coerced here: `ToString` of the specifier happens after the
 /// promise capability exists, so it must reject rather than throw.
 ///
-/// `referrer` is the module the call site belongs to, or `None` in a Script.
-/// `import()` is legal in Script goal, so `None` is an ordinary case and not
-/// an error.
+/// `referrer` retains the call site's local or external resolution authority.
+/// An external direct-eval caller stays distinct even without a discovered
+/// Script record; its AOT capability boundary belongs to actual execution.
 ///
 /// Every phase lowers the same way. What a phase changes is which object the
 /// promise is settled with — an evaluated/deferred namespace or the source
@@ -174,7 +174,7 @@ pub(crate) fn lower_import_call(
     call: &ImportCall,
     specifier: TypedExpr,
     options: Option<TypedExpr>,
-    referrer: Option<ModuleUnitId>,
+    referrer: ImportCallSourceOriginIr,
 ) -> Result<TypedExpr, String> {
     let phase = ImportPhaseIr::from_ast(call.phase());
     // Always a Promise object, on every path including the rejecting one, so
@@ -440,7 +440,7 @@ pub(super) fn dispatcher_name(unit: ModuleUnitId, phase: ImportPhaseIr) -> Strin
 /// * defer — the independent deferred namespace cell. `import.defer('m')`
 ///   and `import defer * as ns from 'm'` share this identity even when an
 ///   evaluation-phase request also evaluates the module eagerly;
-/// * source — no cell: a Source Text Module has no source representation.
+/// * source — the actual host record's source cell; ordinary records reject first.
 fn component_resolution_cell(component: &DynamicComponentIr) -> Option<MergedName> {
     match component.request().phase() {
         ImportPhaseIr::Evaluation => Some(MergedName::minted(
@@ -451,7 +451,10 @@ fn component_resolution_cell(component: &DynamicComponentIr) -> Option<MergedNam
             component.target(),
             UnitCellRole::DeferredNamespace,
         )),
-        ImportPhaseIr::Source => None,
+        ImportPhaseIr::Source => Some(MergedName::minted(
+            component.target(),
+            UnitCellRole::ModuleSource,
+        )),
     }
 }
 
@@ -578,9 +581,15 @@ impl ModuleGraphIr {
             component.referrer() == referrer && component.request().phase() == phase
         }) {
             append_component_condition(&mut text, component.request());
-            // Source-phase ContinueDynamicImport rejects the loaded Source Text
-            // Module before LoadRequestedModules or any evaluator/cell access.
-            if phase == ImportPhaseIr::Source {
+            // Source phase loads the record without opening dependencies or
+            // executing it. Only actual host source records own source cells.
+            if phase == ImportPhaseIr::Source
+                && self
+                    .unit(component.target())
+                    .record
+                    .module_source_tag()
+                    .is_none()
+            {
                 text.push_str(if synchronous {
                     " throw new $lila$module$SyntaxError("
                 } else {
@@ -614,9 +623,7 @@ impl ModuleGraphIr {
                         text.push_str(&module_deferred_import_name(component.target()));
                         text.push(';');
                     }
-                    ImportPhaseIr::Source => {
-                        unreachable!("source rejection precedes namespace continuation")
-                    }
+                    ImportPhaseIr::Source => {}
                 }
                 text.push_str(" return ");
                 text.push_str(resolution.as_str());

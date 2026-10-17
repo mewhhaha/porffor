@@ -101,6 +101,7 @@ fn explicit_helper_callable_and_environment_sources_share_one_checked_projection
         "fn new_main(",
     ));
     for method in [
+        "caller_program()",
         "caller_environment()",
         "caller_function_context()",
         "caller_execution_realm()",
@@ -122,9 +123,25 @@ fn explicit_helper_callable_and_environment_sources_share_one_checked_projection
         ("ValueToPrimitiveNumber", "value_to_primitive_number"),
         ("ValueToPrimitiveString", "value_to_primitive_string"),
     ] {
-        assert!(helpers.contains(&format!("{operation}/{operation}Arguments/{operation}Parameters/\"{name}\"{{input:Value,caller_environment:(RefEnvironmentNullable)}}=>Completion;")));
+        assert!(helpers.contains(&format!("{operation}/{operation}Arguments/{operation}Parameters/\"{name}\"{{input:Value,caller_environment:(RefEnvironmentNullable),caller_program:Program}}=>Completion;")));
     }
-    assert!(helpers.contains("caller_execution_realm:(RefRealmRecordNonNullable),caller_environment:(RefEnvironmentNullable)}=>Completion;"));
+    let operations = normalized(OPERATIONS_SOURCE);
+    for operation in [
+        "ValueToNumber",
+        "ValueToNumeric",
+        "ValueToPrimitiveDefault",
+        "ValueToPrimitiveNumber",
+        "ValueToPrimitiveString",
+    ] {
+        assert_eq!(
+            operations.matches(&format!(
+                "{operation}Arguments::new(input,self.current_environment(),self.current_program(),)"
+            )).count(),
+            1,
+            "{operation} forwards its actual environment and P in declaration order"
+        );
+    }
+    assert!(helpers.contains("caller_execution_realm:(RefRealmRecordNonNullable),caller_environment:(RefEnvironmentNullable),caller_program:Program}=>Completion;"));
 }
 
 #[test]

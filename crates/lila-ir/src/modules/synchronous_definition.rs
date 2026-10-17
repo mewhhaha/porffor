@@ -66,6 +66,7 @@ pub(super) struct ModuleExecutionDefinitions {
     pub(super) graph_span: (boa_ast::Position, boa_ast::Position),
     pub(super) units: Vec<ModuleUnitDefinition>,
     pub(super) record_count: u32,
+    pub(super) source_records: Vec<ModuleSourceRecordIr>,
     pub(super) dispatcher_namespaces: BTreeMap<String, ModuleCellIr>,
     pub(super) dispatcher_evaluations: BTreeMap<String, ModuleEvaluationIr>,
     pub(super) dispatcher_async_dependencies: BTreeMap<String, ModuleEvaluationIr>,
@@ -261,12 +262,10 @@ impl ModuleExecutionDefinitions {
                 module: *module,
                 mode: *mode,
             },
-            // Admission rejects graphs with source-phase imports, and linking
-            // rejects unresolved or ambiguous imports, before instantiation.
             ResolvedBindingIr::Resolved {
+                module,
                 binding: ModuleBindingNameIr::ModuleSource,
-                ..
-            } => panic!("module instantiation admits no source-phase import bindings"),
+            } => ModuleCellIr::ModuleSource { module: *module },
             ResolvedBindingIr::Ambiguous | ResolvedBindingIr::NotFound => {
                 panic!("module instantiation requires resolved environment or namespace bindings")
             }
@@ -453,12 +452,7 @@ impl ModuleExecutionDefinitions {
                 };
                 analysis.module_execution.evaluations.insert(
                     std::ptr::from_ref(expression) as usize,
-                    self.units
-                        .iter()
-                        .find(|unit| unit.module == *module)
-                        .expect("initial module exists")
-                        .evaluation
-                        .clone(),
+                    ModuleEvaluationIr::new(*module),
                 );
             }
             // The preserved Script tail is ordinary user source: no private
@@ -500,6 +494,7 @@ impl ModuleExecutionDefinitions {
                     ModuleActivationIr::new(unit.module, function, unit.kind, unit.requests.clone())
                 })
                 .collect(),
+            self.source_records.clone(),
             match &self.entry {
                 ModuleExecutionEntry::Module(module) => ModuleExecutionEntry::Module(*module),
                 ModuleExecutionEntry::Script(script) => ModuleExecutionEntry::Script(*script),

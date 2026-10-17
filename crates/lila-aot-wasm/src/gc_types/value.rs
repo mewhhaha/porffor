@@ -4,7 +4,10 @@ use super::*;
 use crate::WasmRuntimeValueTag;
 
 mod compact_array_recipes;
+mod instance_elements;
+mod native_direct_eval_compiler;
 mod native_function_compiler;
+mod native_global_script_compiler;
 mod object_header_projection;
 mod program_initialize;
 mod program_instance;
@@ -355,6 +358,11 @@ impl FunctionProtocolCode {
                 E::AsyncGenerator => Self::ClassAsyncGeneratorMethod,
             },
         }
+    }
+}
+impl GcI32Constant for lila_ir::LanguageFeaturePolicy {
+    fn encode(self) -> i32 {
+        self.wire_code()
     }
 }
 impl GcI32Constant for lila_ir::FunctionProtocolIr {

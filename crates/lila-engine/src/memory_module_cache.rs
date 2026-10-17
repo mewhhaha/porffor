@@ -1,4 +1,5 @@
 use super::{WasmModuleMemoryCacheKey, WasmtimeModule};
+mod native_templates;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 

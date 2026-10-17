@@ -15,6 +15,7 @@ use lila_ir::{
 };
 
 mod captures;
+mod compact_source;
 mod contracts;
 mod lowerer;
 mod parser;
@@ -48,6 +49,7 @@ impl FunctionBuilder<'_> {
             ScratchFailure::Compiler(&compiler),
             &mut function,
         )?;
+        self.emit_regexp_compact_unicode_source(&compiler, &character_mode, &mut function);
         let prescan_flags = self.runtime_schema().reserve_i64_local(&mut function);
         function.instruction(&Instruction::I64Const(0));
         prescan_flags.store(&mut function);

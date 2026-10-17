@@ -300,18 +300,19 @@ fn with_private_exports(bytes: &[u8], module_root: u32) -> Vec<u8> {
     rewritten
 }
 
-// Ordinals of the actual typed GC schemas. Reads/writes use Wasmtime's field
+// Ordinals of the actual typed GC schemas. ModuleRecord retains SOURCE_CELL
+// at ordinal 6 after the two namespace cells. Reads/writes use Wasmtime's field
 // APIs, so a field-kind mismatch fails rather than indexing unrelated bytes.
 mod record_field {
     pub const GRAPH: usize = 0;
     pub const REALM: usize = 2;
     pub const ENVIRONMENT: usize = 3;
-    pub const ACTIVATION_KIND: usize = 6;
-    pub const ASYNC_ACTIVATION: usize = 8;
-    pub const EVALUATION_PROMISE: usize = 11;
-    pub const STATE: usize = 12;
-    pub const COMPLETION: usize = 13;
-    pub const BODY_STATE: usize = 14;
+    pub const ACTIVATION_KIND: usize = 7;
+    pub const ASYNC_ACTIVATION: usize = 9;
+    pub const EVALUATION_PROMISE: usize = 12;
+    pub const STATE: usize = 13;
+    pub const COMPLETION: usize = 14;
+    pub const BODY_STATE: usize = 15;
 }
 mod graph_field {
     pub const MODULES: usize = 0;
@@ -365,7 +366,13 @@ fn null_module_body_reaction(
 ) -> bool {
     const MODULE_BODY_REACTION: usize = 3;
     let program_type = program.ty(&*store).unwrap();
-    assert_eq!(program_type.fields().len(), 9, "ProgramInstance schema");
+    assert_eq!(
+        program_type.fields().len(),
+        lila_aot_wasm::GcHostLayout::ProgramInstance
+            .field_count()
+            .unwrap() as usize,
+        "ProgramInstance schema",
+    );
     let field = program_type.field(MODULE_BODY_REACTION).unwrap();
     assert_eq!(field.mutability(), wasmtime::Mutability::Const);
     let hook = field.element_type().unwrap_val_type().unwrap_ref();
@@ -639,7 +646,7 @@ impl ModuleFixture {
         let record = structure(&store, root);
         assert_eq!(
             record.ty(&store).unwrap().fields().len(),
-            22,
+            23,
             "ModuleRecord schema"
         );
         let evaluate = instance

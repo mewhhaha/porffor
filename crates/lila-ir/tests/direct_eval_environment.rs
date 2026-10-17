@@ -146,3 +146,121 @@ fn parameter_expression_body_has_distinct_cells_and_explicit_initialization() {
         .iter()
         .all(|binding| binding.source_name != "fresh" && binding.source_name != "lexical"));
 }
+
+#[test]
+fn prepared_eval_empty_blocks_lower_to_empty_completion_without_scope_records() {
+    for prefix in ["", "'use strict';"] {
+        for count in [1, 128, 4096] {
+            let body = "{}".repeat(count);
+            let source = format!("{prefix} eval({body:?});");
+            let program = lower(&parse(&source, ParseOptions::script()).unwrap());
+            assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+            let script = program.script.unwrap();
+            let units: Vec<_> = script.prepared_script_units().collect();
+            assert_eq!(units.len(), 2, "direct and indirect intrinsic branches");
+            for unit in units {
+                assert!(unit.body.statements.is_empty(), "count={count}");
+            }
+        }
+    }
+}
+
+#[test]
+fn prepared_eval_nonempty_blocks_keep_their_lexical_environment() {
+    let source = "eval('{ let retained = 17; {} {} retained; }');";
+    let program = lower(&parse(source, ParseOptions::script()).unwrap());
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.unwrap();
+    let unit = script
+        .prepared_script_units()
+        .find(|unit| matches!(unit.kind, lila_ir::PreparedScriptKind::DirectEval(_)))
+        .expect("the direct eval branch retains its observable lexical records");
+    let [lila_ir::StatementIr::Block(block)] = unit.body.statements.as_slice() else {
+        panic!("a nonempty lexical block must remain: {:?}", unit.body);
+    };
+    let environment = block.lexical_environment.as_ref().unwrap();
+    assert!(!environment.bindings.is_empty());
+    assert_eq!(
+        block
+            .statements
+            .iter()
+            .filter(|statement| matches!(statement, lila_ir::StatementIr::Empty))
+            .count(),
+        0
+    );
+    assert!(matches!(
+        block.statements.last(),
+        Some(lila_ir::StatementIr::Expression(_))
+    ));
+}
+
+#[test]
+fn prepared_direct_eval_empty_try_blocks_keep_the_catch_parameter_record() {
+    let program = lower(
+        &parse(
+            "eval('try {} catch (error) {} finally {}');",
+            ParseOptions::script(),
+        )
+        .unwrap(),
+    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.unwrap();
+    let unit = script
+        .prepared_script_units()
+        .find(|unit| matches!(unit.kind, lila_ir::PreparedScriptKind::DirectEval(_)))
+        .unwrap();
+    let [lila_ir::StatementIr::TryCatchFinally {
+        try_block,
+        catch_parameter_environment,
+        catch_block,
+        finally_block,
+        ..
+    }] = unit.body.statements.as_slice()
+    else {
+        panic!("try control owner must remain: {:?}", unit.body);
+    };
+    assert!(catch_parameter_environment.is_some());
+    for block in [try_block, catch_block, finally_block] {
+        assert!(block.statements.is_empty());
+        assert!(block.lexical_environment.is_none());
+    }
+}
+
+#[test]
+fn inert_statement_lists_retain_constant_ir_across_root_function_block_and_switch() {
+    use lila_ir::StatementIr;
+    let mut baseline = None;
+    for count in [1, 128, 4096] {
+        let empty = "{};".repeat(count);
+        let source = format!(
+            "{empty} function owner(selector){{ {empty} {{{empty}}} switch(selector){{case 0:{empty}}} }}"
+        );
+        let lowered = lower(&parse(source, ParseOptions::script()).unwrap());
+        assert!(lowered.is_wasm_supported(), "{:?}", lowered.diagnostics);
+        let script = lowered.script.unwrap();
+        assert!(script
+            .body
+            .statements
+            .iter()
+            .all(|s| !matches!(s, StatementIr::Empty)));
+        let owner = script.functions.iter().find(|f| f.name == "owner").unwrap();
+        let mut contexts = 0;
+        for statement in &owner.body.statements {
+            match statement {
+                StatementIr::Block(block) => {
+                    assert!(block.statements.is_empty());
+                    contexts += 1;
+                }
+                StatementIr::Switch { cases, .. } => {
+                    assert_eq!(cases.len(), 1);
+                    assert!(cases[0].body.statements.is_empty());
+                    contexts += 1;
+                }
+                _ => assert!(!matches!(statement, StatementIr::Empty)),
+            }
+        }
+        assert_eq!(contexts, 2);
+        let retained = (script.body.statements.len(), owner.body.statements.len());
+        assert_eq!(retained, *baseline.get_or_insert(retained), "count={count}");
+    }
+}

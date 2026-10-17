@@ -13,40 +13,29 @@ pub(crate) fn emit_script_module(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_selection: &IntlDataSelection,
 ) -> Result<EmittedModule, EmitError> {
-    emit_script_module_with_factory(script, kind, promise_rejection_policy, intl_selection, None)
+    emit_script_module_with_factory(
+        script,
+        kind,
+        promise_rejection_policy,
+        intl_selection,
+        None,
+        None,
+    )
 }
 
 /// Force a fresh P against the supplied R; ordinary emit() is never consulted.
 pub(crate) fn emit_runtime_function_module(
     program: &lila_ir::RuntimeFunctionProgram,
-    runtime: &std::sync::Arc<crate::RuntimeArtifact>,
-    intl_selection: &IntlDataSelection,
+    validated: &crate::ValidatedRuntimeArtifact,
 ) -> Result<EmittedModule, EmitError> {
-    let mut script = program
-        .program()
-        .script
-        .as_ref()
-        .ok_or_else(|| EmitError::unsupported("native Function has no lowered Script IR"))?
-        .clone();
-    crate::builtins::append_empty_dynamic_function_bodies(&mut script);
-    for function in script.functions.iter().filter(|function| {
-        function.protocol.execution_kind() == FunctionExecutionKind::AsyncGenerator
-    }) {
-        if let Some(feature) = function
-            .body
-            .statements
-            .iter()
-            .find_map(async_generator_dispatcher_unsupported_feature)
-        {
-            return Err(EmitError::unsupported(format!("unsupported in lila wasm-aot first slice: async-generator body dispatcher for `{}` does not yet support {feature}", function.name)));
-        }
-    }
+    let script = super::native_program::prepare_native_program_script(program.program())?;
     emit_script_module_with_factory(
         &script,
-        ModuleKind::Program(runtime),
+        ModuleKind::Program(validated.runtime()),
         PromiseRejectionPolicy::default(),
-        intl_selection,
-        Some(program),
+        validated.selection(),
+        Some(NativeProgramFactory::Function(program)),
+        Some(validated),
     )
 }
 
@@ -55,7 +44,7 @@ pub(crate) fn emit_runtime_function_module(
 pub(super) struct ProgramExports {
     main: Option<u32>,
     initialize: Option<ProgramInitializeIndex>,
-    factory: Option<u32>,
+    factory: Option<(u32, &'static str)>,
     owns_globals: bool,
 }
 
@@ -63,7 +52,7 @@ impl ProgramExports {
     pub(super) fn new(
         kind: ModuleKind<'_>,
         layout: &FunctionIndexLayout,
-        factory: Option<&lila_ir::RuntimeFunctionProgram>,
+        factory: Option<NativeProgramFactory<'_>>,
         functions: &FunctionMetaRegistry,
     ) -> Result<Self, EmitError> {
         if matches!(kind, ModuleKind::Program(_)) != layout.program_initialize_index().is_some() {
@@ -74,11 +63,10 @@ impl ProgramExports {
         let factory = if let Some(program) = factory {
             if !matches!(kind, ModuleKind::Program(_)) {
                 return Err(EmitError::unsupported(
-                    "native Function factory requires its actual linked P",
+                    "native source factory requires its actual linked P",
                 ));
             }
-            crate::runtime_function::require_factory_plan(program, functions)?;
-            Some(RuntimeHelperId::PreparedDynamicFunction.index(layout.helper_base()))
+            Some(program.resolve(functions, layout)?)
         } else {
             None
         };
@@ -93,10 +81,14 @@ impl ProgramExports {
     pub(super) fn append(
         &self,
         schema: &RuntimeSchema,
+        global_prelude: Option<crate::gc_types::GlobalScriptPreludePhase>,
         has_module_entry: bool,
         exports: &mut ExportSection,
     ) {
         if let Some(main) = self.main {
+            if let Some(phase) = global_prelude {
+                phase.export(exports);
+            }
             exports.export("main", ExportKind::Func, main);
             if let Some(index) = self.initialize {
                 exports.export(
@@ -105,12 +97,8 @@ impl ProgramExports {
                     index.raw(),
                 );
             }
-            if let Some(index) = self.factory {
-                exports.export(
-                    crate::runtime_function::RUNTIME_FUNCTION_FACTORY_EXPORT,
-                    ExportKind::Func,
-                    index,
-                );
+            if let Some((index, name)) = self.factory {
+                exports.export(name, ExportKind::Func, index);
             }
             if has_module_entry {
                 exports.export(

@@ -33,6 +33,7 @@ mod aot_numeric_call_rows;
 mod aot_object_binding_single_get;
 mod aot_optional_private_calls;
 mod aot_parameter_environment_lifetime;
+mod aot_private_element_extensibility;
 mod aot_private_get_value_effects;
 mod aot_private_numeric_updates;
 mod aot_property_flow_boundaries;

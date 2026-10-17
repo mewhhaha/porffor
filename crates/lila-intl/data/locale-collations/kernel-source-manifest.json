@@ -58,7 +58,7 @@
     {
       "bytes": 9251,
       "path": "crates/lila-intl/data/collator-icu-2/manifest.json",
-      "sha256": "8f67fdf4c5e6d014ed4374b46afea37bef1054ce760e66ffcc33bdbd4d4a075d"
+      "sha256": "5bd1f3074459754efed167b1c0b1055b7dbeadc3c81aad9d23eaee79396b8fc5"
     },
     {
       "bytes": 8073,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "e2b2eeedaaa5e469d7a9364cd7dbf8944ead73480147f516f72f0049b60e45ab",
+  "kernel_sha256": "b93c2a28d9064e5d1670b1c86538b93fac64c06eb8256eeb3d69ce22f12939bb",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -221,14 +221,14 @@
       "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
     },
     {
-      "bytes": 86365,
+      "bytes": 87003,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "2dcd354cb546d37000ee503b93b07132e6edf6b62d409ba4d15cfc8cbd472189"
+      "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
     },
     {
-      "bytes": 81425,
+      "bytes": 80212,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "6f5774614d23e3791448f14690d1032c688f7884a742c60f3949635fa93c0a13"
+      "sha256": "c766fd5c20043fa76513786b500946878a684ba932f16a5b6ab3b859e8b04bd9"
     },
     {
       "bytes": 33803,
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/lila-intl/src/collator/identity.rs",
-      "sha256": "200eeeece05609fcaa1449d6662f4bf762a3d18bef724b0a1ad09fb535ab53ac"
+      "sha256": "800365b9dcc629d09e0ae251869b1762d8f7f5b2102a7c49365848cf3b4a42e8"
     },
     {
       "bytes": 31472,

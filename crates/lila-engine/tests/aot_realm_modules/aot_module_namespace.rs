@@ -105,6 +105,18 @@ impl Drop for NamespaceModules {
 }
 
 fn assert_namespace_modules(files: &[(&str, &str)], expected: &[&str]) {
+    assert_namespace_modules_with_policy(
+        files,
+        expected,
+        lila_engine::LanguageFeaturePolicy::default(),
+    );
+}
+
+fn assert_namespace_modules_with_policy(
+    files: &[(&str, &str)],
+    expected: &[&str],
+    language_features: lila_engine::LanguageFeaturePolicy,
+) {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let fixture = NamespaceModules(std::env::temp_dir().join(format!(
         "lila-module-namespace-{}-{}",
@@ -123,6 +135,7 @@ fn assert_namespace_modules(files: &[(&str, &str)], expected: &[&str]) {
                 filename: Some(fixture.0.join(files[0].0).to_str().unwrap().into()),
                 module_root: Some(fixture.0.to_str().unwrap().into()),
                 host_surface_policy: HostSurfacePolicy::Test262,
+                language_features,
                 ..CompileOptions::default()
             },
             RunOptions {
@@ -738,4 +751,56 @@ print('getter failures do not change module evaluation');
         ],
         &["getter failures do not change module evaluation"],
     );
+}
+
+#[test]
+fn deferred_namespace_private_stamping_obeys_explicit_proposal_without_evaluation() {
+    for enabled in [false, true] {
+        let entry = format!(
+            r#"
+import defer * as ns from './deferred.js';
+globalThis.privateStampEvaluations = 0;
+const enabled = {enabled};
+let initializers = 0;
+class Marker extends function (value) {{ return value; }} {{
+  #mark = (++initializers, 'bar');
+  static mark(value) {{ new Marker(value); }}
+  static access(value) {{ return #mark in value; }}
+}}
+let caught;
+try {{ Marker.mark(ns); }} catch (error) {{ caught = error; }}
+if (enabled ? !(caught instanceof TypeError) || Marker.access(ns)
+            : caught !== undefined || !Marker.access(ns)) throw 'namespace private field policy';
+class Methods extends function (value) {{ return value; }} {{
+  #method() {{}}
+  get #accessor() {{ return 1; }}
+  #field = ++initializers;
+  static has(value) {{ return #method in value || #accessor in value || #field in value; }}
+}}
+let methodError;
+try {{ new Methods(ns); }} catch (error) {{ methodError = error; }}
+if ((enabled ? !(methodError instanceof TypeError) || Methods.has(ns) || initializers !== 1
+             : methodError !== undefined || !Methods.has(ns) || initializers !== 2) ||
+    globalThis.privateStampEvaluations !== 0) throw 'namespace private methods or deferred evaluation';
+print('namespace private policy');
+"#
+        );
+        assert_namespace_modules_with_policy(
+            &[
+                ("entry.js", &entry),
+                (
+                    "deferred.js",
+                    "globalThis.privateStampEvaluations++; export const value = 1;",
+                ),
+            ],
+            &["namespace private policy"],
+            lila_engine::LanguageFeaturePolicy::default().with_private_element_extensibility(
+                if enabled {
+                    lila_engine::PrivateElementExtensibility::NonExtensibleAppliesToPrivate
+                } else {
+                    lila_engine::PrivateElementExtensibility::Ecma262
+                },
+            ),
+        );
+    }
 }

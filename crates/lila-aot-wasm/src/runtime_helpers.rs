@@ -310,6 +310,8 @@ pub(crate) enum HelperOwner {
     /// Program-generated and reached through the selected ProgramInstance
     /// typed field, see [`RuntimeSchema::call_hook`].
     Hook(ProgramHook),
+    /// P-owned body retained by FunctionContext, with its type in the core group.
+    ContextHook,
 }
 
 /// Every place runtime code asks the program a question only the program can
@@ -352,7 +354,7 @@ impl HelperOwner {
     const fn region(self) -> HelperRegion {
         match self {
             Self::Runtime => HelperRegion::Runtime,
-            Self::Program | Self::Hook(_) => HelperRegion::Program,
+            Self::Program | Self::Hook(_) | Self::ContextHook => HelperRegion::Program,
         }
     }
 }
@@ -374,7 +376,7 @@ pub(crate) enum HelperTypeRegion {
 impl HelperOwner {
     const fn type_region(self) -> HelperTypeRegion {
         match self {
-            Self::Runtime | Self::Hook(_) => HelperTypeRegion::Core,
+            Self::Runtime | Self::Hook(_) | Self::ContextHook => HelperTypeRegion::Core,
             Self::Program => HelperTypeRegion::Program,
         }
     }
@@ -1071,6 +1073,7 @@ runtime_helper_domain! {
     ModuleRejected / ModuleRejectedArguments / ModuleRejectedParameters / "module_rejected" { module:(Ref ModuleRecord NonNullable),reason:Value,caller_program:Program } => Completion;
     ModuleDeferredImport / ModuleDeferredImportArguments / ModuleDeferredImportParameters / "module_deferred_import" { module:(Ref ModuleRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     PreparedDynamicFunction / PreparedDynamicFunctionArguments / PreparedDynamicFunctionParameters / "prepared_dynamic_function" @ PreparedDynamicFunctionHook { kind:I32,new_target:Value,sources:(Ref ValueArray NonNullable),caller_function_context:(Ref FunctionContext NonNullable),caller_environment:(Ref Environment Nullable) } => StatusCompletion;
+    NativeDirectEvalFactory / NativeDirectEvalFactoryArguments / NativeDirectEvalFactoryParameters / "native_direct_eval_factory" { caller_program:Program,source:(Ref StringValue NonNullable),descriptor:(Ref ImmutableByteArray NonNullable),realm:(Ref RealmRecord NonNullable),lexical:(Ref Environment Nullable),variable:(Ref Environment Nullable),private:(Ref PrivateEnvironment Nullable),this_value:Value,new_target:Value,invocation:(Ref DirectEvalExecutionContext NonNullable),calling_program:Program } => StatusCompletion;
     PreparedScript / PreparedScriptArguments / PreparedScriptParameters / "prepared_script" @ PreparedScriptHook { kind:I32,source:(Ref StringValue NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
     RealmModuleImport / RealmModuleImportArguments / RealmModuleImportParameters / "realm_module_import" @ RealmModuleImportHook { realm:(Ref RealmRecord NonNullable),specifier:(Ref StringValue NonNullable),caller_environment:(Ref Environment Nullable) } => RealmImport;
     ModuleBodyReaction / ModuleBodyReactionArguments / ModuleBodyReactionParameters / "module_body_reaction" @ ModuleBodyReactionHook { module:(Ref ModuleRecord NonNullable),rejected:I32,argument:Value } => Void;
@@ -1105,8 +1108,9 @@ runtime_helper_domain! {
     LexicalBindingUninitialized / LexicalBindingUninitializedArguments / LexicalBindingUninitializedParameters / "lexical_binding_uninitialized" { caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => Completion;
     RelationalComparison / RelationalComparisonArguments / RelationalComparisonParameters / "relational_comparison" { left:Value,right:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     PrivateElementAdd / PrivateElementAddArguments / PrivateElementAddParameters / "private_element_add" { receiver:Value,element:(Ref PrivateElement NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
-    PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable) } => Completion;
+    PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value,caller_program:Program } => Completion;
+    InitializeInstanceElements / InitializeInstanceElementsArguments / InitializeInstanceElementsParameters / "initialize_instance_elements" { caller_program:Program,caller_function_context:(Ref FunctionContext NonNullable),receiver:Value } => Completion;
     JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable),caller_program:Program } => Completion;
 }
 
@@ -1198,6 +1202,7 @@ impl RuntimeHelperId {
             Self::PreparedDynamicFunction => {
                 HelperOwner::Hook(ProgramHook::PreparedDynamicFunction)
             }
+            Self::NativeDirectEvalFactory => HelperOwner::Program,
             Self::PreparedScript => HelperOwner::Hook(ProgramHook::PreparedScript),
             Self::RealmModuleImport => HelperOwner::Hook(ProgramHook::RealmModuleImport),
             Self::ModuleBodyReaction => HelperOwner::Hook(ProgramHook::ModuleBodyReaction),
@@ -1233,6 +1238,7 @@ impl RuntimeHelperId {
             Self::PrivateFieldDefine => HelperOwner::Runtime,
             Self::JsonStringifyValue => HelperOwner::Runtime,
             Self::CompactArrayLiteral => HelperOwner::Program,
+            Self::InitializeInstanceElements => HelperOwner::ContextHook,
         }
     }
     pub(crate) const fn is_emitted(self, emission: RuntimeHelperEmission) -> bool {
@@ -1322,6 +1328,7 @@ impl RuntimeHelperId {
             Self::ModuleRejected => true,
             Self::ModuleDeferredImport => true,
             Self::PreparedDynamicFunction => true,
+            Self::NativeDirectEvalFactory => true,
             Self::PreparedScript => true,
             Self::RealmModuleImport => true,
             Self::ModuleBodyReaction => true,
@@ -1340,6 +1347,7 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorAwaitReturnReactions => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
             Self::CompactArrayLiteral => true,
+            Self::InitializeInstanceElements => true,
         }
     }
     /// Whether the body is generated from the program and so sits after
@@ -1469,7 +1477,7 @@ mod tests {
                     assert_eq!(helper.index(base), 100 + runtime);
                     runtime += 1;
                 }
-                HelperOwner::Program | HelperOwner::Hook(_) => {
+                HelperOwner::Program | HelperOwner::Hook(_) | HelperOwner::ContextHook => {
                     assert_eq!(helper.index(base), 1000 + program);
                     program += 1;
                 }

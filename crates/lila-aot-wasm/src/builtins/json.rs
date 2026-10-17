@@ -10,6 +10,7 @@ use lila_ir::NativeErrorKind;
 mod grammar;
 mod module_value;
 mod parse;
+mod parse_array;
 mod parse_frame_state;
 mod quote;
 mod reviver;

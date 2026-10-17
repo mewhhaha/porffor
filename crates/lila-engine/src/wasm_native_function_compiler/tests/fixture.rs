@@ -22,7 +22,7 @@ pub(super) fn store() -> WasmtimeStore<WasmHostState> {
             agent_group: None,
             agent_commands: None,
             agent_leaving: None,
-            native_function_compiler: None,
+            native_source_compiler: None,
             limits: WasmtimeStoreLimitsBuilder::new()
                 .memory_size(WASM_STORE_MEMORY_CAP_BYTES)
                 .build(),
@@ -106,6 +106,16 @@ pub(super) fn signature(engine: &WasmtimeEngine) -> NativeFunctionSignature {
         Mutability::Const,
         StorageType::ValType(structure(program, true)),
     );
+    // This unconsumed field remains opaque, but its storage is a typed nullable
+    // function reference under the same declaration-owned slot projection.
+    let initializer = GcHostField::ContextInstanceElementsInitializer.definition();
+    context[initializer.index() as usize] = FieldType::new(
+        Mutability::Const,
+        StorageType::ValType(ValType::Ref(RefType::new(
+            true,
+            HeapType::ConcreteFunc(FuncType::new(engine, [], [])),
+        ))),
+    );
     let context = StructType::new(engine, context).unwrap();
     let environment = opaque(GcHostLayout::Environment);
     let eq = ValType::Ref(RefType::new(true, HeapType::Eq));
@@ -176,6 +186,9 @@ pub(super) fn operands(
         .clone();
     let mut fields = vec![Val::I32(0); constructor.fields().len()];
     fields[GcHostField::ContextDefiningProgram.definition().index() as usize] = Val::AnyRef(None);
+    fields[GcHostField::ContextInstanceElementsInitializer
+        .definition()
+        .index() as usize] = Val::FuncRef(None);
     let pre = StructRefPre::new(&mut *store, constructor);
     let constructor = StructRef::new(&mut *store, &pre, &fields).unwrap();
     [

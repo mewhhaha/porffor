@@ -36,10 +36,12 @@ use crate::runtime_helpers::*;
 mod completion;
 mod entry_completion;
 mod evaluation;
+mod evaluation_capability;
 mod initialization;
 mod realm_import;
 mod record_state;
 mod runtime;
+mod source;
 mod synchronous;
 mod traversal;
 pub(crate) use runtime::ModuleRuntimeOperation;
@@ -117,13 +119,39 @@ impl FunctionBuilder<'_> {
     /// An absent/ambiguous origin or an undiscovered target remains AOT debt.
     pub(crate) fn emit_dynamic_import(
         &mut self,
-        referrer: Option<u32>,
+        referrer: lila_ir::ImportCallSourceOriginIr,
         phase: lila_ir::ImportPhaseIr,
         specifier: &TypedExpr,
         options: Option<&TypedExpr>,
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        let referrer = match referrer {
+            lila_ir::ImportCallSourceOriginIr::Local(referrer) => referrer,
+            lila_ir::ImportCallSourceOriginIr::ExternalCaller(_origin) => {
+                // The P1 import bridge is unavailable. Preserve actual operand
+                // effects and abrupt completion before this execution-only gap.
+                let schema = self.runtime_schema();
+                let argument = schema.reserve_value_local(function);
+                self.compile_expr_to_value(specifier, &argument, function)?;
+                self.emit_propagate_current_throw_if_needed(function);
+                let import_options = schema.reserve_value_local(function);
+                if let Some(options) = options {
+                    self.compile_expr_to_value(options, &import_options, function)?;
+                    self.emit_propagate_current_throw_if_needed(function);
+                }
+                self.emit_reject_runtime_semantics(
+                    lila_ir::RuntimeSemanticRejection::UnavailableCapability(
+                        lila_ir::RuntimeUnavailableCapability::ExternalCallerImport,
+                    ),
+                    function,
+                );
+                import_options.clear(function);
+                argument.clear(function);
+                output.set_undefined(function);
+                return Ok(());
+            }
+        };
         let dispatcher = referrer
             .and_then(|referrer| {
                 self.functions

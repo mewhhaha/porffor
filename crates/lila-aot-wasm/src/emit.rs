@@ -26,7 +26,10 @@ mod module_assembly;
 mod runtime_requirement;
 pub(crate) use body_compilation::{CompletedProgramInitializeBody, ProgramInitializeCompilation};
 pub(crate) use completion_exit::CompletionExit;
-pub(crate) use module_assembly::emit_runtime_function_module;
+pub(crate) use module_assembly::{
+    emit_runtime_direct_eval_module, emit_runtime_function_module,
+    emit_runtime_global_script_module,
+};
 #[cfg(test)]
 mod async_generator_dispatcher_tests;
 
@@ -307,6 +310,8 @@ pub(crate) struct FunctionBuilder<'a> {
     template_source_body: Option<lila_ir::TemplateSourceIr>,
     pub(crate) template_source_execution: Option<TemplateSourceExecution>,
     module_prelude_id: Option<lila_ir::StaticScriptId>,
+    script_entry_after_prelude_id: Option<lila_ir::StaticScriptId>,
+    global_prelude_phase: Option<crate::gc_types::GlobalScriptPreludePhase>,
     pub(crate) params: &'a [FunctionParamIr],
     pub(crate) owned_env_bindings: &'a [OwnedEnvBindingIr],
     eval_environment: Option<&'a lila_ir::EvalEnvironmentRoleIr>,
@@ -592,12 +597,13 @@ fn emit_script(
 pub(crate) fn emit_runtime_module(
     script: &ScriptIr,
     intl_selection: &lila_intl::IntlDataSelection,
+    source_compilation_profile: crate::RuntimeSourceCompilationProfile,
 ) -> Result<EmittedModule, EmitError> {
     let mut script = script.clone();
     super::builtins::append_empty_dynamic_function_bodies(&mut script);
     module_assembly::emit_script_module(
         &script,
-        ModuleKind::Runtime,
+        ModuleKind::Runtime(source_compilation_profile),
         PromiseRejectionPolicy::default(),
         intl_selection,
     )
@@ -1585,6 +1591,11 @@ impl<'a> FunctionBuilder<'a> {
             runtime_helper_base,
         );
         builder.module_prelude_id = script.module_prelude.as_ref().map(|unit| unit.id);
+        builder.script_entry_after_prelude_id = script
+            .script_entry_after_prelude
+            .as_ref()
+            .map(|entry| entry.unit().id);
+        builder.global_prelude_phase = module_globals.global_prelude_phase();
         builder
     }
 
@@ -1934,6 +1945,8 @@ impl<'a> FunctionBuilder<'a> {
             template_source_body,
             template_source_execution: None,
             module_prelude_id: None,
+            script_entry_after_prelude_id: None,
+            global_prelude_phase: None,
             params,
             owned_env_bindings,
             eval_environment,
@@ -2012,11 +2025,11 @@ impl<'a> FunctionBuilder<'a> {
         }
     }
 
-    pub(crate) fn direct_eval_derived_constructor_owner(&self) -> Option<&FunctionId> {
+    pub(crate) fn direct_eval_derived_owner(&self) -> Option<&lila_ir::DirectEvalDerivedOwner> {
         match self.module_state {
             FunctionModuleState::ProgramInitialize => None,
             FunctionModuleState::PreparedScript(unit, _) => match &unit.kind {
-                PreparedScriptKind::DirectEval(context) => context.derived_constructor_owner(),
+                PreparedScriptKind::DirectEval(context) => context.derived_owner(),
                 PreparedScriptKind::RealmScript
                 | PreparedScriptKind::IndirectEval
                 | PreparedScriptKind::ShadowRealmEvaluate => None,
@@ -2046,7 +2059,7 @@ impl<'a> FunctionBuilder<'a> {
                 let PreparedScriptKind::DirectEval(context) = &unit.kind else {
                     panic!("only direct eval supplies a caller execution context");
                 };
-                context.derived_constructor_owner()
+                context.derived_owner()
             }
         }
     }

@@ -6,6 +6,7 @@ use crate::gc_types::{
     PrivateEnvironment, RealmRecord, RealmRecordSchema, StoredValue, StringValue, ValueLocals,
 };
 use lila_ir::NativeErrorKind;
+mod native_compiler;
 
 /// Direct eval requires its caller-context owner and cannot enter this path.
 #[derive(Clone, Copy)]
@@ -60,7 +61,7 @@ impl PreparedScriptDispatch<'_> {
 
 /// What the program's Script hook did with a source string.
 #[derive(Clone, Copy)]
-enum PreparedScriptStatus {
+pub(crate) enum PreparedScriptStatus {
     /// No prepared Script has this source; nothing ran.
     Unmatched,
     /// A prepared Script whose source does not parse.
@@ -70,7 +71,7 @@ enum PreparedScriptStatus {
 }
 
 impl PreparedScriptStatus {
-    const fn code(self) -> i32 {
+    pub(crate) const fn code(self) -> i32 {
         match self {
             Self::Unmatched => 0,
             Self::SyntaxError => 1,
@@ -127,6 +128,12 @@ impl PreparedScriptRealmExecution {
         self.realm.clear(function);
         self.saved_realm.clear(function);
     }
+}
+
+#[derive(Clone, Copy)]
+enum GlobalScriptResultUse {
+    Discard,
+    Retain,
 }
 
 impl FunctionBuilder<'_> {
@@ -188,6 +195,23 @@ impl FunctionBuilder<'_> {
         id: lila_ir::StaticScriptId,
         function: &mut Function,
     ) -> Result<(), EmitError> {
+        self.emit_global_script_entry(id, GlobalScriptResultUse::Discard, function)
+    }
+
+    pub(crate) fn emit_script_entry_after_prelude(
+        &mut self,
+        id: lila_ir::StaticScriptId,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        self.emit_global_script_entry(id, GlobalScriptResultUse::Retain, function)
+    }
+
+    fn emit_global_script_entry(
+        &mut self,
+        id: lila_ir::StaticScriptId,
+        result_use: GlobalScriptResultUse,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
         let planned = self
             .functions
@@ -207,10 +231,12 @@ impl FunctionBuilder<'_> {
         self.completion().copy_from(&pending, function);
         pending.clear(function);
         self.emit_propagate_current_throw_if_needed(function);
-        let undefined = schema.reserve_value_local(function);
-        undefined.set_undefined(function);
-        self.completion().set_normal(&undefined, function);
-        undefined.clear(function);
+        if matches!(result_use, GlobalScriptResultUse::Discard) {
+            let undefined = schema.reserve_value_local(function);
+            undefined.set_undefined(function);
+            self.completion().set_normal(&undefined, function);
+            undefined.clear(function);
+        }
         Ok(())
     }
 
@@ -292,14 +318,33 @@ impl FunctionBuilder<'_> {
             |_, _| Ok(()),
             function,
         )?;
-        realm.clear(function);
         status.load(function);
         function.instruction(&Instruction::I32Const(
             PreparedScriptStatus::Unmatched.code(),
         ));
         function.instruction(&Instruction::I32Eq);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_reject_dynamic_source(dispatch.unsupported_operation(), function);
+        match dispatch {
+            PreparedScriptDispatch::Global(_) => {
+                match self
+                    .functions
+                    .gc_host_imports()
+                    .source_compilation_profile()
+                {
+                    crate::RuntimeSourceCompilationProfile::Portable => {
+                        self.emit_reject_dynamic_source(dispatch.unsupported_operation(), function);
+                    }
+                    crate::RuntimeSourceCompilationProfile::NativeHost => {
+                        self.emit_native_global_script_compile(
+                            kind, source, &realm, output, status, function,
+                        )?;
+                    }
+                }
+            }
+            PreparedScriptDispatch::ShadowRealm { .. } => {
+                self.emit_reject_dynamic_source(dispatch.unsupported_operation(), function);
+            }
+        }
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         if let PreparedScriptDispatch::ShadowRealm { source_parsed, .. } = dispatch {
@@ -308,6 +353,7 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::I32Eq);
             source_parsed.store(function);
         }
+        realm.clear(function);
         schema.release_i32_local(status, function);
         schema.release_i32_local(kind, function);
         Ok(())

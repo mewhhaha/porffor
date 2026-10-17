@@ -326,7 +326,23 @@ fn prepared_script_context_projections_keep_their_closed_role_policy() {
     assert!(projections.contains(
         "FunctionModuleState::Internal(_)|FunctionModuleState::RuntimeOperation(_)|FunctionModuleState::ProgramInitialize=>false"
     ));
-    assert!(projections.contains("context.derived_constructor_owner()"));
+    let owner = normalized_code(bounded(
+        SOURCE,
+        "    pub(crate) fn direct_eval_derived_owner(",
+        "    pub(crate) fn direct_eval_execution_context_local(",
+    ));
+    assert!(owner.starts_with("&self)->Option<&lila_ir::DirectEvalDerivedOwner>{"));
+    assert!(owner.contains("FunctionModuleState::ProgramInitialize=>None"));
+    assert!(owner.contains(concat!(
+        "FunctionModuleState::PreparedScript(unit,_)=>match&unit.kind{",
+        "PreparedScriptKind::DirectEval(context)=>context.derived_owner(),",
+        "PreparedScriptKind::RealmScript|PreparedScriptKind::IndirectEval|",
+        "PreparedScriptKind::ShadowRealmEvaluate=>None,"
+    )));
+    assert_eq!(owner.matches("context.derived_owner()").count(), 2);
+    assert!(owner.contains("ifunit.function_ids.contains(function_id)"));
+    assert!(owner.contains("letPreparedScriptKind::DirectEval(context)=&unit.kindelse{"));
+    assert!(!owner.contains("derived_constructor_owner("));
     assert!(projections.contains("self.direct_eval_context.as_ref()?;"));
     assert!(projections.contains("self.direct_eval_context.as_ref()"));
     assert!(normalized_code(SOURCE).contains("entry.private_environment()"));
@@ -455,7 +471,9 @@ fn gc_program_publication_does_not_reinstall_metadata_or_reset_runtime_scratch()
         "string_pool.compiler_owned_boundary().static_len()",
         "}else{string_pool.bytes.len()})asi64)"
     )));
-    assert!(assembly.contains("ModuleKind::Runtime=>string_pool.append_runtime_data(&mutsection)"));
+    assert!(
+        assembly.contains("ModuleKind::Runtime(_)=>string_pool.append_runtime_data(&mutsection)")
+    );
     assert!(
         assembly.contains("ModuleKind::Program(_)=>string_pool.append_program_data(&mutsection)")
     );

@@ -2,9 +2,8 @@
 //! Entry/ABI and AOT factory consumers are required before this can be merged.
 
 use super::*;
-use lila_aot_wasm::{GcHostImport, RuntimeArtifact};
-use lila_intl::IntlCompilationProfile;
-use lila_ir::{lower_runtime_function, DynamicFunctionKind, HostSurfacePolicy};
+use lila_aot_wasm::GcHostImport;
+use lila_ir::{lower_runtime_function, DynamicFunctionKind};
 use wasmtime::{ExternType, RootScope, Val};
 
 mod factory;
@@ -22,54 +21,8 @@ use outcome::{CompileRejection, EscapedReply};
 use signature::NativeFunctionSignature;
 use sources::ConvertedRequest;
 
-/// Execution-owned authority. No P modules, instances or source catalogue are
-/// cached here. The linker already contains this Store's actual R instance.
-#[derive(Clone)]
-pub(super) struct NativeFunctionCompilerContext {
-    linker: WasmtimeLinker<WasmHostState>,
-    runtime: Arc<RuntimeArtifact>,
-    intl_profile: IntlCompilationProfile,
-    host_surface_policy: HostSurfacePolicy,
-    execution: Arc<WasmAgentExecutionControl>,
-    #[cfg(test)]
-    test_observer: Option<Arc<NativeFunctionCompilationObserver>>,
-}
-
-impl NativeFunctionCompilerContext {
-    pub(super) fn new(
-        linker: &WasmtimeLinker<WasmHostState>,
-        runtime: Arc<RuntimeArtifact>,
-        intl_profile: IntlCompilationProfile,
-        host_surface_policy: HostSurfacePolicy,
-        execution: Arc<WasmAgentExecutionControl>,
-    ) -> Self {
-        Self {
-            linker: linker.clone(),
-            runtime,
-            intl_profile,
-            host_surface_policy,
-            execution,
-            #[cfg(test)]
-            test_observer: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn with_test_observer(
-        mut self,
-        observer: Option<Arc<NativeFunctionCompilationObserver>>,
-    ) -> Self {
-        self.test_observer = observer;
-        self
-    }
-
-    fn check_budget(&self) -> wasmtime::Result<()> {
-        self.execution
-            .remaining()
-            .map(|_| ())
-            .map_err(wasmtime::Error::new)
-    }
-}
+// The Function and global Script callbacks consume the same armed execution authority.
+use crate::wasm_native_source_compiler::{Family, NativeSourceCompilerContext, Phase};
 
 fn abi_error(message: impl std::fmt::Display) -> wasmtime::Error {
     wasmtime::Error::new(EngineError::new(format!(
@@ -123,7 +76,7 @@ fn compile(
     let context = {
         caller
             .data()
-            .native_function_compiler
+            .native_source_compiler
             .clone()
             .ok_or_else(|| abi_error("linked execution has no armed native compiler context"))?
     }; // No State borrow crosses decoding, compilation or a Wasm invocation.
@@ -132,28 +85,40 @@ fn compile(
     }
     context.check_budget()?;
     #[cfg(test)]
-    if let Some(observer) = &context.test_observer {
+    if let Some(observer) = &context.function_test_observer {
         observer.request();
     }
+    let trace = context.begin_trace(Family::Function);
     let engine = caller.engine().clone();
     let reply = {
         let mut roots = RootScope::new(&mut caller);
-        let request = ConvertedRequest::decode(&mut roots, inputs, signature, &context.execution)?;
+        let decode = trace.as_ref().map(|trace| trace.phase(Phase::Decode));
+        let request = ConvertedRequest::decode(&mut roots, inputs, signature, context.execution())?;
+        drop(decode);
         context.check_budget()?;
+        let parse_lower = trace.as_ref().map(|trace| trace.phase(Phase::ParseLower));
         let lowered = lower_runtime_function(
             request.kind,
             &request.arguments,
-            context.host_surface_policy,
-        );
+            context.policy.host_surface_policy(),
+        )
+        .map(|program| program.with_language_features(context.policy.language_features()));
+        drop(parse_lower);
         context.check_budget()?;
         match lowered {
             Ok(program) => {
                 let completion = factory::instantiate_and_create(
-                    &mut roots, &engine, &context, &request, &program, signature,
+                    &mut roots,
+                    &engine,
+                    &context,
+                    &request,
+                    &program,
+                    signature,
+                    trace.as_ref(),
                 )?;
                 let reply = EscapedReply::completion(&mut roots, completion)?;
                 #[cfg(test)]
-                if let Some(observer) = &context.test_observer {
+                if let Some(observer) = &context.function_test_observer {
                     observer.completed_factory();
                 }
                 reply
@@ -163,7 +128,7 @@ fn compile(
                     let reply = EscapedReply::syntax(&mut roots, &message, signature)?;
                     context.check_budget()?;
                     #[cfg(test)]
-                    if let Some(observer) = &context.test_observer {
+                    if let Some(observer) = &context.function_test_observer {
                         observer.syntax_rejection();
                     }
                     reply

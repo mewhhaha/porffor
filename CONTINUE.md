@@ -1,22 +1,36 @@
-## Cloud cache progress and active compiler repair — 2026-10-17
+# Compiler and retention checkpoint — 2026-10-17
 
-Cloud verification now scales retained modules within the actual machine cap:
-at most 512 entries and the smaller of 2 GiB or one eighth of inherited memory.
-Explicit stricter settings and local limits remain effective. All 37 launcher
-controls pass. Profiling of one remaining dynamic-source timeout found that
-compiled-module lookup dominates; increasing retention from two to 512 entries
-raised observed template cache hits from 23% to 64%, but the original case still
-timed out. This tooling change alone does not close that failure.
+The current source has a complete source-bound native compiler/runtime build.
+The original27 focused Test262 executions improve from19Success/8Crash to
+23Success/4Crash. All19 prior passes remain. Repaired IDs are the for-in named
+class initializer, strict simple destructuring, and both regress-610026 modes;
+the large empty-block tests complete within their original deadlines. Four
+class/prototype staging timeouts remain. No requested ID was skipped.
 
-The active compiler candidate combines empty-statement storage reduction,
-for-in initializer environment discovery and fewer native-template scans.
-Seven optimized template tests pass, including reference retention coverage.
-The ordinary production build stopped with a full filesystem before completing;
-no new production or full-suite acceptance is claimed. New unused test-graph
-outputs are preserved in a verified lossless archive to recover build space.
-Next finish a source-bound incremental build, rerun the exact timeout/crash and
-large empty-block modes, compare every prior passing ID, then complete the
-remaining broad suites and task gates. Keep this file/tasks until those pass.
+The complete IR library inventory passes1598/1598, none ignored or filtered.
+Its empty for-await assertion now checks the optimized Empty representation
+and absence of a lexical frame while retaining binding and iterator checks.
+The earlier1597/1 result and recorder errors remain in raw evidence. See the
+[portable checkpoint](docs/rust-rewrite/compiler-source-regression-checkpoint-20261017.json).
+
+Compiler source fingerprint25893417103a16e9ab5fa913e5c0e4338aef0ada012738e1c798b8badb568f49.
+The staged Git tree reproduces all2690 compiler inputs and1052 native inputs
+byte-for-byte. This is an opt1 direct build, separate from ordinary Cargo/CLI
+acceptance. Full AOT/Engine and remaining integration inventories are next.
+
+Cloud verification retains at most512 modules and the smaller of2GiB or one
+eighth of inherited memory, preserving stricter explicit/local settings; all37
+launcher controls pass. The compiler/cache batch changed together. A diagnostic
+over1752 templates found600 unique code keys, still600 without debug names and
+500 ignoring numeric values. Those diagnostic bytes were never executed or
+used as cache keys; no speculative value-insensitive optimization was applied.
+
+Next finish broad native inventories, profile/repair the four real timeouts,
+then replay remaining203 and historical5365 IDs with exact pass retention.
+Complete ordinary default/all-feature/CLI, supported-host/shard/resume and two
+unfiltered current-pin families plus all task-specific gates. Preserve this
+file/tasks until actual completion. Temporal's Apia window still has no accepted
+fallback in current inspected upstream sources; full conformance is not claimed.
 
 # Current continuation — 2026-10-15
 

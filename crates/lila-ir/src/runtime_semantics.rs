@@ -27,12 +27,16 @@ impl WasmWeakReachabilityCapability {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeUnavailableCapability {
     WeakReachability,
+    ExternalCallerImport,
+    /// A host source representation was supplied without an evaluation body.
+    HostModuleEvaluation,
 }
 
 impl RuntimeUnavailableCapability {
     pub const fn owner(self) -> ConformanceOwner {
         match self {
             Self::WeakReachability => ConformanceOwner::T05,
+            Self::ExternalCallerImport | Self::HostModuleEvaluation => ConformanceOwner::T13,
         }
     }
 }
@@ -40,6 +44,16 @@ impl RuntimeUnavailableCapability {
 impl core::fmt::Display for RuntimeUnavailableCapability {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::HostModuleEvaluation => write!(
+                f,
+                "{}: the host ModuleSource record supplies no module evaluation capability",
+                self.owner(),
+            ),
+            Self::ExternalCallerImport => write!(
+                f,
+                "{}: native direct eval cannot yet execute import() through the external caller's Script Record",
+                self.owner(),
+            ),
             Self::WeakReachability => write!(
                 f,
                 "{}: weak references and ephemerons are unavailable in the selected Wasmtime runtime; WeakMap, WeakSet, WeakRef and FinalizationRegistry require this facility",
@@ -121,6 +135,8 @@ impl RuntimeSemanticRejection {
             Self::Gap(RuntimeSemanticGap::TemporalZonedRoundingWindow) => 8,
             Self::UnavailableCapability(RuntimeUnavailableCapability::WeakReachability) => 9,
             Self::DynamicSource(DynamicSourceRuntimeOperation::ShadowRealmEvaluate) => 10,
+            Self::UnavailableCapability(RuntimeUnavailableCapability::ExternalCallerImport) => 11,
+            Self::UnavailableCapability(RuntimeUnavailableCapability::HostModuleEvaluation) => 12,
         }
     }
 
@@ -152,6 +168,12 @@ impl RuntimeSemanticRejection {
             )),
             10 => Some(Self::DynamicSource(
                 DynamicSourceRuntimeOperation::ShadowRealmEvaluate,
+            )),
+            11 => Some(Self::UnavailableCapability(
+                RuntimeUnavailableCapability::ExternalCallerImport,
+            )),
+            12 => Some(Self::UnavailableCapability(
+                RuntimeUnavailableCapability::HostModuleEvaluation,
             )),
             _ => None,
         }
@@ -200,6 +222,12 @@ mod tests {
             RuntimeSemanticRejection::DynamicSource(
                 DynamicSourceRuntimeOperation::ShadowRealmEvaluate,
             ),
+            RuntimeSemanticRejection::UnavailableCapability(
+                RuntimeUnavailableCapability::ExternalCallerImport,
+            ),
+            RuntimeSemanticRejection::UnavailableCapability(
+                RuntimeUnavailableCapability::HostModuleEvaluation,
+            ),
         ];
         assert_eq!(
             RuntimeUnavailableCapability::WeakReachability.owner(),
@@ -212,7 +240,7 @@ mod tests {
                 Some(reason)
             );
         }
-        for code in [i64::MIN, -1, 11, i64::MAX] {
+        for code in [i64::MIN, -1, 13, i64::MAX] {
             assert_eq!(RuntimeSemanticRejection::from_abi_code(code), None);
         }
         assert_eq!(

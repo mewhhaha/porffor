@@ -182,6 +182,42 @@ check_no_inline_legacy_includes() {
   fi
 }
 
+# Two registered Cargo integration children have exact crate-root-relative paths.
+# The general production/legacy include ban remains unchanged for every other owner.
+check_registered_module_source_test_child() {
+  registered_root="$1"
+  registered_child='crates/lila-engine/tests/aot_module_sources/prototype_chain.rs'
+  capability_child='crates/lila-engine/tests/aot_module_sources/evaluation_capability.rs'
+  if [ "$registered_root" != 'crates/lila-engine/tests/aot_module_sources.rs' ]; then
+    fail "$registered_root is not the registered ModuleSource integration root"
+    return
+  fi
+  require_file "$registered_child"
+  require_module_decl "$registered_root" prototype_chain
+  require_exact_line_count "$registered_child" '#[test]' 1 'integration child test gate'
+  check_no_inline_legacy_includes "$registered_child"
+  require_file "$capability_child"
+  require_module_decl "$registered_root" evaluation_capability
+  require_exact_line_count "$capability_child" '#[test]' 2 'evaluation capability child test gates'
+  check_no_inline_legacy_includes "$capability_child"
+  if ! awk '
+    $0 == "#[path = \"aot_module_sources/prototype_chain.rs\"]" {
+      count++
+      if (count > 1 || getline <= 0 || $0 != "mod prototype_chain;") exit 1
+      next
+    }
+    $0 == "#[path = \"aot_module_sources/evaluation_capability.rs\"]" {
+      capability_count++
+      if (capability_count > 1 || getline <= 0 || $0 != "mod evaluation_capability;") exit 1
+      next
+    }
+    /include!|#\[path/ { exit 1 }
+    END { if (count != 1 || capability_count != 1) exit 1 }
+  ' "$registered_root"; then
+    fail "$registered_root may only attach its two exact registered integration children"
+  fi
+}
+
 check_raw_line_budget() {
   file="$1"
   max_lines="$2"
@@ -3037,9 +3073,16 @@ for sole_owner in ModuleTypeRegistry FinalizedModuleSections CompiledModulePacka
     fail "$sole_owner must be owned only by $compiled_module_package"
   fi
 done
+# Native template binary fixtures have one exact statically test-only owner.
+native_template_fixture_source="crates/lila-aot-wasm/src/native_program_template/tests.rs"
+require_file "$native_template_fixture_source"
+if [[ "$(head -n 1 "$native_template_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'native template binary fixtures must be compiled only for tests'
+fi
 gc_instruction_escapes="$(
   rg -n 'Instruction::(Struct(New|Get|Set)|Array(New|Get|Set|Fill|Copy|Len))' \
-    crates/lila-aot-wasm/src --glob '*.rs' --glob '!**/gc_types/**' || true
+    crates/lila-aot-wasm/src --glob '*.rs' --glob '!**/gc_types/**' \
+      --glob '!crates/lila-aot-wasm/src/native_program_template/tests.rs' || true
 )"
 if [ -n "$gc_instruction_escapes" ]; then
   fail "raw Wasm-GC record/array instructions must stay in the central schema: $gc_instruction_escapes"
@@ -3069,8 +3112,10 @@ gc_registered_finalizer="$(braced_rust_item_source "$wasm_gc_types" '^pub[(]crat
 gc_registered_finalizer_code="$(printf '%s\n' "$gc_registered_finalizer" | tr -d '[:space:]')"
 if [[ "$gc_root_finalizer_code" != *'self,mutglobals:GlobalLedger,snapshot:bool,module_guard_count:u32,)->FinalizedModuleGlobals{'* ]] \
   || [[ "$gc_root_finalizer_code" != *'snapshot.then(||snapshot::SnapshotRoots::declare(&self.layouts,&mutglobals))'* ]] \
-  || [[ "$gc_root_finalizer_code" != *'FinalizedModuleGlobals{section:globals,runtime_schema,}'* ]] \
-  || [[ "$gc_registered_finalizer_code" != *'globals:self.runtime.finalize_globals(globals,snapshot,module_guard_count)'* ]] \
+  || [[ "$gc_root_finalizer_code" != *'FinalizedModuleGlobals{global_prelude_phase:None,section:globals,runtime_schema,}'* ]] \
+  || [[ "$gc_registered_finalizer_code" != *'letmutglobals=self.runtime.finalize_globals(globals,snapshot,module_guard_count);'* ]] \
+  || [[ "$gc_registered_finalizer_code" != *'ifself.global_prelude{globals.declare_global_prelude_phase();}'* ]] \
+  || [[ "$gc_registered_finalizer_code" != *'FinalizedRuntimeModule{types:FinalizedModuleTypes{section:self.section,},globals,}'* ]] \
   || ! grep -Fq 'current_realm: GcRootGlobal<RealmRecord>,' "$wasm_gc_types" \
   || ! grep -Fq 'section: GlobalLedger,' "$wasm_gc_types"; then
   fail 'both finalization modes must consume the actual global ledger through one typed-root owner and seal its matching schema'
@@ -3140,7 +3185,9 @@ require_fixed_string_count "$wasm_program_entries" 'schema.export_snapshot_roots
 require_tree_regex_count crates/lila-aot-wasm/src '[.]export_snapshot_roots[(]' 1 'sole typed opt-in snapshot export consumer'
 require_fixed_string_count crates/lila-aot-wasm/src/emit/module_assembly.rs 'export_snapshot_roots(' 0 'no copied snapshot export implementation in assembly'
 program_exports_assembly_code="$(tr -d '[:space:]' < crates/lila-aot-wasm/src/emit/module_assembly.rs)"
-if [[ "$program_exports_assembly_code" != *'entry_exports.append(module_package.schema(),script.module_entry_evaluation().is_some(),&mutexports,);'* ]]; then
+if [[ "$program_exports_assembly_code" != *'entry_exports.append(module_package.schema(),module_package.global_prelude_phase(),script.module_entry_evaluation().is_some(),&mutexports,);'* ]] \
+  || [[ "$program_exports_append_code" != *'schema:&RuntimeSchema,global_prelude:Option<crate::gc_types::GlobalScriptPreludePhase>,has_module_entry:bool,exports:&mutExportSection,'* ]] \
+  || [[ "$program_exports_append_code" != *'ifletSome(main)=self.main{ifletSome(phase)=global_prelude{phase.export(exports);}'* ]]; then
   fail 'the typed ProgramExports plan must consume the same finalized module package schema'
 fi
 # Body compilation and entry roots are independent private owners, while the
@@ -3190,7 +3237,7 @@ require_text_regex_count "$program_module_emission" 'module_assembly::emit_scrip
 require_text_regex_count "$program_module_emission" 'Some[(]runtime[)] => ModuleKind::Program[(]runtime[)]' 1 'heap program links its selected runtime'
 require_text_regex_count "$program_module_emission" 'None => ModuleKind::Standalone' 1 'heap-free standalone module selection'
 require_text_regex_count "$runtime_module_emission" 'module_assembly::emit_script_module[(]' 1 'runtime assembly consumer'
-require_text_regex_count "$runtime_module_emission" 'ModuleKind::Runtime,' 1 'runtime caller selects the runtime module kind'
+require_text_regex_count "$runtime_module_emission" 'ModuleKind::Runtime\(source_compilation_profile\),' 1 'runtime caller selects its explicit source-compilation profile'
 # The callable builder now carries typed resume-environment/resource authority
 # and sparse Intl frame selection. Entry owns the per-point ancestry selection,
 # retaining the original saved-chain path for uncertified linear points.
@@ -3393,7 +3440,8 @@ require_fixed_string_count crates/lila-engine/src/lib.rs 'cache::NativeFunctionC
 require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, native())' 1 'native load accepts only immutable embedded bytes'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
-require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity)?' 1 'canonical complete raw layout admission'
+require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity, version)?' 1 'canonical complete raw layout admission consumes the checked actual version'
+require_fixed_string_count "$wasm_build_package" 'CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mut payload)?))?' 1 'build envelope admits actual current layout before raw payload'
 require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(source, policy, mode, || {' 1 'typed embedded R uses the shared bounded retention owner'
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
@@ -3415,11 +3463,27 @@ runtime_cache_fixture_source="crates/lila-aot-wasm/src/runtime_artifact/cache/te
 if [[ "$(head -n 1 "$runtime_cache_fixture_source")" != '#![cfg(test)]' ]]; then
   fail 'foreign runtime-cache fixture constructors must be compiled only for tests'
 fi
+# Source-profile metadata fixtures have one exact statically test-only owner.
+runtime_source_profile_fixture_source="crates/lila-aot-wasm/src/runtime_artifact/source_compilation/tests.rs"
+runtime_source_profile_fixture_parent="crates/lila-aot-wasm/src/runtime_artifact/source_compilation.rs"
+require_file "$runtime_source_profile_fixture_source"
+if [[ "$(head -n 1 "$runtime_source_profile_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'source-profile metadata fixtures must be compiled only for tests'
+fi
+if [[ "$(sed -n '/^#\[cfg(test)\]$/{N;p;}' "$runtime_source_profile_fixture_parent")" != $'#[cfg(test)]\nmod tests;' ]]; then
+  fail 'source-profile metadata fixture parent must retain its exact test-only gate'
+fi
 for sealed_section in types globals code; do
+  source_profile_fixture_exclusions=()
+  if [ "$sealed_section" = types ]; then
+    source_profile_fixture_exclusions=(-not -path "$runtime_source_profile_fixture_source")
+  fi
   sealed_section_escapes="$(
     find crates/lila-aot-wasm/src -type f -name '*.rs' \
       ! -path "$compiled_module_package" \
       ! -path "$runtime_cache_fixture_source" \
+      ! -path "$native_template_fixture_source" \
+      "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
       | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
   )"
@@ -3435,6 +3499,7 @@ global_section_constructor_escapes="$(
   find crates/lila-aot-wasm/src -type f -name '*.rs' \
     ! -path "$compiled_module_package" \
     ! -path "$runtime_cache_fixture_source" \
+    ! -path "$native_template_fixture_source" \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
 )"
@@ -4564,7 +4629,7 @@ wasm_json_reviver="crates/lila-aot-wasm/src/builtins/json/reviver.rs"
 wasm_json_stringify="crates/lila-aot-wasm/src/builtins/json/stringify.rs"
 require_file "$wasm_json_builtins"
 check_no_inline_legacy_includes "$wasm_json_builtins"
-for json_child in grammar parse parse_frame_state quote reviver string_output stringify stringify_replacer; do
+for json_child in grammar parse parse_array parse_frame_state quote reviver string_output stringify stringify_replacer; do
   json_child_source="crates/lila-aot-wasm/src/builtins/json/${json_child}.rs"
   require_file "$json_child_source"
   check_no_inline_legacy_includes "$json_child_source"
@@ -4573,7 +4638,17 @@ for json_child in grammar parse parse_frame_state quote reviver string_output st
     fail "$wasm_json_builtins must keep ${json_child} private"
   fi
 done
-require_tree_regex_count crates/lila-aot-wasm/src 'parse_frame_state::' 0 'JSON frame-owner imports or re-exports'
+# The private parser imports only its closed metadata-key discriminator. This
+# carries no frame or record authority; all other qualified owner references,
+# including aliases/re-exports and copies in other modules, remain forbidden.
+json_child_key_import='use super::parse_frame_state::JsonParseChildKey;'
+require_exact_line_count "$wasm_json_parse" "$json_child_key_import" 1 'private JSON metadata key import'
+require_exact_line_count "$wasm_json_parse_frame_state" "pub(super) enum JsonParseChildKey<'a> {" 1 'child-owned metadata key domain'
+require_exact_line_count "$wasm_json_parse_frame_state" "    ObjectKey(&'a GcLocal<StringValue>)," 1 'duplicate-capable object metadata key'
+require_exact_line_count "$wasm_json_parse_frame_state" '    FreshArrayIndex(I64Local),' 1 'fresh sequential array metadata key'
+json_frame_owner_references="$(grep -RH --include='*.rs' 'parse_frame_state::' crates/lila-aot-wasm/src || true)"
+json_unregistered_frame_owner_references="$(printf '%s\n' "$json_frame_owner_references" | grep -Fvx "$wasm_json_parse:$json_child_key_import" || true)"
+require_text_regex_count "$json_unregistered_frame_owner_references" 'parse_frame_state::' 0 'JSON frame-owner imports or re-exports outside the exact metadata key seam'
 require_regex_count "$wasm_json_builtins" '^enum JsonBuiltin[[:space:]]*\{' 1 'private closed JSON operation domain'
 require_regex_count "$wasm_json_builtins" '^[[:space:]]*fn emit_json_builtin\(' 1 'private exhaustive JSON dispatcher'
 json_dispatch_body="$(braced_rust_item_source "$wasm_json_builtins" '^fn[[:space:]]+emit_json_builtin[[:space:]]*[(]')"
@@ -4615,6 +4690,14 @@ done
 check_raw_line_budget "$wasm_json_builtins" 360
 check_raw_line_budget "$wasm_json_parse_frame_state" 200
 check_raw_line_budget "$wasm_json_parse" 550
+wasm_json_parse_array="crates/lila-aot-wasm/src/builtins/json/parse_array.rs"
+require_exact_line_count "$wasm_json_parse_array" 'pub(super) struct JsonArrayDataDescriptors {' 1 'private undefined data-descriptor authority'
+require_exact_line_count "$wasm_json_parse_array" "struct FreshJsonArrayElement<'a> {" 1 'private fresh JSON frame insertion owner'
+require_regex_count "$wasm_json_parse_array" '^[[:space:]]*fn from_frame\(' 1 'sole private JSON frame insertion constructor'
+require_regex_count "$wasm_json_parse_array" '^[[:space:]]*pub\(super\) fn emit_json_parse_array_append\(' 1 'fixed fresh JSON array append entry'
+require_fixed_string_count "$wasm_json_parse" 'self.emit_json_parse_array_append(&frame, &stored, &array_descriptors, ordinal, f)?;' 1 'fresh frame append consumes the original immutable StoredValue'
+check_no_inline_legacy_includes "$wasm_json_parse_array"
+check_raw_line_budget "$wasm_json_parse_array" 220
 check_raw_line_budget "$wasm_json_reviver" 550
 check_raw_line_budget "$wasm_json_stringify" 950
 wasm_json_output="crates/lila-aot-wasm/src/builtins/json/string_output.rs"
@@ -6063,7 +6146,7 @@ require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs 'pub
 require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs 'pub(crate) fn compile_object_has_property_helper(' 1 'actual shared HasProperty body'
 require_fixed_string_count crates/lila-aot-wasm/src/objects/has_property.rs 'fn emit_has_property_dispatch(' 1 'private HasProperty dispatch'
 require_fixed_string_count \
-  crates/lila-engine/src/lib.rs \
+  crates/lila-engine/src/tests.rs \
   'fn wasm_backend_has_property_dispatches_every_live_exotic_branch()' \
   1 \
   'complete HasProperty runtime regression'
@@ -6640,7 +6723,9 @@ done
 for intl_locale_factory in ListDataImage RelativeTimeDataImage DisplayNamesDataImage DurationDataImage NumberProfilesDataImage DateTimeDataImage CollatorDataImage SegmenterDataImage; do
   require_fixed_string_present "$intl_selection" "${intl_locale_factory}::for_custom_projection(" 'selected bundle consumes the actual component producer'
 done
-require_fixed_string_count crates/lila-engine/src/lib.rs 'b"lila-program-wasm-cache-key-v18"' 1 'current component/data/service cache framing domain'
+require_fixed_string_count crates/lila-engine/src/lib.rs 'const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"lila-program-wasm-cache-key-v19";' 1 'current component/data/service/language-policy cache framing domain'
+require_fixed_string_count crates/lila-engine/src/lib.rs 'hash.update(PROGRAM_WASM_CACHE_KEY_DOMAIN);' 1 'actual cache consumes its single declared framing domain'
+require_fixed_string_count crates/lila-engine/src/lib.rs 'hash.update(options.language_features.wire_code().to_le_bytes());' 1 'actual cache consumes the complete typed language policy'
 require_fixed_string_count crates/lila-engine/src/lib.rs 'fn hash_optional_program_cache_locales(' 1 'presence/count/length-framed component locale owner'
 require_fixed_string_count crates/lila-engine/src/lib.rs 'hash_optional_program_cache_locales(' 9 'one cache field owner consumed by all eight independent filters'
 require_fixed_string_count crates/lila-engine/src/lib.rs '.map(CustomListProfile::requested_locales)' 1 'cache consumes the actual List filter'
@@ -6747,11 +6832,11 @@ for combined_projection_control in \
 do
   require_file "$combined_projection_control"
 done
-require_fixed_string_count crates/lila-engine/src/lib.rs 'fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently()' 1 'real artifact cache tuple control'
+require_fixed_string_count crates/lila-engine/src/tests.rs 'fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently()' 1 'real artifact cache tuple control'
 require_fixed_string_count crates/lila-cli/src/main.rs 'fn relative_and_combined_projection_arguments_are_checked_before_source_loading()' 1 'actual CLI admission and ordering control'
 require_fixed_string_count crates/lila-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_selected_wire_owners()' 1 'actual emitted-frame and wire-owner control'
 require_fixed_string_count crates/lila-cli/tests/cli/intl.rs 'fn combined_projection_cli_build_matches_sdk_and_runs_both_selected_services()' 1 'actual CLI/SDK artifact equality and operation control'
-require_fixed_string_count crates/lila-engine/src/lib.rs 'fn display_names_cache_filters_are_independent_of_other_components_and_input_order()' 1 'actual independent third cache-field control'
+require_fixed_string_count crates/lila-engine/src/tests.rs 'fn display_names_cache_filters_are_independent_of_other_components_and_input_order()' 1 'actual independent third cache-field control'
 require_fixed_string_count crates/lila-cli/src/main.rs 'fn display_names_projection_arguments_are_checked_before_source_loading()' 1 'actual three-component CLI admission ordering control'
 require_fixed_string_count crates/lila-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn display_names_and_three_component_projections_emit_selected_tables_and_run_real_consumers()' 1 'actual physical frames/foreign/wire/script/module consumer control'
 require_fixed_string_count crates/lila-cli/tests/cli/intl.rs 'fn display_names_cli_projection_matches_sdk_and_composes_all_three_filters()' 1 'actual CLI/SDK three-component producer parity control'
@@ -6905,7 +6990,9 @@ require_file crates/lila-engine/src/wasm_agent_host.rs
 check_raw_line_budget crates/lila-engine/src/wasm_agent_host.rs 200
 check_no_inline_legacy_includes crates/lila-engine/src/wasm_agent_host.rs
 require_fixed_string_count crates/lila-engine/src/lib.rs \
-  'wasm_agent_host::agent_call,' 2 'shared native agent operation handler'
+  'wasm_agent_host::agent_call,' 1 'shared native agent operation handler production owner'
+require_fixed_string_count crates/lila-engine/src/tests.rs \
+  'wasm_agent_host::agent_call,' 1 'shared native agent operation handler test control'
 require_fixed_string_count crates/lila-engine/src/wasm_agent_host.rs \
   'pub(super) fn agent_call(' 1 'single actual agent dispatch owner'
 
@@ -6990,17 +7077,485 @@ require_file crates/lila-aot-wasm/src/module/static_signature/program_ownership_
 require_module_decl crates/lila-aot-wasm/src/module/static_signature.rs program_ownership_tests
 check_no_inline_legacy_includes crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs
 check_raw_line_budget crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs 100
-require_fixed_string_count crates/lila-aot-wasm/src/runtime_helpers.rs 'Self::Runtime | Self::Hook(_) => HelperTypeRegion::Core' 1 'hook signatures share the core GC recursion group'
+require_fixed_string_count crates/lila-aot-wasm/src/runtime_helpers.rs 'Self::Runtime | Self::Hook(_) | Self::ContextHook => HelperTypeRegion::Core' 1 'hook signatures share the core GC recursion group'
 require_fixed_string_count crates/lila-aot-wasm/src/runtime_helpers.rs 'Self::Program => HelperTypeRegion::Program' 1 'ordinary P signatures remain outside core recursion'
 require_fixed_string_count "$wasm_gc_types" 'struct ProgramHookGlobals' 0 'no shared mutable P hook globals'
 require_fixed_string_count "$wasm_gc_types" 'fn program_hook_global(' 0 'no ambient P hook lookup'
 require_fixed_string_count crates/lila-aot-wasm/src/program_hooks.rs 'owner.reference(schema, function)' 1 'explicit retained hook owner supplies its actual rooted P'
 require_fixed_string_count crates/lila-aot-wasm/src/gc_types/type_registration_tests.rs 'instance_group.contains(&(helper.type_index() as usize))' 1 'actual serialized hook/ProgramInstance recursion-group control'
 require_fixed_string_count "$wasm_gc_values" 'ProgramMetadataView' 1 'actual bounded metadata reader is reexported'
-require_fixed_string_count crates/lila-aot-wasm/src/lib.rs 'pub use runtime_function::{emit_runtime_function, RuntimeFunctionArtifact};' 1 'actual public AOT native Function adapter'
+wasm_native_function_public_adapter="$(braced_rust_item_source crates/lila-aot-wasm/src/lib.rs '^pub use runtime_function::[{]' | tr -d '[:space:]')"
+require_regex_count crates/lila-aot-wasm/src/lib.rs '^pub use runtime_function::[{]$' 1 'actual public AOT native Function adapter owner'
+require_text_regex_count "$wasm_native_function_public_adapter" '^pubuseruntime_function::[{]emit_runtime_function,emit_runtime_function_with_validated_runtime,RuntimeFunctionArtifact,[}];$' 1 'actual checked and once-validated public AOT native Function adapters'
+
+# Native global Script compilation has its own typed host import and owned P factory.
+native_global_script="crates/lila-aot-wasm/src/runtime_global_script.rs"
+native_global_compiler="crates/lila-aot-wasm/src/prepared_script/native_compiler.rs"
+native_global_operands="crates/lila-aot-wasm/src/gc_types/value/native_global_script_compiler.rs"
+require_module_decl crates/lila-aot-wasm/src/lib.rs runtime_global_script
+require_module_decl crates/lila-aot-wasm/src/prepared_script.rs native_compiler
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs native_global_script_compiler
+for native_global_file in "$native_global_script" "$native_global_compiler" "$native_global_operands"; do
+  require_file "$native_global_file"
+  check_no_inline_legacy_includes "$native_global_file"
+  check_raw_line_budget "$native_global_file" 180
+done
+require_fixed_string_count crates/lila-aot-wasm/src/gc_types/host.rs \
+  'CompileGlobalScript => ("compile_global_script", HostCompileGlobalScript),' 1 'distinct global Script host compiler declaration'
+require_fixed_string_count "$native_global_compiler" \
+  '.gc_host_import(GcHostImport::CompileGlobalScript)' 1 'actual global-only native compiler consumer'
+require_fixed_string_count "$native_global_script" \
+  'let unit = require_root_source_row(program, first)?;' 1 'exact source/kind/root witness admission'
+require_fixed_string_count crates/lila-aot-wasm/src/runtime_artifact.rs \
+  'const LAYOUT_VERSION: u32 = 9;' 1 'current typed native global-source runtime contract'
+for native_global_raw_test in \
+  crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs \
+  crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs; do
+  require_fixed_string_count "$native_global_raw_test" 'let previous_version = 4u32;' 1 'retained ABI4 envelope rejection'
+  require_fixed_string_count "$native_global_raw_test" 'let previous_version = 6u32;' 1 'new ABI6 envelope rejection'
+done
+native_global_dispatch="$(braced_rust_item_source crates/lila-aot-wasm/src/prepared_script.rs '^[[:space:]]*fn emit_prepared_script_dispatch_with_owner[(]')"
+require_text_regex_count "$native_global_dispatch" 'self[.]emit_native_global_script_compile[(]' 1 'one native miss after actual prepared hook dispatch'
+require_text_regex_count "$native_global_dispatch" 'PreparedScriptDispatch::Global[(]_[)]' 2 'closed global Realm selection and native miss owner'
+require_text_regex_count "$native_global_dispatch" 'PreparedScriptDispatch::ShadowRealm' 3 'separate ShadowRealm selection, rejection and status owner'
+
+# Opaque Realm Script source is admitted only through actual callable identity.
+realm_script_resolution="crates/lila-ir/src/lowering/dynamic_source.rs"
+require_fixed_string_count "$realm_script_resolution" \
+  '    RealmScriptInvocation(AdmittedRealmScriptInvocation),' 1 'closed runtime Realm Script invocation proof'
+require_fixed_string_count "$realm_script_resolution" \
+  '                AdmittedRealmScriptInvocation(()),' 1 'single actual-identity proof producer'
+require_fixed_string_count crates/lila-ir/src/lowering.rs \
+  'Some(ResolvedDynamicSourceCall::RealmScriptInvocation(proof))' 2 'plain and spread proof consumers'
+require_fixed_string_count crates/lila-ir/src/lowering/call_candidate_analysis.rs \
+  'Some(ResolvedDynamicSourceCall::RealmScriptInvocation(proof))' 1 'actual call-candidate proof consumer'
+require_module_decl "$realm_script_resolution" native_global_script_tests
+require_file crates/lila-ir/src/lowering/dynamic_source/native_global_script_tests.rs
+
+# Both native source callbacks consume one exact-R/original-budget execution authority.
+require_module_decl crates/lila-engine/src/lib.rs wasm_native_source_compiler
+require_module_decl crates/lila-engine/src/lib.rs wasm_native_global_script_compiler
+native_source_context="crates/lila-engine/src/wasm_native_source_compiler.rs"
+native_global_host="crates/lila-engine/src/wasm_native_global_script_compiler.rs"
+native_global_factory="crates/lila-engine/src/wasm_native_global_script_compiler/factory.rs"
+for native_global_host_file in "$native_source_context" "$native_global_host" "$native_global_factory" \
+  crates/lila-engine/src/wasm_native_global_script_compiler/signature.rs \
+  crates/lila-engine/src/wasm_native_global_script_compiler/sources.rs \
+  crates/lila-engine/src/wasm_native_global_script_compiler/outcome.rs \
+  crates/lila-engine/src/wasm_native_global_script_compiler/observer.rs; do
+  require_file "$native_global_host_file"
+  check_no_inline_legacy_includes "$native_global_host_file"
+  check_raw_line_budget "$native_global_host_file" 220
+done
+require_fixed_string_count crates/lila-engine/src/lib.rs \
+  'wasm_native_source_compiler::NativeSourceCompilerContext::new(' 1 'single actual-R execution compiler context producer'
+require_fixed_string_count crates/lila-engine/src/wasm_gc_host.rs \
+  'wasm_native_global_script_compiler::link(linker, module)?;' 1 'distinct actual global Script compiler linker'
+require_fixed_string_count "$native_global_factory" \
+  'require_exact_request(request, program)?;' 1 'actual decoded source/kind/root witness check before factory execution'
+require_fixed_string_count "$native_global_factory" \
+  'lila_aot_wasm::NativeProgramTemplate::for_global_script(&artifact)' 1 'fresh typed P data with bounded actual-code compilation'
+require_fixed_string_count "$native_global_factory" \
+  'validate_factory_type(&factory.ty(&*store), signature)?;' 1 'actual canonical P/String/Realm factory admission'
+require_fixed_string_count crates/lila-engine/src/wasm_native_global_script_compiler/sources.rs \
+  '_calling_program: OwnedRooted<StructRef>,' 1 'calling P retained across the actual request'
+require_fixed_string_count crates/lila-engine/src/wasm_native_global_script_compiler/outcome.rs \
+  'lila_aot_wasm::check_gc_main_completion(kind, target).map_err(abi_error)?;' 1 'Normal/Throw and no local-target result validation'
+
+require_module_decl crates/lila-aot-wasm/src/emit/module_assembly.rs import_indices
+require_fixed_string_count crates/lila-aot-wasm/src/emit/module_assembly/import_indices.rs \
+  'pub(super) fn claim_optional_host_import_function_index(next: &mut u32) -> u32 {' 1 'ordered optional-host import index allocator owner'
+check_raw_line_budget crates/lila-aot-wasm/src/emit/module_assembly/import_indices.rs 12
+# The new ABI7 signature control has its own cfg(test) owner; ABI6 keeps cap100.
+native_global_signature_tests="crates/lila-aot-wasm/src/module/static_signature/native_global_script_tests.rs"
+require_file "$native_global_signature_tests"
+require_exact_line_count crates/lila-aot-wasm/src/module/static_signature.rs 'mod native_global_script_tests;' 1 'private ABI7 static-signature test owner'
+native_global_signature_parent_code="$(tr -d '[:space:]' < crates/lila-aot-wasm/src/module/static_signature.rs)"
+if [[ "$native_global_signature_parent_code" != *'#[cfg(test)]modnative_global_script_tests;'* ]]; then
+  fail 'the ABI7 static-signature test owner must stay cfg(test)'
+fi
+check_no_inline_legacy_includes "$native_global_signature_tests"
+check_raw_line_budget "$native_global_signature_tests" 60
+require_fixed_string_count "$native_global_signature_tests" 'fn native_global_script_compiler_has_a_distinct_exact_gc_request_and_status_domain()' 1 'preserved ABI7 signature-domain test'
+require_fixed_string_count crates/lila-aot-wasm/src/module/static_signature/program_ownership_tests.rs 'fn native_global_script_compiler_has_a_distinct_exact_gc_request_and_status_domain()' 0 'no duplicate ABI7 test in the capped ABI6 owner'
+
+# Append after helper ownership checks in the complete ABI8 union guard.
+# Replace the earlier fixed Core-region assertion to include ContextHook.
+require_module_decl crates/lila-aot-wasm/src/functions.rs instance_elements_hook
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs instance_elements
+require_module_decl crates/lila-aot-wasm/src/emit/module_assembly.rs program_helper_bodies
+check_raw_line_budget crates/lila-aot-wasm/src/functions/instance_elements_hook.rs 260
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/instance_elements.rs 80
+check_raw_line_budget crates/lila-aot-wasm/src/emit/module_assembly/program_helper_bodies.rs 180
+python3 scripts/check-abi8-instance-elements.py
+
+# ABI8 direct eval keeps its caller witness and P2 factory separate from global Script.
+require_module_decl crates/lila-aot-wasm/src/lib.rs runtime_direct_eval
+require_module_decl crates/lila-aot-wasm/src/runtime_direct_eval.rs witness
+require_module_decl crates/lila-aot-wasm/src/runtime_direct_eval.rs tests
+require_module_decl crates/lila-aot-wasm/src/functions.rs native_direct_eval
+require_module_decl crates/lila-aot-wasm/src/functions.rs native_direct_eval_factory
+require_module_decl crates/lila-aot-wasm/src/gc_types/value.rs native_direct_eval_compiler
+require_module_decl crates/lila-ir/src/lib.rs runtime_direct_eval
+require_module_decl crates/lila-ir/src/lib.rs import_call_source_origin
+require_file crates/lila-aot-wasm/src/runtime_direct_eval.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/runtime_direct_eval.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_direct_eval.rs 120
+require_file crates/lila-aot-wasm/src/runtime_direct_eval/witness.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/runtime_direct_eval/witness.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_direct_eval/witness.rs 120
+require_file crates/lila-aot-wasm/src/runtime_direct_eval/tests.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/runtime_direct_eval/tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_direct_eval/tests.rs 260
+require_file crates/lila-aot-wasm/src/functions/native_direct_eval.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/functions/native_direct_eval.rs
+check_raw_line_budget crates/lila-aot-wasm/src/functions/native_direct_eval.rs 180
+require_file crates/lila-aot-wasm/src/functions/native_direct_eval_factory.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/functions/native_direct_eval_factory.rs
+check_raw_line_budget crates/lila-aot-wasm/src/functions/native_direct_eval_factory.rs 160
+require_file crates/lila-aot-wasm/src/gc_types/value/native_direct_eval_compiler.rs
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/gc_types/value/native_direct_eval_compiler.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/native_direct_eval_compiler.rs 80
+require_file crates/lila-ir/src/runtime_direct_eval.rs
+check_no_inline_legacy_includes crates/lila-ir/src/runtime_direct_eval.rs
+check_raw_line_budget crates/lila-ir/src/runtime_direct_eval.rs 150
+require_file crates/lila-ir/src/runtime_direct_eval/caller.rs
+check_no_inline_legacy_includes crates/lila-ir/src/runtime_direct_eval/caller.rs
+check_raw_line_budget crates/lila-ir/src/runtime_direct_eval/caller.rs 210
+require_file crates/lila-ir/src/runtime_direct_eval/codec.rs
+check_no_inline_legacy_includes crates/lila-ir/src/runtime_direct_eval/codec.rs
+check_raw_line_budget crates/lila-ir/src/runtime_direct_eval/codec.rs 180
+require_file crates/lila-ir/src/runtime_direct_eval/private_capacity.rs
+check_no_inline_legacy_includes crates/lila-ir/src/runtime_direct_eval/private_capacity.rs
+check_raw_line_budget crates/lila-ir/src/runtime_direct_eval/private_capacity.rs 110
+require_file crates/lila-ir/src/runtime_direct_eval/tests.rs
+check_no_inline_legacy_includes crates/lila-ir/src/runtime_direct_eval/tests.rs
+check_raw_line_budget crates/lila-ir/src/runtime_direct_eval/tests.rs 440
+require_file crates/lila-ir/src/import_call_source_origin.rs
+check_no_inline_legacy_includes crates/lila-ir/src/import_call_source_origin.rs
+check_raw_line_budget crates/lila-ir/src/import_call_source_origin.rs 25
+for abi8_raw_test in crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs; do
+  require_fixed_string_count "$abi8_raw_test" 'let previous_version = 7u32;' 1 'retained authenticated ABI7 envelope rejection'
+done
+python3 scripts/check-abi8-native-direct-eval.py
+
+# Append after the complete ABI8 native direct-eval source guards. Existing caps stay unchanged.
+require_file scripts/check-abi8-native-direct-eval-host.py
+check_raw_line_budget scripts/check-abi8-native-direct-eval-host.py 280
+require_module_decl crates/lila-engine/src/lib.rs wasm_native_direct_eval_compiler
+require_module_decl crates/lila-engine/src/lib.rs native_direct_eval_compiler_tests
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler.rs factory
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler.rs outcome
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler.rs schema
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler.rs signature
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler.rs sources
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler/sources.rs invocation
+require_module_decl crates/lila-engine/src/wasm_native_direct_eval_compiler/sources.rs private_chain
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler.rs 160
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/factory.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/factory.rs 180
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/signature.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/signature.rs 200
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/schema.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/schema.rs 140
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/sources.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/sources.rs 140
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/sources/private_chain.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/sources/private_chain.rs 90
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/sources/invocation.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/sources/invocation.rs 150
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/outcome.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/outcome.rs 180
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/observer.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/observer.rs 80
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs 150
+require_file crates/lila-engine/src/wasm_native_direct_eval_compiler/tests/fixture.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_direct_eval_compiler/tests/fixture.rs 80
+require_file crates/lila-engine/src/native_direct_eval_compiler_tests.rs
+check_raw_line_budget crates/lila-engine/src/native_direct_eval_compiler_tests.rs 120
+require_file crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs
+check_raw_line_budget crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs 100
+require_file crates/lila-engine/src/native_direct_eval_compiler_tests/ownership.rs
+check_raw_line_budget crates/lila-engine/src/native_direct_eval_compiler_tests/ownership.rs 80
+require_file crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs
+check_raw_line_budget crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs 110
+require_fixed_string_count crates/lila-aot-wasm/src/gc_types/host.rs 'function_field(&FunctionContextSchema::INSTANCE_ELEMENTS_INITIALIZER)' 1 'declaration-owned typed constructor initializer projection'
+require_fixed_string_count crates/lila-engine/src/wasm_native_direct_eval_compiler/signature.rs 'schema::field(&function_context, Field::ContextInstanceElementsInitializer)?;' 1 'native signature validates initializer storage from actual context'
+python3 scripts/check-abi8-native-direct-eval-host.py
+
+# Profile-proof successor adds only new-owner caps; existing owner caps remain.
+require_file scripts/check-abi8-validated-runtime-profile.py
+check_raw_line_budget scripts/check-abi8-validated-runtime-profile.py 220
+require_module_decl crates/lila-aot-wasm/src/runtime_artifact.rs validated_profile
+require_file crates/lila-aot-wasm/src/runtime_artifact/validated_profile.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_artifact/validated_profile.rs 100
+require_file crates/lila-aot-wasm/src/runtime_artifact/validated_profile/tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_artifact/validated_profile/tests.rs 320
+require_file crates/lila-engine/src/wasm_native_source_compiler/tests.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_source_compiler/tests.rs 160
+python3 scripts/check-abi8-validated-runtime-profile.py
+
+# Native module-source objects retain their actual GC owner and defining Realm.
+wasm_module_source='crates/lila-aot-wasm/src/modules/source.rs'
+wasm_module_source_tests='crates/lila-aot-wasm/src/gc_types/module_source_tests.rs'
+require_file "$wasm_module_source"
+require_file "$wasm_module_source_tests"
+require_module_decl 'crates/lila-aot-wasm/src/modules.rs' source
+require_module_decl 'crates/lila-aot-wasm/src/gc_types.rs' module_source_tests
+require_fixed_string_count 'crates/lila-aot-wasm/src/gc_types/layouts.rs' 'struct ModuleSourceObject => ModuleSourceObjectSchema {' 1 'real native module-source GC brand'
+require_fixed_string_count 'crates/lila-aot-wasm/src/gc_types/layouts.rs' 'SOURCE_CELL: GcRef<BindingCell>, Immutable, NonNullable;' 1 'canonical strong source cell on actual ModuleRecord'
+require_fixed_string_count 'crates/lila-aot-wasm/src/gc_types/layouts.rs' 'SOURCE_TAG: GcRef<StringValue>, Immutable, NonNullable;' 1 'host tag retained as actual GC String'
+require_fixed_string_count "$wasm_module_source" '.field(ModuleRecordSchema::SOURCE_CELL)' 1 'canonical source-cell selection'
+require_fixed_string_count "$wasm_module_source" '.field(ModuleRecordSchema::REALM)' 1 'defining Realm read from actual module owner'
+require_fixed_string_count "$wasm_module_source" 'NonArrayRealmIntrinsicSlot::ModuleSourcePrototype,' 1 'actual defining-Realm stable host source prototype'
+require_fixed_string_count "$wasm_module_source" 'schema.struct_type::<ModuleSourceObject>().construct(' 1 'single source-brand allocation owner'
+require_fixed_string_count "$wasm_module_source" 'Instruction::RefTestNonNull(' 1 'getter tests concrete GC brand'
+require_fixed_string_count "$wasm_module_source" '.field(ModuleSourceObjectSchema::SOURCE_TAG)' 1 'getter reads private actual source tag'
+require_fixed_string_count 'crates/lila-aot-wasm/src/builtins/standard.rs' 'self.emit_module_source_to_string_tag_builtin(function)?;' 1 'consumed native intrinsic getter'
+require_fixed_string_count 'crates/lila-aot-wasm/src/modules/synchronous.rs' 'self.emit_module_source_namespaces(graph, function)?;' 1 'native empty namespaces published without JS activation'
+require_fixed_string_count 'crates/lila-aot-wasm/src/modules/synchronous.rs' 'self.module_source_cell(&record, *module, function)?' 1 'typed resolved source binding consumes canonical cell'
+check_no_inline_legacy_includes "$wasm_module_source"
+check_no_inline_legacy_includes "$wasm_module_source_tests"
+check_raw_line_budget "$wasm_module_source" 180
+check_raw_line_budget "$wasm_module_source_tests" 120
+if rg -n 'emit_function_or_proxy_call|emit_private_module_resume|<module source>' "$wasm_module_source"; then
+  fail 'native source records cannot invoke a JS activation or recognize a fixture locator'
+fi
+# Explicit proposal policy owns only new files/caps; no existing checks/caps removed.
+require_file scripts/check-private-element-policy.py
+check_raw_line_budget scripts/check-private-element-policy.py 180
+require_file crates/lila-ir/src/language_features.rs
+check_raw_line_budget crates/lila-ir/src/language_features.rs 80
+require_module_decl crates/lila-ir/src/lib.rs language_features
+require_file crates/lila-engine/src/native_language_feature_policy_tests.rs
+check_raw_line_budget crates/lila-engine/src/native_language_feature_policy_tests.rs 160
+require_module_decl crates/lila-engine/src/lib.rs native_language_feature_policy_tests
+require_file crates/lila-engine/tests/aot_language/aot_private_element_extensibility.rs
+check_raw_line_budget crates/lila-engine/tests/aot_language/aot_private_element_extensibility.rs 300
+require_module_decl crates/lila-engine/tests/aot_language/main.rs aot_private_element_extensibility
+python3 -B scripts/check-private-element-policy.py --root .
+# Generic host ModuleSource records retain typed identity through real module cells.
+ir_source_records='crates/lila-ir/src/modules/synchronous_execution.rs'
+ir_source_definitions='crates/lila-ir/src/modules/synchronous_definition.rs'
+ir_source_assembly='crates/lila-ir/src/modules/synchronous_source.rs'
+ir_source_graph='crates/lila-ir/src/modules/graph.rs'
+ir_source_loaded='crates/lila-ir/src/modules/loaded_sources.rs'
+ir_source_tests='crates/lila-ir/src/modules/graph_source_phase_export_tests.rs'
+engine_source_tests='crates/lila-engine/tests/aot_module_sources.rs'
+require_file "$ir_source_tests"
+require_file "$engine_source_tests"
+require_module_decl 'crates/lila-ir/src/modules/graph_tests.rs' source_phase_exports
+require_fixed_string_count "$ir_source_loaded" 'pub fn module_source(' 1 'host source constructor without JavaScript parsing'
+ir_host_source_constructor="$(braced_rust_item_source "$ir_source_loaded" '^pub fn module_source[(]')"
+require_text_regex_count "$ir_host_source_constructor" 'parse: ModuleParse::ModuleSource' 1 'native host payload constructor owns the typed non-syntax variant'
+if printf '%s\n' "$ir_host_source_constructor" | grep -Eq 'lila_front::parse|boa_parser|LoweringSession'; then
+  fail 'host ModuleSource data must not enter a JavaScript parse/lowering path'
+fi
+require_fixed_string_count "$ir_source_records" 'pub struct ModuleSourceRecordIr {' 1 'typed actual module/source-tag descriptor'
+require_fixed_string_count "$ir_source_records" 'pub fn source_records(&self) -> &[ModuleSourceRecordIr]' 1 'immutable execution-graph source descriptor projection'
+require_fixed_string_count "$ir_source_records" 'native source records own valid non-activation identities' 2 'production owner validation and focused invalid-owner control'
+require_fixed_string_count "$ir_source_definitions" 'self.source_records.clone(),' 1 'actual descriptor retention into execution graph'
+require_fixed_string_count "$ir_source_definitions" 'ModuleCellIr::ModuleSource { module: *module }' 1 'resolved source binding lowered to its distinct canonical cell'
+require_fixed_string_count "$ir_source_assembly" '.filter(|request| request.phase() != ImportPhaseIr::Source)' 1 'source occurrences excluded from evaluation dependencies'
+require_fixed_string_count "$ir_source_graph" 'graph.unit(*source).record.module_source_tag().is_none()' 2 'ordinary-record source-unavailable checks use actual resolved owner'
+require_fixed_string_count 'crates/lila-ir/src/binding_names.rs' 'ModuleSource => "source";' 1 'source placeholder role distinct from namespaces'
+require_fixed_string_count 'crates/lila-engine/src/module_loader.rs' 'match resolution.target_kind() {' 1 'Engine consumes validated actual target representation'
+require_fixed_string_count 'crates/lila-runtime/src/embedded_module_graph.rs' 'pub const fn target_kind(&self) -> EmbeddedModuleKind' 1 'host target kind has one validated projection'
+require_fixed_string_count 'crates/lila-runtime/src/embedded_module_graph.rs' 'target_kind: target.expect("checked declared target").kind(),' 1 'resolved host record kind retained rather than inferred later'
+require_fixed_string_count 'crates/lila-runtime/src/embedded_module_graph.rs' 'hash.update([match resolution.target_kind {' 1 'actual host record kind bound into graph fingerprint'
+require_fixed_string_count 'crates/lila-ir/src/modules/module_unit.rs' 'if let Some(tag) = self.record.module_source_tag() {' 1 'retained host tag participates in exact duplicate-load identity' 
+require_fixed_string_count 'crates/lila-test262/src/differential/embedded_graph.rs' '(ModuleKindWire::ModuleSource, Some(source_tag), None)' 1 'wire accepts exactly one declared source-tag payload'
+require_fixed_string_count 'crates/lila-test262/src/module_catalog.rs' 'specifier == "<module source>" && attributes.is_empty()' 1 'Test262-only implementation-defined virtual host contract'
+check_no_inline_legacy_includes "$ir_source_tests"
+check_registered_module_source_test_child "$engine_source_tests"
+check_raw_line_budget "$ir_source_tests" 180
+check_raw_line_budget "$engine_source_tests" 280
+if rg -n '<module source>' "$ir_source_loaded" "$ir_source_records" "$ir_source_definitions" "$ir_source_assembly" "$ir_source_graph" 'crates/lila-runtime/src/embedded_module_graph.rs' 'crates/lila-engine/src/module_loader.rs'; then
+  fail 'compiler/runtime module-source support cannot recognize Test262 fixture locators'
+fi
+# Final async-generator body completion distinguishes runtime undefined from an
+# outstanding return Await, while source expression/protocol Await stays owned.
+wasm_async_generator_body='crates/lila-aot-wasm/src/functions/async_generator_body.rs'
+wasm_async_generator_return_tests='crates/lila-engine/tests/aot_async_generator_returns.rs'
+require_file "$wasm_async_generator_body"
+require_file "$wasm_async_generator_return_tests"
+require_fixed_string_count "$wasm_async_generator_body" 'body.value().tag().load(function);' 1 'actual runtime body-completion value classification'
+require_fixed_string_count "$wasm_async_generator_body" 'WasmRuntimeValueTag::Undefined.tag()' 1 'undefined completion fast path after source evaluation'
+require_fixed_string_count "$wasm_async_generator_body" 'AsyncGeneratorReturnStage::Awaited' 2 'preserved typed already-awaited stage writer and classifier'
+require_fixed_string_count "$wasm_async_generator_return_tests" 'return-undefined-implicit-and-explicit.js' 1 'exact pinned fixture inclusion'
+require_fixed_string_count "$wasm_async_generator_return_tests" 'for directive in ["", "'\''use strict'\'';\n"]' 1 'both language modes retain the original test body'
+check_no_inline_legacy_includes "$wasm_async_generator_body"
+check_no_inline_legacy_includes "$wasm_async_generator_return_tests"
+check_raw_line_budget "$wasm_async_generator_body" 370
+check_raw_line_budget "$wasm_async_generator_return_tests" 140
+python3 - "$wasm_async_generator_body" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index('body.kind().load(function);')
+start = source.index('AsyncGeneratorReturnStage::Awaited,', start)
+end = source.index('self.open_frame(ControlFrameKind::If, function);', start)
+condition = source[start:end]
+needles = [
+    'AsyncGeneratorReturnStage::Awaited,',
+    'body.value().tag().load(function);',
+    'WasmRuntimeValueTag::Undefined.tag()',
+    'Instruction::I32Or',
+]
+positions = [condition.index(needle) for needle in needles]
+assert positions == sorted(positions), 'undefined must join the final already-awaited completion test'
+assert 'Instruction::I32And' not in condition, 'either processed Return or runtime undefined must complete directly'
+PY
+
+# Typed P policy reader is outlined under its actual ProgramInstance owner.
+require_module_decl crates/lila-aot-wasm/src/gc_types/value/program_instance.rs language_features
+require_file crates/lila-aot-wasm/src/gc_types/value/program_instance/language_features.rs
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_instance/language_features.rs 60
+
+
+# Exact-R immutable compiler-owned pool and P-local appendices.
+require_module_decl crates/lila-aot-wasm/src/data.rs shared_pool_storage
+require_module_decl crates/lila-aot-wasm/src/data.rs compiler_owned_pool
+require_file crates/lila-aot-wasm/src/data/shared_pool_storage.rs
+require_file crates/lila-aot-wasm/src/data/compiler_owned_pool.rs
+require_module_decl crates/lila-aot-wasm/src/data/compiler_owned_pool.rs tests
+require_file crates/lila-aot-wasm/src/data/compiler_owned_pool/tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/data/shared_pool_storage.rs 190
+check_raw_line_budget crates/lila-aot-wasm/src/data/compiler_owned_pool.rs 230
+check_raw_line_budget crates/lila-aot-wasm/src/data/compiler_owned_pool/tests.rs 230
+require_module_decl crates/lila-aot-wasm/src/runtime_artifact/validated_profile.rs pool_tests
+require_file crates/lila-aot-wasm/src/runtime_artifact/validated_profile/pool_tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_artifact/validated_profile/pool_tests.rs 120
+require_file scripts/check-immutable-compiler-pool.py
+check_raw_line_budget scripts/check-immutable-compiler-pool.py 200
+if ! python3 -B scripts/check-immutable-compiler-pool.py .; then
+  echo "immutable compiler-pool ownership controls failed" >&2
+  failures=$((failures + 1))
+fi
+
+# Realm-owned host ModuleSource prototype is distinct from its abstract parent.
+require_file scripts/check-module-source-prototype.py
+check_raw_line_budget scripts/check-module-source-prototype.py 180
+require_module_decl crates/lila-engine/tests/aot_module_sources.rs prototype_chain
+require_file crates/lila-engine/tests/aot_module_sources/prototype_chain.rs
+check_raw_line_budget crates/lila-engine/tests/aot_module_sources/prototype_chain.rs 100
+python3 -B scripts/check-module-source-prototype.py .
+for module_source_old_r in crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs; do
+  require_fixed_string_count "$module_source_old_r" 'let previous_version = 8u32;' 1 'authenticated old intrinsic-table layout rejection'
+done
+
+# Immutable compiler catalogs retain only per-lowering fact deviations.
+require_file crates/lila-ir/src/lowering/catalog_overlay.rs
+require_file crates/lila-ir/src/lowering/catalog_overlay/tests.rs
+require_file crates/lila-ir/src/lowering/builtin_catalog/flow_tests.rs
+check_raw_line_budget crates/lila-ir/src/lowering/catalog_overlay.rs 220
+check_raw_line_budget crates/lila-ir/src/lowering/catalog_overlay/tests.rs 160
+check_raw_line_budget crates/lila-ir/src/lowering/builtin_catalog/flow_tests.rs 180
+python3 -B scripts/check-ir-shared-catalog-overlay.py . || fail 'IR shared catalog ownership checks failed'
+
+# Opt-in execution-local native dynamic-source phase measurements.
+require_module_decl crates/lila-engine/src/wasm_native_source_compiler.rs trace
+require_file crates/lila-engine/src/wasm_native_source_compiler/trace.rs
+check_no_inline_legacy_includes crates/lila-engine/src/wasm_native_source_compiler/trace.rs
+check_raw_line_budget crates/lila-engine/src/wasm_native_source_compiler/trace.rs 180
+if ! python3 -B scripts/check-native-source-phase-trace.py .; then
+  fail 'native source phase trace ownership or default-off boundary changed'
+fi
+
+# A source representation does not grant host module evaluation capability.
+require_module_decl crates/lila-aot-wasm/src/planning/module_graph.rs evaluation_capability
+require_module_decl crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs tests
+require_module_decl crates/lila-aot-wasm/src/modules.rs evaluation_capability
+require_module_decl crates/lila-engine/tests/aot_module_sources.rs evaluation_capability
+require_file crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs
+require_file crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability/tests.rs
+require_file crates/lila-aot-wasm/src/modules/evaluation_capability.rs
+require_file crates/lila-engine/tests/aot_module_sources/evaluation_capability.rs
+check_raw_line_budget crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs 80
+check_raw_line_budget crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability/tests.rs 140
+check_raw_line_budget crates/lila-aot-wasm/src/modules/evaluation_capability.rs 70
+check_raw_line_budget crates/lila-engine/tests/aot_module_sources/evaluation_capability.rs 100
+require_fixed_string_count crates/lila-ir/src/runtime_semantics.rs 'Self::UnavailableCapability(RuntimeUnavailableCapability::HostModuleEvaluation) => 12,' 1 'distinct closed host module evaluation rejection code'
+require_fixed_string_count crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs 'self.source_record(module).is_some()' 1 'actual host record authority'
+require_fixed_string_count crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs 'ModuleRequestPhaseIr::Evaluation => Some(request.target()),' 1 'only static evaluation dependencies require bodies'
+require_fixed_string_count crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs 'ModuleRequestPhaseIr::Defer => None,' 1 'defer does not silently become eager evaluation'
+require_fixed_string_count crates/lila-aot-wasm/src/planning/module_graph/evaluation_capability.rs 'if !visited.insert(module)' 1 'closed cycle-safe evaluation walk'
+require_fixed_string_count crates/lila-aot-wasm/src/modules/synchronous.rs 'if self.emit_module_evaluation_capability_rejection(plan.module(), output, function) {' 4 'each actual typed evaluation/defer demand checks host capability'
+require_fixed_string_count crates/lila-aot-wasm/src/modules/evaluation_capability.rs 'lila_ir::RuntimeSemanticRejection::UnavailableCapability(capability),' 1 'unavailable host body stays outside catchable JavaScript completion'
+require_fixed_string_count crates/lila-engine/tests/aot_module_sources/evaluation_capability.rs "import * as empty from 'host:first';" 3 'unsupported native namespace input retained in negative and unchosen-branch controls'
+
+# Portable products and native source hosts have separate admitted authority.
+require_module_decl crates/lila-aot-wasm/src/runtime_artifact.rs source_compilation
+require_file crates/lila-aot-wasm/src/runtime_artifact/source_compilation.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_artifact/source_compilation.rs 160
+require_module_decl crates/lila-aot-wasm/src/runtime_artifact/source_compilation.rs tests
+require_file crates/lila-aot-wasm/src/runtime_artifact/source_compilation/tests.rs
+check_raw_line_budget crates/lila-aot-wasm/src/runtime_artifact/source_compilation/tests.rs 160
+require_module_decl crates/lila-engine/src/lib.rs source_compilation_profile_tests
+require_file crates/lila-engine/src/source_compilation_profile_tests.rs
+check_raw_line_budget crates/lila-engine/src/source_compilation_profile_tests.rs 180
+python3 -B scripts/check-runtime-source-compilation-profile.py . || fail 'typed Portable/NativeHost source-compilation profile boundary drifted'
+
+
+# Independent global harness and test Scripts retain separate grammar and entry owners.
+require_module_decl crates/lila-ir/src/lowering.rs global_script_prelude
+require_module_decl crates/lila-aot-wasm/src/gc_types.rs global_script_prelude
+require_module_decl crates/lila-engine/src/lib.rs global_script_prelude
+require_module_decl crates/lila-ir/src/lib.rs global_script_prelude_tests
+require_module_decl crates/lila-engine/src/global_script_prelude.rs tests
+for global_prelude_file in \
+  crates/lila-ir/src/lowering/global_script_prelude.rs \
+  crates/lila-aot-wasm/src/gc_types/global_script_prelude.rs \
+  crates/lila-engine/src/global_script_prelude.rs; do
+  require_file "$global_prelude_file"
+  check_no_inline_legacy_includes "$global_prelude_file"
+done
+check_raw_line_budget crates/lila-ir/src/lowering/global_script_prelude.rs 150
+check_raw_line_budget crates/lila-aot-wasm/src/gc_types/global_script_prelude.rs 80
+check_raw_line_budget crates/lila-engine/src/global_script_prelude.rs 110
+check_raw_line_budget crates/lila-ir/src/global_script_prelude_tests.rs 160
+check_raw_line_budget crates/lila-engine/src/global_script_prelude/tests.rs 200
+require_file scripts/check-independent-global-prelude.py
+check_raw_line_budget scripts/check-independent-global-prelude.py 180
+python3 -B scripts/check-independent-global-prelude.py
+
+# Unicode Pattern scratch compaction owns no source value or public parser state.
+require_file crates/lila-aot-wasm/src/builtins/regexp/compiler/compact_source.rs
+require_module_decl crates/lila-aot-wasm/src/builtins/regexp/compiler.rs compact_source
+check_no_inline_legacy_includes crates/lila-aot-wasm/src/builtins/regexp/compiler/compact_source.rs
+check_raw_line_budget crates/lila-aot-wasm/src/builtins/regexp/compiler/compact_source.rs 160
+if ! python3 -B scripts/check-regexp-compact-unicode-source.py .; then
+  fail 'private Unicode Pattern scratch compaction contract'
+fi
+
+# Empty-block native controls use a separate bounded cfg(test) child.
+require_file crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs
+check_raw_line_budget crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs 100
+require_module_decl crates/lila-engine/src/native_direct_eval_compiler_tests.rs empty_blocks
+
+# The existing Engine unit module retains its exact bounded cfg(test) owner.
+require_module_decl crates/lila-engine/src/lib.rs tests
+require_file crates/lila-engine/src/tests.rs
+check_raw_line_budget crates/lila-engine/src/tests.rs 31719
+
+# Canonical publication precedes independently instantiated global Scripts.
+require_file scripts/check-canonical-global-bootstrap.py
+check_raw_line_budget scripts/check-canonical-global-bootstrap.py 120
+check_raw_line_budget crates/lila-ir/src/lowering/builtin_catalog/tests.rs 180
+python3 -B scripts/check-canonical-global-bootstrap.py
+
+# Bare lowered Empty never occupies root/block/function/CaseBlock list buffers.
+require_file scripts/check-empty-statement-list-storage.py
+check_raw_line_budget scripts/check-empty-statement-list-storage.py 120
+python3 -B scripts/check-empty-statement-list-storage.py
 
 if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 
 printf 'check-module-boundaries: ok\n'
+
+# Native-only code templates retain fresh source/data allocations and actual owners.
+require_file scripts/check-native-program-templates.py
+python3 scripts/check-native-program-templates.py

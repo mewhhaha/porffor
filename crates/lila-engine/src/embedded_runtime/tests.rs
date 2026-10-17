@@ -164,10 +164,28 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
         .stack_size(crate::ENGINE_WORKER_STACK_SIZE)
         .spawn(|| {
             let selection = IntlDataSelection::new(IntlCompilationProfile::Minimal);
-            let runtime = lila_aot_wasm::runtime_artifact_with_inputs(&selection, inputs(None))
-                .expect("embedded package passes full target Intl/Wasm/layout admission");
-            let target = lila_aot_wasm::build_runtime_artifact(&selection, expected_source())
-                .expect("target compiler independently emits R");
+            let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
+                &selection,
+                inputs(
+                    None,
+                    lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+                ),
+            )
+            .expect("embedded package passes full target Intl/Wasm/layout admission");
+            let target = lila_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
+                &selection,
+                expected_source(),
+                lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+            )
+            .expect("target compiler independently emits R");
+            assert_eq!(
+                runtime.source_compilation_profile(),
+                lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost
+            );
+            assert_eq!(
+                lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(target.wasm()).unwrap(),
+                runtime.source_compilation_profile()
+            );
             assert_eq!(runtime.key(), target.key());
             assert_eq!(
                 target.package_bytes(),

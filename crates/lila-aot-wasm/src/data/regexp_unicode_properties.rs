@@ -154,6 +154,10 @@ impl StringPool {
 
     pub(crate) fn regexp_unicode_property_image(&self) -> RegExpUnicodePropertyImage {
         self.regexp_unicode_property_image
+            .or_else(|| {
+                self.runtime_prefix()
+                    .and_then(|prefix| prefix.regexp_unicode_property_image)
+            })
             .expect("computed RegExp compiler requires complete Unicode property image")
     }
 }

@@ -50,7 +50,7 @@ fn built_case_images_match_every_target_unicode_mapping_and_pool_alignment() {
     for prefix in 0..8 {
         let mut expected = vec![0xA5; prefix];
         let mut pool = StringPool {
-            bytes: expected.clone(),
+            bytes: expected.clone().into(),
             ..StringPool::default()
         };
         let lower_address = append_aligned(&mut expected, &lower);

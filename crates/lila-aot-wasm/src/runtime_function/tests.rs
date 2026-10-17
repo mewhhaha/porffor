@@ -6,7 +6,12 @@ use wasmparser::{CompositeInnerType, Operator, Parser, Payload, TypeRef};
 #[test]
 fn emitted_native_function_is_only_p_with_typed_bootstrap_and_actual_factory_alias() {
     let profile = IntlCompilationProfile::Minimal;
-    let runtime = crate::runtime_artifact(&IntlDataSelection::new(profile.clone())).unwrap();
+    let runtime = crate::runtime_artifact_with_inputs(
+        &IntlDataSelection::new(profile.clone()),
+        crate::RuntimeArtifactInputs::new(None)
+            .with_source_compilation_profile(crate::RuntimeSourceCompilationProfile::NativeHost),
+    )
+    .unwrap();
     let request = lila_ir::lower_runtime_function(
         lila_ir::DynamicFunctionKind::Ordinary,
         &["return 'fresh P';".encode_utf16().collect()],

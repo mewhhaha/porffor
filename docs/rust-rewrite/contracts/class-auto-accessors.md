@@ -161,13 +161,34 @@ first private field/method/accessor installation; installing the same private
 name twice still throws `TypeError`. Public own-property addition retains its
 separate extensibility check.
 
-The 2026-10-10 continuation corrects the older fixture's rejection expectation.
-Current ECMA-262 `PrivateFieldAdd` and `PrivateMethodOrAccessorAdd` perform no
-`[[Extensible]]` check, and `HostEnsureCanAddPrivateElement` must accept ordinary
-non-host-defined objects. The old pin's optional `nonextensible-applies-to-private`
-tests remain unchanged and execute when selected. The normative source URL and
-exact bytes are identified in the cloud continuation receipt; this correction
-is not a pinned-suite result.
+The 2026-10-10 continuation corrects the older fixture's rejection expectation
+under the selected base ECMA-262 revision
+`5345883164f463e87f8b40aca4956157ecba8783`: `PrivateFieldAdd` and
+`PrivateMethodOrAccessorAdd` perform no extensibility check, and
+`HostEnsureCanAddPrivateElement` must accept ordinary non-host-defined objects.
+This remains the default `LanguageFeaturePolicy`, including the existing
+positive non-extensible receiver controls.
+
+The Stage 3 `nonextensible-applies-to-private` proposal is an explicit opt-in
+through `PrivateElementExtensibility::NonExtensibleAppliesToPrivate`.
+Test262 selects it only from a case's declared feature metadata; fixture names,
+paths, host-surface policy and source text grant no proposal authority. The
+proposal checks `? IsExtensible(receiver)` after each private field initializer
+and before duplicate-name lookup or insertion. A nonempty instance private
+method/accessor batch checks once before installing any method. It does not
+check per method row; static methods are installed on their fresh constructor.
+Proxy trap calls, arbitrary abrupt values and reentrant insertions remain
+observable in that order. Already installed private fields remain mutable after
+sealing or freezing.
+
+The immutable typed policy belongs to the actual defining `ProgramInstance`.
+Constructor hooks, including `super()` reached through a foreign direct-eval P,
+use that defining owner. Program cache keys and agent compilation options retain
+the policy. Native Function, global Script and direct eval consume the exact
+retained compilation policy instead of reconstructing a default. Unsupported
+oracle/C/native emission paths reject an enabled proposal explicitly. The
+pinned fixture and existing base selectors remain unchanged. New proposal
+controls are authored but unrun; no proposal acceptance or suite count is claimed.
 
 ### Decorator boundary
 

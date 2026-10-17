@@ -28,7 +28,12 @@ mod break_continue;
 mod builtin_call_info;
 #[cfg(test)]
 mod builtin_call_info_tests;
+mod builtin_catalog;
 mod builtin_shapes;
+mod catalog_overlay;
+use catalog_overlay::CatalogOverlay;
+type FunctionSignatures = CatalogOverlay<FunctionSignature>;
+type GlobalProperties = CatalogOverlay<GlobalPropertyInfo>;
 mod call_candidate_analysis;
 mod call_expression;
 #[cfg(test)]
@@ -84,12 +89,15 @@ use prepared_function::{
     append_prepared_unit, compile_dynamic_function_sources, record_prepared_compilation_stage,
 };
 use prepared_script::compile_dynamic_script_sources;
+pub(crate) use prepared_script::lower_runtime_direct_eval_program;
+pub(crate) use prepared_script::lower_runtime_global_script_program;
 mod for_in;
 mod for_loop;
 mod for_of;
 mod function_declaration;
 mod function_definition;
 mod function_environment;
+mod global_script_prelude;
 mod if_statement;
 mod intrinsic_method;
 mod invocation_effects;
@@ -424,13 +432,13 @@ impl FunctionReturnShape {
         &mut self,
         possible_kinds: KindSet,
         function_targets: &FunctionTargetKnowledge,
-        visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
+        visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut HeapShape) -> bool,
     ) {
         match self {
             Self::FlowSensitive(shape) => {
-                let mut visited_shape = Some(shape.clone());
-                visit(possible_kinds, function_targets, &mut visited_shape);
-                *self = Self::flow_sensitive(visited_shape);
+                if !visit(possible_kinds, function_targets, shape) {
+                    *self = Self::Absent;
+                }
             }
             Self::Unobserved | Self::Absent | Self::RecreatedPerCall { .. } => {}
         }
@@ -718,7 +726,7 @@ enum GeneratedClassElementFlow {
 
 #[derive(Debug, Clone)]
 struct ExecutedClassElementPostState {
-    global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    global_properties: GlobalProperties,
     well_known_symbol_prototype_properties: BTreeMap<(String, WellKnownSymbol), ValueInfo>,
     script_global_values: BTreeMap<String, ValueInfo>,
     captured_parent_values: Vec<(String, ValueInfo)>,
@@ -888,6 +896,13 @@ pub(crate) struct FunctionSignature {
 }
 
 impl FunctionSignature {
+    fn has_live_shape_roots(&self) -> bool {
+        matches!(self.return_shape, FunctionReturnShape::FlowSensitive(_))
+            || self.constructor_instance.heap_shape.is_some()
+            || self.this_info.heap_shape.is_some()
+            || self.params.iter().any(|param| param.heap_shape.is_some())
+    }
+
     fn return_info(&self) -> ValueInfo {
         ValueInfo {
             kind: self.return_kind,
@@ -1005,6 +1020,15 @@ fn lower_script_program_with_allocations(
     program.modules = modules;
 
     script_source.with_compiler_session(|script, interner| {
+        if let Err(message) = crate::runtime_direct_eval::private_capacity::require_capacity(
+            allocations,
+            script,
+            &instantiation,
+            source_len,
+        ) {
+            program.diagnostics.push(IrDiagnostic::unsupported(message));
+            return;
+        }
         let trace_phases = std::env::var_os("LILA_LOWER_TRACE").is_some();
         let t0 = std::time::Instant::now();
         let template_source = allocations.template_sources.for_parsed(script_source);
@@ -1047,9 +1071,11 @@ fn lower_script_program_with_allocations(
             eprintln!("lila lower trace: script-lower: {:?}", t1.elapsed());
         }
         program.script = Some(ScriptIr {
+            language_features: crate::LanguageFeaturePolicy::default(),
             template_source: analysis.template_source,
             eval_environment: analysis.owner_eval_environment(SCRIPT_OWNER_ID),
             module_prelude: None,
+            script_entry_after_prelude: None,
             prepared_scripts: Vec::new(),
             runtime_declarations: lowered.runtime_declarations,
             prepared_dynamic_functions: Vec::new(),
@@ -1170,7 +1196,7 @@ pub(crate) struct ScriptLowerer<'a> {
     scopes: Vec<BTreeMap<String, BindingInfo>>,
     direct_lexical_scopes: Vec<bool>,
     var_bindings: BTreeMap<String, VarBindingInfo>,
-    function_signatures: BTreeMap<FunctionId, FunctionSignature>,
+    function_signatures: FunctionSignatures,
     visible_function_names: BTreeMap<String, FunctionId>,
     diagnostics: Vec<IrDiagnostic>,
     breakable_depth: usize,
@@ -1203,7 +1229,7 @@ pub(crate) struct ScriptLowerer<'a> {
     current_this_binding: CurrentThisBinding,
     current_new_target_info: ValueInfo,
     current_construct_this_info: Option<ValueInfo>,
-    global_properties: BTreeMap<String, GlobalPropertyInfo>,
+    global_properties: GlobalProperties,
     /// Globals observed written anywhere in the script: an append-only side
     /// channel fed by every real global-write recording, merged from nested
     /// bodies like the installed-getter sets, and carried from the prepass to
@@ -1630,7 +1656,7 @@ impl<'a> ScriptLowerer<'a> {
             scopes: vec![BTreeMap::new()],
             direct_lexical_scopes: vec![false],
             var_bindings: BTreeMap::new(),
-            function_signatures: BTreeMap::new(),
+            function_signatures: FunctionSignatures::default(),
             visible_function_names: BTreeMap::new(),
             diagnostics: Vec::new(),
             breakable_depth: 0,
@@ -1666,127 +1692,7 @@ impl<'a> ScriptLowerer<'a> {
                 ValueInfo::undefined()
             },
             current_construct_this_info: None,
-            global_properties: {
-                let mut properties = BTreeMap::new();
-                properties.insert(
-                    GLOBAL_THIS_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: ValueInfo::new(ValueKind::Object),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                for builtin in host_surface_policy.global_builtins() {
-                    properties.insert(
-                        builtin
-                            .global_name()
-                            .expect("global host catalog row must have a name")
-                            .to_string(),
-                        GlobalPropertyInfo {
-                            value_info: Self::host_function_value_info(builtin),
-                            proven_present: true,
-                            configurable: true,
-                            source: GlobalPropertySource::HostBuiltin,
-                        },
-                    );
-                }
-                properties.insert(
-                    REFLECT_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::reflect_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    MATH_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::math_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    JSON_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::json_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    ATOMICS_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::atomics_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    TEMPORAL_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::temporal_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    INTL_NAME.to_string(),
-                    GlobalPropertyInfo {
-                        value_info: Self::intl_object_value_info(),
-                        proven_present: true,
-                        configurable: true,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    "Infinity".to_string(),
-                    GlobalPropertyInfo {
-                        value_info: ValueInfo::new(ValueKind::Number),
-                        proven_present: true,
-                        configurable: false,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    "NaN".to_string(),
-                    GlobalPropertyInfo {
-                        value_info: ValueInfo::new(ValueKind::Number),
-                        proven_present: true,
-                        configurable: false,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                properties.insert(
-                    "undefined".to_string(),
-                    GlobalPropertyInfo {
-                        value_info: ValueInfo::undefined(),
-                        proven_present: true,
-                        configurable: false,
-                        source: GlobalPropertySource::Builtin,
-                    },
-                );
-                for builtin in StandardBuiltinId::all_globals() {
-                    if let Some(name) = builtin.global_name() {
-                        properties.insert(
-                            name.to_string(),
-                            GlobalPropertyInfo {
-                                value_info: Self::standard_builtin_value_info(*builtin),
-                                proven_present: true,
-                                configurable: true,
-                                source: GlobalPropertySource::Builtin,
-                            },
-                        );
-                    }
-                }
-                properties
-            },
+            global_properties: builtin_catalog::global_properties(host_surface_policy),
             observed_script_global_writes: BTreeSet::new(),
             well_known_symbol_prototype_properties: BTreeMap::new(),
             nested_script_global_value_infos: BTreeMap::new(),
@@ -1853,7 +1759,11 @@ impl<'a> ScriptLowerer<'a> {
             captured_binding_positions: BTreeMap::new(),
             error_proto_to_strings: 0,
         };
-        if analysis.script_instantiation == ScriptInstantiation::ModuleAfterGlobalScript {
+        if matches!(
+            analysis.script_instantiation,
+            ScriptInstantiation::ModuleAfterGlobalScript
+                | ScriptInstantiation::GlobalScriptAfterPrelude
+        ) {
             // The earlier Script can replace globals and intrinsic properties.
             // Every analysis prepass must start from the same runtime boundary.
             lowerer.invalidate_unknown_user_code_effect_facts();
@@ -1862,316 +1772,7 @@ impl<'a> ScriptLowerer<'a> {
     }
 
     fn lower(mut self, script: &Script) -> LoweredScript {
-        self.function_signatures.insert(
-            HostBuiltinId::Print.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::Print.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::Print.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::Gc.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::Gc.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::Gc.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::AssertThrows.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::AssertThrows.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::AssertThrows.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::IsConstructor.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::IsConstructor.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::IsConstructor.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Boolean,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Boolean),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::DetachArrayBuffer.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::DetachArrayBuffer.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::DetachArrayBuffer.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Undefined,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Undefined),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        for (builtin, return_kind, return_possible_kinds) in [
-            (
-                HostBuiltinId::AgentStart,
-                ValueKind::Undefined,
-                KindSet::from_kind(ValueKind::Undefined),
-            ),
-            (
-                HostBuiltinId::AgentBroadcast,
-                ValueKind::Undefined,
-                KindSet::from_kind(ValueKind::Undefined),
-            ),
-            (
-                HostBuiltinId::AgentReceiveBroadcast,
-                ValueKind::Array,
-                KindSet::from_kind(ValueKind::Array),
-            ),
-            (
-                HostBuiltinId::AgentReport,
-                ValueKind::Undefined,
-                KindSet::from_kind(ValueKind::Undefined),
-            ),
-            (
-                HostBuiltinId::AgentGetReport,
-                ValueKind::Dynamic,
-                KindSet::from_kind(ValueKind::String).union(KindSet::from_kind(ValueKind::Null)),
-            ),
-            (
-                HostBuiltinId::AgentSleep,
-                ValueKind::Undefined,
-                KindSet::from_kind(ValueKind::Undefined),
-            ),
-            (
-                HostBuiltinId::AgentMonotonicNow,
-                ValueKind::Number,
-                KindSet::from_kind(ValueKind::Number),
-            ),
-            (
-                HostBuiltinId::AgentLeaving,
-                ValueKind::Undefined,
-                KindSet::from_kind(ValueKind::Undefined),
-            ),
-        ] {
-            self.function_signatures.insert(
-                builtin.function_id(),
-                FunctionSignature {
-                    id: builtin.function_id(),
-                    to_string_representation: CallableToStringRepresentation::NativeNamed(
-                        builtin.as_str().to_string(),
-                    ),
-                    protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                    callable: true,
-                    class_heritage_kind: ClassHeritageKind::None,
-                    params: Vec::new(),
-                    return_kind,
-                    return_possible_kinds,
-                    return_shape: FunctionReturnShape::Absent,
-                    return_targets: FunctionTargetKnowledge::none(),
-                    constructor_instance: ValueInfo::undefined(),
-                    this_info: ValueInfo::undefined(),
-                    this_observed: false,
-                    source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-                },
-            );
-        }
-        self.function_signatures.insert(
-            HostBuiltinId::ParseInt.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::ParseInt.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::ParseInt.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Number,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Number),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::ParseFloat.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::ParseFloat.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::ParseFloat.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Number,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Number),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::CreateRealm.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::CreateRealm.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::CreateRealm.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Object,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Object),
-                return_shape: FunctionReturnShape::recreated_per_call(
-                    Self::synthetic_realm_record_shape(),
-                ),
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.register_dynamic_source_intrinsic_signatures();
-        self.function_signatures.insert(
-            HostBuiltinId::GetAbstractModuleSource.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::GetAbstractModuleSource.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::GetAbstractModuleSource.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Function,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Function),
-                // The defining Realm owns one mutable intrinsic identity, not
-                // a fresh constructor shape recreated by each host call.
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::exact(
-                    StandardBuiltinId::AbstractModuleSourceConstructor.function_id(),
-                ),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::CreateHTMLDDA.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::CreateHTMLDDA.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::CreateHTMLDDA.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Function,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Function),
-                return_shape: FunctionReturnShape::flow_sensitive(Some(Self::function_heap_shape(
-                    false,
-                ))),
-                return_targets: FunctionTargetKnowledge::unknown(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        self.function_signatures.insert(
-            HostBuiltinId::HTMLDDA.function_id(),
-            FunctionSignature {
-                id: HostBuiltinId::HTMLDDA.function_id(),
-                to_string_representation: CallableToStringRepresentation::NativeNamed(
-                    HostBuiltinId::HTMLDDA.as_str().to_string(),
-                ),
-                protocol: FunctionProtocolIr::OrdinaryCallOnly,
-                callable: true,
-                class_heritage_kind: ClassHeritageKind::None,
-                params: Vec::new(),
-                return_kind: ValueKind::Null,
-                return_possible_kinds: KindSet::from_kind(ValueKind::Null),
-                return_shape: FunctionReturnShape::Absent,
-                return_targets: FunctionTargetKnowledge::none(),
-                constructor_instance: ValueInfo::undefined(),
-                this_info: ValueInfo::undefined(),
-                this_observed: false,
-                source_call_flow_effects: SourceCallFlowEffects::unobserved(),
-            },
-        );
-        for builtin in StandardBuiltinId::all_functions() {
-            self.function_signatures.insert(
-                builtin.function_id(),
-                Self::standard_builtin_signature(*builtin),
-            );
-        }
+        self.function_signatures = builtin_catalog::function_signatures();
         for function_id in &self.analysis.function_order {
             let plan = self
                 .analysis
@@ -2494,70 +2095,9 @@ impl<'a> ScriptLowerer<'a> {
                 (name.clone(), mode)
             });
         let mut bindings = GlobalBindingPlan::from_parts(
-            [
-                ScriptGlobalBindingIr {
-                    name: GLOBAL_THIS_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::Intrinsic,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: "Infinity".to_string(),
-                    initializer: GlobalPropertyInitializerIr::Infinity,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: "NaN".to_string(),
-                    initializer: GlobalPropertyInitializerIr::NaN,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: "undefined".to_string(),
-                    initializer: GlobalPropertyInitializerIr::Undefined,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: REFLECT_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::ReflectObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: MATH_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::MathObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: JSON_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::JsonObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: ATOMICS_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::AtomicsObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: TEMPORAL_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::TemporalObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-                ScriptGlobalBindingIr {
-                    name: INTL_NAME.to_string(),
-                    initializer: GlobalPropertyInitializerIr::IntlObject,
-                    declarations: GlobalDeclarationSetIr::None,
-                },
-            ],
+            builtin_catalog::canonical_standard_global_bindings(),
             lexical_bindings,
         );
-        for builtin in StandardBuiltinId::all_globals() {
-            let Some(name) = builtin.global_name() else {
-                continue;
-            };
-            bindings.insert_initial(ScriptGlobalBindingIr {
-                name: name.to_string(),
-                initializer: GlobalPropertyInitializerIr::BuiltinFunction(*builtin),
-                declarations: GlobalDeclarationSetIr::None,
-            });
-        }
         let mut global_host_builtins = self.used_host_builtins.clone();
         global_host_builtins.extend(
             HostBuiltinId::every_realm_globals()
@@ -2847,22 +2387,38 @@ impl<'a> ScriptLowerer<'a> {
         }
     }
 
-    fn lower_block_function_declarations(
+    fn lower_block_function_declarations<'source>(
         &mut self,
-        items: &[StatementListItem],
+        items: impl IntoIterator<Item = &'source StatementListItem>,
     ) -> Vec<StatementIr> {
         let mut last_function_by_name = BTreeMap::new();
         for item in items {
-            let Some(function) = lexically_scoped_statement_list_item_function_declaration(item)
-            else {
-                continue;
-            };
-            last_function_by_name.insert(function_name(self.interner, function, None), function);
+            if let Some(function) = BlockHoistableDeclaration::from_item(item) {
+                last_function_by_name.insert(function.source_name(self.interner), function);
+            }
         }
-
         last_function_by_name
             .into_values()
-            .map(|function| self.lower_function_declaration(function))
+            .map(|function| match function {
+                BlockHoistableDeclaration::Ordinary(function) => {
+                    self.lower_function_declaration(function)
+                }
+                BlockHoistableDeclaration::Generator(function) => {
+                    match linear_generator_plan_with_reason(function.body()) {
+                        Ok(_) => self.lower_generator_declaration(function),
+                        Err(reason) => {
+                            self.unsupported(reason.message());
+                            StatementIr::Empty
+                        }
+                    }
+                }
+                BlockHoistableDeclaration::Async(function) => {
+                    self.lower_async_function_declaration(function)
+                }
+                BlockHoistableDeclaration::AsyncGenerator(function) => {
+                    self.lower_async_generator_declaration(function)
+                }
+            })
             .collect()
     }
 
@@ -2884,6 +2440,9 @@ impl<'a> ScriptLowerer<'a> {
                     }
                     continue;
                 }
+                if BlockHoistableDeclaration::from_item(item).is_some() {
+                    continue;
+                }
             }
             if let StatementListItem::Statement(statement) = item {
                 if let Statement::Labelled(labelled) = statement.as_ref() {
@@ -2895,7 +2454,13 @@ impl<'a> ScriptLowerer<'a> {
                     }
                 }
             }
-            match self.lower_statement_list_item(item, scope) {
+            let Some(item) = self
+                .lower_statement_list_item(item, scope)
+                .into_statement_list_entry()
+            else {
+                continue;
+            };
+            match item {
                 LoweredStatementListItemIr::Statement {
                     statement,
                     result_kind: kind,
@@ -3101,10 +2666,14 @@ impl<'a> ScriptLowerer<'a> {
                             LoweredStatementListItemIr::statement(statement, ValueKind::Undefined)
                         });
                     }
+                    if BlockHoistableDeclaration::from_item(item).is_some() {
+                        return None;
+                    }
                 }
             }
         }
-        Some(self.lower_statement_list_item(item, scope))
+        self.lower_statement_list_item(item, scope)
+            .into_statement_list_entry()
     }
 
     fn lower_statement_list_item(
@@ -5656,64 +5225,89 @@ impl<'a> ScriptLowerer<'a> {
     /// have changed.
     fn visit_live_heap_shape_roots(
         &mut self,
-        mut visit: impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
+        mut visit: impl FnMut(KindSet, &FunctionTargetKnowledge, &mut HeapShape) -> bool,
     ) {
+        // This visitor can refine an existing shape or discard it. Its typed
+        // input cannot manufacture a shape for an absent fact.
+        fn visit_present(
+            kinds: KindSet,
+            targets: &FunctionTargetKnowledge,
+            shape: &mut Option<Box<HeapShape>>,
+            visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut HeapShape) -> bool,
+        ) {
+            if let Some(present) = shape.as_deref_mut() {
+                if !visit(kinds, targets, present) {
+                    *shape = None;
+                }
+            }
+        }
+
         fn visit_signature(
             signature: &mut FunctionSignature,
-            visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut Option<Box<HeapShape>>),
+            visit: &mut impl FnMut(KindSet, &FunctionTargetKnowledge, &mut HeapShape) -> bool,
         ) {
             signature.return_shape.visit_flow_sensitive(
                 signature.return_possible_kinds,
                 &signature.return_targets,
                 visit,
             );
-            visit(
+            visit_present(
                 signature.constructor_instance.possible_kinds,
                 &signature.constructor_instance.function_targets,
                 &mut signature.constructor_instance.heap_shape,
+                visit,
             );
-            visit(
+            visit_present(
                 signature.this_info.possible_kinds,
                 &signature.this_info.function_targets,
                 &mut signature.this_info.heap_shape,
+                visit,
             );
             for param in &mut signature.params {
-                visit(
+                visit_present(
                     param.possible_kinds,
                     &param.function_targets,
                     &mut param.heap_shape,
+                    visit,
                 );
             }
         }
 
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
-                visit(
+                visit_present(
                     binding.possible_kinds,
                     &binding.function_targets,
                     &mut binding.heap_shape,
+                    &mut visit,
                 );
             }
         }
         for binding in self.var_bindings.values_mut() {
-            visit(
+            visit_present(
                 binding.possible_kinds,
                 &binding.function_targets,
                 &mut binding.heap_shape,
+                &mut visit,
             );
         }
-        for property in self.global_properties.values_mut() {
-            visit(
-                property.value_info.possible_kinds,
-                &property.value_info.function_targets,
-                &mut property.value_info.heap_shape,
-            );
-        }
+        self.global_properties.edit_matching(
+            |_, property| property.value_info.heap_shape.is_some(),
+            |_, property| {
+                visit_present(
+                    property.value_info.possible_kinds,
+                    &property.value_info.function_targets,
+                    &mut property.value_info.heap_shape,
+                    &mut visit,
+                )
+            },
+        );
         for info in self.well_known_symbol_prototype_properties.values_mut() {
-            visit(
+            visit_present(
                 info.possible_kinds,
                 &info.function_targets,
                 &mut info.heap_shape,
+                &mut visit,
             );
         }
         for infos in [
@@ -5721,30 +5315,34 @@ impl<'a> ScriptLowerer<'a> {
             &mut self.known_nested_script_global_value_infos,
         ] {
             for info in infos.values_mut() {
-                visit(
+                visit_present(
                     info.possible_kinds,
                     &info.function_targets,
                     &mut info.heap_shape,
+                    &mut visit,
                 );
             }
         }
         if let CurrentThisBinding::Activation(info) = &mut self.current_this_binding {
-            visit(
+            visit_present(
                 info.possible_kinds,
                 &info.function_targets,
                 &mut info.heap_shape,
+                &mut visit,
             );
         }
-        visit(
+        visit_present(
             self.current_new_target_info.possible_kinds,
             &self.current_new_target_info.function_targets,
             &mut self.current_new_target_info.heap_shape,
+            &mut visit,
         );
         if let Some(info) = &mut self.current_construct_this_info {
-            visit(
+            visit_present(
                 info.possible_kinds,
                 &info.function_targets,
                 &mut info.heap_shape,
+                &mut visit,
             );
         }
         if let Some(returned) = &mut self.current_return {
@@ -5756,10 +5354,11 @@ impl<'a> ScriptLowerer<'a> {
             returned.info.heap_shape = returned.shape.cloned_shape();
         }
         if let Some(context) = &mut self.class_context {
-            visit(
+            visit_present(
                 KindSet::from_kind(ValueKind::Object),
                 &FunctionTargetKnowledge::none(),
                 &mut context.super_base_shape,
+                &mut visit,
             );
         }
         if !self.is_prepass {
@@ -5767,9 +5366,10 @@ impl<'a> ScriptLowerer<'a> {
                 self.function_signature_shape_evidence =
                     FunctionSignatureShapeEvidence::Invalidated;
             } else {
-                for signature in self.function_signatures.values_mut() {
-                    visit_signature(signature, &mut visit);
-                }
+                self.function_signatures.edit_matching(
+                    |_, signature| signature.has_live_shape_roots(),
+                    |_, signature| visit_signature(signature, &mut visit),
+                );
                 for signature in self.exact_context_function_observations.values_mut() {
                     visit_signature(signature, &mut visit);
                 }
@@ -5779,10 +5379,11 @@ impl<'a> ScriptLowerer<'a> {
             }
         }
         for operand in self.pinned_async_operands.values_mut() {
-            visit(
+            visit_present(
                 operand.possible_kinds,
                 &operand.function_targets,
                 &mut operand.heap_shape,
+                &mut visit,
             );
         }
     }
@@ -5816,14 +5417,13 @@ impl<'a> ScriptLowerer<'a> {
                 binding.function_targets.widen_for_possible_replacement();
             }
         }
-        self.visit_live_heap_shape_roots(|_, _, shape| *shape = None);
+        self.visit_live_heap_shape_roots(|_, _, _| false);
 
         self.invalidate_all_possible_global_property_value_infos();
-        for property in self.global_properties.values_mut() {
-            if property.configurable {
-                property.proven_present = false;
-            }
-        }
+        self.global_properties.edit_matching(
+            |_, property| property.configurable && property.proven_present,
+            |_, property| property.proven_present = false,
+        );
         for infos in [
             &mut self.nested_script_global_value_infos,
             &mut self.known_nested_script_global_value_infos,
@@ -8556,6 +8156,15 @@ impl<'a> ScriptLowerer<'a> {
                     unreachable!("spread arguments cannot prove eval's first value is non-String")
                 }
                 Some(ResolvedDynamicSourceCall::FunctionInvocation(_)) => {}
+                Some(ResolvedDynamicSourceCall::RealmScriptInvocation(proof)) => {
+                    self.mark_host_builtin_from_function_id(function_id);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
                     self.mark_host_builtin_from_function_id(function_id);
                     return (
@@ -8646,6 +8255,15 @@ impl<'a> ScriptLowerer<'a> {
             match self.resolve_dynamic_source_call(function_id, Some(args), &lowered_args) {
                 None => None,
                 Some(ResolvedDynamicSourceCall::EvalPassThrough(proof)) => Some(proof),
+                Some(ResolvedDynamicSourceCall::RealmScriptInvocation(proof)) => {
+                    self.mark_host_builtin_from_function_id(function_id);
+                    return (
+                        function_id.clone(),
+                        lowered_args,
+                        proof.into_result_info(),
+                        AnalyzedInvocationEffects::already_applied(),
+                    );
+                }
                 Some(ResolvedDynamicSourceCall::RealmScriptConversionThrow(proof)) => {
                     self.mark_host_builtin_from_function_id(function_id);
                     return (
@@ -14452,13 +14070,16 @@ impl<'a> ScriptLowerer<'a> {
                 binding.heap_shape = None;
             }
         }
-        for (name, property) in &mut self.global_properties {
-            let is_target = target_name == Some(name.as_str())
-                && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
-            if candidates.contains_key(name) && !is_target {
-                property.value_info.heap_shape = None;
-            }
-        }
+        self.global_properties.edit_matching(
+            |name, property| {
+                let is_target = target_name == Some(name.as_str())
+                    && !matches!(target_location, Some(BindingLookupLocation::Scope(_)));
+                candidates.contains_key(name)
+                    && !is_target
+                    && property.value_info.heap_shape.is_some()
+            },
+            |_, property| property.value_info.heap_shape = None,
+        );
         for infos in [
             &mut self.nested_script_global_value_infos,
             &mut self.known_nested_script_global_value_infos,

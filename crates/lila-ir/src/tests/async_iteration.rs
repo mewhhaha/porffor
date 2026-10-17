@@ -228,10 +228,13 @@ fn for_await_identifier_heads_keep_assignment_and_declaration_failures_distinct(
     assert!(
         matches!(&init.expr, ExprIr::Identifier(name) if name == &plan.incoming_binding().name)
     );
+    // An empty source block has an empty completion and no lexical frame.
+    // Lowering retains the loop body's no-op without allocating a nested block.
     assert!(matches!(
         plan.body().block().statements.as_slice(),
-        [StatementIr::Block(BlockIr { statements, .. })] if statements.is_empty()
+        [StatementIr::Empty]
     ));
+    assert!(plan.body().block().lexical_environment.is_none());
 }
 
 #[test]

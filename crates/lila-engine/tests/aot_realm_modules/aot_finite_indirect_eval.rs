@@ -2,7 +2,6 @@ use lila_engine::{
     CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
     ObservedCompletion, RealmBuilder, RunOptions,
 };
-use lila_ir::DynamicSourceRuntimeOperation;
 
 fn assert_trace(source: &str, policy: HostSurfacePolicy, expected: &[&str]) {
     lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
@@ -380,30 +379,17 @@ print('after');
     );
 }
 
+// Historical selector retained; a genuinely different source now compiles natively.
 #[test]
 fn a_source_outside_the_prepared_candidates_retains_its_runtime_capability_failure() {
-    lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
-    let error = Engine::new(RealmBuilder::new().build())
-        .run_script(
-            r#"
-let text = '23;';
-(0, eval)(text);
-text += '/*' + Math.random() + '*/';
-(0, eval)(text);
+    assert_trace(
+        r#"
+let text='23;';
+print((0,eval)(text));
+text='42;/*'+Math.random()+'*/';
+print((0,eval)(text));
 "#,
-            CompileOptions::default(),
-            RunOptions {
-                backend: ExecutionBackend::WasmAot,
-                timeout_ms: Some(30_000),
-                ..RunOptions::default()
-            },
-        )
-        .expect_err("a prepared candidate cannot replace a different runtime source");
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
-        "{error}"
+        HostSurfacePolicy::Product,
+        &["23", "42"],
     );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
 }

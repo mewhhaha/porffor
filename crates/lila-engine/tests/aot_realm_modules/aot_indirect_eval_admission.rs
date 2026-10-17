@@ -1,8 +1,7 @@
 use lila_engine::{
     CompileOptions, Engine, ExecutionBackend, HostOutputEvent, HostSurfacePolicy,
-    ObservedCompletion, RealmBuilder, RunOptions, WasmExecutionFailureKind,
+    ObservedCompletion, RealmBuilder, RunOptions,
 };
-use lila_ir::DynamicSourceRuntimeOperation;
 
 fn assert_trace(source: &str, policy: HostSurfacePolicy, expected: &[&str]) {
     lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
@@ -119,40 +118,18 @@ print(target('ordinary source') === 'ordinary source');
     );
 }
 
+// Historical selector retained; real native compilation now preserves catchable JS Throw.
 #[test]
 fn unprepared_primitive_strings_reject_the_runtime_capability_outside_javascript() {
-    lila_engine::configure_compilation_jobs(1).expect("one compilation worker");
-    let error = Engine::new(RealmBuilder::new().build())
-        .run_script(
-            r#"
-globalThis.unknownSource = 'throw new Error("must not execute"); /*' + Math.random() + '*/';
-try { eval.call(undefined, globalThis.unknownSource); }
-catch (error) { throw new Error('must not catch capability rejection'); }
-throw new Error('must not continue');
+    assert_trace(
+        r#"
+globalThis.unknownSource='throw new Error("native marker"); /*'+Math.random()+'*/';
+var caught=false;
+try{eval.call(undefined,globalThis.unknownSource);}
+catch(error){caught=error instanceof Error&&error.message==='native marker';}
+print(caught);print('continued');
 "#,
-            CompileOptions::default(),
-            RunOptions {
-                backend: ExecutionBackend::WasmAot,
-                timeout_ms: Some(30_000),
-                ..RunOptions::default()
-            },
-        )
-        .expect_err("unprepared source is a runtime AOT capability rejection");
-    assert_eq!(
-        error.runtime_dynamic_source_operations(),
-        vec![DynamicSourceRuntimeOperation::Eval],
-        "{error}"
-    );
-    assert_eq!(
-        error.wasm_execution_failure_kind(),
-        Some(WasmExecutionFailureKind::DynamicSource),
-        "{error}"
-    );
-    assert!(error.parse_diagnostic().is_none(), "{error}");
-    assert!(error.ir_diagnostic().is_none(), "{error}");
-    assert_eq!(
-        error.wasm_javascript_exception_constructor_name(),
-        None,
-        "{error}"
+        HostSurfacePolicy::Product,
+        &["true", "continued"],
     );
 }

@@ -104,6 +104,21 @@ fn actual_unavailable_capability_cannot_satisfy_an_annotated_runtime_negative() 
         phase: NegativePhase::Runtime,
         error_type: "TypeError".into(),
     }));
+    // The former eval witness now executes and throws the requested genuine
+    // JavaScript TypeError. Keep that positive route independent of the gap.
+    let available = run_one_case(
+        &input,
+        &PreludeStore::default(),
+        60_000,
+        ExecutionBackend::WasmAot,
+    );
+    assert_eq!(available.status, TestStatus::Passed, "{available:?}");
+    // A computed string misses the prepared ShadowRealm catalog. This route
+    // still has no native dynamic compiler and rejects outside JavaScript.
+    input.original_source = Arc::from(
+        "var realm = new ShadowRealm(); \
+         realm.evaluate('throw new TypeError()' + '/*' + Math.random() + '*/');",
+    );
     let observed = run_one_case(
         &input,
         &PreludeStore::default(),
@@ -119,7 +134,7 @@ fn actual_unavailable_capability_cannot_satisfy_an_annotated_runtime_negative() 
     assert!(
         failure
             .detail
-            .contains(&lila_ir::DynamicSourceRuntimeOperation::Eval.to_string()),
+            .contains(&lila_ir::DynamicSourceRuntimeOperation::ShadowRealmEvaluate.to_string()),
         "classification must come from the actual runtime capability: {failure:?}",
     );
 }

@@ -140,6 +140,11 @@ impl EmbeddedGraphModuleLoader {
                 context.enter_realm(previous);
                 result?
             }
+            EmbeddedModuleContents::ModuleSource { .. } => {
+                return Err(JsNativeError::typ()
+                    .with_message("native host ModuleSource records require the Wasm-AOT backend")
+                    .into());
+            }
             EmbeddedModuleContents::Text(text) => {
                 let previous = context.enter_realm(owner.realm.clone());
                 let module = Module::from_value_as_default(

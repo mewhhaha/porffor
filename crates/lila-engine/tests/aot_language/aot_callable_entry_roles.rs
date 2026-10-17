@@ -33,7 +33,7 @@ const empty = Function();
 if (empty() !== undefined || typeof new empty() !== 'object') throw 'R-generated empty source';
 const mapped = [37].map(value => read(value));
 if (mapped[0] !== 'source-owner:37' || trace !== 'RRPRCR') throw 'native callback';
-$262.gc();
+gc();
 if (proxy() !== 'source-owner:23') throw 'retained source after GC';
 print('program-entry-forwarding:ok');
 262;
@@ -52,14 +52,14 @@ function* generator(value) {
   return () => captured + ':returned';
 }
 const iterator = generator(41);
-$262.gc();
+gc();
 if (iterator.next().value !== 'resumed-source-owner:41') throw 'generator entry';
-$262.gc();
+gc();
 const returned = iterator.next();
 if (!returned.done || returned.value() !== 'resumed-source-owner:returned') throw 'generator owner';
 async function asynchronous(value) {
   await Promise.resolve(0);
-  $262.gc();
+  gc();
   return captured + ':' + value;
 }
 async function* asyncGenerator(value) {
@@ -104,12 +104,14 @@ fn assert_modes(source: &str, expected: &str) {
         assert_eq!(
             observed.completion,
             ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(262.0))),
-            "{source}"
+            "{source}\nobservation: {:.512}",
+            observed.note
         );
         assert_eq!(
             observed.output_events,
             vec![HostOutputEvent::PrintLine(expected.into())],
-            "{source}"
+            "{source}\nobservation: {:.512}",
+            observed.note
         );
     }
 }

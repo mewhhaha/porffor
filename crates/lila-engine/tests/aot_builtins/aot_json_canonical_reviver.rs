@@ -217,3 +217,99 @@ fn gc_parser_reviver_retains_utf16_source_roots_mutations_and_error_realms() {
         "json-gc-parse-reviver:ok",
     );
 }
+
+#[test]
+fn large_arrays_without_callable_revivers_keep_data_descriptors_and_json_grammar() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/large_array_without_reviver.js"),
+        &[
+            "65537:0:true",
+            "true:true:true",
+            "true:true:true:true:0",
+            "syntax:5",
+        ],
+    );
+}
+
+#[test]
+fn sequential_array_metadata_and_repeated_object_keys_keep_original_source_spelling() {
+    assert_trace(
+        include_str!(
+            "../fixtures/json_canonical_reviver/fresh_array_and_duplicate_object_sources.js"
+        ),
+        &[
+            "0:1e+0",
+            "1:-0",
+            r#"2:"\uD800""#,
+            "n:3e0",
+            "3:none",
+            "<root>:none",
+            "4:true:55296:3",
+        ],
+    );
+}
+
+#[test]
+fn noncallable_reviver_proxies_are_ignored_without_any_observable_lookup() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/noncallable_reviver_does_not_observe_proxy_traps.js"),
+        &["coerce:string", "3:1:null:true:0"],
+    );
+}
+
+#[test]
+fn revoking_callable_revivers_during_input_coercion_preserves_error_precedence() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/revoked_callable_reviver_retains_parse_error_precedence.js"),
+        &[
+            "coerce:valid",
+            "valid:false:true",
+            "coerce:invalid",
+            "invalid:true:false",
+        ],
+    );
+}
+
+#[test]
+fn fresh_array_appends_keep_independent_data_descriptors_and_bypass_prototype_hooks() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/fresh_array_descriptors.js"),
+        &["fresh-array-descriptors:ok"],
+    );
+}
+
+#[test]
+fn fresh_array_descriptor_writes_do_not_mutate_private_reviver_value_snapshots() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/fresh_array_reviver_snapshot_aliases.js"),
+        &[
+            "0:1e+0",
+            "1:none",
+            "2:-0",
+            "0:4e0",
+            "3:none",
+            "dup:6e0",
+            "4:none",
+            "<root>:none",
+            "values:1:20:true:4:6",
+        ],
+    );
+}
+
+#[test]
+fn fresh_array_appends_preserve_nested_utf16_payloads_and_number_bits() {
+    assert_trace(
+        include_str!("../fixtures/json_canonical_reviver/fresh_array_nested_utf16_and_numbers.js"),
+        &["fresh-array-nesting:ok"],
+    );
+}
+
+#[test]
+fn fresh_array_syntax_and_input_coercion_failures_precede_reviver_calls() {
+    assert_trace(
+        include_str!(
+            "../fixtures/json_canonical_reviver/fresh_array_abrupt_parse_precedes_reviver.js"
+        ),
+        &["fresh-array-abrupt:ok"],
+    );
+}

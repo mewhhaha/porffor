@@ -226,9 +226,19 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         "    fn append_regexp_programs(&mut self) {",
     );
     let normalized_writer = normalize_rust(writer).routes;
-    for forbidden in ["_=>", "==", "!=", "default()", "unwrap_or"] {
+    for forbidden in ["==", "!=", "default()", "unwrap_or"] {
         assert!(!normalized_writer.contains(forbidden), "{forbidden}");
     }
+    // Selection may discard non-program rows; the actual wire writer below
+    // remains exhaustive over every entry kind.
+    assert_eq!(normalized_writer.matches("_=>").count(), 1);
+    assert!(normalized_writer.contains(concat!(
+        "filter_map(|(_,_,entry)|matchentry{",
+        "RuntimeRegExpEntry::Program(reference)=>Some(*reference),_=>None,})"
+    )));
+    assert!(normalized_writer.contains("ProgramMetadataSpan::for_pool(self,copied_address,length)"));
+    assert!(normalized_writer.contains("ProgramMetadataSpan::for_pool(self,address,length)"));
+    assert!(normalized_writer.contains("descriptors.insert(reference.payload(),span);"));
     let typed_assignment =
         "            record[RUNTIME_REGEXP_RECORD_ENTRY_KIND_WORD] = match entry {";
     assert_eq!(writer.matches(typed_assignment).count(), 1);
@@ -236,9 +246,13 @@ fn runtime_regexp_entry_kind_preserves_exact_writer_and_wire_policies() {
         .split_once(typed_assignment)
         .expect("typed entry-kind assignment")
         .1;
+    assert!(!normalize_rust(writer_tail).routes.contains("_=>"));
     let expected_writer_tail = r#"
                 RuntimeRegExpEntry::Program(program) => {
-                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] = program.payload();
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_PAYLOAD_WORD] =
+                        descriptors[&program.payload()].packed();
+                    record[RUNTIME_REGEXP_RECORD_PROGRAM_DOMAIN_WORD] =
+                        RUNTIME_REGEXP_DESCRIPTOR_PROGRAM_DOMAIN;
                     RuntimeRegExpEntryKind::Program.word()
                 }
                 RuntimeRegExpEntry::Rejected => RuntimeRegExpEntryKind::Rejected.word(),

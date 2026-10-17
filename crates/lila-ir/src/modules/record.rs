@@ -524,6 +524,7 @@ impl DynamicImportSiteIr {
 /// [spec]: https://tc39.es/ecma262/#sec-source-text-module-records
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ModuleRecordDataIr {
+    ModuleSource { source_tag: String },
     SourceText(super::source::ModuleSyntax),
     Script,
     Json(lila_front::ParsedJson),
@@ -615,6 +616,7 @@ impl ModuleRecordIr {
             ModuleRecordDataIr::Json(_) => ModuleKindIr::Json,
             ModuleRecordDataIr::Bytes(_) => ModuleKindIr::Bytes,
             ModuleRecordDataIr::Text(_) => ModuleKindIr::Text,
+            ModuleRecordDataIr::ModuleSource { .. } => ModuleKindIr::ModuleSource,
         }
     }
 
@@ -622,6 +624,7 @@ impl ModuleRecordIr {
         match &self.data {
             ModuleRecordDataIr::Json(source) => Some(source),
             ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::ModuleSource { .. }
             | ModuleRecordDataIr::Script
             | ModuleRecordDataIr::Bytes(_)
             | ModuleRecordDataIr::Text(_) => None,
@@ -632,6 +635,7 @@ impl ModuleRecordIr {
         match &self.data {
             ModuleRecordDataIr::Bytes(bytes) => Some(bytes),
             ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::ModuleSource { .. }
             | ModuleRecordDataIr::Script
             | ModuleRecordDataIr::Json(_)
             | ModuleRecordDataIr::Text(_) => None,
@@ -642,10 +646,37 @@ impl ModuleRecordIr {
         match &self.data {
             ModuleRecordDataIr::SourceText(syntax) => Some(syntax),
             ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::ModuleSource { .. }
             | ModuleRecordDataIr::Json(_)
             | ModuleRecordDataIr::Bytes(_)
             | ModuleRecordDataIr::Text(_) => None,
         }
+    }
+
+    pub(super) fn module_source_tag(&self) -> Option<&str> {
+        match &self.data {
+            ModuleRecordDataIr::ModuleSource { source_tag } => Some(source_tag),
+            ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::Script
+            | ModuleRecordDataIr::Json(_)
+            | ModuleRecordDataIr::Bytes(_)
+            | ModuleRecordDataIr::Text(_) => None,
+        }
+    }
+
+    pub(super) fn module_source(source_tag: &str, id: ModuleUnitId, key: ModuleKey) -> Self {
+        let mut record = Self::synthetic(
+            ModuleRecordDataIr::ModuleSource {
+                source_tag: source_tag.to_owned(),
+            },
+            source_tag.len(),
+            id,
+            key,
+        );
+        // A native host source has no ECMAScript body, environment, or exports.
+        record.local_export_entries.clear();
+        record.environment.clear();
+        record
     }
 
     /// JSON has exactly one mutable default cell, initialized to undefined at linking.
@@ -671,6 +702,7 @@ impl ModuleRecordIr {
         match &self.data {
             ModuleRecordDataIr::Text(text) => Some(text),
             ModuleRecordDataIr::SourceText(_)
+            | ModuleRecordDataIr::ModuleSource { .. }
             | ModuleRecordDataIr::Script
             | ModuleRecordDataIr::Json(_)
             | ModuleRecordDataIr::Bytes(_) => None,

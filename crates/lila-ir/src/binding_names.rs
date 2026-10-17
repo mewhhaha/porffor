@@ -411,6 +411,8 @@ macro_rules! unit_cell_roles {
 unit_cell_roles! {
     /// Identity-cached namespace exotic object (16.2.1.10).
     Namespace => "namespace";
+    /// Host-owned source object, independent of either namespace identity.
+    ModuleSource => "source";
     DeferredNamespace => "deferred$namespace";
     /// `import defer` export table, published before the body executes.
     DeferCells => "defer$cells";

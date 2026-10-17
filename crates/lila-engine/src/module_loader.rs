@@ -151,6 +151,7 @@ fn load_embedded_module_graph(
             EmbeddedModuleKind::Json => ModuleKindIr::Json,
             EmbeddedModuleKind::Bytes => ModuleKindIr::Bytes,
             EmbeddedModuleKind::Text => ModuleKindIr::Text,
+            EmbeddedModuleKind::ModuleSource => ModuleKindIr::ModuleSource,
         };
         let referrer = (
             EmbeddedModuleReferrer::Module(module.identity().to_owned()),
@@ -176,6 +177,9 @@ fn load_embedded_module_graph(
             lila_runtime::EmbeddedModuleContents::Text(text) => {
                 ModuleSourceIr::text(key, text.clone(), url)
             }
+            lila_runtime::EmbeddedModuleContents::ModuleSource { source_tag } => {
+                ModuleSourceIr::module_source(key, source_tag.clone(), url)
+            }
             lila_runtime::EmbeddedModuleContents::Bytes(bytes) => {
                 ModuleSourceIr::bytes(key, bytes.clone(), url)
             }
@@ -198,7 +202,13 @@ fn load_embedded_module_graph(
         .expect("embedded request owner already validated unique attributes");
         let target = indices[&(
             EmbeddedModuleReferrer::Module(resolution.target().to_owned()),
-            ModuleKindIr::requested(&request),
+            match resolution.target_kind() {
+                EmbeddedModuleKind::SourceText => ModuleKindIr::SourceText,
+                EmbeddedModuleKind::Json => ModuleKindIr::Json,
+                EmbeddedModuleKind::Bytes => ModuleKindIr::Bytes,
+                EmbeddedModuleKind::Text => ModuleKindIr::Text,
+                EmbeddedModuleKind::ModuleSource => ModuleKindIr::ModuleSource,
+            },
         )];
         if resolution.referrer() == &EmbeddedModuleReferrer::Realm {
             realm_requests.insert(request, lila_ir::RealmModuleResolutionIr::Loaded(target));
@@ -224,6 +234,8 @@ fn load_embedded_module_graph(
 /// What a successful load produced.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadedModuleKind {
+    /// A genuine opaque host module source, with no ECMAScript source body.
+    ModuleSource { source_tag: String },
     /// A Source Text Module Record's source text.
     Source(String),
     /// JSON grammar and a genuine default-only synthetic module record.
@@ -529,6 +541,12 @@ impl HostModuleLoader for FilesystemModuleLoader {
                 // preserve all decoded characters including a leading BOM.
                 LoadedModuleKind::Text(std::fs::read_to_string(&path).map_err(io)?)
             }
+            ModuleKindIr::ModuleSource => {
+                return Err(ModuleLoadError::Denied {
+                    specifier: locator.as_str().into(),
+                    reason: "filesystem bytes do not supply a native ModuleSource record".into(),
+                });
+            }
             ModuleKindIr::Script => {
                 return Err(ModuleLoadError::Denied {
                     specifier: locator.as_str().into(),
@@ -811,6 +829,9 @@ pub(crate) fn extend_module_graph_realm_requests(
 fn loaded_module_source(loaded: LoadedModule) -> ModuleSourceIr {
     match loaded.kind {
         LoadedModuleKind::Source(text) => ModuleSourceIr::new(loaded.key, text, loaded.meta_url),
+        LoadedModuleKind::ModuleSource { source_tag } => {
+            ModuleSourceIr::module_source(loaded.key, source_tag, loaded.meta_url)
+        }
         LoadedModuleKind::Json(text) => ModuleSourceIr::json(loaded.key, text, loaded.meta_url),
         LoadedModuleKind::Bytes(bytes) => ModuleSourceIr::bytes(loaded.key, bytes, loaded.meta_url),
         LoadedModuleKind::Text(text) => ModuleSourceIr::text(loaded.key, text, loaded.meta_url),

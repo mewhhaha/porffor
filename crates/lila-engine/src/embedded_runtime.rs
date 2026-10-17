@@ -8,7 +8,9 @@
 mod build_compile;
 mod manifest;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
-use lila_aot_wasm::{RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactInputs};
+use lila_aot_wasm::{
+    RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactInputs, RuntimeSourceCompilationProfile,
+};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 use wasmtime::{Engine, Module};
@@ -27,8 +29,16 @@ fn expected_source() -> &'static [u8; 32] {
 
 /// Construct only a lazy raw candidate. Scalar-only programs do not hash/admit
 /// the package or native image and do not resolve any Intl component here.
-pub(super) fn inputs(cache: Option<&dyn RuntimeArtifactCache>) -> RuntimeArtifactInputs<'_> {
-    let inputs = RuntimeArtifactInputs::new(cache);
+pub(super) fn inputs(
+    cache: Option<&dyn RuntimeArtifactCache>,
+    source_compilation_profile: RuntimeSourceCompilationProfile,
+) -> RuntimeArtifactInputs<'_> {
+    let inputs = RuntimeArtifactInputs::new(cache)
+        .with_source_compilation_profile(source_compilation_profile);
+    // The embedded native bundle is never a candidate for exported products.
+    if source_compilation_profile == RuntimeSourceCompilationProfile::Portable {
+        return inputs;
+    }
     if package().is_empty() {
         inputs
     } else {

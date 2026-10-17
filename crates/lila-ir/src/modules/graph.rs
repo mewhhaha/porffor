@@ -277,8 +277,8 @@ pub(super) fn link_with_admission(
             match &binding {
                 ResolvedBindingIr::Resolved {
                     binding: ModuleBindingNameIr::ModuleSource,
-                    ..
-                } => graph
+                    module: source,
+                } if graph.unit(*source).record.module_source_tag().is_none() => graph
                     .link_errors
                     .push(ModuleLinkErrorIr::SourceUnavailable {
                         referrer: id,
@@ -323,8 +323,8 @@ pub(super) fn link_with_admission(
             match &resolution {
                 ResolvedBindingIr::Resolved {
                     binding: ModuleBindingNameIr::ModuleSource,
-                    ..
-                } => graph
+                    module: source,
+                } if graph.unit(*source).record.module_source_tag().is_none() => graph
                     .link_errors
                     .push(ModuleLinkErrorIr::SourceUnavailable {
                         referrer: id,

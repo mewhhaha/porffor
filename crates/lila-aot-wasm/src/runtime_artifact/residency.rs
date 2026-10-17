@@ -74,7 +74,7 @@ mod tests {
     use crate::runtime_artifact::RuntimeLayout;
 
     fn initialize(slot: &RuntimeSlot, id: u8, bytes: usize) -> Arc<RuntimeArtifact> {
-        let runtime = Arc::new(RuntimeArtifact::new(
+        let runtime = Arc::new(RuntimeArtifact::unadmitted_fixture(
             Arc::from(vec![id; bytes]),
             RuntimeLayout::new(
                 0,

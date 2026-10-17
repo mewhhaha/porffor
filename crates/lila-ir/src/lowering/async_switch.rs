@@ -107,21 +107,12 @@ impl<'a> ScriptLowerer<'a> {
         let before_globals = self.global_properties.clone();
         self.breakable_depth += 1;
         let mut scope = LexicalScopeInstantiation::instantiate_switch(self, switch);
-        let mut last_function_by_name = BTreeMap::new();
-        for case in switch.cases() {
-            for item in case.body().statements() {
-                if let Some(function) =
-                    lexically_scoped_statement_list_item_function_declaration(item)
-                {
-                    last_function_by_name
-                        .insert(function_name(self.interner, function, None), function);
-                }
-            }
-        }
-        let lexical_declarations = last_function_by_name
-            .into_values()
-            .map(|function| self.lower_function_declaration(function))
-            .collect::<Vec<_>>();
+        let lexical_declarations = self.lower_block_function_declarations(
+            switch
+                .cases()
+                .iter()
+                .flat_map(|case| case.body().statements()),
+        );
         let mut ownership_error = None;
         let mut next_selector = selection_entry;
         let mut case_conditions = Vec::with_capacity(switch.cases().len());
@@ -327,7 +318,7 @@ impl<'a> ScriptLowerer<'a> {
                 }
             }
         }
-        self.visit_live_heap_shape_roots(|_, _, shape| *shape = None);
+        self.visit_live_heap_shape_roots(|_, _, _| false);
         self.static_boolean_bindings.clear();
         self.static_string_bindings.clear();
         self.static_to_string_regexp_object_bindings.clear();

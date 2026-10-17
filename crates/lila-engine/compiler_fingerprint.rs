@@ -43,25 +43,43 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
 
 // These exact project paths are outside the product dependency closure: Cargo
 // integration tests, the IR's cfg(test) module tree, and explicit cfg(test)-only
-// Engine modules. Do not generalize this to every path named "tests": vendored
+// AOT/Engine modules. Do not generalize this to every path named "tests": vendored
 // sources and production resources retain conservative coverage.
 const TEST_ONLY_INPUTS: &[&str] = &[
     "crates/lila-front/tests",
     "crates/lila-ir/tests",
     "crates/lila-ir/src/tests",
     "crates/lila-aot-wasm/tests",
+    "crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs",
+    "crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs",
+    "crates/lila-aot-wasm/src/runtime_artifact/validated_profile/tests.rs",
     "crates/lila-runtime/tests",
     "crates/lila-intl/tests",
     "crates/lila-engine/src/embedded_runtime/compile_tests.rs",
     "crates/lila-engine/src/embedded_runtime/tests.rs",
+    "crates/lila-engine/src/wasm_runtime_link/tests.rs",
+    "crates/lila-engine/src/tests.rs",
     "crates/lila-engine/src/regexp_program_boundary_tests.rs",
     "crates/lila-engine/src/runtime_regexp_compiler_tests.rs",
     "crates/lila-engine/src/array_present_index_tests.rs",
     "crates/lila-engine/src/module_async_runtime_tests.rs",
+    "crates/lila-engine/src/wasm_native_source_compiler/tests.rs",
     "crates/lila-engine/src/native_function_compiler_tests.rs",
     "crates/lila-engine/src/native_function_compiler_tests",
     "crates/lila-engine/src/wasm_native_function_compiler/observer.rs",
     "crates/lila-engine/src/wasm_native_function_compiler/tests.rs",
+    "crates/lila-engine/src/wasm_native_function_compiler/tests",
+    "crates/lila-engine/src/native_global_script_compiler_tests.rs",
+    "crates/lila-engine/src/native_global_script_compiler_tests",
+    "crates/lila-engine/src/wasm_native_global_script_compiler/observer.rs",
+    "crates/lila-engine/src/wasm_native_global_script_compiler/tests.rs",
+    "crates/lila-engine/src/wasm_native_global_script_compiler/tests",
+    "crates/lila-engine/src/native_direct_eval_compiler_tests.rs",
+    "crates/lila-engine/src/native_direct_eval_compiler_tests",
+    "crates/lila-engine/src/wasm_native_direct_eval_compiler/observer.rs",
+    "crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs",
+    "crates/lila-engine/src/wasm_native_direct_eval_compiler/tests",
+    "crates/lila-engine/src/native_language_feature_policy_tests.rs",
 ];
 
 pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {

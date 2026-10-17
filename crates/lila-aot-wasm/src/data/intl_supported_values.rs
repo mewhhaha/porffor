@@ -139,6 +139,10 @@ impl StringPool {
     fn checked_intl_supported_values(&self) -> Result<&CompiledSupportedValuesTables, EmitError> {
         self.intl_supported_values
             .as_ref()
+            .or_else(|| {
+                self.runtime_prefix()
+                    .and_then(|prefix| prefix.intl_supported_values.as_ref())
+            })
             .ok_or_else(|| EmitError::unsupported("missing rooted supported-value catalogues"))?
             .as_ref()
             .map_err(|error| {
@@ -154,7 +158,11 @@ impl StringPool {
         Ok(self.checked_intl_supported_values()?.table(key))
     }
     pub(crate) fn check_intl_supported_values(&self) -> Result<bool, EmitError> {
-        if self.intl_supported_values.is_none() {
+        if self.intl_supported_values.is_none()
+            && self
+                .runtime_prefix()
+                .map_or(true, |prefix| prefix.intl_supported_values.is_none())
+        {
             return Ok(false);
         }
         self.checked_intl_supported_values()?;

@@ -96,6 +96,23 @@ fn borrowed_for_in_initializer_also_uses_the_caller_environment() {
 }
 
 #[test]
+fn borrowed_for_in_initializer_discovers_named_class_environment_before_lowering() {
+    for expression in ["class named {}", "class {}"] {
+        let inner = format!("for (var forInHead = {expression} in {{}}) {{}}; forInHead.name;");
+        let source = format!("eval({inner:?});");
+        let program = lower(&parse(source, ParseOptions::script()).unwrap());
+        assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+        let script = program.script.unwrap();
+        let units: Vec<_> = script
+            .prepared_script_units()
+            .filter(|unit| matches!(unit.kind, PreparedScriptKind::DirectEval(_)))
+            .collect();
+        assert_eq!(units.len(), 1, "one exact direct-eval grammar context");
+        assert!(!units[0].body.statements.is_empty());
+    }
+}
+
+#[test]
 fn owned_eval_loop_heads_keep_their_declared_storage() {
     for (source, direct) in [
         (

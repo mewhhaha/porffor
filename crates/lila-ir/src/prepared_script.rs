@@ -104,6 +104,7 @@ pub(crate) enum ScriptInstantiation {
     #[default]
     FreshEntry,
     ModuleAfterGlobalScript,
+    GlobalScriptAfterPrelude,
     Prepared(PreparedScriptKind),
 }
 
@@ -112,11 +113,25 @@ impl ScriptInstantiation {
         match self {
             Self::FreshEntry
             | Self::ModuleAfterGlobalScript
+            | Self::GlobalScriptAfterPrelude
             | Self::Prepared(PreparedScriptKind::RealmScript) => true,
             Self::Prepared(
                 PreparedScriptKind::IndirectEval | PreparedScriptKind::ShadowRealmEvaluate,
             ) => !strict,
             Self::Prepared(PreparedScriptKind::DirectEval(_)) => false,
         }
+    }
+}
+
+/// Only lowering can retain an independently instantiated global entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalScriptEntryIr(PreparedScriptUnit);
+impl GlobalScriptEntryIr {
+    pub(crate) fn new(unit: PreparedScriptUnit) -> Self {
+        assert_eq!(unit.kind, PreparedScriptKind::RealmScript);
+        Self(unit)
+    }
+    pub fn unit(&self) -> &PreparedScriptUnit {
+        &self.0
     }
 }

@@ -4,8 +4,8 @@
 //! code. Its source identity deliberately excludes the eventual executable.
 
 use super::{
-    cache, emit_runtime_artifact, RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactKey,
-    LAYOUT_VERSION,
+    cache, emit_runtime_artifact, CurrentRuntimeLayoutVersion, RuntimeArtifact,
+    RuntimeArtifactCache, RuntimeArtifactKey, RuntimeSourceCompilationProfile, LAYOUT_VERSION,
 };
 use crate::EmitError;
 use sha2::{Digest, Sha256};
@@ -39,8 +39,22 @@ pub fn build_runtime_artifact(
     selection: &lila_intl::IntlDataSelection,
     compiler_source: &[u8; DIGEST_BYTES],
 ) -> Result<RuntimeBuildArtifact, EmitError> {
-    let identity = cache::RuntimeIdentity::admit(selection)?;
-    let runtime = emit_runtime_artifact(selection)?;
+    build_runtime_artifact_with_source_compilation_profile(
+        selection,
+        compiler_source,
+        RuntimeSourceCompilationProfile::Portable,
+    )
+}
+
+/// A native-image producer explicitly selects native source compilation.
+/// Portable artifacts use the ordinary checked wrapper above.
+pub fn build_runtime_artifact_with_source_compilation_profile(
+    selection: &lila_intl::IntlDataSelection,
+    compiler_source: &[u8; DIGEST_BYTES],
+    source_compilation_profile: RuntimeSourceCompilationProfile,
+) -> Result<RuntimeBuildArtifact, EmitError> {
+    let identity = cache::RuntimeIdentity::admit(selection, source_compilation_profile)?;
+    let runtime = emit_runtime_artifact(selection, source_compilation_profile)?;
     let package = encode(&runtime, &identity, compiler_source);
     let admitted = decode(&package, &identity, compiler_source).ok_or_else(|| {
         EmitError::unsupported(
@@ -67,6 +81,7 @@ struct Candidate<'a> {
 pub struct RuntimeArtifactInputs<'a> {
     cache: Option<&'a dyn RuntimeArtifactCache>,
     package: Option<Candidate<'a>>,
+    source_compilation_profile: RuntimeSourceCompilationProfile,
 }
 
 impl<'a> RuntimeArtifactInputs<'a> {
@@ -74,7 +89,20 @@ impl<'a> RuntimeArtifactInputs<'a> {
         Self {
             cache,
             package: None,
+            source_compilation_profile: RuntimeSourceCompilationProfile::Portable,
         }
+    }
+
+    pub const fn with_source_compilation_profile(
+        mut self,
+        profile: RuntimeSourceCompilationProfile,
+    ) -> Self {
+        self.source_compilation_profile = profile;
+        self
+    }
+
+    pub const fn source_compilation_profile(self) -> RuntimeSourceCompilationProfile {
+        self.source_compilation_profile
     }
 
     pub const fn with_build_package(
@@ -140,9 +168,12 @@ fn decode(
     let (framed, digest) = package.split_at(digest_offset);
     let mut payload = framed;
     // Reject unsupported source/profiles before hashing the large raw image.
-    if &cache::take::<8>(&mut payload)? != MAGIC
-        || u32::from_le_bytes(cache::take(&mut payload)?) != LAYOUT_VERSION
-        || &cache::take::<DIGEST_BYTES>(&mut payload)? != expected_source
+    if &cache::take::<8>(&mut payload)? != MAGIC {
+        return None;
+    }
+    let version =
+        CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mut payload)?))?;
+    if &cache::take::<DIGEST_BYTES>(&mut payload)? != expected_source
         || cache::take::<DIGEST_BYTES>(&mut payload)? != identity.digest()
     {
         return None;
@@ -152,7 +183,7 @@ fn decode(
     if actual_digest.as_slice() != digest {
         return None;
     }
-    let runtime = cache::decode_payload(payload, identity)?;
+    let runtime = cache::decode_payload(payload, identity, version)?;
     (runtime.key().as_bytes() == &expected_runtime).then_some(runtime)
 }
 

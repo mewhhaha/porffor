@@ -54,6 +54,8 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::ToPrimitive;
 
 mod analysis;
+mod language_features;
+pub use language_features::{LanguageFeaturePolicy, PrivateElementExtensibility};
 mod async_array_destructuring;
 mod async_generator_array_destructuring;
 mod async_pattern_source;
@@ -121,6 +123,8 @@ mod runtime_semantics;
 mod array_destructuring_operation;
 mod delete_optional_property_chain;
 mod direct_eval_context;
+mod import_call_source_origin;
+pub use import_call_source_origin::ImportCallSourceOriginIr;
 mod environment_identifier;
 mod object_destructuring_operation;
 pub use array_destructuring_operation::{
@@ -145,7 +149,7 @@ pub use object_property_definition::{ObjectPropertyDefinitionError, ObjectProper
 mod early_error_code;
 mod early_errors;
 mod eval_environment;
-pub use direct_eval_context::DirectEvalContextIr;
+pub use direct_eval_context::{DirectEvalContextIr, DirectEvalDerivedOwner};
 mod function_protocol;
 mod ir;
 mod iterator_obligations;
@@ -156,6 +160,17 @@ mod names;
 mod native_error;
 mod operations;
 mod prepared_function;
+mod runtime_direct_eval;
+mod runtime_global_script;
+pub use runtime_direct_eval::{
+    lower_runtime_direct_eval, RuntimeDirectEvalCaller, RuntimeDirectEvalCallerDescriptor,
+    RuntimeDirectEvalCallerError, RuntimeDirectEvalCompileError, RuntimeDirectEvalDerivedOwner,
+    RuntimeDirectEvalImportOrigin, RuntimeDirectEvalPrivateScope, RuntimeDirectEvalProgram,
+};
+pub use runtime_global_script::{
+    lower_runtime_global_script, RuntimeGlobalScriptCompileError, RuntimeGlobalScriptKind,
+    RuntimeGlobalScriptProgram,
+};
 mod runtime_function;
 pub use runtime_function::{
     lower_runtime_function, RuntimeFunctionCompileError, RuntimeFunctionProgram,
@@ -254,7 +269,7 @@ pub use modules::{
     BytesModuleValueIr, DeferredModuleEvaluationIr, JsonModuleValueIr, JsonValue,
     ModuleActivationIr, ModuleActivationKindIr, ModuleCellIr, ModuleEntryEvaluationIr,
     ModuleEntryEvaluationKindIr, ModuleEvaluationIr, ModuleExecutionGraphIr,
-    ModuleExecutionRequestIr, ModuleImportBindingIr, ModuleRequestPhaseIr,
+    ModuleExecutionRequestIr, ModuleImportBindingIr, ModuleRequestPhaseIr, ModuleSourceRecordIr,
 };
 pub use operations::{
     completion_abi_slot, completion_abi_slots, find_spec_operation, spec_operation_catalog,
@@ -271,7 +286,7 @@ pub use ownership::{ConformanceOwner, ParseConformanceOwnerError};
 pub(crate) use prepared_function::DynamicFunctionSource;
 pub use prepared_function::{PreparedDynamicFunction, PreparedDynamicFunctionOutcome};
 pub use prepared_script::{
-    AnnexBGlobalDeclarationIr, GlobalFunctionDeclarationIr, PreparedScript,
+    AnnexBGlobalDeclarationIr, GlobalFunctionDeclarationIr, GlobalScriptEntryIr, PreparedScript,
     PreparedScriptAdmission, PreparedScriptKind, PreparedScriptOutcome, PreparedScriptUnit,
     RuntimeGlobalDeclarationPlan, StaticScriptId,
 };
@@ -350,3 +365,6 @@ pub use crate::property_descriptor::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod global_script_prelude_tests;

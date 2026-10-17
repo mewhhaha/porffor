@@ -24,6 +24,8 @@ mod source_activation_depth;
 pub(crate) use source_activation_depth::SourceActivationDepth;
 use source_activation_depth::SourceActivationDepthGlobal;
 #[cfg(test)]
+mod module_source_tests;
+#[cfg(test)]
 mod type_registration_tests;
 pub(crate) use host::{DeclaredGcHostImport, GcHostImports};
 pub use snapshot::*;
@@ -304,6 +306,9 @@ where
 /// The module's globals in declaration order. Keeping the types beside the
 /// encoded section lets a program module import the runtime's globals without
 /// parsing the runtime back.
+mod global_script_prelude;
+pub(crate) use global_script_prelude::GlobalScriptPreludePhase;
+
 pub(crate) struct GlobalLedger {
     entries: Vec<(GlobalType, ConstExpr)>,
 }
@@ -428,6 +433,7 @@ impl RuntimeGcTypes {
             },
         };
         FinalizedModuleGlobals {
+            global_prelude_phase: None,
             section: globals,
             runtime_schema,
         }
@@ -444,6 +450,8 @@ impl RuntimeGcTypes {
 /// The only transition finalizes globals into the existing sealed package.
 pub(crate) struct RuntimeModuleTypes {
     section: TypeSection,
+    program_globals: bool,
+    global_prelude: bool,
     runtime: RuntimeGcTypes,
 }
 
@@ -510,7 +518,18 @@ impl RuntimeModuleTypes {
         Self {
             section,
             runtime: RuntimeGcTypes::from_layouts(layouts),
+            program_globals: kind.compiles_program(),
+            global_prelude: false,
         }
+    }
+
+    pub(crate) fn with_global_prelude(mut self, present: bool) -> Self {
+        assert!(
+            !present || self.program_globals,
+            "only P owns the global prelude phase"
+        );
+        self.global_prelude = present;
+        self
     }
 
     pub(crate) fn finalize_globals(
@@ -519,13 +538,17 @@ impl RuntimeModuleTypes {
         snapshot: bool,
         module_guard_count: u32,
     ) -> FinalizedRuntimeModule {
+        let mut globals = self
+            .runtime
+            .finalize_globals(globals, snapshot, module_guard_count);
+        if self.global_prelude {
+            globals.declare_global_prelude_phase();
+        }
         FinalizedRuntimeModule {
             types: FinalizedModuleTypes {
                 section: self.section,
             },
-            globals: self
-                .runtime
-                .finalize_globals(globals, snapshot, module_guard_count),
+            globals,
         }
     }
 }
@@ -708,10 +731,19 @@ impl RuntimeSchema {
 /// lifecycle instructions from one package with another package's section.
 pub(crate) struct FinalizedModuleGlobals {
     section: GlobalLedger,
+    global_prelude_phase: Option<GlobalScriptPreludePhase>,
     runtime_schema: RuntimeSchema,
 }
 
 impl FinalizedModuleGlobals {
+    fn declare_global_prelude_phase(&mut self) {
+        assert!(self.global_prelude_phase.is_none());
+        self.global_prelude_phase = Some(GlobalScriptPreludePhase::declare(&mut self.section));
+    }
+    pub(crate) fn global_prelude_phase(&self) -> Option<GlobalScriptPreludePhase> {
+        self.global_prelude_phase
+    }
+
     pub(crate) fn schema(&self) -> &RuntimeSchema {
         &self.runtime_schema
     }
@@ -764,7 +796,10 @@ mod tests {
 
     #[test]
     fn recursive_callable_and_semantic_declarations_validate_together() {
-        let registered = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime);
+        let registered =
+            RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime(
+                crate::RuntimeSourceCompilationProfile::Portable,
+            ));
         let runtime = registered.finalize_globals(GlobalLedger::new(), false, 0);
         let mut module = wasm_encoder::Module::new();
         module.section(runtime.types());
@@ -803,7 +838,9 @@ mod tests {
         for existing_global_count in [0_u32, 1, 7] {
             for snapshot in [false, true] {
                 let runtime =
-                    RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime);
+                    RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime(
+                        crate::RuntimeSourceCompilationProfile::Portable,
+                    ));
                 let mut globals = GlobalLedger::new();
                 for _ in 0..existing_global_count {
                     globals.global(

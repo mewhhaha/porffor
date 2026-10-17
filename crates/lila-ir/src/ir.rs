@@ -2300,11 +2300,13 @@ pub enum ExprIr {
     /// Resolved at runtime against the compile-time component registry in
     /// `ModuleGraphIr::components`. Never parses source: a specifier that
     /// matches no component rejects the promise.
+    /// ExternalCaller retains a different ProgramInstance's authority; its
+    /// unbridged runtime capability path must execute only at this operation.
     DynamicImport {
         specifier: Box<TypedExpr>,
         options: Option<Box<TypedExpr>>,
         phase: ImportPhaseIr,
-        referrer: Option<ModuleUnitId>,
+        referrer: crate::ImportCallSourceOriginIr,
     },
     /// `import.meta` of the enclosing module.
     ImportMeta {
@@ -4439,10 +4441,14 @@ impl<'a> IntoIterator for &'a GlobalBindingPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptIr {
+    /// Exact compile-time language semantics retained by this P and its prepared code.
+    pub language_features: crate::LanguageFeaturePolicy,
     pub template_source: Option<crate::TemplateSourceIr>,
     pub eval_environment: Option<crate::EvalEnvironmentRoleIr>,
-    /// A separate global Script evaluated before the Module graph.
+    /// A separate global Script evaluated before the Script or Module entry.
     pub module_prelude: Option<PreparedScriptUnit>,
+    /// Independently instantiated global Script after the earlier global prelude.
+    pub script_entry_after_prelude: Option<crate::GlobalScriptEntryIr>,
     pub prepared_scripts: Vec<PreparedScript>,
     pub runtime_declarations: RuntimeGlobalDeclarationPlan,
     pub prepared_dynamic_functions: Vec<PreparedDynamicFunction>,
@@ -4478,6 +4484,11 @@ impl ScriptIr {
     pub fn prepared_script_units(&self) -> impl Iterator<Item = &PreparedScriptUnit> {
         self.module_prelude
             .iter()
+            .chain(
+                self.script_entry_after_prelude
+                    .iter()
+                    .map(|entry| entry.unit()),
+            )
             .chain(
                 self.prepared_scripts
                     .iter()
@@ -4578,6 +4589,20 @@ pub(crate) fn statement_contains_async_for_in(statement: &StatementIr) -> bool {
 }
 
 impl ProgramIr {
+    pub fn language_features(&self) -> crate::LanguageFeaturePolicy {
+        self.script
+            .as_ref()
+            .map_or_else(Default::default, |script| script.language_features)
+    }
+
+    /// Select semantics before emission; all prepared bodies share this P owner.
+    pub fn with_language_features(mut self, policy: crate::LanguageFeaturePolicy) -> Self {
+        if let Some(script) = &mut self.script {
+            script.language_features = policy;
+        }
+        self
+    }
+
     /// The first diagnostic that prevents this program from reaching Wasm
     /// emission.
     ///

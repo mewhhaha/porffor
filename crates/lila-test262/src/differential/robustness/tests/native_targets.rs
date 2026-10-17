@@ -125,9 +125,17 @@ fn prelude_materialization_preserves_real_strict_raw_module_and_declared_include
         let materialized = loaded.materialize().unwrap();
         match mode {
             "strict-script" => {
+                assert!(materialized.source.starts_with("\"use strict\";\n"));
                 assert!(materialized
-                    .source
-                    .starts_with("\"use strict\";\n/* assertion candidate */"));
+                    .module_prelude
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("/* assertion candidate */"));
+                assert!(materialized
+                    .module_prelude
+                    .as_deref()
+                    .unwrap()
+                    .contains("/* declared helper */"));
                 assert!(materialized.source.ends_with(source));
                 assert_eq!(
                     materialized

@@ -95,6 +95,46 @@ impl FunctionBuilder<'_> {
         for row in rows.into_iter().rev() {
             row.clear(function);
         }
+        self.emit_module_namespace_object(mode, &evaluator, &table, output, function)?;
+        table.clear(function);
+        evaluator.clear(function);
+        evaluator_value.clear(function);
+        Ok(())
+    }
+
+    /// An already evaluated native host module owns an empty namespace without
+    /// inventing an ECMAScript activation or a deferred evaluator function.
+    pub(crate) fn emit_empty_module_namespace(
+        &mut self,
+        mode: ModuleNamespaceModeIr,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let evaluator = schema
+            .reserve_gc_local::<FunctionObject, Nullable>(function)
+            .initialize_null(schema, function);
+        let table = schema.reserve_gc_local(function).initialize(
+            schema
+                .array_type::<ModuleExportTable>()
+                .fixed(std::iter::empty(), function),
+            function,
+        );
+        self.emit_module_namespace_object(mode, &evaluator, &table, output, function)?;
+        table.clear(function);
+        evaluator.clear(function);
+        Ok(())
+    }
+
+    fn emit_module_namespace_object(
+        &mut self,
+        mode: ModuleNamespaceModeIr,
+        evaluator: &GcLocal<FunctionObject, Nullable>,
+        table: &GcLocal<ModuleExportTable>,
+        output: &ValueLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
         let header = schema.reserve_gc_local(function).initialize(
             self.emit_alloc_plain_object_with_prototype(None, function)?,
             function,
@@ -131,8 +171,8 @@ impl FunctionBuilder<'_> {
             schema.struct_type::<ModuleNamespaceObject>().construct(
                 (
                     GcOperand::reference(&header, schema),
-                    GcOperand::reference(&evaluator, schema),
-                    GcOperand::reference(&table, schema),
+                    GcOperand::reference(evaluator, schema),
+                    GcOperand::reference(table, schema),
                 ),
                 function,
             ),
@@ -141,9 +181,6 @@ impl FunctionBuilder<'_> {
         output.set_reference(&namespace, schema, function);
         namespace.clear(function);
         header.clear(function);
-        table.clear(function);
-        evaluator.clear(function);
-        evaluator_value.clear(function);
         Ok(())
     }
 

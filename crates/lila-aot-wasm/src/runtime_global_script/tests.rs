@@ -1,0 +1,229 @@
+use super::*;
+use crate::{module::StaticSignature, runtime_helpers::RuntimeHelperId};
+use lila_ir::{HostSurfacePolicy, RuntimeGlobalScriptKind};
+use std::collections::BTreeMap;
+use wasmparser::{CompositeInnerType, Operator, Parser, Payload, TypeRef, Validator, WasmFeatures};
+
+fn minimal_runtime() -> Arc<RuntimeArtifact> {
+    std::thread::Builder::new()
+        .name("native-global-script-runtime".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            crate::runtime_artifact_with_inputs(
+                &IntlDataSelection::new(IntlCompilationProfile::Minimal),
+                crate::RuntimeArtifactInputs::new(None).with_source_compilation_profile(
+                    crate::RuntimeSourceCompilationProfile::NativeHost,
+                ),
+            )
+            .unwrap()
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+fn request(kind: RuntimeGlobalScriptKind, source: &str) -> RuntimeGlobalScriptProgram {
+    lila_ir::lower_runtime_global_script(
+        kind,
+        &source.encode_utf16().collect::<Vec<_>>(),
+        HostSurfacePolicy::default(),
+    )
+    .unwrap()
+}
+
+#[test]
+fn native_script_factory_witness_rejects_source_kind_nested_id_and_deferred_substitution() {
+    let program = request(
+        RuntimeGlobalScriptKind::IndirectEval,
+        "(0,eval)('23;'); 17;",
+    );
+    let script = program.program().script.as_ref().unwrap();
+    let original = &script.prepared_scripts[0];
+    assert_eq!(
+        require_root_source_row(&program, original).unwrap().id,
+        program.script_id()
+    );
+    let mut changed = original.clone();
+    changed.source.push(' ');
+    assert!(require_root_source_row(&program, &changed).is_err());
+    changed = original.clone();
+    changed.kind = lila_ir::PreparedScriptKind::RealmScript;
+    assert!(require_root_source_row(&program, &changed).is_err());
+    let nested = script
+        .prepared_scripts
+        .iter()
+        .find(|row| row != &original)
+        .unwrap();
+    assert!(require_root_source_row(&program, nested).is_err());
+    changed = original.clone();
+    changed.outcome = PreparedScriptOutcome::DeferredSyntaxError {
+        message: "forged".into(),
+    };
+    assert!(require_root_source_row(&program, &changed).is_err());
+}
+
+#[test]
+fn emitted_native_global_scripts_are_fresh_valid_p_with_owned_hook_factory_and_init_only_bootstrap()
+{
+    let profile = IntlCompilationProfile::Minimal;
+    let runtime = minimal_runtime();
+    for kind in [
+        RuntimeGlobalScriptKind::IndirectEval,
+        RuntimeGlobalScriptKind::RealmScript,
+    ] {
+        for strict in [false, true] {
+            let source = format!(
+                "{}var value = 17; let lexical = 'fresh P'; value;",
+                if strict { "'use strict'; " } else { "" }
+            );
+            let program = request(kind, &source);
+            let artifact = emit_runtime_global_script(&program, &runtime, &profile).unwrap();
+            assert!(Arc::ptr_eq(artifact.runtime(), &runtime));
+            assert_eq!(artifact.runtime().key(), runtime.key());
+            assert_eq!(
+                artifact.runtime().bytes().as_ref(),
+                runtime.bytes().as_ref()
+            );
+            Validator::new_with_features(WasmFeatures::all())
+                .validate_all(artifact.bytes())
+                .unwrap();
+            let expected_imports = crate::tests::linked_function_imports(&runtime);
+            let mut types = Vec::new();
+            let mut function_types = Vec::new();
+            let mut exports = BTreeMap::new();
+            let mut imported = 0u32;
+            let mut defined = 0u32;
+            let mut calls = BTreeMap::<u32, Vec<u32>>::new();
+            for payload in Parser::new(0).parse_all(artifact.bytes()) {
+                match payload.unwrap() {
+                    Payload::TypeSection(reader) => {
+                        for group in reader {
+                            types.extend(group.unwrap().types().cloned());
+                        }
+                    }
+                    Payload::ImportSection(reader) => {
+                        for import in reader.into_imports() {
+                            let import = import.unwrap();
+                            if let TypeRef::Func(index) | TypeRef::FuncExact(index) = import.ty {
+                                let expected = expected_imports
+                                    .get(imported as usize)
+                                    .expect("P function import must be declared by its actual R");
+                                assert_eq!(
+                                    (import.module, import.name, index),
+                                    (expected.0.as_str(), expected.1.as_str(), expected.2),
+                                    "P retains the exact R host prefix and typed runtime export sequence"
+                                );
+                                function_types.push(index);
+                                imported += 1;
+                            }
+                        }
+                    }
+                    Payload::FunctionSection(reader) => {
+                        function_types.extend(reader.into_iter().map(Result::unwrap))
+                    }
+                    Payload::ExportSection(reader) => {
+                        for export in reader {
+                            let export = export.unwrap();
+                            exports.insert(export.name.to_owned(), export.index);
+                        }
+                    }
+                    Payload::StartSection { .. } => {
+                        panic!("native P may not execute a start function")
+                    }
+                    Payload::CodeSectionEntry(body) => {
+                        let index = imported + defined;
+                        defined += 1;
+                        let initializer =
+                            exports.get(artifact.program_initialize_export()) == Some(&index);
+                        let mut direct = Vec::new();
+                        let mut operators = body.get_operators_reader().unwrap();
+                        while !operators.eof() {
+                            match operators.read().unwrap() {
+                                Operator::Call { function_index } => direct.push(function_index),
+                                Operator::MemoryInit { .. } | Operator::GlobalSet { .. } |
+                                Operator::CallIndirect { .. } | Operator::CallRef { .. } |
+                                Operator::ReturnCall { .. } | Operator::ReturnCallRef { .. } =>
+                                    assert!(!initializer, "P init cannot execute source, mutate R/P globals or install linear data"),
+                                _ => {}
+                            }
+                        }
+                        calls.insert(index, direct);
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(imported as usize, expected_imports.len());
+            let initialize = exports[artifact.program_initialize_export()];
+            let factory = exports[artifact.factory_export()];
+            let main = exports["main"];
+            assert!(!exports.contains_key(crate::runtime_function::RUNTIME_FUNCTION_FACTORY_EXPORT));
+            assert_eq!(
+                function_types[initialize as usize],
+                StaticSignature::ProgramInitialize.type_index()
+            );
+            assert_eq!(
+                function_types[factory as usize],
+                RuntimeHelperId::PreparedScript.type_index()
+            );
+            let CompositeInnerType::Func(factory_type) = &types
+                [RuntimeHelperId::PreparedScript.type_index() as usize]
+                .composite_type
+                .inner
+            else {
+                panic!("factory function type")
+            };
+            assert_eq!(factory_type.params().len(), 4);
+            assert_eq!(factory_type.results().len(), 6);
+            assert!(
+                matches!(factory_type.params()[0], wasmparser::ValType::Ref(reference) if !reference.is_nullable())
+            );
+            assert_eq!(
+                factory_type.results().last(),
+                Some(&wasmparser::ValType::I32)
+            );
+            let r_init = function_types
+                .iter()
+                .position(|index| *index == RuntimeHelperId::PooledStringsInitialize.type_index())
+                .unwrap() as u32;
+            assert_eq!(calls[&initialize], [r_init]);
+            assert!(!calls[&initialize].contains(&main));
+        }
+    }
+}
+
+#[test]
+fn actual_runtime_declares_both_compiler_imports_with_distinct_types() {
+    let runtime = minimal_runtime();
+    let mut found = BTreeMap::new();
+    for payload in Parser::new(0).parse_all(runtime.bytes()) {
+        if let Payload::ImportSection(reader) = payload.unwrap() {
+            for import in reader.into_imports() {
+                let import = import.unwrap();
+                if [
+                    crate::GcHostImport::CompileGlobalScript.name(),
+                    crate::GcHostImport::CompileDynamicFunction.name(),
+                ]
+                .contains(&import.name)
+                {
+                    assert_eq!(
+                        import.module,
+                        crate::GcHostImport::CompileGlobalScript.module()
+                    );
+                    let TypeRef::Func(index) = import.ty else {
+                        panic!("compiler host import type")
+                    };
+                    assert!(found.insert(import.name.to_string(), index).is_none());
+                }
+            }
+        }
+    }
+    assert_eq!(found.len(), 2);
+    assert_eq!(
+        found["compile_global_script"],
+        StaticSignature::HostCompileGlobalScript.type_index()
+    );
+    assert_eq!(
+        found["compile_dynamic_function"],
+        StaticSignature::HostCompileDynamicFunction.type_index()
+    );
+}

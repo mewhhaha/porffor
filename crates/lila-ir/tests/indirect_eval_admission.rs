@@ -1,7 +1,7 @@
 use lila_front::{parse, ParseOptions};
 use lila_ir::{
-    lower_with_host_surface_policy, DynamicSourceGap, DynamicSourceKind, HostSurfacePolicy,
-    ProgramIr, UnsupportedFeature, ValueKind,
+    lower_with_host_surface_policy, HostBuiltinId, HostSurfacePolicy, PreparedScriptKind,
+    ProgramIr, ValueKind,
 };
 
 fn lower(source: &str) -> ProgramIr {
@@ -66,18 +66,27 @@ fn boxed_values_in_mutable_globals_remain_executable() {
 #[test]
 fn realm_script_keeps_its_distinct_source_conversion_requirement() {
     let program = lower("__lilaRealmEvalScript(globalThis.unknownSource);");
-    let gaps = program
-        .diagnostics
-        .iter()
-        .filter_map(|diagnostic| match diagnostic.unsupported_feature() {
-            Some(UnsupportedFeature::DynamicSource(gap)) => Some(gap),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        gaps,
-        vec![DynamicSourceGap::runtime_source(
-            DynamicSourceKind::RealmEvalScript
-        )]
-    );
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    let script = program.script.expect("runtime host invocation remains");
+    assert!(script.prepared_scripts.is_empty());
+    assert_eq!(script.result_kind(), ValueKind::Dynamic);
+    assert!(script
+        .host_builtins
+        .contains(&HostBuiltinId::RealmEvalScript));
+
+    // Realm evalScript performs ToString before compiling, whereas indirect
+    // eval returns a non-String argument unchanged. Keep that distinction even
+    // though both now admit genuinely unknown source at the native boundary.
+    let converted = lower("__lilaRealmEvalScript(17);");
+    assert!(converted.is_wasm_supported(), "{:?}", converted.diagnostics);
+    let converted = converted.script.expect("converted realm source");
+    assert!(converted.prepared_scripts.iter().any(|prepared| {
+        prepared.kind == PreparedScriptKind::RealmScript && prepared.source == "17"
+    }));
+    assert_eq!(converted.result_kind(), ValueKind::Dynamic);
+    let indirect = lower("(0, eval)(17);");
+    assert!(indirect.is_wasm_supported(), "{:?}", indirect.diagnostics);
+    let indirect = indirect.script.expect("non-string indirect eval");
+    assert!(indirect.prepared_scripts.is_empty());
+    assert_eq!(indirect.result_kind(), ValueKind::Number);
 }

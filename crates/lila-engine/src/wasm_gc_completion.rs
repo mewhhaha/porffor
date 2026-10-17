@@ -118,6 +118,13 @@ pub(super) fn storage_matches(expected: GcHostStorage, actual: &StorageType) -> 
             reference.is_nullable() && reference.heap_type().matches(&wasmtime::HeapType::Eq)
         }
         (
+            GcHostStorage::FunctionReference { nullable },
+            StorageType::ValType(ValType::Ref(reference)),
+        ) => {
+            reference.is_nullable() == nullable
+                && matches!(reference.heap_type(), wasmtime::HeapType::ConcreteFunc(_))
+        }
+        (
             GcHostStorage::Reference { layout, nullable },
             StorageType::ValType(ValType::Ref(reference)),
         ) => {
@@ -134,6 +141,7 @@ pub(super) fn storage_matches(expected: GcHostStorage, actual: &StorageType) -> 
             | GcHostStorage::PackedU8
             | GcHostStorage::PackedU16
             | GcHostStorage::NullableEqRef
+            | GcHostStorage::FunctionReference { .. }
             | GcHostStorage::Reference { .. },
             _,
         ) => false,
@@ -351,7 +359,7 @@ mod tests {
             &engine,
             WasmHostState {
                 weak: wasm_gc_weak_host::WeakGcState::default(),
-                native_function_compiler: None,
+                native_source_compiler: None,
                 monotonic_clock_origin: realm.host_clock().monotonic_instant(),
                 realm,
                 output_events: WasmOutputEvents::DelegateOnly,

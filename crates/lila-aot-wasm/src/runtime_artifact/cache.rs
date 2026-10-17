@@ -15,7 +15,11 @@ use wasmparser::{
     ValidPayload, Validator, WasmFeatures,
 };
 
-use super::{RuntimeArtifact, RuntimeLayout, LAYOUT_VERSION};
+use super::source_compilation::SourceCompilationProfileAdmission;
+use super::{
+    CurrentRuntimeLayoutVersion, RuntimeArtifact, RuntimeLayout, RuntimeSourceCompilationProfile,
+    LAYOUT_VERSION, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+};
 use crate::data::PoolBoundary;
 use crate::heap::STATIC_DATA_OFFSET;
 use crate::module::HOST_IMPORT_MODULE;
@@ -52,10 +56,14 @@ pub trait RuntimeArtifactCache {
 pub(super) struct RuntimeIdentity {
     sections: BTreeMap<&'static str, Arc<[u8]>>,
     digest: [u8; DIGEST_BYTES],
+    source_compilation_profile: RuntimeSourceCompilationProfile,
 }
 
 impl RuntimeIdentity {
-    pub(super) fn admit(selection: &lila_intl::IntlDataSelection) -> Result<Self, EmitError> {
+    pub(super) fn admit(
+        selection: &lila_intl::IntlDataSelection,
+        source_compilation_profile: RuntimeSourceCompilationProfile,
+    ) -> Result<Self, EmitError> {
         let selected = selection.selected().map_err(|error| {
             EmitError::unsupported(format!("failed to select the Intl artifact data: {error}"))
         })?;
@@ -66,17 +74,25 @@ impl RuntimeIdentity {
             // SelectedIntlDataBundle privately constructs this single immutable
             // process-wide bundle. Hash its complete physical frames once;
             // subsequent admissions retain those exact shared bytes and digest.
-            static MINIMAL: OnceLock<RuntimeIdentity> = OnceLock::new();
-            return Ok(MINIMAL
-                .get_or_init(|| Self::from_selected(selected))
+            static PORTABLE: OnceLock<RuntimeIdentity> = OnceLock::new();
+            static NATIVE_HOST: OnceLock<RuntimeIdentity> = OnceLock::new();
+            let minimal = match source_compilation_profile {
+                RuntimeSourceCompilationProfile::Portable => &PORTABLE,
+                RuntimeSourceCompilationProfile::NativeHost => &NATIVE_HOST,
+            };
+            return Ok(minimal
+                .get_or_init(|| Self::from_selected(selected, source_compilation_profile))
                 .clone());
         }
         // Custom profiles can reuse a name with different physical data. Their
         // complete section contents still determine every admission identity.
-        Ok(Self::from_selected(selected))
+        Ok(Self::from_selected(selected, source_compilation_profile))
     }
 
-    fn from_selected(selected: &lila_intl::SelectedIntlDataBundle) -> Self {
+    fn from_selected(
+        selected: &lila_intl::SelectedIntlDataBundle,
+        source_compilation_profile: RuntimeSourceCompilationProfile,
+    ) -> Self {
         let mut sections: BTreeMap<_, _> = selected.component_sections().into_iter().collect();
         sections.insert(
             INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION,
@@ -88,10 +104,17 @@ impl RuntimeIdentity {
                 Arc::from(services.wire().to_le_bytes()),
             );
         }
-        Self::from_sections(sections)
+        sections.insert(
+            RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+            Arc::from([source_compilation_profile.wire()]),
+        );
+        Self::from_sections(sections, source_compilation_profile)
     }
 
-    fn from_sections(sections: BTreeMap<&'static str, Arc<[u8]>>) -> Self {
+    fn from_sections(
+        sections: BTreeMap<&'static str, Arc<[u8]>>,
+        source_compilation_profile: RuntimeSourceCompilationProfile,
+    ) -> Self {
         let mut hash = Sha256::new();
         hash.update(b"lila-runtime-intl-selection-v1");
         // Include the admitted physical images, with unambiguous boundaries.
@@ -103,6 +126,7 @@ impl RuntimeIdentity {
         Self {
             sections,
             digest: hash.finalize().into(),
+            source_compilation_profile,
         }
     }
 
@@ -200,19 +224,20 @@ fn decode(
     let digest_offset = entry.len().checked_sub(DIGEST_BYTES)?;
     let (mut payload, digest) = entry.split_at(digest_offset);
     let expected_digest: [u8; DIGEST_BYTES] = Sha256::digest(payload).into();
-    if expected_digest.as_slice() != digest
-        || &take::<8>(&mut payload)? != MAGIC
-        || u32::from_le_bytes(take(&mut payload)?) != LAYOUT_VERSION
-        || &take::<DIGEST_BYTES>(&mut payload)? != key.as_bytes()
-    {
+    if expected_digest.as_slice() != digest || &take::<8>(&mut payload)? != MAGIC {
         return None;
     }
-    decode_payload(payload, identity)
+    let version = CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(take(&mut payload)?))?;
+    if &take::<DIGEST_BYTES>(&mut payload)? != key.as_bytes() {
+        return None;
+    }
+    decode_payload(payload, identity, version)
 }
 
 pub(super) fn decode_payload(
     mut payload: &[u8],
     identity: &RuntimeIdentity,
+    version: CurrentRuntimeLayoutVersion,
 ) -> Option<RuntimeArtifact> {
     let static_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
     let code_unit_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
@@ -223,7 +248,12 @@ pub(super) fn decode_payload(
     }
     let pool = PoolBoundary::from_runtime_cache(static_len, code_unit_len, strings)?;
     let layout = decode_layout(payload, pool, identity)?;
-    Some(RuntimeArtifact::new(Arc::from(payload), layout))
+    Some(RuntimeArtifact::new(
+        Arc::from(payload),
+        layout,
+        version,
+        identity.source_compilation_profile,
+    ))
 }
 
 fn decode_layout(
@@ -251,6 +281,7 @@ fn decode_layout(
     let mut exports = BTreeMap::new();
     let mut sections = identity.sections.clone();
     let mut data_count = 0;
+    let mut source_admission = SourceCompilationProfileAdmission::default();
     for payload in parser.parse_all(bytes) {
         let payload = payload.ok()?;
         match validator.payload(&payload).ok()? {
@@ -268,6 +299,7 @@ fn decode_layout(
             Payload::ImportSection(reader) => {
                 for import in reader.into_imports() {
                     let import = import.ok()?;
+                    source_admission.import(&import).ok()?;
                     if import.module != HOST_IMPORT_MODULE {
                         return None;
                     }
@@ -329,7 +361,13 @@ fn decode_layout(
                     data_count += 1;
                 }
             }
-            Payload::CustomSection(section) if section.name().starts_with("lila.intl") => {
+            Payload::CustomSection(section)
+                if section.name().starts_with("lila.intl")
+                    || section.name() == RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION =>
+            {
+                if section.name() == RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION {
+                    source_admission.section(section.data()).ok()?;
+                }
                 if sections.remove(section.name())?.as_ref() != section.data() {
                     return None;
                 }
@@ -337,6 +375,9 @@ fn decode_layout(
             Payload::StartSection { .. } => return None,
             _ => {}
         }
+    }
+    if source_admission.finish().ok()? != identity.source_compilation_profile {
+        return None;
     }
     if !validated_end
         || data_count != 2

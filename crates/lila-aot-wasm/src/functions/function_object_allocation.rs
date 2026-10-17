@@ -535,6 +535,7 @@ impl FunctionBuilder<'_> {
                 .from_value(inputs.home_object, function),
             function,
         );
+        let initializer = self.emit_instance_elements_initializer_capture(meta, function)?;
         let context = schema.reserve_gc_local(function).initialize(
             schema.struct_type::<FunctionContext>().construct(
                 (
@@ -548,11 +549,13 @@ impl FunctionBuilder<'_> {
                     GcOperand::reference(inputs.builtin_capture, schema),
                     GcOperand::reference(inputs.instance_private_methods, schema),
                     program_operand,
+                    GcOperand::nullable_function_reference(&initializer),
                 ),
                 function,
             ),
             function,
         );
+        initializer.clear(function);
         let source_text = schema
             .reserve_gc_local::<StringValue, NonNullable>(function)
             .initialize(

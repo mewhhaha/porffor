@@ -238,6 +238,21 @@ pub(crate) struct AnalysisAllocationState {
 }
 
 impl AnalysisAllocationState {
+    pub(crate) fn with_private_environment_floor(mut self, floor: u32) -> Self {
+        self.next_private_environment_id = floor;
+        self
+    }
+
+    pub(crate) fn require_private_environment_capacity(
+        &self,
+        count: u32,
+    ) -> Result<(), &'static str> {
+        self.next_private_environment_id
+            .checked_add(count)
+            .map(|_| ())
+            .ok_or("private-scope identity space is exhausted")
+    }
+
     pub(crate) fn allocate_static_script_id(&mut self) -> StaticScriptId {
         let id = StaticScriptId(self.next_static_script_id);
         self.next_static_script_id = self
@@ -464,7 +479,10 @@ impl<'a> AnalysisBuilder<'a> {
         if let Some(context) = &direct_context {
             if !context.private_names().is_empty() {
                 let id = PrivateEnvironmentId(self.next_private_environment_id);
-                self.next_private_environment_id += 1;
+                self.next_private_environment_id = self
+                    .next_private_environment_id
+                    .checked_add(1)
+                    .expect("private-scope capacity was reserved before analysis");
                 self.private_environment_plans.insert(
                     id,
                     PrivateEnvironmentPlan {
@@ -725,7 +743,10 @@ impl<'a> AnalysisBuilder<'a> {
         }
 
         let id = PrivateEnvironmentId(self.next_private_environment_id);
-        self.next_private_environment_id += 1;
+        self.next_private_environment_id = self
+            .next_private_environment_id
+            .checked_add(1)
+            .expect("private-scope capacity was reserved before analysis");
         let mut bindings = BTreeMap::new();
         for private_name in private_names {
             if bindings.contains_key(&private_name) {
@@ -2557,6 +2578,25 @@ impl<'a> AnalysisBuilder<'a> {
         }
     }
 
+    fn scoped_hoistable_binding(
+        &self,
+        interner: &Interner,
+        function: BlockHoistableDeclaration<'_>,
+    ) -> (String, String) {
+        let source_name = function.source_name(interner);
+        let storage_name = function
+            .ordinary()
+            .and_then(|function| {
+                self.annex_b_function_plans
+                    .get(&function_declaration_key(function))
+            })
+            .map(|plan| plan.block_storage_name.clone())
+            .unwrap_or_else(|| {
+                scoped_lexical_binding_storage_name(&source_name, function.name_span())
+            });
+        (source_name, storage_name)
+    }
+
     fn scoped_capture_aliases(
         &self,
         interner: &Interner,
@@ -2565,10 +2605,15 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, String> {
         let mut aliases = capture_aliases.clone();
         for item in items {
-            match item {
-                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+            if let Some(function) = BlockHoistableDeclaration::from_item(item) {
+                let (source_name, storage_name) = self.scoped_hoistable_binding(interner, function);
+                aliases.insert(source_name, storage_name);
+                continue;
+            }
+            if let StatementListItem::Declaration(declaration) = item {
+                match declaration.as_ref() {
                     Declaration::Lexical(lexical) => {
-                        self.add_scoped_lexical_aliases(interner, lexical, &mut aliases);
+                        self.add_scoped_lexical_aliases(interner, lexical, &mut aliases)
                     }
                     Declaration::ClassDeclaration(class) => {
                         let source_name = interner.resolve_expect(class.name().sym()).to_string();
@@ -2577,19 +2622,10 @@ impl<'a> AnalysisBuilder<'a> {
                             scoped_lexical_binding_storage_name(&source_name, class.name().span()),
                         );
                     }
-                    Declaration::FunctionDeclaration(function) => {
-                        self.add_scoped_function_alias(interner, function, &mut aliases);
-                    }
-                    _ => {}
-                },
-                StatementListItem::Statement(statement) => {
-                    if let Statement::Labelled(labelled) = statement.as_ref() {
-                        if let Some(function) =
-                            lexically_scoped_labelled_function_declaration(labelled)
-                        {
-                            self.add_scoped_function_alias(interner, function, &mut aliases);
-                        }
-                    }
+                    Declaration::FunctionDeclaration(_)
+                    | Declaration::GeneratorDeclaration(_)
+                    | Declaration::AsyncFunctionDeclaration(_)
+                    | Declaration::AsyncGeneratorDeclaration(_) => {}
                 }
             }
         }
@@ -2613,8 +2649,13 @@ impl<'a> AnalysisBuilder<'a> {
     ) -> BTreeMap<String, BindingMode> {
         let mut binding_modes = BTreeMap::new();
         for item in items {
-            match item {
-                StatementListItem::Declaration(declaration) => match declaration.as_ref() {
+            if let Some(function) = BlockHoistableDeclaration::from_item(item) {
+                let (_, storage_name) = self.scoped_hoistable_binding(interner, function);
+                binding_modes.insert(storage_name, BindingMode::Let);
+                continue;
+            }
+            if let StatementListItem::Declaration(declaration) = item {
+                match declaration.as_ref() {
                     Declaration::Lexical(lexical) => {
                         let (mode, variables) = match lexical {
                             LexicalDeclaration::Let(variables) => (BindingMode::Let, variables),
@@ -2648,42 +2689,10 @@ impl<'a> AnalysisBuilder<'a> {
                             BindingMode::Let,
                         );
                     }
-                    Declaration::FunctionDeclaration(function) => {
-                        let storage_name = self
-                            .annex_b_function_plans
-                            .get(&function_declaration_key(function))
-                            .map(|plan| plan.block_storage_name.clone())
-                            .unwrap_or_else(|| {
-                                let source_name = function_name(interner, function, None);
-                                scoped_lexical_binding_storage_name(
-                                    &source_name,
-                                    function.name().span(),
-                                )
-                            });
-                        binding_modes.insert(storage_name, BindingMode::Let);
-                    }
-                    _ => {}
-                },
-                StatementListItem::Statement(statement) => {
-                    let Statement::Labelled(labelled) = statement.as_ref() else {
-                        continue;
-                    };
-                    let Some(function) = lexically_scoped_labelled_function_declaration(labelled)
-                    else {
-                        continue;
-                    };
-                    let storage_name = self
-                        .annex_b_function_plans
-                        .get(&function_declaration_key(function))
-                        .map(|plan| plan.block_storage_name.clone())
-                        .unwrap_or_else(|| {
-                            let source_name = function_name(interner, function, None);
-                            scoped_lexical_binding_storage_name(
-                                &source_name,
-                                function.name().span(),
-                            )
-                        });
-                    binding_modes.insert(storage_name, BindingMode::Let);
+                    Declaration::FunctionDeclaration(_)
+                    | Declaration::GeneratorDeclaration(_)
+                    | Declaration::AsyncFunctionDeclaration(_)
+                    | Declaration::AsyncGeneratorDeclaration(_) => {}
                 }
             }
         }
@@ -2932,23 +2941,6 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
         }
-    }
-
-    fn add_scoped_function_alias(
-        &self,
-        interner: &Interner,
-        function: &'a FunctionDeclaration,
-        aliases: &mut BTreeMap<String, String>,
-    ) {
-        let source_name = function_name(interner, function, None);
-        let storage_name = self
-            .annex_b_function_plans
-            .get(&function_declaration_key(function))
-            .map(|plan| plan.block_storage_name.clone())
-            .unwrap_or_else(|| {
-                scoped_lexical_binding_storage_name(&source_name, function.name().span())
-            });
-        aliases.insert(source_name, storage_name);
     }
 
     fn scan_owner_items(
@@ -4033,6 +4025,52 @@ impl<'a> AnalysisBuilder<'a> {
         refs.entry(storage_name).or_insert(source_name);
     }
 
+    fn scan_block(
+        &mut self,
+        owner_id: &str,
+        block: &'a Block,
+        interner: &'a Interner,
+        source_text: CompilerSourceText<'a>,
+        self_name: Option<&str>,
+        capture_aliases: &BTreeMap<String, String>,
+        refs: &mut BTreeMap<String, String>,
+    ) {
+        let items = block.statement_list().statements();
+        // Block : { } returns NormalCompletion(empty) directly (14.2.2).
+        // Only a Block with a StatementList creates a declarative environment.
+        // In particular, eval visibility cannot make an absent scope observable.
+        if items.is_empty() {
+            return;
+        }
+        let block_aliases = self.scoped_capture_aliases(interner, items, capture_aliases);
+        let block_cursor = self.register_lexical_environment_with_modes(
+            owner_id,
+            EnvironmentKind::Block,
+            self.current_environment_cursor(),
+            self.scoped_environment_binding_storage_names(interner, items),
+            self.scoped_environment_binding_modes(interner, items),
+        );
+        self.block_environment_ids
+            .insert(block as *const Block as usize, block_cursor.environment_id);
+        self.environment_cursor_stack.push(block_cursor.clone());
+        for item in items {
+            self.scan_item(
+                owner_id,
+                item,
+                interner,
+                source_text,
+                self_name,
+                &block_aliases,
+                refs,
+            );
+        }
+        let cursor = self
+            .environment_cursor_stack
+            .pop()
+            .expect("block scan must restore its lexical environment cursor");
+        debug_assert_eq!(cursor, block_cursor);
+    }
+
     fn scan_statement(
         &mut self,
         owner_id: &str,
@@ -4060,45 +4098,15 @@ impl<'a> AnalysisBuilder<'a> {
                     refs,
                 );
             }
-            Statement::Block(block) => {
-                let block_aliases = self.scoped_capture_aliases(
-                    interner,
-                    block.statement_list().statements(),
-                    capture_aliases,
-                );
-                let block_cursor = self.register_lexical_environment_with_modes(
-                    owner_id,
-                    EnvironmentKind::Block,
-                    self.current_environment_cursor(),
-                    self.scoped_environment_binding_storage_names(
-                        interner,
-                        block.statement_list().statements(),
-                    ),
-                    self.scoped_environment_binding_modes(
-                        interner,
-                        block.statement_list().statements(),
-                    ),
-                );
-                self.block_environment_ids
-                    .insert(block as *const Block as usize, block_cursor.environment_id);
-                self.environment_cursor_stack.push(block_cursor.clone());
-                for item in block.statement_list().statements() {
-                    self.scan_item(
-                        owner_id,
-                        item,
-                        interner,
-                        source_text,
-                        self_name,
-                        &block_aliases,
-                        refs,
-                    );
-                }
-                let cursor = self
-                    .environment_cursor_stack
-                    .pop()
-                    .expect("block scan must restore its lexical environment cursor");
-                debug_assert_eq!(cursor, block_cursor);
-            }
+            Statement::Block(block) => self.scan_block(
+                owner_id,
+                block,
+                interner,
+                source_text,
+                self_name,
+                capture_aliases,
+                refs,
+            ),
             Statement::If(if_statement) => {
                 self.scan_expression(
                     owner_id,
@@ -4470,45 +4478,15 @@ impl<'a> AnalysisBuilder<'a> {
                 );
             }
             Statement::Try(try_statement) => {
-                let try_aliases = self.scoped_capture_aliases(
-                    interner,
-                    try_statement.block().statement_list().statements(),
-                    capture_aliases,
-                );
-                let try_cursor = self.register_lexical_environment_with_modes(
+                self.scan_block(
                     owner_id,
-                    EnvironmentKind::Block,
-                    self.current_environment_cursor(),
-                    self.scoped_environment_binding_storage_names(
-                        interner,
-                        try_statement.block().statement_list().statements(),
-                    ),
-                    self.scoped_environment_binding_modes(
-                        interner,
-                        try_statement.block().statement_list().statements(),
-                    ),
+                    try_statement.block(),
+                    interner,
+                    source_text,
+                    self_name,
+                    capture_aliases,
+                    refs,
                 );
-                self.block_environment_ids.insert(
-                    try_statement.block() as *const Block as usize,
-                    try_cursor.environment_id,
-                );
-                self.environment_cursor_stack.push(try_cursor.clone());
-                for item in try_statement.block().statement_list().statements() {
-                    self.scan_item(
-                        owner_id,
-                        item,
-                        interner,
-                        source_text,
-                        self_name,
-                        &try_aliases,
-                        refs,
-                    );
-                }
-                let cursor = self
-                    .environment_cursor_stack
-                    .pop()
-                    .expect("try block scan must restore its lexical environment cursor");
-                debug_assert_eq!(cursor, try_cursor);
                 if let Some(catch) = try_statement.catch() {
                     let mut catch_parameter_aliases = capture_aliases.clone();
                     if let Some(bound_names) = catch
@@ -4573,46 +4551,15 @@ impl<'a> AnalysisBuilder<'a> {
                             refs,
                         );
                     }
-                    let catch_aliases = self.scoped_capture_aliases(
-                        interner,
-                        catch.block().statement_list().statements(),
-                        &catch_parameter_aliases,
-                    );
-                    let catch_block_cursor = self.register_lexical_environment_with_modes(
+                    self.scan_block(
                         owner_id,
-                        EnvironmentKind::Block,
-                        self.current_environment_cursor(),
-                        self.scoped_environment_binding_storage_names(
-                            interner,
-                            catch.block().statement_list().statements(),
-                        ),
-                        self.scoped_environment_binding_modes(
-                            interner,
-                            catch.block().statement_list().statements(),
-                        ),
+                        catch.block(),
+                        interner,
+                        source_text,
+                        self_name,
+                        &catch_parameter_aliases,
+                        refs,
                     );
-                    self.block_environment_ids.insert(
-                        catch.block() as *const Block as usize,
-                        catch_block_cursor.environment_id,
-                    );
-                    self.environment_cursor_stack
-                        .push(catch_block_cursor.clone());
-                    for item in catch.block().statement_list().statements() {
-                        self.scan_item(
-                            owner_id,
-                            item,
-                            interner,
-                            source_text,
-                            self_name,
-                            &catch_aliases,
-                            refs,
-                        );
-                    }
-                    let cursor = self
-                        .environment_cursor_stack
-                        .pop()
-                        .expect("catch block scan must restore its lexical environment cursor");
-                    debug_assert_eq!(cursor, catch_block_cursor);
                     let cursor = self
                         .environment_cursor_stack
                         .pop()
@@ -4620,45 +4567,15 @@ impl<'a> AnalysisBuilder<'a> {
                     debug_assert_eq!(cursor, catch_parameter_cursor);
                 }
                 if let Some(finally_block) = try_statement.finally() {
-                    let finally_aliases = self.scoped_capture_aliases(
-                        interner,
-                        finally_block.block().statement_list().statements(),
-                        capture_aliases,
-                    );
-                    let finally_cursor = self.register_lexical_environment_with_modes(
+                    self.scan_block(
                         owner_id,
-                        EnvironmentKind::Block,
-                        self.current_environment_cursor(),
-                        self.scoped_environment_binding_storage_names(
-                            interner,
-                            finally_block.block().statement_list().statements(),
-                        ),
-                        self.scoped_environment_binding_modes(
-                            interner,
-                            finally_block.block().statement_list().statements(),
-                        ),
+                        finally_block.block(),
+                        interner,
+                        source_text,
+                        self_name,
+                        capture_aliases,
+                        refs,
                     );
-                    self.block_environment_ids.insert(
-                        finally_block.block() as *const Block as usize,
-                        finally_cursor.environment_id,
-                    );
-                    self.environment_cursor_stack.push(finally_cursor.clone());
-                    for item in finally_block.block().statement_list().statements() {
-                        self.scan_item(
-                            owner_id,
-                            item,
-                            interner,
-                            source_text,
-                            self_name,
-                            &finally_aliases,
-                            refs,
-                        );
-                    }
-                    let cursor = self
-                        .environment_cursor_stack
-                        .pop()
-                        .expect("finally block scan must restore its lexical environment cursor");
-                    debug_assert_eq!(cursor, finally_cursor);
                 }
             }
             Statement::ForOfLoop(for_of) => {
@@ -4904,6 +4821,25 @@ impl<'a> AnalysisBuilder<'a> {
                                     .into_string(),
                             );
                         }
+                    }
+                }
+                // Annex B permits a `var` declaration initializer in a
+                // for-in head. Lowering evaluates that initializer before the
+                // enumeration target, so analysis must discover its callable
+                // and lexical owners in the same order. In particular, a
+                // named class initializer owns a class-name environment keyed
+                // by its default constructor execution key.
+                if let IterableLoopInitializer::Var(variable) = for_in.initializer() {
+                    if let Some(initializer) = variable.init() {
+                        self.scan_expression(
+                            owner_id,
+                            initializer,
+                            interner,
+                            source_text,
+                            self_name,
+                            &head_aliases,
+                            refs,
+                        );
                     }
                 }
                 self.scan_expression(

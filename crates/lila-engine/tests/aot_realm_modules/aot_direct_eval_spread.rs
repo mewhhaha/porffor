@@ -248,21 +248,25 @@ trace === 'innrbb' && sum === 212 && flags === 'FF' && defaults === 1;
 
 #[test]
 fn for_of_array_source_hints_reject_unprepared_reassigned_strings_at_the_existing_guard() {
-    use lila_engine::WasmExecutionFailureKind;
-    use lila_ir::DynamicSourceRuntimeOperation;
-
+    // Historical V5 selector retained; a live miss now compiles with its caller.
     lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
     for strict in ["", "'use strict';"] {
-        let error = Engine::new(RealmBuilder::new().build())
-            .run_script(
+        let observed = Engine::new(RealmBuilder::new().build())
+            .observe_script(
                 &format!(
                     r#"
 {strict}
-for (var [source] of [['40 + 2']]) {{
-    source = 'throw 997; /*' + Math.random() + '*/';
-    try {{ eval(source); }} catch (error) {{ throw 'capability rejection became catchable'; }}
+function caller() {{
+    var marker = {{}}, seen, caught, trace = '';
+    for (var [source] of [['40 + 2']]) {{
+        source = "seen = marker; trace += 'E'; throw 997; /*" +
+          (trace += 'S', Math.random()) + '*/';
+        try {{ eval(source); throw 'missing real JS throw'; }}
+        catch (error) {{ caught = error; trace += 'C'; }}
+    }}
+    return caught === 997 && seen === marker && trace === 'SEC';
 }}
-throw 'unprepared source continued';
+caller();
 "#
                 ),
                 CompileOptions::default(),
@@ -272,23 +276,12 @@ throw 'unprepared source continued';
                     ..RunOptions::default()
                 },
             )
-            .expect_err("projection must not authorize an unmatched live source");
+            .expect("the reassigned runtime source executes with real caller bindings and throw");
+        assert_eq!(observed.backend_used, ExecutionBackend::WasmAot);
         assert_eq!(
-            error.wasm_execution_failure_kind(),
-            Some(WasmExecutionFailureKind::DynamicSource),
-            "{error}"
+            observed.completion,
+            lila_engine::ObservedCompletion::Normal(lila_engine::ObservedJsValue::Boolean(true))
         );
-        assert_eq!(
-            error.runtime_dynamic_source_operations(),
-            vec![DynamicSourceRuntimeOperation::Eval],
-            "{error}"
-        );
-        assert!(error.parse_diagnostic().is_none(), "{error}");
-        assert!(error.ir_diagnostic().is_none(), "{error}");
-        assert_eq!(
-            error.wasm_javascript_exception_constructor_name(),
-            None,
-            "{error}"
-        );
+        assert!(observed.output_events.is_empty());
     }
 }

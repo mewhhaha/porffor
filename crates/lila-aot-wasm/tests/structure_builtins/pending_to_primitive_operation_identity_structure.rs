@@ -136,9 +136,9 @@ fn every_raw_producer_constructs_the_fixed_identity_token() {
     ));
     let rows = normalized(HELPER_SOURCE);
     for hint in ["Default", "Number", "String"] {
-        assert!(facade.contains(&format!("ToPrimitiveHint::{hint}=>schema.call_helper(crate::runtime_helpers::ValueToPrimitive{hint}Arguments::new(input,self.current_environment(),)")));
+        assert!(facade.contains(&format!("ToPrimitiveHint::{hint}=>schema.call_helper(crate::runtime_helpers::ValueToPrimitive{hint}Arguments::new(input,self.current_environment(),self.current_program(),)")));
         assert!(compilers.contains(&format!("ToPrimitiveHint::{hint}=>{{letparameters=self.helper_parameters::<crate::runtime_helpers::ValueToPrimitive{hint}Parameters>")));
-        assert!(rows.contains(&format!("ValueToPrimitive{hint}/ValueToPrimitive{hint}Arguments/ValueToPrimitive{hint}Parameters/\"value_to_primitive_{}\"{{input:Value,caller_environment:(RefEnvironmentNullable)}}=>Completion;", hint.to_ascii_lowercase())));
+        assert!(rows.contains(&format!("ValueToPrimitive{hint}/ValueToPrimitive{hint}Arguments/ValueToPrimitive{hint}Parameters/\"value_to_primitive_{}\"{{input:Value,caller_environment:(RefEnvironmentNullable),caller_program:Program}}=>Completion;", hint.to_ascii_lowercase())));
     }
     assert_eq!(facade.matches(".store(result,function)").count(), 3);
     assert!(!facade.contains("_=>"));

@@ -32,7 +32,7 @@ mod oracle_exception;
 mod rooted_graph;
 pub use rooted_graph::{
     observe_module_graph, observe_script_graph, observe_script_graph_with_module_loading_policy,
-    ObservedGraphExecutionOutcome,
+    observe_script_graph_with_prelude, ObservedGraphExecutionOutcome,
 };
 
 use embedded_module_loader::EmbeddedGraphModuleLoader;
@@ -64,6 +64,7 @@ pub struct ObservedExecutionOutcome {
 pub struct ExecutionError {
     message: String,
     entry_syntax_rejection: bool,
+    global_prelude_failure: bool,
     javascript_exception: Option<(
         lila_runtime::OracleExceptionPhase,
         lila_runtime::OracleExceptionType,
@@ -75,6 +76,7 @@ impl ExecutionError {
         Self {
             message: message.into(),
             entry_syntax_rejection: false,
+            global_prelude_failure: false,
             javascript_exception: None,
         }
     }
@@ -90,6 +92,19 @@ impl ExecutionError {
 
     pub const fn is_entry_syntax_rejection(&self) -> bool {
         self.entry_syntax_rejection
+    }
+
+    /// Identifies a failure in the independent global prelude, which cannot
+    /// satisfy a negative expectation about the entry Script or Module.
+    pub const fn is_global_prelude_failure(&self) -> bool {
+        self.global_prelude_failure
+    }
+
+    fn global_prelude(error: JsError, context: &mut Context) -> Self {
+        let mut failure =
+            oracle_exception::thrown(error, lila_runtime::OracleExceptionPhase::Runtime, context);
+        failure.global_prelude_failure = true;
+        failure
     }
     pub const fn javascript_exception_phase(&self) -> Option<lila_runtime::OracleExceptionPhase> {
         match self.javascript_exception {
@@ -655,6 +670,27 @@ pub fn execute_script_with_module_loading_policy(
     argv: &[String],
     can_block: bool,
 ) -> Result<ExecutionOutcome, ExecutionError> {
+    execute_script_with_prelude(
+        source,
+        filename,
+        module_loading_policy,
+        None,
+        argv,
+        can_block,
+    )
+}
+
+/// Executes an independently parsed global Script prelude before the entry
+/// Script in the same host context. The entry is parsed first, so its syntax
+/// rejection cannot be hidden by prelude execution. Neither source is rewritten.
+pub fn execute_script_with_prelude(
+    source: &str,
+    filename: Option<&str>,
+    module_loading_policy: ModuleLoadingPolicy,
+    prelude: Option<&str>,
+    argv: &[String],
+    can_block: bool,
+) -> Result<ExecutionOutcome, ExecutionError> {
     let _host_realms = HostRealmScope::legacy(
         can_block,
         module_loading_policy.clone(),
@@ -664,6 +700,13 @@ pub fn execute_script_with_module_loading_policy(
         .map_err(|err| ExecutionError::new(err.to_string()))?;
     install_host_globals(&mut context, argv)?;
     let script = parse_entry_script(source, filename, &module_loading_policy, &mut context)?;
+    if let Some(prelude) = prelude {
+        let prelude = Script::parse(source_with_name(prelude, None), None, &mut context)
+            .map_err(|error| ExecutionError::global_prelude(error, &mut context))?;
+        prelude
+            .evaluate(&mut context)
+            .map_err(|error| ExecutionError::global_prelude(error, &mut context))?;
+    }
     script.evaluate(&mut context).map_err(|err| {
         oracle_exception::thrown(
             err,
@@ -710,10 +753,35 @@ pub fn observe_script_with_module_loading_policy(
     can_block: bool,
     host_hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
+    observe_script_with_prelude(
+        source,
+        filename,
+        module_loading_policy,
+        None,
+        argv,
+        can_block,
+        host_hooks,
+    )
+}
+
+/// Observes an independent global Script prelude and entry in one host context.
+/// A prelude failure is an explicitly tagged error, with its JavaScript
+/// exception classification retained. Queued jobs drain after an abrupt prelude
+/// without replacing its primary failure.
+pub fn observe_script_with_prelude(
+    source: &str,
+    filename: Option<&str>,
+    module_loading_policy: ModuleLoadingPolicy,
+    prelude: Option<&str>,
+    argv: &[String],
+    can_block: bool,
+    host_hooks: Arc<dyn HostHooks>,
+) -> Result<ObservedExecutionOutcome, ExecutionError> {
     rooted_graph::observe_script_scalar(
         source,
         filename,
         module_loading_policy,
+        prelude,
         argv,
         can_block,
         host_hooks,
@@ -742,7 +810,7 @@ pub fn execute_module(
     if let Some(prelude) = &host.prelude {
         context
             .eval(source_with_name(prelude, None))
-            .map_err(|error| format_js_error(error, &mut context))?;
+            .map_err(|error| ExecutionError::global_prelude(error, &mut context))?;
     }
     // Loading/host/parser rejection is distinct from linking and user evaluation.
     let loaded = module.load(&mut context);
@@ -4612,3 +4680,6 @@ mod tests {
         .expect("module host should resolve sibling fixture");
     }
 }
+
+#[cfg(test)]
+mod script_prelude_tests;

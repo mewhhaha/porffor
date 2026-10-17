@@ -1,46 +1,53 @@
 use super::*;
+use crate::wasm_native_source_compiler::CallbackTrace;
 use lila_ir::RuntimeFunctionProgram;
 use wasmtime::{AsContextMut, FuncType, HeapType, StructType, ValType};
 
 pub(super) fn instantiate_and_create(
     store: &mut impl AsContextMut<Data = WasmHostState>,
     engine: &WasmtimeEngine,
-    context: &NativeFunctionCompilerContext,
+    context: &NativeSourceCompilerContext,
     request: &ConvertedRequest,
     program: &RuntimeFunctionProgram,
     signature: &NativeFunctionSignature,
+    trace: Option<&CallbackTrace<'_>>,
 ) -> wasmtime::Result<[Val; 5]> {
-    let artifact =
-        lila_aot_wasm::emit_runtime_function(program, &context.runtime, &context.intl_profile);
+    let emit = trace.map(|trace| trace.phase(Phase::Emit));
+    let artifact = lila_aot_wasm::emit_runtime_function_with_validated_runtime(
+        program,
+        context.validated_runtime(),
+    );
     context.check_budget()?;
     let artifact = artifact.map_err(|error| {
         wasmtime::Error::new(EngineError::from_wasm_emit_error(program.program(), error))
     })?;
-    if artifact.runtime().key() != context.runtime.key()
-        || artifact.runtime().bytes().as_ref() != context.runtime.bytes().as_ref()
-    {
+    drop(emit);
+    let checks = trace.map(|trace| trace.phase(Phase::ArtifactChecks));
+    // The artifact producer retains this exact immutable runtime owner. Identity
+    // proves the same key, layout and bytes without rescanning R on every call.
+    if !Arc::ptr_eq(artifact.runtime(), context.runtime()) {
         return Err(abi_error(
             "fresh P was emitted against a different actual runtime",
         ));
     }
-    for payload in WasmParser::new(0).parse_all(artifact.bytes()) {
-        if matches!(
-            payload.map_err(|error| abi_error(error))?,
-            WasmPayload::StartSection { .. }
-        ) {
-            return Err(abi_error(
-                "native Function P may not execute a module start function",
-            ));
-        }
-    }
     context.check_budget()?;
     // Uses the existing bounded native compilation pool and the same Engine.
     // Only this P reaches Module::new; the admitted R is never compiled here.
-    let module = compile_wasm_module(engine, artifact.bytes());
+    drop(checks);
+    let canonicalize = trace.map(|trace| trace.phase(Phase::TemplateCanonicalize));
+    let template = lila_aot_wasm::NativeProgramTemplate::for_function(&artifact)
+        .map_err(|e| wasmtime::Error::new(EngineError::new(e.to_string())))?;
     context.check_budget()?;
-    let module = module.map_err(wasmtime::Error::new)?;
-    let instance = context.linker.instantiate(&mut *store, &module)?;
+    drop(canonicalize);
+    let instance = crate::wasm_native_program_template::instantiate(
+        &mut *store,
+        engine,
+        context,
+        &template,
+        trace,
+    )?;
     context.check_budget()?;
+    let _invoke = trace.map(|trace| trace.phase(Phase::FactoryInvoke));
     let initialize = instance
         .get_func(&mut *store, artifact.program_initialize_export())
         .ok_or_else(|| abi_error("P has no declared program initializer export"))?;

@@ -14,7 +14,10 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
     let runtime_cache = RuntimeWasmCache::new(&cache).expect("loaded test compiler identity");
     let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
         &selection,
-        embedded_runtime::inputs(Some(&runtime_cache)),
+        embedded_runtime::inputs(
+            Some(&runtime_cache),
+            lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+        ),
     )
     .unwrap();
     for mode in [
@@ -27,10 +30,55 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
             "retained runtime digests must preserve the actual-byte cache identity"
         );
     }
-    let program = b"\0asm\x01\0\0\0";
-    let entry = encode_cache_entry(WasmProgramRef::new(program, Some(&runtime)));
+    let program_for_profile = |profile| {
+        let mut module = b"\0asm\x01\0\0\0".to_vec();
+        let section = |module: &mut Vec<u8>, id, payload: &[u8]| {
+            // Every section in these two minimal fixtures has a one-byte length.
+            assert!(payload.len() < 128);
+            module.extend_from_slice(&[id, u8::try_from(payload.len()).unwrap()]);
+            module.extend_from_slice(payload);
+        };
+        let wire = match profile {
+            lila_aot_wasm::RuntimeSourceCompilationProfile::Portable => 0,
+            lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost => {
+                // One () -> () type and three function imports suffice for
+                // decoder admission; this fixture does not instantiate them.
+                section(&mut module, 1, &[1, 0x60, 0, 0]);
+                let mut imports = vec![3];
+                for name in [
+                    "compile_dynamic_function",
+                    "compile_global_script",
+                    "compile_direct_eval",
+                ] {
+                    assert!(name.len() < 128);
+                    imports.push(9);
+                    imports.extend_from_slice(b"lila_host");
+                    imports.push(u8::try_from(name.len()).unwrap());
+                    imports.extend_from_slice(name.as_bytes());
+                    imports.extend_from_slice(&[0, 0]); // function, type index 0
+                }
+                section(&mut module, 2, &imports);
+                1
+            }
+        };
+        let name = lila_aot_wasm::RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION.as_bytes();
+        assert!(name.len() < 128);
+        let mut profile_section = vec![u8::try_from(name.len()).unwrap()];
+        profile_section.extend_from_slice(name);
+        profile_section.push(wire);
+        section(&mut module, 0, &profile_section);
+        wasmparser::Validator::new().validate_all(&module).unwrap();
+        assert_eq!(
+            lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(&module).unwrap(),
+            profile
+        );
+        module
+    };
+    let native_program =
+        program_for_profile(lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost);
+    let entry = encode_cache_entry(WasmProgramRef::new(&native_program, Some(&runtime)));
     let (decoded, linked) = decode_cache_entry(&entry, &profile, &cache).unwrap();
-    assert_eq!(decoded.as_ref(), program);
+    assert_eq!(decoded.as_ref(), native_program.as_slice());
     assert_eq!(linked.unwrap().key(), runtime.key());
     assert!(decode_standalone_cache_entry(&entry).is_none());
 
@@ -41,14 +89,25 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
     assert!(decode_cache_entry(&[], &profile, &cache).is_none());
     assert!(decode_cache_entry(&[0xff], &profile, &cache).is_none());
 
-    let standalone = encode_cache_entry(WasmProgramRef::standalone(program));
+    let portable_program =
+        program_for_profile(lila_aot_wasm::RuntimeSourceCompilationProfile::Portable);
+    let standalone = encode_cache_entry(WasmProgramRef::standalone(&portable_program));
     let (decoded, linked) = decode_cache_entry(&standalone, &profile, &cache).unwrap();
-    assert_eq!(decoded.as_ref(), program);
+    assert_eq!(decoded.as_ref(), portable_program.as_slice());
     assert!(linked.is_none());
     assert_eq!(
         decode_standalone_cache_entry(&standalone),
-        Some(program.as_slice())
+        Some(portable_program.as_slice())
     );
+    // The original header-only fixture has no physical source-profile witness.
+    let missing_profile = b"\0asm\x01\0\0\0";
+    let missing_standalone = encode_cache_entry(WasmProgramRef::standalone(missing_profile));
+    assert!(decode_standalone_cache_entry(&missing_standalone).is_none());
+    assert!(decode_cache_entry(&missing_standalone, &profile, &cache).is_none());
+    let missing_linked = encode_cache_entry(WasmProgramRef::new(missing_profile, Some(&runtime)));
+    assert!(decode_cache_entry(&missing_linked, &profile, &cache).is_none());
+    let wrong_profile = encode_cache_entry(WasmProgramRef::new(&portable_program, Some(&runtime)));
+    assert!(decode_cache_entry(&wrong_profile, &profile, &cache).is_none());
     let _ = std::fs::remove_dir_all(root);
 }
 

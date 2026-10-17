@@ -117,6 +117,7 @@ fn script(
     source: &str,
     filename: Option<&str>,
     policy: ModuleLoadingPolicy,
+    prelude: Option<&str>,
     argv: &[String],
     can_block: bool,
     hooks: Arc<dyn HostHooks>,
@@ -127,6 +128,15 @@ fn script(
     install_host_globals(&mut context, argv)?;
     let entry = context.realm().clone();
     let script = parse_entry_script(source, filename, &policy, &mut context)?;
+    if let Some(prelude) = prelude {
+        let prelude = Script::parse(source_with_name(prelude, None), None, &mut context)
+            .map_err(|error| ExecutionError::global_prelude(error, &mut context))?;
+        if let Err(error) = prelude.evaluate(&mut context) {
+            let failure = ExecutionError::global_prelude(error, &mut context);
+            let _ = context.run_jobs();
+            return Err(failure);
+        }
+    }
     let (mut completion, mut note) = match script.evaluate(&mut context) {
         Ok(value) => (
             RetainedCompletion::Normal(value),
@@ -190,17 +200,11 @@ fn module(
         .map_err(|error| format_js_error(error, &mut context))?;
     if let Some(prelude) = &host.prelude {
         let prelude = Script::parse(source_with_name(prelude, None), None, &mut context)
-            .map_err(|error| format_js_error(error, &mut context))?;
+            .map_err(|error| ExecutionError::global_prelude(error, &mut context))?;
         if let Err(error) = prelude.evaluate(&mut context) {
-            let (completion, note) = retained_error(&error, &mut context);
+            let failure = ExecutionError::global_prelude(error, &mut context);
             let _ = context.run_jobs();
-            return Ok(RetainedExecution {
-                _context: context,
-                entry,
-                host_realms,
-                completion,
-                note,
-            });
+            return Err(failure);
         }
     }
     let promise = module.evaluate(&mut context);
@@ -251,11 +255,12 @@ pub(super) fn observe_script_scalar(
     source: &str,
     filename: Option<&str>,
     policy: ModuleLoadingPolicy,
+    prelude: Option<&str>,
     argv: &[String],
     can_block: bool,
     hooks: Arc<dyn HostHooks>,
 ) -> Result<ObservedExecutionOutcome, ExecutionError> {
-    script(source, filename, policy, argv, can_block, hooks).map(RetainedExecution::scalar)
+    script(source, filename, policy, prelude, argv, can_block, hooks).map(RetainedExecution::scalar)
 }
 pub(super) fn observe_module_scalar(
     source: &str,
@@ -294,8 +299,33 @@ pub fn observe_script_graph_with_module_loading_policy(
     hooks: Arc<dyn HostHooks>,
     limits: SnapshotLimits,
 ) -> Result<ObservedGraphExecutionOutcome, ExecutionError> {
-    script(source, filename, policy, argv, can_block, hooks)
-        .map(|execution| execution.graph(limits))
+    observe_script_graph_with_prelude(
+        source, filename, policy, None, argv, can_block, hooks, limits,
+    )
+}
+
+/// Captures the entry completion graph after an independent global prelude.
+/// Prelude failures keep checked origin and cannot become entry snapshots.
+pub fn observe_script_graph_with_prelude(
+    source: &str,
+    filename: Option<&str>,
+    module_loading_policy: ModuleLoadingPolicy,
+    prelude: Option<&str>,
+    argv: &[String],
+    can_block: bool,
+    host_hooks: Arc<dyn HostHooks>,
+    limits: SnapshotLimits,
+) -> Result<ObservedGraphExecutionOutcome, ExecutionError> {
+    script(
+        source,
+        filename,
+        module_loading_policy,
+        prelude,
+        argv,
+        can_block,
+        host_hooks,
+    )
+    .map(|execution| execution.graph(limits))
 }
 pub fn observe_module_graph(
     source: &str,

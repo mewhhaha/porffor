@@ -16,7 +16,7 @@ use std::sync::Arc;
 use lila_engine::{
     EmbeddedModuleBytesInput, EmbeddedModuleContents, EmbeddedModuleEntryInput, EmbeddedModuleGoal,
     EmbeddedModuleGraph, EmbeddedModuleInput, EmbeddedModuleKind, EmbeddedModuleReferrer,
-    EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput,
+    EmbeddedModuleResolutionInput, EmbeddedModuleSourceInput, EmbeddedModuleSourceValueInput,
 };
 use lila_ir::{
     DynamicImportAttributesIr, DynamicImportSiteIr, ModuleKey, ModuleRequestKeyIr, ModuleSourceIr,
@@ -135,9 +135,29 @@ enum Node {
 type RequestRow = (Node, String, Vec<(String, String)>);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum ModuleTargetLocator {
+    File(PathBuf),
+    HostModuleSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct ModuleTarget {
-    path: PathBuf,
+    locator: ModuleTargetLocator,
     kind: EmbeddedModuleKind,
+}
+impl ModuleTarget {
+    fn file_path(&self) -> Option<&Path> {
+        match &self.locator {
+            ModuleTargetLocator::File(path) => Some(path),
+            ModuleTargetLocator::HostModuleSource => None,
+        }
+    }
+    fn identity(&self) -> Result<String, String> {
+        match &self.locator {
+            ModuleTargetLocator::File(path) => identity(path),
+            ModuleTargetLocator::HostModuleSource => Ok("host/module-source".into()),
+        }
+    }
 }
 
 struct Catalog {
@@ -194,7 +214,7 @@ impl Catalog {
             }
             for (specifier, attributes) in &rows {
                 if let Some(target) = self.resolve(&base, specifier, attributes) {
-                    if let Some(parent) = target.path.parent() {
+                    if let Some(parent) = target.file_path().and_then(Path::parent) {
                         referenced_dirs.insert(parent.to_path_buf());
                     }
                 }
@@ -245,11 +265,19 @@ impl Catalog {
             return;
         };
         let is_entry_module = self.goal == EmbeddedModuleGoal::Module
-            && target.path == self.entry_path
+            && target.file_path() == Some(self.entry_path.as_path())
             && target.kind == EmbeddedModuleKind::SourceText;
         if !is_entry_module {
             if let EmbeddedModuleContents::SourceText(text) = &self.texts[&target] {
-                pending.push_back((Node::Module(target.path.clone()), text.clone()));
+                pending.push_back((
+                    Node::Module(
+                        target
+                            .file_path()
+                            .expect("SourceText target is a file")
+                            .to_path_buf(),
+                    ),
+                    text.clone(),
+                ));
             }
         }
         self.edges.insert(key, target);
@@ -353,6 +381,20 @@ impl Catalog {
         if !attributes.is_empty() && !json && !bytes && !text {
             return None;
         }
+        // Test262's implementation-defined host module-source contract. This
+        // virtual module is declared here, never recognized by the compiler.
+        if specifier == "<module source>" && attributes.is_empty() {
+            let target = ModuleTarget {
+                locator: ModuleTargetLocator::HostModuleSource,
+                kind: EmbeddedModuleKind::ModuleSource,
+            };
+            self.texts.entry(target.clone()).or_insert_with(|| {
+                EmbeddedModuleContents::ModuleSource {
+                    source_tag: "ModuleSource".into(),
+                }
+            });
+            return Some(target);
+        }
         let candidate = if Path::new(specifier).is_absolute() {
             PathBuf::from(specifier)
         } else if specifier.starts_with("./") || specifier.starts_with("../") {
@@ -369,7 +411,7 @@ impl Catalog {
             return None;
         }
         let target = ModuleTarget {
-            path: resolved,
+            locator: ModuleTargetLocator::File(resolved),
             kind: if bytes {
                 EmbeddedModuleKind::Bytes
             } else if text {
@@ -382,17 +424,20 @@ impl Catalog {
         };
         if !self.texts.contains_key(&target) {
             let contents = match target.kind {
-                EmbeddedModuleKind::SourceText => {
-                    EmbeddedModuleContents::SourceText(fs::read_to_string(&target.path).ok()?)
-                }
-                EmbeddedModuleKind::Json => {
-                    EmbeddedModuleContents::Json(fs::read_to_string(&target.path).ok()?)
-                }
-                EmbeddedModuleKind::Text => {
-                    EmbeddedModuleContents::Text(fs::read_to_string(&target.path).ok()?)
-                }
-                EmbeddedModuleKind::Bytes => {
-                    EmbeddedModuleContents::Bytes(fs::read(&target.path).ok()?)
+                EmbeddedModuleKind::SourceText => EmbeddedModuleContents::SourceText(
+                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
+                ),
+                EmbeddedModuleKind::Json => EmbeddedModuleContents::Json(
+                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
+                ),
+                EmbeddedModuleKind::Text => EmbeddedModuleContents::Text(
+                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
+                ),
+                EmbeddedModuleKind::Bytes => EmbeddedModuleContents::Bytes(
+                    fs::read(target.file_path().expect("filesystem target")).ok()?,
+                ),
+                EmbeddedModuleKind::ModuleSource => {
+                    unreachable!("virtual host source returned before filesystem loading")
                 }
             };
             self.texts.insert(target.clone(), contents);
@@ -412,12 +457,12 @@ impl Catalog {
         let mut modules = Vec::new();
         for target in targets {
             if self.goal == EmbeddedModuleGoal::Module
-                && target.path == self.entry_path
+                && target.file_path() == Some(self.entry_path.as_path())
                 && target.kind == EmbeddedModuleKind::SourceText
             {
                 continue;
             }
-            let identity = identity(&target.path)?;
+            let identity = target.identity()?;
             let meta_url = format!("lila://{identity}");
             modules.push(match &self.texts[target] {
                 EmbeddedModuleContents::SourceText(text) => {
@@ -441,6 +486,13 @@ impl Catalog {
                         source: text.clone(),
                     })
                 }
+                EmbeddedModuleContents::ModuleSource { source_tag } => {
+                    EmbeddedModuleInput::ModuleSource(EmbeddedModuleSourceValueInput {
+                        identity,
+                        source_tag: source_tag.clone(),
+                        meta_url,
+                    })
+                }
                 EmbeddedModuleContents::Bytes(bytes) => {
                     EmbeddedModuleInput::Bytes(EmbeddedModuleBytesInput {
                         identity,
@@ -461,7 +513,7 @@ impl Catalog {
                 referrer,
                 specifier: specifier.clone(),
                 attributes: attributes.clone(),
-                target: identity(&target.path)?,
+                target: target.identity()?,
             });
         }
         EmbeddedModuleGraph::try_new_typed(entry, modules, resolutions)
@@ -479,7 +531,7 @@ struct ScannedSource {
 
 fn request_for_kind(specifier: &str, kind: EmbeddedModuleKind) -> ModuleRequestKeyIr {
     let type_value = match kind {
-        EmbeddedModuleKind::SourceText => None,
+        EmbeddedModuleKind::SourceText | EmbeddedModuleKind::ModuleSource => None,
         EmbeddedModuleKind::Json => Some("json"),
         EmbeddedModuleKind::Bytes => Some("bytes"),
         EmbeddedModuleKind::Text => Some("text"),

@@ -171,3 +171,24 @@ fn source_instruction_capacity_is_catchable_and_recompile_is_transactional() {
         "../fixtures/regexp_runtime_gap/resource_transaction.js"
     ));
 }
+
+#[test]
+fn long_unicode_escapes_size_workspaces_by_compact_spelling_and_keep_source() {
+    assert_normal(include_str!(
+        "../fixtures/regexp_runtime_gap/long_unicode_escape_workspace.js"
+    ));
+}
+
+#[test]
+fn unicode_scratch_compaction_preserves_escape_parity_and_legacy_text() {
+    assert_normal(include_str!(
+        "../fixtures/regexp_runtime_gap/compact_unicode_escape_domains.js"
+    ));
+}
+
+#[test]
+fn unicode_scratch_compaction_preserves_malformed_and_out_of_range_errors() {
+    assert_normal(include_str!(
+        "../fixtures/regexp_runtime_gap/compact_unicode_escape_errors.js"
+    ));
+}

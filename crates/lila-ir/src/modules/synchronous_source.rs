@@ -10,9 +10,9 @@ use super::synchronous_execution::ModuleExecutionEntry;
 use crate::*;
 
 /// Validated eligibility for the private allocation/instantiation path. The
-/// source builder requires this witness: active static source bindings have no
-/// Source Text Module representation, while dynamic source jobs reject without
-/// allocating a source cell. Script roots cannot become Module entries.
+/// source builder requires this witness: source bindings resolve to actual host
+/// source records, and records without that capability reject before ownership.
+/// Script roots cannot become Module entries.
 pub(super) struct ModuleInstantiationGraph<'a> {
     graph: &'a ModuleGraphIr,
     entry: ModuleExecutionEntry,
@@ -27,14 +27,6 @@ impl<'a> ModuleInstantiationGraph<'a> {
                 .map(ModuleLinkErrorIr::to_diagnostic)
                 .collect());
         }
-        assert!(
-            graph.materialized_units().all(|(_, _, unit)| unit
-                .record
-                .requested_modules
-                .iter()
-                .all(|request| request.phase() != ImportPhaseIr::Source)),
-            "static source imports fail before execution ownership"
-        );
         Ok(Self {
             graph,
             entry: if graph.entry_is_script {
@@ -81,19 +73,22 @@ pub(super) fn linked_module_execution_source(
     let mut definitions = Vec::new();
     text.push_str("[\n");
     for (module, _, unit) in graph.materialized_units() {
-        if matches!(&entry, ModuleExecutionEntry::Script(script) if *script == module) {
+        if matches!(&entry, ModuleExecutionEntry::Script(script) if *script == module)
+            || unit.record.module_source_tag().is_some()
+        {
             continue;
         }
         let requests = unit
             .record
             .requested_modules
             .iter()
+            .filter(|request| request.phase() != ImportPhaseIr::Source)
             .map(|request| {
                 let phase = match request.phase() {
                     ImportPhaseIr::Evaluation => super::ModuleRequestPhaseIr::Evaluation,
                     ImportPhaseIr::Defer => super::ModuleRequestPhaseIr::Defer,
                     ImportPhaseIr::Source => {
-                        unreachable!("validated execution graph excludes source phase")
+                        unreachable!("source phase has no evaluation dependency")
                     }
                 };
                 super::ModuleExecutionRequestIr::new(
@@ -251,6 +246,18 @@ pub(super) fn linked_module_execution_source(
                 },
             )
         })
+        .chain(graph.units.iter().filter_map(|unit| {
+            unit.record.module_source_tag().map(|_| {
+                (
+                    MergedName::minted(unit.record.id, UnitCellRole::ModuleSource)
+                        .as_str()
+                        .to_owned(),
+                    super::ModuleCellIr::ModuleSource {
+                        module: unit.record.id,
+                    },
+                )
+            })
+        }))
         .collect();
     // Instantiation above executes no module source. A Module entry then
     // starts its static traversal; a Script keeps its own root statements and
@@ -272,12 +279,12 @@ pub(super) fn linked_module_execution_source(
             text.push_str(linked.callable_sources.record_body(body, &text));
         }
     }
-    let dispatcher_evaluations = definitions
-        .iter()
-        .map(|unit| {
+    let dispatcher_evaluations = graph
+        .materialized_units()
+        .map(|(module, _, _)| {
             (
-                super::dynamic::module_evaluator_name(unit.module),
-                unit.evaluation.clone(),
+                super::dynamic::module_evaluator_name(module),
+                super::ModuleEvaluationIr::new(module),
             )
         })
         .collect();
@@ -289,6 +296,15 @@ pub(super) fn linked_module_execution_source(
         ),
         units: definitions,
         record_count: graph.units.len() as u32,
+        source_records: graph
+            .units
+            .iter()
+            .filter_map(|unit| {
+                unit.record
+                    .module_source_tag()
+                    .map(|tag| super::ModuleSourceRecordIr::new(unit.record.id, tag.to_owned()))
+            })
+            .collect(),
         dispatcher_namespaces,
         dispatcher_evaluations,
         dispatcher_async_dependencies: graph

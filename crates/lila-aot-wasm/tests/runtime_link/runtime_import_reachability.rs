@@ -5,12 +5,13 @@ use wasmparser::{Parser, Payload, Validator, WasmFeatures};
 
 use crate::linked_bodies;
 
-fn emit_source(source: &'static str) -> WasmArtifact {
+fn emit_source(source: impl Into<String>) -> WasmArtifact {
+    let source = source.into();
     std::thread::Builder::new()
         .name("runtime-import-reachability".into())
         .stack_size(64 * 1024 * 1024)
         .spawn(move || {
-            let parsed = parse(source, ParseOptions::script()).expect("fixture parses");
+            let parsed = parse(&source, ParseOptions::script()).expect("fixture parses");
             let program = lower(&parsed);
             let artifact = emit(&program).expect("fixture emits through ordinary AOT codegen");
             Validator::new_with_features(WasmFeatures::all())
@@ -184,4 +185,26 @@ fn runtime_elision_keeps_the_experimental_wasm_gc_contract() {
     assert!(Validator::new_with_features(features)
         .validate_all(&bytes)
         .is_err());
+}
+
+#[test]
+fn empty_eval_visible_blocks_do_not_grow_emitted_function_bodies() {
+    for prefix in ["", "'use strict';"] {
+        // A direct-eval site makes analysis retain observable lexical scopes.
+        // Structurally empty blocks still have no scope or runtime effects.
+        let small = emit_source(format!("{prefix} eval(0); 17; {{}}"));
+        let large = emit_source(format!("{prefix} eval(0); 17; {}", "{}".repeat(4096)));
+        let sizes = |artifact: &WasmArtifact| {
+            artifact
+                .function_sizes
+                .iter()
+                .map(|body| (body.name.clone(), body.body_bytes))
+                .collect::<Vec<_>>()
+        };
+        assert!(small
+            .function_sizes
+            .iter()
+            .any(|body| body.name == "lila::main"));
+        assert_eq!(sizes(&small), sizes(&large));
+    }
 }

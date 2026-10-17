@@ -128,6 +128,7 @@ impl Engine {
                 runtime_cache
                     .as_ref()
                     .map(|cache| cache as &dyn lila_aot_wasm::RuntimeArtifactCache),
+                lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
             ),
         )
         .map_err(|error| EngineError::from_wasm_emit_error(&unit.ir, error))?;
@@ -154,23 +155,19 @@ impl Engine {
         run: RunOptions,
         limits: SnapshotLimits,
     ) -> Result<GraphRunOutcome, EngineError> {
-        if goal == ParseGoal::Script && options.module_prelude.is_some() {
-            return Err(EngineError::new("a Module prelude requires a Module entry"));
-        }
         let host_hooks = self.realm.host_hooks();
         run_on_sized_stack(move || {
             let outcome = match goal {
-                ParseGoal::Script => {
-                    lila_spec_exec::observe_script_graph_with_module_loading_policy(
-                        source,
-                        options.filename.as_deref(),
-                        options.module_loading_policy,
-                        &run.argv,
-                        run.can_block,
-                        host_hooks,
-                        limits,
-                    )
-                }
+                ParseGoal::Script => lila_spec_exec::observe_script_graph_with_prelude(
+                    source,
+                    options.filename.as_deref(),
+                    options.module_loading_policy,
+                    options.module_prelude.as_deref(),
+                    &run.argv,
+                    run.can_block,
+                    host_hooks,
+                    limits,
+                ),
                 ParseGoal::Module => lila_spec_exec::observe_module_graph(
                     source,
                     options.filename.as_deref(),

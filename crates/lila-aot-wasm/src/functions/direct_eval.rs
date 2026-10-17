@@ -242,7 +242,7 @@ impl FunctionBuilder<'_> {
             self.pop_control(ControlFrameKind::If);
             function.instruction(&Instruction::End);
         }
-        self.emit_reject_dynamic_source(lila_ir::DynamicSourceRuntimeOperation::Eval, function);
+        self.emit_native_direct_eval(context, realm, source, pending, function)?;
         self.pop_control(ControlFrameKind::Block);
         function.instruction(&Instruction::End);
         schema.release_i32_local(equal, function);

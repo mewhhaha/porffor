@@ -155,7 +155,7 @@ pub(crate) struct NumericCallTables {
 }
 
 impl NumericCallTables {
-    pub(crate) fn collect(&mut self, run: &NumericCallRun<'_>, bytes: &mut Vec<u8>) {
+    pub(crate) fn collect(&mut self, run: &NumericCallRun<'_>, bytes: &mut crate::data::PoolBytes) {
         let key = run.encode();
         if self.tables.contains_key(&key) {
             return;

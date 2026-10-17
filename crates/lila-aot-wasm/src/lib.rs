@@ -93,13 +93,31 @@ mod program_hooks;
 mod promise_rejection_policy;
 mod runtime_abi;
 mod runtime_artifact;
+
+/// Program-local execution phase; this never extends the shared runtime layout.
+pub const GLOBAL_SCRIPT_PRELUDE_PHASE_EXPORT: &str = "lila.global_prelude_phase";
+
 pub use runtime_artifact::{
-    build_runtime_artifact, runtime_artifact, runtime_artifact_with_cache,
-    runtime_artifact_with_inputs, RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactCacheKey,
-    RuntimeArtifactInputs, RuntimeArtifactKey, RuntimeBuildArtifact, RUNTIME_IMPORT_NAMESPACE,
+    build_runtime_artifact, build_runtime_artifact_with_source_compilation_profile,
+    runtime_artifact, runtime_artifact_with_cache, runtime_artifact_with_inputs, RuntimeArtifact,
+    RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactInputs, RuntimeArtifactKey,
+    RuntimeBuildArtifact, RuntimeSourceCompilationProfile, ValidatedRuntimeArtifact,
+    RUNTIME_IMPORT_NAMESPACE, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
 };
+mod runtime_direct_eval;
 mod runtime_function;
-pub use runtime_function::{emit_runtime_function, RuntimeFunctionArtifact};
+mod runtime_global_script;
+pub use runtime_direct_eval::{
+    emit_runtime_direct_eval, emit_runtime_direct_eval_with_validated_runtime,
+    RuntimeDirectEvalArtifact,
+};
+pub use runtime_function::{
+    emit_runtime_function, emit_runtime_function_with_validated_runtime, RuntimeFunctionArtifact,
+};
+pub use runtime_global_script::{
+    emit_runtime_global_script, emit_runtime_global_script_with_validated_runtime,
+    RuntimeGlobalScriptArtifact,
+};
 mod runtime_helpers;
 use abi::*;
 use arguments_protocol::*;
@@ -3138,6 +3156,42 @@ setterReceiver === receiver;
             .contains(&GcHostImport::CollectGc));
     }
 
+    // P repeats its exact R's host imports, then imports R's defined
+    // functions by their original index and type. This checks all scalar and
+    // GC host roles without accepting an arbitrary second import namespace.
+    pub(crate) fn linked_function_imports(runtime: &RuntimeArtifact) -> Vec<(String, String, u32)> {
+        let mut imports = Vec::new();
+        let mut defined_types = Vec::new();
+        for payload in Parser::new(0).parse_all(runtime.bytes()) {
+            match payload.expect("actual R parses") {
+                Payload::ImportSection(reader) => {
+                    for import in reader.into_imports() {
+                        let import = import.expect("actual R import parses");
+                        if let wasmparser::TypeRef::Func(index)
+                        | wasmparser::TypeRef::FuncExact(index) = import.ty
+                        {
+                            assert_eq!(import.module, crate::module::HOST_IMPORT_MODULE);
+                            imports.push((import.module.to_owned(), import.name.to_owned(), index));
+                        }
+                    }
+                }
+                Payload::FunctionSection(reader) => {
+                    defined_types.extend(reader.into_iter().map(Result::unwrap));
+                }
+                _ => {}
+            }
+        }
+        let host_count = imports.len();
+        imports.extend(defined_types.into_iter().enumerate().map(|(position, ty)| {
+            (
+                crate::RUNTIME_IMPORT_NAMESPACE.to_owned(),
+                format!("f{}", host_count + position),
+                ty,
+            )
+        }));
+        imports
+    }
+
     fn regexp_descriptor_from_pool(
         pool: &StringPool,
         reference: RegExpProgramRef,
@@ -3167,28 +3221,33 @@ setterReceiver === receiver;
         expect_valid_module(&artifact, 0);
         assert!(global_init_i64s(runtime.bytes())
             .contains(&(align_heap_start(runtime_data.len()) as i64)));
-        let heap_start = align_heap_start(runtime_data.len() + data.len()) as i64;
-        let first_body = Parser::new(0)
-            .parse_all(&artifact.bytes)
-            .find_map(|payload| match payload.expect("program should parse") {
-                Payload::CodeSectionEntry(body) => Some(body),
-                _ => None,
-            })
-            .expect("main has a code body");
-        let operators = first_body
-            .get_operators_reader()
-            .expect("main operators")
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()
-            .expect("main operators decode");
-        assert!(
-            operators
-                .windows(2)
-                .any(|pair| matches!((&pair[0], &pair[1]),
-            (Operator::I64Const { value }, Operator::GlobalSet { global_index })
-                if *value == heap_start && *global_index == PRIVATE_BYTE_CURSOR_GLOBAL_INDEX)),
-            "main advances the byte cursor past both R and P static data"
-        );
+        // The aligned address above is a virtual offset into P's immutable
+        // metadata image, not an installation in R's linear scratch memory.
+        // No P bootstrap, main or outlined body may install this image or move
+        // the shared R cursor past it.
+        let mut bodies = 0;
+        for payload in Parser::new(0).parse_all(&artifact.bytes) {
+            let Payload::CodeSectionEntry(body) = payload.expect("program should parse") else {
+                continue;
+            };
+            bodies += 1;
+            for operator in body.get_operators_reader().expect("P operators") {
+                match operator.expect("P operator decodes") {
+                    Operator::GlobalSet { global_index } => assert_ne!(
+                        global_index, PRIVATE_BYTE_CURSOR_GLOBAL_INDEX,
+                        "P metadata must not move R's scratch cursor"
+                    ),
+                    Operator::MemoryInit { data_index, .. } => assert_ne!(
+                        data_index,
+                        StringPool::PROGRAM_STATIC_DATA_SEGMENT,
+                        "P metadata stays in its immutable GC image"
+                    ),
+                    _ => {}
+                }
+            }
+        }
+        assert!(bodies > 0, "the actual emitted P bodies must be checked");
+        assert_eq!(wire_data_segment_counts(&artifact.bytes), (4, 0));
     }
 
     #[test]
@@ -4187,3 +4246,10 @@ if (!caught) throw "revoked proxy missing TypeError";"#,
         );
     }
 }
+
+mod native_program_template;
+pub use native_program_template::{
+    NativeProgramArrayConstruction, NativeProgramArrayFactory, NativeProgramArrayWidth,
+    NativeProgramDataImage, NativeProgramTemplate, NativeProgramTemplateError,
+    NATIVE_PROGRAM_DATA_MODULE,
+};

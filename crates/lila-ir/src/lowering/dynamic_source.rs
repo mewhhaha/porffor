@@ -18,6 +18,7 @@ enum DynamicSourceProof {
 pub(super) enum ResolvedDynamicSourceCall {
     EvalPassThrough(ProvenEvalPassThrough),
     IndirectEvalInvocation(AdmittedIndirectEvalInvocation),
+    RealmScriptInvocation(AdmittedRealmScriptInvocation),
     ShadowRealmInvocation(AdmittedShadowRealmInvocation),
     RealmScriptConversionThrow(ProvenRealmScriptConversionThrow),
     FunctionInvocation(AdmittedFunctionInvocation),
@@ -36,11 +37,22 @@ impl ProvenCompiledScript {
 }
 
 /// The intrinsic checks the live first argument before selecting source text.
-/// Non-Strings pass through unchanged; an unprepared String is a runtime AOT
-/// capability rejection. This does not prove a pass-through value or a source unit.
+/// Non-Strings pass through unchanged; a native host compiles an unprepared
+/// String after the actual owned prepared hook misses. This proves neither a
+/// pass-through value nor a source unit and emits no parser into Wasm.
 pub(super) struct AdmittedIndirectEvalInvocation(());
 
 impl AdmittedIndirectEvalInvocation {
+    pub(super) fn into_result_info(self) -> ValueInfo {
+        ValueInfo::new(ValueKind::Dynamic)
+    }
+}
+
+/// The actual Realm Script callable retains ordered ToString and captured
+/// Realm execution. This admits an invocation, never an inferred receiver or a
+/// source unit; finite dispatch and native global compilation stay runtime-owned.
+pub(super) struct AdmittedRealmScriptInvocation(());
+impl AdmittedRealmScriptInvocation {
     pub(super) fn into_result_info(self) -> ValueInfo {
         ValueInfo::new(ValueKind::Dynamic)
     }
@@ -672,24 +684,6 @@ impl ScriptLowerer<'_> {
         }
     }
 
-    pub(super) fn register_dynamic_source_intrinsic_signatures(&mut self) {
-        for intrinsic in DynamicSourceIntrinsic::ALL
-            .iter()
-            .copied()
-            .filter(|intrinsic| {
-                !matches!(
-                    intrinsic,
-                    DynamicSourceIntrinsic::Function(DynamicFunctionKind::Ordinary)
-                )
-            })
-        {
-            self.function_signatures.insert(
-                intrinsic.function_id().to_string(),
-                Self::dynamic_source_intrinsic_signature(intrinsic),
-            );
-        }
-    }
-
     pub(super) fn dynamic_source_intrinsic_signature(
         intrinsic: DynamicSourceIntrinsic,
     ) -> FunctionSignature {
@@ -884,6 +878,13 @@ impl ScriptLowerer<'_> {
             ));
         }
 
+        if kind == DynamicSourceKind::RealmEvalScript {
+            self.invalidate_unknown_user_code_effects();
+            return Some(ResolvedDynamicSourceCall::RealmScriptInvocation(
+                AdmittedRealmScriptInvocation(()),
+            ));
+        }
+
         if kind == DynamicSourceKind::ShadowRealmEvaluate {
             self.invalidate_unknown_user_code_effects();
             return Some(ResolvedDynamicSourceCall::ShadowRealmInvocation(
@@ -932,6 +933,7 @@ impl ScriptLowerer<'_> {
         match resolved {
             ResolvedDynamicSourceCall::EvalPassThrough(_)
             | ResolvedDynamicSourceCall::IndirectEvalInvocation(_)
+            | ResolvedDynamicSourceCall::RealmScriptInvocation(_)
             | ResolvedDynamicSourceCall::ShadowRealmInvocation(_)
             | ResolvedDynamicSourceCall::RealmScriptConversionThrow(_) => {
                 unreachable!("source-evaluation intrinsics are not constructable")
@@ -965,3 +967,6 @@ impl ScriptLowerer<'_> {
         TypedExpr::undefined()
     }
 }
+
+#[cfg(test)]
+mod native_global_script_tests;

@@ -2,6 +2,100 @@ use super::*;
 use boa_ast::operations::{var_scoped_declarations, VarScopedDeclaration};
 use lila_front::ParseDiagnosticKind;
 
+/// Lower a native global-source request through the same independently compiled
+/// Script machinery as prepared sources. The host must invoke the returned
+/// Script entry; the containing program has no executable entry body.
+pub(crate) fn lower_runtime_global_script_program(
+    parsed: &ParsedScript,
+    kind: crate::RuntimeGlobalScriptKind,
+    host_surface_policy: HostSurfacePolicy,
+) -> (ProgramIr, StaticScriptId) {
+    let kind = kind.prepared_kind();
+    let mut allocations = AnalysisAllocationState::default();
+    lower_runtime_prepared_script_program(parsed, kind, host_surface_policy, &mut allocations)
+}
+
+pub(crate) fn lower_runtime_direct_eval_program(
+    parsed: &ParsedScript,
+    context: DirectEvalContextIr,
+    private_environment_floor: u32,
+    host_surface_policy: HostSurfacePolicy,
+) -> (ProgramIr, StaticScriptId) {
+    let mut allocations = AnalysisAllocationState::default()
+        .with_private_environment_floor(private_environment_floor);
+    allocations.script_import_origin = context.script_import_origin();
+    lower_runtime_prepared_script_program(
+        parsed,
+        PreparedScriptKind::DirectEval(context),
+        host_surface_policy,
+        &mut allocations,
+    )
+}
+
+fn lower_runtime_prepared_script_program(
+    parsed: &ParsedScript,
+    kind: PreparedScriptKind,
+    host_surface_policy: HostSurfacePolicy,
+    allocations: &mut AnalysisAllocationState,
+) -> (ProgramIr, StaticScriptId) {
+    let id = allocations.allocate_static_script_id();
+    let mut program = lower_script_program_with_allocations(
+        parsed,
+        ParseGoal::Script,
+        parsed.source_text.len(),
+        vec![LoweringStage::ParsedSource],
+        None,
+        &modules::LinkedScriptDefinitions::default(),
+        host_surface_policy,
+        allocations,
+        ScriptInstantiation::Prepared(kind.clone()),
+    );
+    if !program.diagnostics.is_empty() {
+        return (program, id);
+    }
+    let script = program
+        .script
+        .as_mut()
+        .expect("independent source lowers as prepared Script");
+    let unit = PreparedScriptUnit {
+        template_source: script.template_source.take(),
+        eval_environment: script.eval_environment.take(),
+        id,
+        kind: kind.clone(),
+        strict: script.strict,
+        body: std::mem::replace(
+            &mut script.body,
+            BlockIr {
+                statements: Vec::new(),
+                result_kind: ValueKind::Undefined,
+                lexical_environment: None,
+            },
+        ),
+        owned_env_bindings: std::mem::take(&mut script.owned_env_bindings),
+        global_bindings: std::mem::take(&mut script.global_bindings),
+        declarations: std::mem::take(&mut script.runtime_declarations),
+        function_ids: script
+            .functions
+            .iter()
+            .map(|function| function.id.clone())
+            .collect(),
+    };
+    script.strict = false;
+    // Preserve every nested prepared Script/Function and all function bodies in
+    // this same ProgramIr. IDs were allocated from the same compilation owner.
+    script.prepared_scripts.insert(
+        0,
+        PreparedScript {
+            admission: PreparedScriptAdmission::ResolvedIntrinsic,
+            kind,
+            source: parsed.source_text.clone(),
+            outcome: PreparedScriptOutcome::Executable(unit),
+        },
+    );
+    record_prepared_compilation_stage(&mut program);
+    (program, id)
+}
+
 pub(super) fn compile_dynamic_script_sources(
     program: &mut ProgramIr,
     sources: Vec<DynamicScriptSource>,
@@ -151,11 +245,16 @@ pub(super) fn compile_module_prelude(
         &modules::LinkedScriptDefinitions::default(),
         host_surface_policy,
         allocations,
-        ScriptInstantiation::Prepared(kind.clone()),
+        ScriptInstantiation::GlobalScriptAfterPrelude,
     );
     allocations.script_import_origin = caller_origin;
     if !compiled.diagnostics.is_empty() {
-        program.diagnostics.append(&mut compiled.diagnostics);
+        program.diagnostics.extend(
+            compiled
+                .diagnostics
+                .drain(..)
+                .map(IrDiagnostic::in_global_prelude),
+        );
         record_prepared_compilation_stage(program);
         return;
     }
@@ -244,6 +343,7 @@ impl ScriptLowerer<'_> {
                 matches!(
                     self.analysis.script_instantiation,
                     ScriptInstantiation::Prepared(_)
+                        | ScriptInstantiation::GlobalScriptAfterPrelude
                 )
             })
             .map(|name| {
@@ -288,7 +388,10 @@ fn annex_b_admission_binding_name(name: &str) -> String {
 
 impl Analysis<'_> {
     pub(super) fn prepare_runtime_script_slots(&mut self, script: &Script, interner: &Interner) {
-        if !matches!(self.script_instantiation, ScriptInstantiation::Prepared(_)) {
+        if !matches!(
+            self.script_instantiation,
+            ScriptInstantiation::Prepared(_) | ScriptInstantiation::GlobalScriptAfterPrelude
+        ) {
             return;
         }
         let mut names = lexically_declared_names(script)
@@ -333,7 +436,7 @@ impl ScriptLowerer<'_> {
         if self.current_owner_id != SCRIPT_OWNER_ID
             || !matches!(
                 self.analysis.script_instantiation,
-                ScriptInstantiation::Prepared(_)
+                ScriptInstantiation::Prepared(_) | ScriptInstantiation::GlobalScriptAfterPrelude
             )
         {
             return None;

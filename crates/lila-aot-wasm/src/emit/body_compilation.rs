@@ -332,7 +332,15 @@ impl<'a> FunctionBuilder<'a> {
             None
         };
         if let Some(id) = self.module_prelude_id {
+            let phase = self
+                .global_prelude_phase
+                .expect("global prelude has its P-local phase owner");
+            phase.enter(&mut function);
             self.emit_module_prelude(id, &mut function)?;
+            phase.completed(&mut function);
+        }
+        if let Some(id) = self.script_entry_after_prelude_id {
+            self.emit_script_entry_after_prelude(id, &mut function)?;
         }
         self.compile_block_contents(self.body, &mut function)?;
         if let Some(target) = main_job_checkpoint {

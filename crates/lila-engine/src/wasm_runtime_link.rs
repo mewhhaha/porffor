@@ -145,7 +145,11 @@ pub(super) fn encode_cache_entry(program: WasmProgramRef<'_>) -> Vec<u8> {
 /// way to name the runtime it was emitted against.
 pub(super) fn decode_standalone_cache_entry(entry: &[u8]) -> Option<&[u8]> {
     match entry.split_first()? {
-        (&ENTRY_STANDALONE, program) => Some(program),
+        (&ENTRY_STANDALONE, program) => {
+            (lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(program).ok()?
+                == lila_aot_wasm::RuntimeSourceCompilationProfile::Portable)
+                .then_some(program)
+        }
         _ => None,
     }
 }
@@ -158,18 +162,27 @@ pub(super) fn decode_cache_entry(
     cache: &cache::FunctionCache,
 ) -> Option<(Arc<[u8]>, Option<Arc<RuntimeArtifact>>)> {
     match entry.split_first()? {
-        (&ENTRY_STANDALONE, program) => Some((Arc::from(program), None)),
+        (&ENTRY_STANDALONE, program) => {
+            (lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(program).ok()?
+                == lila_aot_wasm::RuntimeSourceCompilationProfile::Portable)
+                .then(|| (Arc::from(program), None))
+        }
         (&ENTRY_LINKED, rest) => {
             let (recorded, program) = rest.split_at_checked(KEY_BYTES)?;
             let selection = IntlDataSelection::new(intl_profile.clone());
             let runtime_cache = RuntimeWasmCache::new(cache)?;
             let runtime = lila_aot_wasm::runtime_artifact_with_inputs(
                 &selection,
-                embedded_runtime::inputs(Some(&runtime_cache)),
+                embedded_runtime::inputs(
+                    Some(&runtime_cache),
+                    lila_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
+                ),
             )
             .ok()?;
-            (runtime.key().as_bytes().as_slice() == recorded)
-                .then(|| (Arc::from(program), Some(runtime)))
+            (runtime.key().as_bytes().as_slice() == recorded
+                && lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(program).ok()?
+                    == runtime.source_compilation_profile())
+            .then(|| (Arc::from(program), Some(runtime)))
         }
         _ => None,
     }
@@ -274,6 +287,19 @@ pub(super) fn compile_modules(
     bypass_retention: bool,
     mode: WasmNativeCompilationMode,
 ) -> Result<WasmModules, EngineError> {
+    if let Some(runtime) = program.runtime {
+        let profile = lila_aot_wasm::RuntimeSourceCompilationProfile::from_module(program.bytes)
+            .map_err(|error| {
+                EngineError::new(format!(
+                    "program source-compilation admission failed: {error}"
+                ))
+            })?;
+        if profile != runtime.source_compilation_profile() {
+            return Err(EngineError::new(
+                "program/runtime source-compilation profiles differ",
+            ));
+        }
+    }
     let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
     let module_for_execution =
         |label: &str, source: WasmModuleSource<'_>| -> Result<_, EngineError> {

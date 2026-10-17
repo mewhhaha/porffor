@@ -24,8 +24,10 @@ fn module_with_body(runtime: &FinalizedRuntimeModule, function: Function) -> Vec
 
 #[test]
 fn typed_roots_validate_nullable_clears_and_reuse_only_the_same_heap_type() {
-    let runtime = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime)
-        .finalize_globals(GlobalLedger::new(), false, 0);
+    let runtime = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime(
+        crate::RuntimeSourceCompilationProfile::Portable,
+    ))
+    .finalize_globals(GlobalLedger::new(), false, 0);
     let schema = runtime.globals().schema();
     let mut function = Function::new(LocalDeclarations::from_types([]));
     let length = schema.reserve_i32_local(&mut function);
@@ -113,8 +115,10 @@ fn typed_roots_validate_nullable_clears_and_reuse_only_the_same_heap_type() {
 
 #[test]
 fn dynamic_values_retain_their_checked_heap_cast() {
-    let runtime = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime)
-        .finalize_globals(GlobalLedger::new(), false, 0);
+    let runtime = RuntimeModuleTypes::register(crate::runtime_artifact::ModuleKind::Runtime(
+        crate::RuntimeSourceCompilationProfile::Portable,
+    ))
+    .finalize_globals(GlobalLedger::new(), false, 0);
     let schema = runtime.globals().schema();
     let mut function = Function::new(LocalDeclarations::from_types([]));
     let value = schema.reserve_value_local(&mut function);

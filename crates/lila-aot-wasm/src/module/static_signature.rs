@@ -166,6 +166,16 @@ static_signature_domain! {
         Gc(GcLayout::ValueArray, NonNullable),
         Gc(GcLayout::FunctionContext, NonNullable), Gc(GcLayout::Environment, Nullable)],
         [I32, I64, EqRef, I32, I32, Gc(GcLayout::StringValue, Nullable)]),
+    // Independent global source compilation cannot borrow direct-eval context.
+    HostCompileGlobalScript => ([I32, Gc(GcLayout::StringValue, NonNullable),
+        Gc(GcLayout::RealmRecord, NonNullable), Gc(GcLayout::ProgramInstance, NonNullable)],
+        [I32, I64, EqRef, I32, I32, I32, Gc(GcLayout::StringValue, Nullable)]),
+    HostCompileDirectEval => ([Gc(GcLayout::StringValue, NonNullable),
+        Gc(GcLayout::ImmutableByteArray, NonNullable), Gc(GcLayout::RealmRecord, NonNullable),
+        Gc(GcLayout::Environment, Nullable), Gc(GcLayout::Environment, Nullable),
+        Gc(GcLayout::PrivateEnvironment, Nullable), I32, I64, EqRef, I32, I64, EqRef,
+        Gc(GcLayout::DirectEvalExecutionContext, NonNullable), Gc(GcLayout::ProgramInstance, NonNullable)],
+        [I32, I64, EqRef, I32, I32, I32, Gc(GcLayout::StringValue, Nullable)]),
     HostByteArrayAllocate => ([I32], [Gc(GcLayout::ByteArray, Nullable)]),
     HostIntlProviderCall => ([Gc(GcLayout::ByteArray, NonNullable)], [Gc(GcLayout::ByteArray, Nullable)]),
     HostSystemTimeZoneSnapshot => ([], [Gc(GcLayout::ByteArray, NonNullable)]),
@@ -181,3 +191,6 @@ const _: () = assert!(StaticSignature::singleton_signatures_are_first());
 
 #[cfg(test)]
 mod program_ownership_tests;
+
+#[cfg(test)]
+mod native_global_script_tests;

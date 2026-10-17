@@ -28,6 +28,7 @@ pub enum ModuleKindIr {
     Json,
     Bytes,
     Text,
+    ModuleSource,
     Script,
 }
 
@@ -39,6 +40,7 @@ impl ModuleKindIr {
             Self::Script => 2,
             Self::Bytes => 3,
             Self::Text => 4,
+            Self::ModuleSource => 5,
         }
     }
     pub fn requested(request: &ModuleRequestKeyIr) -> Self {
@@ -52,10 +54,12 @@ impl ModuleKindIr {
 
     pub fn matches_request(self, request: &ModuleRequestKeyIr) -> bool {
         match self {
-            Self::SourceText => !request.attributes().iter().any(|attribute| {
-                attribute.key == "type"
-                    && matches!(attribute.value.as_str(), "json" | "bytes" | "text")
-            }),
+            Self::SourceText | Self::ModuleSource => {
+                !request.attributes().iter().any(|attribute| {
+                    attribute.key == "type"
+                        && matches!(attribute.value.as_str(), "json" | "bytes" | "text")
+                })
+            }
             Self::Json => matches!(request.attributes(), [attribute]
                 if attribute.key == "type" && attribute.value == "json"),
             Self::Bytes => matches!(request.attributes(), [attribute]
@@ -73,6 +77,9 @@ pub(super) enum ModuleParse {
     Json(lila_front::ParsedJson),
     Bytes(Vec<u8>),
     Text(String),
+    ModuleSource {
+        source_tag: String,
+    },
     JsonRejected {
         source_text: String,
         error: lila_front::JsonParseError,
@@ -137,6 +144,7 @@ impl ModuleSourceIr {
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
             | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. }
             | ModuleParse::JsonRejected { .. } => Vec::new(),
         }
     }
@@ -175,6 +183,16 @@ impl ModuleSourceIr {
         }
     }
 
+    /// One opaque host ModuleSource record. No ECMAScript parse is performed.
+    pub fn module_source(key: ModuleKey, source_tag: String, meta_url: String) -> Self {
+        Self {
+            key,
+            meta_url,
+            parse: ModuleParse::ModuleSource { source_tag },
+            prepared_script_import_sites: Vec::new(),
+        }
+    }
+
     pub fn record_key(&self) -> super::ModuleRecordKey {
         super::ModuleRecordKey::new(self.key.clone(), self.kind())
     }
@@ -183,6 +201,7 @@ impl ModuleSourceIr {
     pub fn payload_bytes(&self) -> &[u8] {
         match &self.parse {
             ModuleParse::Bytes(bytes) => bytes,
+            ModuleParse::ModuleSource { source_tag } => source_tag.as_bytes(),
             ModuleParse::Module(_)
             | ModuleParse::Json(_)
             | ModuleParse::Text(_)
@@ -199,6 +218,7 @@ impl ModuleSourceIr {
             ModuleParse::ScriptEntry(_) => ModuleKindIr::Script,
             ModuleParse::Bytes(_) => ModuleKindIr::Bytes,
             ModuleParse::Text(_) => ModuleKindIr::Text,
+            ModuleParse::ModuleSource { .. } => ModuleKindIr::ModuleSource,
         }
     }
     /// Parses one loaded module and retains either the typed syntax product or
@@ -271,7 +291,7 @@ impl ModuleSourceIr {
         match &self.parse {
             ModuleParse::Module(source) => &source.source_text,
             ModuleParse::Json(source) => source.source_text(),
-            ModuleParse::Bytes(_) => "",
+            ModuleParse::Bytes(_) | ModuleParse::ModuleSource { .. } => "",
             ModuleParse::Text(text) => text,
             ModuleParse::JsonRejected { source_text, .. } => source_text,
             ModuleParse::ScriptEntry(source) => &source.source_text,
@@ -290,7 +310,10 @@ impl ModuleSourceIr {
     pub fn module_requests(&self) -> Option<Vec<ModuleRequestKeyIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_requests(source)),
-            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
+            ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. } => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => {
                 let mut requests = scan_script_module_requests(source);
                 for request in self
@@ -316,7 +339,10 @@ impl ModuleSourceIr {
     pub fn module_loading_requests(&self) -> Option<Vec<ModuleRequestIr>> {
         match &self.parse {
             ModuleParse::Module(source) => Some(scan_module_loading_requests(source)),
-            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
+            ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. } => Some(Vec::new()),
             ModuleParse::ScriptEntry(source) => Some(loading_requests_with_dynamic_imports(
                 Vec::new(),
                 &script_dynamic_import_sites(source)
@@ -341,7 +367,10 @@ impl ModuleSourceIr {
                     .chain(self.prepared_script_import_sites.iter().cloned())
                     .collect(),
             ),
-            ModuleParse::Json(_) | ModuleParse::Bytes(_) | ModuleParse::Text(_) => Some(Vec::new()),
+            ModuleParse::Json(_)
+            | ModuleParse::Bytes(_)
+            | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. } => Some(Vec::new()),
             ModuleParse::Rejected { .. } | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -366,6 +395,7 @@ impl ModuleSourceIr {
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
             | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. }
             | ModuleParse::JsonRejected { .. } => None,
         }
     }
@@ -378,6 +408,7 @@ impl ModuleSourceIr {
             | ModuleParse::Json(_)
             | ModuleParse::Bytes(_)
             | ModuleParse::Text(_)
+            | ModuleParse::ModuleSource { .. }
             | ModuleParse::JsonRejected { .. } => ParseGoal::Module,
             ModuleParse::ScriptEntry(_) => ParseGoal::Script,
         }

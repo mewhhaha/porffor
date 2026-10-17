@@ -15,19 +15,44 @@ fn normalized(source: &str) -> String {
 }
 #[test]
 fn indexed_get_forwards_one_typed_environment_and_whole_completion() {
-    assert!(HELPERS.contains(r#"IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable) } => Completion;"#));
+    assert!(HELPERS.contains(r#"IndexedElementRead / IndexedElementReadArguments / IndexedElementReadParameters / "indexed_element_read" { target:Value,index:I64,caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;"#));
     let seam = normalized(bounded(
         OBJECTS,
         "pub(crate) fn emit_typed_array_or_object_index_read_from_locals(",
         "pub(crate) fn compile_indexed_element_read_helper(",
     ));
     assert_eq!(
-        seam.matches("IndexedElementReadArguments::new(target,index,self.current_environment(),)")
+        seam.matches("IndexedElementReadArguments::new(target,index,self.current_environment(),self.current_program(),)")
             .count(),
         1
     );
     assert!(seam.contains(".store(result,function)"));
     assert!(seam.contains("result:&CompletionLocals"));
+    let parameters = normalized(bounded(
+        EMIT,
+        "pub(crate) fn helper_parameters<P:",
+        "fn new_main(",
+    ));
+    assert_eq!(parameters.matches("parameters.caller_program()").count(), 1);
+    assert!(parameters.contains(concat!(
+        "ifletSome(program)=parameters.caller_program(){",
+        "letowner=crate::gc_types::ProgramInstanceLocals::bind(",
+        "self.schema,program.load(self.schema,function),function,);",
+        "self.bind_entry_program(owner);}"
+    )));
+    assert!(
+        parameters.find("self.bind_entry_program(owner)").unwrap()
+            < parameters.find("parameters.caller_environment()").unwrap()
+    );
+    let helpers = normalized(HELPERS);
+    for typed_role in [
+        "(@argumentProgram)=>{&'aProgramInstanceLocals}",
+        "(@parameterProgram)=>{GcLocal<ProgramInstance>}",
+        "(@abiProgram)=>{&[AbiType::Gc(GcLayout::ProgramInstance,GcNullability::NonNullable)]}",
+        "(@acquire$schema:ident,$index:ident,$function:ident,Program)=>{$schema.parameter_gc::<ProgramInstance,NonNullable>($index,$function)}",
+    ] {
+        assert!(helpers.contains(typed_role), "lost {typed_role}");
+    }
     assert!(!seam.contains("Instruction::Call("));
     assert!(!seam.contains("GlobalGet"));
 }
