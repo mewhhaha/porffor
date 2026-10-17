@@ -41,8 +41,20 @@ jobs:
           import pathlib, re, sys
           lines = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
           pattern = re.compile(r"\berror(?:\[[A-Z][0-9]+\])?:|could not compile|No space left|LLVM ERROR|process didn't exit successfully", re.I)
-          indices = [i for i, line in enumerate(lines) if pattern.search(line)]
-          blocks = ["\n".join(line[:500] for line in lines[max(0, i-2):i+11])[:3500] for i in indices]
+          # Libtest emits the assertions before Cargo's final error summary.
+          # Keep these sections first so earlier compiler warnings cannot crowd
+          # the actual failing test out of the bounded annotations.
+          test_failure = re.compile(r"---- .+ (?:stdout|stderr) ----|thread .+ panicked at")
+          test_indices = [i for i, line in enumerate(lines) if test_failure.search(line)]
+          indices = test_indices + [i for i, line in enumerate(lines) if pattern.search(line)]
+          blocks = []
+          covered = set()
+          for i in indices:
+              if i in covered:
+                  continue
+              start, end = max(0, i-2), min(len(lines), i+19)
+              blocks.append("\n".join(line[:500] for line in lines[start:end])[:3500])
+              covered.update(range(start, end))
           if not blocks:
               blocks = ["No matching compiler error line found. Final log lines:\n" + "\n".join(lines[-12:])[:3000]]
           for number, block in enumerate(blocks[:12], 1):
