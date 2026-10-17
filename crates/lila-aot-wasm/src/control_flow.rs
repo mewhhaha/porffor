@@ -43,6 +43,7 @@ mod resumable_array_destructuring;
 mod resumable_sequence;
 mod resumable_sync_for_of_iterator;
 pub(crate) use for_in::FOR_IN_INTRINSICS;
+mod repeated_identifier_reads;
 mod resumed_identifier_assignment;
 mod return_position;
 mod statement_completion;
@@ -1190,6 +1191,13 @@ impl<'a> FunctionBuilder<'a> {
         let mut next = 0;
         while next < block.statements.len() {
             if compact_calls {
+                if let Some(run) = repeated_identifier_reads::IdentifierReadRun::of_prefix(
+                    &block.statements[next..],
+                ) {
+                    self.compile_identifier_read_run(&run, function)?;
+                    next += run.len();
+                    continue;
+                }
                 if let Some(run) =
                     crate::call_rows::NumericCallRun::of_prefix(&block.statements[next..])
                 {
