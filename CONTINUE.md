@@ -1,3 +1,30 @@
+# Current native verification and literal retention — 2026-10-17
+
+This block supersedes the older publication-time notes below.
+
+Current retention and reuse measurement (2026-10-17): original27 is
+24Success/3Crash, with strict proto newly passing and the prior sloppy proto
+success lost. Literal retention is still red; both class-default variants also
+time out. The current Engine inventory completed964passes/1failure: its
+module-policy fixture tried to write under the full checkout. The exact same
+compiled binary passes that focused test from writable scratch, preserving both
+module-policy controls. A complete965-test rerun from scratch is pending.
+[Portable results and raw evidence](docs/rust-rewrite/serial-dispatch-retention-and-reuse-20261017.json)
+include all600 exact generated Function templates. The compile-only probe
+measures600 distinct templates,600 without custom metadata, and500 when only
+body scalar literal values are ignored. Its512- and1024-entry LRU simulations
+both have600misses; no larger-cache speedup is established. Diagnostic hashes
+are never compiled or cached. Full conformance and task cleanup remain open.
+
+Next: finish the complete current Engine965 rerun, then repair the remaining
+sloppy proto and both class-default timeouts at the original60000ms deadline.
+The aggregate24/27 does not retain every previous success. The prior2492-pass
+native checkpoint belongs to the preceding compiler source. Remaining203,
+historical5365, ordinaryCargo/features/hosts/shard-resume/fullpinned and every
+task criterion still require their own passing evidence. T22 still needs
+accepted normative/test authority. Keep CONTINUE.md and tasks until complete.
+Older notes follow.
+
 # Serial compiler dispatch: focused strict pass observed — 2026-10-17
 
 CurrentCPP1a9e425ed20728e5c0fdfe90fe73af8028500a11419362abe59d64727209ee63;

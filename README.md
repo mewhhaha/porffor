@@ -10,6 +10,20 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Current retention and reuse measurement (2026-10-17): original27 is
+24Success/3Crash, with strict proto newly passing and the prior sloppy proto
+success lost. Literal retention is still red; both class-default variants also
+time out. The current Engine inventory completed964passes/1failure: its
+module-policy fixture tried to write under the full checkout. The exact same
+compiled binary passes that focused test from writable scratch, preserving both
+module-policy controls. A complete965-test rerun from scratch is pending.
+[Portable results and raw evidence](docs/rust-rewrite/serial-dispatch-retention-and-reuse-20261017.json)
+include all600 exact generated Function templates. The compile-only probe
+measures600 distinct templates,600 without custom metadata, and500 when only
+body scalar literal values are ignored. Its512- and1024-entry LRU simulations
+both have600misses; no larger-cache speedup is established. Diagnostic hashes
+are never compiled or cached. Full conformance and task cleanup remain open.
+
 Serial compilation checkpoint (2026-10-17): the focused cold replay now
 passes strict object-literal `__proto__` at the unchanged60000ms deadline;
 sloppy still times out (1Success/1Crash). Four new native dispatch/stack tests
