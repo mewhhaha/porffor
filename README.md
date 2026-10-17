@@ -10,6 +10,19 @@ These native inventories leave ordinary Cargo/all-features, other integration
 targets, original deadline replays, full pinned suites and task gates open.
 Generated pinned status numbers below are unchanged.
 
+Current native verification checkpoint (2026-10-17): all2496 tests pass
+across five library inventories (Engine965, Runtime33, AOT401, Test262435,
+CLI82) and seven integration inventories (580). Literal test-ID comparison
+retains all2492 previous passes and adds the four serial-dispatch regressions;
+zero tests are ignored or filtered in these scopes. [Complete results and raw
+evidence](docs/rust-rewrite/complete-current-native-inventories-20261017.json) preserve the fixture, feature and working-directory preparation
+failures separately. The supported three-CPU native trial timed out on both
+proto variants with the original one case worker and60000ms deadline; it did
+not improve performance, so the default stays unchanged. The original27
+single-CPU replay remains24Success/3Crash with a previous sloppy proto pass
+lost. OrdinaryCargo, broader conformance, host gates and task closure remain
+open; keep CONTINUE.md and tasks.
+
 Complete current Engine verification (2026-10-17):965/965 native tests
 pass, with all961 previous passes retained and zero ignored or filtered tests.
 The exact archived ELF runs from writable scratch; the earlier checkout-storage
