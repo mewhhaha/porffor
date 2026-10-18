@@ -10,11 +10,16 @@ R helper and check its complete ABI and DONE operations. Ordinary Cargo at
 `de8d07b4768fc7455694eec3e1a9c296fa7cb6de` passes **434 AOT library + 115 async
 structure + 151 language structure = 700 tests**, with zero failures or ignored
 tests. All 610 tooling, eight source CI and three static checks pass there too.
-Private real-Wasm execution passes all 19 module controls, retaining every prior
-16 ID, in 160.19s; it uses prior native dependency/Intl identity bytes and fresh
+Private real-Wasm execution passes all 19 module controls, retaining all
+16 prior IDs, in 160.19s; it uses prior native dependency/Intl identity bytes and fresh
 unbundled R, and adds no ordinary-suite coverage. Both private structure targets
-also pass all 266 unchanged IDs. The ordinary release CLI and original deadline
-replay are next. Full default/all-features verification remains open: 111 default
+also pass all 266 unchanged IDs. The ordinary release CLI builds in 417.73s.
+The formal four-case replay reaches **3 Success / 1 Crash timeout**: nested
+strict-function destructuring is newly passing, and both prior passes remain.
+The simple strict case still times out; its separate traced pass does not replace
+that failure. Original 60s execution/300s compilation limits and fresh four64MiB
+disk cache tiers remain unchanged. [Release and original-budget evidence](docs/rust-rewrite/shared-array-accumulation-deadlines-20261018.json).
+Full default/all-features verification remains open: 111 default
 scopes, 9,535 native and 11 documentation IDs are required, retaining all prior
 9,532 native IDs. [Exact source, inventories, Cargo graphs and proofs](docs/rust-rewrite/shared-array-accumulation-checkpoint-20261018.json).
 Refresh with

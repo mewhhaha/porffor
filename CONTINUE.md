@@ -1,5 +1,21 @@
 # Continue Lila — 2026-10-18
 
+R13 ordinary release and the original four-case replay are complete at
+`de8d07b4768fc7455694eec3e1a9c296fa7cb6de`: release builds in417.73s;
+formal outcomes are3 Success/1 Crash timeout. Nested strict-function destructuring
+is newly passing; class and object-literal `__proto__` retain their prior passes.
+Simple strict destructuring remains the formal timeout. Its separate traced
+fresh-cache rerun passes in66.12s worker wall time, with the original60s execution
+budget; it does not replace the formal failure. First256 traced callbacks contain
+140 program module loads and8.382s inclusive module lookup. This bounded prefix
+is not whole-case attribution. The full-default queue rejected before any child.
+[Release and exact failed/passing cases](docs/rust-rewrite/shared-array-accumulation-deadlines-20261018.json).
+Next: establish a measured reduction in repeated native compilation, retain all
+four exact original cases and budgets, then run the complete source-bound gates.
+The older unused-standalone-type prototype did not establish a robust timing
+benefit; do not repeat it without a new measured reason. Preserve failed receipts
+and the exact release executable before overwriting it.
+
 R13 is pushed to main at `de8d07b4768fc7455694eec3e1a9c296fa7cb6de`.
 Its ordinary whole AOT library/async structure/language structure scopes pass
 434+115+151=700, zero failed or ignored. All 610 tooling, eight source CI and
