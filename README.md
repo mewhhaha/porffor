@@ -1,3 +1,10 @@
+Isolated native-code sharing candidate (2026-10-18, unverified): exact typed
+function bodies may share executable code after checked source-payload rewrites.
+Raw public modules, numeric declaration IDs and JavaScript function objects and
+metadata stay separate. Native/CLI/performance acceptance is pending. Intl source
+provenance now has an ordered13-recipe preflight before costly Rust verification;
+refresh with `python3 -B scripts/intl_source_identities.py --write`.
+
 Unverified instance-reuse repair (2026-10-17, authored): native source data
 moves into a dedicated immutable ProgramInstance field under ABI10. The raw artifact keeps
 its parameterless initializer; its checked native template accepts the fresh

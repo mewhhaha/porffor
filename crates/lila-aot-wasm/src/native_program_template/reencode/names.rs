@@ -10,7 +10,19 @@ pub(super) fn subsection(
             for row in reader {
                 let row = row?;
                 if let Some(index) = encoder.plan.function(row.index) {
-                    map.append(index, row.name);
+                    if encoder.plan.contexts.is_some()
+                        && encoder.plan.reusable
+                        && row.index >= encoder.plan.imported_functions
+                        && row.name.starts_with("js::")
+                    {
+                        // One stateless native body can serve different source
+                        // owners. Its backtrace symbol must not name whichever
+                        // source happened to populate the cache first. JS names
+                        // and toString source still come from the actual P.
+                        map.append(index, &format!("js::native_function_{index}"));
+                    } else {
+                        map.append(index, row.name);
+                    }
                 }
             }
             if encoder.plan.contexts.is_some() {

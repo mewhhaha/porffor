@@ -9,11 +9,16 @@ T = A + 'native_program_template'
 N = E + 'wasm_native_program_template'
 M = E + 'memory_module_cache/native_templates'
 CAPS = {
+    T + '/share_bodies.rs': 130, T + '/share_bodies/mapping.rs': 140,
+    T + '/share_bodies/names.rs': 80, T + '/share_bodies/tests.rs': 180,
+    T + '/tests/shared_emitted_bodies.rs': 100,
+    'crates/lila-engine/tests/aot_native_program_templates/shared_function_bodies.rs': 100,
     A + 'program_literal_operands.rs': 180,
     T + '/literal_operands.rs': 50, T + '/plan/literal_operands.rs': 80,
     T + '/tests/literal_operands.rs': 260,
     A + 'native_program_contexts.rs': 150, A + 'gc_types/native_payload.rs': 100,
     T + '/contexts.rs': 200, T + '/contexts/signatures.rs': 180,
+    T + '/tests/emitted_names.rs': 100,
     T + '/payload.rs': 200, T + '/tests/program_owned_payload.rs': 150, T + '/error.rs': 30,
     T + '/plan/indices.rs': 120, T + '/reencode/declarations.rs': 160,
     T + '/reencode/payload.rs': 100,
@@ -28,7 +33,7 @@ CAPS = {
     N + '.rs': 90, N + '/cache.rs': 50, N + '/bindings.rs': 180,
     N + '/bindings/allocation.rs': 100, N + '/bindings/allocation/tests.rs': 160,
     M + '.rs': 70, M + '/tests.rs': 70,
-    'crates/lila-engine/tests/aot_native_program_templates.rs': 100,
+    'crates/lila-engine/tests/aot_native_program_templates.rs': 110,
     'crates/lila-engine/tests/aot_native_program_templates/catalog_overlays.rs': 60,
 }
 KINDS = ('function', 'global_script', 'direct_eval')

@@ -288,3 +288,9 @@ mod literal_operand_tests;
 
 #[path = "tests/program_owned_payload.rs"]
 mod program_owned_payload;
+
+#[path = "tests/emitted_names.rs"]
+mod emitted_names;
+
+#[path = "tests/shared_emitted_bodies.rs"]
+mod shared_emitted_bodies;

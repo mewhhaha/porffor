@@ -70,3 +70,38 @@ fn native_reentry_preserves_outer_and_inner_source_owners() {
     "#,
     );
 }
+
+#[test]
+fn shared_native_bodies_keep_each_function_name_source_and_self_binding() {
+    let engine = Engine::new(RealmBuilder::new().build());
+    let observed = engine
+        .observe_script(
+            r#"
+        var functions = [];
+        for (var i = 0; i < 64; i++) {
+            var name = 'owned_' + i;
+            functions.push(Function('return function ' + name + '(){ return ' + name + '; };')());
+        }
+        gc();
+        for (var i = 63; i >= 0; i--) {
+            var name = 'owned_' + i, fn = functions[i];
+            if (fn.name !== name || fn() !== fn) throw 1;
+            if (fn.toString() !== 'function ' + name + '(){ return ' + name + '; }') throw 2;
+        }
+        1;
+    "#,
+            CompileOptions {
+                host_surface_policy: lila_ir::HostSurfacePolicy::Test262,
+                ..CompileOptions::default()
+            },
+            RunOptions {
+                timeout_ms: Some(60_000),
+                ..RunOptions::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        observed.completion,
+        ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(1.0)))
+    );
+}

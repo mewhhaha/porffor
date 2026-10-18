@@ -1,3 +1,14 @@
+Isolated follow-up — 2026-10-18: checked stateless native bodies now have a
+conservative exact-type/body/ownership sharing transform. Original numeric
+SOURCE_ID constants and per-function objects/contexts/source remain separate.
+1000 identical method bodies were measured structurally in the prior ABI10
+prototype; actual new-code size, native/CLI deadlines and ordinary Cargo remain
+unverified. All66 affected Intl provenance tests pass after refreshing the
+named-zone -> DateTime -> locale dependency chain. The new13-recipe preflight
+and three producer/dependent controls pass. Main compiler promotion and task
+cleanup remain blocked on complete acceptance. The primary d3bb source is
+rejected by six stale-provenance tests; its native run remains separate.
+
 # Continue Lila — 2026-10-17
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate

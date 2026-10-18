@@ -95,5 +95,7 @@ mod catalog_overlays;
 mod program_owned_payload;
 #[path = "aot_native_program_templates/repeated_identifier_reads.rs"]
 mod repeated_identifier_reads;
+#[path = "aot_native_program_templates/shared_function_bodies.rs"]
+mod shared_function_bodies;
 #[path = "aot_native_program_templates/unobserved_arguments.rs"]
 mod unobserved_arguments;
