@@ -57,79 +57,12 @@ old_path_pattern='(^|/)(porffor-[^/]*|porf([.]rs|[.]cmd)?|porffor[.](jsonc|json|
 old_token_pattern='porffor-|porffor_|PORFFOR_|__porf|\$Porffor|\$porffor\$module\$|porf_host|CARGO_BIN_EXE_porf|unsupported in porffor|not supported in porffor|porffor wasm trace:|(^|[^[:alnum:]_])porf([^[:alnum:]_]|$)'
 old_word_pattern='(^|[^[:alnum:]_])(porffor|Porffor)([^[:alnum:]_]|$)'
 
-# Filter only closed, validated historical proof contexts. Every other token
-# remains subject to the same product identity checks below.
-proof_filter="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/identity_provenance.py"
-proof_audit_source="$(mktemp)"
-trap 'rm -f "$proof_audit_source"' EXIT
-
-while IFS= read -r -d '' path; do
-  [ -e "$path" ] || continue
-
-  case "$path" in
-    vendor/*|test262/vendor/*|test262/snapshots/*) continue ;;
-    crates/lila-test262/tests/fixtures/*/snapshots/*) continue ;;
-    docs/rust-rewrite/lila-identity-map.tsv) continue ;;
-    docs/rust-rewrite/lila-identity-migration.md) continue ;;
-    scripts/check-lila-identity.sh) continue ;;
-    scripts/check-no-legacy-js.sh) continue ;;
-    # The status upgrader must recognize the retired generated-block spelling,
-    # and its regression suite must construct that historical input. These are
-    # migration readers/tests, not product or publication identities.
-    scripts/check-readme-status-artifacts.sh) continue ;;
-    scripts/tests/check-readme-status-artifacts.sh) continue ;;
-    tasks/28-retire-legacy-js.md|tasks/29-lila-identifier-migration.md) continue ;;
-  esac
-
-  if printf '%s\n' "$path" | grep -Eq "$old_path_pattern"; then
-    fail "transitional path remains: $path"
-  fi
-
-  audit_source="$path"
-  case "$path" in
-    docs/rust-rewrite/*.json|docs/rust-rewrite/verify-*.py)
-      if ! python3 -B "$proof_filter" "$path" > "$proof_audit_source"; then
-        fail "$path has invalid historical provenance context"
-        continue
-      fi
-      audit_source="$proof_audit_source"
-      ;;
-  esac
-
-  matches="$(grep -nEI "$old_token_pattern" "$audit_source" 2>/dev/null || true)"
-  if [ -n "$matches" ]; then
-    while IFS= read -r match; do
-      [ -n "$match" ] && fail "$path:$match"
-    done <<EOF
-$matches
-EOF
-  fi
-
-  case "$path" in
-    *.md|index.html|CNAME) continue ;;
-  esac
-
-  matches="$(grep -nEI "$old_word_pattern" "$audit_source" 2>/dev/null \
-    | grep -Fv 'https://github.com/mewhhaha/porffor' \
-    | grep -Fv 'porffor.dev' || true)"
-  case "$path" in
-    docs/rust-rewrite/native-*.json)
-      # Frozen rustdoc IDs include the actual checkout directory. Retain those
-      # exact comparison keys; this host path is not a product identifier.
-      # Only a complete canonical Rust doctest ID is admitted here. Retired
-      # tokens, other prose and product paths still pass through both audits.
-      matches="$(printf '%s\n' "$matches" | grep -Ev \
-        '^[0-9]+:[[:space:]]*"/workspace/porffor/crates/lila-[^"]+[.]rs - [^"]+ [(]line [0-9]+[)]"[,]?[[:space:]]*$' || true)"
-      ;;
-  esac
-  if [ -n "$matches" ]; then
-    while IFS= read -r match; do
-      [ -n "$match" ] && fail "$path:$match"
-    done <<EOF
-$matches
-EOF
-  fi
-done < <(git ls-files -z --cached --others --exclude-standard)
+# Preserve the GNU grep expressions while batching files and admitting frozen
+# provenance in one Python process. Exclusions are applied before filesystem work.
+scanner="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/identity_scan.py"
+if ! python3 -B "$scanner" "$old_path_pattern" "$old_token_pattern" "$old_word_pattern"; then
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -ne 0 ]; then
   exit 1

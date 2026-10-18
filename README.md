@@ -1,3 +1,21 @@
+Native verification checkpoint — 2026-10-18: all 4,180 tests pass across
+six complete selected Cargo targets: AOT 428, IR 1,599, IR integration 740, Engine 968,
+native templates 17 and realm modules 428. Every one of the 4,161 earlier passing
+IDs is retained; zero tests fail or are ignored. All 581 tooling tests also pass.
+[Literal inventories and lossless evidence](docs/rust-rewrite/native-core-4180-20261018.json)
+bind this result to recovery source `cb2904258`; compiler promotion awaits the fresh
+230-case CLI replay. Full workspace, pinned suites and task closure remain open.
+
+Batched source identity audit — 2026-10-18: the checker retains its Git
+input set, GNU grep expressions, binary handling and historical-proof admission,
+while batching content scans and importing provenance checks once. All 22 controls
+pass, including binary files, unusual filenames, symlinks and batch boundaries.
+On the same frozen full checkout, the candidate reproduced every original finding
+in 35.7 seconds; the earlier audit took 1,116.4 seconds at lower priority under
+different load. These are observed timings, not a controlled speedup ratio.
+Two historical reports now admit only their exact frozen hashes for host-path
+normalization. [Literal checks and evidence](docs/rust-rewrite/batched-identity-audit-20261018.json).
+
 Opt-in Rustc code generation — 2026-10-18: the verification compiler wrapper
 accepts `LILA_TEST_CODEGEN_JOBS=auto`. It keeps Cargo serial and supplies a private
 jobserver bounded by the finite cloud budget, CPU quota and inherited affinity.
