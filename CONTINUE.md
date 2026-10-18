@@ -20,24 +20,31 @@ passes. Push verified progress to main continuously; preserve all rejected and
 partial receipts with their actual source identities. Compiler `0ed` stays frozen
 in the primary checkout while source-bound native and CLI jobs run.
 
-Next: finish the ordinary release CLI build, then measure these four retained
-idle failures sequentially with original60s execution/300s compilation budgets,
-fresh four64MiB disk cache tiers per case and no trace overhead:
+The ordinary release build is complete (1,037.64 seconds), and all four prior
+idle failures have executed serially at the original limits. The strict object
+`__proto__` case passes; sloppy destructuring-class, strict nested-function and
+strict simple-function cases remain Crash/timeout. Full230 retention stays open.
+[Release checkpoint, exact inputs and trace](docs/rust-rewrite/release-idle-deadlines-20261018.json).
+A separate bounded release trace records140 module misses and10.51s inclusive
+module lookup across its first256 callbacks; it remains a timeout diagnostic.
 
-- sloppy-script:staging/sm/expressions/destructuring-array-default-class.js
-- strict-script:staging/sm/expressions/destructuring-array-default-function-nested.js
-- strict-script:staging/sm/expressions/destructuring-array-default-simple.js
-- strict-script:staging/sm/expressions/object-literal-__proto__.js
+Next: measure and verify the producer optimization that retires truly unused
+standalone function types without changing type indices or the canonical GC
+recursive group. Initial offline controls validate256 transformed templates,
+retiring39 types each with executable sections unchanged. Initial native timing
+is variable; no product speedup or deadline recovery is accepted yet. The
+feature-root auxiliary crate remains an unaccepted tooling prototype in the
+candidate checkout; its Cargo unit graphs match the selected ordinary roots,
+but actual build-time savings are not measured.
 
-This feedback precedes the long remaining integration sweep so any further
-performance repair can be chosen before another broad verification checkpoint.
 The bounded full-default coordinator has sealed13 whole passing scopes and
-holds the remaining98 scopes at an explicit release-feedback barrier. Resume
-that exact-source disjoint remainder if no product changes are required.
-Default metadata has111 scopes; expected totals are9529 native and11 doc tests.
-Retain all9526 original D6 native IDs plus the three added controls. Keep
-original fixtures, deadlines, cache limits and complete inventories. The whole
-language target remains pending despite two passing filtered entry controls.
+holds the remaining98 scopes at an explicit release-feedback barrier. Preserve
+and supersede that coordinator before advancing primary source for a product
+repair. Default metadata currently has111 scopes; expected totals are9529 native
+and11 doc tests. Retain all9526 original D6 native IDs plus the three added
+controls. Keep original fixtures, deadlines, cache limits and complete
+inventories. The whole language target remains pending despite two passing
+filtered entry controls.
 
 The1626 repair proof in
 `docs/rust-rewrite/annex-body-record-native-1626-20261018.json` includes allthree
@@ -69,7 +76,7 @@ oracle, supported-host and every task-specific acceptance gate below.
 - All230 original focused IDs have executed on D6; the original20 are no
   longer an unrun scope. Their earlier Store-limit failures are preserved as
   historical evidence. Current CLI closure must retain the whole230 inventory,
-  eliminate the four true idle deadline failures and resolve the three pinned
+  eliminate the three remaining true idle deadline failures and resolve the three pinned
   normative/fixture conflicts below without semantic remaps or weakened tests.
 - The pinned ECMA262 lexical algorithm explicitly returns an empty list for
   `LabelledItem : Statement`; the nested-label staging fixture expects a

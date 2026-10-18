@@ -1,3 +1,15 @@
+Release CLI checkpoint — 2026-10-18: compiler source
+`0ed857452a23437b85b061aa94b21628b3967bde` builds through the ordinary release
+profile. Four exact prior idle timeout cases were rerun serially with the
+original 60-second execution limits and fresh four 64 MiB disk cache tiers:
+**1 Success, 3 Crash timeout classifications**. The strict object-literal
+`__proto__` case passes; the three destructuring cases still time out. A separate
+bounded release trace records 10.51 seconds in module lookup across its first
+256 callbacks; its inclusive spans do not establish whole-case attribution or
+speedup. Full 230-case retention and full-suite acceptance remain pending.
+[Source, binary, original failures, snapshots and trace](docs/rust-rewrite/release-idle-deadlines-20261018.json).
+Refresh commands and original budgets are sealed in that report.
+
 Native library checkpoint — 2026-10-18: ordinary Cargo execution on
 compiler source `0ed857452a23437b85b061aa94b21628b3967bde` now passes 3,831
 checks across 13 whole scopes: all 12 normal workspace libraries and the
