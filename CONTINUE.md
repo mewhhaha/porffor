@@ -1,5 +1,22 @@
 # Continue Lila — 2026-10-18
 
+Verification tooling checkpoint — 2026-10-18: source
+`8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
+the whole IR (1,604) and native-template (20) targets, plus three explicitly
+filtered existing Engine cache-admission controls. All 610 tooling checks,
+eight source CI and three static checks pass; all 604 prior tooling IDs remain.
+Actual selected Cargo graphs match the ordinary workspace recursively and
+produce no unrequested test binaries. The verified zero-ID auxiliary remains
+outside the selected-suite denominator.
+
+The build-only runtime cache now has a measured current-generation hit. One
+direct replay of the exact Cargo-selected producer into a fresh output directory
+records 0.674s in native compilation and 8.839s for the whole producer; the
+ordinary preceding miss took 162.106s in native compilation. All three output
+files are byte-identical. The environment is explicitly reconstructed, not a
+captured live Cargo environment; no controlled end-to-end speedup is claimed.
+[Exact coverage and measurement](docs/rust-rewrite/feature-roots-runtime-cache-20261018.json).
+
 Native library checkpoint — 2026-10-18: ordinary Cargo execution on
 compiler source `0ed857452a23437b85b061aa94b21628b3967bde` now passes 3,831
 checks across 13 whole scopes: all 12 normal workspace libraries and the
@@ -17,8 +34,8 @@ cloud verification wrapper; exact scope and partition flags are in the evidence.
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes. Push verified progress to main continuously; preserve all rejected and
-partial receipts with their actual source identities. Compiler `0ed` stays frozen
-in the primary checkout while source-bound native and CLI jobs run.
+partial receipts with their actual source identities. Compiler `8ab` stays frozen
+in the primary checkout while its remaining source-bound native jobs run.
 
 The ordinary release build is complete (1,037.64 seconds), and all four prior
 idle failures have executed serially at the original limits. The strict object
@@ -33,8 +50,8 @@ Offline controls validate256 transformed templates, retiring39 types each with
 executable sections unchanged, but native timing did not demonstrate sufficient
 benefit. It is preserved as a private prototype; no product speedup or deadline
 recovery is accepted. The
-feature-root auxiliary crate now has opt-in driver integration; actual
-build-time savings are not yet measured.
+feature-root auxiliary crate now has verified opt-in driver integration;
+controlled end-to-end build-time savings are not yet measured.
 
 The original0ed full-default remainder advanced eight more whole scopes with
 19 passing checks (3850 checks across21 distinct whole scopes completed). Its
@@ -53,10 +70,13 @@ remains pending despite two passing filtered entry controls. All-features now
 also includes the empty auxiliary target; report its scope separately and never
 silently discard a Cargo-enabled target.
 
-Next: finish tooling/static/source preflights, ordinary focused native checks,
-and measured build-only runtime-cache replay. Publish verified tooling progress
-then run full current default/all-feature/all-target and original230 CLI/pinned
-gates. The unused-function-type producer candidate is preserved outside the
+Next: carry only the two whole current focused targets into the complete
+111-scope default run. Execute the remaining109 scopes in bounded batches with
+the verified narrow roots; rerun the whole Engine library despite its three
+passing filtered controls. Retain all9526 prior native IDs and the three added
+controls, plus11 docs. Then run ordinary all-features (113 Cargo-enabled scopes,
+including the empty auxiliary), all-target/CI and original230 CLI/pinned gates.
+The unused-function-type producer candidate is preserved outside the
 product tree: its native timing was too variable to establish sufficient
 benefit, so it is excluded from this batch.
 
@@ -76,9 +96,9 @@ original failed receipts remain. Current full230 retention must still execute.
 The debug trace records14.36s in module lookup across its first256 callbacks,
 140 exact module misses and237 Cranelift misses; these inclusive diagnostics
 are not release timing. The41MB runtime is byte-identical acrossa592/0ed, yet
-native runtime compilation missed its shared cache and took151s. A protected
-build-only module cache is a concrete future opportunity, not implemented or
-measured. Thin probes linked fresh ordinary IR/AOT libraries in3.49s/4.12s and
+native runtime compilation missed its shared cache and took151s. The protected
+build-only module cache is now implemented and measured above. Thin probes
+linked fresh ordinary IR/AOT libraries in3.49s/4.12s and
 passed in0.12s/1.78s, providing early feedback before ordinary native acceptance.
 
 After the current feedback, complete exact current native/default/all-features/

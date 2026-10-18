@@ -4,9 +4,14 @@ packages' native test harnesses. An empty auxiliary crate retains the ordinary
 workspace dependency features. Before compiling, the runner compares every
 selected root's complete Cargo unit graph, including transitive features,
 profiles and dependency edges, and rejects any difference. The auxiliary must
-list and execute zero tests and is recorded outside suite counts. Initial
-planning reduces the IR build from 12 harness roots to 2 and the two Engine
-integration builds from 14 to 3. Actual build-time savings remain unmeasured.
+list and execute zero tests and is recorded outside suite counts. Ordinary
+execution on source `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes all
+1,604 IR tests, all 20 native-template tests and three explicitly filtered
+existing cache-admission controls: **1,627 passes, zero failures or ignored**.
+The actual IR build has 2 harness roots instead of 12; the Engine build has
+3 instead of 13. Neither produces unrequested test binaries. All 610 tooling,
+eight source CI and three static checks also pass; all 604 prior tooling IDs
+remain. End-to-end build-time savings remain unmeasured.
 The mode currently supports default features and default package isolation;
 full-feature and custom graph verification use the ordinary runner.
 
@@ -15,7 +20,17 @@ runtime's native module cache separate from program cache churn. The override
 applies only to Cargo's runtime producer, retains the existing cache budget,
 and preserves Wasmtime's exact Wasm/configuration/target/compiler key. Fresh
 runtime emission, admission and current-source manifest publication still run.
-No native-cache speedup is claimed until measured.
+A direct replay of the exact Cargo-selected producer into a fresh output
+directory records a current-generation cache hit: native compilation takes
+0.674 seconds, versus 162.106 seconds for the preceding ordinary cache miss.
+The whole replay takes 8.839 seconds, and the package, native image and manifest
+are byte-for-byte identical. The replay uses an explicitly reconstructed
+environment; this is one build-phase measurement, not a controlled end-to-end
+speedup. Full workspace, CLI retention and conformance remain open.
+[Exact coverage, Cargo graphs and cache measurement](docs/rust-rewrite/feature-roots-runtime-cache-20261018.json).
+Refresh with `scripts/run_workspace_tests.py --selected-feature-roots
+--include-ignored` under the cloud wrapper; exact scopes and replay commands
+are sealed in that report.
 
 Release CLI checkpoint — 2026-10-18: compiler source
 `0ed857452a23437b85b061aa94b21628b3967bde` builds through the ordinary release
