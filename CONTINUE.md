@@ -1,69 +1,90 @@
 # Continue Lila — 2026-10-18
 
-Current broad baseline: frozen compiler `8ab4cdef70c0df1af9825a28aa2b266761024df1`
-has completed 45 whole scopes with 6,714 native passes and one structural
-failure; no ignored tests. The 248-test async target passes. The failed exact
-API census predates the RegExp source rewrite that removed two call sites.
-Main fixes both expectations, and direct native execution passes all three
-unchanged module IDs. Its original 151-test target failure remains retained;
-the whole target still needs a rerun on the repaired source.
+The old `8ab4cdef70c0df1af9825a28aa2b266761024df1` baseline is closed as a
+partial run: 49 whole scopes, 7,617 native passes, one retained census failure,
+zero ignored tests. Its 62 unexecuted scopes remain unverified. The active child
+was allowed to finish before stopping the old parent; do not restart that old
+compiler sweep. The closure is `target/partial-default-8ab-20261018-run2/receipt.json`.
+The known RegExp census repair retains all original IDs and needs the complete
+current-source structural rerun.
 [Repair and exact focused coverage](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
 
-Continue the remaining 66 baseline scopes with
-`../.lila-tools/continue-full-default-feature-roots-8ab-20261018-run4.py` (outside
-the repository). It carries completed exact inventories, retains failed ELFs
-and continues independent scopes after assertions. Receipts live under
-`target/full-default-feature-roots-8ab-20261018-run4/`. It must finish red while
-the old structural failure is retained; do not relabel that source as repaired.
+The primary checkout's ordinary run at
+`7e6d648c15b3b0f202a0c0589a188332ce1f869a` is complete: 1,892 passes,
+four diagnosed language-structure failures, zero ignored tests across five
+whole scopes. Passed whole targets are AOT library 434/434, Engine library
+972/972, language 319/319 and native program templates 20/20. The 151-test
+structure target has 147 passes/four stale method-location failures. The failed
+ELF must be byte-archived before replacement; preserve its original receipt.
+The old full-run queue correctly rejected this failed gate before any broad run.
 
-Isolated array-pattern candidate: three typed R kernels replace repeated
-step-value, elision and close code in P. They retain the exact generic physical
-kernels, iterator record, caller realm/environment/program and whole completion.
-Runtime layout 12 rejects prior helper layouts. Both R images and all 256
-matched retained raw P/templates validate. Total code sections shrink
-5,570,555 to 4,074,934 bytes; the representative largest body shrinks
-11,181 to 6,212 bytes. Product-config ABBA compilation of the same 140 unique
-P templates reduces cold mean cost 24.1% and warm stencil-store mean 22.4%,
-with fresh 64MiB stores. This excludes R startup and JavaScript execution.
+The candidate has a coherent test-only repair of six existing structure modules,
+a shared physical R/P test helper, and the consumer contract census. It checks
+the new facades as well as the unchanged inline protocol kernels, retaining all
+prior IDs and semantic assertions. It additionally traces resumed P bodies'
+retained-record loads to their actual imports, matching R exports and called
+helper bodies. Complete P/R signatures, cached fields and native DONE writes
+are checked at their real owners. No production Rust source changes here.
+The helper-local constructor is accounted for explicitly: 35 type tokens,
+11 constructor-text matches and two external helper-record constructors.
+These are source counts, not executions.
 
-Private real-Wasm foundation at `5c17f8460415637d5574948e36f340dbae35c7de`
-passes all 16 array-pattern module controls, retaining all 13 prior IDs and
-adding three controls for exhausted defaults, cached-next elision, caller-realm
-close errors and pending-throw precedence. The initial new cross-realm test
-used the wrong host method; the corrected `evalScript` version passes and its
-failed receipt stays preserved. The foundation links private opt0 Engine/AOT
-against the previous native dependency graph, including previous Intl identity
-bytes, and exercises fresh unbundled R. It does not accept ordinary Cargo,
-the whole language target, original deadlines or full candidate verification.
-All 610 tooling, eight source CI and three static checks passed at prior
-`745c20061d785e7781dd1dfe40ffd5566eaaf35d`; rerun the finalized source gates.
-Keep the candidate separate from main until ordinary native controls pass.
+Private direct Rust verification passes all 151 language and 115 async IDs.
+The original four-module diagnostic records 10 passes/seven failures before
+repair and 17 passes/zero failures after repair. Broader private async discovery
+then found three P-only operator-location assumptions (112 passes/three failures);
+its original failed ELF is archived byte-for-byte. The repaired four physical
+artifact IDs pass, followed by the complete 115-ID run in 22.16s using the same
+new ELF. Direct compilation uses existing native Cargo dependencies and is
+not ordinary Cargo acceptance. Preserve every rejected private launch receipt.
 
-The corrected Intl phase diagnostic passes the unchanged exact test in 261.35s
-cold and 39.74s warm. Inclusive R loading accounts for 204.56s cold versus
-4.89s warm; P loading accounts for 13.00s versus 0.12s. This adds no suite IDs.
-The initial diagnostic captured no passing output; retain it as an unattributed
-wall-time measurement. Both isolated derived caches were inventoried and retired;
-all receipts and raw traces remain.
-[Exact commands, traces and limits](docs/rust-rewrite/intl-profile-iteration-cost-20261018.json).
+The R12 array-pattern candidate moves step-value, elision and close into typed
+shared runtime kernels, retaining iterator record, caller realm/environment/
+program and whole completion. Both facades use the original execution-Realm
+resolver. Runtime layout 12 rejects prior helper layouts. Current-source private
+real-Wasm execution at `7e6d648c15b3b0f202a0c0589a188332ce1f869a` passes all 16
+array-pattern module IDs, including all 13 prior IDs, in 191.51s. This uses prior
+native dependency/Intl identity bytes and fresh unbundled R; it is not ordinary
+Cargo, original-deadline or full-suite acceptance. All 610 tooling, eight source
+CI and three static checks pass at that same source. Rebind final-source gates
+after the complete guard/documentation patch is committed.
 
-Review found the new facades bypassed the original execution-Realm resolver.
-Commit `d24c9e318` uses that same resolver before crossing the shared boundary,
-preserving helper, FunctionContext and Environment authority rather than assuming
-ambient CurrentRealm always agrees. The E1 waiting queues were superseded before
-any native execution; preserve their receipts and the supersession record.
-The earlier ABBA and 16-control results remain bound to their original sources.
+Historical source `2d605743e4f759723a97b5e2209069affcc6b330` emits valid R and
+all 256 matched retained P/templates. Total P code sections shrink 5,570,555 to
+4,074,934 bytes; the representative largest body shrinks 11,181 to 6,212 bytes.
+Matched ABBA native compilation of 140 unique P templates reduces cold mean
+24.1% and warm stencil-store mean 22.4%, with fresh 64MiB stores. These exclude
+R startup and JavaScript execution and do not establish revised-source speed.
+The earlier wrong cross-realm host-method fixture and failed receipt remain;
+corrected `evalScript` controls pass. No fixture or original deadline was weakened.
 
-The replacement ordinary pipeline waits for complete 8ab discovery and finalized
-source gates, verifies five whole native scopes (1,896 IDs), builds the real
-release CLI, and repeats all four original idle cases at their original limits.
-Only if these gates pass,
-`../.lila-tools/run-full-default-array-iterator-realm-20261018-run1.py` carries
-those five exact scopes into a fresh current-source 111-scope default run.
-It partitions the eight remaining large Engine targets across three workers;
-all 9,532 native and 11 documentation IDs must execute with zero ignored tests.
-No baseline result is carried across a compiler source change. An unexpected
-gate failure stops advancement and preserves the literal result for repair.
+Archive the completed ordinary probe's failed ELF and seal its passed siblings,
+then advance the primary once to this complete guard batch. The successor
+`../.lila-tools/advance-array-iterator-guards-20261018-run1.py` requires final-source
+preflights, runs the two affected whole Cargo scopes (266 IDs), builds the ordinary
+release CLI, and executes all four original idle cases at their original
+60s execution/300s compilation limits with fresh four 64MiB disk cache tiers.
+Only after those gates pass, execute the current full default plan once:
+111 scopes, 9,532 native IDs and 11 documentation IDs, all zero ignored. Carry
+only sealed whole scopes from the same exact source; retain failed receipts.
+Use three disjoint workers for large Engine targets. The successor is
+`../.lila-tools/run-full-default-array-iterator-guards-20261018-run1.py`: carry only
+the two same-source guard scopes, then run the remaining 109 scopes. Engine and
+language execute in that final full run, avoiding another duplicate focused
+Engine run. Do not revive the rejected 7e6 full-run helper after changing source. Full all-features, full230 retention,
+pinned conformance, supported-host/task gates and final cleanup remain open.
+
+Hosted Intl run 39148992811 reports both hosts and comparison successful at its
+actual E1 source. The one ordinary artifact download returned Forbidden from
+the configured Azure artifact host and admitted zero payload files. Metadata
+success does not establish supported-host acceptance; preserve exact source
+identities and require the payload verification gate. Local work continues.
+
+The corrected Intl diagnostic passes one unchanged exact test in 261.35s cold
+and 39.74s warm. Inclusive R loading accounts for 204.56s/4.89s and P loading
+13.00s/0.12s. Existing strong two-entry runtime retention and exact module/function
+reuse already work; do not add a duplicate LRU. These repetitions add no suite IDs.
+[Commands, traces and limits](docs/rust-rewrite/intl-profile-iteration-cost-20261018.json).
 
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
@@ -99,8 +120,8 @@ cloud verification wrapper; exact scope and partition flags are in the evidence.
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes. Push verified progress to main continuously; preserve all rejected and
-partial receipts with their actual source identities. Compiler `8ab` stays frozen
-in the primary checkout while its remaining source-bound native jobs run.
+partial receipts with their actual source identities. Keep the primary checkout frozen while any source-bound native job runs;
+close the current receipt before advancing to the complete candidate batch.
 
 The ordinary release build is complete (1,037.64 seconds), and all four prior
 idle failures have executed serially at the original limits. The strict object

@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../../src/control_flow.rs");
+const ARRAY_ITERATOR_HELPERS_SOURCE: &str =
+    include_str!("../../src/control_flow/array_iterator_helpers.rs");
 const RESUMABLE_SYNC_FOR_OF_ITERATOR_SOURCE: &str =
     include_str!("../../src/control_flow/resumable_sync_for_of_iterator.rs");
 const ARRAY_SOURCE: &str = include_str!("../../src/builtins/array.rs");
@@ -156,12 +158,33 @@ fn shared_iterator_operations_borrow_consumer_and_project_the_error_realm() {
 
     let step = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_sync_iterator_step_into(",
+        "    fn emit_sync_iterator_step_inline_into(",
         "    fn prepare_destructuring_target<'b>(",
     );
     assert!(step.contains("iterator: &OwnedSyncIterator,"));
     assert_eq!(step.matches("&iterator.consumer,").count(), 2);
     assert!(!step.contains("consumer.clone()"));
+    let shared_call = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    pub(super) fn emit_array_iterator_step_call(",
+        "    pub(super) fn emit_array_iterator_close_call(",
+    );
+    assert!(shared_call.contains("iterator: &OwnedSyncIterator,"));
+    assert!(shared_call.contains("self.emit_execution_realm(function)"));
+    assert!(shared_call.contains("ArrayIteratorStepValueArguments::new("));
+    assert!(shared_call.contains("ArrayIteratorElisionArguments::new("));
+    assert!(!shared_call.contains("self.load_current_realm("));
+    assert!(!shared_call.contains("iterator.clear("));
+    let shared_close = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    pub(super) fn emit_array_iterator_close_call(",
+        "    fn own_array_iterator_parameter(",
+    );
+    assert!(shared_close.contains("iterator: &OwnedSyncIterator,"));
+    assert!(shared_close.contains("self.emit_execution_realm(function)"));
+    assert!(shared_close.contains("ArrayIteratorCloseArguments::new("));
+    assert!(!shared_close.contains("self.load_current_realm("));
+    assert!(!shared_close.contains("iterator.clear("));
     let projection = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn emit_sync_iterator_protocol_type_error(",
@@ -370,6 +393,7 @@ fn consumer_routes_and_runtime_witness_are_a_closed_census() {
         "fn emit_get_sync_iterator(",
         "fn emit_get_sync_iterator_direct(",
         "fn emit_sync_iterator_step_into(",
+        "fn emit_sync_iterator_step_inline_into(",
         "fn emit_sync_iterator_protocol_type_error(",
     ] {
         assert_eq!(

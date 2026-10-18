@@ -100,8 +100,6 @@ fn inspect_native_pattern_artifact(source: &str) {
     let (cell, record) = cells[0];
     let mut record_loads = 0;
     let mut record_publications_and_retirements = 0;
-    let mut cached_iterator_and_next = [0, 0];
-    let mut done_writes = 0;
     for payload in Parser::new(0).parse_all(&artifact.bytes) {
         if let Payload::CodeSectionEntry(body) = payload.unwrap() {
             for instruction in body.get_operators_reader().unwrap() {
@@ -114,16 +112,6 @@ fn inspect_native_pattern_artifact(source: &str) {
                         struct_type_index,
                         field_index: 11,
                     } if struct_type_index == cell => record_publications_and_retirements += 1,
-                    Operator::StructGet {
-                        struct_type_index,
-                        field_index,
-                    } if struct_type_index == record && field_index < 2 => {
-                        cached_iterator_and_next[field_index as usize] += 1
-                    }
-                    Operator::StructSet {
-                        struct_type_index,
-                        field_index: 2,
-                    } if struct_type_index == record => done_writes += 1,
                     _ => {}
                 }
             }
@@ -137,6 +125,8 @@ fn inspect_native_pattern_artifact(source: &str) {
         record_publications_and_retirements >= 2,
         "actual record edge is published and retired"
     );
+    let (cached_iterator_and_next, done_writes) =
+        super::array_iterator_runtime_ownership::called_iterator_operations(&artifact, cell, record);
     assert!(
         cached_iterator_and_next.iter().all(|&count| count > 0),
         "both actual cached fields are consumed"

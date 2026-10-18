@@ -5,6 +5,7 @@
 //! a few area targets cost far less disk and link time than one target per file. Each module
 //! is one former test file; run just one with `-- <module>::`.
 
+mod array_iterator_runtime_ownership;
 mod async_array_destructuring_structure;
 mod async_disposable_stack_dispose_completion_kind_structure;
 mod async_for_in_enumeration_structure;

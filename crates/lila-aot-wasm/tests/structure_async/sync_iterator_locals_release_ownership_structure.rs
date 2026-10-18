@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../../src/control_flow.rs");
+const ARRAY_ITERATOR_HELPERS_SOURCE: &str =
+    include_str!("../../src/control_flow/array_iterator_helpers.rs");
 const ARRAY_SOURCE: &str = include_str!("../../src/builtins/array.rs");
 const MATH_SOURCE: &str = include_str!("../../src/builtins/math/sum_precise.rs");
 const CONTRACT: &str = include_str!(
@@ -144,10 +146,24 @@ fn acquisition_publishes_a_complete_record_before_consuming_cleanup() {
 fn all_protocol_operations_borrow_before_the_owner_is_consumed() {
     let close = bounded(
         CONTROL_FLOW_SOURCE,
-        "    pub(crate) fn emit_sync_iterator_close(",
+        "    fn emit_sync_iterator_close_inline(",
         "    pub(crate) fn emit_get_sync_iterator(",
     );
     assert!(close.contains("iterator: &OwnedSyncIterator"));
+    let close_facade = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    pub(crate) fn emit_sync_iterator_close(",
+        "    pub(super) fn emit_sync_iterator_step_into(",
+    );
+    assert!(close_facade.contains("iterator: &OwnedSyncIterator,"));
+    let shared_branch = bounded(
+        close_facade,
+        "if matches!(iterator.consumer, SyncIteratorConsumer::ArrayDestructuring) {",
+        "\n        }",
+    );
+    assert!(shared_branch.contains("return self.emit_array_iterator_close_call("));
+    assert!(close_facade.contains("self.emit_sync_iterator_close_inline("));
+    assert!(!close_facade.contains("iterator.clear("));
     let steps = bounded(
         CONTROL_FLOW_SOURCE,
         "    pub(crate) fn emit_sync_iterator_step_value(",
@@ -182,13 +198,24 @@ fn all_protocol_operations_borrow_before_the_owner_is_consumed() {
 #[test]
 fn release_ownership_contract_and_recursive_census_remain_closed() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "OwnedSyncIterator"), 29);
-    // Definition + impl + seven in-family constructors; outside helpers can
-    // only admit a typed record through the fixed helper-consumer constructor.
+    assert_eq!(count_in_rust_sources(&source_root, "OwnedSyncIterator"), 35);
+    assert_eq!(ARRAY_ITERATOR_HELPERS_SOURCE.matches("OwnedSyncIterator").count(), 6);
+    // Definition + impl + seven existing in-family constructors, plus the
+    // shared array helper's return signature and local record constructor.
+    // Outside helpers still admit records through the fixed consumer constructor.
     assert_eq!(
         count_in_rust_sources(&source_root, "OwnedSyncIterator {"),
-        9
+        11
     );
+    let helper_owner = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    fn own_array_iterator_parameter(",
+        "    pub(crate) fn compile_array_iterator_step_value_helper(",
+    );
+    assert!(helper_owner.contains("record: &GcLocal<IteratorRecord>,"));
+    assert!(helper_owner.contains(".reserve_gc_local(function)"));
+    assert!(helper_owner.contains(".initialize(record.load(schema, function), function)"));
+    assert!(helper_owner.contains("consumer: SyncIteratorConsumer::ArrayDestructuring,"));
     assert_eq!(
         count_in_rust_sources(&source_root, "OwnedSyncIterator::from_helper_record("),
         2

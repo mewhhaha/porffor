@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../../src/control_flow.rs");
+const ARRAY_ITERATOR_HELPERS_SOURCE: &str =
+    include_str!("../../src/control_flow/array_iterator_helpers.rs");
 const ARRAY_DESTRUCTURING_SOURCE: &str =
     include_str!("../../src/control_flow/array_destructuring.rs");
 const CLI_ARRAY_TESTS: &str = include_str!("../../../lila-cli/tests/cli/array.rs");
@@ -65,7 +67,7 @@ fn step_kind_is_the_exact_private_no_capability_domain() {
     // borrowed output projection, so elision cannot acquire a value read.
     let step = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_sync_iterator_step_into(",
+        "    fn emit_sync_iterator_step_inline_into(",
         "    fn prepare_destructuring_target<'b>(",
     );
     let signature = bounded(step, "&mut self,", ") -> Result<(), EmitError> {");
@@ -73,6 +75,20 @@ fn step_kind_is_the_exact_private_no_capability_domain() {
     assert!(signature.contains("value: Option<&ValueLocals>,"));
     assert!(!signature.contains("read_value: bool"));
     assert_eq!(step.matches("if let Some(output) = value {").count(), 1);
+    let facade = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    pub(super) fn emit_sync_iterator_step_into(",
+        "    pub(super) fn emit_array_iterator_step_call(",
+    );
+    assert!(facade.contains("iterator: &OwnedSyncIterator,"));
+    assert!(facade.contains("value: Option<&ValueLocals>,"));
+    let shared_branch = bounded(
+        facade,
+        "if matches!(iterator.consumer, SyncIteratorConsumer::ArrayDestructuring) {",
+        "\n        }",
+    );
+    assert!(shared_branch.contains("return self.emit_array_iterator_step_call("));
+    assert!(facade.contains("self.emit_sync_iterator_step_inline_into("));
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for retired in [
         "DestructuringIteratorStepKind",
@@ -82,6 +98,10 @@ fn step_kind_is_the_exact_private_no_capability_domain() {
     }
     assert_eq!(
         count_in_rust_sources(&source_root, "fn emit_sync_iterator_step_into("),
+        1
+    );
+    assert_eq!(
+        count_in_rust_sources(&source_root, "fn emit_sync_iterator_step_inline_into("),
         1
     );
 }
@@ -187,7 +207,7 @@ fn exactly_three_array_element_producers_select_their_step_kind() {
 fn step_protocol_failures_use_the_typed_authority_after_marking_done() {
     let consumer = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_sync_iterator_step_into(",
+        "    fn emit_sync_iterator_step_inline_into(",
         "    fn prepare_destructuring_target<'b>(",
     );
     assert_eq!(
@@ -227,7 +247,7 @@ fn step_protocol_failures_use_the_typed_authority_after_marking_done() {
     let publication = bounded(
         CONTROL_FLOW_SOURCE,
         "    fn emit_sync_iterator_step(",
-        "    fn emit_sync_iterator_step_into(",
+        "    fn emit_sync_iterator_step_inline_into(",
     );
     positions_in_order(
         publication,
@@ -258,7 +278,7 @@ fn step_kind_exhaustively_owns_the_iterator_value_read() {
     assert!(!elision.contains("ValueLocals"));
     let consumer = bounded(
         CONTROL_FLOW_SOURCE,
-        "    fn emit_sync_iterator_step_into(",
+        "    fn emit_sync_iterator_step_inline_into(",
         "    fn prepare_destructuring_target<'b>(",
     );
     let projection = bounded(

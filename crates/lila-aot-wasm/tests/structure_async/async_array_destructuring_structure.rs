@@ -102,8 +102,6 @@ fn inspect_async_pattern_artifact(source: &str, requires_reference: bool) {
     let (cell, iterator) = cells[0];
     let mut retained_loads = [0, 0];
     let mut retained_writes = [0, 0];
-    let mut cached_fields = [0, 0];
-    let mut done_writes = 0;
     for payload in Parser::new(0).parse_all(&artifact.bytes) {
         if let Payload::CodeSectionEntry(body) = payload.unwrap() {
             for instruction in body.get_operators_reader().unwrap() {
@@ -120,16 +118,6 @@ fn inspect_async_pattern_artifact(source: &str, requires_reference: bool) {
                     } if struct_type_index == cell && (10..=11).contains(&field_index) => {
                         retained_writes[(field_index - 10) as usize] += 1;
                     }
-                    Operator::StructGet {
-                        struct_type_index,
-                        field_index,
-                    } if struct_type_index == iterator && field_index < 2 => {
-                        cached_fields[field_index as usize] += 1;
-                    }
-                    Operator::StructSet {
-                        struct_type_index,
-                        field_index: 2,
-                    } if struct_type_index == iterator => done_writes += 1,
                     _ => {}
                 }
             }
@@ -143,6 +131,8 @@ fn inspect_async_pattern_artifact(source: &str, requires_reference: bool) {
         retained_writes[1] >= 2,
         "actual iterator edge is published and retired"
     );
+    let (cached_fields, done_writes) =
+        super::array_iterator_runtime_ownership::called_iterator_operations(&artifact, cell, iterator);
     assert!(
         cached_fields.iter().all(|&count| count > 0),
         "cached iterator and next are consumed"

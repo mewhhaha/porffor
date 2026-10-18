@@ -2,6 +2,8 @@ use std::fs;
 use std::path::Path;
 
 const CONTROL_FLOW_SOURCE: &str = include_str!("../../src/control_flow.rs");
+const ARRAY_ITERATOR_HELPERS_SOURCE: &str =
+    include_str!("../../src/control_flow/array_iterator_helpers.rs");
 const ARRAY_DESTRUCTURING_SOURCE: &str =
     include_str!("../../src/control_flow/array_destructuring.rs");
 const RESUMABLE_ARRAY_SOURCE: &str =
@@ -99,8 +101,13 @@ fn protocol_projection_borrows_the_bundle_without_transferring_its_release_owner
         "emit_sync_iterator_step_without_value",
         "emit_sync_iterator_close",
     ] {
+        let source = if method == "emit_sync_iterator_close" {
+            ARRAY_ITERATOR_HELPERS_SOURCE
+        } else {
+            CONTROL_FLOW_SOURCE
+        };
         let signature = bounded(
-            CONTROL_FLOW_SOURCE,
+            source,
             &format!("    pub(crate) fn {method}("),
             ") -> Result<(), EmitError> {",
         );

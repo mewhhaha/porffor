@@ -40,7 +40,7 @@ propagates acquisition/step abrupts directly.
 Literal token counts below are defined across backend `src/**/*.rs`, including
 declarations; they do not count runtime executions or establish acceptance:
 
-- 103 `SyncIteratorConsumer` tokens, 73 in `control_flow.rs`;
+- 106 `SyncIteratorConsumer` tokens, 73 in `control_flow.rs`;
 - 70 `SyncIteratorProtocolError` tokens: declaration, projector parameter,
   two acquisition error constructors, 64 mapping rows and two step constructors;
 - 17 `emit_get_sync_iterator(` occurrences: one declaration and sixteen

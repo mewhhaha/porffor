@@ -9,11 +9,19 @@ diagnostics reduce cold Module compilation from 16.14–17.67s to 12.75–12.91s
 warm stencil-store compilation falls from 8.78–8.92s to 6.74–7.00s. These phases
 exclude R startup and JavaScript execution. A private foundation now passes
 all 16 existing/new array-pattern module controls through real Wasm, retaining
-all 13 prior IDs at source `5c17f8460415637d5574948e36f340dbae35c7de`.
-The finalized facades now use the existing execution-Realm resolver; those
-measurements do not establish the revised source's performance or acceptance.
+all 13 prior IDs at current source `7e6d648c15b3b0f202a0c0589a188332ce1f869a`
+in 191.51s. The facades use the original execution-Realm resolver. Historical
+P-only timing does not establish revised-source performance or acceptance.
 The private foundation uses the prior native dependency graph and fresh unbundled
-R. Ordinary Cargo native execution and original-deadline retention are pending.
+R. The ordinary five-scope probe finishes with 1,892 passes and four stale
+method-location assertions: AOT library 434/434, Engine library 972/972,
+language 319/319 and native templates 20/20 pass completely. Six structure
+modules now check the new locations and actual P-to-R call/record ownership,
+with every original ID retained. Private direct Rust runs pass the complete
+151-test language and 115-test async targets; their full ordinary Cargo reruns
+and original-deadline retention remain pending. Refresh through
+`scripts/run_workspace_tests.py --include-ignored` under the cloud wrapper;
+these controls do not establish full-suite acceptance.
 
 Intl verification cost — 2026-10-18: one unchanged selected-profile native test
 passes in 261.35s with a fresh default-budget cache and 39.74s on a same-cache
