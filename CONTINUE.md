@@ -1,3 +1,9 @@
+Generated Intl provenance refresh — 2026-10-18: deterministic source
+identities now include the Cargo test-profile alignment. The pinned source
+archives, catalogue data and selected semantics remain unchanged. The full
+read-only preflight previously exposed eight exact reproducibility failures;
+the original receipt is retained and current-head verification follows.
+
 Trace source guard — 2026-10-18: the default-workspace source gate now
 recognizes the bounded cache-counter protocol alongside phase timings. It
 requires exact numeric fields, explicit process scope, callback ownership and
