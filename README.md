@@ -1,3 +1,9 @@
+Trace source guard — 2026-10-18: the default-workspace source gate now
+recognizes the bounded cache-counter protocol alongside phase timings. It
+requires exact numeric fields, explicit process scope, callback ownership and
+optional cache acquisition; disabled tracing still reads no cache counters.
+Ordinary native execution remains pending.
+
 CLI Unsupported verdict control — 2026-10-18: an older authored fixture now
 reaches supported argument evaluation and produces a correct ReferenceError.
 Its replacement exercises the existing external-caller import capability
