@@ -1,3 +1,10 @@
+Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
+checks each producer first and regenerates only stale output, then rechecks all
+13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.
+Five focused controls pass; an actual refresh preserves the bytes, modes, inodes
+and modification times of all 5,858 checked-out tracked files. No Cargo build-time
+saving is claimed. [Exact checks and lossless evidence](docs/rust-rewrite/intl-idempotent-refresh-20261018.json).
+
 Verification checkpoint (2026-10-18): the ABI10/code-sharing candidate remains
 rejected: the six native inventories contain 4,180 IDs, with 4,159 completed
 passes, three failures and 18 unreported Engine IDs after a 900-second stall.

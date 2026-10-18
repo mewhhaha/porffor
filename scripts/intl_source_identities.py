@@ -28,7 +28,15 @@ def refresh(root, recipes=RECIPES, write=False):
     results = []
     for name in recipes:
         command = [sys.executable, '-B', str(root / 'scripts' / name)]
-        if not write:
+        if write:
+            checked = subprocess.run([*command, '--check'], cwd=root,
+                                     text=True, capture_output=True)
+            if checked.returncode == 0:
+                # Some generators rewrite identical output. Keep current
+                # timestamps so Cargo does not rebuild unchanged consumers.
+                results.append((name, checked))
+                continue
+        else:
             command.append('--check')
         child = subprocess.run(command, cwd=root, text=True, capture_output=True)
         results.append((name, child))
@@ -52,7 +60,7 @@ def main():
     parser.add_argument('--repository', type=Path,
                         default=Path(__file__).resolve().parents[1])
     parser.add_argument('--write', action='store_true',
-                        help='Regenerate identities, then verify every recipe again.')
+                        help='Regenerate stale identities, then verify every recipe again.')
     args = parser.parse_args()
     root = args.repository.resolve()
     if report(refresh(root, write=args.write)):

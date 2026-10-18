@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -60,6 +61,39 @@ output.write_bytes(expected)
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0][1].returncode, 7)
             self.assertFalse((root / 'consumer').exists())
+
+    def test_current_outputs_keep_their_bytes_inodes_and_timestamps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, recipes = self.fixture(directory)
+            MODULE.refresh(root, recipes, write=True)
+            before = {}
+            for name in ('identity', 'consumer'):
+                path = root / name
+                os.utime(path, ns=(1234567890123456789, 1234567890123456789))
+                before[name] = (path.read_bytes(), path.stat().st_ino,
+                                path.stat().st_mtime_ns)
+            results = MODULE.refresh(root, recipes, write=True)
+            self.assertEqual([child.returncode for _, child in results], [0, 0])
+            for name, identity in before.items():
+                path = root / name
+                self.assertEqual((path.read_bytes(), path.stat().st_ino,
+                                  path.stat().st_mtime_ns), identity)
+
+    def test_stale_dependent_refreshes_without_touching_its_current_producer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, recipes = self.fixture(directory)
+            MODULE.refresh(root, recipes, write=True)
+            producer = root / 'identity'
+            os.utime(producer, ns=(1234567890123456789, 1234567890123456789))
+            before = (producer.stat().st_ino, producer.stat().st_mtime_ns)
+            (root / 'consumer').write_bytes(b'stale output')
+            results = MODULE.refresh(root, recipes, write=True)
+            self.assertEqual([child.returncode for _, child in results], [0, 0])
+            self.assertEqual((root / 'consumer').read_bytes(), b'new source bound')
+            self.assertEqual((producer.stat().st_ino, producer.stat().st_mtime_ns),
+                             before)
+            self.assertTrue(all(child.returncode == 0 for _, child in
+                                MODULE.refresh(root, recipes)))
 
 
 if __name__ == '__main__':
