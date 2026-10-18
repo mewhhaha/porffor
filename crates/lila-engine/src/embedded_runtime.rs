@@ -69,7 +69,7 @@ impl EmbeddedNativeRuntime {
     }
 
     fn matches(&self, runtime: &RuntimeArtifact, mode: WasmNativeCompilationMode) -> bool {
-        self.manifest.modes.execution == mode
+        self.manifest.modes.execution.contains(mode)
             && runtime.key().as_bytes() == &self.manifest.runtime_key
     }
 
@@ -93,7 +93,7 @@ impl EmbeddedNativeRuntime {
         // this actual RuntimeArtifact key. No caller-supplied native bytes reach
         // this call. deserialize owns its copied mapping in the supplied
         // execution Engine. The admitted modes explicitly allow optimized R
-        // with Fast P; no separate build Engine survives or reaches the cache.
+        // with Fast or SizeOptimized P; no build Engine survives in the cache.
         // Wasmtime still checks version/features/collector/tunables/ISA.
         match unsafe { Module::deserialize(engine, native()) } {
             Ok(module) => {
@@ -126,11 +126,13 @@ pub(super) fn load_native(
     runtime: &RuntimeArtifact,
     mode: WasmNativeCompilationMode,
 ) -> Option<Module> {
-    // Unsupported modes and different raw R keys do not touch the large
+    // Unadmitted modes and different raw R keys do not touch the large
     // embedded images. This cheap metadata check can only reject a candidate;
     // the private authority still validates all manifest fields and digests.
     let candidate = manifest::Manifest::decode(manifest_bytes())?;
-    if candidate.modes.execution != mode || runtime.key().as_bytes() != &candidate.runtime_key {
+    if !candidate.modes.execution.contains(mode)
+        || runtime.key().as_bytes() != &candidate.runtime_key
+    {
         return None;
     }
     static BUNDLE: OnceLock<Option<EmbeddedNativeRuntime>> = OnceLock::new();

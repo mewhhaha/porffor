@@ -1,3 +1,11 @@
+Embedded runtime reuse repair (2026-10-18, authored): the version-four native
+manifest explicitly supports both Fast and SizeOptimized execution Engines for
+the same immutable optimized runtime image. Source, target, configuration, keys,
+digests, Wasmtime compatibility and mode-specific retention remain required.
+A diagnostic of the existing Cargo image loads into both real product Engines
+and rejects incompatible epoch settings. Current-source native acceptance is
+pending; the earlier UTF-16 stall and rejected batch remain recorded.
+
 Native-source throughput repair (2026-10-18, authored): immutable runtime and
 program GC type declarations share storage, while module globals remain fresh.
 Native template planning collects ownership and signature facts in its existing
