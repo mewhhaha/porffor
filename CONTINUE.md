@@ -23,6 +23,25 @@ native compilation 24.1% cold and 22.4% with warm stencil stores. This excludes
 R startup and JavaScript execution; ordinary native and original-deadline gates
 remain open. Keep it separate from main until those controls pass.
 
+The corrected Intl phase diagnostic passes the unchanged exact test in 261.35s
+cold and 39.74s warm. Inclusive R loading accounts for 204.56s cold versus
+4.89s warm; P loading accounts for 13.00s versus 0.12s. This adds no suite IDs.
+The initial diagnostic captured no passing output; retain it as an unattributed
+wall-time measurement. Both isolated derived caches were inventoried and retired;
+all receipts and raw traces remain.
+[Exact commands, traces and limits](docs/rust-rewrite/intl-profile-iteration-cost-20261018.json).
+
+The queued ordinary pipeline waits for complete 8ab discovery, then advances
+to frozen candidate `e1c868b90b54c3133cff02fb831cc0d010f211a3`, verifies five
+whole native scopes (1,896 IDs), builds the real release CLI, and repeats all
+four original idle cases at their original limits. Only if these gates pass,
+`../.lila-tools/run-full-default-array-iterator-e1c86-20261018-run1.py` carries
+those five exact scopes into a fresh current-source 111-scope default run.
+It partitions the eight remaining large Engine targets across three workers;
+all 9,532 native and 11 documentation IDs must execute with zero ignored tests.
+No baseline result is carried across a compiler source change. An unexpected
+gate failure stops advancement and preserves the literal result for repair.
+
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
 the whole IR (1,604) and native-template (20) targets, plus three explicitly

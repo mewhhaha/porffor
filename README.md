@@ -1,3 +1,13 @@
+Intl verification cost — 2026-10-18: one unchanged selected-profile native test
+passes in 261.35s with a fresh default-budget cache and 39.74s on a same-cache
+repeat. Inclusive runtime-module loading accounts for 204.56s cold and 4.89s
+warm; program-module loading accounts for 13.00s and 0.12s. Exact profile and
+function-stencil reuse already work. These are diagnostic repetitions, adding
+no suite coverage or whole-suite speedup claim. The next full run will partition
+large Engine targets across three workers and retain only whole same-source
+passing scopes; fixtures, deadlines and cache identity checks remain unchanged.
+[Commands, raw traces and measurement limits](docs/rust-rewrite/intl-profile-iteration-cost-20261018.json).
+
 RegExp structural census — 2026-10-18: the earlier linear-time source rewrite
 removed one string-slice call and one code-unit accessor call. Their exact
 reachability counts are corrected to 35 and 46. All three checks in that module
@@ -128,23 +138,26 @@ Trace source guard — 2026-10-18: the default-workspace source gate now
 recognizes the bounded cache-counter protocol alongside phase timings. It
 requires exact numeric fields, explicit process scope, callback ownership and
 optional cache acquisition; disabled tracing still reads no cache counters.
-Ordinary native execution remains pending.
+Subsequent bounded native traces are recorded in the release and module-cost
+checkpoints above; full workspace acceptance remains open.
 
 CLI Unsupported verdict control — 2026-10-18: an older authored fixture now
 reaches supported argument evaluation and produces a correct ReferenceError.
 Its replacement exercises the existing external-caller import capability
 boundary, retaining the native ID and all run/shard verdict and snapshot checks.
-Corrected ordinary D6 CLI checks pass for both run and shard; successor native
-verification remains pending.
+Corrected ordinary D6 CLI checks pass for both run and shard; the successor
+checks also pass in the 173-check focused repair checkpoint above. Complete
+current CLI retention remains pending.
 
 NumberFormat authored control — 2026-10-18: the broader D6 native discovery
 finds an older fixture that contradicts the explicitly selected legacy chaining
 policy. Its correction preserves the existing native ID and primitive-option
 checks, and checks wrapper identity, fallback descriptors, unwrapping and the
 direct parts-brand boundary. Product code and pinned Test262 fixtures are
-unchanged; successor native verification remains pending.
+unchanged. The successor native control passes in the 173-check focused repair
+checkpoint above; complete current workspace acceptance remains open.
 
-RegExp source construction — 2026-10-18 (ordinary verification pending): the
+RegExp source construction — 2026-10-18 (focused ordinary verification passed): the
 full D6 native run exposes a 30-second timeout on the unchanged long Unicode
 escape fixture. Frozen-CLI prefix diagnostics finish string creation and RegExp
 construction in about3–4seconds, while reading `.source` exceeds90seconds. Its
@@ -152,9 +165,11 @@ getter copies a growing string for each code unit. The candidate counts escaped
 UTF-16 output once and fills one exact-size construction only when needed,
 preserving original source, slash/class state, line escapes and surrogate units.
 The original large regression remains unchanged; existing roundtrip controls
-gain two mixed escape cases. Native execution and measured gains remain pending.
+gain two mixed escape cases. The unchanged regression passes in 8.35s under its
+original 30-second limit in the 173-check focused checkpoint above. Complete
+current workspace and CLI retention remain open.
 
-Annex B arguments repair — 2026-10-18 (ordinary verification pending): the
+Annex B arguments repair — 2026-10-18 (focused ordinary verification passed): the
 broader D6 run exposes two unchanged Engine regressions. Eligibility incorrectly
 treated the implicit arguments binding as a formal parameter. The pinned
 FunctionDeclarationInstantiation checks `paramNames`, while implicit arguments
@@ -162,21 +177,24 @@ belongs to the separate `paramBindings` list. The candidate removes that
 exclusion, retains actual formal and lexical collision guards, and preserves
 evaluation-time writes to the correct variable environment. Existing Engine
 fixtures remain unchanged; IR controls now check both copy eligibility and exact
-owner targets. Native execution and the full workspace remain unaccepted.
+owner targets. Subsequent ordinary native execution passes in the 1,626-check
+body-record repair checkpoint above; full workspace acceptance remains open.
 
 Workspace ownership checks — 2026-10-18 (ordinary verification pending): seven
 failures in the frozen D6 workspace discovery use superseded entry-role,
 owner-binding and ProgramInstance ABI assertions. The repaired checks preserve
 all existing test IDs, typed hooks and owner-ordering controls. All 13 focused
-structure diagnostics pass against the current test files; the product-linked
-ABI test and complete workspace remain pending. The batch also aligns the small
+structure diagnostics pass against the current test files. The product-linked
+ABI control also passes in the 173-check focused checkpoint above; complete
+workspace acceptance remains pending. The batch also aligns the small
 `cow-utils` test dependency's debug info across normal and proc-macro contexts;
 unit-graph reuse is verified, while actual build-time savings remain unmeasured.
 The D6 discovery is terminal with14 literal native failures. No full-suite acceptance is claimed.
 Two later Engine structure failures use the old inline unit-test boundary;
 their repaired three-test scope also passes. Optional bounded native tracing now
 distinguishes module hits from Cranelift function-cache activity, with explicit
-process-wide counter scope. Ordinary compilation and trace execution are pending.
+process-wide counter scope. Subsequent ordinary compilation and native traces
+are recorded in the checkpoints above; full workspace acceptance remains open.
 
 Literal eval dispatch candidate — 2026-10-18 (verification pending): a first
 argument that is an actual IR string literal now selects only prepared sources
