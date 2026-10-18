@@ -1,65 +1,68 @@
 # Continue Lila — 2026-10-18
 
-Annex B body-record repair — 2026-10-18: ordinary native execution on
-compiler source `0ed857452a23437b85b061aa94b21628b3967bde` passes 1,626
-checks with zero failures or ignored tests: all 1,604 IR tests, all 20 native
-program-template tests, and both explicitly filtered Annex B entry controls.
-Eligible `arguments` copies now update the separate body VariableEnvironment
-while preserving parameter-created closures and actual formal/lexical guards.
-The three IDs that failed in the previous broader a592 run all pass; the two
-timeout fixtures retain their original sizes and 60-second deadlines. Every
-prior ID in these selected scopes is retained. All 604 tooling, eight source CI
-and three static checks also pass. Full current workspace, CLI retention,
+Native library checkpoint — 2026-10-18: ordinary Cargo execution on
+compiler source `0ed857452a23437b85b061aa94b21628b3967bde` now passes 3,831
+checks across 13 whole scopes: all 12 normal workspace libraries and the
+20-test native program-template target. Zero tests fail or are ignored in these
+completed scopes; all 3,828 prior selected IDs remain and three added controls
+pass. The isolated Intl library and remaining integration/documentation scopes
+are still pending. An initial harness run recorded 434/435 after a fake worker
+failed to write a marker inside a 50 ms deadline. Its unchanged whole-target
+serial replay passes 435/435 with the same executable, fixtures, deadline and
+assertions; the original failed receipt remains. Full workspace, CLI retention,
 all-features, pinned conformance and task cleanup remain open.
-[Exact coverage and raw evidence](docs/rust-rewrite/annex-body-record-native-1626-20261018.json).
+[Coverage, source identities and both harness outcomes](docs/rust-rewrite/native-library-checkpoint-3831-20261018.json).
 Refresh with `scripts/run_workspace_tests.py --include-ignored` under the
-cloud verification wrapper; the evidence records the exact target/filter flags.
+cloud verification wrapper; exact scope and partition flags are in the evidence.
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
-passes. Push verified progress to main continuously; preserve rejected and
-partial results with their actual source identities. Keep compiler source 0ed
-frozen in the primary verification checkout while current-source jobs run.
+passes. Push verified progress to main continuously; preserve all rejected and
+partial receipts with their actual source identities. Compiler `0ed` stays frozen
+in the primary checkout while source-bound native and CLI jobs run.
 
-Next: complete the full default workspace with the bounded, source-bound
-coordinator. Carry only the two unfiltered whole-target receipts above; execute
-the other 109 scopes, including the whole language target despite its two prior
-filtered passes. Default metadata has 111 scopes and the expected inventory is
-9,529 native plus 11 documentation tests. Retain all 9,526 native IDs from the
-D6 discovery and the three subsequently added IDs. Run deadline-sensitive
-program-template work serially; use complete isolated partitions for Engine,
-realm, CLI and Intl scopes, with original fixture/deadline/cache policies.
+Next: finish the ordinary release CLI build, then measure these four retained
+idle failures sequentially with original60s execution/300s compilation budgets,
+fresh four64MiB disk cache tiers per case and no trace overhead:
 
-The ordinary focused native batch is sealed in
-`docs/rust-rewrite/annex-body-record-native-1626-20261018.json`.
-The earlier a592 repair checkpoint passed173 checks, including all14 original
-D6 failures; its evidence remains in
-`docs/rust-rewrite/focused-native-repairs-173-20261018.json`.
-The complete a592 six-core run records4195PASS/3FAIL of4198 with zero ignored;
-the original red receipt and successful same-executable serial timeout controls
-remain in `docs/rust-rewrite/native-module-cost-diagnostic-20261018.json`.
-Current1626 feedback eliminates those three failed IDs without overwriting that
-history. It does not establish whole-workspace acceptance.
+- sloppy-script:staging/sm/expressions/destructuring-array-default-class.js
+- strict-script:staging/sm/expressions/destructuring-array-default-function-nested.js
+- strict-script:staging/sm/expressions/destructuring-array-default-simple.js
+- strict-script:staging/sm/expressions/object-literal-__proto__.js
 
-The frozen D6 default discovery executed all111 scopes:9512 nativePASS/14FAIL,
-11 documentationPASS and zero ignored. Its full230 CLI replay is
-219Success/8deadlineCrash/3Bug; the separate complete210 idle control is
-206Success/4deadlineCrash. Two prior passes lost during contention recover in
-that idle control; all failed receipts remain. The current release CLI230 and
-all later acceptance gates must still execute at their original limits.
+This feedback precedes the long remaining integration sweep so any further
+performance repair can be chosen before another broad verification checkpoint.
+The bounded full-default coordinator has sealed13 whole passing scopes and
+holds the remaining98 scopes at an explicit release-feedback barrier. Resume
+that exact-source disjoint remainder if no product changes are required.
+Default metadata has111 scopes; expected totals are9529 native and11 doc tests.
+Retain all9526 original D6 native IDs plus the three added controls. Keep
+original fixtures, deadlines, cache limits and complete inventories. The whole
+language target remains pending despite two passing filtered entry controls.
 
-The debug diagnostic found14.36s in module lookup during its first256 callbacks,
-140 exact module misses and237 Cranelift function misses. These inclusive debug
-measurements are not release speed claims. The 41 MB runtime itself is
-byte-identical across a592 and0ed, but native runtime compilation still missed
-its shared cache and took151s; a protected build-only cache is an opportunity,
-not yet implemented or measured. Early thin probes linked the fresh ordinary
-IR/AOT libraries in3.49s/4.12s and passed in0.12s/1.78s, respectively. They give
-early feedback while the complete ordinary native build remains authoritative.
+The1626 repair proof in
+`docs/rust-rewrite/annex-body-record-native-1626-20261018.json` includes allthree
+IDs that failed in the earlier a592 broader core run. The173-check a592 repair
+proof includes all14 original D6 failure IDs. Neither replaces full current
+workspace or CLI acceptance. The original broader red and diagnostic evidence
+remains in `docs/rust-rewrite/native-module-cost-diagnostic-20261018.json`.
 
-After the current default run, build the ordinary release CLI and measure the
-remaining original-limit failures before choosing another coherent performance
-repair. Then complete full230 retention, all-features/all-target CI, pinned
-full-suite/historical replay, oracle and task-specific acceptance gates.
+Historical D6 default discovery covers all111 scopes:9512nativePASS/14FAIL,
+11docPASS, zeroignored. Its complete230 CLI replay is219Success/8deadlineCrash/
+3Bug; the separate complete210 idle control is206Success/4deadlineCrash.
+Two prior passes lost during contention recover in the idle control. All
+original failed receipts remain. Current full230 retention must still execute.
+
+The debug trace records14.36s in module lookup across its first256 callbacks,
+140 exact module misses and237 Cranelift misses; these inclusive diagnostics
+are not release timing. The41MB runtime is byte-identical acrossa592/0ed, yet
+native runtime compilation missed its shared cache and took151s. A protected
+build-only module cache is a concrete future opportunity, not implemented or
+measured. Thin probes linked fresh ordinary IR/AOT libraries in3.49s/4.12s and
+passed in0.12s/1.78s, providing early feedback before ordinary native acceptance.
+
+After the current feedback, complete exact current native/default/all-features/
+all-target CI, full230 CLI retention, pinned full-suite/historical replay,
+oracle, supported-host and every task-specific acceptance gate below.
 
 ## Remaining scopes and owners
 

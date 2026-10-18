@@ -1,3 +1,18 @@
+Native library checkpoint — 2026-10-18: ordinary Cargo execution on
+compiler source `0ed857452a23437b85b061aa94b21628b3967bde` now passes 3,831
+checks across 13 whole scopes: all 12 normal workspace libraries and the
+20-test native program-template target. Zero tests fail or are ignored in these
+completed scopes; all 3,828 prior selected IDs remain and three added controls
+pass. The isolated Intl library and remaining integration/documentation scopes
+are still pending. An initial harness run recorded 434/435 after a fake worker
+failed to write a marker inside a 50 ms deadline. Its unchanged whole-target
+serial replay passes 435/435 with the same executable, fixtures, deadline and
+assertions; the original failed receipt remains. Full workspace, CLI retention,
+all-features, pinned conformance and task cleanup remain open.
+[Coverage, source identities and both harness outcomes](docs/rust-rewrite/native-library-checkpoint-3831-20261018.json).
+Refresh with `scripts/run_workspace_tests.py --include-ignored` under the
+cloud verification wrapper; exact scope and partition flags are in the evidence.
+
 Annex B body-record repair — 2026-10-18: ordinary native execution on
 compiler source `0ed857452a23437b85b061aa94b21628b3967bde` passes 1,626
 checks with zero failures or ignored tests: all 1,604 IR tests, all 20 native
