@@ -1,3 +1,12 @@
+Verification preflight (2026-10-18): the workspace runners automatically isolate
+Intl dev dependencies and preserve the normal Cargo feature graph. All37 focused
+Python controls and the actual eight-target/seven-test Cargo fixture pass; its
+six normal-library freshness checks pass without an isolation flag. The ordered
+13-recipe Intl source-identity check also passes on main before Rust compilation.
+Refresh with `python3 -B scripts/intl_source_identities.py --write` and check with
+`python3 -B scripts/intl_source_identities.py`. [Exact scope and evidence](docs/rust-rewrite/verification-preflight-and-default-isolation-20261018.json).
+Compiler recovery and full-suite acceptance remain open.
+
 Verification tooling (2026-10-18): `scripts/run_workspace_cohorts.py` runs the
 complete Cargo inventory in bounded build-and-run batches while retaining shared
 library artifacts. All **four boundary controls** and the actual small Cargo
