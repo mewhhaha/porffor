@@ -1,3 +1,9 @@
+RegExp repair source checkpoint — 2026-10-18: the isolated candidate passes
+all 600 tooling tests, retains every previous599 ID, and passes the full module
+boundary check. [Literal inventories and lossless logs](docs/rust-rewrite/regexp-kernel-tooling-600-20261018.json)
+bind these checks to recovery source `7e339b365`. Native execution of the new
+RegExp Wasm factory, CLI retention and full-suite acceptance remain pending.
+
 Tooling verification checkpoint — 2026-10-18: the naming/empty-eval candidate
 passes all 599 unfiltered tooling tests and all eight listed source CI checks.
 Every previous 599 test ID is retained; all eight earlier Intl provenance
