@@ -1,5 +1,54 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Bounded full-workspace linking — 2026-10-18
+
+The default metadata inventory currently contains 98 native targets (13
+libraries, 84 integrations and one binary) plus 13 documentation targets.
+Discover these from Cargo metadata on each run; the all-feature inventory adds
+its required-feature binary. A selected core run does not cover this inventory.
+
+On machines that cannot retain all integration ELFs, run:
+
+```sh
+. /workspace/.lila-tools/activate.sh
+python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
+  python3 -B scripts/run_workspace_cohorts.py \
+  --output target/workspace-default-fresh --cohort-size 8 --test-processes 4 \
+  --isolate-test-package lila-intl \
+  --partition-native-target lila-engine:lila_engine \
+  --partition-native-target lila-engine:aot_realm_modules
+```
+
+The outer runner seals the complete inventory before executing any cohort.
+Normal libraries run first, then bounded groups of integration/binary selectors,
+then documentation. Same-selector targets from different packages stay together.
+Intl roots run separately to retain the existing test-feature isolation.
+Each child uses the existing source-bound runner, original native inventories,
+deadlines, barrier scheduling, bounded caches and shared immutable runtime data.
+
+Every normal native build intentionally keeps the global Cargo `--lib` roots.
+Their ELFs remain available for Cargo freshness checks across batches. A proven
+zero-test library supplies that selector in integration batches without
+repeating meaningful library tests. Auxiliary executions must still inventory
+and pass with zero tests and never add to suite counts. If that library gains a
+test, the outer runner rejects rather than duplicating it. Cargo remains the
+authority for artifact reuse; a stable root set alone is not a speed result.
+
+After a child has exited successfully, the outer runner seals a separate
+retirement record, checks exact package/target/kind identity, inventory and
+transcript hashes, and executable bytes/profile path, then removes only that
+cohort's completed integration/binary ELFs under the Cargo lock. Library ELFs,
+raw logs, inventories, source bindings and the child receipt remain intact.
+The child honestly records its original preservation; the outer receipt records
+later retirement without rewriting the earlier evidence.
+
+A failed or deferred cohort leaves acceptance false and all missing targets
+open. Complete acceptance requires every original qualified target exactly
+once, with the separately identified zero-test auxiliary omitted from totals.
+Planning and fixture controls never count as Lila native acceptance. The outer
+coordinator does not yet offer interruption resume; its child receipts retain
+their existing exact-source continuation contract.
+
 ## Retain test binaries when disk space permits — 2026-10-17
 
 Add `--preserve-test-artifacts` to the workspace runner to keep completed native
