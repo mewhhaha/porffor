@@ -3,6 +3,7 @@
 from pathlib import Path
 import hashlib
 import importlib.util
+import os
 import shutil
 import subprocess
 import tempfile
@@ -220,6 +221,103 @@ class IdentityTests(unittest.TestCase):
                 path = self.write_proof(self.proof())
                 path.write_text(text, encoding="utf-8")
                 self.assertNotEqual(self.audit().returncode, 0)
+
+    def test_binary_content_and_case_sensitivity_keep_grep_semantics(self):
+        path = self.root / "crates/lila-cli/src/sample.dat"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for contents in ((RETIRED_NAME + "-cli\0").encode(), b"PORFFOR runtime\n"):
+            with self.subTest(contents=contents):
+                path.write_bytes(contents)
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+        path.write_text(RETIRED_NAME + "-cli\n", encoding="utf-8")
+        result = self.audit()
+        self.assertEqual(result.returncode, 1)
+        # A token match and a word match remain two separate findings.
+        self.assertEqual(result.stderr.count("sample.dat:1:"), 2)
+
+    def test_nul_filename_records_preserve_unusual_names(self):
+        for name in ("-leading.json", "colon:name.json", "new\nline.json", "bad-\udcff.json"):
+            with self.subTest(name=name):
+                path = self.root / name
+                path.write_bytes((RETIRED_NAME + " runtime\n").encode())
+                result = subprocess.run(
+                    ["bash", str(SCRIPT)], cwd=self.root,
+                    capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(os.fsencode(name) + b":1:", result.stderr)
+                path.unlink()
+
+    def test_url_exception_uses_content_and_only_the_word_scan(self):
+        path = self.root / (RETIRED_NAME + ".dev.json")
+        path.write_text(RETIRED_NAME + " runtime\n", encoding="utf-8")
+        self.assertEqual(self.audit().returncode, 1)
+        path.write_text("https://github.com/mewhhaha/" + RETIRED_NAME + "\n", encoding="utf-8")
+        self.assertEqual(self.audit().returncode, 0)
+        path.write_text(RETIRED_NAME + ".dev " + RETIRED_NAME + "-cli\n", encoding="utf-8")
+        result = self.audit()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.count(path.name + ":1:"), 1)
+
+    def test_symlinks_are_followed_and_missing_paths_are_skipped(self):
+        target = self.root / "target" / "fixture.json"
+        target.parent.mkdir()
+        target.write_text(RETIRED_NAME + " runtime\n", encoding="utf-8")
+        link = self.root / "visible.json"
+        link.symlink_to(target)
+        self.assertEqual(self.audit().returncode, 1)
+        self.git("add", "visible.json")
+        target.unlink()
+        self.assertEqual(self.audit().returncode, 0)
+        link.unlink()
+        self.assertEqual(self.audit().returncode, 0)
+
+    def test_near_miss_doctest_and_non_newline_whitespace_are_not_lost(self):
+        path = self.root / "docs/rust-rewrite/native-comparison.json"
+        exact = f'  "/workspace/{RETIRED_NAME}/crates/lila-cli/src/main.rs - main (line 5)"'
+        path.write_text(exact + "\n", encoding="utf-8")
+        self.assertEqual(self.audit().returncode, 0)
+        for suffix in (" extra", "\v" + RETIRED_NAME + " runtime"):
+            with self.subTest(suffix=suffix):
+                path.write_text(exact + suffix + "\n", encoding="utf-8")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(exact + suffix, result.stderr)
+
+    def test_empty_git_universe_does_not_read_stdin(self):
+        (self.root / ".git/info/exclude").write_text("*\n", encoding="utf-8")
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_findings_cross_batch_boundaries_in_git_order(self):
+        directory = self.root / "batch"
+        directory.mkdir()
+        for ordinal in range(270):
+            content = RETIRED_NAME + " runtime\n" if ordinal in (0, 127, 128, 269) else "canonical\n"
+            (directory / f"{ordinal:03}.json").write_text(content, encoding="utf-8")
+        result = self.audit()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.splitlines(), [
+            f"check-lila-identity: batch/{ordinal:03}.json:1:{RETIRED_NAME} runtime"
+            for ordinal in (0, 127, 128, 269)
+        ])
+
+    def test_unmerged_index_stages_do_not_multiply_findings(self):
+        relative = "conflicted.json"
+        path = self.root / relative
+        path.write_text(RETIRED_NAME + " runtime\n", encoding="utf-8")
+        sha = self.git("hash-object", "-w", relative).stdout.strip()
+        subprocess.run(
+            ["git", "-C", str(self.root), "update-index", "--index-info"],
+            input="".join(f"100644 {sha} {stage}\t{relative}\n" for stage in (1, 2, 3)),
+            check=True, text=True, capture_output=True,
+        )
+        result = self.audit()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stderr.splitlines(), [
+            f"check-lila-identity: {relative}:1:{RETIRED_NAME} runtime"
+        ] * 3)
 
 
 if __name__ == "__main__":

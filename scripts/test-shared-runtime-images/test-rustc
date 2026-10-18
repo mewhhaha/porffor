@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bound verification scratch without changing compiler or query semantics."""
 import os
+from pathlib import Path
 import sys
 
 
@@ -27,7 +28,61 @@ def compiler_command(arguments, omit_normal_incremental=False):
     return command
 
 
+def codegen_capacity():
+    """Use only the finite cloud budget and inherited quota-bound CPU set."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from limited_verification import require_cloud_budget, cloud_worker_affinity
+    require_cloud_budget(serial=False)
+    return cloud_worker_affinity()
+
+
+def compiler_environment(arguments, environment):
+    """Give one serial Cargo unit a bounded private LLVM jobserver."""
+    result = dict(environment)
+    requested = result.get("LILA_TEST_CODEGEN_JOBS")
+    if requested is None:
+        return result, ()
+    if requested != "auto":
+        raise ValueError("LILA_TEST_CODEGEN_JOBS must be auto")
+    # Cargo also invokes rustc for target/filename queries. Preserve those.
+    if "--crate-name" not in arguments or any(
+            word == "--print" or word.startswith("--print=") for word in arguments):
+        return result, ()
+    if result.get("CARGO_BUILD_JOBS") != "1":
+        raise ValueError("parallel codegen requires serial Cargo (CARGO_BUILD_JOBS=1)")
+    jobs = codegen_capacity()
+    if jobs < 1:
+        raise ValueError("parallel codegen requires a positive CPU capacity")
+    if jobs == 1:
+        return result, ()
+    reader, writer = os.pipe()
+    try:
+        for descriptor in (reader, writer):
+            os.set_inheritable(descriptor, True)
+        # Rustc owns one implicit slot. Each additional task needs a token.
+        if os.write(writer, b"+" * (jobs - 1)) != jobs - 1:
+            raise OSError("could not initialize all codegen jobserver tokens")
+        result["CARGO_MAKEFLAGS"] = (
+            f"-j --jobserver-fds={reader},{writer} --jobserver-auth={reader},{writer}")
+        result.pop("MAKEFLAGS", None)
+        result.pop("MFLAGS", None)
+        return result, (reader, writer)
+    except BaseException:
+        os.close(reader)
+        os.close(writer)
+        raise
+
+
 if __name__ == "__main__":
-    command = compiler_command(sys.argv[1:],
-                               os.environ.get("LILA_TEST_NO_INCREMENTAL") == "1")
-    os.execv(command[0], command)
+    descriptors = ()
+    try:
+        command = compiler_command(sys.argv[1:],
+                                   os.environ.get("LILA_TEST_NO_INCREMENTAL") == "1")
+        environment, descriptors = compiler_environment(command, os.environ)
+        os.execve(command[0], command, environment)
+    except (OSError, ValueError) as error:
+        print(f"test-rustc: {error}", file=sys.stderr)
+        raise SystemExit(2)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
