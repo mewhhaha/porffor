@@ -3,9 +3,15 @@ ordinary runtime-helper signatures now follow the recursive GC schema as
 standalone types. Only helper signatures stored in GC fields stay in that
 recursive group. R and P retain the same shared schema; runtime layout 14
 rejects previous layouts. This allows native signature interning without
-altering program behavior. Semantic linking, performance and ordinary-suite
-verification for this candidate are pending; the R13 results below belong to
-their recorded source.
+altering program behavior. Native templates replace provably unreferenced,
+final standalone function-type slots with empty final struct slots. Every live
+type index, recursive-group byte sequence and other section remains unchanged.
+The dependency scan uses the exhaustive Wasm reencoder, including references
+inside definitions, locals and instructions. Three new controls cover those
+boundaries and idempotence. The current full-default inventory is expected to
+contain 9,538 native IDs, retaining all prior 9,535, plus 11 documentation IDs.
+Semantic linking, whole-candidate performance and ordinary-suite verification
+are pending; the R13 results below belong to their recorded source.
 
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
