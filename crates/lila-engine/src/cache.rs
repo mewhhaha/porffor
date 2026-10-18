@@ -295,7 +295,7 @@ pub(crate) fn module_cache() -> io::Result<Cache> {
     module_cache_at(module_cache_directory(), module_cache_limit_bytes())
 }
 
-fn module_cache_at(directory: PathBuf, limit_bytes: u64) -> io::Result<Cache> {
+pub(crate) fn module_cache_at(directory: PathBuf, limit_bytes: u64) -> io::Result<Cache> {
     fs::create_dir_all(&directory)?;
     // Wasmtime prunes on a background worker. A short-lived Test262 case
     // process can exit before that worker handles its update, so enforce the

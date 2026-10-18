@@ -1,3 +1,22 @@
+Verification iteration — 2026-10-18: the opt-in
+`--selected-feature-roots` workspace runner mode selects only the requested
+packages' native test harnesses. An empty auxiliary crate retains the ordinary
+workspace dependency features. Before compiling, the runner compares every
+selected root's complete Cargo unit graph, including transitive features,
+profiles and dependency edges, and rejects any difference. The auxiliary must
+list and execute zero tests and is recorded outside suite counts. Initial
+planning reduces the IR build from 12 harness roots to 2 and the two Engine
+integration builds from 14 to 3. Actual build-time savings remain unmeasured.
+The mode currently supports default features and default package isolation;
+full-feature and custom graph verification use the ordinary runner.
+
+Build callers can set `LILA_BUILD_MODULE_CACHE_DIR` to keep the immutable
+runtime's native module cache separate from program cache churn. The override
+applies only to Cargo's runtime producer, retains the existing cache budget,
+and preserves Wasmtime's exact Wasm/configuration/target/compiler key. Fresh
+runtime emission, admission and current-source manifest publication still run.
+No native-cache speedup is claimed until measured.
+
 Release CLI checkpoint — 2026-10-18: compiler source
 `0ed857452a23437b85b061aa94b21628b3967bde` builds through the ordinary release
 profile. Four exact prior idle timeout cases were rerun serially with the

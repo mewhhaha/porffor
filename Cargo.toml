@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/lila-verification-feature-roots",
   "crates/lila-front",
   "crates/lila-ir",
   "crates/lila-intl",
@@ -77,6 +78,11 @@ opt-level = 2
 # Keep its debug info identical in both contexts so selecting a different
 # test target does not invalidate Boa, the frontend and the IR libraries.
 [profile.test.package.cow-utils]
+debug = 0
+
+# This data crate is reached through both normal and build dependency graphs.
+# Selecting focused test roots must preserve the host graph's debug profile.
+[profile.test.package.lila-intl-collator-data]
 debug = 0
 
 # Package overrides win over the wildcard dependency setting above. IR

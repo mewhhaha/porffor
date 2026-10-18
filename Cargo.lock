@@ -1633,6 +1633,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "lila-verification-feature-roots"
+version = "0.1.0"
+dependencies = [
+ "boa_parser",
+ "lila-aot-wasm",
+ "lila-backend-c",
+ "lila-backend-native",
+ "lila-cli",
+ "lila-engine",
+ "lila-front",
+ "lila-intl-collator-data",
+ "lila-ir",
+ "lila-runtime",
+ "lila-runtime-image",
+ "lila-spec-exec",
+ "lila-test262",
+ "serde_json",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

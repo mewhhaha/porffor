@@ -1,5 +1,7 @@
 //! Cargo producer: checked R/package/manifest and bounded exact-Wasm native compilation.
 
+#[path = "build_cache.rs"]
+mod build_cache;
 #[path = "compile.rs"]
 mod compile;
 #[path = "manifest.rs"]
@@ -9,8 +11,7 @@ mod publication;
 use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
 use compile::RuntimeImageCompiler;
 use sha2::{Digest, Sha256};
-use std::path::Path;
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 use wasmtime::WasmBacktraceDetails;
 
 pub(crate) fn write_bundle(
@@ -59,7 +60,6 @@ pub(crate) fn write_bundle(
                     manifest::COMPILATION_MODES.runtime,
                     WasmBacktraceDetails::Disable,
                 );
-                // Ordinary P retains base_config's SinglePass allocator and Fast mode.
                 config.cranelift_regalloc_algorithm(
                     manifest::COMPILATION_MODES.register_allocation.algorithm(),
                 );
@@ -90,7 +90,7 @@ pub(crate) fn write_bundle(
                 // Module::new requires a native-host mapping. Cross-target
                 // builds preserve precompile_module and never open this cache.
                 let module_cache = if host == target {
-                    crate::cache::module_cache()
+                    build_cache::module_cache()
                         .map_err(|error| {
                             println!(
                                 "cargo:warning=build runtime module cache unavailable: {error}"

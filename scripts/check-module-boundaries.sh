@@ -3437,7 +3437,15 @@ require_fixed_string_count "$engine_embedded_build" '.target(target)' 1 'explici
 require_fixed_string_count "$engine_embedded_build" 'config.parallel_compilation(false);' 1 'serial native build compilation'
 require_fixed_string_count "$engine_embedded_build" '.compile(&runtime)' 1 'compile only the freshly checked raw owner'
 require_fixed_string_count "$engine_embedded_build" 'let module_cache = if host == target {' 1 'native module cache is unavailable to cross-target builds'
-require_fixed_string_count "$engine_embedded_build" 'crate::cache::module_cache()' 1 'reuse the existing bounded module cache owner'
+require_fixed_string_count "$engine_embedded_build" 'build_cache::module_cache()' 1 'build-only module cache directory selection'
+engine_embedded_build_cache="crates/lila-engine/src/embedded_runtime/build_cache.rs"
+require_file "$engine_embedded_build_cache"
+require_fixed_string_count "$engine_embedded_build_cache" 'crate::cache::module_cache()' 1 'unset build override retains the ordinary module cache'
+require_fixed_string_count "$engine_embedded_build_cache" 'crate::cache::module_cache_at(' 1 'override reuses the existing bounded module cache owner'
+require_fixed_string_count "$engine_embedded_build_cache" 'crate::cache::module_cache_limit_bytes()' 1 'build override preserves the existing budget'
+require_fixed_string_count "$engine_embedded_build_cache" 'LILA_BUILD_MODULE_CACHE_DIR' 1 'one build-only cache directory override'
+require_fixed_string_count "$runtime_image_build" '"LILA_BUILD_MODULE_CACHE_DIR"' 1 'Cargo tracks build cache directory changes'
+check_raw_line_budget "$engine_embedded_build_cache" 40
 require_fixed_string_count "$engine_embedded_compile" 'self.compile_wasm(runtime.wasm())' 1 'typed runtime admission reaches the native compiler'
 require_fixed_string_count "$engine_embedded_compile" 'Module::new(&self.engine, wasm)?.serialize()' 1 'Wasmtime owns exact-Wasm native cache admission'
 require_fixed_string_count "$engine_embedded_compile" 'self.engine.precompile_module(wasm)' 1 'cross-target and cache-unavailable compilation remains direct'

@@ -15,8 +15,11 @@ root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
 from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
 from workspace_test_storage import storage_snapshot
+import workspace_feature_roots as feature_roots
 from workspace_test_artifacts import build_script_artifact, doc_cohorts, isolated_test_packages, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');parser.add_argument('--selected-feature-roots',action='store_true',help='Narrow native Cargo roots with an empty auxiliary and prove each selected root matches the ordinary workspace graph');args=parser.parse_args()
+if args.selected_feature_roots:
+    assert not (args.all_features or args.packages or (set(args.isolate_test_package)-{'lila-intl'}) or args.retry_from or args.reuse_library_build_from or args.restored_library_provenance), 'Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt'
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
@@ -52,6 +55,7 @@ assert not isolated_packages or not args.reuse_library_build_from, 'Broad histor
 assert not (args.build_selected_together and args.reuse_library_build_from), 'Historical library carry cannot cross a combined native build graph'
 cases=[];disabled_targets=[]
 for p in packages:
+    if args.selected_feature_roots and p['name']==feature_roots.PACKAGE:continue
     enabled=set(p['features']) if args.all_features else set()
     pending=['default'] if not args.all_features else []
     while pending:
@@ -91,6 +95,7 @@ if args.only_targets:
 
 combined_selectors=selected_cohort_selectors(cases,isolated_packages) if args.build_selected_together else []
 result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets,'preserve_test_artifacts':args.preserve_test_artifacts}
+result['selected_feature_roots']=args.selected_feature_roots
 result['build_selected_together']=args.build_selected_together
 result['selected_build_selectors']=combined_selectors
 result['selected_target_members']=selected_target_members(cases)
@@ -189,12 +194,23 @@ result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
 active={}
 from workspace_build_cpus import expand_build_tree
-def group_key(case):return selector_key(case,isolated_packages,combined_selectors)
+def group_key(case):
+    if args.selected_feature_roots:
+        selected=feature_roots.build_key(case,isolated_packages,args.build_selected_together)
+        if selected:return selected
+    return selector_key(case,isolated_packages,combined_selectors)
 def cargo_test_base(case):
+    if args.selected_feature_roots and feature_roots.build_key(case,isolated_packages,args.build_selected_together):
+        return feature_roots.command(case,cases,isolated_packages,args.build_selected_together,profile_flags)
     flags=['--all-features'] if args.all_features else []
     selection=['-p',case['package']] if case['kind']=='doc' or case['package'] in isolated_packages else package_selection(args.packages,isolated_packages)
     selectors=[word for selector in combined_selectors for word in selector] if group_key(case)==('selected-native','*') else case['selector']
     return ['cargo','test','--locked','--offline',*profile_flags,*selection,*flags,*selectors]
+if args.selected_feature_roots:
+    result['selected_feature_root_groups']=[{'group':list(group),'cargo_command':cargo_test_base(next(c for c in cases if group_key(c)==group)),
+        'members':selected_target_members([c for c in cases if group_key(c)==group])}
+        for group in sorted({group_key(c) for c in cases if c['kind']!='doc' and c['package'] not in isolated_packages})]
+    result['selected_build_selector_policy']='Declared selected-selector union; actual fast builds use the exact per-owner groups above, not a workspace-wide selector cohort.'
 def profile_test_artifacts(messages,expected):
     outputs=test_artifacts(messages,expected)
     assert all(path.parent.resolve()==(profile_root/'deps').resolve() for path in outputs.values()), 'Cargo-selected native output belongs to another profile or target directory'
@@ -574,6 +590,12 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
             case['build_command']=build_groups[group_name]['command']
             case['reused_build_group']=group_name
         else:
+            graph_proof=None
+            if args.selected_feature_roots and group[0]=='feature-roots':
+                selected=[c for c in cases if group_key(c)==group]
+                graph_proof=feature_roots.prove_graph(cohort_base,selected,package_ids,isolated_packages,profile_flags,out/label,build_env)
+                case['feature_root_graph_proof']=graph_proof
+                save()
             with buildlog.open('w') as stdout,errlog.open('w') as stderr:
                 build_exit=build_with_completed_cache_retirement(command_build,stdout,stderr,case)
             case['build_exit']=build_exit
@@ -587,7 +609,9 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
                     result['stopped_after_build_failure']=label
                     break
                 continue
-            expected=[(package_ids[c['package']],c['target'],c['kind']) for c in full_inventory if group_key(c)==group]
+            expected=[(package_ids[c['package']],c['target'],c['kind']) for c in (cases if graph_proof else full_inventory) if group_key(c)==group]
+            auxiliary_key=(package_ids[feature_roots.PACKAGE],feature_roots.TARGET,'test') if graph_proof else None
+            if auxiliary_key:expected.append(auxiliary_key)
             messages=[json.loads(line) for line in buildlog.read_text().splitlines()]
             artifact_cohorts[group]=profile_test_artifacts(messages,expected)
             executable=artifact_cohorts[group][(package_ids[case['package']],case['target'],case['kind'])]
@@ -606,7 +630,11 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
                 producers.append({'package_id':package_id,'target':target,'path':evidence_path(producer),
                                   'bytes':producer.stat().st_size,'sha256':hashlib.sha256(producer.read_bytes()).hexdigest()})
             build_groups[group_name]['build_script_artifacts']=producers
+            if graph_proof:
+                build_groups[group_name]['feature_root_graph_proof']=graph_proof
+                build_groups[group_name]['verification_auxiliary']=feature_roots.verify_auxiliary(artifact_cohorts[group][auxiliary_key],out/label,build_env)
             wanted={(package_ids[c['package']],c['target'],c['kind']) for c in cases if group_key(c)==group}
+            if auxiliary_key:wanted.add(auxiliary_key)
             retired_siblings,preserved_siblings=finish_unselected_artifacts(artifact_cohorts[group],wanted)
             build_groups[group_name]['unselected_artifacts_retired']=retired_siblings
             build_groups[group_name]['unselected_artifacts_preserved']=preserved_siblings

@@ -1902,3 +1902,29 @@ retains37 Python controls, all13 actual main-source identity checks and a comple
 small Cargo fixture: eight targets, seven tests, six cohorts, six fresh library
 checks and five retired completed integration outputs. This verifies tooling;
 it does not establish compiler, performance or full conformance acceptance.
+
+
+## Focused native roots
+
+Use `--selected-feature-roots --build-selected-together` with the workspace
+runner's ordinary `--only-targets` selections to avoid linking unrelated
+libtest harnesses. Each selected package is built with the empty
+`lila-verification-feature-roots` test root. Before a build, the runner uses
+Cargo's inspection-only unit graph API to compare each selected root against
+the ordinary workspace library graph. Features, profiles, target identities
+and every transitive dependency edge must match exactly. Cargo inspection uses
+`RUSTC_BOOTSTRAP=1` only in a copied planning environment; compilation retains
+the original environment. Unavailable or changed inspection output rejects the
+build. The auxiliary is inventoried/executed separately with zero IDs/outcomes
+and does not enter selected suite totals. Default features, default package
+isolation and a fresh receipt are currently required; unsupported options fail
+before compilation. Ordinary full-feature/custom-graph verification remains
+available without this opt-in.
+
+To protect the 41 MB immutable runtime from program-module cache eviction,
+build callers may set `LILA_BUILD_MODULE_CACHE_DIR` to a dedicated directory.
+It uses the same module-cache budget and Wasmtime's exact cache key; it does not
+change execution caches, skip fresh runtime emission/admission, or reuse a
+previous source's package/manifest. Cross-target builds retain precompilation.
+Unset preserves the ordinary cache directory. Initial filling still compiles
+normally; subsequent compatible runtime builds can reuse the native image.

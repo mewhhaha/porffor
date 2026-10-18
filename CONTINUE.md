@@ -28,23 +28,37 @@ strict simple-function cases remain Crash/timeout. Full230 retention stays open.
 A separate bounded release trace records140 module misses and10.51s inclusive
 module lookup across its first256 callbacks; it remains a timeout diagnostic.
 
-Next: measure and verify the producer optimization that retires truly unused
-standalone function types without changing type indices or the canonical GC
-recursive group. Initial offline controls validate256 transformed templates,
-retiring39 types each with executable sections unchanged. Initial native timing
-is variable; no product speedup or deadline recovery is accepted yet. The
-feature-root auxiliary crate remains an unaccepted tooling prototype in the
-candidate checkout; its Cargo unit graphs match the selected ordinary roots,
-but actual build-time savings are not measured.
+A producer optimization for unused standalone function types was explored.
+Offline controls validate256 transformed templates, retiring39 types each with
+executable sections unchanged, but native timing did not demonstrate sufficient
+benefit. It is preserved as a private prototype; no product speedup or deadline
+recovery is accepted. The
+feature-root auxiliary crate now has opt-in driver integration; actual
+build-time savings are not yet measured.
 
-The bounded full-default coordinator has sealed13 whole passing scopes and
-holds the remaining98 scopes at an explicit release-feedback barrier. Preserve
-and supersede that coordinator before advancing primary source for a product
-repair. Default metadata currently has111 scopes; expected totals are9529 native
-and11 doc tests. Retain all9526 original D6 native IDs plus the three added
-controls. Keep original fixtures, deadlines, cache limits and complete
-inventories. The whole language target remains pending despite two passing
-filtered entry controls.
+The original0ed full-default remainder advanced eight more whole scopes with
+19 passing checks (3850 checks across21 distinct whole scopes completed). Its
+remaining90 scopes were storage-deferred after a broad --lib selector recreated
+11 unrequested library test binaries. These are unverified scopes, not new
+native assertion failures; preserve the original terminal rejected receipt.
+
+The current tooling batch adds opt-in --selected-feature-roots, which keeps the
+ordinary graph through an empty auxiliary while selecting requested package
+roots only. It proves every selected recursive Cargo unit graph exactly before
+compiling and verifies the auxiliary lists/executes zero native IDs outside the
+suite denominator. Planning proofs pass for IR and two Engine integrations.
+Original full default metadata has111 scopes/9529 native/11doc tests; retain
+all9526 original D6 IDs and the three controls. The whole language target
+remains pending despite two passing filtered entry controls. All-features now
+also includes the empty auxiliary target; report its scope separately and never
+silently discard a Cargo-enabled target.
+
+Next: finish tooling/static/source preflights, ordinary focused native checks,
+and measured build-only runtime-cache replay. Publish verified tooling progress
+then run full current default/all-feature/all-target and original230 CLI/pinned
+gates. The unused-function-type producer candidate is preserved outside the
+product tree: its native timing was too variable to establish sufficient
+benefit, so it is excluded from this batch.
 
 The1626 repair proof in
 `docs/rust-rewrite/annex-body-record-native-1626-20261018.json` includes allthree

@@ -22,6 +22,7 @@ fn main() {
         "LILA_CACHE_LIMIT_BYTES",
         "LILA_FUNCTION_CACHE_LIMIT_BYTES",
         "LILA_MODULE_CACHE_LIMIT_BYTES",
+        "LILA_BUILD_MODULE_CACHE_DIR",
         "XDG_CACHE_HOME",
         "HOME",
     ] {
