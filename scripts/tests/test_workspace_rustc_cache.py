@@ -2,10 +2,12 @@
 
 import importlib.machinery
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "test-shared-runtime-images" / "test-rustc"
 loader = importlib.machinery.SourceFileLoader("test_rustc_cache", str(SOURCE))
@@ -15,6 +17,82 @@ loader.exec_module(wrapper)
 
 
 class WorkspaceRustcCacheTests(unittest.TestCase):
+    def test_default_environment_is_literal_and_never_allocates_tokens(self):
+        environment = {"CARGO_MAKEFLAGS": "original", "MAKEFLAGS": "kept",
+                       "MFLAGS": "also kept", "RUSTFLAGS": "unchanged"}
+        with mock.patch.object(wrapper, "codegen_capacity") as capacity:
+            actual, descriptors = wrapper.compiler_environment(
+                ["/rustc", "--crate-name", "sample"], environment)
+        self.assertEqual(actual, environment)
+        self.assertEqual(descriptors, ())
+        capacity.assert_not_called()
+
+    def test_codegen_queries_preserve_the_original_environment(self):
+        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_MAKEFLAGS": "original"}
+        for arguments in [["/rustc", "-vV"],
+                          ["/rustc", "--crate-name", "query", "--print=file-names"],
+                          ["/rustc", "--crate-name", "query", "--print", "cfg"]]:
+            with mock.patch.object(wrapper, "codegen_capacity") as capacity:
+                self.assertEqual(wrapper.compiler_environment(arguments, environment),
+                                 (environment, ()))
+            capacity.assert_not_called()
+
+    def test_codegen_requires_an_explicit_valid_option_and_serial_cargo(self):
+        arguments = ["/rustc", "--crate-name", "sample"]
+        for value in ("", "0", "3", "unbounded"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                wrapper.compiler_environment(arguments, {"LILA_TEST_CODEGEN_JOBS": value})
+        for value in (None, "2", "auto"):
+            environment = {"LILA_TEST_CODEGEN_JOBS": "auto"}
+            if value is not None:
+                environment["CARGO_BUILD_JOBS"] = value
+            with self.subTest(cargo_jobs=value), self.assertRaises(ValueError):
+                wrapper.compiler_environment(arguments, environment)
+
+    def test_one_cpu_keeps_the_existing_jobserver_without_allocating_fds(self):
+        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
+                       "CARGO_MAKEFLAGS": "original"}
+        with mock.patch.object(wrapper, "codegen_capacity", return_value=1), \
+                mock.patch.object(wrapper.os, "pipe") as pipe:
+            self.assertEqual(wrapper.compiler_environment(
+                ["/rustc", "--crate-name", "sample"], environment), (environment, ()))
+        pipe.assert_not_called()
+
+    def test_private_jobserver_has_exactly_one_token_per_additional_cpu(self):
+        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
+                       "CARGO_MAKEFLAGS": "original", "MAKEFLAGS": "old",
+                       "MFLAGS": "old", "RUSTFLAGS": "literal"}
+        with mock.patch.object(wrapper, "codegen_capacity", return_value=3):
+            actual, descriptors = wrapper.compiler_environment(
+                ["/rustc", "--crate-name", "sample"], environment)
+        try:
+            reader, writer = descriptors
+            self.assertTrue(all(os.get_inheritable(fd) for fd in descriptors))
+            self.assertEqual(actual["CARGO_MAKEFLAGS"],
+                             f"-j --jobserver-fds={reader},{writer} --jobserver-auth={reader},{writer}")
+            self.assertNotIn("MAKEFLAGS", actual)
+            self.assertNotIn("MFLAGS", actual)
+            self.assertEqual(actual["RUSTFLAGS"], "literal")
+            self.assertEqual(environment["CARGO_MAKEFLAGS"], "original")
+            os.set_blocking(reader, False)
+            self.assertEqual(os.read(reader, 100), b"++")
+            with self.assertRaises(BlockingIOError):
+                os.read(reader, 1)
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+
+    def test_budget_failure_and_invalid_cpu_capacity_never_allocate_tokens(self):
+        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1"}
+        with mock.patch.object(wrapper, "codegen_capacity", side_effect=ValueError("budget")), \
+                mock.patch.object(wrapper.os, "pipe") as pipe:
+            with self.assertRaisesRegex(ValueError, "budget"):
+                wrapper.compiler_environment(["/rustc", "--crate-name", "sample"], environment)
+        pipe.assert_not_called()
+        with mock.patch.object(wrapper, "codegen_capacity", return_value=0):
+            with self.assertRaises(ValueError):
+                wrapper.compiler_environment(["/rustc", "--crate-name", "sample"], environment)
+
     def test_normal_library_and_queries_retain_exact_arguments(self):
         for arguments in [["/rustc", "--crate-type", "rlib", "-C", "incremental=/cache"],
                           ["/rustc", "-vV"], ["/rustc", "--print", "cfg"]]:

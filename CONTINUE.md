@@ -1,3 +1,11 @@
+Opt-in Rustc code generation — 2026-10-18: the verification compiler wrapper
+accepts `LILA_TEST_CODEGEN_JOBS=auto`. It keeps Cargo serial and supplies a private
+jobserver bounded by the finite cloud budget, CPU quota and inherited affinity.
+All 11 controls pass. Two fresh 1,024-function Cargo fixture builds return the
+expected checksum; enabling or disabling the option reuses every existing output
+with identical bytes, inodes and timestamps. Lila rebuild timing is still
+unmeasured. [Exact fixture evidence](docs/rust-rewrite/bounded-rustc-codegen-20261018.json).
+
 Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
 checks each producer first and regenerates only stale output, then rechecks all
 13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.

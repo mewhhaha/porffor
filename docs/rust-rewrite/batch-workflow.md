@@ -1,5 +1,28 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Opt-in bounded Rustc code generation — 2026-10-18
+
+Set `LILA_TEST_CODEGEN_JOBS=auto` when launching the cloud verification runner
+with its shared runtime linker. The existing compiler wrapper then gives each
+serial Cargo compilation a private LLVM jobserver: one implicit slot plus one
+pipe token for each additional admitted CPU. It validates the inherited finite
+memory cap and CPU quota, preserves inherited affinity limits, requires
+`CARGO_BUILD_JOBS=1`, and preserves all compiler arguments. Queries and the
+default mode retain the original environment. Native tests keep their original
+worker counts, deadlines and cache limits.
+
+For the bounded workspace command below, prefix its invocation with
+`LILA_TEST_CODEGEN_JOBS=auto`; keep `--cloud-worker-cpus auto` so the coordinator
+can assign the available CPUs. This is an explicit scheduling option and adds
+no optimization flags or Cargo artifact profile.
+
+All 11 controls pass. Two fresh 1,024-function Cargo fixture builds match an
+independent Python checksum. Switching the option in either direction reuses the
+same Cargo artifacts with unchanged output bytes, inodes and timestamps. The
+fixture ran alongside product compilation; its timings do not establish a Lila
+rebuild speedup. See the [lossless fixture](bounded-rustc-codegen-20261018.json).
+
+
 ## Preserve current provenance timestamps — 2026-10-18
 
 `python3 -B scripts/intl_source_identities.py --write` checks each producer before
