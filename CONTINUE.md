@@ -1,3 +1,15 @@
+Verification checkpoint (2026-10-18): the ABI10/code-sharing candidate remains
+rejected: the six native inventories contain 4,180 IDs, with 4,159 completed
+passes, three failures and 18 unreported Engine IDs after a 900-second stall.
+Of 4,161 earlier passing IDs, 4,141 were observed passing in this rejected run.
+All 579 tooling tests pass. A separate repair passes 573 isolated tooling tests,
+AOT/Engine type checks and exact emitted-byte controls; its native acceptance is
+pending. A 256-source opt0 diagnostic reports 12.6% less emission/canonicalization time and
+confirms the precompiled runtime loads into both real execution Engine modes.
+[Literal results and lossless evidence](docs/rust-rewrite/rejected-owned-native-sharing-20261018.json)
+retain the failed scopes. Compiler promotion, full suites and task cleanup stay
+open; generated conformance status is unchanged.
+
 # Continue Lila — 2026-10-18
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
