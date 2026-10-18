@@ -1,5 +1,20 @@
 # Continue Lila — 2026-10-18
 
+Current implementation `d1752af1c947b34febafb88ad2ccfb48608c5cc4` passes all19
+private actual-Wasm array/iterator controls, retaining all19 prior IDs, in156.92s
+at original30s fixture limits. Current private3 signature controls pass;256
+actual compiler templates match the measured preliminary transform byte for
+byte. Transform-only optimized time sums0.3482s/256;1.0448s includes validation,
+census and IO. All610 tooling and8sourceCI pass. Static identities/format pass;
+boundaries reject only the new fixture constructor path. The following
+fixture-only repair adds #![cfg(test)] and its exact owner allowlist. No product
+crate code changes; retain exact production-source proof when using the private
+19 as an early gate. Rerun all current preflights before ordinary release.
+Next release/deadline coordinator:
+`../.lila-tools/advance-standalone-runtime-signatures-20261018-run1.py`.
+It checks original4 before rebuilding703 ordinary focused IDs, then the full
+111-scope/9538native/11doc suite remains mandatory. No old ordinary results carry.
+
 Active candidate: factor ordinary runtime-helper function signatures out of the
 recursive GC type group. Keep the six actual hook/context signatures with GC
 layouts, emit ordinary runtime signatures as a singleton suffix, then P-only

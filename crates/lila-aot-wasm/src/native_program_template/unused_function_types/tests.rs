@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 use wasm_encoder::{
     CodeSection, CompositeInnerType as Inner, CompositeType, EntityType, ExportKind, ExportSection,

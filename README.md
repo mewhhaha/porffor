@@ -10,8 +10,20 @@ The dependency scan uses the exhaustive Wasm reencoder, including references
 inside definitions, locals and instructions. Three new controls cover those
 boundaries and idempotence. The current full-default inventory is expected to
 contain 9,538 native IDs, retaining all prior 9,535, plus 11 documentation IDs.
-Semantic linking, whole-candidate performance and ordinary-suite verification
-are pending; the R13 results below belong to their recorded source.
+At implementation source `d1752af1c947b34febafb88ad2ccfb48608c5cc4`, private
+real-Wasm execution passes all 19 existing array/iterator module controls, with
+no removed IDs and original 30s fixture limits. Three private transformation
+controls pass, including rejection of unknown sections. All 256 emitted
+R/P/templates validate and match the measured prototype byte for byte.
+The transform itself takes 0.35s across those 256 modules; a separate serial
+ABBA native-module diagnostic reduces warm time across 140 distinct modules
+from 4.35–4.60s to 3.89s, with 11,781 versus 20,910 stencil accesses. Cold timing
+overlaps; these phases exclude R startup and actual eval execution. This is not
+a deadline or full-suite result. All 610 tooling and eight source CI checks
+pass there. The fixture-only boundary registration repair adds an explicit
+`cfg(test)` file attribute and exact allowlisted owner; current preflights,
+ordinary release/deadlines and full native verification remain pending.
+The R13 results below belong to their recorded source.
 
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
