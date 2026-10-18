@@ -76,8 +76,10 @@ def check(root: Path, overrides=None):
              helper + "(previous_version);" in control and "assert_ne!(LAYOUT_VERSION,previous_version);" in control and
              "previous[MAGIC.len()..MAGIC.len()+4].copy_from_slice(&previous_version.to_le_bytes());" in control,
              "authenticated ABI7 and ABI8 negative controls retained: " + relative)
-    need("foroldin[0,4,6,7,8,10,u32::MAX]" in compact(A + "runtime_artifact/validated_profile/tests.rs"),
-         "native proof admission explicitly rejects layout8")
+    admission_tests = compact(A + "runtime_artifact/validated_profile/tests.rs")
+    need("forwrongin(0..LAYOUT_VERSION).chain([LAYOUT_VERSION+1,u32::MAX])" in admission_tests and
+         "CurrentRuntimeLayoutVersion::admit(wrong).is_none()" in admission_tests,
+         "native proof rejects every older layout and invalid future versions")
     controls = source(E)
     for text in ["Object.getPrototypeOf(sourcePrototype) === C.prototype", "Object.getPrototypeOf(other) === sourcePrototype",
                  "tag.call(sourcePrototype) === undefined", "host prototype crossed Realms",

@@ -125,7 +125,8 @@ def check(sources):
             "direct_witness_retained", "direct eval retains its complete caller and exact UTF16 source witness")
     tests = c[A + "runtime_artifact/validated_profile/tests.rs"]
     require("Arc::ptr_eq(proof.runtime(),&runtime)" in tests and
-            "CurrentRuntimeLayoutVersion::admit(old).is_none()" in tests and
+            "forwrongin(0..LAYOUT_VERSION).chain([LAYOUT_VERSION+1,u32::MAX])" in tests and
+            "CurrentRuntimeLayoutVersion::admit(wrong).is_none()" in tests and
             "ValidatedRuntimeArtifact::new(unadmitted,IntlCompilationProfile::Minimal)" in tests and
             "profile_image(IntlCompilationProfile::Minimal,true)" in tests and
             "CustomIntlProfile::for_services(id.clone(),&[\"ListFormat\"])" in tests and
