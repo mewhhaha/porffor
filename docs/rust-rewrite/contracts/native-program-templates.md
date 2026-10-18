@@ -72,3 +72,18 @@ errors or unsupported-language answers. ABI9 artifacts and runtime packages
 cannot pass ABI10 admission. Diagnostic type/emission/native checks, ordinary
 Cargo tests and actual release-CLI conformance each retain their own source
 identities and acceptance scope; one does not substitute for another.
+
+Native code sharing also removes duplicate defined JavaScript bodies after all
+payload and literal rewrites. Eligibility requires the checked stateless owned
+path, equal concrete function type index, equal locals/instructions and equal
+actual-P local/initialization witness. Bootstrap, imported R and helper/factory
+entries cannot alias. Unknown custom relocation/debug formats preserve the
+original module. One closed mapping updates function declarations, bodies,
+calls, references, exports, elements and function/local/label name owners.
+
+This mapping never rewrites numeric declaration identities. Each independently
+allocated FunctionObject, ExecutableCode and FunctionContext retains its original
+SOURCE_ID, constructor element plan, source text, name and captured environment.
+Only the Wasm executable entry is shared. Raw public artifacts retain every
+original function and index. Structural size controls, native identity/class
+plan controls and original CLI deadlines remain separate acceptance gates.

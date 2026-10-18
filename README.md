@@ -45,13 +45,19 @@ targets above. The throughput batch also shares immutable bootstrap plans,
 indexes local declarations and omits unused native-factory Main code; the full
 retention result remains the acceptance gate.
 
-ABI10 repair (2026-10-18, verification pending): each fresh ProgramInstance owns
-its immutable source payload while checked stateless native code can share an
-Instance. Shared JavaScript bodies use stable Wasmtime function-index symbols;
-public Wasm keeps source names, and JavaScript names and source text stay owned
-by the defining program. Saved-function, GC, reentry and original Store-limit
-controls are included. The optimized ordinary Cargo and release CLI gates are
-still required; no new pass counts or full-suite acceptance are claimed.
+ABI10 repair (2026-10-18, optimized verification pending): each fresh
+ProgramInstance owns its immutable source payload while stateless native code
+can share an Instance. Exact typed method bodies also share machine code while
+per-function objects, declaration IDs, constructor plans, names and source stay
+separate. A diagnostic1001-method module retains byte-identical public Wasm;
+its native template has21 bodies instead of1020. This is structural evidence.
+The two new opt0 execution controls finish1pass/1timeout; the same timed-out
+case passes later with a warm module cache. No cold-deadline repair is claimed.
+All573 isolated tooling tests pass after generated provenance is refreshed;
+the final merged primary tooling universe requires579 current-source tests.
+[Exact diagnostic scope](docs/rust-rewrite/owned-native-code-sharing-diagnostic-20261018.json)
+retains failures and cache conditions. Ordinary optimized Cargo and actual
+release-CLI retention remain required; generated real-suite counts are unchanged.
 
 Earlier focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.

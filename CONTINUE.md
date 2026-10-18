@@ -4,7 +4,7 @@ The task is open. Delete this file and `tasks/` only after every acceptance gate
 passes. Push verified progress to main continuously; keep rejected and partial
 results with their actual source identities.
 
-Main is `d4a77652d`: verified bounded full-workspace Cargo cohorts. Recovery
+Main is `4efcf43f7`: verified bounded cohorts, source-identity preflight and default Intl isolation. Recovery
 branch `codex/cloud-recovery-20261017` contains the compiler batch and its exact
 native/CLI evidence. The main tooling is merged into recovery; the compiler
 batch has not passed retention and must not be promoted as accepted.
@@ -43,42 +43,53 @@ and abrupt dispatch remain. Five10,000-read variants shrink largest bodies from
 1.9MB to under6KB; shared runtime bytes remain identical. Native controls pass;
 the full retention result above remains red.
 
-## Next coherent compiler work
+## Current coherent compiler work
 
-The isolated ABI10 prototype is pushed as
-`codex/native-program-payload-20261017` at `1389111b6`. It uses immutable source
-payloads on fresh ProgramInstances and bounded Store-owned reuse of checked,
-stateless native Instances. Source ownership follows actual/defining P through
-saved closures, GC and reentry; no ambient active-payload selector is used.
-All18 emitter families and the differing-comment identity control pass.
-Diagnostic opt0 native integration finishes13passes/1timeout: saved ownership,
-GC and reentry controls pass; the11,000-eval test exceeds its original60s limit.
-This is not ordinaryCargo, optimized releaseCLI or conformance acceptance.
-The complete coherent code patch, types, tests and contract are now applied in
-the primary recovery checkout. Checked stateless native JavaScript symbols are
-canonical function indices; public artifacts retain original source names. New
-controls check actual emitter code sharing, distinct payloads and saved named
-functions with self bindings across GC. Optimized ordinary Cargo verification
-and release-CLI retention must pass before promotion.
+ABI10 and exact native body sharing are applied in the primary recovery tree.
+Each fresh P owns physically immutable packed source data. A checked stateless
+Instance can serve different Ps without a mutable current-payload selector.
+Shared code only aliases definitions with identical concrete type, locals,
+rewritten instructions and actual-P ownership witness. It remaps references
+through one closed mapping and preserves original numeric SOURCE_ID values and
+separate function objects, contexts, constructor plans, names and source text.
+Public artifacts retain original functions and source-specific symbols; shared
+native debug symbols identify code indices.
 
-Current finite CLI phase diagnostics show compiled-module lookup/native
-compilation dominates cold callbacks: about81% for the first original literal
-expression in the destructuring matrix and79% for an explicitly reduced six-
-member prototype matrix. These are diagnostic dimensions, not conformance
-subsets or deadline verdicts. Raw output lives in
-`target/coherent-throughput-timeout-phases-20261018-run4`. The same finite
-workload's later warm callback window is2.28s; source/caches differ from cold
-acceptance conditions. Inspect actual module/cache keys before speculative
-emitter changes. Source-derived Wasm debug names remain in template bytes and
-can split otherwise identical code; preserve JS naming and source ownership.
+The isolated source `fdc877450` passes573 tooling tests, AOT library/test-code
+metadata checks and structural emission. A1001-method artifact remains exactly
+byte-identical publicly; native bodies1020→21 and bytes3510490→1681717.
+Diagnostic opt0 execution gives1pass/1timeout for the two new controls. The
+constructor/private-brand plan control passes; the1000-method control exceeds
+its original60s limit cold, then passes in19.05s with a warm module cache.
+That warm callback spends10.394s parsing/lowering,1.320s emitting,2.492s
+canonicalizing and0.307s looking up its compiled module. Preserve the cold red
+result. This is not optimized Cargo, releaseCLI or cold-retention acceptance.
+See `docs/rust-rewrite/owned-native-code-sharing-diagnostic-20261018.json`.
 
-The isolated incremental AOT query probe compiled in67.46s versus96.43s initial
-under different loads. Whole archives differ, but all258 codegen payload
-members are byte-identical; only archive index and small rmeta-link metadata
-differ. Do not claim a controlled speedup or change Cargo profiles from this
-alone. A package-specific incremental profile parses successfully. Current
-activation still disables Cargo incremental; any policy change needs actual
-dirty-edit time/storage measurements.
+The prior d3bb ordinary build was stopped before any native execution after
+actual full tooling reported568/574: six generated Intl provenance files were
+stale after ABI10 emitter changes. The follow-up fixes the complete dependency
+chain and all66 affected controls pass. It also restores the omitted Intl
+isolation flag as an enforced runner default: normal Cargo roots exclude Intl's
+compiled_data dev feature. Actual8-target fixture and37 controls pass, with
+all6 normal library artifacts fresh. This tooling is pushed main `4efcf43f7`.
+
+Run `python3 -B scripts/intl_source_identities.py` before expensive compilation;
+use `--write` after changing consumed compiler inputs. It runs13 recipes in
+producer order and checks them again. Primary now includes all4 bounded-cohort
+controls missing from the isolated tree and2 new isolation controls: its full
+tooling universe is579. Finish exact ordinary optimized six-target native
+coverage first, then actual release CLI13+197+20 at unchanged original budgets.
+Use a fresh bounded replay cache so diagnostic warming cannot establish a cold
+repair. Retain every old pass/ID and all earlier rejected raw evidence.
+
+The remaining measured crate split is a small downstream native-template crate
+between stable AOT and Engine. AOT would keep typed raw artifacts and wire
+producers; template edits could then avoid rebuilding AOT. The current ownership
+validation/private GC helper seam needs a deliberate API. Do not place a new
+crate below AOT and assume dependent rebuilding disappears. No split or profile
+change is accepted yet. AOT-only incremental query evidence remains metadata-
+only and does not establish controlled dirty-edit improvement.
 
 ## Remaining scopes and owners
 

@@ -13,6 +13,7 @@ mod payload;
 mod plan;
 mod reencode;
 mod references;
+mod share_bodies;
 pub use literal_operands::NativeProgramLiteralOperand;
 pub use payload::{NativeProgramPayload, NativeProgramPayloadDirectory};
 #[cfg(test)]
@@ -116,7 +117,7 @@ impl NativeProgramTemplate {
             });
         };
         let payload = NativeProgramPayload::from_plan(&plan)?;
-        let module = reencode::encode(bytes, &plan)?;
+        let module = share_bodies::encode(reencode::encode(bytes, &plan)?, &plan)?;
         Ok(Self {
             bytes: module.into(),
             runtime: Arc::clone(runtime),

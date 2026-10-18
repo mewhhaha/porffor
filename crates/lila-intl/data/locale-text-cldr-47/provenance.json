@@ -45,14 +45,14 @@
         "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
       },
       {
-        "bytes": 80644,
+        "bytes": 80983,
         "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-        "sha256": "de56d5c4a5f57e3e1fa3f9e26bc1260a8a1471222b7ae4dcd370d08759e229bb"
+        "sha256": "62f23788756a78855da3b00ebc08aab773097bcacfbf557eb477094b56df392a"
       },
       {
-        "bytes": 87003,
+        "bytes": 87129,
         "path": "crates/lila-aot-wasm/src/emit.rs",
-        "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
+        "sha256": "2e6357a0881127fbf4b0a70aeeaaa6ec8645f63449c3cb01e1f208b4b89f2867"
       },
       {
         "bytes": 33803,
@@ -77,7 +77,7 @@
       {
         "bytes": 31039,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "761297f687ca1a82f83df96500a547606bb8c6288cb1f47dbaac8edf169d5687"
+        "sha256": "775050918c6c31a1688ee0a54b4c277a677c140681f3cdc9871adda082214a5c"
       },
       {
         "bytes": 34690,
@@ -147,7 +147,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "e9ccd10c49d276c1b535b6456e7ece8da81df4b2da46b12aed47ec45d7e95b7e"
+        "sha256": "8250bf0d4b7ad527e930d5850d4ee09ab1299d5f530946e25c64c0f7586852e1"
       },
       {
         "bytes": 4101,
@@ -251,7 +251,7 @@
       }
     ]
   },
-  "kernel_sha256": "5c51352fa743a7674888300e195dbc6a4f013ef27134a2a05767b75efb38e840",
+  "kernel_sha256": "30056032cbab3de856a43517320bc31f24f6c21977bf166e6d1146201cfca609",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

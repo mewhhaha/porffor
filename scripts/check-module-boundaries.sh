@@ -3084,6 +3084,11 @@ require_file "$native_template_literal_fixture_source"
 if [[ "$(head -n 1 "$native_template_literal_fixture_source")" != '#![cfg(test)]' ]]; then
   fail 'native literal operand binary fixtures must be compiled only for tests'
 fi
+native_template_shared_body_fixture_source="crates/lila-aot-wasm/src/native_program_template/share_bodies/tests.rs"
+require_file "$native_template_shared_body_fixture_source"
+if [[ "$(head -n 1 "$native_template_shared_body_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'native shared-body binary fixtures must be compiled only for tests'
+fi
 gc_instruction_escapes="$(
   rg -n 'Instruction::(Struct(New|Get|Set)|Array(New|Get|Set|Fill|Copy|Len))' \
     crates/lila-aot-wasm/src --glob '*.rs' --glob '!**/gc_types/**' \
@@ -3490,6 +3495,7 @@ for sealed_section in types globals code; do
       ! -path "$runtime_cache_fixture_source" \
       ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path "$native_template_shared_body_fixture_source" \
       ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
       "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
@@ -3509,6 +3515,7 @@ global_section_constructor_escapes="$(
     ! -path "$runtime_cache_fixture_source" \
     ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path "$native_template_shared_body_fixture_source" \
       ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
