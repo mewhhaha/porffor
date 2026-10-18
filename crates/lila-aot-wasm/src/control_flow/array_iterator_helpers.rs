@@ -44,7 +44,8 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let realm = self.load_current_realm(function);
+        // Preserve the inline kernel's error-Realm resolution before the call.
+        let realm = self.emit_execution_realm(function);
         let base = self.runtime_helper_base()?;
         match value {
             Some(_) => schema.call_helper(
@@ -101,7 +102,7 @@ impl FunctionBuilder<'_> {
         function: &mut Function,
     ) -> Result<(), EmitError> {
         let schema = self.runtime_schema();
-        let realm = self.load_current_realm(function);
+        let realm = self.emit_execution_realm(function);
         schema
             .call_helper(
                 ArrayIteratorCloseArguments::new(
