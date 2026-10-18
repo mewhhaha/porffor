@@ -1,3 +1,10 @@
+Full-BMP RegExp Engine diagnostic — 2026-10-18: all12 unchanged fixture/mode
+combinations now pass through the frozen628 public Wasm-AOT Engine in40.6–51.5s
+per case, with the original60000ms execution allowance, one CPU and fresh bounded
+caches. Every full65536-unit loop and original assertion is retained. This is a
+compiler diagnostic, separate from ordinary CLI acceptance, the full workspace
+and the full pinned suite. [Exact sources, outputs and build provenance](docs/rust-rewrite/regexp-bmp-kernel-diagnostic-20261018.json).
+
 Completed focused CLI checkpoint — 2026-10-18: source112 runs all230 exact
 original executions at the original budgets: **208 Success,19 deadline Crash,
 3 Bug**. Compared with the previous205/22/3 checkpoint, six cases now pass and
