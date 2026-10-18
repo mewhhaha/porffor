@@ -1,3 +1,18 @@
+Broader native feedback and module costs — 2026-10-18: the complete six-core
+run on a592 records 4,195 passes and three failures across 4,198 exact IDs,
+with zero ignored tests. Both timeout IDs pass serial controls with the same
+executable, fixtures and original 60-second deadlines (52.53s and 41.37s);
+the original failed whole-target verdict remains. One separate-body arguments
+emission error needs the authored follow-up repair. Complete workspace and CLI
+retention acceptance remain open.
+
+The bounded debug trace records 14.36s in module lookup during the first 256
+callbacks, with 140 module misses, 20,393 function-cache hits and 237 misses.
+Offline generated-source comparison reproduces 140 distinct templates; some
+contain different executable bodies. These are diagnostics, with inclusive
+spans and different cache/profile conditions, not release timing or conformance
+acceptance. [Raw measurements and failure evidence](docs/rust-rewrite/native-module-cost-diagnostic-20261018.json).
+
 Focused native repairs — 2026-10-18: ordinary Cargo execution on compiler
 source `a59219629f735ebf7524090a6560ad7597c2a7a7` passes 173 checks with
 zero failures or ignored tests across nine targets. Every one of the 14 exact
