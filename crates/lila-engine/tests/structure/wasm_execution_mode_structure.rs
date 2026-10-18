@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const ENGINE_SOURCE: &str = include_str!("../../src/lib.rs");
+const ENGINE_TEST_SOURCE: &str = include_str!("../../src/tests.rs");
 const GRAPH_SOURCE: &str = include_str!("../../src/graph_observation.rs");
 const NATIVE_DIRECT_EVAL_TEST_SOURCE: &str =
     include_str!("../../src/native_direct_eval_compiler_tests.rs");
@@ -90,11 +91,12 @@ fn wasm_execution_mode_is_the_exact_private_no_capability_domain() {
     assert!(!declaration.contains("#[derive"));
 
     let production = ENGINE_SOURCE
-        .split_once("\n#[cfg(test)]\nmod tests {")
+        .split_once("\n#[cfg(test)]\nmod tests;")
         .expect("engine unit-test boundary")
         .0;
     assert_eq!(production.matches("WasmExecutionMode").count(), 18);
-    assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 20);
+    assert_eq!(ENGINE_SOURCE.matches("WasmExecutionMode").count(), 18);
+    assert_eq!(ENGINE_TEST_SOURCE.matches("WasmExecutionMode").count(), 2);
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for module in [
         "native_direct_eval_compiler_tests",
@@ -208,7 +210,7 @@ fn ordinary_and_graph_entry_points_fix_their_exact_execution_mode() {
     }
 
     let production = ENGINE_SOURCE
-        .split_once("\n#[cfg(test)]\nmod tests {")
+        .split_once("\n#[cfg(test)]\nmod tests;")
         .expect("engine unit-test boundary")
         .0;
     assert_eq!(production.matches("mode: &WasmExecutionMode,").count(), 4);

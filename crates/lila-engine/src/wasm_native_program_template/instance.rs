@@ -30,11 +30,29 @@ pub(crate) fn instantiate(
             return Ok(instance);
         }
     }
+    // Use the existing bounded trace only. The default path does not acquire
+    // the cache or read its counters. These are process-wide deltas: concurrent
+    // compilations may contribute, so they do not claim exclusive attribution.
+    let function_cache = trace.and_then(|_| cranelift_function_cache());
+    let function_before = function_cache.as_ref().map(|cache| cache.counters());
     let lookup = trace.map(|trace| trace.phase(Phase::CompiledModuleLookup));
     let (module, hit) = cache::module(engine, context.native_compilation_mode, template.bytes())
         .map_err(wasmtime::Error::new)?;
     context.check_budget()?;
     drop(lookup);
+    if let Some(trace) = trace {
+        let delta = function_cache
+            .as_ref()
+            .zip(function_before)
+            .map(|(cache, before)| {
+                let after = cache.counters();
+                (
+                    after.0.saturating_sub(before.0),
+                    after.1.saturating_sub(before.1),
+                )
+            });
+        trace.compiled_module_cache(hit, delta);
+    }
     let bind = trace.map(|trace| trace.phase(Phase::BindImports));
     let mut imports = Vec::new();
     for import in module.imports() {

@@ -92,6 +92,24 @@ pub(crate) struct CallbackTrace<'a> {
 }
 
 impl CallbackTrace<'_> {
+    pub(crate) fn compiled_module_cache(
+        &self,
+        module_hit: bool,
+        function_delta: Option<(u64, u64)>,
+    ) {
+        let module = if module_hit { "hit" } else { "miss" };
+        match function_delta {
+            Some((hits, misses)) => eprintln!(
+                "lila native source cache: v=1 callback={} family={} module_memory_cache={} function_cache_hits={} function_cache_misses={} counters_scope=process",
+                self.id, self.family.name(), module, hits, misses,
+            ),
+            None => eprintln!(
+                "lila native source cache: v=1 callback={} family={} module_memory_cache={} function_cache=unavailable counters_scope=process",
+                self.id, self.family.name(), module,
+            ),
+        }
+    }
+
     pub(crate) fn phase(&self, phase: Phase) -> PhaseSpan<'_> {
         let start = Instant::now();
         self.record(phase.name(), "begin", start, 0);

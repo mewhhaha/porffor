@@ -17,6 +17,10 @@ ABI test and complete workspace remain pending. The batch also aligns the small
 `cow-utils` test dependency's debug info across normal and proc-macro contexts;
 unit-graph reuse is verified, while actual build-time savings remain unmeasured.
 The D6 discovery continues independently. No full-suite acceptance is claimed.
+Two later Engine structure failures use the old inline unit-test boundary;
+their repaired three-test scope also passes. Optional bounded native tracing now
+distinguishes module hits from Cranelift function-cache activity, with explicit
+process-wide counter scope. Ordinary compilation and trace execution are pending.
 
 Literal eval dispatch candidate — 2026-10-18 (verification pending): a first
 argument that is an actual IR string literal now selects only prepared sources
