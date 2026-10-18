@@ -112,8 +112,8 @@ fn runtime_proof_retains_exact_arc_and_rejects_other_physical_profile() {
 
 #[test]
 fn current_layout_authority_cannot_be_inferred_from_valid_intl_bytes() {
-    for old in [0, 4, 6, 7, 8, 10, u32::MAX] {
-        assert!(CurrentRuntimeLayoutVersion::admit(old).is_none());
+    for wrong in (0..LAYOUT_VERSION).chain([LAYOUT_VERSION + 1, u32::MAX]) {
+        assert!(CurrentRuntimeLayoutVersion::admit(wrong).is_none());
     }
     assert_eq!(
         CurrentRuntimeLayoutVersion::admit(LAYOUT_VERSION)

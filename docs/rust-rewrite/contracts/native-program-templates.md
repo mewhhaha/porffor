@@ -87,3 +87,17 @@ SOURCE_ID, constructor element plan, source text, name and captured environment.
 Only the Wasm executable entry is shared. Raw public artifacts retain every
 original function and index. Structural size controls, native identity/class
 plan controls and original CLI deadlines remain separate acceptance gates.
+
+Runtime and program type declarations may share immutable encoded type sections
+and assigned layout indices. Their two declaration graphs stay distinct. Every
+module still owns fresh globals and prelude state, and finalization consumes its
+own matching type/global package once. No source data or mutable Wasm state is
+shared through this declaration storage.
+
+Template planning collects actual type/signature/export facts during its header
+pass and checks ownership against the same decoded operator slice used to plan
+each body. The complete owner witness is constructed only after every body and
+payload site has been checked. Fusing these passes does not relax actual-field,
+initializer, owner-local, readiness or relocation requirements, nor raw Wasm
+validation. Original-deadline native verification and exact emitted-byte controls
+are required independently of metadata checks.

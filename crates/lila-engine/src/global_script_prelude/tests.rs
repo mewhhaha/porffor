@@ -114,7 +114,7 @@ fn prelude_bytes_are_framed_in_script_cache_identity_and_phase_is_only_in_p() {
         )
         .unwrap()
         .layout_version(),
-        9
+        10
     );
 }
 

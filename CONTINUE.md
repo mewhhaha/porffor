@@ -1,3 +1,14 @@
+Next coherent throughput batch — 2026-10-18 (unverified): share only immutable
+runtime/program type declarations and fuse native-template ownership checks into
+the existing header/body passes. Keep fresh globals, exact source ownership and
+all validation. Repair two stale ABI10 assertions. The rejected c927 ordinary
+run has 1599 IR, 740 IR integration and 428 Realm passes; AOT and Engine have stale
+assertions, Engine also stalled on raw-UTF16, and the 11000-source native test
+exceeds its original deadline. A bounded 256-callback diagnostic measures emission
+and canonicalization at about 43% each; it was deliberately terminated, not passed.
+Current-source CLI diagnostics are separate from native acceptance. Full tooling
+on c927 passed 579/579. Main promotion and task cleanup remain blocked.
+
 Isolated follow-up — 2026-10-18: checked stateless native bodies now have a
 conservative exact-type/body/ownership sharing transform. Original numeric
 SOURCE_ID constants and per-function objects/contexts/source remain separate.

@@ -1,8 +1,10 @@
 use super::*;
+mod facts;
 mod signatures;
 use crate::native_program_contexts::{FunctionContext, ModuleContext, Schema};
+pub(super) use facts::Facts;
 use std::collections::BTreeMap;
-use wasmparser::{CompositeInnerType, Operator, Payload, StorageType, ValType};
+use wasmparser::{CompositeInnerType, Operator, StorageType, ValType};
 
 /// Every rewritten source operand can obtain the metadata of its actual owner.
 pub(super) struct OwnedContexts {
@@ -12,14 +14,24 @@ pub(super) struct OwnedContexts {
     pub bodies: BTreeMap<u32, FunctionContext>,
 }
 
-impl OwnedContexts {
-    pub fn read(
-        bytes: &[u8],
+/// Accumulate checked body facts without decoding the same instructions again.
+/// Only finish can mint the complete owner witness consumed by reencoding.
+pub(super) struct Check<'a> {
+    schema: Schema,
+    bootstrap_body: u32,
+    payload_operator: u32,
+    rows: BTreeMap<u32, FunctionContext>,
+    signatures: &'a signatures::Signatures,
+    initializer: u32,
+    payload_site: Option<usize>,
+    complete: bool,
+}
+impl<'a> Check<'a> {
+    pub(super) fn new(
         rows: Vec<ModuleContext>,
-        bodies: &[wasmparser::FunctionBody<'_>],
-        sites: &BTreeMap<usize, super::plan::Site>,
-        literal_sites: &BTreeMap<usize, u32>,
-    ) -> Result<Option<Self>, NativeProgramTemplateError> {
+        facts: &'a Facts,
+        body_count: usize,
+    ) -> Result<Self, NativeProgramTemplateError> {
         let initializers = rows
             .iter()
             .filter_map(|row| match row.context {
@@ -40,117 +52,100 @@ impl OwnedContexts {
         if schema.payload_field != crate::gc_types::ProgramInstanceLocals::native_payload_field()
             || rows
                 .iter()
-                .any(|row| row.context.schema() != schema || row.body as usize >= bodies.len())
+                .any(|row| row.context.schema() != schema || row.body as usize >= body_count)
         {
             return Err(invalid(
                 "native program contexts have inconsistent schemas or bodies",
             ));
         }
-        // Check the declared wire indices against the actual type section.
-        let mut next_type = 0;
-        let mut program = None;
-        let mut metadata = None;
-        for payload in wasmparser::Parser::new(0).parse_all(bytes) {
-            if let Payload::TypeSection(reader) = payload.map_err(invalid)? {
-                for group in reader {
-                    for ty in group.map_err(invalid)?.types() {
-                        if next_type == schema.program_type {
-                            if let CompositeInnerType::Struct(ty) = &ty.composite_type.inner {
-                                program = ty.fields.get(schema.payload_field as usize).copied();
-                            }
-                        }
-                        if next_type == schema.payload_type {
-                            if let CompositeInnerType::Array(ty) = &ty.composite_type.inner {
-                                metadata = Some(
-                                    !ty.0.mutable && matches!(ty.0.element_type, StorageType::I8),
-                                );
-                            }
-                        }
-                        next_type += 1;
-                    }
-                }
-            }
-        }
-        let valid_program = program.is_some_and(|field| {
-            !field.mutable
-                && matches!(field.element_type,
-            StorageType::Val(ValType::Ref(reference)) if !reference.is_nullable()
-                && matches!(reference.heap_type(), wasmparser::HeapType::Concrete(index)
-                    if index.as_module_index() == Some(schema.payload_type)))
-        });
-        if !valid_program || metadata != Some(true) {
+        if !facts.matches(schema) {
             return Err(invalid(
                 "native metadata context does not match the actual immutable P field",
             ));
         }
-        let rows = rows
-            .into_iter()
-            .map(|row| (row.body, row.context))
-            .collect::<BTreeMap<_, _>>();
-        let signatures = signatures::Signatures::read(bytes)?;
-        let initializer = signatures.initializer(bootstrap_body, schema)?;
-        let mut payload_site = None;
-        let mut complete = true;
-        for (index, body) in bodies.iter().enumerate() {
-            let mut reader = body.get_operators_reader().map_err(invalid)?;
-            let mut operators = Vec::new();
-            while !reader.eof() {
-                let offset = reader.original_position();
-                operators.push((offset, reader.read().map_err(invalid)?));
+        let initializer = facts.signatures.initializer(bootstrap_body, schema)?;
+        Ok(Self {
+            schema,
+            bootstrap_body,
+            payload_operator,
+            rows: rows
+                .into_iter()
+                .map(|row| (row.body, row.context))
+                .collect(),
+            signatures: &facts.signatures,
+            initializer,
+            payload_site: None,
+            complete: true,
+        })
+    }
+
+    pub(super) fn body(
+        &mut self,
+        index: u32,
+        body: &wasmparser::FunctionBody<'_>,
+        operators: &[(usize, Operator<'_>)],
+        sites: &BTreeMap<usize, super::plan::Site>,
+        literal_sites: &BTreeMap<usize, u32>,
+    ) -> Result<(), NativeProgramTemplateError> {
+        if operators.iter().any(|(_, op)| matches!(op,
+            Operator::Call { function_index } | Operator::ReturnCall { function_index } | Operator::RefFunc { function_index }
+                if *function_index == self.initializer)) {
+            return Err(invalid("native bootstrap cannot be referenced with its original parameterless type"));
+        }
+        if let Some(FunctionContext::Program { local, ready, .. }) = self.rows.get(&index) {
+            self.signatures.local(index, body, *local, self.schema)?;
+            if !operators.iter().take(*ready as usize).any(|(_, op)| matches!(op,
+                Operator::LocalSet { local_index } | Operator::LocalTee { local_index } if local_index == local)) {
+                return Err(invalid("native program owner is not initialized before its ready witness"));
             }
-            if operators.iter().any(|(_, op)| matches!(op,
-                Operator::Call { function_index } | Operator::ReturnCall { function_index } | Operator::RefFunc { function_index }
-                    if *function_index == initializer)) {
-                return Err(invalid("native bootstrap cannot be referenced with its original parameterless type"));
-            }
-            if let Some(FunctionContext::Program { local, ready, .. }) = rows.get(&(index as u32)) {
-                signatures.local(index as u32, body, *local, schema)?;
-                if !operators.iter().take(*ready as usize).any(|(_, op)| matches!(op,
-                    Operator::LocalSet { local_index } | Operator::LocalTee { local_index } if local_index == local)) {
-                    return Err(invalid("native program owner is not initialized before its ready witness"));
+        }
+        if index == self.bootstrap_body {
+            match operators.get(self.payload_operator as usize) {
+                Some((
+                    offset,
+                    Operator::ArrayNewFixed {
+                        array_type_index,
+                        array_size: 0,
+                    },
+                )) if *array_type_index == self.schema.payload_type => {
+                    self.payload_site = Some(*offset)
                 }
-            }
-            if index == bootstrap_body as usize {
-                match operators.get(payload_operator as usize) {
-                    Some((
-                        offset,
-                        Operator::ArrayNewFixed {
-                            array_type_index,
-                            array_size: 0,
-                        },
-                    )) if *array_type_index == schema.payload_type => payload_site = Some(*offset),
-                    _ => {
-                        return Err(invalid(
-                            "native bootstrap source payload slot differs from its witness",
-                        ))
-                    }
-                }
-            }
-            for (ordinal, (offset, _)) in operators.iter().enumerate() {
-                if !sites.contains_key(offset) && !literal_sites.contains_key(offset) {
-                    continue;
-                }
-                complete &= match rows.get(&(index as u32)) {
-                    Some(FunctionContext::Bootstrap { .. }) => true,
-                    Some(FunctionContext::Program { ready, .. }) => ordinal >= *ready as usize,
-                    None => false,
-                };
-            }
-            if let Some(FunctionContext::Program { ready, .. }) = rows.get(&(index as u32)) {
-                if *ready as usize > operators.len() {
+                _ => {
                     return Err(invalid(
-                        "native program context becomes ready beyond its body",
-                    ));
+                        "native bootstrap source payload slot differs from its witness",
+                    ))
                 }
             }
         }
-        let payload_site =
-            payload_site.ok_or_else(|| invalid("native bootstrap metadata site is absent"))?;
-        Ok(complete.then_some(Self {
-            schema,
-            bootstrap_body,
+        for (ordinal, (offset, _)) in operators.iter().enumerate() {
+            if !sites.contains_key(offset) && !literal_sites.contains_key(offset) {
+                continue;
+            }
+            self.complete &= match self.rows.get(&index) {
+                Some(FunctionContext::Bootstrap { .. }) => true,
+                Some(FunctionContext::Program { ready, .. }) => ordinal >= *ready as usize,
+                None => false,
+            };
+        }
+        if let Some(FunctionContext::Program { ready, .. }) = self.rows.get(&index) {
+            if *ready as usize > operators.len() {
+                return Err(invalid(
+                    "native program context becomes ready beyond its body",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish(self) -> Result<Option<OwnedContexts>, NativeProgramTemplateError> {
+        let payload_site = self
+            .payload_site
+            .ok_or_else(|| invalid("native bootstrap metadata site is absent"))?;
+        Ok(self.complete.then_some(OwnedContexts {
+            schema: self.schema,
+            bootstrap_body: self.bootstrap_body,
             payload_site,
-            bodies: rows,
+            bodies: self.rows,
         }))
     }
 }

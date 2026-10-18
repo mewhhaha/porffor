@@ -1,3 +1,10 @@
+Native-source throughput repair (2026-10-18, authored): immutable runtime and
+program GC type declarations share storage, while module globals remain fresh.
+Native template planning collects ownership and signature facts in its existing
+header/body passes. Actual field, local, bootstrap and relocation checks remain
+required. This targets a measured repeated-eval timeout; compilation, byte parity
+and original-deadline verification are pending.
+
 Isolated native-code sharing candidate (2026-10-18, unverified): exact typed
 function bodies may share executable code after checked source-payload rewrites.
 Raw public modules, numeric declaration IDs and JavaScript function objects and
