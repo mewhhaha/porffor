@@ -1,17 +1,18 @@
 Intl rebuild iteration — 2026-10-18: the opt-in
 `LILA_TEST_KEEP_INTL_INCREMENTAL=1` retains only normal Intl library scratch
-when the verification wrapper otherwise removes it. All90 workspace-tooling
+when the verification wrapper otherwise removes it. All 90 workspace-tooling
 controls pass. In a private identity-edit experiment, ordinary builds took
 98.5/127.4s; an incremental edit took11.5s and undo/reapply took13.4/13.6s.
 Linked consumers verified both unchanged and changed provider identities.
 [Exact scope, cache cost and lossless evidence](docs/rust-rewrite/intl-incremental-identity-20261018.json).
 Full-build and conformance effects remain unmeasured; defaults are unchanged.
 
-RegExp repair source checkpoint — 2026-10-18: the isolated candidate passes
-all 600 tooling tests, retains every previous599 ID, and passes the full module
-boundary check. [Literal inventories and lossless logs](docs/rust-rewrite/regexp-kernel-tooling-600-20261018.json)
-bind these checks to recovery source `7e339b365`. Native execution of the new
-RegExp Wasm factory, CLI retention and full-suite acceptance remain pending.
+RegExp repair source checkpoint — 2026-10-18: the next candidate passes
+all 603 tooling tests, retains every previous 600 ID, and passes all eight source
+CI checks and the full module boundary. [Literal inventories and lossless logs](docs/rust-rewrite/regexp-kernel-tooling-603-20261018.json)
+bind these checks to recovery source `dd8b807af`; the [earlier 600-test check](docs/rust-rewrite/regexp-kernel-tooling-600-20261018.json)
+remains recorded. Native execution of the new RegExp Wasm factory, CLI retention
+and full-suite acceptance remain pending.
 
 Tooling verification checkpoint — 2026-10-18: the naming/empty-eval candidate
 passes all 599 unfiltered tooling tests and all eight listed source CI checks.
@@ -19,8 +20,10 @@ Every previous 599 test ID is retained; all eight earlier Intl provenance
 failures now pass. [Literal inventories and lossless logs](docs/rust-rewrite/naming-empty-tooling-599-20261018.json)
 bind these results to recovery source `112a765c1`. The full default-feature
 workspace/all-target type check also passes in19m05s from a cold dependency graph
-([exact logs](docs/rust-rewrite/all-target-typecheck-20261018.json)). Native execution,
-CLI retention and pinned-suite acceptance remain open.
+([exact logs](docs/rust-rewrite/all-target-typecheck-20261018.json)). All 4,186 selected
+native tests also pass, retaining every prior 4,180 ID with zero failures or
+ignored tests ([literal inventories and transcripts](docs/rust-rewrite/native-core-4186-20261018.json)).
+CLI retention, full workspace execution and pinned-suite acceptance remain open.
 
 Intl refresh dependency repair — 2026-10-18: List identity now refreshes before
 Duration, which binds List's generated identity and manifest. Six focused controls
