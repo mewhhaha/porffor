@@ -9,7 +9,42 @@ ELFs retire only after their exact identities and raw evidence are sealed.
 retain the scope. This establishes tooling behavior; full Lila verification is open.
 Refresh controls with `python3 -B -m unittest scripts.tests.test_workspace_cohorts`.
 
-Current focused checkpoint (2026-10-17): all230 original stress executions have
+Recovery verification (2026-10-18, compiler source `35c94675f`): all **4,161**
+tests in six complete selected native targets pass, with zero failed or ignored:
+AOT **418**, IR **1,599**, IR integration **740**, Engine **965**, native templates
+**11** and Realm **428**. The [native checkpoint](docs/rust-rewrite/coherent-throughput-core-20261017.json)
+retains exact inventories and the earlier rejected Realm verdict. The actual
+warm Cargo command reuses all **15** native artifacts in **0.880 seconds**, with
+executable bytes, inodes and mtimes unchanged. The combined graph has two normal
+AOT build variants instead of four and one runtime-image producer cohort instead
+of two; these are build-unit measurements, not a controlled wall-time speedup.
+
+The actual release CLI passes all **13 original Unicode cases**. The complete
+**197-case retention replay is red: 191 Success and six deadline Crash**, with
+zero absent executions and unchanged 60-second execution / 300-second compile
+limits, one worker and four 64-MiB disk-cache tiers. The [exact CLI evidence](docs/rust-rewrite/coherent-throughput-cli-20261017.json)
+retains every result. The other 20 original focused IDs remain unaccepted; this
+is not a new 230-case aggregate. Compiler changes remain on the recovery branch
+until retention passes. Full workspace, pinned conformance and task closure are
+open; generated real-suite status counts remain unchanged.
+
+The repeated-read emission controls retain every live identifier read and its
+completion/throw behavior. Five 10,000-read variants have largest bodies of
+**4,428–5,654 bytes**, down from **1,924,213–1,955,436 bytes**, with byte-identical
+shared runtime Wasm. Native semantic controls now pass within the six complete
+targets above. The throughput batch also shares immutable bootstrap plans,
+indexes local declarations and omits unused native-factory Main code; the full
+retention result remains the acceptance gate.
+
+ABI10 repair (2026-10-18, verification pending): each fresh ProgramInstance owns
+its immutable source payload while checked stateless native code can share an
+Instance. Shared JavaScript bodies use stable Wasmtime function-index symbols;
+public Wasm keeps source names, and JavaScript names and source text stay owned
+by the defining program. Saved-function, GC, reentry and original Store-limit
+controls are included. The optimized ordinary Cargo and release CLI gates are
+still required; no new pass counts or full-suite acceptance are claimed.
+
+Earlier focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
 are retained. These are a focused inventory, not full pinned Test262 acceptance.
@@ -11354,32 +11389,6 @@ the actual grammar; escaped contextual modifiers/delimiters still reject.
 retains unresolved host TypeErrors, genuine parse/link SyntaxErrors and
 resolved JavaScript GetModuleSource SyntaxErrors. This is an authored repair;
 pinned/native verification and full-suite acceptance are tracked separately.
-Recovery verification (2026-10-18, compiler source `35c94675f`): all **4,161**
-tests in six complete selected native targets pass, with zero failed or ignored:
-AOT **418**, IR **1,599**, IR integration **740**, Engine **965**, native templates
-**11** and Realm **428**. The [native checkpoint](docs/rust-rewrite/coherent-throughput-core-20261017.json)
-retains exact inventories and the earlier rejected Realm verdict. The actual
-warm Cargo command reuses all **15** native artifacts in **0.880 seconds**, with
-executable bytes, inodes and mtimes unchanged. The combined graph has two normal
-AOT build variants instead of four and one runtime-image producer cohort instead
-of two; these are build-unit measurements, not a controlled wall-time speedup.
-
-The actual release CLI passes all **13 original Unicode cases**. The complete
-**197-case retention replay is red: 191 Success and six deadline Crash**, with
-zero absent executions and unchanged 60-second execution / 300-second compile
-limits, one worker and four 64-MiB disk-cache tiers. The [exact CLI evidence](docs/rust-rewrite/coherent-throughput-cli-20261017.json)
-retains every result. The other 20 original focused IDs remain unaccepted; this
-is not a new 230-case aggregate. Compiler changes remain on the recovery branch
-until retention passes. Full workspace, pinned conformance and task closure are
-open; generated real-suite status counts remain unchanged.
-
-The repeated-read emission controls retain every live identifier read and its
-completion/throw behavior. Five 10,000-read variants have largest bodies of
-**4,428–5,654 bytes**, down from **1,924,213–1,955,436 bytes**, with byte-identical
-shared runtime Wasm. Native semantic controls now pass within the six complete
-targets above. The throughput batch also shares immutable bootstrap plans,
-indexes local declarations and omits unused native-factory Main code; the full
-retention result remains the acceptance gate.
 
 # Lila
 

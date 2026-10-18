@@ -3087,7 +3087,8 @@ fi
 gc_instruction_escapes="$(
   rg -n 'Instruction::(Struct(New|Get|Set)|Array(New|Get|Set|Fill|Copy|Len))' \
     crates/lila-aot-wasm/src --glob '*.rs' --glob '!**/gc_types/**' \
-      --glob '!crates/lila-aot-wasm/src/native_program_template/tests.rs' || true
+      --glob '!crates/lila-aot-wasm/src/native_program_template/tests.rs' \
+      --glob '!crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' || true
 )"
 if [ -n "$gc_instruction_escapes" ]; then
   fail "raw Wasm-GC record/array instructions must stay in the central schema: $gc_instruction_escapes"
@@ -3291,7 +3292,7 @@ require_fixed_string_count crates/lila-aot-wasm/src/emit/body_compilation/progra
 source_body_compiler="$(braced_rust_item_source "$wasm_body_compilation" '^fn compile_javascript_body[(]')"
 source_body_compiler_code="$(printf '%s\n' "$source_body_compiler" | tr -d '[:space:]')"
 if [[ "$source_body_compiler_code" != *'ifself.is_main(){letindex=initializer.expect('* ]] \
-  || [[ "$source_body_compiler_code" != *'letprogram=self.runtime_schema().call_program_initialize(index,&mutfunction);self.bind_entry_program(program);'* ]]; then
+  || [[ "$source_body_compiler_code" != *'letprogram=self.runtime_schema().call_program_initialize(index,&mutfunction);self.bind_entry_program(program,&mutfunction);'* ]]; then
   fail 'heap source main must bind the P returned by its typed initializer before executing source'
 fi
 require_fixed_string_count "$wasm_module_assembly" 'compile_pooled_strings_initialize_helper' 1 'runtime assembly consumes the canonical pooled-string helper'
@@ -3489,6 +3490,7 @@ for sealed_section in types globals code; do
       ! -path "$runtime_cache_fixture_source" \
       ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
       "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
       | xargs -0 grep -Fn "module.section(&${sealed_section})" || true
@@ -3507,6 +3509,7 @@ global_section_constructor_escapes="$(
     ! -path "$runtime_cache_fixture_source" \
     ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
+      ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
     ! -path "$wasm_gc_types" -print0 \
     | xargs -0 grep -Fn 'GlobalSection::new()' || true
 )"
@@ -7027,7 +7030,7 @@ check_raw_line_budget crates/lila-aot-wasm/src/emit/body_compilation/program_ini
 check_raw_line_budget crates/lila-aot-wasm/src/gc_types/value/program_initialize.rs 80
 check_raw_line_budget crates/lila-aot-wasm/src/builtins/function/dynamic_constructor/native_compiler.rs 180
 check_raw_line_budget crates/lila-aot-wasm/src/emitted_function/program_initialize_tests.rs 260
-require_fixed_string_count "$wasm_body_compilation" 'self.bind_entry_program(program);' 1 'main binds the returned explicit P before Realm entry'
+require_fixed_string_count "$wasm_body_compilation" 'self.bind_entry_program(program, &mut function);' 1 'main binds the returned explicit P before Realm entry'
 for removed_writer in legacy_static_data install_program_static_data ensure_heap_ptr_after_static_data 'Instruction::MemoryInit' PRIVATE_BYTE_CURSOR_GLOBAL_INDEX; do
   require_fixed_string_count "$wasm_body_compilation" "$removed_writer" 0 'P initialization cannot install bytes or reset R scratch'
   require_fixed_string_count crates/lila-aot-wasm/src/emit/body_compilation/program_initialize.rs "$removed_writer" 0 'pure P bootstrap cannot install bytes or reset R scratch'
@@ -7114,7 +7117,7 @@ require_fixed_string_count "$native_global_compiler" \
 require_fixed_string_count "$native_global_script" \
   'let unit = require_root_source_row(program, first)?;' 1 'exact source/kind/root witness admission'
 require_fixed_string_count crates/lila-aot-wasm/src/runtime_artifact.rs \
-  'const LAYOUT_VERSION: u32 = 9;' 1 'current typed native global-source runtime contract'
+  'const LAYOUT_VERSION: u32 = 10;' 1 'current typed native global-source runtime contract'
 for native_global_raw_test in \
   crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs \
   crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs; do

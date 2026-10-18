@@ -54,8 +54,12 @@ All18 emitter families and the differing-comment identity control pass.
 Diagnostic opt0 native integration finishes13passes/1timeout: saved ownership,
 GC and reentry controls pass; the11,000-eval test exceeds its original60s limit.
 This is not ordinaryCargo, optimized releaseCLI or conformance acceptance.
-Apply the complete coherent patch only with its types, tests and contract; keep
-all original IDs and verify the optimized path before judging its throughput.
+The complete coherent code patch, types, tests and contract are now applied in
+the primary recovery checkout. Checked stateless native JavaScript symbols are
+canonical function indices; public artifacts retain original source names. New
+controls check actual emitter code sharing, distinct payloads and saved named
+functions with self bindings across GC. Optimized ordinary Cargo verification
+and release-CLI retention must pass before promotion.
 
 Current finite CLI phase diagnostics show compiled-module lookup/native
 compilation dominates cold callbacks: about81% for the first original literal

@@ -144,14 +144,15 @@ def check(sources: dict[str, str]) -> list[dict[str, str]]:
             host.count("context.check_budget()?") >= 5 and factory.count("context.check_budget()?") >= 5 and
             "crate::wasm_native_program_template::instantiate(&mut*store,engine,context,&template,trace,)?" in factory and
             "NativeProgramTemplate::for_direct_eval(&artifact)" in factory and
-            "initialize.call(&mut*store,&[],&mutowner)?" in factory and
+            "initialize.call(&mut*store,&initialization,&mutowner)?" in factory and
+            "crate::wasm_native_program_template::initializer_arguments(" in factory and
             "arguments.push(owner[0]);arguments.extend(request.operands);" in factory and
             "factory.call(&mut*store,&arguments,&mutoutput)?" in factory,
             "same_store_factory", "compile/instantiate/initialize/factory preserve original Store and deadline")
     template_plan = c[TEMPLATE_PLAN]
     require("Payload::StartSection{..}" in template_plan and "parse_all(artifact.bytes())" not in factory and
             "results.as_slice(),[owner]ifprogram_reference(owner,signature)" in factory,
-            "bootstrap_only", "P initialization has exact []->P type and cannot execute a module start function")
+            "bootstrap_only", "raw P keeps []->P while the checked native template receives its fresh payload; no module start function")
     outcome = c[HOST + "/outcome.rs"]
     require("reference:Option<OwnedRooted<AnyRef>>" in outcome and "Syntax(OwnedRooted<AnyRef>)" in outcome and
             ".map(|r|r.to_owned_rooted(&mut*store)).transpose()?" in outcome and

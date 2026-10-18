@@ -104,7 +104,7 @@ impl<'a> FunctionBuilder<'a> {
                 let program = self
                     .runtime_schema()
                     .call_program_initialize(index, &mut function);
-                self.bind_entry_program(program);
+                self.bind_entry_program(program, &mut function);
             }
             self.init_current_realm(&mut function)?;
             self.init_current_env(&mut function)?;

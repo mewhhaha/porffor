@@ -1,5 +1,6 @@
 use super::{WasmModuleMemoryCacheKey, WasmtimeModule};
 mod native_templates;
+pub(super) use native_templates::MemoryNativeInstanceCache;
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 

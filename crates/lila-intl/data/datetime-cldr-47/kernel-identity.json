@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 80844,
+      "bytes": 80983,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "57a5dc15dc012007e91ab98f899e97247e9aab5270d8e2f999097d70866e0cf9"
+      "sha256": "62f23788756a78855da3b00ebc08aab773097bcacfbf557eb477094b56df392a"
     },
     {
-      "bytes": 87003,
+      "bytes": 87129,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
+      "sha256": "2e6357a0881127fbf4b0a70aeeaaa6ec8645f63449c3cb01e1f208b4b89f2867"
     },
     {
       "bytes": 33803,
@@ -837,7 +837,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "8cf2dbe3e93072e9d297bb0f4357c4371f1567bf9283005a5cb16330476a392e",
+  "provider_data_sha256": "9c2e27b5d8651d32135981f9b4e985f87018214cf0355b56d1c15716ab268a0a",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

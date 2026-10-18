@@ -62,6 +62,7 @@ impl<'a, 'pool> ProgramInitializeCompilation<'a, 'pool> {
             Some(self.helper_base),
         );
         let mut function = builder.begin_program_initialize_body();
+        ProgramInstanceLocals::mark_native_bootstrap(schema, &mut function);
         builder.initialize_runtime_literal_roots(&mut function)?;
         let (literals, metadata) =
             builder.produce_program_literal_roots(self.image, &mut function)?;

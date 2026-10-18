@@ -1441,7 +1441,11 @@ impl<'a> FunctionBuilder<'a> {
     }
     /// Main and registered helper entries bind one actual owner. Callable
     /// entries already selected theirs from captured defining/calling P.
-    pub(crate) fn bind_entry_program(&mut self, program: crate::gc_types::ProgramInstanceLocals) {
+    pub(crate) fn bind_entry_program(
+        &mut self,
+        program: crate::gc_types::ProgramInstanceLocals,
+        function: &mut Function,
+    ) {
         assert!(
             self.body_entry_locals.is_none() && self.entry_program.is_none(),
             "one explicit program binding per main/helper entry"
@@ -1453,6 +1457,7 @@ impl<'a> FunctionBuilder<'a> {
             ),
             "only main and registered helpers bind program operands"
         );
+        program.mark_native_context(self.schema, function);
         self.entry_program = Some(program);
     }
     pub(crate) fn capture_current_program(
@@ -1526,7 +1531,7 @@ impl<'a> FunctionBuilder<'a> {
                 program.load(self.schema, function),
                 function,
             );
-            self.bind_entry_program(owner);
+            self.bind_entry_program(owner, function);
         }
         if let Some(environment) = parameters.caller_environment() {
             self.current_environment

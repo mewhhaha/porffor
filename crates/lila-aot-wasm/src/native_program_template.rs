@@ -4,11 +4,17 @@ use crate::{
     RuntimeGlobalScriptArtifact,
 };
 use std::sync::Arc;
+mod contexts;
+mod error;
+use error::invalid;
+pub use error::NativeProgramTemplateError;
 mod literal_operands;
+mod payload;
 mod plan;
 mod reencode;
 mod references;
 pub use literal_operands::NativeProgramLiteralOperand;
+pub use payload::{NativeProgramPayload, NativeProgramPayloadDirectory};
 #[cfg(test)]
 mod tests;
 
@@ -77,6 +83,7 @@ pub struct NativeProgramTemplate {
     images: Vec<NativeProgramDataImage>,
     factories: Vec<NativeProgramArrayFactory>,
     literal_operands: Vec<NativeProgramLiteralOperand>,
+    payload: Option<NativeProgramPayload>,
 }
 impl NativeProgramTemplate {
     pub fn for_function(
@@ -105,8 +112,10 @@ impl NativeProgramTemplate {
                 images: Vec::new(),
                 factories: Vec::new(),
                 literal_operands: Vec::new(),
+                payload: None,
             });
         };
+        let payload = NativeProgramPayload::from_plan(&plan)?;
         let module = reencode::encode(bytes, &plan)?;
         Ok(Self {
             bytes: module.into(),
@@ -114,6 +123,7 @@ impl NativeProgramTemplate {
             images: plan.images,
             factories: plan.factories,
             literal_operands: plan.literal_operands,
+            payload,
         })
     }
     pub fn bytes(&self) -> &[u8] {
@@ -131,18 +141,7 @@ impl NativeProgramTemplate {
     pub fn array_factories(&self) -> &[NativeProgramArrayFactory] {
         &self.factories
     }
-}
-
-/// A compiler/transport invariant failure; never a JavaScript SyntaxError or
-/// an unsupported-language-feature answer.
-#[derive(Debug)]
-pub struct NativeProgramTemplateError(String);
-impl std::fmt::Display for NativeProgramTemplateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+    pub fn program_payload(&self) -> Option<&NativeProgramPayload> {
+        self.payload.as_ref()
     }
-}
-impl std::error::Error for NativeProgramTemplateError {}
-fn invalid(error: impl std::fmt::Display) -> NativeProgramTemplateError {
-    NativeProgramTemplateError(format!("invalid native P code/data image: {error}"))
 }

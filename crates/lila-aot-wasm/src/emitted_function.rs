@@ -330,6 +330,7 @@ pub(crate) struct EmittedFunction {
     /// keeps attribution bound to the exact encoded body.
     raw_body: Vec<u8>,
     literal_operands: Vec<crate::program_literal_operands::FunctionSite>,
+    native_program_context: Option<crate::native_program_contexts::FunctionContext>,
     body_bytes: FunctionBodySize,
     declared_locals: FunctionLocalCount,
 }
@@ -362,6 +363,7 @@ impl EmittedFunction {
         // happened to compile it.
         let declared_locals = FunctionLocalCount::of(&body);
         let literal_operands = body.literal_operands().to_vec();
+        let native_program_context = body.native_program_context();
         let raw_body = body.into_body_named(&identity.wasm_name()).into_raw_body();
         let body_bytes = FunctionBodySize::of(&raw_body);
         Self {
@@ -369,6 +371,7 @@ impl EmittedFunction {
             identity,
             raw_body,
             literal_operands,
+            native_program_context,
             body_bytes,
             declared_locals,
         }
@@ -395,6 +398,7 @@ pub(crate) struct ModuleCode {
     section: CodeSection,
     records: Vec<EmittedFunctionRecord>,
     literal_operands: Vec<crate::program_literal_operands::ModuleSite>,
+    native_program_contexts: Vec<crate::native_program_contexts::ModuleContext>,
     type_indices: Vec<u32>,
     next_wasm_index: u32,
 }
@@ -409,6 +413,7 @@ impl ModuleCode {
             section: CodeSection::new(),
             records: Vec::new(),
             literal_operands: Vec::new(),
+            native_program_contexts: Vec::new(),
             type_indices: Vec::new(),
             next_wasm_index: first_wasm_index,
         }
@@ -432,6 +437,10 @@ impl ModuleCode {
         self.type_indices.push(type_index);
         self.section.raw(&function.raw_body);
         let body = u32::try_from(self.records.len()).expect("code body count overflow");
+        if let Some(context) = function.native_program_context {
+            self.native_program_contexts
+                .push(crate::native_program_contexts::ModuleContext { body, context });
+        }
         self.literal_operands.extend(
             function
                 .literal_operands
@@ -453,6 +462,7 @@ impl ModuleCode {
             ModuleFunctionTable {
                 records: self.records,
                 literal_operands: self.literal_operands,
+                native_program_contexts: self.native_program_contexts,
                 type_indices: self.type_indices,
             },
         )
@@ -464,10 +474,16 @@ impl ModuleCode {
 pub(crate) struct ModuleFunctionTable {
     records: Vec<EmittedFunctionRecord>,
     literal_operands: Vec<crate::program_literal_operands::ModuleSite>,
+    native_program_contexts: Vec<crate::native_program_contexts::ModuleContext>,
     type_indices: Vec<u32>,
 }
 
 impl ModuleFunctionTable {
+    pub(crate) fn native_program_context_section(
+        &self,
+    ) -> Option<wasm_encoder::CustomSection<'static>> {
+        crate::native_program_contexts::section(&self.native_program_contexts)
+    }
     pub(crate) fn literal_operand_section(&self) -> Option<wasm_encoder::CustomSection<'static>> {
         crate::program_literal_operands::section(&self.literal_operands)
     }

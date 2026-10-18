@@ -269,6 +269,7 @@ impl PlannedBodyEntry<'_> {
             }
             EntryRoleLocals::PreparedScript { .. } => calling_program,
         };
+        program.mark_native_context(schema, function);
         let (arguments, argument_count) = match &role {
             EntryRoleLocals::Ordinary { .. } | EntryRoleLocals::PreparedScript { .. } => {
                 normalize_arguments(schema, 7, 8, function)

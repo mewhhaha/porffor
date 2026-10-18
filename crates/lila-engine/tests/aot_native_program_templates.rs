@@ -87,14 +87,13 @@ fn global_script_template_data_uses_actual_realm_and_keeps_each_payload() {
     );
 }
 
-#[path = "aot_native_program_templates/catalog_overlays.rs"]
-mod catalog_overlays;
-
 #[path = "aot_native_program_templates/annex_b_arguments.rs"]
 mod annex_b_arguments;
-
-#[path = "aot_native_program_templates/unobserved_arguments.rs"]
-mod unobserved_arguments;
-
+#[path = "aot_native_program_templates/catalog_overlays.rs"]
+mod catalog_overlays;
+#[path = "aot_native_program_templates/program_owned_payload.rs"]
+mod program_owned_payload;
 #[path = "aot_native_program_templates/repeated_identifier_reads.rs"]
 mod repeated_identifier_reads;
+#[path = "aot_native_program_templates/unobserved_arguments.rs"]
+mod unobserved_arguments;

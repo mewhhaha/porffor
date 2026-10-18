@@ -13,6 +13,7 @@ use wasm_encoder::{
 use crate::Function;
 
 mod layouts;
+pub(crate) mod native_payload;
 pub(crate) use layouts::*;
 
 mod value;

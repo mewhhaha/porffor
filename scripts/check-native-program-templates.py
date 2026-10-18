@@ -12,9 +12,20 @@ CAPS = {
     A + 'program_literal_operands.rs': 180,
     T + '/literal_operands.rs': 50, T + '/plan/literal_operands.rs': 80,
     T + '/tests/literal_operands.rs': 260,
+    A + 'native_program_contexts.rs': 150, A + 'gc_types/native_payload.rs': 100,
+    T + '/contexts.rs': 200, T + '/contexts/signatures.rs': 180,
+    T + '/tests/emitted_names.rs': 100,
+    T + '/payload.rs': 200, T + '/tests/program_owned_payload.rs': 150, T + '/error.rs': 30,
+    T + '/plan/indices.rs': 120, T + '/reencode/declarations.rs': 160,
+    T + '/reencode/payload.rs': 100,
     T + '.rs': 160, T + '/plan.rs': 260, T + '/plan/sites.rs': 120,
     T + '/references.rs': 110, T + '/reencode.rs': 200,
     T + '/reencode/names.rs': 80, T + '/tests.rs': 300,
+    N + '/instance.rs': 120, N + '/initializer.rs': 80,
+    N + '/bindings/allocation/payload.rs': 100, N + '/bindings/types.rs': 90,
+    N + '/bindings/allocation/tests/payload_tests.rs': 120,
+    M + '/instances.rs': 110, M + '/instances/tests.rs': 90,
+    'crates/lila-engine/tests/aot_native_program_templates/program_owned_payload.rs': 130,
     N + '.rs': 90, N + '/cache.rs': 50, N + '/bindings.rs': 180,
     N + '/bindings/allocation.rs': 100, N + '/bindings/allocation/tests.rs': 160,
     M + '.rs': 70, M + '/tests.rs': 70,
@@ -31,15 +42,15 @@ def check(sources):
     def need(ok, key):
         if not ok: failures.append(key)
     c = {name: compact(text) for name, text in sources.items()}
-    owner = c[T + '.rs']
-    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,literal_operands:Vec<NativeProgramLiteralOperand>,}' in owner and
+    owner = c[T + '.rs'] + c[T + '/error.rs']
+    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,literal_operands:Vec<NativeProgramLiteralOperand>,payload:Option<NativeProgramPayload>,}' in owner and
          'fnfrom_native(' in owner and 'pubfnfrom_native(' not in owner and
          all('pubfnfor_' + kind + '(artifact:&Runtime' + {'function':'Function','global_script':'GlobalScript','direct_eval':'DirectEval'}[kind] + 'Artifact' in owner for kind in KINDS), 'typed_artifact_only')
     need(sources[T + '/tests.rs'].splitlines()[0] == '#![cfg(test)]' and
          '#[cfg(test)]modtests;' in owner and sources[T + '/tests/literal_operands.rs'].splitlines()[0] == '#![cfg(test)]' and '[path="tests/literal_operands.rs"]modliteral_operand_tests;' in c[T + '/tests.rs'], 'exact_fixture_owner_is_statically_test_only')
     need('runtime:Arc::clone(runtime)' in owner and 'NativeProgramTemplateError(String)' in owner and
          'EmitError::unsupported' not in owner, 'opaque_owner_and_error_domain')
-    plan = c[T + '/plan.rs']
+    plan = c[T + '/plan.rs'] + c[T + '/plan/indices.rs']
     need('#[cfg(debug_assertions)]' in plan and
          'wasmparser::Validator::new_with_features(features).validate_all(bytes)' in plan and
          'DataKind::Passive' in plan and 'returnOk(None)' in plan and
@@ -53,12 +64,12 @@ def check(sources):
          'Operator::I32Const{value}' in sites and '(*valueasu16).to_le_bytes()' in sites and
          'self.sites.insert(*offset,Site{image,factory})' in sites and
          'self.suppressed.contains(position)' in sites, 'only_constant_operands_are_extracted')
-    encoder = c[T + '/reencode.rs']
+    encoder = c[T + '/reencode.rs'] + c[T + '/reencode/declarations.rs'] + c[T + '/reencode/payload.rs'] + c[A + 'gc_types/native_payload.rs']
     need('fnfunction_index(' in encoder and 'fnglobal_index(' in encoder and
          'self.plan.function(index)' in encoder and 'index+self.plan.images.len()asu32' in encoder and
          'self.plan.imported_globals+site.image' in encoder and
          'self.plan.retained_functions()+site.factory' in encoder and
-         'self.instruction(op)?' in encoder, 'all_original_instruction_indices_remain_mapped')
+         'self.instruction(other)?' in encoder, 'all_original_instruction_indices_remain_mapped')
     need('types.ty().array(&wasm_encoder::StorageType::I8,false)' in encoder and
          'NativeProgramArrayConstruction::Slice=>vec![ValType::I32,ValType::I32,data]' in encoder and
          'Self::reference(factory.target_array_type)' in encoder and
@@ -74,14 +85,14 @@ def check(sources):
          'Name::Function(reader)' in names and 'Name::Local(reader)' in names and
          'Name::Label(reader)' in names and 'Name::Data(_)=>Ok(())' in names,
          'declarations_and_debug_names_follow_map')
-    binder = c[N + '.rs']
+    binder = c[N + '.rs'] + c[N + '/instance.rs']
     need('!WasmtimeEngine::same(engine,context.linker.engine())' in binder and
          '!Arc::ptr_eq(template.runtime(),context.runtime())' in binder and
          'Instance::new(&mut*store,&module,&imports)?' in binder and
          '.get(&mut*store,import.module(),import.name())' in binder and
          binder.count('context.check_budget()?') >= 4, 'same_store_engine_runtime_and_budget')
-    data = c[N + '/bindings.rs']
-    allocation = c[N + '/bindings/allocation.rs']
+    data = c[N + '/bindings.rs'] + c[N + '/bindings/types.rs']
+    allocation = c[N + '/bindings/allocation.rs'] + c[N + '/bindings/allocation/payload.rs']
     need('global.mutability()!=Mutability::Const' in data and
          'array.mutability()!=Mutability::Const' in data and
          'array_reference(result)?' in data and 'FuncType::eq(ty,&function)' in data, 'actual_immutable_image_and_target_types')
@@ -132,6 +143,35 @@ def check(sources):
          'operand.import_name()==import.name()' in data and
          '!matches!(global.content(),ValType::I32)' in data and 'Val::I32(operand.value())' in data,
          'fresh_exact_scalar_binding_with_constant_time_ordinal_lookup')
+    need(sources[T + '/tests/program_owned_payload.rs'].splitlines()[0] == '#![cfg(test)]' and
+         '[path="tests/program_owned_payload.rs"]modprogram_owned_payload;' in c[T + '/tests.rs'],
+         'owned_payload_binary_fixture_is_statically_test_only')
+    contexts = c[T + '/contexts.rs'] + c[T + '/contexts/signatures.rs']
+    need('signatures.initializer(bootstrap_body,schema)?' in contexts and
+         'signatures.local(indexasu32,body,*local,schema)?' in contexts and
+         'Operator::LocalSet' in contexts and 'Operator::LocalTee' in contexts and
+         'schema.payload_field' in contexts and 'StorageType::I8' in contexts and
+         '!field.mutable' in contexts and 'ordinal>=*readyasusize' in contexts,
+         'payload_owner_has_actual_typed_initialized_local_and_bootstrap_witness')
+    need('FunctionContext::Program{local,..}' in encoder and
+         'native_payload::load(function,*local,contexts.schema)' in encoder and
+         'field_index:schema.payload_field' in encoder and
+         'Instruction::LocalGet(0)' in encoder and 'LocalGet(local_index+1)' in encoder and
+         'self.plan.contexts.is_none()' in encoder,
+         'owned_operands_use_actual_P_or_explicit_bootstrap_payload')
+    store = c[M + '/instances.rs']
+    need('entry.code.as_ref()==code' in store and 'Arc::ptr_eq(&entry.authority,authority)' in store and
+         'WasmtimeEngine::same(entry.module.engine(),engine)' in store and
+         'module_image_bytes(&module).and_then(|bytes|bytes.checked_add(code.len()))' in store and
+         'self.limits.has_image_room(self.retained_bytes,bytes)' in store and
+         '.native_template_instances.get(&key,template.bytes(),engine,&context.instance_authority)' in binder and
+         'payload.permits_instance_reuse()' in binder and
+         'native_template_instances:memory_module_cache::MemoryNativeInstanceCache' in c[E + 'lib.rs'],
+         'instance_reuse_is_store_engine_code_authority_and_original_budget_bound')
+    need('fnfresh_from_payload<T>(' in allocation and 'directory.image_row(ordinal)' in allocation and
+         'directory.image_span(&row)' in allocation and 'NativeProgramPayloadDirectory::from_footer' in allocation and
+         'Arc::from' not in allocation and 'image_start+offset+index*unit' in allocation,
+         'fresh_source_arrays_use_only_the_received_P_payload_image_bounds')
     for name, maximum in CAPS.items():
         need(len(sources[name].splitlines()) <= maximum, 'owner_cap:' + name)
     return failures

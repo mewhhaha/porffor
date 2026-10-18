@@ -130,7 +130,36 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
     let CompositeInnerType::Struct(instance) = &core[instance_index].composite_type.inner else {
         panic!("ProgramInstance must be an actual GC struct");
     };
-    assert_eq!(instance.fields.len(), 10);
+    assert_eq!(instance.fields.len(), 11);
+    let payload_index = ProgramInstanceSchema::NATIVE_SOURCE_PAYLOAD.ordinal().raw() as usize;
+    assert_eq!(payload_index, 10);
+    assert!(!instance.fields[payload_index].mutable);
+    let payload_type = runtime
+        .globals()
+        .schema()
+        .array_type::<NativeSourcePayloadArray>()
+        .type_index()
+        .raw();
+    assert_eq!(
+        instance.fields[payload_index].element_type,
+        wasmparser::StorageType::Val(wasmparser::ValType::Ref(
+            wasmparser::RefType::new(
+                false,
+                wasmparser::HeapType::Concrete(wasmparser::UnpackedIndex::Module(payload_type))
+            )
+            .unwrap()
+        ))
+    );
+    let CompositeInnerType::Array(payload) = &core[payload_type as usize].composite_type.inner
+    else {
+        panic!("native payload is a packed GC array");
+    };
+    assert_eq!(payload.0.element_type, wasmparser::StorageType::I8);
+    assert!(
+        !payload.0.mutable,
+        "native host payloads require physical Wasm immutability"
+    );
+
     let policy_index = ProgramInstanceSchema::LANGUAGE_FEATURE_POLICY
         .ordinal()
         .raw() as usize;

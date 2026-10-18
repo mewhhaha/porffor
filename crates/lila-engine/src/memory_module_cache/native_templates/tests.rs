@@ -1,5 +1,6 @@
 use super::*;
 use crate::{WasmNativeCompilationMode, WasmtimeEngine};
+
 #[test]
 fn native_template_cache_requires_actual_engine_and_keeps_original_aggregate_limits() {
     let first = WasmtimeEngine::default();
