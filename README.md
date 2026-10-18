@@ -1,9 +1,24 @@
+Annex B body-record repair — 2026-10-18: ordinary native execution on
+compiler source `0ed857452a23437b85b061aa94b21628b3967bde` passes 1,626
+checks with zero failures or ignored tests: all 1,604 IR tests, all 20 native
+program-template tests, and both explicitly filtered Annex B entry controls.
+Eligible `arguments` copies now update the separate body VariableEnvironment
+while preserving parameter-created closures and actual formal/lexical guards.
+The three IDs that failed in the previous broader a592 run all pass; the two
+timeout fixtures retain their original sizes and 60-second deadlines. Every
+prior ID in these selected scopes is retained. All 604 tooling, eight source CI
+and three static checks also pass. Full current workspace, CLI retention,
+all-features, pinned conformance and task cleanup remain open.
+[Exact coverage and raw evidence](docs/rust-rewrite/annex-body-record-native-1626-20261018.json).
+Refresh with `scripts/run_workspace_tests.py --include-ignored` under the
+cloud verification wrapper; the evidence records the exact target/filter flags.
+
 Broader native feedback and module costs — 2026-10-18: the complete six-core
 run on a592 records 4,195 passes and three failures across 4,198 exact IDs,
 with zero ignored tests. Both timeout IDs pass serial controls with the same
 executable, fixtures and original 60-second deadlines (52.53s and 41.37s);
-the original failed whole-target verdict remains. One separate-body arguments
-emission error needs the authored follow-up repair. Complete workspace and CLI
+the original failed whole-target verdict remains. The separate-body arguments
+emission error is repaired in the current focused checkpoint above. Complete workspace and CLI
 retention acceptance remain open.
 
 The bounded debug trace records 14.36s in module lookup during the first 256

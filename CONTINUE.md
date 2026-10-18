@@ -1,52 +1,65 @@
 # Continue Lila — 2026-10-18
 
-Broader native feedback and module costs — 2026-10-18: the complete six-core
-run on a592 records 4,195 passes and three failures across 4,198 exact IDs,
-with zero ignored tests. Both timeout IDs pass serial controls with the same
-executable, fixtures and original 60-second deadlines (52.53s and 41.37s);
-the original failed whole-target verdict remains. One separate-body arguments
-emission error needs the authored follow-up repair. Complete workspace and CLI
-retention acceptance remain open.
-
-The bounded debug trace records 14.36s in module lookup during the first 256
-callbacks, with 140 module misses, 20,393 function-cache hits and 237 misses.
-Offline generated-source comparison reproduces 140 distinct templates; some
-contain different executable bodies. These are diagnostics, with inclusive
-spans and different cache/profile conditions, not release timing or conformance
-acceptance. [Raw measurements and failure evidence](docs/rust-rewrite/native-module-cost-diagnostic-20261018.json).
-
-Focused native repairs — 2026-10-18: ordinary Cargo execution on compiler
-source `a59219629f735ebf7524090a6560ad7597c2a7a7` passes 173 checks with
-zero failures or ignored tests across nine targets. Every one of the 14 exact
-D6 failure IDs now passes. The unchanged large RegExp regression completes in
-8.35 seconds under its original 30-second deadline. Three targets ran in full;
-six used explicit matching filters. This verifies the repair batch; complete
-current workspace, CLI retention, all-features and pinned conformance gates
-remain open. Original D6 failed evidence is preserved.
-[Exact focused coverage and raw evidence](docs/rust-rewrite/focused-native-repairs-173-20261018.json).
+Annex B body-record repair — 2026-10-18: ordinary native execution on
+compiler source `0ed857452a23437b85b061aa94b21628b3967bde` passes 1,626
+checks with zero failures or ignored tests: all 1,604 IR tests, all 20 native
+program-template tests, and both explicitly filtered Annex B entry controls.
+Eligible `arguments` copies now update the separate body VariableEnvironment
+while preserving parameter-created closures and actual formal/lexical guards.
+The three IDs that failed in the previous broader a592 run all pass; the two
+timeout fixtures retain their original sizes and 60-second deadlines. Every
+prior ID in these selected scopes is retained. All 604 tooling, eight source CI
+and three static checks also pass. Full current workspace, CLI retention,
+all-features, pinned conformance and task cleanup remain open.
+[Exact coverage and raw evidence](docs/rust-rewrite/annex-body-record-native-1626-20261018.json).
+Refresh with `scripts/run_workspace_tests.py --include-ignored` under the
+cloud verification wrapper; the evidence records the exact target/filter flags.
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
-passes. Push verified progress to main continuously; keep rejected and partial
-results with their actual source identities.
+passes. Push verified progress to main continuously; preserve rejected and
+partial results with their actual source identities. Keep compiler source 0ed
+frozen in the primary verification checkout while current-source jobs run.
 
-The completed D6 baseline is published through main `a1c60115f`.
-Compiler candidate `a59219629f735ebf7524090a6560ad7597c2a7a7` passes all604
-tooling controls, eight source CI checks and three static checks. Its nine-target
-ordinary focused native run passes all173 checks, including all14 discovered
-failure IDs and the new literal-eval/Annex B controls. Full candidate native/CLI acceptance remains open.
+Next: complete the full default workspace with the bounded, source-bound
+coordinator. Carry only the two unfiltered whole-target receipts above; execute
+the other 109 scopes, including the whole language target despite its two prior
+filtered passes. Default metadata has 111 scopes and the expected inventory is
+9,529 native plus 11 documentation tests. Retain all 9,526 native IDs from the
+D6 discovery and the three subsequently added IDs. Run deadline-sensitive
+program-template work serially; use complete isolated partitions for Engine,
+realm, CLI and Intl scopes, with original fixture/deadline/cache policies.
 
-The frozen D6 default discovery covers all111 targets:9512 nativePASS/14FAIL,
-11 documentationPASS, zero ignored. The completed D6 six-core checkpoint is
-4195/4195. The full230 CLI replay is219Success/8deadlineCrash/3Bug; its separate
-complete210 idle control is206Success/4deadlineCrash. The two prior passes lost
-during contention recover in that control; all original failed receipts remain.
+The ordinary focused native batch is sealed in
+`docs/rust-rewrite/annex-body-record-native-1626-20261018.json`.
+The earlier a592 repair checkpoint passed173 checks, including all14 original
+D6 failures; its evidence remains in
+`docs/rust-rewrite/focused-native-repairs-173-20261018.json`.
+The complete a592 six-core run records4195PASS/3FAIL of4198 with zero ignored;
+the original red receipt and successful same-executable serial timeout controls
+remain in `docs/rust-rewrite/native-module-cost-diagnostic-20261018.json`.
+Current1626 feedback eliminates those three failed IDs without overwriting that
+history. It does not establish whole-workspace acceptance.
 
-Next: use the completed bounded debug diagnostic to investigate module lookup
-cost, verify any coherent performance repair, build the ordinary release CLI,
-then complete exact current native, full230 CLI retention, default/all-features,
-pinned full-suite/historical replay, oracle and task-specific acceptance gates.
-Keep original deadlines, cache bounds and all prior IDs. Current acceptance is
-not established by diagnostic results. Do not delete this file or tasks/ early.
+The frozen D6 default discovery executed all111 scopes:9512 nativePASS/14FAIL,
+11 documentationPASS and zero ignored. Its full230 CLI replay is
+219Success/8deadlineCrash/3Bug; the separate complete210 idle control is
+206Success/4deadlineCrash. Two prior passes lost during contention recover in
+that idle control; all failed receipts remain. The current release CLI230 and
+all later acceptance gates must still execute at their original limits.
+
+The debug diagnostic found14.36s in module lookup during its first256 callbacks,
+140 exact module misses and237 Cranelift function misses. These inclusive debug
+measurements are not release speed claims. The 41 MB runtime itself is
+byte-identical across a592 and0ed, but native runtime compilation still missed
+its shared cache and took151s; a protected build-only cache is an opportunity,
+not yet implemented or measured. Early thin probes linked the fresh ordinary
+IR/AOT libraries in3.49s/4.12s and passed in0.12s/1.78s, respectively. They give
+early feedback while the complete ordinary native build remains authoritative.
+
+After the current default run, build the ordinary release CLI and measure the
+remaining original-limit failures before choosing another coherent performance
+repair. Then complete full230 retention, all-features/all-target CI, pinned
+full-suite/historical replay, oracle and task-specific acceptance gates.
 
 ## Remaining scopes and owners
 
@@ -117,6 +130,19 @@ archives, catalogue data and selected semantics remain unchanged. The full
 read-only preflight previously exposed eight exact reproducibility failures;
 the original receipt is retained. Current source a592 passes all604 tooling
 controls, eight source CI checks and three static checks.
+
+Annex B body-record follow-up — 2026-10-18 (verification pending): the
+ordinary broader a592 core run found a missing-owner error when parameter
+expressions and a root function named `arguments` coexist. The selected block
+copy must target the separate body VariableEnvironment. The candidate reuses
+the existing named variable-record path and preserves parameter-created closure
+owners, formal/lexical collision guards and catch bindings. Existing native IDs
+now cover selected and unselected blocks and explicit body declarations. An older
+authored fixture also expected implicit arguments and a body function to remain
+unchanged after eligible copies; its expectations now follow the pinned FDI and
+Annex B rules. Two other template tests timed out in the broader run; their
+original failures remain, with idle diagnosis pending. No full native, CLI or
+conformance acceptance is claimed.
 
 Trace source guard — 2026-10-18: the default-workspace source gate now
 recognizes the bounded cache-counter protocol alongside phase timings. It

@@ -169,12 +169,16 @@ impl ScriptLowerer<'_> {
             heap_shape: source.heap_shape,
             function_targets: source.function_targets,
         };
-        let late_function_variable = self.current_owner_id != SCRIPT_OWNER_ID
+        let owner = &self.analysis.owner_plans[&self.current_owner_id];
+        let runtime_arguments_copy = self.current_owner_id != SCRIPT_OWNER_ID
             && plan.source_name == "arguments"
-            && !self.analysis.owner_plans[&self.current_owner_id]
-                .root_bindings
-                .contains(&plan.source_name);
-        if late_function_variable {
+            && (owner.body_environment_id.is_some()
+                || !owner.root_bindings.contains(&plan.source_name));
+        // Parameter expressions put body declarations in a distinct variable
+        // record, even when an ordinary function declaration already creates
+        // `arguments` there. The activation's first scope is not that record.
+        // The arguments candidate prepass retains its actual named cells.
+        if runtime_arguments_copy {
             self.invalidate_unknown_user_code_effects();
         } else {
             self.set_owner_binding_value_info(&plan.source_name, value_info.clone());
@@ -191,7 +195,7 @@ impl ScriptLowerer<'_> {
             admission,
             source_name: plan.source_name.clone(),
             block_storage_name: plan.block_storage_name,
-            target: if late_function_variable {
+            target: if runtime_arguments_copy {
                 AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
                     name: plan.source_name,
                 }
