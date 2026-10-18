@@ -1,3 +1,12 @@
+Completed focused CLI checkpoint — 2026-10-18: source112 runs all230 exact
+original executions at the original budgets: **208 Success,19 deadline Crash,
+3 Bug**. Compared with the previous205/22/3 checkpoint, six cases now pass and
+three prior passes time out; retention is204/210 and remains rejected. The
+compiler stays on recovery. A separate historical parseInt replay retains all
+four original strict/sloppy cases on the historical suite tree. These counts
+are separate from the full pinned suite; full workspace, pinned-suite acceptance
+and task cleanup remain open. [Exact IDs and lossless evidence](docs/rust-rewrite/naming-empty-cli-230-20261018.json).
+
 Intl rebuild iteration — 2026-10-18: the opt-in
 `LILA_TEST_KEEP_INTL_INCREMENTAL=1` retains only normal Intl library scratch
 when the verification wrapper otherwise removes it. All 90 workspace-tooling
