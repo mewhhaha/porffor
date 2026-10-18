@@ -1,3 +1,10 @@
+Test build reuse — 2026-10-18: `cow-utils` now uses the same debug-info
+setting in its normal and proc-macro test contexts. Six isolated Cargo unit graphs
+show that the emitter’s 1/1 and CLI’s 2/2 IR dependency contexts now match their
+corresponding core contexts; optimization and assertion settings are unchanged. Actual build-time
+savings and complete-suite acceptance remain unmeasured.
+[Exact graphs, manifests and context matches](docs/rust-rewrite/cow-utils-profile-reuse-20261018.json).
+
 Completed focused CLI checkpoint — 2026-10-18: recovery source d6c5df9ed
 runs all 230 original executions at the original budgets: **219 Success,
 8 deadline Crash, 3 Bug**. Compared with source112, 13 cases now pass, including

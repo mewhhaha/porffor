@@ -73,6 +73,12 @@ incremental = true
 [profile.test.package."*"]
 opt-level = 2
 
+# Boa uses this small crate through both its normal and proc-macro graphs.
+# Keep its debug info identical in both contexts so selecting a different
+# test target does not invalidate Boa, the frontend and the IR libraries.
+[profile.test.package.cow-utils]
+debug = 0
+
 # Package overrides win over the wildcard dependency setting above. IR
 # analysis, Intl admission and the Wasm emitter run at opt-level 2 because
 # their cold per-case work dominates fixed execution budgets and large suites.
