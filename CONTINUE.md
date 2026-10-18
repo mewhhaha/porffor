@@ -26,6 +26,13 @@ the prior linear-time RegExp source rewrite; both causal expectations are
 corrected and all three module controls pass in a direct native check. The
 original whole-target failure stays retained; remaining scopes continue.
 
+First private native foundation: elision/cached-next and exhausted/default
+controls pass through actual Wasm. The cross-realm control used the wrong host
+fixture method (`eval`); it now uses the existing `evalScript` contract and
+needs a corrected rerun. The failed receipt is retained. This foundation uses
+the prior optimized dependency graph and an empty private runtime-image leaf
+to exercise fresh unbundled R; it is not ordinary Cargo or deadline acceptance.
+
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
 the whole IR (1,604) and native-template (20) targets, plus three explicitly

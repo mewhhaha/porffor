@@ -87,13 +87,13 @@ fn array_pattern_close_preserves_caller_error_realm_and_pending_throw() {
     assert_var_binding_order(
         r#"
 var foreign = __lilaCreateRealm();
-var iterator = foreign.eval('({next() {return {done:false, value:1};}, return:1})');
+var iterator = foreign.evalScript('({next() {return {done:false, value:1};}, return:1})');
 var source = { [Symbol.iterator]() { return iterator; } };
 var closeFailure;
 try { var [first] = source; } catch (error) { closeFailure = error; }
 var callerRealm = closeFailure instanceof TypeError &&
-  !(closeFailure instanceof foreign.eval('TypeError'));
-var second = foreign.eval('({next() {return {done:false};}, get return() {this.reads = 1; throw this.closeError;}})');
+  !(closeFailure instanceof foreign.evalScript('TypeError'));
+var second = foreign.evalScript('({next() {return {done:false};}, get return() {this.reads = 1; throw this.closeError;}})');
 second.closeError = new RangeError('close');
 var original = new Error('default');
 function fail() { throw original; }
