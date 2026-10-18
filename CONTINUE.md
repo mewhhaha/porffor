@@ -1,3 +1,13 @@
+Compiler batch — 2026-10-18 (ordinary verification pending): repeated UTF-16
+function naming is emitted once in R. Exact standalone naming and original
+thousand-method controls pass; isolated cold template compilation falls from
+about85s to16s. A second repair requires full actual-source parsing/lowering and
+a sealed empty-execution proof before invoking shared stateless Wasm for empty
+direct eval. New controls cover all65536 UTF-16 units and executable code exposed
+by line terminators. This joined batch has not passed ordinary Cargo or CLI
+retention; the completed230 replay remains205Success/22Crash/3Bug. Full workspace,
+pinned suites and task cleanup remain open. The generated status is unchanged.
+
 Embedded runtime reuse repair (2026-10-18, authored): the version-four native
 manifest explicitly supports both Fast and SizeOptimized execution Engines for
 the same immutable optimized runtime image. Source, target, configuration, keys,

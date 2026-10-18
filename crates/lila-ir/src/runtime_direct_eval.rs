@@ -51,6 +51,7 @@ pub struct RuntimeDirectEvalProgram {
     program: ProgramIr,
     script_id: StaticScriptId,
     caller: RuntimeDirectEvalCaller,
+    empty_syntax: bool,
 }
 impl RuntimeDirectEvalProgram {
     pub fn with_language_features(mut self, policy: crate::LanguageFeaturePolicy) -> Self {
@@ -83,6 +84,8 @@ pub fn lower_runtime_direct_eval(
         &EvalParseContext::Direct(context.parse_context()),
     )
     .map_err(RuntimeDirectEvalCompileError::Parse)?;
+    let empty_syntax =
+        parsed.with_compiler_session(|ast, _| ast.statements().statements().is_empty());
     let (program, script_id) = crate::lowering::lower_runtime_direct_eval_program(
         &parsed,
         context.clone(),
@@ -112,8 +115,12 @@ pub fn lower_runtime_direct_eval(
         program,
         script_id,
         caller: caller.clone(),
+        empty_syntax,
     })
 }
+
+mod empty;
+pub use empty::EmptyRuntimeDirectEval;
 
 #[cfg(test)]
 mod tests;

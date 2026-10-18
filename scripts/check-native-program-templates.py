@@ -9,6 +9,11 @@ T = A + 'native_program_template'
 N = E + 'wasm_native_program_template'
 M = E + 'memory_module_cache/native_templates'
 CAPS = {
+    T + '/empty_direct_eval.rs': 110,
+    'crates/lila-ir/src/runtime_direct_eval/empty.rs': 100,
+    E + 'wasm_native_direct_eval_compiler/empty.rs': 100,
+    'crates/lila-engine/tests/aot_native_program_templates/function_names.rs': 90,
+    'crates/lila-engine/tests/aot_native_program_templates/empty_eval.rs': 90,
     T + '/share_bodies.rs': 130, T + '/share_bodies/mapping.rs': 140,
     T + '/share_bodies/names.rs': 80, T + '/share_bodies/tests.rs': 180,
     T + '/tests/shared_emitted_bodies.rs': 100,
@@ -39,7 +44,7 @@ CAPS = {
 }
 KINDS = ('function', 'global_script', 'direct_eval')
 FILES = tuple(CAPS) + (A + 'lib.rs', E + 'lib.rs', E + 'wasm_native_source_compiler.rs',
-    E + 'memory_module_cache.rs') + tuple(E + 'wasm_native_' + k + '_compiler/factory.rs' for k in KINDS)
+    E + 'memory_module_cache.rs', 'crates/lila-ir/src/runtime_direct_eval.rs') + tuple(E + 'wasm_native_' + k + '_compiler/factory.rs' for k in KINDS)
 def compact(text):
     return re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', text))
 def check(sources):
@@ -48,7 +53,7 @@ def check(sources):
         if not ok: failures.append(key)
     c = {name: compact(text) for name, text in sources.items()}
     owner = c[T + '.rs'] + c[T + '/error.rs']
-    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,literal_operands:Vec<NativeProgramLiteralOperand>,payload:Option<NativeProgramPayload>,}' in owner and
+    need('pubstructNativeProgramTemplate{bytes:Arc<[u8]>,runtime:Arc<RuntimeArtifact>,images:Vec<NativeProgramDataImage>,factories:Vec<NativeProgramArrayFactory>,literal_operands:Vec<NativeProgramLiteralOperand>,payload:Option<NativeProgramPayload>,entry:TemplateEntry,}' in owner and
          'fnfrom_native(' in owner and 'pubfnfrom_native(' not in owner and
          all('pubfnfor_' + kind + '(artifact:&Runtime' + {'function':'Function','global_script':'GlobalScript','direct_eval':'DirectEval'}[kind] + 'Artifact' in owner for kind in KINDS), 'typed_artifact_only')
     need(sources[T + '/tests.rs'].splitlines()[0] == '#![cfg(test)]' and
@@ -181,13 +186,36 @@ def check(sources):
          'module_image_bytes(&module).and_then(|bytes|bytes.checked_add(code.len()))' in store and
          'self.limits.has_image_room(self.retained_bytes,bytes)' in store and
          '.native_template_instances.get(&key,template.bytes(),engine,&context.instance_authority)' in binder and
-         'payload.permits_instance_reuse()' in binder and
+         'template.permits_instance_reuse()' in binder and
+         '.is_some_and(|p|p.permits_instance_reuse())' in c[T + '/empty_direct_eval.rs'] and
          'native_template_instances:memory_module_cache::MemoryNativeInstanceCache' in c[E + 'lib.rs'],
          'instance_reuse_is_store_engine_code_authority_and_original_budget_bound')
     need('fnfresh_from_payload<T>(' in allocation and 'directory.image_row(ordinal)' in allocation and
          'directory.image_span(&row)' in allocation and 'NativeProgramPayloadDirectory::from_footer' in allocation and
          'Arc::from' not in allocation and 'image_start+offset+index*unit' in allocation,
          'fresh_source_arrays_use_only_the_received_P_payload_image_bounds')
+    ir = c['crates/lila-ir/src/runtime_direct_eval.rs']
+    proof = c['crates/lila-ir/src/runtime_direct_eval/empty.rs']
+    need('prepare_eval_source_utf16(' in ir and 'ast.statements().statements().is_empty()' in ir and
+         'lower_runtime_direct_eval_program(' in ir and 'if!self.empty_syntax' in proof and
+         'unit.id!=self.script_id' in proof and 'unit.kind!=PreparedScriptKind::DirectEval' in proof and
+         all(fragment in proof for fragment in ('!unit.body.statements.is_empty()',
+             'unit.body.result_kind!=ValueKind::Undefined', 'unit.body.lexical_environment.is_some()',
+             'unit.declarations!=RuntimeGlobalDeclarationPlan::default()', '!unit.owned_env_bindings.is_empty()',
+             '!unit.function_ids.is_empty()', '!script.functions.is_empty()',
+             '!script.prepared_dynamic_functions.is_empty()', 'let[root]=script.prepared_scripts.as_slice()')),
+         'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof')
+    kernel = c[T + '/empty_direct_eval.rs']
+    entry = c[E + 'wasm_native_direct_eval_compiler/empty.rs']
+    need("_proof:&EmptyRuntimeDirectEval<'_>" in kernel and
+         'WasmRuntimeValueTag::Undefined.tag()' in kernel and 'Instruction::RefNull(HeapType::EQ)' in kernel and
+         'CompletionKindIr::Normal.abi_code()' in kernel and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
+         'TemplateEntry::EmptyDirectEval=>true' in kernel and
+         'crate::wasm_native_program_template::instantiate(&mut*store,engine,context,template,trace,)?' in entry and
+         'context.empty_direct_eval_template.get_or_init(' in entry and
+         'factory.call(&mut*store,&[],&mutoutput)?' in entry and
+         'zip(&signature.completion)' in entry and entry.count('context.check_budget()?') >= 2,
+         'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline')
     for name, maximum in CAPS.items():
         need(len(sources[name].splitlines()) <= maximum, 'owner_cap:' + name)
     return failures
