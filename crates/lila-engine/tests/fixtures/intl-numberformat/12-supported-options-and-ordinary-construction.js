@@ -13,10 +13,23 @@ try { new NF("en-US", null); } catch (error) { caught = error; }
 check(caught instanceof TypeError, "constructor null options rejected");
 const receiver = Object.create(NF.prototype);
 const result = NF.call(receiver, "en-US");
-check(result !== receiver && Object.getPrototypeOf(result) === NF.prototype, "selected ordinary construction policy");
-check(Object.getOwnPropertySymbols(receiver).length === 0, "no legacy fallback symbol installed");
-check(typeof result.format(1) === "string", "ordinary result is branded");
+check(result === receiver && Object.getPrototypeOf(result) === NF.prototype, "selected legacy construction returns the eligible receiver");
+const symbols = Object.getOwnPropertySymbols(receiver);
+check(symbols.length === 1, "one legacy fallback symbol installed");
+const fallback = Object.getOwnPropertyDescriptor(receiver, symbols[0]);
+check(fallback.value !== receiver && Object.getPrototypeOf(fallback.value) === NF.prototype, "fallback holds a fresh ordinary formatter");
+check(!fallback.writable && !fallback.enumerable && !fallback.configurable, "fallback descriptor is immutable and hidden");
+check(result.format(1) === "1", "format unwraps the legacy receiver");
+check(receiver.resolvedOptions().locale === "en-US", "resolvedOptions unwraps the legacy receiver");
 caught = undefined;
-try { receiver.resolvedOptions(); } catch (error) { caught = error; }
-check(caught instanceof TypeError, "receiver was not initialized through legacy chaining");
+try { receiver.formatToParts(1); } catch (error) { caught = error; }
+check(caught instanceof TypeError, "parts still requires the receiver's own formatter brand");
+const ordinaryReceiver = {};
+const ordinary = NF.call(ordinaryReceiver, "en-US");
+check(ordinary !== ordinaryReceiver && Object.getPrototypeOf(ordinary) === NF.prototype, "ineligible receiver uses ordinary construction");
+check(Object.getOwnPropertySymbols(ordinaryReceiver).length === 0, "ordinary receiver has no legacy fallback symbol");
+check(ordinary.format(1) === "1", "ordinary result is branded");
+caught = undefined;
+try { Object.create(NF.prototype).resolvedOptions(); } catch (error) { caught = error; }
+check(caught instanceof TypeError, "unchained receiver has no formatter brand or fallback");
 print("ok supported options and ordinary construction");

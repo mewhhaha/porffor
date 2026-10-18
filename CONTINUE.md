@@ -1,3 +1,13 @@
+NumberFormat authored control — 2026-10-18 (ordinary verification pending):
+the deferred D6 Intl scope executes all299 IDs and reports298 passes plus one
+failure in the older ordinary-construction fixture. That fixture contradicts
+the explicitly selected ECMA-402 legacy chaining policy; the dedicated legacy
+controls already pass. The same native ID now retains its primitive-option
+checks and validates eligible-receiver identity, the exact fallback descriptor,
+format/resolvedOptions unwrapping and direct parts-brand rejection. Product code
+and pinned Test262 fixtures are unchanged. Preserve the original failed receipt;
+the final D6 CLI scope and all successor acceptance gates remain open.
+
 RegExp source construction — 2026-10-18 (ordinary verification pending): the
 full D6 native run exposes a 30-second timeout on the unchanged long Unicode
 escape fixture. Frozen-CLI prefix diagnostics finish string creation and RegExp

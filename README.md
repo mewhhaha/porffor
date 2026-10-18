@@ -1,3 +1,10 @@
+NumberFormat authored control — 2026-10-18: the broader D6 native discovery
+finds an older fixture that contradicts the explicitly selected legacy chaining
+policy. Its correction preserves the existing native ID and primitive-option
+checks, and checks wrapper identity, fallback descriptors, unwrapping and the
+direct parts-brand boundary. Product code and pinned Test262 fixtures are
+unchanged; successor native verification remains pending.
+
 RegExp source construction — 2026-10-18 (ordinary verification pending): the
 full D6 native run exposes a 30-second timeout on the unchanged long Unicode
 escape fixture. Frozen-CLI prefix diagnostics finish string creation and RegExp
