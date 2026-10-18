@@ -1,4 +1,5 @@
 use super::*;
+mod bulk;
 mod payload;
 pub(super) use payload::fresh_from_payload;
 pub(super) fn fresh<T>(
@@ -60,24 +61,11 @@ fn allocate<T>(
     if length > available / unit {
         return Err(wasmtime::Trap::ArrayOutOfBounds.into());
     }
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(length)
-        .map_err(wasmtime::Error::new)?;
-    for index in 0..length {
-        let base = image_start + offset + index * unit;
-        let low = image.get(&mut *store, base as u32)?.unwrap_i32() as u8;
-        let value = if unit == 1 {
-            u16::from(low)
-        } else {
-            let high = image.get(&mut *store, (base + 1) as u32)?.unwrap_i32() as u8;
-            u16::from_le_bytes([low, high])
-        };
-        values.push(Val::I32(i32::from(value)));
-    }
-    let pre = ArrayRefPre::new(&mut *store, target.clone());
-    // Fresh allocation on every original ArrayNewData/ArrayNewFixed execution.
-    let result = ArrayRef::new_fixed(&mut *store, &pre, &values)?;
+    let start = image_start
+        .checked_add(offset)
+        .and_then(|start| u32::try_from(start).ok())
+        .ok_or(wasmtime::Trap::ArrayOutOfBounds)?;
+    let result = bulk::fresh_from_image(store, target, width, image, start, length)?;
     let [output] = outputs else {
         return Err(wasmtime::Error::msg(
             "native array constructor result arity differs",

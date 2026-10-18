@@ -12,6 +12,23 @@ spec.loader.exec_module(controls)
 
 
 class NativeTemplateSourceControls(unittest.TestCase):
+    def test_bulk_reads_keep_the_actual_payload_span_and_fresh_typed_arrays(self):
+        mutations = [
+            ('/bindings/allocation/bulk.rs', 'image.copy_i8_range_to_slice', 'image.copy_to_i8_slice',
+             'fresh_source_arrays_use_only_the_received_P_payload_image_bounds'),
+            ('/bindings/allocation/bulk.rs', 'width.bytes()', '1',
+             'fresh_source_arrays_use_only_the_received_P_payload_image_bounds'),
+            ('/bindings/allocation/bulk.rs', 'ArrayRef::new_from_i8_slice', 'reuse_array',
+             'fresh_allocations_exact_bits_and_bounds'),
+        ]
+        for suffix, before, after, expected in mutations:
+            with self.subTest(suffix=suffix, before=before):
+                path = controls.N + suffix
+                sources = dict(self.sources)
+                self.assertEqual(sources[path].count(before), 1)
+                sources[path] = sources[path].replace(before, after)
+                self.assertIn(expected, controls.check(sources))
+
     def test_regexp_literal_proof_allocation_and_real_wasm_cannot_be_removed(self):
         mutations = [
             (controls.A + 'objects/regexp_literal/native.rs',

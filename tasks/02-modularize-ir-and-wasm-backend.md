@@ -3654,3 +3654,21 @@ cargo test -p lila-cli --quiet
 ```
 
 Also run several previously green real Test262 filters from different families to detect moved-helper regressions.
+
+### Bulk native payload-array reads — 2026-10-18, verification pending
+
+Native template data construction previously read each byte through
+`ArrayRef::get` before building fresh target arrays. The follow-up retains exact
+actual-P directory/span validation and introduces a checked i8 range copy under
+Wasmtime's no-GC borrow guard. It bulk-allocates fresh byte arrays; UTF-16 arrays
+still use explicit little-endian decoding and the existing fresh typed allocator.
+No array or source data is cached in the allocator closure, and no runtime ABI
+or Wasm emitter changes. The temporary byte buffer is fallibly reserved
+from the already-validated source span; i16 construction retains its Val buffer.
+
+The isolated unchanged-dependency microbenchmark verifies all values and source
+immutability for262144 and1048576 units in A/B/B/A order. Million-unit timings
+are0.92–1.10s per-byte and0.08–0.13s bulk under concurrent source verification.
+The ranged API and actual Engine path still require native validation; this is
+not a measured full CLI gain or task acceptance. Existing source628 verification
+continues in its separate frozen checkout.

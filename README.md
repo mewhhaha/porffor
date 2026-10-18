@@ -1,3 +1,16 @@
+Bulk native payload-read candidate — 2026-10-18 (ordinary verification pending):
+native array construction now copies the validated actual-P byte span once,
+then allocates a fresh i8 array directly or decodes exact little-endian UTF-16
+into the existing fresh i16 constructor. A narrow Wasmtime range-copy API keeps
+store, root, element-type, bounds and no-GC borrow checks; the runtime ABI and
+Wasm emitter remain unchanged. New controls exercise every UTF-16
+unit, odd offsets, fresh identity, invalid ranges/types and expired roots.
+An A/B/B/A microbenchmark of the unchanged dependency's whole-array API takes
+0.92–1.10s per million UTF-16 units using per-byte reads and0.08–0.13s using bulk
+reads, with every output unit verified. That measurement predates the ranged
+API and is not a product or conformance speedup claim. Current native4192 and
+CLI verification stays frozen separately at628af0f61; this follow-up is unaccepted.
+
 Validated empty-statement extension — 2026-10-18 (native acceptance pending):
 the completed source112 native checkpoint passes all4186 selected tests, but its
 focused CLI replay has a retained-pass deadline failure in strict regress-610026.

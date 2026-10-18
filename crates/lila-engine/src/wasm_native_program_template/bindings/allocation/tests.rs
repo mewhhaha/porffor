@@ -120,4 +120,5 @@ fn source_images_preserve_surrogate_bits_and_slice_byte_offsets_and_traps() {
     );
 }
 
+mod bulk_reads;
 mod payload_tests;

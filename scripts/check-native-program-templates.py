@@ -41,6 +41,8 @@ CAPS = {
     T + '/reencode/names.rs': 80, T + '/tests.rs': 300,
     N + '/instance.rs': 120, N + '/initializer.rs': 80,
     N + '/bindings/allocation/payload.rs': 100, N + '/bindings/types.rs': 90,
+    N + '/bindings/allocation/bulk.rs': 90,
+    N + '/bindings/allocation/tests/bulk_reads.rs': 150,
     N + '/bindings/allocation/tests/payload_tests.rs': 120,
     M + '/instances.rs': 110, M + '/instances/tests.rs': 90,
     'crates/lila-engine/tests/aot_native_program_templates/program_owned_payload.rs': 130,
@@ -110,15 +112,17 @@ def check(sources):
          '.get(&mut*store,import.module(),import.name())' in binder and
          binder.count('context.check_budget()?') >= 4, 'same_store_engine_runtime_and_budget')
     data = c[N + '/bindings.rs'] + c[N + '/bindings/types.rs']
-    allocation = c[N + '/bindings/allocation.rs'] + c[N + '/bindings/allocation/payload.rs']
+    allocation = (c[N + '/bindings/allocation.rs'] + c[N + '/bindings/allocation/payload.rs'] +
+                  c[N + '/bindings/allocation/bulk.rs'])
     need('global.mutability()!=Mutability::Const' in data and
          'array.mutability()!=Mutability::Const' in data and
          'array_reference(result)?' in data and 'FuncType::eq(ty,&function)' in data, 'actual_immutable_image_and_target_types')
     need('Arc::clone(context.execution())' in data and data.count('execution.remaining()') == 2 and
          'allocation::fresh(&mutcaller,inputs,outputs,&target,width,construction)?' in data and
          'cache.entries.len()<8' in data and 'Arc<[u8]>' not in data, 'allocator_cache_captures_no_source_data')
-    need('ArrayRef::new_fixed(&mut*store,&pre,&values)?' in allocation and
-         'u16::from_le_bytes([low,high])' in allocation and
+    need('ArrayRef::new_fixed(&mut*store,&pre,&values)' in allocation and
+         'ArrayRef::new_from_i8_slice(&mut*store,&pre,&bytes)' in allocation and
+         'u16::from_le_bytes([pair[0],pair[1]])' in allocation and
          '(*offsetasu32,Some(*lengthasu32),*image)' in allocation and
          'checked_sub(offset)' in allocation and 'wasmtime::Trap::ArrayOutOfBounds' in allocation and
          '*output=Val::AnyRef(Some(result.to_anyref()))' in allocation, 'fresh_allocations_exact_bits_and_bounds')
@@ -200,7 +204,9 @@ def check(sources):
          'instance_reuse_is_store_engine_code_authority_and_original_budget_bound')
     need('fnfresh_from_payload<T>(' in allocation and 'directory.image_row(ordinal)' in allocation and
          'directory.image_span(&row)' in allocation and 'NativeProgramPayloadDirectory::from_footer' in allocation and
-         'Arc::from' not in allocation and 'image_start+offset+index*unit' in allocation,
+         'Arc::from' not in allocation and 'image_start.checked_add(offset)' in allocation and
+         'image.copy_i8_range_to_slice(&mut*store,start,&mutbytes)?' in allocation and
+         'length.checked_mul(width.bytes())' in allocation,
          'fresh_source_arrays_use_only_the_received_P_payload_image_bounds')
     ir = c['crates/lila-ir/src/runtime_direct_eval.rs']
     proof = c['crates/lila-ir/src/runtime_direct_eval/empty.rs']

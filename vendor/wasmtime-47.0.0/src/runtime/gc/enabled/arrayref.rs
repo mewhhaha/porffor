@@ -743,6 +743,53 @@ impl ArrayRef {
         Ok(())
     }
 
+    /// Copy a range of this `i8` array into `dst` without per-element `Val`s.
+    ///
+    /// `start` is a byte index. An empty destination is permitted at the end
+    /// of the array. The GC cannot run while the backing bytes are borrowed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for non-`i8` arrays, an unrooted reference, or a range
+    /// extending beyond the array. The destination is unchanged on error.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this reference is associated with a different store.
+    pub fn copy_i8_range_to_slice(
+        &self,
+        mut store: impl AsContextMut,
+        start: u32,
+        dst: &mut [u8],
+    ) -> Result<()> {
+        let mut store = AutoAssertNoGc::new(store.as_context_mut().0);
+        assert!(
+            self.comes_from_same_store(&store),
+            "attempted to use an array with the wrong store",
+        );
+        let field_ty = self.field_ty(&store)?;
+        let elem_ty = field_ty.element_type();
+        ensure!(elem_ty.is_i8(), "array range copy requires i8 elements");
+        let layout = self.layout(&store)?;
+        let arrayref = self.arrayref(&store)?.unchecked_copy();
+        let len = arrayref.len(&store)?;
+        let count = u32::try_from(dst.len())?;
+        ensure!(
+            start <= len && count <= len - start,
+            "array byte range is out of bounds"
+        );
+        let offset = layout
+            .base_size
+            .checked_add(start)
+            .context("array byte range overflows")?;
+        let data = store
+            .require_gc_store_mut()?
+            .gc_object_data(arrayref.as_gc_ref())?;
+        let bytes = data.slice(offset, count)?;
+        dst.copy_from_slice(bytes);
+        Ok(())
+    }
+
     #[inline]
     pub(crate) fn comes_from_same_store(&self, store: &StoreOpaque) -> bool {
         self.inner.comes_from_same_store(store)
