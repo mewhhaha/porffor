@@ -1,3 +1,11 @@
+Next ordinary verification batch — 2026-10-18: the RegExp compiler repair
+now includes the independently checked Intl scratch opt-in. The next bounded
+build may use `LILA_TEST_KEEP_INTL_INCREMENTAL=1`; normal Intl scratch can be
+pruned under the existing disk reserve, and every libtest still omits scratch.
+The unchanged compiler batch expects4191 native IDs. Full tooling now discovers
+603 tests; current-batch native/CLI acceptance remains pending. The source-only
+600-test and eight-check results below remain bound to their earlier exact HEAD.
+
 Static RegExp kernel candidate — 2026-10-18 (native verification pending):
 real caller parsing, early errors and lowering produce a sealed single-literal
 proof. Shared R Wasm constructs fresh strings, validated program and RegExp state,

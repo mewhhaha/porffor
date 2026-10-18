@@ -1,5 +1,30 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Opt-in Intl incremental scratch — 2026-10-18
+
+Set `LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside `--no-test-incremental` to
+retain Cargo's existing incremental argument for the normal `lila_intl` library.
+The wrapper still removes incremental scratch from every libtest and other
+normal crate. It adds no incremental argument to release builds or queries.
+The runner records the exception; existing low-disk pruning and the two-GiB
+build reserve still apply. Budget roughly900MiB per retained Intl unit after
+several edits; different Cargo dependency graphs can produce separate units.
+
+A private opt2 compile-only experiment used the exact ordinary Intl dependency
+graph on two admitted cloud CPUs. Ordinary A/B builds took98.53/127.38s;
+initial incremental A took126.95s and an identity-only edit B took11.54s.
+The opt-in wrapper then undid/reapplied the edit in13.41/13.65s. Four linked
+consumers confirmed equal real provider identities for ordinary/incremental A
+and ordinary/incremental B, and different identities between A and B. All90
+workspace-tooling controls pass, including14 wrapper controls.
+
+These measurements include concurrent native/source verification; they do not
+establish a full Cargo, native or CLI speedup. Rustc retains its normal implicit
+codegen-unit choice for each incremental mode. Private changed provenance was
+never admitted to product execution. The complete source/data copy was verified
+against clean source112a765c1 after restoring the private edit. See the
+[lossless experiment](intl-incremental-identity-20261018.json).
+
 ## Opt-in bounded Rustc code generation — 2026-10-18
 
 Set `LILA_TEST_CODEGEN_JOBS=auto` when launching the cloud verification runner
