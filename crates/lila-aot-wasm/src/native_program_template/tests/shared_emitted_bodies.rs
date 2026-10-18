@@ -42,4 +42,18 @@ fn thousand_method_program_shares_only_the_native_bodies() {
     wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
         .validate_all(template.bytes())
         .unwrap();
+    let largest_body = wasmparser::Parser::new(0)
+        .parse_all(template.bytes())
+        .filter_map(|payload| match payload.unwrap() {
+            wasmparser::Payload::CodeSectionEntry(body) => Some(body.as_bytes().len()),
+            _ => None,
+        })
+        .max()
+        .unwrap();
+    // Inlining symbol-name construction at every method made this 1,667,247
+    // bytes even after identical method bodies were shared. Naming belongs in R.
+    assert!(
+        largest_body < 1_400_000,
+        "method initializer is {largest_body} bytes"
+    );
 }

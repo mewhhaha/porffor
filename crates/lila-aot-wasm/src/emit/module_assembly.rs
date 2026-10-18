@@ -1346,6 +1346,7 @@ fn emit_script_module_with_factory(
         );
         register_runtime_helper!(PrivateElementAdd, compile_private_element_add_helper);
         register_runtime_helper!(PrivateFieldDefine, compile_private_field_define_helper);
+        register_runtime_helper!(FunctionNameFromKey, compile_function_name_from_key_helper);
         register_runtime_helper!(
             FunctionMetadataPublish,
             compile_function_metadata_publish_helper
