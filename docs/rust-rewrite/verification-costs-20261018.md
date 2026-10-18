@@ -30,8 +30,9 @@ The release build spends almost all its time inside Rust compiler units:
 
 The timing rows alone do not identify the profiles of duplicate units. Assigning
 one of those times to a host or product profile requires the corresponding Cargo
-artifact evidence. Aligning profiles or splitting crates is a future experiment,
-not an implemented speedup. A useful split would have to remove a measured
+artifact evidence. The small `cow-utils` dependency now has aligned test debug
+info; [unit-graph reuse is verified](cow-utils-profile-reuse-20261018.json), while
+its build-time savings remain unmeasured. A useful crate split would remove a measured
 rebuild dependency; moving the same dependencies behind another crate name would
 not establish that result.
 
@@ -39,3 +40,27 @@ Keep the existing shared-image reuse and serial Cargo/libtest defaults. Measure
 any proposed compiler boundary against these same phase outputs and complete
 native/CLI gates. Preserve exact IDs, original budgets and failed outcomes when
 comparing end-to-end verification time.
+
+The exact shared runtime also has a measured Wasm size breakdown:
+
+| Section group | Encoded bytes |
+| --- | ---: |
+| Function code | 16,025,440 |
+| Linear-memory data | 1,988,926 |
+| Custom sections, mainly selected Intl images | 22,462,458 |
+| Other sections and header | 20,622 |
+
+There are 1,032 defined functions. The largest bodies include
+`Temporal.Duration.prototype.round` (873,759 bytes), the RegExp matcher
+(836,075), intrinsic initialization (633,873), and
+`Temporal.Duration.prototype.total` (548,782). These are concrete candidates for
+per-function compiler profiling and possible outlining of repeated emitted code.
+Their sizes alone do not establish their share of the 169-second native compile.
+Rust crate boundaries address Rust rebuild dependencies; emitted Wasm functions
+address this separate native compilation phase.
+
+Projected Intl tests build distinct runtime profiles. Current code and data
+validation bind each selected profile to its exact runtime bytes. Sharing code
+across those profiles would first require comparing code and address layouts,
+then a typed data-owner boundary if they differ. Reusing the full embedded image
+would bypass the selected-data coverage. No such refactor or speedup is claimed.
