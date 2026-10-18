@@ -5,6 +5,7 @@ use crate::{
 };
 use std::sync::Arc;
 mod contexts;
+mod empty_direct_eval;
 mod error;
 use error::invalid;
 pub use error::NativeProgramTemplateError;
@@ -85,6 +86,12 @@ pub struct NativeProgramTemplate {
     factories: Vec<NativeProgramArrayFactory>,
     literal_operands: Vec<NativeProgramLiteralOperand>,
     payload: Option<NativeProgramPayload>,
+    entry: TemplateEntry,
+}
+#[derive(Debug)]
+enum TemplateEntry {
+    Program,
+    EmptyDirectEval,
 }
 impl NativeProgramTemplate {
     pub fn for_function(
@@ -114,6 +121,7 @@ impl NativeProgramTemplate {
                 factories: Vec::new(),
                 literal_operands: Vec::new(),
                 payload: None,
+                entry: TemplateEntry::Program,
             });
         };
         let payload = NativeProgramPayload::from_plan(&plan)?;
@@ -125,6 +133,7 @@ impl NativeProgramTemplate {
             factories: plan.factories,
             literal_operands: plan.literal_operands,
             payload,
+            entry: TemplateEntry::Program,
         })
     }
     pub fn bytes(&self) -> &[u8] {

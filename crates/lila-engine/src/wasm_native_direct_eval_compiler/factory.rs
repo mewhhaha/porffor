@@ -13,6 +13,10 @@ pub(super) fn instantiate_and_execute(
     trace: Option<&CallbackTrace<'_>>,
 ) -> wasmtime::Result<[Val; 6]> {
     require_exact_program(&request.caller, &request.source, program)?;
+    context.check_budget()?;
+    if let Some(proof) = program.empty_completion() {
+        return super::empty::execute(store, engine, context, &proof, signature, trace);
+    }
     let emit = trace.map(|trace| trace.phase(Phase::Emit));
     let artifact = lila_aot_wasm::emit_runtime_direct_eval_with_validated_runtime(
         program,

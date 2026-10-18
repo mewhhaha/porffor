@@ -18,9 +18,7 @@ pub(crate) fn instantiate(
         WasmModuleSource::Program(template.bytes()),
         context.native_compilation_mode,
     );
-    let reusable = template
-        .program_payload()
-        .is_some_and(|payload| payload.permits_instance_reuse());
+    let reusable = template.permits_instance_reuse();
     if reusable {
         if let Some(instance) = store
             .as_context_mut()

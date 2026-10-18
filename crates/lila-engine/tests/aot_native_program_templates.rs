@@ -99,3 +99,8 @@ mod repeated_identifier_reads;
 mod shared_function_bodies;
 #[path = "aot_native_program_templates/unobserved_arguments.rs"]
 mod unobserved_arguments;
+
+#[path = "aot_native_program_templates/empty_eval.rs"]
+mod empty_eval;
+#[path = "aot_native_program_templates/function_names.rs"]
+mod function_names;

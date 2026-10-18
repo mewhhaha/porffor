@@ -36,6 +36,23 @@ class NativeTemplateSourceControls(unittest.TestCase):
                 sources[path] = sources[path].replace(before, after)
                 self.assertIn(expected, controls.check(sources))
 
+    def test_empty_eval_cannot_bypass_syntax_instantiation_or_real_wasm(self):
+        proof = 'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof'
+        execution = 'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline'
+        mutations = [
+            ('crates/lila-ir/src/runtime_direct_eval/empty.rs', '!self.empty_syntax', 'false', proof),
+            ('crates/lila-ir/src/runtime_direct_eval/empty.rs',
+             'unit.declarations != RuntimeGlobalDeclarationPlan::default()', 'false', proof),
+            (controls.E + 'wasm_native_direct_eval_compiler/empty.rs',
+             'factory.call(&mut *store, &[], &mut output)?;', '', execution),
+        ]
+        for path, before, after, expected in mutations:
+            with self.subTest(path=path, before=before):
+                sources = dict(self.sources)
+                self.assertEqual(sources[path].count(before), 1)
+                sources[path] = sources[path].replace(before, after)
+                self.assertIn(expected, controls.check(sources))
+
 
 if __name__ == '__main__':
     unittest.main()
