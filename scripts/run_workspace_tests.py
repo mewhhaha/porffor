@@ -155,7 +155,7 @@ if args.no_test_incremental:
     wrapper=(root/'scripts/test-shared-runtime-images/test-rustc').resolve()
     assert not build_env.get('RUSTC_WRAPPER'), 'Cannot replace an existing compiler wrapper'
     build_env['RUSTC_WRAPPER']=str(wrapper)
-    result['test_incremental_policy']={'wrapper':evidence_path(wrapper),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'policy':'Verification compiler units omit incremental scratch; compiled normal libraries remain reusable, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
+    result['test_incremental_policy']={'wrapper':evidence_path(wrapper),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'retained_normal_incremental_crates':['lila_intl'] if build_env.get('LILA_TEST_KEEP_INTL_INCREMENTAL')=='1' else [],'policy':'Verification compiler units omit incremental scratch except explicitly retained normal Intl units; libtest scratch is always omitted, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
 
 def release_incremental(case):
     prefix=case['target'].replace('-','_')+'-'

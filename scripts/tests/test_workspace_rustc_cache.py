@@ -2,6 +2,7 @@
 
 import importlib.machinery
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -105,6 +106,42 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
         self.assertEqual(wrapper.compiler_command(arguments),
                          ["/rustc", "--test", "file.rs", "-Copt-level=1", "-C",
                           "debuginfo=1", "--cfg", "feature=\"kept\"", "-C"])
+
+    def test_intl_retention_never_retains_libtest_or_other_crate_scratch(self):
+        environment = {"LILA_TEST_NO_INCREMENTAL": "1", "LILA_TEST_KEEP_INTL_INCREMENTAL": "1"}
+        for crate in ("lila_intl", "lila_intl_collator_data", "lila_ir", "build_script_build"):
+            for test in (False, True):
+                arguments = ["/rustc", "--crate-name", crate, "file.rs", "-C",
+                             "incremental=/cache", "-Copt-level=2"] + (["--test"] if test else [])
+                actual = wrapper.command_from_environment(arguments, environment)
+                expected = arguments if crate == "lila_intl" and not test else [
+                    word for word in arguments if word not in ("-C", "incremental=/cache")]
+                self.assertEqual(actual, expected, (crate, test))
+        for query in (["/rustc", "-vV"], ["/rustc", "--print", "cfg"]):
+            self.assertEqual(wrapper.command_from_environment(query, environment), query)
+
+    def test_intl_retention_rejects_ambiguous_environment_values(self):
+        for value in ("", "0", "true", "lila_intl", "all"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "must be 1"):
+                wrapper.command_from_environment(["/rustc"], {"LILA_TEST_KEEP_INTL_INCREMENTAL": value})
+
+    def test_executed_intl_retention_preserves_compiler_arguments_and_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            compiler = Path(directory) / "compiler"
+            compiler.write_text("#!/usr/bin/env python3\nimport json,sys\n"
+                                "print(json.dumps(sys.argv[1:]))\nsys.exit(37)\n")
+            compiler.chmod(0o755)
+            environment = dict(os.environ, LILA_TEST_NO_INCREMENTAL="1",
+                               LILA_TEST_KEEP_INTL_INCREMENTAL="1")
+            environment.pop("LILA_TEST_CODEGEN_JOBS", None)
+            for test in (False, True):
+                arguments = ["--crate-name", "lila_intl", "-Cincremental=/cache",
+                             "-Copt-level=2"] + (["--test"] if test else [])
+                result = subprocess.run([str(SOURCE), str(compiler), *arguments],
+                                        capture_output=True, text=True, env=environment)
+                self.assertEqual(result.returncode, 37)
+                expected = arguments if not test else [w for w in arguments if not w.startswith("-Cincremental=")]
+                self.assertEqual(json.loads(result.stdout), expected)
 
     def test_empty_compiler_command_is_rejected(self):
         with self.assertRaises(ValueError):

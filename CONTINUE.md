@@ -1,3 +1,12 @@
+Intl rebuild iteration — 2026-10-18: the opt-in
+`LILA_TEST_KEEP_INTL_INCREMENTAL=1` retains only normal Intl library scratch
+when the verification wrapper otherwise removes it. All90 workspace-tooling
+controls pass. In a private identity-edit experiment, ordinary builds took
+98.5/127.4s; an incremental edit took11.5s and undo/reapply took13.4/13.6s.
+Linked consumers verified both unchanged and changed provider identities.
+[Exact scope, cache cost and lossless evidence](docs/rust-rewrite/intl-incremental-identity-20261018.json).
+Full-build and conformance effects remain unmeasured; defaults are unchanged.
+
 RegExp repair source checkpoint — 2026-10-18: the isolated candidate passes
 all 600 tooling tests, retains every previous599 ID, and passes the full module
 boundary check. [Literal inventories and lossless logs](docs/rust-rewrite/regexp-kernel-tooling-600-20261018.json)

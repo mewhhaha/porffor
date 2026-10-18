@@ -5,13 +5,17 @@ from pathlib import Path
 import sys
 
 
-def compiler_command(arguments, omit_normal_incremental=False):
+def compiler_command(arguments, omit_normal_incremental=False, retain_intl_incremental=False):
     """Keep queries literal; omit scratch only for selected compiler units."""
     if not arguments:
         raise ValueError("expected the real rustc executable")
-    if "--test" not in arguments[1:] and not (
-            omit_normal_incremental and "--crate-name" in arguments[1:]):
-        return list(arguments)
+    if "--test" not in arguments[1:]:
+        if not omit_normal_incremental or "--crate-name" not in arguments[1:]:
+            return list(arguments)
+        crate_index = arguments.index("--crate-name") + 1
+        if (retain_intl_incremental and crate_index < len(arguments)
+                and arguments[crate_index] == "lila_intl"):
+            return list(arguments)
     command = [arguments[0]]
     index = 1
     while index < len(arguments):
@@ -26,6 +30,16 @@ def compiler_command(arguments, omit_normal_incremental=False):
         command.append(word)
         index += 1
     return command
+
+
+def command_from_environment(arguments, environment):
+    """Retain Intl scratch only when explicitly requested; libtests still omit it."""
+    retained = environment.get("LILA_TEST_KEEP_INTL_INCREMENTAL")
+    if retained not in (None, "1"):
+        raise ValueError("LILA_TEST_KEEP_INTL_INCREMENTAL must be 1")
+    return compiler_command(arguments,
+                            omit_normal_incremental=environment.get("LILA_TEST_NO_INCREMENTAL") == "1",
+                            retain_intl_incremental=retained == "1")
 
 
 def codegen_capacity():
@@ -76,8 +90,7 @@ def compiler_environment(arguments, environment):
 if __name__ == "__main__":
     descriptors = ()
     try:
-        command = compiler_command(sys.argv[1:],
-                                   os.environ.get("LILA_TEST_NO_INCREMENTAL") == "1")
+        command = command_from_environment(sys.argv[1:], os.environ)
         environment, descriptors = compiler_environment(command, os.environ)
         os.execve(command[0], command, environment)
     except (OSError, ValueError) as error:
