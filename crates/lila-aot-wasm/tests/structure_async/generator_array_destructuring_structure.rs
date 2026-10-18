@@ -126,7 +126,9 @@ fn inspect_native_pattern_artifact(source: &str) {
         "actual record edge is published and retired"
     );
     let (cached_iterator_and_next, done_writes) =
-        super::array_iterator_runtime_ownership::called_iterator_operations(&artifact, cell, record);
+        super::array_iterator_runtime_ownership::called_iterator_operations(
+            &artifact, cell, record,
+        );
     assert!(
         cached_iterator_and_next.iter().all(|&count| count > 0),
         "both actual cached fields are consumed"

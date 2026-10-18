@@ -199,7 +199,12 @@ fn all_protocol_operations_borrow_before_the_owner_is_consumed() {
 fn release_ownership_contract_and_recursive_census_remain_closed() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     assert_eq!(count_in_rust_sources(&source_root, "OwnedSyncIterator"), 35);
-    assert_eq!(ARRAY_ITERATOR_HELPERS_SOURCE.matches("OwnedSyncIterator").count(), 6);
+    assert_eq!(
+        ARRAY_ITERATOR_HELPERS_SOURCE
+            .matches("OwnedSyncIterator")
+            .count(),
+        6
+    );
     // Definition + impl + seven existing in-family constructors, plus the
     // shared array helper's return signature and local record constructor.
     // Outside helpers still admit records through the fixed consumer constructor.

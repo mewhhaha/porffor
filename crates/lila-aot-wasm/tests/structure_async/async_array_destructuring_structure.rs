@@ -132,7 +132,9 @@ fn inspect_async_pattern_artifact(source: &str, requires_reference: bool) {
         "actual iterator edge is published and retired"
     );
     let (cached_fields, done_writes) =
-        super::array_iterator_runtime_ownership::called_iterator_operations(&artifact, cell, iterator);
+        super::array_iterator_runtime_ownership::called_iterator_operations(
+            &artifact, cell, iterator,
+        );
     assert!(
         cached_fields.iter().all(|&count| count > 0),
         "cached iterator and next are consumed"
