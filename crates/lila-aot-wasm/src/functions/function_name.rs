@@ -4,12 +4,23 @@ use crate::gc_types::{
     StringValue, StringValueSchema, SymbolValue, SymbolValueSchema,
 };
 use crate::operations::PropertyKeyLocals;
+use crate::runtime_helpers::HelperParameters;
 
 #[derive(Clone, Copy)]
 pub(crate) enum FunctionNamePrefix {
     None,
     Getter,
     Setter,
+}
+
+impl FunctionNamePrefix {
+    const fn encoding(self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::Getter => 1,
+            Self::Setter => 2,
+        }
+    }
 }
 
 impl FunctionBuilder<'_> {
@@ -155,14 +166,39 @@ impl FunctionBuilder<'_> {
         Ok(value)
     }
 
-    pub(crate) fn emit_set_function_name(
+    /// One R kernel owns symbol bracketing and exact UTF-16 prefix copying.
+    /// The caller supplies a normalized key and a closed prefix encoding.
+    pub(crate) fn compile_function_name_from_key_helper(&mut self) -> Result<Function, EmitError> {
+        use crate::runtime_helpers::{FunctionNameFromKeyParameters, RuntimeHelperId};
+        let mut function = self.begin_helper_body(RuntimeHelperId::FunctionNameFromKey);
+        let parameters = self.helper_parameters::<FunctionNameFromKeyParameters>(&mut function);
+        let result = self.emit_function_name_from_key_inner(
+            &parameters.key,
+            parameters.prefix,
+            &mut function,
+        )?;
+        parameters.release(&mut function);
+        let _result = result;
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    fn emit_function_name_from_key_inner(
         &mut self,
-        callable: &GcLocal<FunctionObject>,
         property_key: &PropertyKeyLocals,
-        prefix: FunctionNamePrefix,
+        prefix: crate::gc_types::I32Local,
         function: &mut Function,
-    ) -> Result<(), EmitError> {
+    ) -> Result<GcStackReference<StringValue>, EmitError> {
         let schema = self.runtime_schema();
+        // Unsigned comparison also rejects every negative encoding.
+        prefix.load(function);
+        function.instruction(&Instruction::I32Const(
+            FunctionNamePrefix::Setter.encoding(),
+        ));
+        function.instruction(&Instruction::I32GtU);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        function.instruction(&Instruction::Unreachable);
+        function.instruction(&Instruction::End);
         let name = schema
             .reserve_gc_local::<StringValue, Nullable>(function)
             .initialize_null(schema, function);
@@ -234,26 +270,76 @@ impl FunctionBuilder<'_> {
             function,
         );
         function.instruction(&Instruction::End);
-        let prefix = match prefix {
-            FunctionNamePrefix::None => None,
-            FunctionNamePrefix::Getter => Some("get "),
-            FunctionNamePrefix::Setter => Some("set "),
-        };
         let final_name = schema.reserve_gc_local(function).initialize(
             name.load(schema, function).require_non_null(function),
             function,
         );
-        if let Some(prefix) = prefix {
-            let prefix = schema.reserve_gc_local(function).initialize(
-                self.emit_interned_string_reference(prefix, function)?,
+        prefix.load(function);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::I32Eqz);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        let prefix_string = schema
+            .reserve_gc_local::<StringValue, Nullable>(function)
+            .initialize_null(schema, function);
+        prefix.load(function);
+        function.instruction(&Instruction::I32Const(
+            FunctionNamePrefix::Getter.encoding(),
+        ));
+        function.instruction(&Instruction::I32Eq);
+        function.instruction(&Instruction::If(BlockType::Empty));
+        prefix_string.replace(
+            self.emit_interned_string_reference("get ", function)?
+                .nullable(),
+            function,
+        );
+        function.instruction(&Instruction::Else);
+        prefix_string.replace(
+            self.emit_interned_string_reference("set ", function)?
+                .nullable(),
+            function,
+        );
+        function.instruction(&Instruction::End);
+        let prefix_value = schema.reserve_gc_local(function).initialize(
+            prefix_string
+                .load(schema, function)
+                .require_non_null(function),
+            function,
+        );
+        final_name.replace(
+            self.emit_concat_gc_strings(&prefix_value, &final_name, function),
+            function,
+        );
+        prefix_value.clear(function);
+        prefix_string.clear(function);
+        function.instruction(&Instruction::End);
+        let result = final_name.load(schema, function);
+        final_name.clear(function);
+        name.clear(function);
+        Ok(result)
+    }
+
+    pub(crate) fn emit_set_function_name(
+        &mut self,
+        callable: &GcLocal<FunctionObject>,
+        property_key: &PropertyKeyLocals,
+        prefix: FunctionNamePrefix,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let prefix_local = schema.reserve_i32_local(function);
+        prefix_local.set_constant(prefix.encoding(), function);
+        let slot = schema.reserve_gc_local(function);
+        let final_name = schema
+            .call_helper(
+                crate::runtime_helpers::FunctionNameFromKeyArguments::new(
+                    property_key,
+                    prefix_local,
+                ),
+                self.runtime_helper_base()?,
                 function,
-            );
-            final_name.replace(
-                self.emit_concat_gc_strings(&prefix, &final_name, function),
-                function,
-            );
-            prefix.clear(function);
-        }
+            )
+            .bind(schema, slot, function);
+        schema.release_i32_local(prefix_local, function);
         let value = schema.reserve_value_local(function);
         value.set_reference(&final_name, schema, function);
         let target = schema.reserve_value_local(function);
@@ -269,7 +355,6 @@ impl FunctionBuilder<'_> {
         target.clear(function);
         value.clear(function);
         final_name.clear(function);
-        name.clear(function);
         pending.kind().load(function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));
         function.instruction(&Instruction::I32Eq);

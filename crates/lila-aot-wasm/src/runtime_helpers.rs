@@ -1018,6 +1018,7 @@ runtime_helper_domain! {
     ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
     OrdinaryObjectAllocate / OrdinaryObjectAllocateArguments / OrdinaryObjectAllocateParameters / "ordinary_object_allocate" { prototype:Value,immutable_prototype:I32 } => (Ref OrdinaryObject NonNullable);
     ValueToObject / ValueToObjectArguments / ValueToObjectParameters / "value_to_object" { realm:(Ref RealmRecord NonNullable),input:Value } => Completion;
+    FunctionNameFromKey / FunctionNameFromKeyArguments / FunctionNameFromKeyParameters / "function_name_from_key" { key:Key,prefix:I32 } => (Ref StringValue NonNullable);
     FunctionMetadataPublish / FunctionMetadataPublishArguments / FunctionMetadataPublishParameters / "function_metadata_publish" { callable:(Ref FunctionObject NonNullable),length_bits:I64,name:(Ref StringValue NonNullable),configurable:I32,has_caller:I32,create_prototype:I32,constructor_back_reference:I32,prototype_parent:Value } => Void;
     RealmInitializeIntrinsics / RealmInitializeIntrinsicsArguments / RealmInitializeIntrinsicsParameters / "realm_initialize_intrinsics" { realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => RealmInitializeIntrinsics;
     ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
@@ -1146,6 +1147,7 @@ impl RuntimeHelperId {
             Self::ObjectHeaderProjection => HelperOwner::Runtime,
             Self::OrdinaryObjectAllocate => HelperOwner::Runtime,
             Self::ValueToObject => HelperOwner::Runtime,
+            Self::FunctionNameFromKey => HelperOwner::Runtime,
             Self::FunctionMetadataPublish => HelperOwner::Runtime,
             Self::RealmInitializeIntrinsics => HelperOwner::Runtime,
             Self::ProxyCall => HelperOwner::Runtime,
@@ -1260,6 +1262,7 @@ impl RuntimeHelperId {
             Self::ObjectHeaderProjection => true,
             Self::OrdinaryObjectAllocate => true,
             Self::ValueToObject => true,
+            Self::FunctionNameFromKey => true,
             Self::FunctionMetadataPublish => true,
             Self::RealmInitializeIntrinsics => true,
             Self::ProxyCall => true,
