@@ -1,5 +1,28 @@
 # Continue Lila — 2026-10-18
 
+Current broad baseline: frozen compiler `8ab4cdef70c0df1af9825a28aa2b266761024df1`
+has completed 41 whole scopes with 5,543 native passes and one structural
+failure; no ignored tests. The 248-test async target passes. The failed exact
+API census predates the RegExp source rewrite that removed two call sites.
+Main fixes both expectations, and direct native execution passes all three
+unchanged module IDs. Its original 151-test target failure remains retained;
+the whole target still needs a rerun on the repaired source.
+[Repair and exact focused coverage](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
+
+Continue the remaining 70 baseline scopes with
+`../.lila-tools/continue-full-default-feature-roots-8ab-20261018-run4.py` (outside
+the repository). It carries completed exact inventories, retains failed ELFs
+and continues independent scopes after assertions. Receipts live under
+`target/full-default-feature-roots-8ab-20261018-run4/`. It must finish red while
+the old structural failure is retained; do not relabel that source as repaired.
+
+An isolated R12 candidate shares the three array-pattern iterator kernels.
+All 610 tooling, eight source CI and three static checks pass after canonical
+Intl provenance refresh. Its matched-input P-only ABBA diagnostic lowers mean
+native compilation 24.1% cold and 22.4% with warm stencil stores. This excludes
+R startup and JavaScript execution; ordinary native and original-deadline gates
+remain open. Keep it separate from main until those controls pass.
+
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
 the whole IR (1,604) and native-template (20) targets, plus three explicitly
@@ -70,11 +93,11 @@ remains pending despite two passing filtered entry controls. All-features now
 also includes the empty auxiliary target; report its scope separately and never
 silently discard a Cargo-enabled target.
 
-Next: carry only the two whole current focused targets into the complete
-111-scope default run. Execute the remaining109 scopes in bounded batches with
-the verified narrow roots; rerun the whole Engine library despite its three
-passing filtered controls. Retain all9526 prior native IDs and the three added
-controls, plus11 docs. Then run ordinary all-features (113 Cargo-enabled scopes,
+Next: finish the remaining70 baseline scopes in bounded batches with the
+verified narrow roots. The complete Engine library is already included in the
+carried whole scopes. Retain all9526 prior native IDs and the three added
+controls, plus11 docs. After the repair batch, verify the complete current
+source, then run ordinary all-features (113 Cargo-enabled baseline scopes,
 including the empty auxiliary), all-target/CI and original230 CLI/pinned gates.
 The unused-function-type producer candidate is preserved outside the
 product tree: its native timing was too variable to establish sufficient

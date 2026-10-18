@@ -1,3 +1,11 @@
+RegExp structural census — 2026-10-18: the earlier linear-time source rewrite
+removed one string-slice call and one code-unit accessor call. Their exact
+reachability counts are corrected to 35 and 46. All three checks in that module
+pass in direct native execution with the original IDs. The original whole
+structural target's 150 passes and one failure remain preserved; its complete
+rerun and full-suite acceptance are pending. No product behavior changes.
+[Exact repair, native commands and retained failure](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
+
 Verification iteration — 2026-10-18: the opt-in
 `--selected-feature-roots` workspace runner mode selects only the requested
 packages' native test harnesses. An empty auxiliary crate retains the ordinary
