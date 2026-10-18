@@ -1,4 +1,26 @@
-Shared array-pattern kernels — candidate, 2026-10-18: step-value, elision and
+Array accumulation kernel — candidate, 2026-10-18: ordinary spread and iterable
+TypedArray collection now select a distinct shared step-value entry, keeping
+their existing diagnostic policy and no-close behavior. Acquisition, append,
+suspension state and release remain with the caller. Runtime layout 13 retains
+the actual record, executing Realm and whole Completion across the boundary.
+Three new real-Wasm controls cover cached-next/truthy-done observations,
+abrupt identity with reentrant GC, and cross-Realm errors. Existing physical
+controls additionally follow the ordinary P record constructor to the actual
+R helper and check its complete ABI and DONE operations. Verification of this
+candidate is pending: 111 default scopes, 9,535 native and 11 documentation IDs
+are required, including all prior 9,532 native IDs. Refresh with
+`scripts/run_workspace_tests.py --include-ignored` under the cloud wrapper.
+
+The preceding R12 ordinary release at `6ee7126e7c2e297d5b24afa3029591b423dafb4d`
+builds in 586.47s and passes two of the four original fresh-cache deadline cases:
+class destructuring and the retained object-literal `__proto__` pass. Nested and
+simple strict-function destructuring time out. Separate traced reruns pass both,
+showing timing variability; they do not replace the formal failed receipts.
+All original 60s execution/300s compilation budgets and cache limits remain.
+Full default/all-features, original 230-case retention and conformance stay open.
+[Release, original cases and separate diagnostic evidence](docs/rust-rewrite/shared-array-iterator-deadlines-20261018.json).
+
+Shared array-pattern kernels — checkpoint, 2026-10-18: step-value, elision and
 iterator close now have typed shared-runtime entries. They use the original
 generic kernels and pass the caller's realm, environment, program, iterator
 record and whole completions across the boundary. Runtime layout 12 rejects

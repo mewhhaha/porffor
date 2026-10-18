@@ -198,12 +198,12 @@ fn all_protocol_operations_borrow_before_the_owner_is_consumed() {
 #[test]
 fn release_ownership_contract_and_recursive_census_remain_closed() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(count_in_rust_sources(&source_root, "OwnedSyncIterator"), 35);
+    assert_eq!(count_in_rust_sources(&source_root, "OwnedSyncIterator"), 37);
     assert_eq!(
         ARRAY_ITERATOR_HELPERS_SOURCE
             .matches("OwnedSyncIterator")
             .count(),
-        6
+        8
     );
     // Definition + impl + seven existing in-family constructors, plus the
     // shared array helper's return signature and local record constructor.
@@ -220,7 +220,20 @@ fn release_ownership_contract_and_recursive_census_remain_closed() {
     assert!(helper_owner.contains("record: &GcLocal<IteratorRecord>,"));
     assert!(helper_owner.contains(".reserve_gc_local(function)"));
     assert!(helper_owner.contains(".initialize(record.load(schema, function), function)"));
-    assert!(helper_owner.contains("consumer: SyncIteratorConsumer::ArrayDestructuring,"));
+    assert!(helper_owner.contains("consumer: SyncIteratorConsumer,"));
+    assert!(helper_owner.contains("            consumer,"));
+    assert_eq!(
+        ARRAY_ITERATOR_HELPERS_SOURCE
+            .matches("SyncIteratorConsumer::ArrayDestructuring,\n")
+            .count(),
+        3
+    );
+    assert_eq!(
+        ARRAY_ITERATOR_HELPERS_SOURCE
+            .matches("SyncIteratorConsumer::ArrayAccumulation,\n")
+            .count(),
+        1
+    );
     assert_eq!(
         count_in_rust_sources(&source_root, "OwnedSyncIterator::from_helper_record("),
         2

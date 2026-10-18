@@ -29,7 +29,7 @@ def check(sources):
             failures.append(reason)
     def a(name):
         return c[AOT + name]
-    require('constLAYOUT_VERSION:u32=12;' in a('runtime_artifact.rs'), 'current layout version retains direct eval and Realm intrinsics plus ABI10 program payload ownership')
+    require('constLAYOUT_VERSION:u32=13;' in a('runtime_artifact.rs'), 'current layout version retains direct eval and Realm intrinsics plus ABI10 program payload ownership')
     host = a('gc_types/host.rs')
     require('CompileDirectEval=>("compile_direct_eval",HostCompileDirectEval),' in host and
             '|GcHostImport::CompileDirectEval=>{source_compilation_profile==crate::RuntimeSourceCompilationProfile::NativeHost}' in host,

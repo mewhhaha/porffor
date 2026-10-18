@@ -1026,6 +1026,7 @@ runtime_helper_domain! {
     ArrayIteratorStepValue / ArrayIteratorStepValueArguments / ArrayIteratorStepValueParameters / "array_iterator_step_value" { iterator:(Ref IteratorRecord NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ArrayIteratorElision / ArrayIteratorElisionArguments / ArrayIteratorElisionParameters / "array_iterator_elision" { iterator:(Ref IteratorRecord NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ArrayIteratorClose / ArrayIteratorCloseArguments / ArrayIteratorCloseParameters / "array_iterator_close" { iterator:(Ref IteratorRecord NonNullable),pending:Completion,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ArrayAccumulationStepValue / ArrayAccumulationStepValueArguments / ArrayAccumulationStepValueParameters / "array_accumulation_step_value" { iterator:(Ref IteratorRecord NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ProxyConstruct / ProxyConstructArguments / ProxyConstructParameters / "proxy_construct" { callee:Value,new_target:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     StringEquality / StringEqualityArguments / StringEqualityParameters / "string_equality" { left:(Ref StringValue NonNullable),right:(Ref StringValue NonNullable),ascii_fold:I32 } => I32;
@@ -1159,7 +1160,8 @@ impl RuntimeHelperId {
             Self::RealmInitializeIntrinsics => HelperOwner::Runtime,
             Self::ArrayIteratorStepValue
             | Self::ArrayIteratorElision
-            | Self::ArrayIteratorClose => HelperOwner::Runtime,
+            | Self::ArrayIteratorClose
+            | Self::ArrayAccumulationStepValue => HelperOwner::Runtime,
             Self::ProxyCall => HelperOwner::Runtime,
             Self::ProxyConstruct => HelperOwner::Runtime,
             Self::StringEquality => HelperOwner::Runtime,
@@ -1279,7 +1281,8 @@ impl RuntimeHelperId {
             Self::RealmInitializeIntrinsics => true,
             Self::ArrayIteratorStepValue
             | Self::ArrayIteratorElision
-            | Self::ArrayIteratorClose => true,
+            | Self::ArrayIteratorClose
+            | Self::ArrayAccumulationStepValue => true,
             Self::ProxyCall => true,
             Self::ProxyConstruct => true,
             Self::StringEquality => true,

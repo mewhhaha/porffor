@@ -66,6 +66,7 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::ArrayIteratorStepValue
             | RuntimeHelperId::ArrayIteratorElision
             | RuntimeHelperId::ArrayIteratorClose
+            | RuntimeHelperId::ArrayAccumulationStepValue
             | RuntimeHelperId::ProxyConstruct
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectSetPrototypeOf

@@ -12,6 +12,32 @@ pub(super) fn called_iterator_operations(
     program_cell: u32,
     program_record: u32,
 ) -> ([usize; 2], usize) {
+    called_operations(
+        artifact,
+        Some((program_cell, program_record)),
+        &[
+            ("helper::array_iterator_step_value", true),
+            ("helper::array_iterator_close", false),
+        ],
+    )
+}
+
+pub(super) fn called_array_accumulation_operations(artifact: &WasmArtifact) {
+    wasmparser::Validator::new_with_features(wasmparser::WasmFeatures::all())
+        .validate_all(&artifact.bytes)
+        .expect("the ordinary record and complete P-to-R accumulation ABI validate");
+    called_operations(
+        artifact,
+        None,
+        &[("helper::array_accumulation_step_value", true)],
+    );
+}
+
+fn called_operations(
+    artifact: &WasmArtifact,
+    retained: Option<(u32, u32)>,
+    helpers: &[(&str, bool)],
+) -> ([usize; 2], usize) {
     let runtime = artifact
         .runtime()
         .expect("array patterns link their shared runtime");
@@ -83,7 +109,7 @@ pub(super) fn called_iterator_operations(
     }
     assert_eq!(definitions.len(), bodies.len());
     let mut imports = Vec::new();
-    let mut resumed_calls = Vec::new();
+    let mut program_bodies = Vec::new();
     let mut program_signatures = BTreeMap::new();
     let mut next_type = 0;
     for payload in Parser::new(0).parse_all(&artifact.bytes) {
@@ -109,6 +135,7 @@ pub(super) fn called_iterator_operations(
             Payload::CodeSectionEntry(body) => {
                 let mut calls = Vec::new();
                 let mut reloads_iterator = false;
+                let mut constructed_records = Vec::new();
                 for operator in body.get_operators_reader().expect("program body opens") {
                     match operator.expect("program operator decodes") {
                         Operator::Call { function_index }
@@ -116,13 +143,16 @@ pub(super) fn called_iterator_operations(
                         Operator::StructGet {
                             struct_type_index,
                             field_index: 11,
-                        } if struct_type_index == program_cell => reloads_iterator = true,
+                        } if retained.is_some_and(|(cell, _)| struct_type_index == cell) => {
+                            reloads_iterator = true;
+                        }
+                        Operator::StructNew { struct_type_index } => {
+                            constructed_records.push(struct_type_index);
+                        }
                         _ => {}
                     }
                 }
-                if reloads_iterator {
-                    resumed_calls.extend(calls);
-                }
+                program_bodies.push((calls, reloads_iterator, constructed_records));
             }
             _ => {}
         }
@@ -130,10 +160,7 @@ pub(super) fn called_iterator_operations(
     let mut cached_fields = [0, 0];
     let mut done_writes = 0;
     let mut shared_record = None;
-    for (name, reads_next) in [
-        ("helper::array_iterator_step_value", true),
-        ("helper::array_iterator_close", false),
-    ] {
+    for &(name, reads_next) in helpers {
         let indices = names
             .iter()
             .filter_map(|(&index, &actual)| (actual == name).then_some(index))
@@ -155,10 +182,6 @@ pub(super) fn called_iterator_operations(
             })
             .collect::<Vec<_>>();
         assert_eq!(imported.len(), 1, "P imports the actual {name} export once");
-        assert!(
-            resumed_calls.contains(&imported[0]),
-            "a P body that reloads the retained iterator calls its imported {name} kernel"
-        );
         let program_signature = &program_signatures[&imports[imported[0] as usize].2];
         assert_eq!(
             program_signature.results().len(),
@@ -185,7 +208,23 @@ pub(super) fn called_iterator_operations(
         let HeapType::Concrete(record) = reference.heap_type() else {
             panic!("P must pass a concrete retained iterator record to {name}");
         };
-        assert_eq!(record.as_module_index(), Some(program_record));
+        let program_record = record.as_module_index().expect("P record index");
+        if let Some((_, retained_record)) = retained {
+            assert_eq!(program_record, retained_record);
+            assert!(
+                program_bodies
+                    .iter()
+                    .any(|(calls, reloads, _)| { *reloads && calls.contains(&imported[0]) }),
+                "a P body that reloads the retained iterator calls its imported {name} kernel"
+            );
+        } else {
+            assert!(
+                program_bodies.iter().any(|(calls, _, records)| {
+                    records.contains(&program_record) && calls.contains(&imported[0])
+                }),
+                "the P body that constructs its ordinary record calls the imported {name} kernel"
+            );
+        }
         let ordinal = index
             .checked_sub(imported_functions)
             .expect("kernel is defined in R") as usize;

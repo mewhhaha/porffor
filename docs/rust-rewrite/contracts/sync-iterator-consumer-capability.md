@@ -40,7 +40,7 @@ propagates acquisition/step abrupts directly.
 Literal token counts below are defined across backend `src/**/*.rs`, including
 declarations; they do not count runtime executions or establish acceptance:
 
-- 106 `SyncIteratorConsumer` tokens, 73 in `control_flow.rs`;
+- 111 `SyncIteratorConsumer` tokens, 73 in `control_flow.rs`;
 - 70 `SyncIteratorProtocolError` tokens: declaration, projector parameter,
   two acquisition error constructors, 64 mapping rows and two step constructors;
 - 17 `emit_get_sync_iterator(` occurrences: one declaration and sixteen
@@ -50,6 +50,19 @@ declarations; they do not count runtime executions or establish acceptance:
 - four `self.emit_sync_iterator_protocol_type_error(` call sites, with one
   physical projector declaration; and
 - two `&iterator.consumer` borrows in the shared step owner.
+
+Layout 13 adds a distinct typed ArrayAccumulation step-value kernel in R.
+Its caller passes the actual cached iterator record and the original executing
+Realm, environment and program; the complete Completion crosses the boundary.
+Only ArrayAccumulation value steps select this kernel. Its parameter owner
+retains that consumer's four diagnostic rows; array-pattern elision and close
+retain their separate kernels. P owns acquisition, append, abrupt propagation,
+DONE readback and final release. A physical artifact control follows the
+ordinary P record constructor and call to the named R body and checks the full
+ABI, cached-next reads and DONE writes; retained pattern controls still require
+the suspension-owned record reload. The release-owner census is 37 type tokens,
+including eight in the shared helper file, with eleven constructor-text matches
+and two external helper-record constructors.
 
 These nineteen semantic acquisition sites have distinct ownership obligations;
 they are not nineteen instances of every error constructor. The structure

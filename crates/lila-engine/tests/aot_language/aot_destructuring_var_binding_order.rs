@@ -106,6 +106,114 @@ callerRealm && caught === original && second.reads === 1;
 }
 
 #[test]
+fn array_accumulation_keeps_cached_next_and_truthy_done_for_spread_and_typed_array() {
+    assert_var_binding_order(
+        r#"
+function collect(typed) {
+  var reads = 0, calls = 0, values = 0;
+  var iterator = {
+    get next() {
+      reads++;
+      return function() {
+        if (this !== iterator) throw 'receiver';
+        calls++;
+        Object.defineProperty(iterator, 'next', { get() { throw 'next reread'; }, configurable: true });
+        if (calls < 3) return { done: false, get value() { values++; return calls + 6; } };
+        return {
+          get done() { return { valueOf() { throw 'done coercion'; } }; },
+          get value() { throw 'value after done'; }
+        };
+      };
+    },
+    get return() { throw 'unexpected close'; }
+  };
+  var source = { [Symbol.iterator]() { return iterator; } };
+  var result = typed ? new Uint8Array(source) : [...source];
+  return reads === 1 && calls === 3 && values === 2 &&
+    result.length === 2 && result[0] === 7 && result[1] === 8;
+}
+collect(false) && collect(true);
+"#,
+    );
+}
+
+#[test]
+fn array_accumulation_preserves_abrupt_identity_and_records_across_reentrant_gc() {
+    assert_var_binding_order(
+        r#"
+var phases = ['next', 'done', 'value'], ok = true;
+for (var phase of phases) {
+  var marker = {}, closes = 0, later = 0, caught;
+  var iterator = {
+    next() {
+      if (phase === 'next') throw marker;
+      return {
+        get done() { if (phase === 'done') throw marker; return false; },
+        get value() { gc(); throw marker; }
+      };
+    },
+    get return() { closes++; throw 'unexpected close'; }
+  };
+  try { var failed = [...{ [Symbol.iterator]() { return iterator; } }, ++later]; }
+  catch (error) { caught = error; }
+  ok = ok && caught === marker && closes === 0 && later === 0;
+}
+var object = {}, symbol = Symbol('retained'), big = 123456789012345678901234567890n;
+var expected = [object, symbol, big], index = 0, nestedCalls = 0;
+var outer = {
+  [Symbol.iterator]() { return this; },
+  next() {
+    if (index === 3) return { done: true };
+    var current = expected[index++];
+    return { done: false, get value() {
+      var innerIndex = 0;
+      var inner = [...{
+        [Symbol.iterator]() { return this; },
+        next() { return innerIndex++ === 0 ? { done: false, value: current } : { done: true }; }
+      }];
+      gc();
+      if (inner.length !== 1 || inner[0] !== current) throw 'reentrant record';
+      nestedCalls++;
+      return current;
+    }};
+  },
+  get return() { throw 'unexpected close'; }
+};
+var result = [...outer];
+ok && index === 3 && nestedCalls === 3 && result.length === 3 &&
+  result[0] === object && result[1] === symbol && result[2] === big;
+"#,
+    );
+}
+
+#[test]
+fn array_accumulation_preserves_caller_error_realm_and_foreign_throw_identity() {
+    assert_var_binding_order(
+        r#"
+var foreign = __lilaCreateRealm(), ForeignTypeError = foreign.evalScript('TypeError');
+var foreignCollect = foreign.evalScript('(function(source) { try { return [...source]; } catch (error) { return error; } })');
+function localCollect(source) { try { return [...source]; } catch (error) { return error; } }
+var ok = true;
+for (var invalidNext of [true, false]) {
+  var foreignIterator = foreign.evalScript(invalidNext ? '({next: 1})' : '({next() { return 1; }})');
+  var localIterator = invalidNext ? {next: 1} : {next() { return 1; }};
+  var localError = localCollect({ [Symbol.iterator]() { return foreignIterator; } });
+  var foreignError = foreignCollect({ [Symbol.iterator]() { return localIterator; } });
+  var message = invalidNext ? 'array spread iterator next must be callable' :
+    'array spread iterator next result must be object';
+  ok = ok && localError instanceof TypeError && !(localError instanceof ForeignTypeError) &&
+    foreignError instanceof ForeignTypeError && !(foreignError instanceof TypeError) &&
+    localError.message === message && foreignError.message === message;
+}
+var marker = foreign.evalScript('({foreign: true})');
+var throwing = foreign.evalScript('({next() { throw this.marker; }, get return() { throw "close"; }})');
+throwing.marker = marker;
+ok && localCollect({ [Symbol.iterator]() { return throwing; } }) === marker;
+"#,
+    );
+}
+
+#[test]
 fn var_destructuring_computed_key_order() {
     assert_var_binding_order(include_str!(
         "../fixtures/destructuring_var_binding_order/computed_key_order.js"

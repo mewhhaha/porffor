@@ -1,4 +1,4 @@
-//! Compile each registered array-pattern kernel once into R.
+//! Compile each registered array-pattern or accumulation kernel once into R.
 
 use super::*;
 
@@ -31,5 +31,9 @@ pub(super) fn compile(
     );
     register!(ArrayIteratorElision, compile_array_iterator_elision_helper);
     register!(ArrayIteratorClose, compile_array_iterator_close_helper);
+    register!(
+        ArrayAccumulationStepValue,
+        compile_array_accumulation_step_value_helper
+    );
     Ok(bodies)
 }

@@ -1,5 +1,33 @@
 # Continue Lila — 2026-10-18
 
+The next coherent R13 candidate adds a distinct shared ArrayAccumulation
+step-value kernel. It reuses the original inline algorithm and consumer policy,
+passing the actual record plus caller execution Realm/environment/program and
+whole Completion. Array-pattern value/elision/close remain distinct; acquisition,
+append, suspension cells and release remain with their existing callers.
+The borrowed-call result projection is shared, copying a value only on a normal,
+non-exhausted step. Layout 13 rejects every older helper layout. All thirteen
+Intl identities must be refreshed through `scripts/intl_source_identities.py --write`.
+Three new actual-Wasm controls extend the existing array-pattern module from
+16 to 19 IDs; retain every prior ID. The source census is 37 owned-iterator type
+tokens, eight in the helper file, eleven constructor-text matches and two
+external helper-record constructors. Consumer tokens are 111, with the existing
+sixteen consumers and all 64 diagnostic rows unchanged.
+
+The preceding R12 source `6ee7126e7c2e297d5b24afa3029591b423dafb4d` has ordinary
+266/266 structure passes and a successful 586.47s release build. Its original
+four-case run finishes with two Success and two Crash timeouts: class is newly
+passing and object-literal `__proto__` remains passing; strict nested and simple
+functions time out. Separate traced fresh-cache diagnostics pass both residuals;
+keep those outside the formal four-case totals and retain the failed receipts.
+The full-default parent rejected before creating any full-suite child because
+that gate was red. Do not restart its old queue. Complete R13 preflights, actual
+Wasm controls, ordinary gates and the release/original-limit replay, then execute
+the current full default plan: 111 scopes, 9,535 native and 11 documentation IDs,
+zero ignored, retaining all prior 9,532 native IDs. No result crosses a source
+change. Full all-features, 230-case retention, pinned conformance and supported
+hosts remain open; final task/handoff cleanup still requires all acceptance gates.
+
 The old `8ab4cdef70c0df1af9825a28aa2b266761024df1` baseline is closed as a
 partial run: 49 whole scopes, 7,617 native passes, one retained census failure,
 zero ignored tests. Its 62 unexecuted scopes remain unverified. The active child

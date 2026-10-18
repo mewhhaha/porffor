@@ -88,6 +88,18 @@ fn step_kind_is_the_exact_private_no_capability_domain() {
         "\n        }",
     );
     assert!(shared_branch.contains("return self.emit_array_iterator_step_call("));
+    let accumulation_branch = bounded(
+        facade,
+        "if matches!(iterator.consumer, SyncIteratorConsumer::ArrayAccumulation) {",
+        "\n        }",
+    );
+    positions_in_order(
+        &normalized(accumulation_branch),
+        &[
+            "ifletSome(value)=value{",
+            "returnself.emit_array_accumulation_step_call(",
+        ],
+    );
     assert!(facade.contains("self.emit_sync_iterator_step_inline_into("));
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for retired in [

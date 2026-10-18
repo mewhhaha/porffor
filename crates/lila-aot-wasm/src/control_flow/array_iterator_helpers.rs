@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::runtime_helpers::{
+    ArrayAccumulationStepValueArguments, ArrayAccumulationStepValueParameters,
     ArrayIteratorCloseArguments, ArrayIteratorCloseParameters, ArrayIteratorElisionArguments,
     ArrayIteratorElisionParameters, ArrayIteratorStepValueArguments,
     ArrayIteratorStepValueParameters, HelperParameters,
@@ -31,6 +32,12 @@ impl FunctionBuilder<'_> {
     ) -> Result<(), EmitError> {
         if matches!(iterator.consumer, SyncIteratorConsumer::ArrayDestructuring) {
             return self.emit_array_iterator_step_call(iterator, done, value, result, function);
+        }
+        if matches!(iterator.consumer, SyncIteratorConsumer::ArrayAccumulation) {
+            if let Some(value) = value {
+                return self
+                    .emit_array_accumulation_step_call(iterator, done, value, result, function);
+            }
         }
         self.emit_sync_iterator_step_inline_into(iterator, done, value, result, function)
     }
@@ -71,6 +78,46 @@ impl FunctionBuilder<'_> {
         }
         .store(result, function);
         realm.clear(function);
+        self.finish_array_iterator_step_call(iterator, done, value, result, function);
+        Ok(())
+    }
+
+    fn emit_array_accumulation_step_call(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: &ValueLocals,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) -> Result<(), EmitError> {
+        let schema = self.runtime_schema();
+        let realm = self.emit_execution_realm(function);
+        schema
+            .call_helper(
+                ArrayAccumulationStepValueArguments::new(
+                    iterator.record(),
+                    &realm,
+                    self.current_environment(),
+                    self.current_program(),
+                ),
+                self.runtime_helper_base()?,
+                function,
+            )
+            .store(result, function);
+        realm.clear(function);
+        self.finish_array_iterator_step_call(iterator, done, Some(value), result, function);
+        Ok(())
+    }
+
+    fn finish_array_iterator_step_call(
+        &mut self,
+        iterator: &OwnedSyncIterator,
+        done: I32Local,
+        value: Option<&ValueLocals>,
+        result: &CompletionLocals,
+        function: &mut Function,
+    ) {
+        let schema = self.runtime_schema();
         schema
             .struct_type::<IteratorRecord>()
             .field(IteratorRecordSchema::DONE)
@@ -78,7 +125,7 @@ impl FunctionBuilder<'_> {
             .store(done, function);
         if let Some(value) = value {
             // A normal exhausted step can return its original `done` property
-            // value. Keep the pattern's initialized undefined in that case.
+            // value. Leave the caller's output unchanged in that case.
             done.load(function);
             function.instruction(&Instruction::I32Eqz);
             result.kind().load(function);
@@ -91,7 +138,6 @@ impl FunctionBuilder<'_> {
             function.instruction(&Instruction::End);
         }
         // `_into` callers finalize retained state before propagating Throw.
-        Ok(())
     }
 
     pub(super) fn emit_array_iterator_close_call(
@@ -123,6 +169,7 @@ impl FunctionBuilder<'_> {
     fn own_array_iterator_parameter(
         &self,
         record: &GcLocal<IteratorRecord>,
+        consumer: SyncIteratorConsumer,
         function: &mut Function,
     ) -> OwnedSyncIterator {
         let schema = self.runtime_schema();
@@ -130,7 +177,7 @@ impl FunctionBuilder<'_> {
             record: schema
                 .reserve_gc_local(function)
                 .initialize(record.load(schema, function), function),
-            consumer: SyncIteratorConsumer::ArrayDestructuring,
+            consumer,
         }
     }
 
@@ -140,7 +187,11 @@ impl FunctionBuilder<'_> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ArrayIteratorStepValue);
         let parameters = self.helper_parameters::<ArrayIteratorStepValueParameters>(&mut function);
         let schema = self.runtime_schema();
-        let iterator = self.own_array_iterator_parameter(&parameters.iterator, &mut function);
+        let iterator = self.own_array_iterator_parameter(
+            &parameters.iterator,
+            SyncIteratorConsumer::ArrayDestructuring,
+            &mut function,
+        );
         let done = schema.reserve_i32_local(&mut function);
         let value = schema.reserve_value_local(&mut function);
         value.set_undefined(&mut function);
@@ -167,7 +218,11 @@ impl FunctionBuilder<'_> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ArrayIteratorElision);
         let parameters = self.helper_parameters::<ArrayIteratorElisionParameters>(&mut function);
         let schema = self.runtime_schema();
-        let iterator = self.own_array_iterator_parameter(&parameters.iterator, &mut function);
+        let iterator = self.own_array_iterator_parameter(
+            &parameters.iterator,
+            SyncIteratorConsumer::ArrayDestructuring,
+            &mut function,
+        );
         let done = schema.reserve_i32_local(&mut function);
         let result = schema.reserve_completion(&mut function);
         self.emit_sync_iterator_step_inline_into(&iterator, done, None, &result, &mut function)?;
@@ -185,7 +240,11 @@ impl FunctionBuilder<'_> {
         let mut function = self.begin_helper_body(RuntimeHelperId::ArrayIteratorClose);
         let parameters = self.helper_parameters::<ArrayIteratorCloseParameters>(&mut function);
         let schema = self.runtime_schema();
-        let iterator = self.own_array_iterator_parameter(&parameters.iterator, &mut function);
+        let iterator = self.own_array_iterator_parameter(
+            &parameters.iterator,
+            SyncIteratorConsumer::ArrayDestructuring,
+            &mut function,
+        );
         let result = schema.reserve_completion(&mut function);
         self.emit_sync_iterator_close_inline(
             &iterator,
@@ -195,6 +254,40 @@ impl FunctionBuilder<'_> {
         )?;
         result.emit(&mut function);
         result.clear(&mut function);
+        iterator.clear(&mut function);
+        self.clear_helper_execution_realm(&mut function);
+        parameters.release(&mut function);
+        function.instruction(&Instruction::End);
+        Ok(self.finish_function(function))
+    }
+
+    pub(crate) fn compile_array_accumulation_step_value_helper(
+        &mut self,
+    ) -> Result<Function, EmitError> {
+        let mut function = self.begin_helper_body(RuntimeHelperId::ArrayAccumulationStepValue);
+        let parameters =
+            self.helper_parameters::<ArrayAccumulationStepValueParameters>(&mut function);
+        let schema = self.runtime_schema();
+        let iterator = self.own_array_iterator_parameter(
+            &parameters.iterator,
+            SyncIteratorConsumer::ArrayAccumulation,
+            &mut function,
+        );
+        let done = schema.reserve_i32_local(&mut function);
+        let value = schema.reserve_value_local(&mut function);
+        value.set_undefined(&mut function);
+        let result = schema.reserve_completion(&mut function);
+        self.emit_sync_iterator_step_inline_into(
+            &iterator,
+            done,
+            Some(&value),
+            &result,
+            &mut function,
+        )?;
+        result.emit(&mut function);
+        result.clear(&mut function);
+        value.clear(&mut function);
+        schema.release_i32_local(done, &mut function);
         iterator.clear(&mut function);
         self.clear_helper_execution_realm(&mut function);
         parameters.release(&mut function);

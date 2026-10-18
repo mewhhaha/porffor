@@ -175,6 +175,15 @@ fn shared_iterator_operations_borrow_consumer_and_project_the_error_realm() {
     assert!(shared_call.contains("ArrayIteratorElisionArguments::new("));
     assert!(!shared_call.contains("self.load_current_realm("));
     assert!(!shared_call.contains("iterator.clear("));
+    let accumulation_call = bounded(
+        ARRAY_ITERATOR_HELPERS_SOURCE,
+        "    fn emit_array_accumulation_step_call(",
+        "    fn finish_array_iterator_step_call(",
+    );
+    assert!(accumulation_call.contains("ArrayAccumulationStepValueArguments::new("));
+    assert!(accumulation_call.contains("self.emit_execution_realm(function)"));
+    assert!(!accumulation_call.contains("self.load_current_realm("));
+    assert!(!accumulation_call.contains("iterator.clear("));
     let shared_close = bounded(
         ARRAY_ITERATOR_HELPERS_SOURCE,
         "    pub(super) fn emit_array_iterator_close_call(",
@@ -335,6 +344,16 @@ fn each_shared_semantic_owner_constructs_one_consumer_and_borrows_it_for_the_ful
         assert!(!owner.contains("consumer.clone()"));
         assert!(!owner.contains("match consumer"));
     }
+    let parsed = lila_front::parse(
+        "function collect(source) { return [...source]; } collect;",
+        lila_front::ParseOptions::script(),
+    )
+    .expect("generic accumulation source parses");
+    let program =
+        lila_ir::lower_with_host_surface_policy(&parsed, lila_ir::HostSurfacePolicy::Test262);
+    let artifact =
+        lila_aot_wasm::emit(&program).expect("generic accumulation emits actual P and R");
+    super::array_iterator_runtime_ownership::called_array_accumulation_operations(&artifact);
 }
 
 #[test]
