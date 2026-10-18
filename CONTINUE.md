@@ -1,37 +1,43 @@
 # Continue Lila — 2026-10-18
 
-Isolated array-iterator candidate — 2026-10-18: three typed shared R kernels
-replace repeated array-pattern step-value, elision and close code in P. The
-same physical generic kernels retain dynamic property reads, cached next,
-DONE state and pending-throw precedence. Explicit caller realm/environment/
-program operands preserve user-call and error authority. Runtime layout 12
-rejects old helper layouts. Three new semantic controls cover exhausted-value
-defaults, elision/cached next, cross-realm errors and pending-throw precedence.
+Current broad baseline: frozen compiler `8ab4cdef70c0df1af9825a28aa2b266761024df1`
+has completed 41 whole scopes with 5,543 native passes and one structural
+failure; no ignored tests. The 248-test async target passes. The failed exact
+API census predates the RegExp source rewrite that removed two call sites.
+Main fixes both expectations, and direct native execution passes all three
+unchanged module IDs. Its original 151-test target failure remains retained;
+the whole target still needs a rerun on the repaired source.
+[Repair and exact focused coverage](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
 
-Metadata/type/borrow checking passes in44.54s; module boundaries pass without
-raising parent-file budgets. Both generated R images and all256 identical
-retained source cases' raw P/templates validate. Their total code sections
-shrink5,570,555→4,074,934bytes; the representative largest body shrinks
-11,181→6,212bytes. This is a size diagnostic at a fixed minimal-Intl caller
-context. A serial ABBA native diagnostic on the same140 unique templates uses
-the product native configuration, identical compiler fingerprint and fresh
-64MiB disk stencil caches, with deliberate whole-module misses. Cold Module
-compilation takes16.14–17.67s before and12.75–12.91s after; warm stencil-store
-compilation takes8.78–8.92s before and6.74–7.00s after. This excludes R startup,
-JavaScript execution and deadline acceptance. Run ordinary native controls and
-original60s cases before merging. The primary8ab full baseline remains frozen
-and separate:4977nativePASS/37whole scopes precede its active async cohort.
-The broader structural target exposed stale string-slice/code-unit counts from
-the prior linear-time RegExp source rewrite; both causal expectations are
-corrected and all three module controls pass in a direct native check. The
-original whole-target failure stays retained; remaining scopes continue.
+Continue the remaining 70 baseline scopes with
+`../.lila-tools/continue-full-default-feature-roots-8ab-20261018-run4.py` (outside
+the repository). It carries completed exact inventories, retains failed ELFs
+and continues independent scopes after assertions. Receipts live under
+`target/full-default-feature-roots-8ab-20261018-run4/`. It must finish red while
+the old structural failure is retained; do not relabel that source as repaired.
 
-First private native foundation: elision/cached-next and exhausted/default
-controls pass through actual Wasm. The cross-realm control used the wrong host
-fixture method (`eval`); it now uses the existing `evalScript` contract and
-needs a corrected rerun. The failed receipt is retained. This foundation uses
-the prior optimized dependency graph and an empty private runtime-image leaf
-to exercise fresh unbundled R; it is not ordinary Cargo or deadline acceptance.
+Isolated array-pattern candidate: three typed R kernels replace repeated
+step-value, elision and close code in P. They retain the exact generic physical
+kernels, iterator record, caller realm/environment/program and whole completion.
+Runtime layout 12 rejects prior helper layouts. Both R images and all 256
+matched retained raw P/templates validate. Total code sections shrink
+5,570,555 to 4,074,934 bytes; the representative largest body shrinks
+11,181 to 6,212 bytes. Product-config ABBA compilation of the same 140 unique
+P templates reduces cold mean cost 24.1% and warm stencil-store mean 22.4%,
+with fresh 64MiB stores. This excludes R startup and JavaScript execution.
+
+Private real-Wasm foundation at `5c17f8460415637d5574948e36f340dbae35c7de`
+passes all 16 array-pattern module controls, retaining all 13 prior IDs and
+adding three controls for exhausted defaults, cached-next elision, caller-realm
+close errors and pending-throw precedence. The initial new cross-realm test
+used the wrong host method; the corrected `evalScript` version passes and its
+failed receipt stays preserved. The foundation links private opt0 Engine/AOT
+against the previous native dependency graph, including previous Intl identity
+bytes, and exercises fresh unbundled R. It does not accept ordinary Cargo,
+the whole language target, original deadlines or full candidate verification.
+All 610 tooling, eight source CI and three static checks passed at prior
+`745c20061d785e7781dd1dfe40ffd5566eaaf35d`; rerun the finalized source gates.
+Keep the candidate separate from main until ordinary native controls pass.
 
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
@@ -103,11 +109,11 @@ remains pending despite two passing filtered entry controls. All-features now
 also includes the empty auxiliary target; report its scope separately and never
 silently discard a Cargo-enabled target.
 
-Next: carry only the two whole current focused targets into the complete
-111-scope default run. Execute the remaining109 scopes in bounded batches with
-the verified narrow roots; rerun the whole Engine library despite its three
-passing filtered controls. Retain all9526 prior native IDs and the three added
-controls, plus11 docs. Then run ordinary all-features (113 Cargo-enabled scopes,
+Next: finish the remaining70 baseline scopes in bounded batches with the
+verified narrow roots. The complete Engine library is already included in the
+carried whole scopes. Retain all9526 prior native IDs and the three added
+controls, plus11 docs. After the repair batch, verify the complete current
+source, then run ordinary all-features (113 Cargo-enabled baseline scopes,
 including the empty auxiliary), all-target/CI and original230 CLI/pinned gates.
 The unused-function-type producer candidate is preserved outside the
 product tree: its native timing was too variable to establish sufficient

@@ -6,8 +6,18 @@ older helper layouts. Type/borrow checking and non-executing Wasm validation
 pass. On the same 140 unique retained P templates, serial ABBA native-compile
 diagnostics reduce cold Module compilation from 16.14–17.67s to 12.75–12.91s;
 warm stencil-store compilation falls from 8.78–8.92s to 6.74–7.00s. These phases
-exclude R startup and JavaScript execution. Ordinary native execution and
-original-deadline retention remain pending.
+exclude R startup and JavaScript execution. A private foundation now passes
+all 16 existing/new array-pattern module controls through real Wasm, retaining
+all 13 prior IDs. It uses the prior native dependency graph and fresh unbundled
+R. Ordinary Cargo native execution and original-deadline retention are pending.
+
+RegExp structural census — 2026-10-18: the earlier linear-time source rewrite
+removed one string-slice call and one code-unit accessor call. Their exact
+reachability counts are corrected to 35 and 46. All three checks in that module
+pass in direct native execution with the original IDs. The original whole
+structural target's 150 passes and one failure remain preserved; its complete
+rerun and full-suite acceptance are pending. No product behavior changes.
+[Exact repair, native commands and retained failure](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
 
 Verification iteration — 2026-10-18: the opt-in
 `--selected-feature-roots` workspace runner mode selects only the requested
