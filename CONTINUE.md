@@ -3,12 +3,23 @@
 Active candidate: factor ordinary runtime-helper function signatures out of the
 recursive GC type group. Keep the six actual hook/context signatures with GC
 layouts, emit ordinary runtime signatures as a singleton suffix, then P-only
-signatures. Layout14 rejects prior R/P schemas. No unused-type elimination or
-index-remapping pass is added. The existing registration test retains its ID
+signatures. Layout14 rejects prior R/P schemas. A final native-template pass
+replaces provably unreferenced final standalone function types with empty final
+struct slots, preserving every live index and recursive-group byte sequence.
+It uses the exhaustive reencoder to collect type dependencies, including other
+definitions, locals and operator immediates. Three new controls cover unchanged
+sections/recursion, dependency retention and idempotence; no prior ID is removed.
+Expected full-default native inventory:9,538, retaining all9,535 previous IDs;
+AOT library437 + structure266 =703 focused tests, plus11 documentation IDs. The existing registration test retains its ID
 and checks every helper's actual group membership, singleton status and the
 exact R/P common prefix. Read-only review found no concrete index defect.
-All13 canonical Intl recipes refresh/check unchanged. Next validate actual R/P
-linking and measure matched native modules; do not infer a speedup yet. Finish
+All13 canonical Intl recipes refresh/check unchanged. The factored group alone
+retains the same stencil count and has no established benefit. Private combined
+pruning validates all256 templates; ABBA140-module warm runs take3.887–3.891s
+vs4.350–4.604s, with11,781 vs20,910 stencil accesses. Cold timing overlaps;
+this excludes R startup, transformation overhead and actual eval execution.
+Next measure optimized transformation overhead and validate real R/P linking;
+do not infer deadline recovery or full-candidate speedup yet. Finish
 all current semantic controls and ordinary/full gates before acceptance.
 
 
