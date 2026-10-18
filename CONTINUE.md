@@ -1,7 +1,17 @@
+Annex B arguments repair — 2026-10-18 (ordinary verification pending): the
+broader D6 run exposes two unchanged Engine regressions. Eligibility incorrectly
+treated the implicit arguments binding as a formal parameter. The pinned
+FunctionDeclarationInstantiation checks `paramNames`, while implicit arguments
+belongs to the separate `paramBindings` list. The candidate removes that
+exclusion, retains actual formal and lexical collision guards, and preserves
+evaluation-time writes to the correct variable environment. Existing Engine
+fixtures remain unchanged; IR controls now check both copy eligibility and exact
+owner targets. Native execution and the full workspace remain unaccepted.
+
 Workspace ownership checks — 2026-10-18 (ordinary verification pending): seven
 failures in the frozen D6 workspace discovery use superseded entry-role,
 owner-binding and ProgramInstance ABI assertions. The repaired checks preserve
-all existing test IDs, typed hooks and owner-ordering controls. All13 focused
+all existing test IDs, typed hooks and owner-ordering controls. All 13 focused
 structure diagnostics pass against the current test files; the product-linked
 ABI test and complete workspace remain pending. The batch also aligns the small
 `cow-utils` test dependency's debug info across normal and proc-macro contexts;

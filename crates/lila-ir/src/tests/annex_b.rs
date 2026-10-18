@@ -570,15 +570,23 @@ fn strict_block_bindings_do_not_leak_to_sibling_functions() {
 
 #[test]
 fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() {
-    for (source, expected_copies) in [
-        ("function owner(f) { { function f() {} } return f; }", 0),
+    for (source, expected_target) in [
+        ("function owner(f) { { function f() {} } return f; }", None),
         (
             "function owner() { { function arguments() {} } return arguments; }",
-            0,
+            Some(AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+                name: "arguments".into(),
+            }),
+        ),
+        (
+            "function owner(arguments) { { function arguments() {} } return arguments; }",
+            None,
         ),
         (
             "function owner() { function arguments() {} { function arguments() {} } return arguments; }",
-            1,
+            Some(AnnexBFunctionCopyTargetIr::OwnerBinding {
+                storage_name: "arguments".into(),
+            }),
         ),
     ] {
         let program = lower_script(source);
@@ -593,15 +601,9 @@ fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() 
             .iter()
             .flat_map(|function| collect_annex_b_copies(&function.body))
             .collect::<Vec<_>>();
-        assert_eq!(copies.len(), expected_copies, "{source}");
-        if expected_copies != 0 {
-            assert_eq!(
-                copies[0].2,
-                AnnexBFunctionCopyTargetIr::OwnerBinding {
-                    storage_name: "arguments".into(),
-                }
-            );
-
+        assert_eq!(copies.len(), usize::from(expected_target.is_some()), "{source}");
+        if let Some(expected_target) = expected_target {
+            assert_eq!(copies[0].2, expected_target, "{source}");
         }
     }
 }
@@ -627,7 +629,14 @@ fn annex_b_arguments_formals_block_copy_and_parameter_expressions_keep_late_crea
         .iter()
         .find(|function| function.name == "owner")
         .unwrap();
-    assert!(collect_annex_b_copies(&owner.body).is_empty());
+    let copies = collect_annex_b_copies(&owner.body);
+    assert_eq!(copies.len(), 1);
+    assert_eq!(
+        copies[0].2,
+        AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+            name: "arguments".into(),
+        }
+    );
     let body = owner
         .body
         .statements
@@ -1145,12 +1154,18 @@ fn case_block_instantiates_all_hoistable_forms_once_before_case_selection() {
 
 #[test]
 fn annex_b_implicit_arguments_exclusion_obeys_parameter_expression_precedence() {
+    // Preserve the historical test ID while checking the pinned distinction:
+    // formal arguments parameters exclude copying; implicit arguments do not.
     for (source, copies) in [
-        ("function owner(x) { { function arguments() {} } }", 0),
-        ("function owner(...rest) { { function arguments() {} } }", 0),
+        ("function owner(x) { { function arguments() {} } }", 1),
+        ("function owner(...rest) { { function arguments() {} } }", 1),
+        (
+            "function owner(arguments) { { function arguments() {} } }",
+            0,
+        ),
         (
             "function owner(x = 1) { function arguments() {} { function arguments() {} } }",
-            0,
+            1,
         ),
         (
             "function owner() { function arguments() {} { function arguments() {} } }",

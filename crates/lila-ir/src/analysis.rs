@@ -504,7 +504,6 @@ impl<'a> AnalysisBuilder<'a> {
             script.statements().statements(),
             script.strict(),
             &[],
-            false,
             interner,
         );
         let script_root_functions = self.collect_root_functions(
@@ -1003,7 +1002,6 @@ impl<'a> AnalysisBuilder<'a> {
         items: &'a [StatementListItem],
         owner_strict: bool,
         parameters: &[FormalParameter],
-        has_implicit_arguments_binding: bool,
         interner: &Interner,
     ) {
         if owner_strict {
@@ -1020,11 +1018,9 @@ impl<'a> AnalysisBuilder<'a> {
             collect_binding_names(interner, parameter.variable().binding(), &mut names);
             blocked_parameter_names.extend(names);
         }
-        // FDI appends the implicit arguments binding to parameterNames before
-        // Annex B tests whether substituting this declaration is permitted.
-        if has_implicit_arguments_binding {
-            blocked_parameter_names.insert("arguments".to_string());
-        }
+        // Annex B checks formal parameterNames, not FDI's parameterBindings.
+        // The latter also contains an implicit arguments binding, which may
+        // receive a selected block function without being a formal parameter.
         let eligible_keys = candidates
             .into_iter()
             .filter(|function| {
@@ -1633,17 +1629,6 @@ impl<'a> AnalysisBuilder<'a> {
             &function.capture_aliases,
         );
         let annex_b_candidates = annex_b_function_declarations(function.body);
-        // The FDI question only affects an Annex B declaration named arguments.
-        // Most functions, including strict class methods, need no extra walk.
-        let has_implicit_arguments_binding = !function.strict
-            && annex_b_candidates
-                .iter()
-                .any(|declaration| function_name(interner, declaration, None) == "arguments")
-            && function_environment::creates_implicit_arguments_binding(
-                &function,
-                &root_functions,
-                interner,
-            );
         self.collect_owner_annex_b_function_plans(
             &owner_id,
             annex_b_candidates,
@@ -1651,7 +1636,6 @@ impl<'a> AnalysisBuilder<'a> {
             function.body.statements(),
             function.strict,
             function.parameters.as_ref(),
-            has_implicit_arguments_binding,
             interner,
         );
         let simple_parameter_names = if function.protocol.flavor() == FunctionFlavor::Ordinary {
