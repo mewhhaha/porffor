@@ -26,6 +26,21 @@ def producer(package="runtime-id", name="build-script-build", kind="custom-build
 
 
 class WorkspaceTestArtifactTests(unittest.TestCase):
+    def test_intl_dev_roots_are_isolated_without_a_caller_flag(self):
+        packages = [{'name': 'lila-engine'}, {'name': 'lila-intl'}, {'name': 'extra'}]
+        isolated = artifacts.isolated_test_packages(packages)
+        self.assertEqual(artifacts.package_selection(excluded=isolated),
+                         ['--workspace', '--exclude', 'lila-intl'])
+        self.assertEqual(artifacts.isolated_test_packages(packages, ['extra']),
+                         ['extra', 'lila-intl'])
+        with self.assertRaisesRegex(ValueError, 'selected workspace'):
+            artifacts.isolated_test_packages(packages, ['missing'])
+
+    def test_other_workspaces_keep_their_explicit_isolation_policy(self):
+        packages = [{'name': 'normal'}, {'name': 'separate'}]
+        self.assertEqual(artifacts.isolated_test_packages(packages), [])
+        self.assertEqual(artifacts.isolated_test_packages(packages, ['separate']), ['separate'])
+
     @staticmethod
     def case(package, kind, target):
         return {'package': package, 'kind': kind, 'target': target,

@@ -152,9 +152,10 @@ def main():
     if code or not plan['source_unchanged']:
         raise ValueError('complete native planning failed')
     source = json.loads(plan_path.with_name('source-start.json').read_text())
-    groups = cohorts(plan['cases'], args.isolate_test_package, args.cohort_size)
+    isolated = plan['isolated_test_packages']
+    groups = cohorts(plan['cases'], isolated, args.cohort_size)
     anchor = next(c for c in plan['cases'] if qualified(c) == args.anchor and c['kind'] == 'lib')
-    if anchor['package'] in args.isolate_test_package:
+    if anchor['package'] in isolated:
         raise ValueError('auxiliary library anchor must belong to the normal graph')
     result = {'schema': 'lila-bounded-workspace-cohorts-v1', 'source': source,
               'inventory_receipt': str(plan_path), 'inventory_sha256': sha(plan_path),
@@ -171,7 +172,7 @@ def main():
     accepted = []
     for index, group in enumerate(groups):
         normal_native = any(c['kind'] != 'doc' and
-                            c['package'] not in args.isolate_test_package for c in group)
+                            c['package'] not in isolated for c in group)
         auxiliary = normal_native and not any(c['kind'] == 'lib' for c in group)
         selected = [*group, *([anchor] if auxiliary else [])]
         row = {'index': index, 'targets': [qualified(c) for c in group],

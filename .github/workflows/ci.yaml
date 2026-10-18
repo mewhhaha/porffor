@@ -50,6 +50,7 @@ jobs:
 
       - name: Check pinned Intl source identities
         run: |
+          python3 -B scripts/intl_source_identities.py
           python3 -m unittest discover -s scripts/tests -p test_generate_intl_keyword_aliases.py -v
           python3 scripts/generate-intl-keyword-aliases.py --check
           python3 scripts/generate-intl-collator-data.py --check

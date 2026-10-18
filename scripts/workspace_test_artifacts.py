@@ -3,6 +3,15 @@
 from pathlib import Path
 
 
+def isolated_test_packages(packages, requested=()):
+    """Keep Intl's compiled-data dev roots out of ordinary workspace builds."""
+    known = {package['name'] for package in packages}
+    requested = set(requested)
+    if not requested <= known:
+        raise ValueError('Isolated test packages must belong to the selected workspace')
+    return sorted(requested | ({'lila-intl'} & known))
+
+
 def package_selection(packages=None, excluded=()):
     """Select an explicit Cargo graph without widening test-only dependencies."""
     excluded = set(excluded)

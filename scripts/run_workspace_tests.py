@@ -15,7 +15,7 @@ root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
 from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
 from workspace_test_storage import storage_snapshot
-from workspace_test_artifacts import build_script_artifact, doc_cohorts, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
+from workspace_test_artifacts import build_script_artifact, doc_cohorts, isolated_test_packages, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
 parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');args=parser.parse_args()
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
@@ -46,7 +46,7 @@ packages.sort(key=lambda p: (priority.index(p['name']) if p['name'] in priority 
 if args.packages:
     assert set(args.packages)<={p['name'] for p in packages}
     packages=[p for p in packages if p['name'] in args.packages]
-isolated_packages=sorted(set(args.isolate_test_package))
+isolated_packages=isolated_test_packages(packages,args.isolate_test_package)
 assert set(isolated_packages)<={p['name'] for p in packages}, 'Isolated test packages must belong to the selected workspace'
 assert not isolated_packages or not args.reuse_library_build_from, 'Broad historical library carry cannot cross an isolated Cargo graph'
 assert not (args.build_selected_together and args.reuse_library_build_from), 'Historical library carry cannot cross a combined native build graph'
