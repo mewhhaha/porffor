@@ -200,7 +200,10 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                 core.global_reference_calls.is_empty(),
                 "typed hook calls may not select a shared global owner"
             );
-            assert_eq!(GcHostLayout::ProgramInstance.field_count(), Some(10));
+            let owner_field_count = GcHostLayout::ProgramInstance
+                .field_count()
+                .expect("the current ProgramInstance ABI is a struct")
+                as usize;
             let mut owners = Vec::new();
             let mut group_base = 0u32;
             for group in &core.groups {
@@ -208,7 +211,9 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                     let CompositeInnerType::Struct(owner) = &ty.composite_type.inner else {
                         continue;
                     };
-                    if owner.fields.len() != 10 || owner.fields.iter().any(|field| field.mutable) {
+                    if owner.fields.len() != owner_field_count
+                        || owner.fields.iter().any(|field| field.mutable)
+                    {
                         continue;
                     }
                     let mut hooks = BTreeMap::new();
