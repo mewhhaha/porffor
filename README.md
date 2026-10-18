@@ -1,3 +1,13 @@
+Completed focused CLI checkpoint — 2026-10-18: recovery source d6c5df9ed
+runs all 230 original executions at the original budgets: **219 Success,
+8 deadline Crash, 3 Bug**. Compared with source112, 13 cases now pass, including
+all 12 full-BMP RegExp cases, while two previous passes time out: net +11.
+Retention is 203/210 and remains rejected. The separate historical parseInt
+replay retains all four original IDs. A separate full 210-case idle-machine
+retention control is running. Full workspace execution, pinned-suite
+acceptance and task cleanup remain open.
+[Exact IDs and lossless replay evidence](docs/rust-rewrite/bulk-prelude-cli-230-20261018.json).
+
 Native checkpoint — 2026-10-18: all4,195 selected ordinary Cargo tests pass,
 with zero failures or ignored tests. Every prior4,186 passing ID is retained,
 including the corrected RegExp/prelude controls and new GC span checks. All604
