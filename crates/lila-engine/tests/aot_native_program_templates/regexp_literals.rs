@@ -33,7 +33,7 @@ fn regexp_literal_allocation_keeps_fresh_state_exact_descriptor_and_intrinsic_pr
             check(constructed(), intrinsic);
         }
         if (setterCalls !== 0) throw 7;
-        var other = $262.createRealm();
+        var other = __lilaCreateRealm();
         var foreign = other.global.Function('return /a/g;');
         check(foreign(), other.global.RegExp.prototype);
         1;
@@ -59,7 +59,9 @@ fn regexp_literal_allocation_keeps_fresh_state_exact_descriptor_and_intrinsic_pr
             .unwrap();
         assert_eq!(
             observed.completion,
-            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(1.0)))
+            ObservedCompletion::Normal(ObservedJsValue::Number(ObservedNumber::from_f64(1.0))),
+            "strict={strict}: {:?}",
+            observed.output_events,
         );
     }
 }

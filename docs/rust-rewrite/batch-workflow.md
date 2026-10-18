@@ -2,8 +2,10 @@
 
 ## Opt-in Intl incremental scratch — 2026-10-18
 
-Set `LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside `--no-test-incremental` to
-retain Cargo's existing incremental argument for the normal `lila_intl` library.
+Set `CARGO_INCREMENTAL=1 LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside
+`--no-test-incremental` to retain Cargo's existing incremental argument for the
+normal `lila_intl` library. The cloud activation script defaults Cargo incremental
+compilation to zero, so both environment variables are required there.
 The wrapper still removes incremental scratch from every libtest and other
 normal crate. It adds no incremental argument to release builds or queries.
 The runner records the exception; existing low-disk pruning and the two-GiB

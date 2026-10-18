@@ -1,3 +1,13 @@
+RegExp fixture correction — 2026-10-18: the frozen628 native run reports
+one failure in the new cross-realm control: its source referenced `$262` without
+loading the Test262 harness. Stage tracing identifies that unbound identifier;
+all preceding descriptor, freshness and literal/eval/Function assertions pass.
+The fixture now uses the existing `__lilaCreateRealm` host hook, preserving the
+foreign prototype check and reporting strictness on assertion failures. Both
+corrected JS modes pass against the frozen628 public Engine. This diagnostic
+is separate from the joined bulk-read candidate, whose ordinary native and CLI
+acceptance remain pending; the original failed native verdict is retained.
+
 Bulk native payload-read candidate — 2026-10-18 (ordinary verification pending):
 native array construction now copies the validated actual-P byte span once,
 then allocates a fresh i8 array directly or decodes exact little-endian UTF-16
