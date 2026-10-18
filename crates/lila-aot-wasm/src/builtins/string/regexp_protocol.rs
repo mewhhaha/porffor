@@ -3,6 +3,7 @@ use crate::functions::{NonArrayRealmIntrinsicSlot, OrdinaryDefaultPrototype};
 use crate::runtime_helpers::{
     RegExpCompilerArguments, RegExpCompilerStatus, RegExpProgramCandidateArguments,
 };
+mod source_escape;
 
 #[derive(Clone, Copy)]
 pub(super) enum NativeRegExpFlag {
@@ -967,123 +968,22 @@ impl FunctionBuilder<'_> {
             f,
         );
         let length = s.reserve_i64_local(f);
-        let index = s.reserve_i64_local(f);
-        let end = s.reserve_i64_local(f);
-        let unit = s.reserve_i32_local(f);
-        let escaped = s.reserve_i32_local(f);
-        let in_class = s.reserve_i32_local(f);
         self.emit_native_gc_string_length(&source, length, f);
-        let accumulated = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_native_string_static("", f), f);
         length.load(f);
         f.instruction(&Instruction::I64Eqz);
         self.open_frame(ControlFrameKind::If, f);
-        accumulated.replace(
+        let empty = s.reserve_gc_local(f).initialize(
             self.emit_native_string_static(lila_ir::REGEXP_EMPTY_SOURCE, f),
             f,
         );
+        self.emit_native_string_normal_reference(&empty, &output, f);
+        empty.clear(f);
         f.instruction(&Instruction::Else);
-        f.instruction(&Instruction::I64Const(0));
-        index.store(f);
-        f.instruction(&Instruction::I32Const(0));
-        escaped.store(f);
-        f.instruction(&Instruction::I32Const(0));
-        in_class.store(f);
-        let done = self.open_frame(ControlFrameKind::Block, f);
-        let next = self.open_frame(ControlFrameKind::Loop, f);
-        index.load(f);
-        length.load(f);
-        f.instruction(&Instruction::I64GeU);
-        self.emit_branch_if_to_target(done, f);
-        self.emit_gc_string_code_unit_i32(&source, index, f);
-        unit.store(f);
-        index.load(f);
-        f.instruction(&Instruction::I64Const(1));
-        f.instruction(&Instruction::I64Add);
-        end.store(f);
-        let piece = s
-            .reserve_gc_local(f)
-            .initialize(self.emit_gc_string_slice(&source, index, end, f), f);
-        for (code, replacement) in lila_ir::REGEXP_SOURCE_LINE_ESCAPES {
-            unit.load(f);
-            f.instruction(&Instruction::I32Const(i32::from(code)));
-            f.instruction(&Instruction::I32Eq);
-            self.open_frame(ControlFrameKind::If, f);
-            // Reuse an existing odd trailing backslash instead of doubling it.
-            escaped.load(f);
-            self.open_frame(ControlFrameKind::If, f);
-            piece.replace(self.emit_native_string_static(&replacement[1..], f), f);
-            f.instruction(&Instruction::Else);
-            piece.replace(self.emit_native_string_static(replacement, f), f);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
-        }
-        unit.load(f);
-        f.instruction(&Instruction::I32Const(47));
-        f.instruction(&Instruction::I32Eq);
-        escaped.load(f);
-        f.instruction(&Instruction::I32Eqz);
-        f.instruction(&Instruction::I32And);
-        in_class.load(f);
-        f.instruction(&Instruction::I32Eqz);
-        f.instruction(&Instruction::I32And);
-        self.open_frame(ControlFrameKind::If, f);
-        piece.replace(
-            self.emit_native_string_static(lila_ir::REGEXP_SOURCE_SLASH_ESCAPE, f),
-            f,
-        );
+        let escaped = self.emit_escaped_regexp_source(&source, &output, exit, f)?;
+        self.emit_native_string_normal_reference(&escaped, &output, f);
+        escaped.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
-        accumulated.replace(self.emit_concat_gc_strings(&accumulated, &piece, f), f);
-        piece.clear(f);
-        // RegularExpressionLiteral has a lexical (non-nested) class grammar.
-        // Valid v-mode class sets already protect their slash characters.
-        escaped.load(f);
-        f.instruction(&Instruction::I32Eqz);
-        self.open_frame(ControlFrameKind::If, f);
-        for (code, inside) in [(91, true), (93, false)] {
-            unit.load(f);
-            f.instruction(&Instruction::I32Const(code));
-            f.instruction(&Instruction::I32Eq);
-            self.open_frame(ControlFrameKind::If, f);
-            f.instruction(&Instruction::I32Const(i32::from(inside)));
-            in_class.store(f);
-            self.pop_control(ControlFrameKind::If);
-            f.instruction(&Instruction::End);
-        }
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
-        unit.load(f);
-        f.instruction(&Instruction::I32Const(92));
-        f.instruction(&Instruction::I32Eq);
-        self.open_frame(ControlFrameKind::If, f);
-        escaped.load(f);
-        f.instruction(&Instruction::I32Eqz);
-        escaped.store(f);
-        f.instruction(&Instruction::Else);
-        f.instruction(&Instruction::I32Const(0));
-        escaped.store(f);
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
-        end.load(f);
-        index.store(f);
-        self.emit_branch_to_target(next, f);
-        self.pop_control(ControlFrameKind::Loop);
-        f.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::Block);
-        f.instruction(&Instruction::End);
-        self.pop_control(ControlFrameKind::If);
-        f.instruction(&Instruction::End);
-        self.emit_native_string_normal_reference(&accumulated, &output, f);
-        accumulated.clear(f);
-        s.release_i32_local(in_class, f);
-        s.release_i32_local(escaped, f);
-        s.release_i32_local(unit, f);
-        s.release_i64_local(end, f);
-        s.release_i64_local(index, f);
         s.release_i64_local(length, f);
         source.clear(f);
         object.clear(f);

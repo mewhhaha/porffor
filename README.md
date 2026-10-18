@@ -1,3 +1,13 @@
+RegExp source construction — 2026-10-18 (ordinary verification pending): the
+full D6 native run exposes a 30-second timeout on the unchanged long Unicode
+escape fixture. Frozen-CLI prefix diagnostics finish string creation and RegExp
+construction in about3–4seconds, while reading `.source` exceeds90seconds. Its
+getter copies a growing string for each code unit. The candidate counts escaped
+UTF-16 output once and fills one exact-size construction only when needed,
+preserving original source, slash/class state, line escapes and surrogate units.
+The original large regression remains unchanged; existing roundtrip controls
+gain two mixed escape cases. Native execution and measured gains remain pending.
+
 Annex B arguments repair — 2026-10-18 (ordinary verification pending): the
 broader D6 run exposes two unchanged Engine regressions. Eligibility incorrectly
 treated the implicit arguments binding as a formal parameter. The pinned
