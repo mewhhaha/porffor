@@ -3,9 +3,11 @@ runs all 230 original executions at the original budgets: **219 Success,
 8 deadline Crash, 3 Bug**. Compared with source112, 13 cases now pass, including
 all 12 full-BMP RegExp cases, while two previous passes time out: net +11.
 Retention is 203/210 and remains rejected. The separate historical parseInt
-replay retains all four original IDs. A separate full 210-case idle-machine
-retention control is running. Full workspace execution, pinned-suite
-acceptance and task cleanup remain open.
+replay retains all four original IDs. The separate
+[idle retention control](docs/rust-rewrite/idle-retention-210-20261018.json) finishes
+at **206/210 passes and four deadline failures**. Both passes lost during overlap
+pass again, with no newly failing IDs in the control. Retention remains rejected;
+full workspace execution, pinned-suite acceptance and task cleanup remain open.
 [Exact IDs and lossless replay evidence](docs/rust-rewrite/bulk-prelude-cli-230-20261018.json).
 
 Native checkpoint — 2026-10-18: all4,195 selected ordinary Cargo tests pass,
