@@ -1,3 +1,14 @@
+Verification tooling (2026-10-18): `scripts/run_workspace_cohorts.py` runs the
+complete Cargo inventory in bounded build-and-run batches while retaining shared
+library artifacts. All **four boundary controls** and the actual small Cargo
+fixture pass: **eight targets, seven tests, six cohorts**, with all **six**
+library artifact checks fresh across integration batches. Completed integration
+ELFs retire only after their exact identities and raw evidence are sealed.
+[Evidence](docs/rust-rewrite/bounded-workspace-cargo-cohorts-20261018.json) and
+[the full-run command](docs/rust-rewrite/batch-workflow.md#bounded-full-workspace-linking--2026-10-18)
+retain the scope. This establishes tooling behavior; full Lila verification is open.
+Refresh controls with `python3 -B -m unittest scripts.tests.test_workspace_cohorts`.
+
 Current focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
