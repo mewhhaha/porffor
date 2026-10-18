@@ -16,13 +16,15 @@ pub(super) fn is_inert(unit: &PreparedScriptUnit) -> bool {
     };
     let environment = match &unit.eval_environment {
         None => true,
-        Some(EvalEnvironmentRoleIr::Declarative {
-            kind: EvalDeclarativeEnvironmentKindIr::Lexical,
-            bindings,
-        }) => bindings.is_empty(),
-        Some(
-            EvalEnvironmentRoleIr::Declarative { .. } | EvalEnvironmentRoleIr::WithObject { .. },
-        ) => false,
+        Some(EvalEnvironmentRoleIr::Declarative { kind, bindings }) => {
+            bindings.is_empty()
+                && matches!(
+                    (unit.strict, *kind),
+                    (false, EvalDeclarativeEnvironmentKindIr::Lexical)
+                        | (true, EvalDeclarativeEnvironmentKindIr::Variable)
+                )
+        }
+        Some(EvalEnvironmentRoleIr::WithObject { .. }) => false,
     };
     capture
         && environment

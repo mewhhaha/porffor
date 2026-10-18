@@ -53,54 +53,62 @@ fn syntax(caller: &RuntimeDirectEvalCaller, source: &str) {
 fn empty_completion_proof_requires_empty_actual_syntax_and_instantiation() {
     for strict in [Strictness::Sloppy, Strictness::Strict] {
         let caller = caller(context(strict, EvalInvocationContext::Function));
-        for source in [
-            "",
-            " \n\t",
-            "/* source */",
-            "// source",
-            "/* \u{0}\u{2028} */",
-        ] {
-            assert!(
-                compile(&caller, source)
-                    .unwrap()
-                    .empty_completion()
-                    .is_some(),
-                "{source:?}"
-            );
+        for policy in [HostSurfacePolicy::default(), HostSurfacePolicy::Test262] {
+            let compile = |caller: &RuntimeDirectEvalCaller, source: &str| {
+                lower_runtime_direct_eval(
+                    caller,
+                    &source.encode_utf16().collect::<Vec<_>>(),
+                    policy,
+                )
+            };
+            for source in [
+                "",
+                " \n\t",
+                "/* source */",
+                "// source",
+                "/* \u{0}\u{2028} */",
+            ] {
+                assert!(
+                    compile(&caller, source)
+                        .unwrap()
+                        .empty_completion()
+                        .is_some(),
+                    "{source:?}"
+                );
+            }
+            for source in [
+                ";",
+                "{}",
+                "'use strict';",
+                "'value';",
+                "undefined;",
+                "var declared;",
+                "let lexical;",
+                "function retained() {}",
+                "{function retained() {}}",
+                "name = 1;",
+                "// source\nname = 1;",
+            ] {
+                assert!(
+                    compile(&caller, source)
+                        .unwrap()
+                        .empty_completion()
+                        .is_none(),
+                    "{source:?}"
+                );
+            }
+            assert!(compile(&caller, "/* not closed").is_err());
+            let source = [
+                b'/' as u16,
+                b'*' as u16,
+                0xd800,
+                0xdfff,
+                b'*' as u16,
+                b'/' as u16,
+            ];
+            let program = lower_runtime_direct_eval(&caller, &source, policy).unwrap();
+            assert!(program.empty_completion().is_some());
         }
-        for source in [
-            ";",
-            "{}",
-            "'use strict';",
-            "'value';",
-            "undefined;",
-            "var declared;",
-            "let lexical;",
-            "function retained() {}",
-            "{function retained() {}}",
-            "name = 1;",
-            "// source\nname = 1;",
-        ] {
-            assert!(
-                compile(&caller, source)
-                    .unwrap()
-                    .empty_completion()
-                    .is_none(),
-                "{source:?}"
-            );
-        }
-        assert!(compile(&caller, "/* not closed").is_err());
-        let source = [
-            b'/' as u16,
-            b'*' as u16,
-            0xd800,
-            0xdfff,
-            b'*' as u16,
-            b'/' as u16,
-        ];
-        let program =
-            lower_runtime_direct_eval(&caller, &source, HostSurfacePolicy::default()).unwrap();
-        assert!(program.empty_completion().is_some());
     }
 }
 
