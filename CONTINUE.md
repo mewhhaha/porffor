@@ -1,3 +1,13 @@
+Default workspace discovery — 2026-10-18: all 111 default-feature scopes
+have executed: 98 native targets and 13 documentation targets. The frozen D6
+source records 9,512 native passes and 14 failures,
+with 11 documentation tests passing and no ignored tests.
+The failures comprise eleven authored ownership/structure/policy/verdict controls, two Annex B
+arguments regressions, and one large RegExp source timeout. Repairs are prepared
+separately; current native/CLI acceptance, all-features, pinned suites and task
+cleanup remain open. Original failed outcomes are preserved.
+[Exact coverage and literal failure evidence](docs/rust-rewrite/default-workspace-discovery-20261018.json).
+
 Test build reuse — 2026-10-18: `cow-utils` now uses the same debug-info
 setting in its normal and proc-macro test contexts. Six isolated Cargo unit graphs
 show that the emitter’s 1/1 and CLI’s 2/2 IR dependency contexts now match their
