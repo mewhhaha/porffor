@@ -1,3 +1,10 @@
+Tooling verification checkpoint — 2026-10-18: the naming/empty-eval candidate
+passes all 599 unfiltered tooling tests and all eight listed source CI checks.
+Every previous 599 test ID is retained; all eight earlier Intl provenance
+failures now pass. [Literal inventories and lossless logs](docs/rust-rewrite/naming-empty-tooling-599-20261018.json)
+bind these results to recovery source `112a765c1`. Native execution, full workspace
+verification, CLI retention and pinned-suite acceptance remain open.
+
 Intl refresh dependency repair — 2026-10-18: List identity now refreshes before
 Duration, which binds List's generated identity and manifest. Six focused controls
 pass. Restoring both stale outputs and running the actual13-recipe refresh passes
