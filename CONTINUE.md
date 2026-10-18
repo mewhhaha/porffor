@@ -1,5 +1,22 @@
 # Continue Lila — 2026-10-18
 
+R13 is pushed to main at `de8d07b4768fc7455694eec3e1a9c296fa7cb6de`.
+Its ordinary whole AOT library/async structure/language structure scopes pass
+434+115+151=700, zero failed or ignored. All 610 tooling, eight source CI and
+three static checks pass at that frozen source. Its private actual-Wasm module
+passes 19/19, retaining all16 prior IDs, in160.19s; both complete private structure
+targets pass266/266. Private executions add no ordinary denominator. The three
+ordinary ELFs were sealed before retirement; all failed earlier receipts remain.
+[Current source, exact inventories and graph proofs](docs/rust-rewrite/shared-array-accumulation-checkpoint-20261018.json).
+The primary is frozen at de8 while the ordinary release builds. Its successor is
+`../.lila-tools/advance-array-accumulation-20261018-run3.py`; the full-default queue
+`../.lila-tools/run-full-default-array-accumulation-20261018-run4.py` requires all
+four original60s cases green, carries only three same-source700-test scopes and
+runs the remaining108/111. It proves every prior9532 exact ID plus exactly the
+three new accumulation controls, as well as11 docs. Do not revive rejected old
+queues. Full all-features, full230 retention, pinned conformance and supported
+hosts remain open; leave tasks/handoff files until all acceptance gates pass.
+
 The next coherent R13 candidate adds a distinct shared ArrayAccumulation
 step-value kernel. It reuses the original inline algorithm and consumer policy,
 passing the actual record plus caller execution Realm/environment/program and

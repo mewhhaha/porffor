@@ -1,4 +1,4 @@
-Array accumulation kernel — candidate, 2026-10-18: ordinary spread and iterable
+Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
 their existing diagnostic policy and no-close behavior. Acquisition, append,
 suspension state and release remain with the caller. Runtime layout 13 retains
@@ -6,9 +6,18 @@ the actual record, executing Realm and whole Completion across the boundary.
 Three new real-Wasm controls cover cached-next/truthy-done observations,
 abrupt identity with reentrant GC, and cross-Realm errors. Existing physical
 controls additionally follow the ordinary P record constructor to the actual
-R helper and check its complete ABI and DONE operations. Verification of this
-candidate is pending: 111 default scopes, 9,535 native and 11 documentation IDs
-are required, including all prior 9,532 native IDs. Refresh with
+R helper and check its complete ABI and DONE operations. Ordinary Cargo at
+`de8d07b4768fc7455694eec3e1a9c296fa7cb6de` passes **434 AOT library + 115 async
+structure + 151 language structure = 700 tests**, with zero failures or ignored
+tests. All 610 tooling, eight source CI and three static checks pass there too.
+Private real-Wasm execution passes all 19 module controls, retaining every prior
+16 ID, in 160.19s; it uses prior native dependency/Intl identity bytes and fresh
+unbundled R, and adds no ordinary-suite coverage. Both private structure targets
+also pass all 266 unchanged IDs. The ordinary release CLI and original deadline
+replay are next. Full default/all-features verification remains open: 111 default
+scopes, 9,535 native and 11 documentation IDs are required, retaining all prior
+9,532 native IDs. [Exact source, inventories, Cargo graphs and proofs](docs/rust-rewrite/shared-array-accumulation-checkpoint-20261018.json).
+Refresh with
 `scripts/run_workspace_tests.py --include-ignored` under the cloud wrapper.
 
 The preceding R12 ordinary release at `6ee7126e7c2e297d5b24afa3029591b423dafb4d`
