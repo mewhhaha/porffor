@@ -1,3 +1,16 @@
+Validated empty-statement extension — 2026-10-18 (native acceptance pending):
+the completed source112 native checkpoint passes all4186 selected tests, but its
+focused CLI replay has a retained-pass deadline failure in strict regress-610026.
+Both original fixture modes also time out in a fresh isolated supervised run.
+A separate traced single-worker diagnostic completes: its three actual evals
+spend27.03s parsing/lowering and16.36s initializing/executing empty prepared Ps.
+The candidate now admits parsed bare empty statements and empty blocks to the
+existing stateless Wasm proof, after complete lowering and inert-instantiation
+checks. Declarations, nonempty blocks, values and early errors remain excluded.
+The joined batch now expects4192 selected native IDs and603 tooling IDs.
+This joins the RegExp batch before its expensive native build; new-batch native,
+CLI retention, full workspace/pinned suites and task cleanup remain unaccepted.
+
 Next ordinary verification batch — 2026-10-18: the RegExp compiler repair
 now includes the independently checked Intl scratch opt-in. The next bounded
 build may use `LILA_TEST_KEEP_INTL_INCREMENTAL=1`; normal Intl scratch can be

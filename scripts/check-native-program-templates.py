@@ -204,7 +204,12 @@ def check(sources):
          'fresh_source_arrays_use_only_the_received_P_payload_image_bounds')
     ir = c['crates/lila-ir/src/runtime_direct_eval.rs']
     proof = c['crates/lila-ir/src/runtime_direct_eval/empty.rs']
-    need('prepare_eval_source_utf16(' in ir and 'ast.statements().statements().is_empty()' in ir and
+    need('prepare_eval_source_utf16(' in ir and
+         all(fragment in ir for fragment in (
+             'ast.statements().statements().iter().all(|item|matchitem',
+             'Statement::Empty=>true',
+             'Statement::Block(block)=>block.statement_list().statements().is_empty()',
+             'StatementListItem::Declaration(_)=>false')) and
          'lower_runtime_direct_eval_program(' in ir and 'if!self.empty_syntax' in proof and
          'unit.id!=self.script_id' in proof and 'unit.kind!=PreparedScriptKind::DirectEval' in proof and
          all(fragment in proof for fragment in ('!unit.body.statements.is_empty()',

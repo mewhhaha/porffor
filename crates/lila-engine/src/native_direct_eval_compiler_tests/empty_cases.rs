@@ -25,7 +25,13 @@ pub(super) fn native_direct_empty_comments_keep_real_parsing_and_nonempty_comple
 }
 
 pub(super) fn native_direct_empty_blocks_preserve_update_empty_and_nested_values() {
-    let bodies = ["{}", "17;{}{}", "'use strict';17;{}{}", "17;{{}}"];
+    let bodies = [
+        "{}",
+        ";{} /* source */ ;{};",
+        "17;{}{}",
+        "'use strict';17;{}{}",
+        "17;{{}}",
+    ];
     let source = bodies
         .iter()
         .map(|body| format!("print(eval({}));", converted_text(body)))
@@ -33,8 +39,8 @@ pub(super) fn native_direct_empty_blocks_preserve_update_empty_and_nested_values
     let exact_sources = bodies.map(units);
     assert_trace(
         &source,
-        &["undefined", "17", "17", "17"],
+        &["undefined", "undefined", "17", "17", "17"],
         &exact_sources,
-        (4, 4, 0),
+        (5, 5, 0),
     );
 }

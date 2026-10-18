@@ -17,6 +17,9 @@ pub(super) fn empty_completion_proof_requires_empty_actual_syntax_and_instantiat
                 "/* source */",
                 "// source",
                 "/* \u{0}\u{2028} */",
+                ";",
+                "{}",
+                ";{} /* source */ ;{};",
             ] {
                 assert!(
                     compile(&caller, source)
@@ -27,8 +30,7 @@ pub(super) fn empty_completion_proof_requires_empty_actual_syntax_and_instantiat
                 );
             }
             for source in [
-                ";",
-                "{}",
+                "{;}",
                 "'use strict';",
                 "'value';",
                 "undefined;",
@@ -59,6 +61,26 @@ pub(super) fn empty_completion_proof_requires_empty_actual_syntax_and_instantiat
             let program = lower_runtime_direct_eval(&caller, &source, policy).unwrap();
             assert!(program.empty_completion().is_some());
         }
+    }
+}
+
+#[test]
+fn empty_completion_proof_covers_large_lists_without_erasing_declarations_or_errors() {
+    for strict in [Strictness::Sloppy, Strictness::Strict] {
+        let caller = caller(context(strict, EvalInvocationContext::Function));
+        let source = "{};".repeat(65_536);
+        let program = compile(&caller, &source).unwrap();
+        assert!(program.empty_completion().is_some());
+        assert!(root(&program).body.statements.is_empty());
+        assert_eq!(
+            program.program.script.as_ref().unwrap().prepared_scripts[0].source,
+            source
+        );
+        for suffix in ["var retained;", "let retained;", "debugger;", "17;"] {
+            let program = compile(&caller, &(source.clone() + suffix)).unwrap();
+            assert!(program.empty_completion().is_none(), "{suffix}");
+        }
+        assert!(compile(&caller, &(source + "{let duplicate;let duplicate;}")).is_err());
     }
 }
 

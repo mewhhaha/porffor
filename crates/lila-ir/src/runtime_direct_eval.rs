@@ -84,8 +84,17 @@ pub fn lower_runtime_direct_eval(
         &EvalParseContext::Direct(context.parse_context()),
     )
     .map_err(RuntimeDirectEvalCompileError::Parse)?;
-    let empty_syntax =
-        parsed.with_compiler_session(|ast, _| ast.statements().statements().is_empty());
+    let empty_syntax = parsed.with_compiler_session(|ast, _| {
+        use boa_ast::{Statement, StatementListItem};
+        ast.statements().statements().iter().all(|item| match item {
+            StatementListItem::Statement(statement) => match statement.as_ref() {
+                Statement::Empty => true,
+                Statement::Block(block) => block.statement_list().statements().is_empty(),
+                _ => false,
+            },
+            StatementListItem::Declaration(_) => false,
+        })
+    });
     let (program, script_id) = crate::lowering::lower_runtime_direct_eval_program(
         &parsed,
         context.clone(),

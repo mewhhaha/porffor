@@ -6,6 +6,7 @@ mod metadata;
 /// Borrowed proof that this exact successfully compiled direct eval executes
 /// no statements or instantiation effects and returns normal undefined.
 /// Neither a source-text heuristic nor a result-kind guess can mint it.
+/// Empty statements and bare empty blocks still pass actual parsing and lowering.
 #[derive(Debug)]
 pub struct EmptyRuntimeDirectEval<'a> {
     _program: &'a RuntimeDirectEvalProgram,
