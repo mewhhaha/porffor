@@ -330,3 +330,51 @@ impl ModuleGlobalSectionBuilder {
         self
     }
 }
+
+/// Fixed stateless completion bytes are assembled beside the sole module owner.
+/// The input proof permits no source, data, environment or P to escape.
+pub(crate) fn empty_direct_eval_module(
+    _proof: &lila_ir::EmptyRuntimeDirectEval<'_>,
+    export: &str,
+) -> Vec<u8> {
+    use crate::WasmRuntimeValueTag;
+    use lila_ir::CompletionKindIr;
+    use wasm_encoder::{
+        CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+        RefType, TypeSection, ValType,
+    };
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function(
+        [],
+        [
+            ValType::I32,
+            ValType::I64,
+            ValType::Ref(RefType::EQREF),
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+        ],
+    );
+    module.section(&types);
+    let mut functions = FunctionSection::new();
+    functions.function(0);
+    module.section(&functions);
+    let mut exports = ExportSection::new();
+    exports.export(export, ExportKind::Func, 0);
+    module.section(&exports);
+    let mut body = Function::new([]);
+    body.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+    body.instruction(&Instruction::I64Const(0));
+    body.instruction(&Instruction::RefNull(RefType::EQREF.heap_type));
+    body.instruction(&Instruction::I32Const(
+        CompletionKindIr::Normal.abi_code() as i32
+    ));
+    body.instruction(&Instruction::I32Const(0));
+    body.instruction(&Instruction::I32Const(2)); // Entered.
+    body.instruction(&Instruction::End);
+    let mut code = CodeSection::new();
+    code.function(&body);
+    module.section(&code);
+    module.finish()
+}

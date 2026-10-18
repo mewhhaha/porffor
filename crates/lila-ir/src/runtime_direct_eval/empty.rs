@@ -16,6 +16,18 @@ impl RuntimeDirectEvalProgram {
         if !self.empty_syntax || !self.program.diagnostics.is_empty() {
             return None;
         }
+        let unit = self.inert_preparation()?;
+        if !unit.body.statements.is_empty() || unit.body.result_kind != ValueKind::Undefined {
+            return None;
+        }
+        // No source value escapes, so both environment and P are dead.
+        Some(EmptyRuntimeDirectEval { _program: self })
+    }
+
+    pub(super) fn inert_preparation(&self) -> Option<&crate::PreparedScriptUnit> {
+        if !self.program.diagnostics.is_empty() {
+            return None;
+        }
         let script = self.program.script.as_ref()?;
         let [root] = script.prepared_scripts.as_slice() else {
             return None;
@@ -25,8 +37,6 @@ impl RuntimeDirectEvalProgram {
         };
         if unit.id != self.script_id
             || unit.kind != PreparedScriptKind::DirectEval(self.caller.context().clone())
-            || !unit.body.statements.is_empty()
-            || unit.body.result_kind != ValueKind::Undefined
             || unit.body.lexical_environment.is_some()
             || !metadata::is_inert(unit)
             || unit.declarations != RuntimeGlobalDeclarationPlan::default()
@@ -48,9 +58,6 @@ impl RuntimeDirectEvalProgram {
         {
             return None;
         }
-        // The unit's eval-environment role and source identity are metadata.
-        // With no statements, bindings, functions or template sites, neither
-        // its environment allocation nor its P/source owner can be observed.
-        Some(EmptyRuntimeDirectEval { _program: self })
+        Some(unit)
     }
 }

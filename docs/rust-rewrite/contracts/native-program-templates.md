@@ -130,3 +130,19 @@ Every request still gets its own syntax decision. In particular, LF, CR, LS
 and PS can terminate a line comment and expose executable code, which must use
 the ordinary source-owned path. Invalid comments remain parser SyntaxErrors.
 This optimization uses no fixture names, source-text patterns or changed limits.
+
+Static RegExp literal eval may use an R-owned Wasm kernel only after real caller
+parsing, early errors and lowering produce the sealed single-literal proof.
+Instantiation must be inert; declarations, additional expressions, functions and
+invalid or unsupported static programs retain the ordinary route. The host
+materializes only fresh actual typed UTF-16 and immutable validated-byte arrays.
+Wasm constructs strings, the branded program and a fresh RegExp object, including
+its exact own lastIndex descriptor. The actual caller lexical chain selects its
+defining Realm and intrinsic prototype; a null chain retains ordinary preparation.
+The kernel compares that defining Realm to the actual caller Realm before any
+JavaScript allocation. A mismatch returns Unmatched and preserves ordinary P
+preparation. Raw mutable unit arrays are copied through StringConstruction before
+publication, so caller aliases cannot mutate an immutable string.
+No result retains eval P, no source object is reused, and the original execution
+budget and same Store/Engine/R authority remain mandatory. R layout11 rejects
+older helper rosters; the separate P payload ABI remains10.

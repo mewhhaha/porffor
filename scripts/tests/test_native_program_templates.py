@@ -12,6 +12,28 @@ spec.loader.exec_module(controls)
 
 
 class NativeTemplateSourceControls(unittest.TestCase):
+    def test_regexp_literal_proof_allocation_and_real_wasm_cannot_be_removed(self):
+        mutations = [
+            (controls.A + 'objects/regexp_literal/native.rs',
+             'Instruction::RefEq', 'Instruction::Nop',
+             'regexp_eval_checks_actual_realm_and_copies_raw_units_before_string_publication'),
+            ('crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs',
+             'ValidatedRegExpProgram::from_program(program).ok()?', 'None?',
+             'regexp_eval_requires_single_lowered_literal_and_validated_program'),
+            (controls.A + 'objects/regexp_literal.rs',
+             'writable: true', 'writable: false',
+             'regexp_literal_installs_exact_lastindex_on_only_its_fresh_header'),
+            (controls.E + 'wasm_native_direct_eval_compiler/regexp_literal.rs',
+             'factory.call(&mut *store, &operands, &mut output)?;', '',
+             'regexp_eval_executes_exact_R_wasm_with_fresh_raw_operands_and_original_budget'),
+        ]
+        for path, before, after, expected in mutations:
+            with self.subTest(path=path):
+                sources = dict(self.sources)
+                self.assertEqual(sources[path].count(before), 1)
+                sources[path] = sources[path].replace(before, after)
+                self.assertIn(expected, controls.check(sources))
+
     @classmethod
     def setUpClass(cls):
         cls.sources = {name: (ROOT / name).read_text() for name in controls.FILES}

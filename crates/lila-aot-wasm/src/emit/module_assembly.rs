@@ -1344,46 +1344,26 @@ fn emit_script_module_with_factory(
             GlobalIdentifierTypeofSloppy, compile_global_identifier_typeof_sloppy_helper;
             GlobalIdentifierTypeofStrict, compile_global_identifier_typeof_strict_helper;
         );
-        register_runtime_helper!(PrivateElementAdd, compile_private_element_add_helper);
-        register_runtime_helper!(PrivateFieldDefine, compile_private_field_define_helper);
-        register_runtime_helper!(FunctionNameFromKey, compile_function_name_from_key_helper);
-        register_runtime_helper!(
-            FunctionMetadataPublish,
-            compile_function_metadata_publish_helper
-        );
-        register_runtime_helper!(
-            RealmInitializeIntrinsics,
-            compile_realm_initialize_intrinsics_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorStartBody,
-            compile_async_generator_start_body_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorDrainQueue,
-            compile_async_generator_drain_queue_helper
-        );
-        register_runtime_helper!(PromiseDrainJobs, compile_promise_drain_jobs_helper);
         register_runtime_helper!(
             PooledStringsInitialize,
             compile_pooled_strings_initialize_helper
         );
-        register_runtime_helper!(AsyncAwaitReactions, compile_async_await_reactions_helper);
         register_runtime_helper!(
-            AsyncGeneratorAwaitReactions,
-            compile_async_generator_await_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorYieldReactions,
-            compile_async_generator_yield_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorYieldReturnReactions,
-            compile_async_generator_yield_return_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorAwaitReturnReactions,
-            compile_async_generator_await_return_reactions_helper
+            PrivateElementAdd, compile_private_element_add_helper;
+            PrivateFieldDefine, compile_private_field_define_helper;
+            FunctionNameFromKey, compile_function_name_from_key_helper;
+            RegExpLiteralAllocate, compile_regexp_literal_allocate_helper;
+            NativeRegExpLiteralFactory, compile_native_regexp_literal_factory;
+            FunctionMetadataPublish, compile_function_metadata_publish_helper;
+            RealmInitializeIntrinsics, compile_realm_initialize_intrinsics_helper;
+            AsyncGeneratorStartBody, compile_async_generator_start_body_helper;
+            AsyncGeneratorDrainQueue, compile_async_generator_drain_queue_helper;
+            PromiseDrainJobs, compile_promise_drain_jobs_helper;
+            AsyncAwaitReactions, compile_async_await_reactions_helper;
+            AsyncGeneratorAwaitReactions, compile_async_generator_await_reactions_helper;
+            AsyncGeneratorYieldReactions, compile_async_generator_yield_reactions_helper;
+            AsyncGeneratorYieldReturnReactions, compile_async_generator_yield_return_reactions_helper;
+            AsyncGeneratorAwaitReturnReactions, compile_async_generator_await_return_reactions_helper;
         );
     }
     if compile_program_helpers {
@@ -1702,6 +1682,12 @@ fn emit_script_module_with_factory(
         data = Some(section);
     }
     if compile_runtime {
+        exports.export(
+            crate::NATIVE_REGEXP_LITERAL_FACTORY_EXPORT,
+            ExportKind::Func,
+            RuntimeHelperId::NativeRegExpLiteralFactory
+                .index(runtime_helper_base.expect("runtime has typed helpers")),
+        );
         crate::runtime_artifact::export_runtime_symbols(
             &mut exports,
             layout.defined_functions().start..layout.first_program_index(),

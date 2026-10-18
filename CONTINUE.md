@@ -1,3 +1,14 @@
+Static RegExp kernel candidate — 2026-10-18 (native verification pending):
+real caller parsing, early errors and lowering produce a sealed single-literal
+proof. Shared R Wasm constructs fresh strings, validated program and RegExp state,
+including exact lastIndex; actual Realm mismatch preserves ordinary preparation.
+IR library/test-code, AOT library and Engine library metadata checks pass, as do
+full module boundaries and four source mutation controls. The empty kernel uses
+the existing assembly owner with identical validated bytes in20 actual proofs.
+R layout11 rejects older helper rosters. Existing tests keep their original
+module/name through wrappers; native execution retention remains unmeasured.
+Native execution, CLI retention, full workspace and pinned-suite gates remain open.
+
 Preflight repair — 2026-10-18: the first joined build stopped at an invalid
 wasm-encoder HeapType constant before any native test ran. Full tooling ran598
 cases:590passed,7failed and1error, all8 from stale generated Intl provenance.

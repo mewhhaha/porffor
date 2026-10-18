@@ -326,7 +326,9 @@ impl<'a> FunctionBuilder<'a> {
         output: &ValueLocals,
         function: &mut Function,
     ) -> Result<(), EmitError> {
-        use crate::gc_types::{OrdinaryObject, RegExpObject};
+        let validated = lila_ir::ValidatedRegExpProgram::from_program(program).map_err(|_| {
+            EmitError::unsupported("invalid native RegExp program at GC publication")
+        })?;
         let schema = self.runtime_schema();
         let prototype = schema.reserve_value_local(function);
         self.emit_source_literal_prototype_to_value(
@@ -334,90 +336,36 @@ impl<'a> FunctionBuilder<'a> {
             &prototype,
             function,
         );
-        let header = schema
-            .reserve_gc_local::<OrdinaryObject, NonNullable>(function)
-            .initialize(
-                self.emit_alloc_plain_object_with_prototype(Some(&prototype), function)?,
-                function,
-            );
-        let source = schema
-            .reserve_gc_local::<StringValue, NonNullable>(function)
-            .initialize(
-                self.emit_interned_string_reference(source, function)?,
-                function,
-            );
-        let flags = schema
-            .reserve_gc_local::<StringValue, NonNullable>(function)
-            .initialize(
-                self.emit_interned_string_reference(flags, function)?,
-                function,
-            );
+        let source = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(source, function)?,
+            function,
+        );
+        let flags = schema.reserve_gc_local(function).initialize(
+            self.emit_interned_string_reference(flags, function)?,
+            function,
+        );
+        let program = schema.reserve_gc_local(function).initialize(
+            self.emit_validated_regexp_program(&validated, function),
+            function,
+        );
         let realm = self.emit_execution_realm(function);
-        let object = schema
-            .reserve_gc_local::<RegExpObject, NonNullable>(function)
-            .initialize(
-                schema.struct_type::<RegExpObject>().construct(
-                    (
-                        GcOperand::reference(&header, schema),
-                        GcOperand::reference(&source, schema),
-                        GcOperand::reference(&flags, schema),
-                        GcOperand::null(schema),
-                        GcOperand::reference(&realm, schema),
-                        GcOperand::boolean(true),
-                    ),
-                    function,
-                ),
-                function,
-            );
-        realm.clear(function);
-        self.emit_regexp_program_slots(&object, program, function)?;
-        output.set_reference(&object, schema, function);
-        let name = schema
-            .reserve_gc_local::<StringValue, NonNullable>(function)
-            .initialize(
-                self.emit_interned_string_reference("lastIndex", function)?,
-                function,
-            );
-        let key = PropertyKeyLocals::from_string(schema, &name, function);
-        let initial = schema.reserve_value_local(function);
-        initial.set_scalar(ScalarValue::NumberBits(0.0_f64.to_bits() as i64), function);
-        let writable = schema.reserve_i32_local(function);
-        let enumerable = schema.reserve_i32_local(function);
-        let configurable = schema.reserve_i32_local(function);
-        writable.set_constant(1, function);
-        enumerable.set_constant(0, function);
-        configurable.set_constant(0, function);
-        let pending = schema.reserve_completion(function);
-        schema
-            .call_helper(
-                crate::runtime_helpers::ObjectDefineDataArguments::new(
-                    output,
-                    &key,
-                    &initial,
-                    writable,
-                    enumerable,
-                    configurable,
-                    self.current_environment(),
-                    self.current_program(),
+        let object = schema.reserve_gc_local(function).initialize(
+            schema.helper_reference_on_stack(schema.call_helper(
+                crate::runtime_helpers::RegExpLiteralAllocateArguments::new(
+                    &prototype, &source, &flags, &program, &realm,
                 ),
                 self.runtime_helper_base()?,
                 function,
-            )
-            .store(&pending, function);
-        schema.release_i32_local(configurable, function);
-        schema.release_i32_local(enumerable, function);
-        schema.release_i32_local(writable, function);
-        initial.clear(function);
-        key.clear(function);
-        name.clear(function);
+            )),
+            function,
+        );
+        output.set_reference(&object, schema, function);
         object.clear(function);
+        realm.clear(function);
+        program.clear(function);
         flags.clear(function);
         source.clear(function);
-        header.clear(function);
         prototype.clear(function);
-        self.completion().copy_from(&pending, function);
-        pending.clear(function);
-        self.emit_propagate_current_throw_if_needed(function);
         Ok(())
     }
 }

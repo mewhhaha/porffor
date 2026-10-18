@@ -265,6 +265,11 @@ fn abi9_artifact_is_replaced_before_program_payload_layout_is_admitted() {
     assert_previous_build_package_replaced(previous_version);
 }
 
+#[test]
+fn abi10_package_is_replaced_before_shared_naming_and_regexp_helpers_are_admitted() {
+    assert_previous_build_package_replaced(10);
+}
+
 fn assert_previous_build_package_replaced(previous_version: u32) {
     let package = fixture();
     let identity = minimal_identity();

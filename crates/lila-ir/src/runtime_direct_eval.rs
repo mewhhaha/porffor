@@ -121,6 +121,8 @@ pub fn lower_runtime_direct_eval(
 
 mod empty;
 pub use empty::EmptyRuntimeDirectEval;
+mod regexp_literal;
+pub use regexp_literal::StaticRegExpRuntimeDirectEval;
 
 #[cfg(test)]
 mod tests;

@@ -57,6 +57,8 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::OrdinaryObjectAllocate
             | RuntimeHelperId::ValueToObject
             | RuntimeHelperId::FunctionNameFromKey
+            | RuntimeHelperId::RegExpLiteralAllocate
+            | RuntimeHelperId::NativeRegExpLiteralFactory
             | RuntimeHelperId::FunctionMetadataPublish
             | RuntimeHelperId::RealmInitializeIntrinsics
             | RuntimeHelperId::FunctionCall

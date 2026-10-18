@@ -465,6 +465,11 @@ fn abi9_artifact_is_replaced_before_program_payload_layout_is_admitted() {
     assert_previous_runtime_cache_entry_replaced(previous_version);
 }
 
+#[test]
+fn abi10_runtime_is_replaced_before_shared_naming_and_regexp_helpers_are_admitted() {
+    assert_previous_runtime_cache_entry_replaced(10);
+}
+
 fn assert_previous_runtime_cache_entry_replaced(previous_version: u32) {
     let identity = identity();
     let cache = MemoryCache::new();

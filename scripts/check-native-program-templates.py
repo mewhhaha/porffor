@@ -9,6 +9,13 @@ T = A + 'native_program_template'
 N = E + 'wasm_native_program_template'
 M = E + 'memory_module_cache/native_templates'
 CAPS = {
+    A + 'module/compiled_module_package.rs': 430,
+    A + 'objects/regexp_literal.rs': 120,
+    A + 'objects/regexp_literal/native.rs': 140,
+    'crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs': 100,
+    'crates/lila-ir/src/runtime_direct_eval/tests/regexp_literal.rs': 120,
+    E + 'wasm_native_direct_eval_compiler/regexp_literal.rs': 150,
+    'crates/lila-engine/tests/aot_native_program_templates/regexp_literals.rs': 110,
     T + '/empty_direct_eval.rs': 110,
     'crates/lila-ir/src/runtime_direct_eval/empty.rs': 100,
     'crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs': 90,
@@ -213,16 +220,46 @@ def check(sources):
          'GlobalPropertyInitializerIr::SourceFunction(_)=>false' in metadata,
          'empty_eval_metadata_has_only_dead_intrinsics_and_exact_hidden_caller_capture')
     kernel = c[T + '/empty_direct_eval.rs']
+    assembly = c[A + 'module/compiled_module_package.rs']
     entry = c[E + 'wasm_native_direct_eval_compiler/empty.rs']
     need("_proof:&EmptyRuntimeDirectEval<'_>" in kernel and
-         'WasmRuntimeValueTag::Undefined.tag()' in kernel and 'Instruction::RefNull(RefType::EQREF.heap_type)' in kernel and
-         'CompletionKindIr::Normal.abi_code()' in kernel and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
+         'crate::module::empty_direct_eval_module(_proof,EXPORT)' in kernel and
+         "_proof:&lila_ir::EmptyRuntimeDirectEval<'_>" in assembly and
+         'WasmRuntimeValueTag::Undefined.tag()' in assembly and 'Instruction::RefNull(RefType::EQREF.heap_type)' in assembly and
+         'CompletionKindIr::Normal.abi_code()' in assembly and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
          'TemplateEntry::EmptyDirectEval=>true' in kernel and
          'crate::wasm_native_program_template::instantiate(&mut*store,engine,context,template,trace,)?' in entry and
          'context.empty_direct_eval_template.get_or_init(' in entry and
          'factory.call(&mut*store,&[],&mutoutput)?' in entry and
          'zip(&signature.completion)' in entry and entry.count('context.check_budget()?') >= 2,
          'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline')
+    regexp = c['crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs']
+    need('letunit=self.inert_preparation()?' in regexp and
+         'let[StatementIr::Expression(expression)]=unit.body.statements.as_slice()' in regexp and
+         'static_compilation:Some(StaticRegExpCompilation::Program(program))' in regexp and
+         'ValidatedRegExpProgram::from_program(program).ok()?' in regexp,
+         'regexp_eval_requires_single_lowered_literal_and_validated_program')
+    allocate = c[A + 'objects/regexp_literal.rs']
+    need('emit_alloc_plain_object_with_prototype(Some(&parameters.prototype)' in allocate and
+         'ScalarValue::NumberBits(0)' in allocate and 'ScalarValue::Undefined' in allocate and
+         'writable:true,enumerable:false,configurable:false' in allocate and
+         'emit_ordinary_append_property_entry(&header,&key,&descriptor,' in allocate and
+         'ObjectDefineData' not in allocate,
+         'regexp_literal_installs_exact_lastindex_on_only_its_fresh_header')
+    regexp_host = c[E + 'wasm_native_direct_eval_compiler/regexp_literal.rs']
+    need('proof:&lila_ir::StaticRegExpRuntimeDirectEval' in regexp_host and
+         'ArrayRef::new_fixed' in regexp_host and 'proof.compiled_bytes()' in regexp_host and
+         'factory.call(&mut*store,&operands,&mutoutput)?' in regexp_host and
+         regexp_host.count('context.check_budget()?') >= 3,
+         'regexp_eval_executes_exact_R_wasm_with_fresh_raw_operands_and_original_budget')
+    regexp_factory = c[A + 'objects/regexp_literal/native.rs']
+    need('parameters.realm.load(schema,&mutfunction)' in regexp_factory and
+         'Instruction::RefEq' in regexp_factory and
+         'PreparedScriptStatus::Unmatched.code()' in regexp_factory and
+         'request.operands[2]' in regexp_host and 'Val::I32(0)=>Ok(None)' in regexp_host and
+         'StringConstruction::allocate(' in regexp_factory and
+         'output.copy_units_from(' in regexp_factory and 'output.publish(schema,function)' in regexp_factory,
+         'regexp_eval_checks_actual_realm_and_copies_raw_units_before_string_publication')
     for name, maximum in CAPS.items():
         need(len(sources[name].splitlines()) <= maximum, 'owner_cap:' + name)
     return failures

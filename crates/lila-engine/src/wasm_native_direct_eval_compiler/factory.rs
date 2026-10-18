@@ -17,6 +17,17 @@ pub(super) fn instantiate_and_execute(
     if let Some(proof) = program.empty_completion() {
         return super::empty::execute(store, engine, context, &proof, signature, trace);
     }
+    // Inert preparation only adds dead declarative links above this actual
+    // chain. A null caller chain retains the ordinary prepared-script route.
+    if matches!(request.operands[3], Val::AnyRef(Some(_))) {
+        if let Some(proof) = program.static_regexp_literal() {
+            if let Some(output) =
+                super::regexp_literal::execute(store, context, &proof, request, signature)?
+            {
+                return Ok(output);
+            }
+        }
+    }
     let emit = trace.map(|trace| trace.phase(Phase::Emit));
     let artifact = lila_aot_wasm::emit_runtime_direct_eval_with_validated_runtime(
         program,

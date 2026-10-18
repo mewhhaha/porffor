@@ -102,7 +102,8 @@ pub use runtime_artifact::{
     runtime_artifact, runtime_artifact_with_cache, runtime_artifact_with_inputs, RuntimeArtifact,
     RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactInputs, RuntimeArtifactKey,
     RuntimeBuildArtifact, RuntimeSourceCompilationProfile, ValidatedRuntimeArtifact,
-    RUNTIME_IMPORT_NAMESPACE, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+    NATIVE_REGEXP_LITERAL_FACTORY_EXPORT, RUNTIME_IMPORT_NAMESPACE,
+    RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
 };
 mod runtime_direct_eval;
 mod runtime_function;

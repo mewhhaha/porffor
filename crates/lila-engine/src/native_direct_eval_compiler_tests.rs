@@ -6,6 +6,7 @@ use wasm_native_direct_eval_compiler::{
 
 mod caller_records;
 mod empty_blocks;
+mod empty_cases;
 mod ownership;
 mod source_and_errors;
 
