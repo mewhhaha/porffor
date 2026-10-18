@@ -4,6 +4,19 @@ archives, catalogue data and selected semantics remain unchanged. The full
 read-only preflight previously exposed eight exact reproducibility failures;
 the original receipt is retained and current-head verification follows.
 
+Annex B body-record follow-up — 2026-10-18 (verification pending): the
+ordinary broader a592 core run found a missing-owner error when parameter
+expressions and a root function named `arguments` coexist. The selected block
+copy must target the separate body VariableEnvironment. The candidate reuses
+the existing named variable-record path and preserves parameter-created closure
+owners, formal/lexical collision guards and catch bindings. Existing native IDs
+now cover selected and unselected blocks and explicit body declarations. An older
+authored fixture also expected implicit arguments and a body function to remain
+unchanged after eligible copies; its expectations now follow the pinned FDI and
+Annex B rules. Two other template tests timed out in the broader run; their
+original failures remain, with idle diagnosis pending. No full native, CLI or
+conformance acceptance is claimed.
+
 Trace source guard — 2026-10-18: the default-workspace source gate now
 recognizes the bounded cache-counter protocol alongside phase timings. It
 requires exact numeric fields, explicit process scope, callback ownership and

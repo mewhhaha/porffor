@@ -610,6 +610,27 @@ fn annex_b_function_owner_parameter_and_arguments_bindings_block_outer_copies() 
 
 #[test]
 fn annex_b_arguments_formals_block_copy_and_parameter_expressions_keep_late_creation() {
+    for source in [
+        "function owner(value = arguments.length) { function arguments() {} { function arguments() {} } return arguments; }",
+        "function owner(read = () => arguments) { function arguments() {} try {} catch (arguments) { { function arguments() {} } } return arguments; }",
+    ] {
+        let program = lower_script(source);
+        assert!(program.is_wasm_supported(), "{source}: {:?}", program.diagnostics);
+        let owner = program.script.as_ref().unwrap().functions.iter()
+            .find(|function| function.name == "owner").unwrap();
+        let copies = collect_annex_b_copies(&owner.body);
+        assert_eq!(copies.len(), 1, "{source}");
+        assert_eq!(copies[0].2, AnnexBFunctionCopyTargetIr::FunctionVariableEnvironment {
+            name: "arguments".into(),
+        }, "{source}");
+        let body = owner.body.statements.iter().find_map(|statement| match statement {
+            StatementIr::Block(body) if body.lexical_environment.as_ref().is_some_and(|environment|
+                matches!(environment.initialization, LexicalEnvironmentInitializationIr::FunctionBody { .. })) => Some(body),
+            _ => None,
+        }).expect("parameter expressions retain their distinct body record");
+        assert!(body.lexical_environment.as_ref().unwrap().bindings.iter()
+            .any(|binding| binding.name == "arguments"), "{source}");
+    }
     let program =
         lower_script("function owner(arguments) { { function arguments() {} } return arguments; }");
     assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);

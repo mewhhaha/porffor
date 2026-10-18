@@ -188,6 +188,21 @@ function defaults(read = () => arguments, alter = () => arguments = 31) {
   return later() === body && read() === before && body() === 37
     && alter() === 31 && read() === 31 && later() === body;
 }
+function declared(read = () => arguments, selected = false) {
+  function arguments() { return 47; }
+  let before = arguments;
+  if (selected) { function arguments() { return 53; } }
+  return before() === 47 && arguments() === (selected ? 53 : 47)
+    && read().length === (selected ? 2 : 0);
+}
+function caught(read = () => arguments) {
+  function arguments() { return 59; }
+  try { throw 'catch'; } catch (arguments) {
+    { function arguments() { return 61; } }
+    if (arguments !== 'catch') throw 'Annex B changed catch binding';
+  }
+  return arguments() === 61 && read().length === 0;
+}
 function enclosing(value) {
   let before = arguments;
   let arrow = () => {
@@ -198,7 +213,7 @@ function enclosing(value) {
   };
   return arrow() && arguments === before && before[0] === value;
 }
-defaults() && enclosing(43);
+defaults() && declared() && declared(undefined, true) && caught() && enclosing(43);
 "#,
     );
 }
