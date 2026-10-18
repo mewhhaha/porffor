@@ -53,10 +53,12 @@ fn live_neighboring_apis_remain_reachable() {
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     // Whole GC strings and Realm entries are the current neighboring owners.
     // The two unused message-error store wrappers no longer establish reachability.
+    // b41f4485a replaced the RegExp source loop's slice and code-unit calls
+    // with a two-pass buffer that reads CodeUnitArray directly.
     for (name, expected) in [
         ("compile_string_substring_range_builtin", 2),
-        ("emit_gc_string_slice", 36),
-        ("emit_gc_string_code_unit_i32", 47),
+        ("emit_gc_string_slice", 35),
+        ("emit_gc_string_code_unit_i32", 46),
         ("emit_intrinsic_callable", 7),
         ("standard_builtin_function_realm_slot", 4),
     ] {
