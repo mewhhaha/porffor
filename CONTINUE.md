@@ -1,3 +1,15 @@
+CLI Unsupported verdict control — 2026-10-18 (ordinary verification pending):
+the final frozen D6 CLI scope exposes an older fixture whose optional realm-eval
+call now reaches ordinary argument evaluation. Its unbound identifier correctly
+produces a runtime ReferenceError/Bug, contradicting the fixture's Unsupported
+expectation. A same-executable single-case diagnostic confirms the exact failing
+assertion. The fixture now exercises the existing typed ExternalCallerImport
+capability boundary through runtime-generated direct eval; all run/shard verdict, failure-status
+and snapshot assertions and the native ID remain unchanged. Preserve the
+original failure. The corrected ordinary D6 CLI passes every existing assertion
+for both run and shard; successor native verification remains pending. The
+complete D6 CLI inventory continues independently.
+
 NumberFormat authored control — 2026-10-18 (ordinary verification pending):
 the deferred D6 Intl scope executes all299 IDs and reports298 passes plus one
 failure in the older ordinary-construction fixture. That fixture contradicts
@@ -5,8 +17,9 @@ the explicitly selected ECMA-402 legacy chaining policy; the dedicated legacy
 controls already pass. The same native ID now retains its primitive-option
 checks and validates eligible-receiver identity, the exact fallback descriptor,
 format/resolvedOptions unwrapping and direct parts-brand rejection. Product code
-and pinned Test262 fixtures are unchanged. Preserve the original failed receipt;
-the final D6 CLI scope and all successor acceptance gates remain open.
+and pinned Test262 fixtures are unchanged. Node and ordinary D6 CLI diagnostics
+pass the corrected fixture. Preserve the original failed receipt; the final D6
+CLI scope and all successor acceptance gates remain open.
 
 RegExp source construction — 2026-10-18 (ordinary verification pending): the
 full D6 native run exposes a 30-second timeout on the unchanged long Unicode

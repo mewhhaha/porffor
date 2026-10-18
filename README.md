@@ -1,3 +1,10 @@
+CLI Unsupported verdict control — 2026-10-18: an older authored fixture now
+reaches supported argument evaluation and produces a correct ReferenceError.
+Its replacement exercises the existing external-caller import capability
+boundary, retaining the native ID and all run/shard verdict and snapshot checks.
+Corrected ordinary D6 CLI checks pass for both run and shard; successor native
+verification remains pending.
+
 NumberFormat authored control — 2026-10-18: the broader D6 native discovery
 finds an older fixture that contradicts the explicitly selected legacy chaining
 policy. Its correction preserves the existing native ID and primitive-option
