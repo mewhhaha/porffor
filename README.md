@@ -1,3 +1,12 @@
+Preflight repair — 2026-10-18: the first joined build stopped at an invalid
+wasm-encoder HeapType constant before any native test ran. Full tooling ran598
+cases:590passed,7failed and1error, all8 from stale generated Intl provenance.
+The corrected refresh order now passes all13 actual recipes and preserves every
+tracked file on an idempotent repeat. The empty-eval proof also distinguishes
+the compiler's dead intrinsic/context metadata from observable source bindings.
+The API spelling, proof checks and metadata are repaired; fresh ordinary native,
+CLI230, full workspace/pinned conformance and task acceptance remain pending.
+
 Compiler batch — 2026-10-18 (ordinary verification pending): repeated UTF-16
 function naming is emitted once in R. Exact standalone naming and original
 thousand-method controls pass; isolated cold template compilation falls from

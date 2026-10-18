@@ -3,8 +3,8 @@ use super::*;
 use crate::{ValidatedRuntimeArtifact, WasmRuntimeValueTag};
 use lila_ir::{CompletionKindIr, EmptyRuntimeDirectEval};
 use wasm_encoder::{
-    CodeSection, ExportKind, ExportSection, Function, FunctionSection, HeapType, Instruction,
-    Module, RefType, TypeSection, ValType,
+    CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+    RefType, TypeSection, ValType,
 };
 
 pub(super) const EXPORT: &str = "lila.empty_direct_eval";
@@ -41,7 +41,7 @@ impl NativeProgramTemplate {
         let mut body = Function::new([]);
         body.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
         body.instruction(&Instruction::I64Const(0));
-        body.instruction(&Instruction::RefNull(HeapType::EQ));
+        body.instruction(&Instruction::RefNull(RefType::EQREF.heap_type));
         body.instruction(&Instruction::I32Const(
             CompletionKindIr::Normal.abi_code() as i32
         ));

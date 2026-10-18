@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "33c6051609bfab1c0956f28a153195a902eab8f4c2c2c675b9292f008351193f",
+  "kernel_sha256": "6ec6bb39db986cbc14f346e5691b524f04029118d163a4d814c9a3c8b0db30cc",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -226,9 +226,9 @@
       "sha256": "2e6357a0881127fbf4b0a70aeeaaa6ec8645f63449c3cb01e1f208b4b89f2867"
     },
     {
-      "bytes": 80983,
+      "bytes": 81077,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "62f23788756a78855da3b00ebc08aab773097bcacfbf557eb477094b56df392a"
+      "sha256": "34ea9cf55683d977c6c3b4fd4650877e8d8adb00da44770b59b65e9583f4a329"
     },
     {
       "bytes": 33803,

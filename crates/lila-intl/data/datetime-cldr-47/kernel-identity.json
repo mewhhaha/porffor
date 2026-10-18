@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 80983,
+      "bytes": 81077,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "62f23788756a78855da3b00ebc08aab773097bcacfbf557eb477094b56df392a"
+      "sha256": "34ea9cf55683d977c6c3b4fd4650877e8d8adb00da44770b59b65e9583f4a329"
     },
     {
       "bytes": 87129,
@@ -203,7 +203,7 @@
     {
       "bytes": 20776,
       "path": "crates/lila-intl/data/iana-tzdb-2026a/manifest.json",
-      "sha256": "7d2b7881b51adab7d692fd7ae481f79fc29cdd97e823cc3cedabbfe23afc2ad6"
+      "sha256": "cb28f61006fee246a9b350c41a115d7c0ed1a3d594ed21c668a79bdc6f9ae19f"
     },
     {
       "bytes": 8141,
@@ -508,7 +508,7 @@
     {
       "bytes": 565,
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "3b461ffb04070581844624e9a92c68137c2901894634a78594fb5c66f613f45d"
+      "sha256": "5d962eafd96cf03360352631fbe55c6b650e8bc03c1166124df23c2c076939dc"
     },
     {
       "bytes": 1169,
@@ -837,7 +837,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "4bc6e1a374c825d698343d03a59c40a88d899c73dde9b7c7af8dd0efd4e6e250",
+  "provider_data_sha256": "fbca0624d558a97c9f3c1876326feb688c14cfb42baae325e602803dac2c1e36",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

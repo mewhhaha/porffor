@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "32ff5e2de10047e34b8e5a6e1c75c6e137411b67fc69da4eeadc50d1964e018e",
+  "kernel_sha256": "e670059d095b3744bd5c0772a1503783279f28f2de096d03ab573f20c84270e5",
   "operations_reserved": [
     33,
     34,
@@ -388,9 +388,9 @@
       "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
     },
     {
-      "bytes": 80983,
+      "bytes": 81077,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "62f23788756a78855da3b00ebc08aab773097bcacfbf557eb477094b56df392a"
+      "sha256": "34ea9cf55683d977c6c3b4fd4650877e8d8adb00da44770b59b65e9583f4a329"
     },
     {
       "bytes": 87129,

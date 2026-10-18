@@ -1,6 +1,7 @@
 //! A source-independent completion is available only after actual parsing and lowering.
 use super::*;
 use crate::{PreparedScriptOutcome, RuntimeGlobalDeclarationPlan, ValueKind};
+mod metadata;
 
 /// Borrowed proof that this exact successfully compiled direct eval executes
 /// no statements or instantiation effects and returns normal undefined.
@@ -27,9 +28,7 @@ impl RuntimeDirectEvalProgram {
             || !unit.body.statements.is_empty()
             || unit.body.result_kind != ValueKind::Undefined
             || unit.body.lexical_environment.is_some()
-            || !unit.owned_env_bindings.is_empty()
-            || !unit.global_bindings.is_empty()
-            || unit.global_bindings.lexical_names().next().is_some()
+            || !metadata::is_inert(unit)
             || unit.declarations != RuntimeGlobalDeclarationPlan::default()
             || !unit.function_ids.is_empty()
             || !script.functions.is_empty()

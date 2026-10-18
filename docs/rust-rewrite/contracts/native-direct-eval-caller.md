@@ -67,8 +67,10 @@ After validating the actual caller/source witness, the host still parses every
 UTF-16 request under its actual caller grammar and completes normal lowering.
 Only `RuntimeDirectEvalProgram::empty_completion` can mint an
 `EmptyRuntimeDirectEval` borrow. It requires a genuinely empty parsed statement
-list and an empty executable direct-eval root, with no declarations, bindings,
-functions, nested prepared sources, lexical block or other execution state.
+list and an empty executable direct-eval root, with no source declarations,
+observable bindings, functions, nested prepared sources or lexical block. The
+existing intrinsic lookup catalog and exact unspellable immutable caller-context
+capture are dead metadata; arbitrary captures or source initializers are rejected.
 Empty-looking declaration nodes and directive prologues do not qualify.
 
 This proof allows dead allocation elimination: an empty source creates no

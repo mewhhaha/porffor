@@ -11,6 +11,7 @@ M = E + 'memory_module_cache/native_templates'
 CAPS = {
     T + '/empty_direct_eval.rs': 110,
     'crates/lila-ir/src/runtime_direct_eval/empty.rs': 100,
+    'crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs': 90,
     E + 'wasm_native_direct_eval_compiler/empty.rs': 100,
     'crates/lila-engine/tests/aot_native_program_templates/function_names.rs': 90,
     'crates/lila-engine/tests/aot_native_program_templates/empty_eval.rs': 90,
@@ -201,14 +202,20 @@ def check(sources):
          'unit.id!=self.script_id' in proof and 'unit.kind!=PreparedScriptKind::DirectEval' in proof and
          all(fragment in proof for fragment in ('!unit.body.statements.is_empty()',
              'unit.body.result_kind!=ValueKind::Undefined', 'unit.body.lexical_environment.is_some()',
-             'unit.declarations!=RuntimeGlobalDeclarationPlan::default()', '!unit.owned_env_bindings.is_empty()',
+             'unit.declarations!=RuntimeGlobalDeclarationPlan::default()', '!metadata::is_inert(unit)',
              '!unit.function_ids.is_empty()', '!script.functions.is_empty()',
              '!script.prepared_dynamic_functions.is_empty()', 'let[root]=script.prepared_scripts.as_slice()')),
          'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof')
+    metadata = c['crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs']
+    need('binding.name==DIRECT_EVAL_EXECUTION_CONTEXT_NAME' in metadata and
+         'binding.slot==0' in metadata and 'EnvironmentBindingMutabilityIr::Immutable{strict:true}' in metadata and
+         '!binding.declarations.is_declared()' in metadata and 'bindings.is_empty()' in metadata and
+         'GlobalPropertyInitializerIr::SourceFunction(_)=>false' in metadata,
+         'empty_eval_metadata_has_only_dead_intrinsics_and_exact_hidden_caller_capture')
     kernel = c[T + '/empty_direct_eval.rs']
     entry = c[E + 'wasm_native_direct_eval_compiler/empty.rs']
     need("_proof:&EmptyRuntimeDirectEval<'_>" in kernel and
-         'WasmRuntimeValueTag::Undefined.tag()' in kernel and 'Instruction::RefNull(HeapType::EQ)' in kernel and
+         'WasmRuntimeValueTag::Undefined.tag()' in kernel and 'Instruction::RefNull(RefType::EQREF.heap_type)' in kernel and
          'CompletionKindIr::Normal.abi_code()' in kernel and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
          'TemplateEntry::EmptyDirectEval=>true' in kernel and
          'crate::wasm_native_program_template::instantiate(&mut*store,engine,context,template,trace,)?' in entry and

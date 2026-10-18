@@ -105,6 +105,44 @@ fn empty_completion_proof_requires_empty_actual_syntax_and_instantiation() {
 }
 
 #[test]
+fn empty_completion_proof_rejects_observable_or_corrupt_preparation_metadata() {
+    let caller = caller(context(Strictness::Sloppy, EvalInvocationContext::Function));
+    for mutation in 0..5 {
+        let mut program = compile(&caller, "/* empty */").unwrap();
+        assert!(program.empty_completion().is_some());
+        let crate::PreparedScriptOutcome::Executable(unit) =
+            &mut program.program.script.as_mut().unwrap().prepared_scripts[0].outcome
+        else {
+            unreachable!()
+        };
+        match mutation {
+            0 => unit.owned_env_bindings[0].name = "visible".into(),
+            1 => unit.owned_env_bindings[0].slot = 1,
+            2 => {
+                unit.owned_env_bindings[0].mutability =
+                    crate::EnvironmentBindingMutabilityIr::Mutable
+            }
+            3 => {
+                unit.eval_environment =
+                    Some(crate::EvalEnvironmentRoleIr::WithObject { object_slot: 0 })
+            }
+            4 => unit
+                .global_bindings
+                .insert_initial(crate::ScriptGlobalBindingIr {
+                    name: "user".into(),
+                    initializer: crate::GlobalPropertyInitializerIr::FreshUndefined,
+                    declarations: crate::GlobalDeclarationSetIr::None,
+                }),
+            _ => unreachable!(),
+        }
+        assert!(
+            program.empty_completion().is_none(),
+            "metadata mutation {mutation}"
+        );
+    }
+}
+
+#[test]
 fn caller_strictness_and_direct_source_strictness_select_prepared_environment() {
     for strictness in [Strictness::Sloppy, Strictness::Strict] {
         let caller = caller(context(strictness, EvalInvocationContext::Function));

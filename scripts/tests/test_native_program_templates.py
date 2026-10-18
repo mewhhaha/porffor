@@ -40,6 +40,8 @@ class NativeTemplateSourceControls(unittest.TestCase):
         proof = 'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof'
         execution = 'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline'
         mutations = [
+            ('crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs', 'binding.slot == 0', 'true',
+             'empty_eval_metadata_has_only_dead_intrinsics_and_exact_hidden_caller_capture'),
             ('crates/lila-ir/src/runtime_direct_eval/empty.rs', '!self.empty_syntax', 'false', proof),
             ('crates/lila-ir/src/runtime_direct_eval/empty.rs',
              'unit.declarations != RuntimeGlobalDeclarationPlan::default()', 'false', proof),
