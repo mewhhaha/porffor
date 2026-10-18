@@ -1,3 +1,12 @@
+Literal eval dispatch candidate — 2026-10-18 (verification pending): a first
+argument that is an actual IR string literal now selects only prepared sources
+with identical JavaScript UTF-16 units. Dynamic arguments retain every candidate.
+Argument evaluation, intrinsic/Realm guards, runtime source comparison, completions
+and native misses remain intact. New controls cover surrogate transport aliases
+and emitted-code growth across increasing literal sites. This follow-up stays
+separate from the frozen D6 native/CLI verification; no timing or acceptance gain
+is claimed yet. Full workspace, pinned suites and task cleanup remain open.
+
 Prelude/runtime invariant repair — 2026-10-18 (joined verification pending):
 the frozen628 Engine run reaches968/969 passes; its remaining failure expects
 obsolete R layout10 after the intentional layout11 helper-roster change. The

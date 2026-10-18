@@ -193,6 +193,8 @@ mod tests {
     use lila_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
     use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
+    mod direct_eval_dispatch;
+
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
         emit(&lower_with_host_surface_policy(
