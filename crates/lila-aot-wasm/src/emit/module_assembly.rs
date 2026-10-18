@@ -11,6 +11,7 @@ use wasm_encoder::{
     MemoryType, Module,
 };
 
+mod array_iterator_helpers;
 mod import_indices;
 mod metadata;
 use import_indices::claim_optional_host_import_function_index;
@@ -1124,6 +1125,14 @@ fn emit_script_module_with_factory(
             object_define_data_helper_function
                 .expect("object-define-data helper must exist when heap is enabled"),
         );
+        helper_bodies.extend(array_iterator_helpers::compile(
+            module_package.schema(),
+            &string_pool,
+            &function_metas,
+            uses_heap,
+            &runtime_bootstrap_plan,
+            runtime_helper_base,
+        )?);
         helper_bodies.insert(
             RuntimeHelperId::ProxyCall,
             proxy_call_helper_function.expect("proxy-call helper must exist when heap is enabled"),

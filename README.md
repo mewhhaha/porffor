@@ -1,3 +1,10 @@
+Shared array-pattern kernels — candidate, 2026-10-18: step-value, elision and
+iterator close now have typed shared-runtime entries. They use the original
+generic kernels and pass the caller's realm, environment, program, iterator
+record and whole completions across the boundary. Runtime layout 12 rejects
+older helper layouts. Type/borrow checking and non-executing Wasm validation
+pass; ordinary native execution and original-deadline retention remain pending.
+
 Verification iteration — 2026-10-18: the opt-in
 `--selected-feature-roots` workspace runner mode selects only the requested
 packages' native test harnesses. An empty auxiliary crate retains the ordinary

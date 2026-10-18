@@ -63,6 +63,9 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RealmInitializeIntrinsics
             | RuntimeHelperId::FunctionCall
             | RuntimeHelperId::ProxyCall
+            | RuntimeHelperId::ArrayIteratorStepValue
+            | RuntimeHelperId::ArrayIteratorElision
+            | RuntimeHelperId::ArrayIteratorClose
             | RuntimeHelperId::ProxyConstruct
             | RuntimeHelperId::ObjectGetPrototypeOf
             | RuntimeHelperId::ObjectSetPrototypeOf

@@ -1,5 +1,24 @@
 # Continue Lila — 2026-10-18
 
+Isolated array-iterator candidate — 2026-10-18: three typed shared R kernels
+replace repeated array-pattern step-value, elision and close code in P. The
+same physical generic kernels retain dynamic property reads, cached next,
+DONE state and pending-throw precedence. Explicit caller realm/environment/
+program operands preserve user-call and error authority. Runtime layout 12
+rejects old helper layouts. Three new semantic controls cover exhausted-value
+defaults, elision/cached next, cross-realm errors and pending-throw precedence.
+
+Metadata/type/borrow checking passes in44.54s; module boundaries pass without
+raising parent-file budgets. Both generated R images and all256 identical
+retained source cases' raw P/templates validate. Their total code sections
+shrink5,570,555→4,074,934bytes; the representative largest body shrinks
+11,181→6,212bytes. This is a size diagnostic at a fixed minimal-Intl caller
+context; no actual callback witness, native execution, speedup or deadline
+recovery is accepted. Measure actual native compilation and run ordinary native
+controls/original60s cases before merging. The primary8ab full baseline remains
+frozen and separate. Latest baseline checkpoint:3831nativePASS/13whole scopes;
+remaining integration and doc cohorts are active.
+
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
 the whole IR (1,604) and native-template (20) targets, plus three explicitly

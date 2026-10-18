@@ -28,6 +28,84 @@ fn assert_var_binding_order(source: &str) {
 }
 
 #[test]
+fn array_pattern_exhaustion_keeps_default_value_without_reading_value() {
+    assert_var_binding_order(
+        r#"
+var log = [];
+var iterator = {
+  get next() {
+    log.push('next');
+    return function() {
+      log.push('call');
+      return {
+        get done() { log.push('done'); return { valueOf() { throw 'coercion'; } }; },
+        get value() { throw 'value after done'; }
+      };
+    };
+  },
+  get return() { throw 'close after done'; }
+};
+var source = { [Symbol.iterator]() { return iterator; } };
+var [value = 'fallback'] = source;
+value === 'fallback' && log.join(',') === 'next,call,done';
+"#,
+    );
+}
+
+#[test]
+fn array_pattern_elisions_keep_cached_next_and_never_read_skipped_values() {
+    assert_var_binding_order(
+        r#"
+var nextReads = 0, calls = 0, valueReads = 0, closes = 0;
+var iterator = {
+  get next() {
+    nextReads++;
+    return function() {
+      calls++;
+      Object.defineProperty(iterator, 'next', { get() { throw 'next reread'; } });
+      return {
+        done: false,
+        get value() {
+          valueReads++;
+          if (calls !== 3) throw 'elision read value';
+          return 7;
+        }
+      };
+    };
+  },
+  return() { closes++; return {}; }
+};
+var source = { [Symbol.iterator]() { return iterator; } };
+var [,, value] = source;
+value === 7 && nextReads === 1 && calls === 3 && valueReads === 1 && closes === 1;
+"#,
+    );
+}
+
+#[test]
+fn array_pattern_close_preserves_caller_error_realm_and_pending_throw() {
+    assert_var_binding_order(
+        r#"
+var foreign = __lilaCreateRealm();
+var iterator = foreign.eval('({next() {return {done:false, value:1};}, return:1})');
+var source = { [Symbol.iterator]() { return iterator; } };
+var closeFailure;
+try { var [first] = source; } catch (error) { closeFailure = error; }
+var callerRealm = closeFailure instanceof TypeError &&
+  !(closeFailure instanceof foreign.eval('TypeError'));
+var second = foreign.eval('({next() {return {done:false};}, get return() {this.reads = 1; throw this.closeError;}})');
+second.closeError = new RangeError('close');
+var original = new Error('default');
+function fail() { throw original; }
+var caught;
+try { var [value = fail()] = { [Symbol.iterator]() { return second; } }; }
+catch (error) { caught = error; }
+callerRealm && caught === original && second.reads === 1;
+"#,
+    );
+}
+
+#[test]
 fn var_destructuring_computed_key_order() {
     assert_var_binding_order(include_str!(
         "../fixtures/destructuring_var_binding_order/computed_key_order.js"

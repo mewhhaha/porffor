@@ -1023,6 +1023,9 @@ runtime_helper_domain! {
     NativeRegExpLiteralFactory / NativeRegExpLiteralFactoryArguments / NativeRegExpLiteralFactoryParameters / "native_regexp_literal_factory" { source_units:(Ref CodeUnitArray NonNullable),flags_units:(Ref CodeUnitArray NonNullable),compiled:(Ref ImmutableByteArray NonNullable),environment:(Ref Environment NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
     FunctionMetadataPublish / FunctionMetadataPublishArguments / FunctionMetadataPublishParameters / "function_metadata_publish" { callable:(Ref FunctionObject NonNullable),length_bits:I64,name:(Ref StringValue NonNullable),configurable:I32,has_caller:I32,create_prototype:I32,constructor_back_reference:I32,prototype_parent:Value } => Void;
     RealmInitializeIntrinsics / RealmInitializeIntrinsicsArguments / RealmInitializeIntrinsicsParameters / "realm_initialize_intrinsics" { realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => RealmInitializeIntrinsics;
+    ArrayIteratorStepValue / ArrayIteratorStepValueArguments / ArrayIteratorStepValueParameters / "array_iterator_step_value" { iterator:(Ref IteratorRecord NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ArrayIteratorElision / ArrayIteratorElisionArguments / ArrayIteratorElisionParameters / "array_iterator_elision" { iterator:(Ref IteratorRecord NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    ArrayIteratorClose / ArrayIteratorCloseArguments / ArrayIteratorCloseParameters / "array_iterator_close" { iterator:(Ref IteratorRecord NonNullable),pending:Completion,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     ProxyConstruct / ProxyConstructArguments / ProxyConstructParameters / "proxy_construct" { callee:Value,new_target:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     StringEquality / StringEqualityArguments / StringEqualityParameters / "string_equality" { left:(Ref StringValue NonNullable),right:(Ref StringValue NonNullable),ascii_fold:I32 } => I32;
@@ -1154,6 +1157,9 @@ impl RuntimeHelperId {
             Self::NativeRegExpLiteralFactory => HelperOwner::Runtime,
             Self::FunctionMetadataPublish => HelperOwner::Runtime,
             Self::RealmInitializeIntrinsics => HelperOwner::Runtime,
+            Self::ArrayIteratorStepValue
+            | Self::ArrayIteratorElision
+            | Self::ArrayIteratorClose => HelperOwner::Runtime,
             Self::ProxyCall => HelperOwner::Runtime,
             Self::ProxyConstruct => HelperOwner::Runtime,
             Self::StringEquality => HelperOwner::Runtime,
@@ -1271,6 +1277,9 @@ impl RuntimeHelperId {
             Self::NativeRegExpLiteralFactory => true,
             Self::FunctionMetadataPublish => true,
             Self::RealmInitializeIntrinsics => true,
+            Self::ArrayIteratorStepValue
+            | Self::ArrayIteratorElision
+            | Self::ArrayIteratorClose => true,
             Self::ProxyCall => true,
             Self::ProxyConstruct => true,
             Self::StringEquality => true,

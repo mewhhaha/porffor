@@ -48,7 +48,8 @@ pub const NATIVE_REGEXP_LITERAL_FACTORY_EXPORT: &str = "lila.native_regexp_liter
 // Version 9 retains the per-Realm host ModuleSource prototype in its own intrinsic slot.
 // Version 10 gives native P immutable source operands in a dedicated owner field.
 // Version 11 adds typed shared function naming and native RegExp literal kernels.
-const LAYOUT_VERSION: u32 = 11;
+// Version 12 adds shared array-pattern step, elision and close kernels.
+const LAYOUT_VERSION: u32 = 12;
 
 /// A checked current envelope, or the compiler's own current emission.
 /// Decoding a raw payload cannot silently mint its version authority.

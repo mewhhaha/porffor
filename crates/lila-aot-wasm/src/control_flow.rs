@@ -18,6 +18,7 @@ use lila_ir::{
 
 mod annex_b_function_copy;
 mod array_destructuring;
+mod array_iterator_helpers;
 mod async_function_for_of_iterator;
 mod async_function_if;
 mod async_function_labelled;
@@ -8875,7 +8876,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(key)
     }
 
-    pub(crate) fn emit_sync_iterator_close(
+    fn emit_sync_iterator_close_inline(
         &mut self,
         iterator: &OwnedSyncIterator,
         pending: &CompletionLocals,
@@ -9352,7 +9353,7 @@ impl<'a> FunctionBuilder<'a> {
         Ok(())
     }
 
-    fn emit_sync_iterator_step_into(
+    fn emit_sync_iterator_step_inline_into(
         &mut self,
         iterator: &OwnedSyncIterator,
         done: I32Local,
