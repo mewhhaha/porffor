@@ -1,135 +1,125 @@
-# Continue Lila — 2026-10-17
+# Continue Lila — 2026-10-18
 
 The task is open. Delete this file and `tasks/` only after every acceptance gate
-passes. Native subsets and focused Test262 inventories do not establish full
-pinned conformance. Push verified progress to main continuously.
+passes. Push verified progress to main continuously; keep rejected and partial
+results with their actual source identities.
 
-Current recovery work is checkpointed to `codex/cloud-recovery-20261017`.
-The declaration-table repair passes all13 original Unicode failures through the
-actual Cargo-built public CLI at compiler identity
-`e74f8d553509a1dc15d6cd8923af9b0a10ac1b4189f59dba5a00efb53ef974be`.
-The197-prior-pass replay was deliberately stopped at a saved110-case checkpoint:
-105Success/5deadlineCrash,87 IDs unaccepted. Every input remains in the next
-full197 replay; this is not a new230 aggregate or accepted retention result.
-[Exact CLI checkpoint](docs/rust-rewrite/direct-eval-cli-checkpoint-20261017.json).
+Main is `d4a77652d`: verified bounded full-workspace Cargo cohorts. Recovery
+branch `codex/cloud-recovery-20261017` contains the compiler batch and its exact
+native/CLI evidence. The main tooling is merged into recovery; the compiler
+batch has not passed retention and must not be promoted as accepted.
 
-Four complete native targets pass: AOT411, IR1599, IR integration740 and
-Engine965. The fullRealm target completed427passes/1failure in a new incorrect
-constructor-name assertion; its corrected six-case function passes focused
-native execution. The original rejected receipt is preserved in
-[native evidence](docs/rust-rewrite/rejected-prelude-native-20261017.json).
-Separate complete Front177 and Runtime33 native tests also pass. Current-source
-ordinaryCargo/wholeRealm verification remains required after the next batch.
+## Current completed checks
 
-The coherent next batch is applied: shared immutable full bootstrap plans,
-indexed local declarations, omission of unused native-factory Main, the prelude
-assertion correction, and counted loops for identical live identifier reads.
-Type checking and18 non-executing emission/validation controls pass; the largest
-body for five10,000-read variants falls from1.9MB to under6KB while preserving
-the original reads and completion path. Runtime Wasm bytes are unchanged.
-Actual Cargo/native/CLI and timing acceptance remain pending. Build selected
-native scopes together once, then run complete affected scopes and all13+197
-literal CLI IDs before promoting this compiler batch to main. Avoid an extra
-wholeRealm rebuild for the already-rejected intermediate compiler.
+Source `35c94675fb5a56a1b6307b47eb51ac7e89b4b9`, compiler fingerprint
+`e02f9b2c88d52aea126db27fbc76d47ce82a186fd713c4442b66cdf9cfe2ca3f`:
 
-The recovered f9ff55f5a probe passed all 1,599 IR unit and 740 IR integration
-checks, retaining every earlier integration ID. AOT was red: 407 passed and the
-new 1,200-name body-size guard failed. Diagnostic emission measured 907,642 body
-bytes for bare declarations and 971,170 bytes / 4,838 locals with a strict
-directive. The Realm target was not executed; the rejected batch stopped at a
-completed IR dependency boundary, preserving its outputs. The current repair
-uses P-owned packed name tables for the three ordered phases and also permits
-literal strings in the no-frame proof. Its fresh native/CLI verification is
-pending; it has not repaired any real-suite verdict yet.
+- Six complete native targets pass 4,161 tests, zero failed/ignored: AOT418,
+  IR1599, IR integration740, Engine965, native templates11, Realm428.
+- All13 original Unicode CLI executions pass. Full197 retention finishes
+  **191Success/6deadlineCrash**, no absent IDs, no infra substitutions.
+- Original60s execution/300s compile allowance, worker1 and four64MiB disk tiers
+  remain unchanged. These210 IDs do not manufacture a new230 aggregate; the
+  remaining20 original IDs are still unaccepted.
+- Actual warm Cargo reuses all15 artifacts in0.879573s; executable bytes, inodes
+  and mtimes are unchanged. Combined selection reduces normal AOT variants4→2
+  and runtime-image producer cohorts2→1; no controlled wall-time gain inferred.
 
-The 3f33caf46e native probe passed the 1,200-name size guard, all 1,599 IR
-unit tests and all 740 IR integration tests. AOT completed 408 passes and two
-failures because sloppy direct eval's runtime global branch had no collected
-table. Engine reproduced that defect before the rejected run was stopped;
-Realm and CLI replay were unexecuted. The collector now includes sloppy direct
-eval without changing its caller-local frame proof. A dedicated strict/sloppy
-collection control and fresh native/CLI verification are pending.
-[Rejected-probe evidence](docs/rust-rewrite/rejected-packed-global-plan-probe-20261017.json)
-preserves the failure and partial-run scope.
+[Exact native evidence](docs/rust-rewrite/coherent-throughput-core-20261017.json)
+and [complete CLI evidence](docs/rust-rewrite/coherent-throughput-cli-20261017.json)
+retain inventories, raw transcripts and original rejected outcomes.
 
-Last published focused checkpoint (2026-10-17): all230 original stress executions have
-completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
-The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
-are retained. These are a focused inventory, not full pinned Test262 acceptance.
-All74 tests in the repaired `modules_realms` Cargo target pass unfiltered.
-The current compiler also has965 Engine,407 AOT and8 template integration passes;
-the1,599-test IR evidence is retained after exact input checks, not rerun.
-[Literal outcomes and raw evidence](docs/rust-rewrite/current-conformance-230-and-module-realms-20261017.json) preserve every failure. The next compiler
-repairs target oversized Unicode declaration bodies and repeated native eval
-exhausting Wasmtime's10,000-instance Store limit. Task closure remains open.
+Six retention failures: both modes of `staging/sm/class/methDefn.js`, both modes
+of `staging/sm/expressions/destructuring-array-default-simple.js`, sloppy
+`destructuring-array-default-class.js`, and strict `object-literal-__proto__.js`.
+Sloppy `regress-563221.js` and sloppy `object-literal-__proto__.js` now pass;
+old intermediate197 verification had stopped at110 cases, so its other87 IDs
+must not be treated as measured passes at that intermediate identity.
 
-The last published baseline compiler fingerprint is
-`9a5ccae64da4b8ef001b37da6ee75e0c5a33abd732c00caa25fc0aa74478cc6b`.
-The native support fingerprint is unchanged:
-`b4f121eff0513714278d34ae4e89ad214c28934c8fb3521d145034c847b87c30`.
+The batch shares immutable bootstrap plans, indexes compressed locals, omits
+unused native-factory Main, and compiles repeated identical live reads into a
+counted Wasm loop. All original reads, binding resolution, completion updates
+and abrupt dispatch remain. Five10,000-read variants shrink largest bodies from
+1.9MB to under6KB; shared runtime bytes remain identical. Native controls pass;
+the full retention result above remains red.
 
-## Known failures and unaccepted scopes
+## Next coherent compiler work
 
-The last completed230-case baseline contained33 nonpasses. Its current-source
-subsets have the following status; do not manufacture a new aggregate:
+The isolated ABI10 prototype is pushed as
+`codex/native-program-payload-20261017` at `1389111b6`. It uses immutable source
+payloads on fresh ProgramInstances and bounded Store-owned reuse of checked,
+stateless native Instances. Source ownership follows actual/defining P through
+saved closures, GC and reentry; no ambient active-payload selector is used.
+All18 emitter families and the differing-comment identity control pass.
+Diagnostic opt0 native integration finishes13passes/1timeout: saved ownership,
+GC and reentry controls pass; the11,000-eval test exceeds its original60s limit.
+This is not ordinaryCargo, optimized releaseCLI or conformance acceptance.
+Apply the complete coherent patch only with its types, tests and contract; keep
+all original IDs and verify the optimized path before judging its throughput.
 
-- All13 Unicode identifier executions now pass at the identity recorded above.
-  Retain them when verifying the next compiler identity.
-- 14 dynamic eval stress executions exhaust the Store instance count at10,001.
-  Compiled-module reuse still creates a fresh Instance for every invocation.
-  Any instance-sharing repair must preserve every source's immutable data,
-  fresh ProgramInstance/Realm semantics, live functions and nested callbacks.
-- 2 regexp executions time out on the same repeated native-source path.
-- 1 strict class execution still times out in the mixed campaign, although the
-  isolated strict/sloppy class pair passes. Its reliable repair remains open.
-- 2 Temporal Johnston link executions conflict with the pinned backzone/spec
-  mapping. CLDR aliases and a cross-country remap are not accepted authority.
-- 1 staging Annex B labelled-function fixture conflicts with the accepted
-  label-chain boundary. Keep its literal failure pending authoritative resolution.
-- Five previously passing executions timed out in the interrupted197 replay:
-  both modes of `destructuring-array-default-simple.js` and
-  `object-literal-__proto__.js`, and sloppy `regress-563221.js`. The throughput
-  and large-body repairs are applied but their actual retention is unverified.
+Current finite CLI phase diagnostics show compiled-module lookup/native
+compilation dominates cold callbacks: about81% for the first original literal
+expression in the destructuring matrix and79% for an explicitly reduced six-
+member prototype matrix. These are diagnostic dimensions, not conformance
+subsets or deadline verdicts. Raw output lives in
+`target/coherent-throughput-timeout-phases-20261018-run4`. The same finite
+workload's later warm callback window is2.28s; source/caches differ from cold
+acceptance conditions. Inspect actual module/cache keys before speculative
+emitter changes. Source-derived Wasm debug names remain in template bytes and
+can split otherwise identical code; preserve JS naming and source ownership.
 
-The unchanged deadline is60000ms, compile allowance300000ms, and worker count1.
-The official Annex B implicit-arguments regression now passes. The typed empty
-strict-body compiler retains entry guards, source activation tracking and cleanup.
+The isolated incremental AOT query probe compiled in67.46s versus96.43s initial
+under different loads. Whole archives differ, but all258 codegen payload
+members are byte-identical; only archive index and small rmeta-link metadata
+differ. Do not claim a controlled speedup or change Cargo profiles from this
+alone. A package-specific incremental profile parses successfully. Current
+activation still disables Cargo incremental; any policy change needs actual
+dirty-edit time/storage measurements.
 
-## Next work
+## Remaining scopes and owners
 
-1. Repair the two shared compiler/runtime causes above without increasing
-   deadlines or losing any of the197 passing literal IDs. Preserve independent
-   full-library and integration verification at each changed compiler identity.
-2. Finish current-source native coverage. Cargo metadata discovers84 default
-   integration targets; the earlier selected21 affected targets are not all84.
-   Build the current CLI library/executable once, and admit the missing Boa/spec-
-   exec closure separately. Full ordinaryCargo default/all-feature/all-target
-   and actualCLI acceptance remain open. The current compiler passed the CI
-   workspace check; the latest assertion/format fixes still need complete CI.
+- The original20 focused IDs:14 eval/RegExp Store-limit failures,2 regexp
+  timeouts,1 strict mixed-campaign class timeout,2 Johnston identity cases,
+  and1 staging AnnexB label-chain case. Rerun all20 after the coherent repair.
+- The pinned ECMA262 lexical algorithm explicitly returns an empty list for
+  `LabelledItem : Statement`; the nested-label staging fixture expects a
+  binding anyway. A review initially conflated syntax acceptance with lexical
+  instantiation. Preserve the exact failure and pinned normative boundary;
+  do not recursively change lexical collection just to satisfy staging.
+- Johnston is a default Link to Honolulu while backzone declares a Zone. The
+  pinned country/backzone algorithm's default-link branch reaches an unmet
+  assertion; a backzone identity profile retains Johnston. The current pinned
+  equivalence fixture assumes the default alias. No CLDR or arbitrary cross-
+  country remap is accepted. Preserve exact source/spec/test evidence.
+- T22 Apia issue3310 is open; Temporal PR3318 and Test262 PR5044 remain open
+  drafts. They do not authorize changing accepted semantics.
+
+## Full verification and closure
+
+1. Complete the runtime/performance repair and verify all original210 CLI IDs
+   plus remaining20 without increasing limits or losing retained passes.
+2. Run full current-source native coverage with the bounded coordinator. Current
+   default metadata has98 native targets (13libs,84integrations,1bin) plus13docs;
+   all-features adds its required-feature binary. The earlier99 default count
+   was stale. See `scripts/run_workspace_cohorts.py` and batch-workflow commands.
+   Admit actual Boa/spec-exec separately; finish default/all-feature/all-target
+   and CI (`cargo fmt --all -- --check`, `cargo xc --keep-going --locked --offline`).
 3. Replay all5,365 historical IDs from
-   `target/historical-backlog-replay-input-20261012/executions` (SHA256
-   `95d46445f4c3fda986c7cdf390dccdddfb8ab370b8a831e3f77ea7f387a1a43e`),
-   retaining every earlier success and every nonpass in the denominator.
-4. Complete every task criterion: full-manifest shard/thread and interruption/
-   resume equivalence, current-source performance and idle campaigns, and two
-   fresh unfiltered complete pinned Wasm-AOT families.
-5. Preserve actual supported-host artifacts. Native Intl run39045297297 passed
-   Ubuntu, macOS and cross-host comparison at this compiler; actual artifact IDs
-   remain hosted in that run, and local download is not yet admitted. Other host
-   acceptance remains open. Resolve T22 Apia against accepted authority; issues
-   and draft proposals do not authorize changing the expectation.
-6. Generate canonical real-suite status through the publisher, commit exact
-   pins and source-bound closure artifacts, then remove this file and `tasks/`.
+   `target/historical-backlog-replay-input-20261012/executions`, SHA256
+   `95d46445f4c3fda986c7cdf390dccdddfb8ab370b8a831e3f77ea7f387a1a43e`.
+4. Finish task acceptance: full-manifest shard/thread and interruption/resume
+   equivalence, current performance/idle/differential campaigns, and two fresh
+   unfiltered complete pinned Wasm-AOT families. No silent skips or lost IDs.
+5. Admit actual supported-host artifacts and resolve remaining authority/data
+   issues. Hosted Intl run39045297297 passed Ubuntu/macOS/cross-host at its own
+   identity; local artifact retrieval is not yet admitted. Other hosts remain.
+6. Generate canonical real-suite status with the publisher, commit exact pins
+   and closure evidence, then remove this file and `tasks/`.
 
-## Verification discipline
-
-Use `scripts/limited_verification.py --cloud` under the inherited finite machine
-budget, serial workers and bounded caches. Admit enough scratch capacity before
-compilation. Reuse optimized current libraries and archive only inactive outputs
-after checking every decoded byte. Never mutate a source or driver bound to an
-active run. Earlier checkpoint passes keep their actual compiler identities.
-
-Rejected cache-size and native-parallelism trials remain in
-`docs/rust-rewrite/rejected-native-cache-experiments-20261017.json`; do not repeat
-them without new measurements. T00/T27/T28/T29 are complete. T01–T25 remain in
-progress and T26 remains blocked until their actual acceptance criteria pass.
+Use `. /workspace/.lila-tools/activate.sh` for every Rust command, finite inherited
+cloud cgroup budget, serial Cargo/libtest defaults and bounded retained caches.
+Keep actual source/HEAD/index frozen during source-bound runs. Preserve warm
+libraries; never link all84 integration ELFs upfront with current free disk.
+The new coordinator preserves exact coverage, keeps library roots fresh, and
+retires only sealed completed integration/bin outputs. Failed/deferred cohorts
+remain unaccepted. T00/T27/T28/T29 are done; T01–T25 are in progress; T26 blocked.
