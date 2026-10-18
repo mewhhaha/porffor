@@ -13,11 +13,18 @@ raising parent-file budgets. Both generated R images and all256 identical
 retained source cases' raw P/templates validate. Their total code sections
 shrink5,570,555→4,074,934bytes; the representative largest body shrinks
 11,181→6,212bytes. This is a size diagnostic at a fixed minimal-Intl caller
-context; no actual callback witness, native execution, speedup or deadline
-recovery is accepted. Measure actual native compilation and run ordinary native
-controls/original60s cases before merging. The primary8ab full baseline remains
-frozen and separate. Latest baseline checkpoint:3831nativePASS/13whole scopes;
-remaining integration and doc cohorts are active.
+context. A serial ABBA native diagnostic on the same140 unique templates uses
+the product native configuration, identical compiler fingerprint and fresh
+64MiB disk stencil caches, with deliberate whole-module misses. Cold Module
+compilation takes16.14–17.67s before and12.75–12.91s after; warm stencil-store
+compilation takes8.78–8.92s before and6.74–7.00s after. This excludes R startup,
+JavaScript execution and deadline acceptance. Run ordinary native controls and
+original60s cases before merging. The primary8ab full baseline remains frozen
+and separate:4977nativePASS/37whole scopes precede its active async cohort.
+The broader structural target exposed stale string-slice/code-unit counts from
+the prior linear-time RegExp source rewrite; both causal expectations are
+corrected and all three module controls pass in a direct native check. The
+original whole-target failure stays retained; remaining scopes continue.
 
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:

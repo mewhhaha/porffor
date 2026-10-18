@@ -11,9 +11,9 @@
       "sha256": "2e6357a0881127fbf4b0a70aeeaaa6ec8645f63449c3cb01e1f208b4b89f2867"
     },
     {
-      "bytes": 80977,
+      "bytes": 81265,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "c94a8e30729935787a946102db4cedfb5a781f2bcedb4108ebb98a354cd8b7f3"
+      "sha256": "53566f9f0d1be83a4fde6c60a28e8329c991d3929347011ee1c5ee989a0edf6e"
     },
     {
       "bytes": 33803,
@@ -749,7 +749,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "d16e093832ea581e44489f47597802ab5779ac5858c4f718b3def30bfec170f8",
+  "provider_data_sha256": "ec3e8cda3b777b4997acea8e90123a6840e13af74acaf6779d5b0c9a4031cfcf",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

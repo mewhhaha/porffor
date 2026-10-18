@@ -3,7 +3,11 @@ iterator close now have typed shared-runtime entries. They use the original
 generic kernels and pass the caller's realm, environment, program, iterator
 record and whole completions across the boundary. Runtime layout 12 rejects
 older helper layouts. Type/borrow checking and non-executing Wasm validation
-pass; ordinary native execution and original-deadline retention remain pending.
+pass. On the same 140 unique retained P templates, serial ABBA native-compile
+diagnostics reduce cold Module compilation from 16.14–17.67s to 12.75–12.91s;
+warm stencil-store compilation falls from 8.78–8.92s to 6.74–7.00s. These phases
+exclude R startup and JavaScript execution. Ordinary native execution and
+original-deadline retention remain pending.
 
 Verification iteration — 2026-10-18: the opt-in
 `--selected-feature-roots` workspace runner mode selects only the requested
