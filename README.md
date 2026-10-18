@@ -1,4 +1,4 @@
-Runtime type grouping — verified focused checkpoint, 2026-10-18:
+Runtime type grouping — native discovery checkpoint, 2026-10-18:
 ordinary runtime-helper signatures now follow the recursive GC schema as
 standalone types. Only helper signatures stored in GC fields stay in that
 recursive group. R and P retain the same shared schema; runtime layout 14
@@ -29,8 +29,14 @@ strict-function timeout. A separate diagnostic passes that case, then a second
 complete untraced fresh-cache run passes all four at the unchanged 60s execution
 and 300s compilation limits. The original rejection remains recorded; the
 replay does not establish the cause of that discrepancy or timing reliability.
-The full default suite is running at the same frozen source; all-features,
-230-case retention, pinned conformance and task closure remain open.
+Full default discovery at that frozen source is complete across all111 scopes:
+**9,537 native passes, one obsolete runtime-link layout assertion failure, and
+11 documentation passes**, with zero ignored tests. Every prior9,535 inventory
+ID remains. [Lossless full discovery evidence](docs/rust-rewrite/native-default-r14-discovery-20261018.json)
+preserves the red result. The assertion correction below is already on main;
+its current-source release/original-four, ordinary733, full default/all-features,
+all-target and230 gates remain separately owned. Pinned conformance and task
+closure remain open.
 [Source, exact native inventories, both four-case runs and diagnostics](docs/rust-rewrite/standalone-runtime-signatures-checkpoint-20261018.json).
 Refresh with `scripts/run_workspace_tests.py --include-ignored` under the cloud
 wrapper. The R13 results below belong to their recorded source.

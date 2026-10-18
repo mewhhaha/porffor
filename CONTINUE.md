@@ -1,7 +1,13 @@
 # Continue Lila — 2026-10-18
 
-Test-only successor `47d77dbf7` repairs the sole failure found so far in the
-ongoing R14 full default discovery: `lila-aot-wasm:runtime_link`, ID
+Frozen-source459d7ef full default discovery is complete: all111 scopes,
+**9,537 native passes/one known layout assertion failure**, all11 documentation
+passes and zero ignored tests. Every prior9,535 inventory ID remains. No other
+failure was found. [Exact inventories, receipts and lossless logs](docs/rust-rewrite/native-default-r14-discovery-20261018.json).
+The red result remains red; no old-source outcome is corrected-source acceptance.
+
+Test-only successor `47d77dbf7` repairs the sole failure found in the
+completed R14 full default discovery: `lila-aot-wasm:runtime_link`, ID
 `separated_helper_types::direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_call_abi`.
 The old assertion expected the GC group last; R14 intentionally emits ordinary
 runtime signatures after it. The corrected test requires one GC group, standalone
@@ -15,19 +21,24 @@ suite load. The first private driver's missing direct Intl dependency rejection
 is preserved; run2 fixes the driver only. This adds no ordinary denominator.
 [Preserved ordinary failure and corrected private30](docs/rust-rewrite/runtime-type-suffix-guard-20261018.json).
 
-Keep primary at the frozen459d7ef source below until its111-scope discovery ends;
-collect every further failure before the next coherent batch. Preserve the failed
-`target/debug/deps/runtime_link-49bc21457e6b0c71` executable and exact current
-R14 release/aliases in verified bytearchives before any future Cargo overwrite.
-The old all-feature/CI/230 queues must stop if default finishes red. Do not revive
-them or relabel old outcomes. Prepare a new frozen successor with current cheap
-checks, ordinary release/original4 and a focused733 gate: existing703 plus the
-complete30 runtime-link target. Full default still requires111 scopes/9538native/
-11doc; carry only same-source whole scopes, then run the remaining107. Complete
-all113 all-feature scopes, both all-target checks and full230 after that. No
-production code was changed by this test repair; broader acceptance stays open.
+The old all-feature/CI/230 queues rejected the actual red default before any
+native work or source change. Do not revive them. The failed runtime-link ELF
+and exact R14 release/all hardlink aliases were byte-verified and archived before
+retirement; keep `target/closed-r14-before-runtime-type-suffix-guard-20261018-run1`
+and its inventory. Primary is now frozen at published successor
+`2d71987461ed1390eac43fbdaebd4c110df31b66`. Its610 tooling,8sourceCI and3static
+checks pass. `../.lila-tools/advance-runtime-type-suffix-20261018-run1.py` owns
+the ordinary release and complete original4 with unchanged budgets/caches.
+`../.lila-tools/run-full-default-runtime-type-suffix-20261018-run1.py` then owns
+focused733: existing703 plus the complete30 runtime-link target. Require all111
+default scopes/9538native/11doc; carry only same-source whole scopes, then execute
+the remaining107. `../.lila-tools/run-all-features-runtime-type-suffix-20261018-run1.py`
+owns fresh113-scope all-feature verification and graph proofs after green default.
+`../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261018-run1.py`
+owns both all-target checks and full230. No production code changed in the
+test repair; all corrected-source ordinary/full/230 acceptance remains pending.
 
-Current frozen verification source is
+The completed R14 verification source was
 `459d7ef49e99c7fb71d99542a15f965159867634`. Ordinary Cargo passes all703 focused
 IDs: AOT library437, async structure115 and language structure151; zero failed
 or ignored. Every prior700 exact ID remains. Current610 tooling,8sourceCI and
@@ -47,19 +58,22 @@ reclamation in this replay; that does not explain the first timeout. Retain
 both original receipts and do not union selective passes into a green run.
 [Current focused/native/deadline evidence](docs/rust-rewrite/standalone-runtime-signatures-checkpoint-20261018.json).
 
-Full default is active at the same frozen source:
+Completed full default discovery at that same frozen source used:
 `../.lila-tools/queue-r14-full-default-after-monitored-four-20261018-run3.py`.
-Its child `target/full-default-standalone-runtime-signatures-20261018-run3`
-carries only the sealed current703 whole scopes, then executes the remaining108
-of111 scopes. Require all9,538 native and11 documentation IDs, retaining every
-prior9,535 native ID. The prepared all-feature run has113 scopes, including the
+Its authoritative child `target/full-default-standalone-runtime-signatures-20261018-run3`
+sealed only the same-source703 whole scopes, then executed the remaining108
+of111 scopes. It contains all9,538 native and11 documentation IDs, retaining
+every prior9,535 native ID; counts and the sole failure are recorded above.
+The outer wrapper's zero exit must not replace the child's `complete-red` verdict.
+The old prepared all-feature run had113 scopes, including the
 additional differential-worker bin and zero-ID feature_roots target. All22
-normal integration cohorts have exact recursive Cargo graph equality proofs
+normal integration cohorts had exact recursive Cargo graph equality proofs
 against the same all-feature command with global library roots. The queued
 `../.lila-tools/run-all-features-standalone-signatures-459-20261018-run1.py`
-requires a green current default before any native child starts. Its proof
-permits omitting repeated library-test links; no all-feature outcome is accepted
-yet. Never revive the rejected old queues.
+correctly rejected the red default before any native child. Its proof permits
+omitting repeated library-test links; no all-feature outcome is accepted.
+The current2d719 successor regenerates its actual graph proofs. Never revive
+the rejected old queues.
 
 Private implementation `d1752af1c947b34febafb88ad2ccfb48608c5cc4` passes all19
 actual-Wasm array/iterator controls at original30s fixture limits. Only the
