@@ -919,24 +919,48 @@ macro_rules! runtime_helper_domain {
                 }
                 count
             }
+            /// Only signatures stored in GC fields belong to the recursive
+            /// schema. Ordinary runtime calls point into that schema, but no
+            /// schema field points back to their function types.
+            pub(crate) const fn requires_runtime_group(self) -> bool {
+                match self.owner() {
+                    HelperOwner::Hook(_) | HelperOwner::ContextHook => true,
+                    HelperOwner::Runtime | HelperOwner::Program => false,
+                }
+            }
+            pub(crate) const fn recursive_type_count() -> usize {
+                let mut count = 0;
+                let mut position = 0;
+                while position < Self::ALL.len() {
+                    if Self::ALL[position].requires_runtime_group() {
+                        count += 1;
+                    }
+                    position += 1;
+                }
+                count
+            }
             const fn rank_in_type_region(self) -> u32 {
                 let region = self.type_region();
                 let mut rank = 0;
                 let mut position = 0;
                 while position < self as usize {
-                    if Self::ALL[position].type_region() as u32 == region as u32 {
+                    if Self::ALL[position].type_region() as u32 == region as u32
+                        && Self::ALL[position].requires_runtime_group() == self.requires_runtime_group()
+                    {
                         rank += 1;
                     }
                     position += 1;
                 }
                 rank
             }
-            /// Core function signatures precede the recursive GC layouts;
-            /// direct program signatures follow that complete stable graph.
-            /// The same ownership authority drives declaration and use.
+            /// GC-field signatures precede the layouts in their recursive
+            /// group. Ordinary runtime signatures follow as standalone types;
+            /// direct program signatures follow the complete shared schema.
             pub(crate) const fn type_index(self) -> u32 {
                 let first = match self.type_region() {
-                    HelperTypeRegion::Core => StaticSignature::ALL.len(),
+                    HelperTypeRegion::Core if self.requires_runtime_group() => StaticSignature::ALL.len(),
+                    HelperTypeRegion::Core => StaticSignature::ALL.len()
+                        + Self::recursive_type_count() + GcLayout::ALL.len(),
                     HelperTypeRegion::Program => StaticSignature::ALL.len()
                         + Self::type_count(HelperTypeRegion::Core) + GcLayout::ALL.len(),
                 };

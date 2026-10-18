@@ -485,8 +485,7 @@ impl RuntimeModuleTypes {
             runtime_helpers::{HelperTypeRegion, RuntimeHelperId},
         };
         use wasm_encoder::{CompositeInnerType, CompositeType, FuncType, SubType};
-        let function_count =
-            StaticSignature::ALL.len() + RuntimeHelperId::type_count(HelperTypeRegion::Core);
+        let function_count = StaticSignature::ALL.len() + RuntimeHelperId::recursive_type_count();
         let layouts = GcLayoutRegistry::assigned(
             u32::try_from(function_count).expect("function type count overflow"),
         );
@@ -517,7 +516,7 @@ impl RuntimeModuleTypes {
             }
         }
         for helper in RuntimeHelperId::ALL {
-            if helper.type_region() == HelperTypeRegion::Core {
+            if helper.requires_runtime_group() {
                 members.push(function_type(helper.definition(&layouts)));
             }
         }
@@ -527,6 +526,18 @@ impl RuntimeModuleTypes {
                 .map(|layout| layout.definition(&layouts)),
         );
         section.ty().rec(members);
+        // A runtime helper signature can refer to the complete GC schema
+        // without making every helper part of its recursive identity. Separate
+        // declarations let the native engine intern equal signatures once.
+        for helper in RuntimeHelperId::ALL {
+            if helper.type_region() == HelperTypeRegion::Core && !helper.requires_runtime_group() {
+                let definition = helper.definition(&layouts);
+                section.ty().function(
+                    definition.parameters().iter().copied(),
+                    definition.results().iter().copied(),
+                );
+            }
+        }
         if program_globals {
             for helper in RuntimeHelperId::ALL {
                 if helper.type_region() == HelperTypeRegion::Program {

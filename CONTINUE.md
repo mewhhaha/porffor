@@ -1,5 +1,71 @@
 # Continue Lila — 2026-10-18
 
+Current frozen verification source is
+`459d7ef49e99c7fb71d99542a15f965159867634`. Ordinary Cargo passes all703 focused
+IDs: AOT library437, async structure115 and language structure151; zero failed
+or ignored. Every prior700 exact ID remains. Current610 tooling,8sourceCI and
+3static checks pass. The earlier parallel preflight wrapper misread a child
+receipt field; preserve its rejection and use the independently checked thin
+join3 plus wrapper closure, without repeating tests or inventing outer statuses.
+The ordinary release passes in725.06s; executable SHA256 is
+`5958e8ad1bd163039b50e03a79ef195e9a1e9b1401466bb75634ccef91923ada`.
+
+R14's first complete untraced original-four replay is3Success/1Crash: nested
+strict-function destructuring times out, while simple strict newly passes.
+A separate nested trace passes in43,424ms snapshot time. The second complete
+untraced fresh-cache replay passes allfour, with worker walls50.62/46.81/55.67/
+51.49s. Original60s execution,300s compilation,one worker and four64MiB disk
+tiers remain. External telemetry shows no memory-limit events or direct
+reclamation in this replay; that does not explain the first timeout. Retain
+both original receipts and do not union selective passes into a green run.
+[Current focused/native/deadline evidence](docs/rust-rewrite/standalone-runtime-signatures-checkpoint-20261018.json).
+
+Full default is active at the same frozen source:
+`../.lila-tools/queue-r14-full-default-after-monitored-four-20261018-run3.py`.
+Its child `target/full-default-standalone-runtime-signatures-20261018-run3`
+carries only the sealed current703 whole scopes, then executes the remaining108
+of111 scopes. Require all9,538 native and11 documentation IDs, retaining every
+prior9,535 native ID. The prepared all-feature run has113 scopes, including the
+additional differential-worker bin and zero-ID feature_roots target. All22
+normal integration cohorts have exact recursive Cargo graph equality proofs
+against the same all-feature command with global library roots. The queued
+`../.lila-tools/run-all-features-standalone-signatures-459-20261018-run1.py`
+requires a green current default before any native child starts. Its proof
+permits omitting repeated library-test links; no all-feature outcome is accepted
+yet. Never revive the rejected old queues.
+
+Private implementation `d1752af1c947b34febafb88ad2ccfb48608c5cc4` passes all19
+actual-Wasm array/iterator controls at original30s fixture limits. Only the
+explicit test-only fixture header differs in current crate source; preserve
+the exact source bridge. All256 actual templates match the measured prototype.
+Transform-only optimized spans sum0.3482s; census/validation/IO total1.0448s.
+Private controls add no ordinary denominator. Full230 retention, all-target CI,
+historical5365, complete pinned campaigns, supported hosts and task gates remain
+open. Keep handoff/tasks until every acceptance gate passes. Preserve the exact
+R14 executable and aliases in a verified bytearchive before any future overwrite.
+
+Active candidate: factor ordinary runtime-helper function signatures out of the
+recursive GC type group. Keep the six actual hook/context signatures with GC
+layouts, emit ordinary runtime signatures as a singleton suffix, then P-only
+signatures. Layout14 rejects prior R/P schemas. A final native-template pass
+replaces provably unreferenced final standalone function types with empty final
+struct slots, preserving every live index and recursive-group byte sequence.
+It uses the exhaustive reencoder to collect type dependencies, including other
+definitions, locals and operator immediates. Three new controls cover unchanged
+sections/recursion, dependency retention and idempotence; no prior ID is removed.
+Expected full-default native inventory:9,538, retaining all9,535 previous IDs;
+AOT library437 + structure266 =703 focused tests, plus11 documentation IDs. The existing registration test retains its ID
+and checks every helper's actual group membership, singleton status and the
+exact R/P common prefix. Read-only review found no concrete index defect.
+All13 canonical Intl recipes refresh/check unchanged. The factored group alone
+retains the same stencil count and has no established benefit. Private combined
+pruning validates all256 templates; ABBA140-module warm runs take3.887–3.891s
+vs4.350–4.604s, with11,781 vs20,910 stencil accesses. Cold timing overlaps;
+this excludes R startup, transformation overhead and actual eval execution.
+Current transformation and private semantic measurements are complete above.
+Do not infer a whole-product speedup. Finish the complete ordinary/full gates.
+
+
 R13 ordinary release and the original four-case replay are complete at
 `de8d07b4768fc7455694eec3e1a9c296fa7cb6de`: release builds in417.73s;
 formal outcomes are3 Success/1 Crash timeout. Nested strict-function destructuring

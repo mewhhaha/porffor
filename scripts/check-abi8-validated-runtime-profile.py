@@ -54,7 +54,7 @@ def check(sources):
             ordered(function(sources[P], "new"), ["runtime.layout_admission", "IntlDataSelection::new(profile)", "require_runtime_profile(", "Ok(Self{runtime,selection})"]),
             "single_profile_admission", "only the constructor validates actual layout and physical Intl pair before minting proof")
     runtime = c[A + "runtime_artifact.rs"]
-    require("constLAYOUT_VERSION:u32=13;" in runtime and
+    require("constLAYOUT_VERSION:u32=14;" in runtime and
             "structCurrentRuntimeLayoutVersion(u32);" in runtime and
             "(encoded==LAYOUT_VERSION).then_some(Self(encoded))" in runtime and
             "layout_admission:Option<CurrentRuntimeLayoutVersion>" in runtime and

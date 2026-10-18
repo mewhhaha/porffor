@@ -1,3 +1,40 @@
+Runtime type grouping — verified focused checkpoint, 2026-10-18:
+ordinary runtime-helper signatures now follow the recursive GC schema as
+standalone types. Only helper signatures stored in GC fields stay in that
+recursive group. R and P retain the same shared schema; runtime layout 14
+rejects previous layouts. This allows native signature interning without
+altering program behavior. Native templates replace provably unreferenced,
+final standalone function-type slots with empty final struct slots. Every live
+type index, recursive-group byte sequence and other section remains unchanged.
+The dependency scan uses the exhaustive Wasm reencoder, including references
+inside definitions, locals and instructions. Three new controls cover those
+boundaries and idempotence. The current full-default inventory is expected to
+contain 9,538 native IDs, retaining all prior 9,535, plus 11 documentation IDs.
+At implementation source `d1752af1c947b34febafb88ad2ccfb48608c5cc4`, private
+real-Wasm execution passes all 19 existing array/iterator module controls, with
+no removed IDs and original 30s fixture limits. Three private transformation
+controls pass, including rejection of unknown sections. All 256 emitted
+R/P/templates validate and match the measured prototype byte for byte.
+The transform itself takes 0.35s across those 256 modules; a separate serial
+ABBA native-module diagnostic reduces warm time across 140 distinct modules
+from 4.35–4.60s to 3.89s, with 11,781 versus 20,910 stencil accesses. Cold timing
+overlaps; these phases exclude R startup and actual eval execution. This is not
+a whole-product speedup measurement. At frozen source
+`459d7ef49e99c7fb71d99542a15f965159867634`, ordinary Cargo passes **437 AOT
+library + 115 async structure + 151 language structure = 703 tests**, retaining
+every prior 700 ID with zero failures or ignored tests. All 610 tooling, eight
+source CI and three static checks pass. The ordinary release builds in 725.06s.
+The first complete original four-case run has three successes and a nested
+strict-function timeout. A separate diagnostic passes that case, then a second
+complete untraced fresh-cache run passes all four at the unchanged 60s execution
+and 300s compilation limits. The original rejection remains recorded; the
+replay does not establish the cause of that discrepancy or timing reliability.
+The full default suite is running at the same frozen source; all-features,
+230-case retention, pinned conformance and task closure remain open.
+[Source, exact native inventories, both four-case runs and diagnostics](docs/rust-rewrite/standalone-runtime-signatures-checkpoint-20261018.json).
+Refresh with `scripts/run_workspace_tests.py --include-ignored` under the cloud
+wrapper. The R13 results below belong to their recorded source.
+
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
 their existing diagnostic policy and no-close behavior. Acquisition, append,

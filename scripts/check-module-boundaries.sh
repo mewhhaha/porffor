@@ -3089,6 +3089,11 @@ require_file "$native_template_shared_body_fixture_source"
 if [[ "$(head -n 1 "$native_template_shared_body_fixture_source")" != '#![cfg(test)]' ]]; then
   fail 'native shared-body binary fixtures must be compiled only for tests'
 fi
+native_template_signature_fixture_source="crates/lila-aot-wasm/src/native_program_template/unused_function_types/tests.rs"
+require_file "$native_template_signature_fixture_source"
+if [[ "$(head -n 1 "$native_template_signature_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'native signature binary fixtures must be compiled only for tests'
+fi
 gc_instruction_escapes="$(
   rg -n 'Instruction::(Struct(New|Get|Set)|Array(New|Get|Set|Fill|Copy|Len))' \
     crates/lila-aot-wasm/src --glob '*.rs' --glob '!**/gc_types/**' \
@@ -3504,6 +3509,7 @@ for sealed_section in types globals code; do
       ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
       ! -path "$native_template_shared_body_fixture_source" \
+      ! -path "$native_template_signature_fixture_source" \
       ! -path 'crates/lila-aot-wasm/src/native_program_template/tests/program_owned_payload.rs' \
       "${source_profile_fixture_exclusions[@]}" \
       ! -path 'crates/lila-aot-wasm/src/module.rs' -print0 \
@@ -7132,7 +7138,7 @@ require_fixed_string_count "$native_global_compiler" \
 require_fixed_string_count "$native_global_script" \
   'let unit = require_root_source_row(program, first)?;' 1 'exact source/kind/root witness admission'
 require_fixed_string_count crates/lila-aot-wasm/src/runtime_artifact.rs \
-  'const LAYOUT_VERSION: u32 = 13;' 1 'current typed native global-source runtime contract'
+  'const LAYOUT_VERSION: u32 = 14;' 1 'current typed native global-source runtime contract'
 for native_global_raw_test in \
   crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs \
   crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs; do
