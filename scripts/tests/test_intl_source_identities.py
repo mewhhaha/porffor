@@ -53,6 +53,23 @@ output.write_bytes(expected)
             self.assertTrue(all(child.returncode == 0 for _, child in
                                 MODULE.refresh(root, recipes)))
 
+    def test_actual_recipe_order_refreshes_list_before_its_duration_consumer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, fixture_recipes = self.fixture(directory)
+            names = ('generate-intl-list-identity.py',
+                     'generate-intl-duration-identity.py')
+            for original, actual in zip(fixture_recipes, names):
+                (root / 'scripts' / original).rename(root / 'scripts' / actual)
+            (root / 'identity').write_bytes(b'old source')
+            (root / 'consumer').write_bytes(b'old source bound')
+            recipes = [name for name in MODULE.RECIPES if name in names]
+            self.assertEqual(set(recipes), set(names))
+            results = MODULE.refresh(root, recipes, write=True)
+            self.assertTrue(all(child.returncode == 0 for _, child in results))
+            self.assertEqual((root / 'consumer').read_bytes(), b'new source bound')
+            self.assertTrue(all(child.returncode == 0 for _, child in
+                                MODULE.refresh(root, recipes)))
+
     def test_failed_producer_never_runs_dependent_writer(self):
         with tempfile.TemporaryDirectory() as directory:
             root, recipes = self.fixture(directory)

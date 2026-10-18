@@ -6,7 +6,8 @@ import sys
 
 
 # Named-zone identities feed country membership and DateTime; DateTime feeds
-# locale query provenance. Keep dependent recipes after their actual producers.
+# locale query provenance. Duration consumes the generated List identity and
+# manifest. Keep dependent recipes after their actual producers.
 RECIPES = (
     'generate-intl-named-time-zones.py',
     'generate-intl-locale-time-zones-profile.py',
@@ -16,8 +17,8 @@ RECIPES = (
     'generate-intl-locale-text-profile.py',
     'generate-intl-locale-week-profile.py',
     'generate-intl-display-relative-identity.py',
-    'generate-intl-duration-identity.py',
     'generate-intl-list-identity.py',
+    'generate-intl-duration-identity.py',
     'generate-intl-locale-collations-identity.py',
     'generate-intl-locale-numbering-systems-identity.py',
     'generate-intl-segmenter-identity.py',
