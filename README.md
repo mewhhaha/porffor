@@ -13,15 +13,19 @@ all 13 prior IDs at current source `7e6d648c15b3b0f202a0c0589a188332ce1f869a`
 in 191.51s. The facades use the original execution-Realm resolver. Historical
 P-only timing does not establish revised-source performance or acceptance.
 The private foundation uses the prior native dependency graph and fresh unbundled
-R. The ordinary five-scope probe finishes with 1,892 passes and four stale
-method-location assertions: AOT library 434/434, Engine library 972/972,
-language 319/319 and native templates 20/20 pass completely. Six structure
-modules now check the new locations and actual P-to-R call/record ownership,
-with every original ID retained. Private direct Rust runs pass the complete
-151-test language and 115-test async targets; their full ordinary Cargo reruns
-and original-deadline retention remain pending. Refresh through
-`scripts/run_workspace_tests.py --include-ignored` under the cloud wrapper;
-these controls do not establish full-suite acceptance.
+R. Ordinary Cargo verification at `6ee7126e7c2e297d5b24afa3029591b423dafb4d`
+passes both complete structure targets: **151 language + 115 async = 266 passes,
+zero failures or ignored tests**. The guards retain every original ID and now
+trace retained P records through real helper imports/exports, full typed ABI and
+R-body field/DONE operations. All 610 tooling, eight source CI and three static
+checks also pass at that source. The prior `7e6` probe separately passes the
+whole AOT library (434), Engine library (972), language (319) and native-template
+(20) targets; its four stale structure failures and failed ELF remain preserved.
+The guard repair changes no production Rust source. Release CLI execution,
+original-deadline retention, full workspace/all-features and pinned conformance
+remain open.
+[Exact source identities, complete inventories and retained failures](docs/rust-rewrite/shared-array-iterator-checkpoint-20261018.json).
+Refresh commands and full native provenance are sealed in that report.
 
 Intl verification cost — 2026-10-18: one unchanged selected-profile native test
 passes in 261.35s with a fresh default-budget cache and 39.74s on a same-cache
@@ -37,8 +41,9 @@ RegExp structural census — 2026-10-18: the earlier linear-time source rewrite
 removed one string-slice call and one code-unit accessor call. Their exact
 reachability counts are corrected to 35 and 46. All three checks in that module
 pass in direct native execution with the original IDs. The original whole
-structural target's 150 passes and one failure remain preserved; its complete
-rerun and full-suite acceptance are pending. No product behavior changes.
+structural target's 150 passes and one failure remain preserved. Its complete
+151-ID current-source rerun now passes, as recorded in the shared-array-iterator
+checkpoint above. Full-suite acceptance remains open. No product behavior changes.
 [Exact repair, native commands and retained failure](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
 
 Verification iteration — 2026-10-18: the opt-in

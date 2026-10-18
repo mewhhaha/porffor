@@ -38,6 +38,15 @@ artifact IDs pass, followed by the complete 115-ID run in 22.16s using the same
 new ELF. Direct compilation uses existing native Cargo dependencies and is
 not ordinary Cargo acceptance. Preserve every rejected private launch receipt.
 
+Current primary source `6ee7126e7c2e297d5b24afa3029591b423dafb4d` passes
+ordinary Cargo verification of both complete affected targets: 151 language
+and 115 async IDs, zero failures/ignored. All 610 tooling, eight source CI and
+three static checks pass at that same final source. The prior failed ELF was
+byte-archived and the four passed siblings sealed before retirement. Primary
+and candidate stay frozen while the real release build and original four idle
+cases run. This checkpoint does not accept full workspace, deadlines or tasks.
+[Sealed ordinary native checkpoint](docs/rust-rewrite/shared-array-iterator-checkpoint-20261018.json).
+
 The R12 array-pattern candidate moves step-value, elision and close into typed
 shared runtime kernels, retaining iterator record, caller realm/environment/
 program and whole completion. Both facades use the original execution-Realm
@@ -58,9 +67,9 @@ R startup and JavaScript execution and do not establish revised-source speed.
 The earlier wrong cross-realm host-method fixture and failed receipt remain;
 corrected `evalScript` controls pass. No fixture or original deadline was weakened.
 
-Archive the completed ordinary probe's failed ELF and seal its passed siblings,
-then advance the primary once to this complete guard batch. The successor
-`../.lila-tools/advance-array-iterator-guards-20261018-run1.py` requires final-source
+The completed ordinary probe's failed ELF is archived and its passed siblings
+sealed. The primary has advanced once to this complete guard batch. The successor
+`../.lila-tools/advance-array-iterator-guards-20261018-run3.py` requires final-source
 preflights, runs the two affected whole Cargo scopes (266 IDs), builds the ordinary
 release CLI, and executes all four original idle cases at their original
 60s execution/300s compilation limits with fresh four 64MiB disk cache tiers.
@@ -68,7 +77,7 @@ Only after those gates pass, execute the current full default plan once:
 111 scopes, 9,532 native IDs and 11 documentation IDs, all zero ignored. Carry
 only sealed whole scopes from the same exact source; retain failed receipts.
 Use three disjoint workers for large Engine targets. The successor is
-`../.lila-tools/run-full-default-array-iterator-guards-20261018-run1.py`: carry only
+`../.lila-tools/run-full-default-array-iterator-guards-20261018-run3.py`: carry only
 the two same-source guard scopes, then run the remaining 109 scopes. Engine and
 language execute in that final full run, avoiding another duplicate focused
 Engine run. Do not revive the rejected 7e6 full-run helper after changing source. Full all-features, full230 retention,
