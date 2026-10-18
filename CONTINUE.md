@@ -16,6 +16,12 @@ This evidence belongs to recovery source d6c5df9ed; CLI retention, full default/
 workspace execution, pinned suites and task cleanup remain open.
 [Literal inventories, transcripts and rejected-attempt evidence](docs/rust-rewrite/native-core-4195-20261018.json).
 
+The [measured verification costs](docs/rust-rewrite/verification-costs-20261018.md)
+show native-runtime reuse across debug/release builds: 169.44s on a cache miss
+and 0.75s on the release cache hit, with identical output bytes. The release CLI
+build still takes 1,143s, almost entirely in Rust compiler units. These observations
+do not establish a full-suite speedup.
+
 Full-BMP RegExp Engine diagnostic — 2026-10-18: all12 unchanged fixture/mode
 combinations now pass through the frozen628 public Wasm-AOT Engine in40.6–51.5s
 per case, with the original60000ms execution allowance, one CPU and fresh bounded
