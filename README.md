@@ -25,6 +25,14 @@ A diagnostic of the existing Cargo image loads into both real product Engines
 and rejects incompatible epoch settings. Current-source native acceptance is
 pending; the earlier UTF-16 stall and rejected batch remain recorded.
 
+Intl refresh dependency repair — 2026-10-18: List identity now refreshes before
+Duration, which binds List's generated identity and manifest. Six focused controls
+pass. Restoring both stale outputs and running the actual13-recipe refresh passes
+in10.06s; a repeat passes in9.59s while preserving bytes, modes, inodes and mtimes
+for all131704 tracked regular files in the full checkout.
+[Exact checks and lossless evidence](docs/rust-rewrite/intl-list-duration-refresh-order-20261018.json).
+This is tooling verification; compiler retention and full-suite gates remain open.
+
 Ordinary verification checkpoint — 2026-10-18: all 4,180 selected native tests
 and all 581 tooling tests pass. The fresh release CLI completes the exact 230-case
 replay at **205 Success, 22 deadline Crash, 3 Bug**: Unicode13 passes all13,
