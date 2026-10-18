@@ -91,7 +91,7 @@ class WorkspaceTestArtifactTests(unittest.TestCase):
                      'package_selection': artifacts.package_selection,
                      'combined_selectors': [['--lib'], ['--test', 'shared']],
                      'isolated_packages': ['intl'], 'profile_flags': ['--release'],
-                     'args': SimpleNamespace(all_features=True, packages=None)}
+                     'args': SimpleNamespace(all_features=True, packages=None, selected_feature_roots=False)}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
         command = namespace['cargo_test_base']
         self.assertEqual(command(self.case('a', 'lib', 'a')), [

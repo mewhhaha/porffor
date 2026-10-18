@@ -592,6 +592,9 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
         else:
             graph_proof=None
             if args.selected_feature_roots and group[0]=='feature-roots':
+                if not result.get('intl_source_identity_preflight'):
+                    result['intl_source_identity_preflight']=feature_roots.verify_source_identities(out/label,build_env)
+                    save()
                 selected=[c for c in cases if group_key(c)==group]
                 graph_proof=feature_roots.prove_graph(cohort_base,selected,package_ids,isolated_packages,profile_flags,out/label,build_env)
                 case['feature_root_graph_proof']=graph_proof

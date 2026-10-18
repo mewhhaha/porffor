@@ -5,10 +5,24 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 
 PACKAGE = 'lila-verification-feature-roots'
 TARGET = 'feature_roots'
+
+
+def verify_source_identities(output, environment):
+    """Reject stale generated provenance before spending time on native builds."""
+    command = [sys.executable, '-B', 'scripts/intl_source_identities.py']
+    result = subprocess.run(command, env=environment, capture_output=True)
+    path = Path(str(output) + '.intl-source-identities.log')
+    path.write_bytes(result.stdout + result.stderr)
+    if result.returncode:
+        raise ValueError('Stale Intl source identities; refresh with '
+                         'python3 -B scripts/intl_source_identities.py --write before verification')
+    return {'passed': True, 'command': command, 'path': str(path),
+            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'exit_code': 0}
 
 
 def build_key(case, isolated, combined):

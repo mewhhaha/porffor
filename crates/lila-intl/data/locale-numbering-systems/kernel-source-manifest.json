@@ -24,18 +24,18 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "lila-locale-numbering-systems-native-v1",
-  "kernel_sha256": "7dc0ebe26d846b97c47c16510577993cb2362420540635c11c5e1db333b7460c",
+  "kernel_sha256": "ae9c63bbaa04a2f14ec87dfa3da7121d5d4a98502f1958a1c35ae6dc1341cc1f",
   "number_locales": 1082,
   "production_sources": [
     {
-      "bytes": 76004,
+      "bytes": 76346,
       "path": "Cargo.lock",
-      "sha256": "eda64286c216d68d3da46101c2b3c7c8eff08ba99fe955e6cb4bd89f060433b9"
+      "sha256": "fba47d96864c296e61a1063548562a7b4d8f8ceccaca24cbc185ab3be1ca22bc"
     },
     {
-      "bytes": 4295,
+      "bytes": 4552,
       "path": "Cargo.toml",
-      "sha256": "5d1c78891a87da160cf71e46575ecf6b0e056598566e08f52be551ddcbd61623"
+      "sha256": "529bde5fd401ec689774f2641fcd1b383ce3db8f9f48f8d0ef8a6b6247012e68"
     },
     {
       "bytes": 87129,
