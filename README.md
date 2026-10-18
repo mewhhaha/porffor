@@ -1,3 +1,19 @@
+Ordinary verification checkpoint — 2026-10-18: all 4,180 selected native tests
+and all 581 tooling tests pass. The fresh release CLI completes the exact 230-case
+replay at **205 Success, 22 deadline Crash, 3 Bug**: Unicode13 passes all13,
+prior197 gives192/5, and remaining20 gives0/17/3. These results fail retention;
+the compiler stays on recovery, and full workspace/pinned-suite/task cleanup
+remain open. [Lossless replay evidence](docs/rust-rewrite/owned-native-throughput-cli-230-20261018.json)
+records all original IDs, deadlines, caches and source identities.
+
+A separate naming repair moves repeated UTF-16 name construction into one R
+helper. The original thousand-method native control passes in48.92s. An isolated
+cold-template A/B/B/A comparison measures81.3/89.3s before and16.0/15.8s after;
+this measures native compilation of one template, not full CLI acceptance.
+[Exact diagnostic scope](docs/rust-rewrite/function-name-kernel-diagnostic-20261018.json)
+retains both passing controls and the earlier failed diagnostic attempts.
+The generated pinned-suite status block is unchanged.
+
 Native verification checkpoint — 2026-10-18: all 4,180 tests pass across
 six complete selected Cargo targets: AOT 428, IR 1,599, IR integration 740, Engine 968,
 native templates 17 and realm modules 428. Every one of the 4,161 earlier passing
