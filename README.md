@@ -1,3 +1,12 @@
+Runtime type grouping — implementation pending verification, 2026-10-18:
+ordinary runtime-helper signatures now follow the recursive GC schema as
+standalone types. Only helper signatures stored in GC fields stay in that
+recursive group. R and P retain the same shared schema; runtime layout 14
+rejects previous layouts. This allows native signature interning without
+altering program behavior. Semantic linking, performance and ordinary-suite
+verification for this candidate are pending; the R13 results below belong to
+their recorded source.
+
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
 their existing diagnostic policy and no-close behavior. Acquisition, append,

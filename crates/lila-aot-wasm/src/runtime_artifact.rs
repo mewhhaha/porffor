@@ -50,7 +50,7 @@ pub const NATIVE_REGEXP_LITERAL_FACTORY_EXPORT: &str = "lila.native_regexp_liter
 // Version 11 adds typed shared function naming and native RegExp literal kernels.
 // Version 12 adds shared array-pattern step, elision and close kernels.
 // Version 13 adds the separate shared array-accumulation step-value kernel.
-const LAYOUT_VERSION: u32 = 13;
+const LAYOUT_VERSION: u32 = 14;
 
 /// A checked current envelope, or the compiler's own current emission.
 /// Decoding a raw payload cannot silently mint its version authority.

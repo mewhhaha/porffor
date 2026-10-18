@@ -115,7 +115,14 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
     }
     assert_eq!(
         core_indexes.into_iter().collect::<Vec<_>>(),
-        (StaticSignature::ALL.len()..core_end - GcLayout::ALL.len()).collect::<Vec<_>>()
+        (StaticSignature::ALL.len()
+            ..StaticSignature::ALL.len() + RuntimeHelperId::recursive_type_count())
+            .chain(
+                StaticSignature::ALL.len()
+                    + RuntimeHelperId::recursive_type_count()
+                    + GcLayout::ALL.len()..core_end
+            )
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         program_indexes.into_iter().collect::<Vec<_>>(),
@@ -179,6 +186,27 @@ fn direct_program_signatures_follow_the_exact_core_graph_and_hooks_keep_core_typ
         })
         .expect("the actual ProgramInstance belongs to one emitted recursion group");
     assert!(instance_group.len() > 1);
+    for helper in RuntimeHelperId::ALL {
+        let index = helper.type_index() as usize;
+        assert_eq!(
+            instance_group.contains(&index),
+            helper.requires_runtime_group(),
+            "{helper:?}: only actual typed GC fields require recursive signatures"
+        );
+        if helper.type_region() == HelperTypeRegion::Core && !helper.requires_runtime_group() {
+            assert!(index >= instance_group.end);
+            let mut first = 0;
+            let size = core_groups
+                .iter()
+                .find_map(|size| {
+                    let contains = (first..first + *size).contains(&index);
+                    first += *size;
+                    contains.then_some(*size)
+                })
+                .unwrap();
+            assert_eq!(size, 1, "ordinary runtime signatures must stand alone");
+        }
+    }
 
     for hook in ProgramHook::ALL {
         let helper = hook.helper();

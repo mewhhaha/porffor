@@ -1,5 +1,17 @@
 # Continue Lila — 2026-10-18
 
+Active candidate: factor ordinary runtime-helper function signatures out of the
+recursive GC type group. Keep the six actual hook/context signatures with GC
+layouts, emit ordinary runtime signatures as a singleton suffix, then P-only
+signatures. Layout14 rejects prior R/P schemas. No unused-type elimination or
+index-remapping pass is added. The existing registration test retains its ID
+and checks every helper's actual group membership, singleton status and the
+exact R/P common prefix. Read-only review found no concrete index defect.
+All13 canonical Intl recipes refresh/check unchanged. Next validate actual R/P
+linking and measure matched native modules; do not infer a speedup yet. Finish
+all current semantic controls and ordinary/full gates before acceptance.
+
+
 R13 ordinary release and the original four-case replay are complete at
 `de8d07b4768fc7455694eec3e1a9c296fa7cb6de`: release builds in417.73s;
 formal outcomes are3 Success/1 Crash timeout. Nested strict-function destructuring
