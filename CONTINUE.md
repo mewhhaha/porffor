@@ -1,7 +1,7 @@
 # Continue Lila — 2026-10-18
 
 Current broad baseline: frozen compiler `8ab4cdef70c0df1af9825a28aa2b266761024df1`
-has completed 41 whole scopes with 5,543 native passes and one structural
+has completed 45 whole scopes with 6,714 native passes and one structural
 failure; no ignored tests. The 248-test async target passes. The failed exact
 API census predates the RegExp source rewrite that removed two call sites.
 Main fixes both expectations, and direct native execution passes all three
@@ -9,7 +9,7 @@ unchanged module IDs. Its original 151-test target failure remains retained;
 the whole target still needs a rerun on the repaired source.
 [Repair and exact focused coverage](docs/rust-rewrite/regexp-api-census-repair-20261018.json).
 
-Continue the remaining 70 baseline scopes with
+Continue the remaining 66 baseline scopes with
 `../.lila-tools/continue-full-default-feature-roots-8ab-20261018-run4.py` (outside
 the repository). It carries completed exact inventories, retains failed ELFs
 and continues independent scopes after assertions. Receipts live under
@@ -38,6 +38,32 @@ the whole language target, original deadlines or full candidate verification.
 All 610 tooling, eight source CI and three static checks passed at prior
 `745c20061d785e7781dd1dfe40ffd5566eaaf35d`; rerun the finalized source gates.
 Keep the candidate separate from main until ordinary native controls pass.
+
+The corrected Intl phase diagnostic passes the unchanged exact test in 261.35s
+cold and 39.74s warm. Inclusive R loading accounts for 204.56s cold versus
+4.89s warm; P loading accounts for 13.00s versus 0.12s. This adds no suite IDs.
+The initial diagnostic captured no passing output; retain it as an unattributed
+wall-time measurement. Both isolated derived caches were inventoried and retired;
+all receipts and raw traces remain.
+[Exact commands, traces and limits](docs/rust-rewrite/intl-profile-iteration-cost-20261018.json).
+
+Review found the new facades bypassed the original execution-Realm resolver.
+Commit `d24c9e318` uses that same resolver before crossing the shared boundary,
+preserving helper, FunctionContext and Environment authority rather than assuming
+ambient CurrentRealm always agrees. The E1 waiting queues were superseded before
+any native execution; preserve their receipts and the supersession record.
+The earlier ABBA and 16-control results remain bound to their original sources.
+
+The replacement ordinary pipeline waits for complete 8ab discovery and finalized
+source gates, verifies five whole native scopes (1,896 IDs), builds the real
+release CLI, and repeats all four original idle cases at their original limits.
+Only if these gates pass,
+`../.lila-tools/run-full-default-array-iterator-realm-20261018-run1.py` carries
+those five exact scopes into a fresh current-source 111-scope default run.
+It partitions the eight remaining large Engine targets across three workers;
+all 9,532 native and 11 documentation IDs must execute with zero ignored tests.
+No baseline result is carried across a compiler source change. An unexpected
+gate failure stops advancement and preserves the literal result for repair.
 
 Verification tooling checkpoint — 2026-10-18: source
 `8ab4cdef70c0df1af9825a28aa2b266761024df1` passes 1,627 native checks:
