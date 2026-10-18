@@ -35,6 +35,15 @@ The full default suite is running at the same frozen source; all-features,
 Refresh with `scripts/run_workspace_tests.py --include-ignored` under the cloud
 wrapper. The R13 results below belong to their recorded source.
 
+A test-only follow-up corrects the runtime-link assertion that still expected R
+to end at the recursive type group. It now checks the actual standalone runtime
+signature suffix and keeps ProgramInstance plus its five hook types inside the
+shared GC group. Runtime bytes, exact R/P prefix, import and call ABI checks
+remain. The complete private 30-test target passes with every original ID;
+ordinary and full verification of this follow-up remain pending. The original
+29-pass/1-failure scope stays recorded.
+[Exact assertion repair and private whole-target evidence](docs/rust-rewrite/runtime-type-suffix-guard-20261018.json).
+
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
 TypedArray collection now select a distinct shared step-value entry, keeping
 their existing diagnostic policy and no-close behavior. Acquisition, append,

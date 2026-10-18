@@ -161,10 +161,40 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
             let core = shape(runtime.bytes());
             let core_type_count: usize = core.groups.iter().map(Vec::len).sum();
             assert!(!core.groups.is_empty());
-            assert!(
-                core.groups.last().unwrap().len() > 1,
-                "R ends at its actual GC recursion group"
+            let recursive_groups = core
+                .groups
+                .iter()
+                .enumerate()
+                .filter_map(|(index, group)| (group.len() > 1).then_some(index))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                recursive_groups.len(),
+                1,
+                "R has one canonical GC recursion group"
             );
+            let recursive_group = recursive_groups[0];
+            assert!(recursive_group > 0, "scalar signatures precede GC types");
+            assert!(
+                recursive_group + 1 < core.groups.len(),
+                "ordinary runtime signatures follow the GC group"
+            );
+            assert!(
+                core.groups[..recursive_group]
+                    .iter()
+                    .chain(&core.groups[recursive_group + 1..])
+                    .all(|group| group.len() == 1
+                        && matches!(group[0].composite_type.inner, CompositeInnerType::Func(_))),
+                "nonrecursive core signatures are standalone function types"
+            );
+            let recursive_start: usize = core.groups[..recursive_group].iter().map(Vec::len).sum();
+            let recursive_types =
+                recursive_start..recursive_start + core.groups[recursive_group].len();
+            assert!(core.groups[recursive_group]
+                .iter()
+                .any(|ty| matches!(ty.composite_type.inner, CompositeInnerType::Struct(_))));
+            assert!(core.groups[recursive_group]
+                .iter()
+                .any(|ty| matches!(ty.composite_type.inner, CompositeInnerType::Array(_))));
             assert!(
                 !core.reference_calls.is_empty(),
                 "actual R still invokes its typed hooks"
@@ -250,6 +280,13 @@ fn direct_array_program_helpers_preserve_runtime_bytes_types_imports_and_hook_ca
                 "one immutable ProgramInstance owns all five typed nullable hook fields"
             );
             let (owner_type, hook_types) = owners.pop().unwrap();
+            assert!(
+                recursive_types.contains(&(owner_type as usize))
+                    && hook_types
+                        .values()
+                        .all(|index| recursive_types.contains(&(*index as usize))),
+                "the actual ProgramInstance and its five hook signatures remain in the GC group"
+            );
             let mut called_fields = BTreeSet::new();
             for &(owner, field, type_index) in &core.owner_reference_calls {
                 if owner != owner_type {
