@@ -52,12 +52,14 @@ impl Plan {
         let mut has_imports = false;
         let mut declared_operands = None;
         let mut declared_contexts = None;
+        let mut context_facts = super::contexts::Facts::default();
         for payload in Parser::new(0).parse_all(bytes) {
             match payload.map_err(invalid)? {
                 Payload::TypeSection(reader) => {
                     has_types = true;
                     for group in reader {
                         for ty in group.map_err(invalid)?.types() {
+                            context_facts.record_type(result.types, ty);
                             if let CompositeInnerType::Array(array) = &ty.composite_type.inner {
                                 if !ty.composite_type.shared {
                                     let width = match array.0.element_type {
@@ -85,8 +87,9 @@ impl Plan {
                             return Err(invalid("native data namespace already exists"));
                         }
                         match import.ty {
-                            TypeRef::Func(_) | TypeRef::FuncExact(_) => {
-                                result.imported_functions += 1
+                            TypeRef::Func(ty) | TypeRef::FuncExact(ty) => {
+                                result.imported_functions += 1;
+                                context_facts.import_function(ty);
                             }
                             TypeRef::Global(_) => result.imported_globals += 1,
                             _ => {}
@@ -111,8 +114,16 @@ impl Plan {
                     result.reusable &= reader.count() == 0;
                     referenced.globals(reader)?;
                 }
-                Payload::FunctionSection(reader) => result.defined_functions = reader.count(),
-                Payload::ExportSection(reader) => referenced.exports(reader)?,
+                Payload::FunctionSection(reader) => {
+                    result.defined_functions = reader.count();
+                    for ty in reader {
+                        context_facts.define_function(ty.map_err(invalid)?);
+                    }
+                }
+                Payload::ExportSection(reader) => {
+                    context_facts.exports(reader.clone())?;
+                    referenced.exports(reader)?;
+                }
                 Payload::ElementSection(reader) => {
                     for element in reader.clone() {
                         result.reusable &= matches!(
@@ -182,6 +193,9 @@ impl Plan {
             return Err(invalid("literal operand body is out of range"));
         }
         let mut declared = declared_operands.iter().peekable();
+        let mut contexts = declared_contexts
+            .map(|rows| super::contexts::Check::new(rows, &context_facts, bodies.len()))
+            .transpose()?;
         for (body_index, body) in bodies.iter().enumerate() {
             let mut reader = body.get_operators_reader().map_err(invalid)?;
             let mut operators = Vec::new();
@@ -210,17 +224,21 @@ impl Plan {
             }
             result.collect_sites(&operators)?;
             result.collect_literal_operand_sites(body_index, &operators, &mut declared)?;
+            if let Some(contexts) = &mut contexts {
+                contexts.body(
+                    body_index as u32,
+                    body,
+                    &operators,
+                    &result.sites,
+                    &result.literal_sites,
+                )?;
+            }
         }
         let referenced = referenced.into_inner();
-        if let Some(contexts) = declared_contexts {
-            result.contexts = super::contexts::OwnedContexts::read(
-                bytes,
-                contexts,
-                &bodies,
-                &result.sites,
-                &result.literal_sites,
-            )?;
-        }
+        result.contexts = contexts
+            .map(super::contexts::Check::finish)
+            .transpose()?
+            .flatten();
         let mut next = 0;
         for original in 0..result.imported_functions {
             if referenced.contains(&original) {

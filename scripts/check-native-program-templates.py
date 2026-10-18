@@ -18,6 +18,7 @@ CAPS = {
     T + '/tests/literal_operands.rs': 260,
     A + 'native_program_contexts.rs': 150, A + 'gc_types/native_payload.rs': 100,
     T + '/contexts.rs': 200, T + '/contexts/signatures.rs': 180,
+    T + '/contexts/facts.rs': 100,
     T + '/tests/emitted_names.rs': 100,
     T + '/payload.rs': 200, T + '/tests/program_owned_payload.rs': 150, T + '/error.rs': 30,
     T + '/plan/indices.rs': 120, T + '/reencode/declarations.rs': 160,
@@ -150,13 +151,24 @@ def check(sources):
     need(sources[T + '/tests/program_owned_payload.rs'].splitlines()[0] == '#![cfg(test)]' and
          '[path="tests/program_owned_payload.rs"]modprogram_owned_payload;' in c[T + '/tests.rs'],
          'owned_payload_binary_fixture_is_statically_test_only')
-    contexts = c[T + '/contexts.rs'] + c[T + '/contexts/signatures.rs']
+    contexts = (c[T + '/contexts.rs'] + c[T + '/contexts/signatures.rs'] +
+                c[T + '/contexts/facts.rs'])
     need('signatures.initializer(bootstrap_body,schema)?' in contexts and
-         'signatures.local(indexasu32,body,*local,schema)?' in contexts and
+         'self.signatures.local(index,body,*local,self.schema)?' in contexts and
+         'if!facts.matches(schema)' in contexts and
          'Operator::LocalSet' in contexts and 'Operator::LocalTee' in contexts and
          'schema.payload_field' in contexts and 'StorageType::I8' in contexts and
          '!field.mutable' in contexts and 'ordinal>=*readyasusize' in contexts,
          'payload_owner_has_actual_typed_initialized_local_and_bootstrap_witness')
+    need(all(fragment in plan for fragment in (
+        'context_facts.record_type(result.types,ty);',
+        'context_facts.import_function(ty);',
+        'context_facts.define_function(ty.map_err(invalid)?);',
+        'context_facts.exports(reader.clone())?;',
+        'super::contexts::Check::new(rows,&context_facts,bodies.len())',
+        'contexts.body(body_indexasu32,body,&operators,&result.sites,&result.literal_sites,)?;',
+        '.map(super::contexts::Check::finish).transpose()?.flatten()')),
+        'ownership_facts_share_the_actual_planning_pass')
     need('FunctionContext::Program{local,..}' in encoder and
          'native_payload::load(function,*local,contexts.schema)' in encoder and
          'field_index:schema.payload_field' in encoder and

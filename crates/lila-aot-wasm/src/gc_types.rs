@@ -4,6 +4,7 @@
 //! Private linear memory is limited to numeric wire and transient byte storage.
 
 use core::marker::PhantomData;
+use std::sync::{Arc, OnceLock};
 
 use wasm_encoder::{
     BlockType, ConstExpr, Encode, GlobalSection, GlobalType, HeapType, Instruction, RefType,
@@ -358,11 +359,11 @@ impl GlobalLedger {
 /// and extraction private.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RuntimeGcTypes {
-    layouts: GcLayoutRegistry,
+    layouts: Arc<GcLayoutRegistry>,
 }
 
 impl RuntimeGcTypes {
-    fn from_layouts(layouts: GcLayoutRegistry) -> Self {
+    fn from_layouts(layouts: Arc<GcLayoutRegistry>) -> Self {
         Self { layouts }
     }
 
@@ -450,14 +451,35 @@ impl RuntimeGcTypes {
 /// no later caller can append or guess a type index through that section.
 /// The only transition finalizes globals into the existing sealed package.
 pub(crate) struct RuntimeModuleTypes {
-    section: TypeSection,
+    section: Arc<TypeSection>,
     program_globals: bool,
     global_prelude: bool,
     runtime: RuntimeGcTypes,
 }
 
+/// Only immutable declaration bytes and their assigned type indices are shared.
+/// Every registry still consumes its own globals and owns its own prelude flag.
+struct RuntimeTypeDeclarations {
+    section: Arc<TypeSection>,
+    layouts: Arc<GcLayoutRegistry>,
+}
+
 impl RuntimeModuleTypes {
     pub(crate) fn register(kind: crate::runtime_artifact::ModuleKind<'_>) -> Self {
+        static RUNTIME: OnceLock<RuntimeTypeDeclarations> = OnceLock::new();
+        static PROGRAM: OnceLock<RuntimeTypeDeclarations> = OnceLock::new();
+        let program_globals = kind.compiles_program();
+        let declarations = if program_globals { &PROGRAM } else { &RUNTIME }
+            .get_or_init(|| Self::build_declarations(program_globals));
+        Self {
+            section: Arc::clone(&declarations.section),
+            runtime: RuntimeGcTypes::from_layouts(Arc::clone(&declarations.layouts)),
+            program_globals,
+            global_prelude: false,
+        }
+    }
+
+    fn build_declarations(program_globals: bool) -> RuntimeTypeDeclarations {
         use crate::{
             module::StaticSignature,
             runtime_helpers::{HelperTypeRegion, RuntimeHelperId},
@@ -505,7 +527,7 @@ impl RuntimeModuleTypes {
                 .map(|layout| layout.definition(&layouts)),
         );
         section.ty().rec(members);
-        if kind.compiles_program() {
+        if program_globals {
             for helper in RuntimeHelperId::ALL {
                 if helper.type_region() == HelperTypeRegion::Program {
                     let definition = helper.definition(&layouts);
@@ -516,11 +538,9 @@ impl RuntimeModuleTypes {
                 }
             }
         }
-        Self {
-            section,
-            runtime: RuntimeGcTypes::from_layouts(layouts),
-            program_globals: kind.compiles_program(),
-            global_prelude: false,
+        RuntimeTypeDeclarations {
+            section: Arc::new(section),
+            layouts: Arc::new(layouts),
         }
     }
 
@@ -559,7 +579,7 @@ impl RuntimeModuleTypes {
 /// The raw section never leaves this module after recursive registration:
 /// there is no extraction, mutable borrow, count query or append operation.
 pub(crate) struct FinalizedModuleTypes {
-    section: TypeSection,
+    section: Arc<TypeSection>,
 }
 
 impl Encode for FinalizedModuleTypes {

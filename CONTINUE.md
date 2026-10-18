@@ -1,3 +1,17 @@
+Joined throughput repair — 2026-10-18 (ordinary Cargo pending): immutable GC
+type declarations share storage; template ownership checks use the existing
+header/body passes; stale ABI guards follow the current layout. Manifest version4
+explicitly admits the optimized runtime image under both execution modes.
+The opt2 AOT/Engine diagnostic passes all17 original native template tests
+unfiltered, with debug validation and unchanged deadlines. The earlier mixed
+profile passed11000eval and15/16 other controls, with one method-test timeout;
+that failure remains recorded. [Exact diagnostic and rejected replay evidence](docs/rust-rewrite/native-source-throughput-diagnostic-20261018.json)
+records the source/profile/cache scope. The rejected c927 actual CLI completed
+Unicode13 at13Success and prior197 at193Success/4deadlineCrash, including one
+prior-pass regression. Its remaining20 stage was deliberately interrupted; all20
+must be rerun. Fresh ordinary native, releaseCLI230, full workspace and pinned
+conformance acceptance remain open. Do not delete CONTINUE.md or tasks/ yet.
+
 Verification checkpoint (2026-10-18): the ABI10/code-sharing candidate remains
 rejected: the six native inventories contain 4,180 IDs, with 4,159 completed
 passes, three failures and 18 unreported Engine IDs after a 900-second stall.

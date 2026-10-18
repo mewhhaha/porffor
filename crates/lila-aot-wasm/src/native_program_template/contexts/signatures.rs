@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Default)]
 pub(super) struct Signatures {
     types: Vec<Option<wasmparser::FuncType>>,
     functions: Vec<u32>,
@@ -7,58 +8,32 @@ pub(super) struct Signatures {
     initializer: Option<u32>,
 }
 impl Signatures {
-    pub(super) fn read(bytes: &[u8]) -> Result<Self, NativeProgramTemplateError> {
-        let mut result = Self {
-            types: Vec::new(),
-            functions: Vec::new(),
-            imported: 0,
-            initializer: None,
-        };
-        for payload in wasmparser::Parser::new(0).parse_all(bytes) {
-            match payload.map_err(invalid)? {
-                Payload::TypeSection(reader) => {
-                    for group in reader {
-                        for ty in group.map_err(invalid)?.types() {
-                            result.types.push(match &ty.composite_type.inner {
-                                CompositeInnerType::Func(ty) => Some(ty.clone()),
-                                _ => None,
-                            });
-                        }
-                    }
-                }
-                Payload::ImportSection(reader) => {
-                    for import in reader.into_imports() {
-                        if let wasmparser::TypeRef::Func(ty) | wasmparser::TypeRef::FuncExact(ty) =
-                            import.map_err(invalid)?.ty
-                        {
-                            result.functions.push(ty);
-                            result.imported += 1;
-                        }
-                    }
-                }
-                Payload::FunctionSection(reader) => {
-                    for ty in reader {
-                        result.functions.push(ty.map_err(invalid)?);
-                    }
-                }
-                Payload::ExportSection(reader) => {
-                    for export in reader {
-                        let export = export.map_err(invalid)?;
-                        if export.name == crate::runtime_function::PROGRAM_INITIALIZE_EXPORT {
-                            if export.kind != wasmparser::ExternalKind::Func
-                                || result.initializer.replace(export.index).is_some()
-                            {
-                                return Err(invalid(
-                                    "native bootstrap export is duplicated or not a function",
-                                ));
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
+    pub(super) fn record_type(&mut self, ty: &wasmparser::SubType) {
+        self.types.push(match &ty.composite_type.inner {
+            CompositeInnerType::Func(ty) => Some(ty.clone()),
+            _ => None,
+        });
+    }
+    pub(super) fn import_function(&mut self, ty: u32) {
+        self.functions.push(ty);
+        self.imported += 1;
+    }
+    pub(super) fn define_function(&mut self, ty: u32) {
+        self.functions.push(ty);
+    }
+    pub(super) fn record_export(
+        &mut self,
+        export: wasmparser::Export<'_>,
+    ) -> Result<(), NativeProgramTemplateError> {
+        if export.name == crate::runtime_function::PROGRAM_INITIALIZE_EXPORT
+            && (export.kind != wasmparser::ExternalKind::Func
+                || self.initializer.replace(export.index).is_some())
+        {
+            return Err(invalid(
+                "native bootstrap export is duplicated or not a function",
+            ));
         }
-        Ok(result)
+        Ok(())
     }
     fn function(&self, body: u32) -> Result<&wasmparser::FuncType, NativeProgramTemplateError> {
         self.functions

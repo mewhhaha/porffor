@@ -2,7 +2,7 @@
 
 use crate::wasmtime_config::WasmNativeCompilationMode;
 const MAGIC: &[u8; 8] = b"LILANR01";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// Only the immutable Cargo-produced image uses the optimizing allocator.
 /// Its native stack maps are emitted by Wasmtime and remain admission-checked.
@@ -21,19 +21,36 @@ impl RuntimeRegisterAllocation {
     }
 }
 
+/// Explicit execution authority, independent of the image's compiler settings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExecutionModes {
+    Fast,
+    SizeOptimized,
+    FastAndSizeOptimized,
+}
+
+impl ExecutionModes {
+    pub(crate) fn contains(self, mode: WasmNativeCompilationMode) -> bool {
+        match self {
+            Self::Fast => mode == WasmNativeCompilationMode::Fast,
+            Self::SizeOptimized => mode == WasmNativeCompilationMode::SizeOptimized,
+            Self::FastAndSizeOptimized => true,
+        }
+    }
+}
+
 /// Image optimization is independent of the Engine that owns the loaded R.
-/// Keep this pair explicit: Wasmtime accepts optimization differences, while
-/// the product admits only this deliberately supported combination.
+/// Wasmtime still checks the actual destination Engine's compatibility.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CompilationModes {
     pub(crate) runtime: WasmNativeCompilationMode,
-    pub(crate) execution: WasmNativeCompilationMode,
+    pub(crate) execution: ExecutionModes,
     pub(crate) register_allocation: RuntimeRegisterAllocation,
 }
 
 pub(crate) const COMPILATION_MODES: CompilationModes = CompilationModes {
     runtime: WasmNativeCompilationMode::SizeOptimized,
-    execution: WasmNativeCompilationMode::Fast,
+    execution: ExecutionModes::FastAndSizeOptimized,
     register_allocation: RuntimeRegisterAllocation::Backtracking,
 };
 
@@ -54,12 +71,15 @@ impl Manifest {
         bytes.extend_from_slice(MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&self.configuration.to_le_bytes());
-        for mode in [self.modes.runtime, self.modes.execution] {
-            bytes.push(match mode {
-                WasmNativeCompilationMode::Fast => 0,
-                WasmNativeCompilationMode::SizeOptimized => 1,
-            });
-        }
+        bytes.push(match self.modes.runtime {
+            WasmNativeCompilationMode::Fast => 0,
+            WasmNativeCompilationMode::SizeOptimized => 1,
+        });
+        bytes.push(match self.modes.execution {
+            ExecutionModes::Fast => 0,
+            ExecutionModes::SizeOptimized => 1,
+            ExecutionModes::FastAndSizeOptimized => 2,
+        });
         bytes.push(match self.modes.register_allocation {
             RuntimeRegisterAllocation::SinglePass => 0,
             RuntimeRegisterAllocation::Backtracking => 1,
@@ -101,7 +121,12 @@ impl Manifest {
         }
         let modes = CompilationModes {
             runtime: mode(take::<1>(&mut bytes)?[0])?,
-            execution: mode(take::<1>(&mut bytes)?[0])?,
+            execution: match take::<1>(&mut bytes)?[0] {
+                0 => ExecutionModes::Fast,
+                1 => ExecutionModes::SizeOptimized,
+                2 => ExecutionModes::FastAndSizeOptimized,
+                _ => return None,
+            },
             register_allocation: match take::<1>(&mut bytes)?[0] {
                 0 => RuntimeRegisterAllocation::SinglePass,
                 1 => RuntimeRegisterAllocation::Backtracking,
