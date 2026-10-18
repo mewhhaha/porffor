@@ -107,14 +107,25 @@ fn prelude_bytes_are_framed_in_script_cache_identity_and_phase_is_only_in_p() {
     assert!(!runtime_exports
         .iter()
         .any(|name| name == lila_aot_wasm::GLOBAL_SCRIPT_PRELUDE_PHASE_EXPORT));
-    assert_eq!(
+    let baseline_unit = engine
+        .compile_script("'use strict'; x;", CompileOptions::default())
+        .unwrap();
+    let baseline = engine.emit_wasm(&baseline_unit).unwrap();
+    let baseline_runtime = baseline.runtime.as_ref().unwrap();
+    assert!(
+        runtime.bytes() == baseline_runtime.bytes(),
+        "a program prelude must not change shared runtime bytes"
+    );
+    let validate = |runtime| {
         lila_aot_wasm::ValidatedRuntimeArtifact::new(
-            Arc::clone(&runtime.0),
-            IntlCompilationProfile::Minimal
+            Arc::clone(runtime),
+            IntlCompilationProfile::Minimal,
         )
         .unwrap()
-        .layout_version(),
-        10
+    };
+    assert_eq!(
+        validate(&runtime.0).layout_version(),
+        validate(&baseline_runtime.0).layout_version()
     );
 }
 

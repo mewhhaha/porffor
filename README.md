@@ -1,3 +1,15 @@
+Prelude/runtime invariant repair — 2026-10-18 (joined verification pending):
+the frozen628 Engine run reaches968/969 passes; its remaining failure expects
+obsolete R layout10 after the intentional layout11 helper-roster change. The
+same-ID control now compares checked layout and exact runtime bytes against the
+same entry compiled without a prelude, rather than pinning a second version
+number. A public-Engine foundation confirms all40495487 runtime bytes remain
+identical. The original Engine and standalone-fixture failures remain recorded.
+All12 unchanged full-BMP RegExp fixture/mode diagnostics also pass at their
+original60000ms allowance in40.6–51.5s using a frozen public628 Engine and fresh
+bounded caches. These are diagnostics; joined native/CLI and full-suite gates
+remain open.
+
 RegExp fixture correction — 2026-10-18: the frozen628 native run reports
 one failure in the new cross-realm control: its source referenced `$262` without
 loading the Test262 harness. Stage tracing identifies that unbound identifier;
