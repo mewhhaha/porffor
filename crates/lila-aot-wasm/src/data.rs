@@ -1,5 +1,7 @@
 use super::*;
+mod global_var_declarations;
 mod program_metadata;
+pub(crate) use global_var_declarations::{GlobalVarDeclarationNames, GlobalVarDeclarationTables};
 mod shared_pool_storage;
 pub(crate) use shared_pool_storage::PoolBytes;
 use shared_pool_storage::PoolStringRefs;
@@ -383,6 +385,7 @@ pub(crate) struct StringPool {
     module_bytes: BTreeMap<lila_ir::ModuleUnitId, PooledModuleBytes>,
     compact_array_recipes: compact_array_recipes::CompactArrayRecipes,
     numeric_call_tables: crate::call_rows::NumericCallTables,
+    global_var_declarations: BTreeMap<lila_ir::StaticScriptId, GlobalVarDeclarationTables>,
     pooled_code_unit_bytes: PoolBytes,
     refs: PoolStringRefs,
     source_runtime_error_messages: BTreeMap<String, i64>,
@@ -2241,6 +2244,7 @@ impl CompilerOwnedPool {
             for name in unit.global_bindings.lexical_names() {
                 pool.intern_string(name);
             }
+            pool.collect_global_var_declarations(unit)?;
         }
         if pool.needs_runtime_regexp_programs {
             pool.queue_runtime_regexp_programs();

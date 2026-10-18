@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use wasm_encoder::{ElementSection, Elements};
 
 use super::*;
+use crate::function_layout::ModuleEntryRole;
 use crate::gc_types::FinalizedRuntimeModule;
 
 /// The one type section and the typed indices assigned while constructing it.
@@ -53,7 +54,11 @@ pub(crate) struct FinalizedModuleSections {
 }
 
 impl FinalizedModuleSections {
-    pub(crate) fn begin(self, first_wasm_index: u32) -> CompiledModulePackage {
+    pub(crate) fn begin(
+        self,
+        first_wasm_index: u32,
+        entry_role: ModuleEntryRole,
+    ) -> CompiledModulePackage {
         CompiledModulePackage {
             runtime: self.runtime,
             code: ModuleCode::new(first_wasm_index),
@@ -61,6 +66,7 @@ impl FinalizedModuleSections {
             program_initialize: None,
             program_functions: Vec::new(),
             main_emitted_local_count: 0,
+            entry_role,
         }
     }
 }
@@ -84,6 +90,7 @@ pub(crate) struct CompiledModulePackage {
     )>,
     program_functions: Vec<EmittedFunction>,
     main_emitted_local_count: u32,
+    entry_role: ModuleEntryRole,
 }
 
 impl CompiledModulePackage {
@@ -121,6 +128,11 @@ impl CompiledModulePackage {
         compilation: MainFunctionCompilation<'_>,
     ) -> Result<(), EmitError> {
         assert!(self.main.is_none(), "a module package compiles main once");
+        assert_eq!(
+            self.entry_role,
+            ModuleEntryRole::Main,
+            "only a main entry compiles JavaScript main"
+        );
         let initializer = self.program_initialize.as_ref().map(|(index, _)| *index);
         let (main, emitted_local_count) =
             compilation.compile(self.runtime.globals(), initializer)?;
@@ -158,11 +170,21 @@ impl CompiledModulePackage {
             program_initialize,
             program_functions,
             main_emitted_local_count: _,
+            entry_role,
         } = self;
-        assert!(
-            program_initialize.is_none() || main.is_some(),
-            "a linked P bootstrap and main share their package"
-        );
+        match entry_role {
+            ModuleEntryRole::RuntimeOnly => assert!(
+                main.is_none() && program_initialize.is_none(),
+                "runtime modules have no P entry"
+            ),
+            ModuleEntryRole::Main => {
+                assert!(main.is_some(), "main and its globals share their package")
+            }
+            ModuleEntryRole::NativeFactory => assert!(
+                main.is_none() && program_initialize.is_some(),
+                "native factories publish a P without JavaScript main"
+            ),
+        }
         if let Some(main) = main {
             code.push(main);
         }
@@ -262,7 +284,8 @@ impl ModuleAssemblySections {
 // only borrow the one compiled package. A future edit that weakens those
 // ownership transitions no longer matches these function types and fails to
 // compile.
-const _: fn(FinalizedModuleSections, u32) -> CompiledModulePackage = FinalizedModuleSections::begin;
+const _: fn(FinalizedModuleSections, u32, ModuleEntryRole) -> CompiledModulePackage =
+    FinalizedModuleSections::begin;
 const _: fn(crate::runtime_artifact::ModuleKind<'_>) -> ModuleTypeRegistry =
     ModuleTypeRegistry::new;
 const _: fn(
@@ -306,4 +329,52 @@ impl ModuleGlobalSectionBuilder {
         self.section.global(global_type, init_expr);
         self
     }
+}
+
+/// Fixed stateless completion bytes are assembled beside the sole module owner.
+/// The input proof permits no source, data, environment or P to escape.
+pub(crate) fn empty_direct_eval_module(
+    _proof: &lila_ir::EmptyRuntimeDirectEval<'_>,
+    export: &str,
+) -> Vec<u8> {
+    use crate::WasmRuntimeValueTag;
+    use lila_ir::CompletionKindIr;
+    use wasm_encoder::{
+        CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+        RefType, TypeSection, ValType,
+    };
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.ty().function(
+        [],
+        [
+            ValType::I32,
+            ValType::I64,
+            ValType::Ref(RefType::EQREF),
+            ValType::I32,
+            ValType::I32,
+            ValType::I32,
+        ],
+    );
+    module.section(&types);
+    let mut functions = FunctionSection::new();
+    functions.function(0);
+    module.section(&functions);
+    let mut exports = ExportSection::new();
+    exports.export(export, ExportKind::Func, 0);
+    module.section(&exports);
+    let mut body = Function::new([]);
+    body.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+    body.instruction(&Instruction::I64Const(0));
+    body.instruction(&Instruction::RefNull(RefType::EQREF.heap_type));
+    body.instruction(&Instruction::I32Const(
+        CompletionKindIr::Normal.abi_code() as i32
+    ));
+    body.instruction(&Instruction::I32Const(0));
+    body.instruction(&Instruction::I32Const(2)); // Entered.
+    body.instruction(&Instruction::End);
+    let mut code = CodeSection::new();
+    code.function(&body);
+    module.section(&code);
+    module.finish()
 }

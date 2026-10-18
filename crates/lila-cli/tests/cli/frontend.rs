@@ -955,11 +955,15 @@ fn failing_test262_suite_root(name: &str) -> std::path::PathBuf {
 
 fn unsupported_test262_suite_root(name: &str) -> std::path::PathBuf {
     let suite_root = unique_project_dir(name);
-    write_project_file(
-        &suite_root,
-        "test/language/unsupported/feature.js",
-        "/*---\nflags: [raw]\n---*/\n__lilaRealmEvalScript?.(String(unknownSource));\n",
-    );
+    // Exercise the native caller's explicit ExternalCallerImport boundary.
+    // Build the eval text at runtime so it takes the native compilation path.
+    let units = "import('./unavailable.js');"
+        .encode_utf16()
+        .map(|unit| unit.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let source = format!("/*---\nflags: [raw]\n---*/\neval(String.fromCharCode({units}));\n");
+    write_project_file(&suite_root, "test/language/unsupported/feature.js", &source);
     suite_root
 }
 

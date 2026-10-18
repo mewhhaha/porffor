@@ -6,19 +6,19 @@
       "sha256": "eda64286c216d68d3da46101c2b3c7c8eff08ba99fe955e6cb4bd89f060433b9"
     },
     {
-      "bytes": 4028,
+      "bytes": 4295,
       "path": "Cargo.toml",
-      "sha256": "fd9bdfd3cc075d973f1918d9961fec29eab6c5fb23c98a2789c7618b459d7d91"
+      "sha256": "5d1c78891a87da160cf71e46575ecf6b0e056598566e08f52be551ddcbd61623"
     },
     {
-      "bytes": 87003,
+      "bytes": 87129,
       "path": "crates/lila-aot-wasm/src/emit.rs",
-      "sha256": "ebf016f2f38240a1285735d86a46b0031d9095d2439635df234cbe2bba8fc807"
+      "sha256": "2e6357a0881127fbf4b0a70aeeaaa6ec8645f63449c3cb01e1f208b4b89f2867"
     },
     {
-      "bytes": 80212,
+      "bytes": 80977,
       "path": "crates/lila-aot-wasm/src/emit/module_assembly.rs",
-      "sha256": "c766fd5c20043fa76513786b500946878a684ba932f16a5b6ab3b859e8b04bd9"
+      "sha256": "c94a8e30729935787a946102db4cedfb5a781f2bcedb4108ebb98a354cd8b7f3"
     },
     {
       "bytes": 33803,
@@ -193,7 +193,7 @@
     {
       "bytes": 12549,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "6d38b26543b8134bba3deafd396cafd9da5ad4324e8bf0cbdf32b2884a3a6f93"
+      "sha256": "c65e5a06b830237152987c7152f6c910f2401901d7f6737888d0665a38e10fa9"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "8c9d89205fe75cf1fa88ec82c8574768b04965b2fc91511348450f6cd30ea310"
+      "sha256": "9fe61b4d32d1f09932ad37d6c5c15514235045a862362e1b24e54ba5c443962a"
     },
     {
       "bytes": 5033,
@@ -1033,7 +1033,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "8ec6edafc5ee7f65e88d5f7a769a62cab405a1b6d97089ffb904a9575241ed4d",
+  "provider_data_sha256": "f25f6a483c4b7d3ca9672e40704ddb65f74716544cca79b95442fcce2cb96e89",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

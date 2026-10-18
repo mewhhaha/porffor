@@ -72,6 +72,21 @@ impl FunctionBuilder<'_> {
                     .require_non_null(function),
                 function,
             );
+        let result = self.emit_global_environment_from(&environment, function);
+        environment.clear(function);
+        result
+    }
+
+    /// Walk the explicitly supplied source chain, never the active Realm fallback.
+    pub(crate) fn emit_global_environment_from(
+        &mut self,
+        source: &GcLocal<Environment>,
+        function: &mut Function,
+    ) -> GcLocal<Environment> {
+        let schema = self.runtime_schema();
+        let environment = schema
+            .reserve_gc_local(function)
+            .initialize(source.load(schema, function), function);
         let parent = schema
             .reserve_gc_local::<Environment, Nullable>(function)
             .initialize_null(schema, function);

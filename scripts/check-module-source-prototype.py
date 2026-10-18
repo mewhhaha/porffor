@@ -60,7 +60,7 @@ def check(root: Path, overrides=None):
     need(compact(A + "builtins/host/create_realm.rs").count("NonArrayRealmIntrinsicSlot::AbstractModuleSourceConstructor,") == 2,
          "created-Realm facades retain that Realm's actual abstract intrinsic")
     runtime = compact(A + "runtime_artifact.rs")
-    need("constLAYOUT_VERSION:u32=9;" in runtime and
+    need("constLAYOUT_VERSION:u32=11;" in runtime and
          "(encoded==LAYOUT_VERSION).then_some(Self(encoded))" in runtime,
          "layout9 rejects old158-entry R8 before linking new slot consumers")
     proof = compact(A + "runtime_artifact/validated_profile.rs")
@@ -76,8 +76,10 @@ def check(root: Path, overrides=None):
              helper + "(previous_version);" in control and "assert_ne!(LAYOUT_VERSION,previous_version);" in control and
              "previous[MAGIC.len()..MAGIC.len()+4].copy_from_slice(&previous_version.to_le_bytes());" in control,
              "authenticated ABI7 and ABI8 negative controls retained: " + relative)
-    need("foroldin[0,4,6,7,8,10,u32::MAX]" in compact(A + "runtime_artifact/validated_profile/tests.rs"),
-         "native proof admission explicitly rejects layout8")
+    admission_tests = compact(A + "runtime_artifact/validated_profile/tests.rs")
+    need("forwrongin(0..LAYOUT_VERSION).chain([LAYOUT_VERSION+1,u32::MAX])" in admission_tests and
+         "CurrentRuntimeLayoutVersion::admit(wrong).is_none()" in admission_tests,
+         "native proof rejects every older layout and invalid future versions")
     controls = source(E)
     for text in ["Object.getPrototypeOf(sourcePrototype) === C.prototype", "Object.getPrototypeOf(other) === sourcePrototype",
                  "tag.call(sourcePrototype) === undefined", "host prototype crossed Realms",
@@ -96,4 +98,4 @@ if __name__ == "__main__":
         print(error, file=sys.stderr)
     if errors:
         raise SystemExit(1)
-    print("ModuleSource Realm prototype/layout9 source controls passed")
+    print("ModuleSource Realm prototype/ABI10 source controls passed")

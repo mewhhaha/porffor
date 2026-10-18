@@ -419,3 +419,22 @@ cross-realm cases. Report unsupported counts separately until resolved. These
 are refresh instructions, not a claim that this documentation edit ran them;
 completed checkpoint results belong to the repair notes and publisher-owned
 status artifacts.
+
+### Validated empty statement lists — 2026-10-18, native acceptance pending
+
+Repeated bare `{}` and `;` statements have empty completion after actual caller
+parsing and full lowering. The empty-eval syntax witness now admits those two
+forms; the existing inert preparation, declaration, function, environment and
+completion checks remain mandatory before stateless Wasm execution. Nonempty
+blocks and declaration/statement effects stay on ordinary compilation. A new
+65,536-statement IR control preserves exact source ownership and rejects retained
+declarations, values, debugger statements and duplicate lexical early errors.
+Existing Engine completion controls now exercise mixed empty statements too.
+
+Source112's selected4186 native tests passed, but its in-progress focused CLI
+replay records a strict regress-610026 deadline regression. Both modes fail the
+separate fresh supervised diagnostic with compilation paused. A traced private
+worker completes the original strict fixture, measuring27.03s parse/lower and
+16.36s factory initialization/execution across its three actual eval callbacks.
+This timing diagnostic replaces no supervised verdict. The joined repair still
+requires ordinary native execution and exact original-budget CLI retention.

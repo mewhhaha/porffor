@@ -52,6 +52,43 @@ fn non_string_proof_retains_its_precise_result() {
 }
 
 #[test]
+fn non_string_literals_never_request_fictitious_prepared_units() {
+    for literal in ["17", "1.5", "true", "false", "null", "17n"] {
+        for call in [
+            format!("(0, eval)({literal})"),
+            format!("eval.call(undefined, {literal})"),
+            format!("eval.apply(undefined, [{literal}])"),
+            format!("Reflect.apply(eval, undefined, [{literal}])"),
+        ] {
+            let program = lower(&call);
+            assert!(
+                program.is_wasm_supported(),
+                "{call}: {:?}",
+                program.diagnostics
+            );
+            assert!(
+                program.script.unwrap().prepared_scripts.is_empty(),
+                "{call}"
+            );
+        }
+    }
+    for call in ["(0, eval)('17')", "eval.call(undefined, '17')"] {
+        let program = lower(call);
+        assert!(
+            program.is_wasm_supported(),
+            "{call}: {:?}",
+            program.diagnostics
+        );
+        assert!(
+            program.script.unwrap().prepared_scripts.iter().any(|unit| {
+                unit.kind == PreparedScriptKind::IndirectEval && unit.source == "17"
+            }),
+            "{call}"
+        );
+    }
+}
+
+#[test]
 fn boxed_values_in_mutable_globals_remain_executable() {
     let program = lower(
         "var x = {}; function check(actual, expected) { return actual === expected; } \

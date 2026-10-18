@@ -51,6 +51,18 @@ fn source_roundtrips_keep_slash_parity_line_terminators_and_raw_surrogates() {
         (vec![92, 92, 92, 47], vec![92, 92, 92, 47], vec![92, 47]),
         (vec![10], vec![92, 110], vec![10]),
         (vec![13], vec![92, 114], vec![13]),
+        // Mix a same-width escaped line terminator with a growing slash
+        // escape and untouched UTF-16 suffix units in one output buffer.
+        (
+            vec![92, 10, 47, 0xd800, 97],
+            vec![92, 110, 92, 47, 0xd800, 97],
+            vec![10, 47, 0xd800, 97],
+        ),
+        (
+            vec![92, 13, 91, 47, 93, 0xdc00],
+            vec![92, 114, 91, 47, 93, 0xdc00],
+            vec![13, 47, 0xdc00],
+        ),
         (
             vec![0x2028],
             "\\u2028".encode_utf16().collect(),

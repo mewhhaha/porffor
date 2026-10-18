@@ -2778,6 +2778,7 @@ fn run_wasm_raw(source: &str) -> (i64, WasmRuntimeValueTag, i32, Option<Box<[u16
         WasmHostState {
             weak: wasm_gc_weak_host::WeakGcState::default(),
             native_source_compiler: None,
+            native_template_instances: Default::default(),
             realm: engine.realm.clone(),
             output_events: WasmOutputEvents::DelegateOnly,
             intl_kernel: shared_embedded_intl_kernel()

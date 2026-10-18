@@ -216,7 +216,22 @@ fn package_lifecycle_is_consume_once_and_compile_time_checked() {
         "forfunctioninprogram_functions{code.push(function);}",
         "let(functions,code,function_table)=code.finish();"
     )));
-    assert!(compact(publish).contains("assert!(program_initialize.is_none()||main.is_some(),"));
+    let roles = compact(bounded(
+        publish,
+        "match entry_role {",
+        "if let Some(main) = main {",
+    ));
+    assert_eq!(roles.matches("ModuleEntryRole::").count(), 3);
+    for role in [
+        "ModuleEntryRole::RuntimeOnly=>assert!(main.is_none()&&program_initialize.is_none(),",
+        "ModuleEntryRole::Main=>{assert!(main.is_some(),",
+        "ModuleEntryRole::NativeFactory=>assert!(main.is_none()&&program_initialize.is_some(),",
+    ] {
+        assert!(
+            roles.contains(role),
+            "lost entry-role ownership guard: {role}"
+        );
+    }
     assert!(publish.contains("runtime.globals().defined_section(imported_globals)"));
     assert!(OWNER_SOURCE.contains("let (functions, code, function_table) = code.finish();"));
 
@@ -281,8 +296,12 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
             "module_types.finalize_globals(globals, uses_heap, module_guard_count)",
             1,
         ),
-        ("module_sections.begin(first_defined_function)", 1),
+        (
+            "module_sections.begin(first_defined_function, layout.entry_role())",
+            1,
+        ),
         ("module_package.compile_main(", 1),
+        ("module_package.compile_program_initialize(", 1),
         (
             "module_package.append_functions(compiled_functions, program_functions)",
             1,
@@ -293,8 +312,19 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     ] {
         assert_eq!(EMIT_SOURCE.matches(call).count(), count, "{call}");
     }
-    assert!(compact(EMIT_SOURCE)
-        .contains("ifcompile_program{module_package.compile_main(MainFunctionCompilation::new("));
+    assert!(compact(EMIT_SOURCE).contains(
+        "iflayout.main_index().is_some(){module_package.compile_main(MainFunctionCompilation::new("
+    ));
+    let initialize = EMIT_SOURCE
+        .find("if let Some(index) = layout.program_initialize_index() {")
+        .unwrap();
+    let initialize_body = EMIT_SOURCE
+        .find("module_package.compile_program_initialize(ProgramInitializeCompilation::new(")
+        .unwrap();
+    let main = EMIT_SOURCE
+        .find("if layout.main_index().is_some() {")
+        .unwrap();
+    assert!(initialize < initialize_body && initialize_body < main);
     assert!(!EMIT_SOURCE.contains("let main_function ="));
     assert!(EMIT_SOURCE.contains("program_functions.extend(program_helpers);"));
     assert_eq!(
@@ -351,5 +381,28 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     assert!(!EMITTER_FAMILY.contains("CompiledModulePackage"));
     assert!(!EMITTER_FAMILY.contains("FinalizedModuleSections"));
     assert!(!EMITTER_FAMILY.contains("FunctionSection"));
-    assert!(!OWNER_SOURCE.contains("FunctionSection"));
+    let (package_owner, empty_entry) = OWNER_SOURCE
+        .split_once("pub(crate) fn empty_direct_eval_module(")
+        .expect("stateless empty eval has its separate proof-gated entry");
+    assert!(!package_owner.contains("FunctionSection"));
+    let signature = compact(empty_entry.split_once(") -> Vec<u8> {").unwrap().0);
+    assert_eq!(
+        signature,
+        "_proof:&lila_ir::EmptyRuntimeDirectEval<'_>,export:&str,"
+    );
+    assert_eq!(empty_entry.matches("FunctionSection::new()").count(), 1);
+    assert!(empty_entry.contains("let mut body = Function::new([]);"));
+    assert!(empty_entry.contains("WasmRuntimeValueTag::Undefined.tag()"));
+    assert!(empty_entry.contains("CompletionKindIr::Normal.abi_code()"));
+    for stateful_section in [
+        "ImportSection",
+        "GlobalSection",
+        "MemorySection",
+        "DataSection",
+    ] {
+        assert!(
+            !empty_entry.contains(stateful_section),
+            "{stateful_section}"
+        );
+    }
 }

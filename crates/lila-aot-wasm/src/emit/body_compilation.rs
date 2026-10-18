@@ -1,6 +1,7 @@
 use super::*;
 use crate::function_layout::ProgramInitializeIndex;
 mod empty_strict;
+mod global_declarations;
 mod program_initialize;
 pub(crate) use program_initialize::{CompletedProgramInitializeBody, ProgramInitializeCompilation};
 
@@ -103,7 +104,7 @@ impl<'a> FunctionBuilder<'a> {
                 let program = self
                     .runtime_schema()
                     .call_program_initialize(index, &mut function);
-                self.bind_entry_program(program);
+                self.bind_entry_program(program, &mut function);
             }
             self.init_current_realm(&mut function)?;
             self.init_current_env(&mut function)?;
@@ -180,7 +181,7 @@ impl<'a> FunctionBuilder<'a> {
         self.bind_parameters(&mut function)?;
         self.completion
             .set_kind(CompletionKind::Normal, &mut function);
-        for name in self.hoisted_vars.clone() {
+        for name in self.source_frame_var_names() {
             // A main-frame write name always owns storage. Internal functions
             // may instead reuse their parameter or implicit `arguments`
             // binding, preserving their existing hoisting behavior.

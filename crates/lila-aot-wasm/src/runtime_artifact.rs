@@ -35,6 +35,8 @@ pub use validated_profile::ValidatedRuntimeArtifact;
 
 /// Module namespace under which a program module imports runtime exports.
 pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
+/// Pure Wasm entry; only fully lowered static-literal proofs select this kernel.
+pub const NATIVE_REGEXP_LITERAL_FACTORY_EXPORT: &str = "lila.native_regexp_literal";
 
 /// Bumped when the physical or semantic R/P contract changes.
 // Version 3 admits whole-Completion tail calls, Identifier PutValue and native ByteArray allocation.
@@ -44,7 +46,9 @@ pub const RUNTIME_IMPORT_NAMESPACE: &str = "lila_runtime";
 // Version 7 adds the distinct typed native global-Script compiler core import.
 // Version 8 adds native direct eval, its caller context and instance-element hook.
 // Version 9 retains the per-Realm host ModuleSource prototype in its own intrinsic slot.
-const LAYOUT_VERSION: u32 = 9;
+// Version 10 gives native P immutable source operands in a dedicated owner field.
+// Version 11 adds typed shared function naming and native RegExp literal kernels.
+const LAYOUT_VERSION: u32 = 11;
 
 /// A checked current envelope, or the compiler's own current emission.
 /// Decoding a raw payload cannot silently mint its version authority.

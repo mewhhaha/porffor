@@ -9,7 +9,8 @@ C = E + 'wasm_native_source_compiler.rs'
 T = E + 'wasm_native_source_compiler/trace.rs'
 N = E + 'wasm_native_program_template.rs'
 KINDS = {'function': 'Function', 'global_script': 'GlobalScript', 'direct_eval': 'DirectEval'}
-FILES = (C, T, N) + tuple(E + 'wasm_native_' + k + '_compiler' + tail
+I = E + 'wasm_native_program_template/instance.rs'
+FILES = (C, T, N, I) + tuple(E + 'wasm_native_' + k + '_compiler' + tail
     for k in KINDS for tail in ('.rs', '/factory.rs'))
 
 def compact(source):
@@ -39,8 +40,11 @@ def check(root, overrides=None):
          'self.record("callback","end",end,' in trace and
          'self.callback.record(self.phase.name(),"end",end,' in trace,
          'callback and child spans close by RAII including error paths')
-    need(trace.count('eprintln!(') == 1 and
+    need(trace.count('eprintln!(') == 3 and
          'v=1callback={}family={}phase={}event={}at_ns={}elapsed_ns={}' in trace and
+         'v=1callback={}family={}module_memory_cache={}function_cache_hits={}function_cache_misses={}counters_scope=process' in trace and
+         'v=1callback={}family={}module_memory_cache={}function_cache=unavailablecounters_scope=process' in trace and
+         'fncompiled_module_cache(&self,module_hit:bool,function_delta:Option<(u64,u64)>,)' in trace and
          'source:' not in trace and 'String' not in trace and 'WasmHostState' not in trace and
          'thread_local!' not in trace and 'static' not in re.sub(r"&'staticstr", '', trace),
          'bounded numeric protocol has no source, semantic roots or ambient execution state')
@@ -61,7 +65,15 @@ def check(root, overrides=None):
              'instantiate(&mut*store,engine,context,&template,trace,)?' in factory and
              factory.find('Phase::FactoryInvoke') < factory.find('initialize.call(') < factory.find('factory.call('),
              'natural artifact/template/invoke boundaries retain actual execution: ' + kind)
-    binder = c[N]
+    binder = c[N] + c[I]
+    need('letfunction_cache=trace.and_then(|_|cranelift_function_cache());' in binder and
+         'letfunction_before=function_cache.as_ref().map(|cache|cache.counters());' in binder and
+         binder.find('letfunction_before=') < binder.find('cache::module(') < binder.find('letafter=cache.counters();') and
+         'ifletSome(trace)=trace{' in binder and
+         'after.0.saturating_sub(before.0)' in binder and
+         'after.1.saturating_sub(before.1)' in binder and
+         'trace.compiled_module_cache(hit,delta);' in binder,
+         'cache diagnostics remain optional, process-scoped and bounded by the callback trace')
     need('trace:Option<&CallbackTrace' in binder and
          all('Phase::' + phase in binder for phase in ('CompiledModuleLookup', 'BindImports', 'Instantiate')) and
          binder.find('Phase::CompiledModuleLookup') < binder.find('cache::module(') < binder.find('drop(lookup)') and

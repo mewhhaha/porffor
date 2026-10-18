@@ -2129,6 +2129,7 @@ impl WasmOutputEvents {
 struct WasmHostState {
     weak: wasm_gc_weak_host::WeakGcState,
     native_source_compiler: Option<Arc<wasm_native_source_compiler::NativeSourceCompilerContext>>,
+    native_template_instances: memory_module_cache::MemoryNativeInstanceCache,
     realm: Realm,
     output_events: WasmOutputEvents,
     intl_kernel: Arc<IntlKernel<EmbeddedIntlProvider>>,
@@ -3904,6 +3905,7 @@ impl Engine {
             WasmHostState {
                 weak: wasm_gc_weak_host::WeakGcState::default(),
                 native_source_compiler: None,
+                native_template_instances: Default::default(),
                 realm: self.realm.clone(),
                 output_events: WasmOutputEvents::for_mode(mode),
                 intl_kernel,

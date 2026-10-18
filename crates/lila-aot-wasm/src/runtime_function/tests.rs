@@ -83,7 +83,12 @@ fn emitted_native_function_is_only_p_with_typed_bootstrap_and_actual_factory_ali
     }
     let initialize = exports[artifact.program_initialize_export()];
     let factory = exports[artifact.factory_export()];
-    let main = exports["main"];
+    assert!(!exports.contains_key("main"));
+    assert_eq!(
+        calls.keys().next().copied(),
+        Some(initialize),
+        "initializer is the first defined P function"
+    );
     assert_eq!(
         function_types[initialize as usize],
         StaticSignature::ProgramInitialize.type_index()
@@ -128,12 +133,4 @@ fn emitted_native_function_is_only_p_with_typed_bootstrap_and_actual_factory_ali
         vec![r_initialize],
         "only the guarded R literal bootstrap may execute from program_init"
     );
-    assert_eq!(
-        calls[&main]
-            .iter()
-            .filter(|index| **index == initialize)
-            .count(),
-        1
-    );
-    assert!(!calls[&initialize].contains(&main));
 }

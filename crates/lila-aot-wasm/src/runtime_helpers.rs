@@ -1018,6 +1018,9 @@ runtime_helper_domain! {
     ObjectHeaderProjection / ObjectHeaderProjectionArguments / ObjectHeaderProjectionParameters / "object_header_projection" { value:Value } => (Ref OrdinaryObject NonNullable);
     OrdinaryObjectAllocate / OrdinaryObjectAllocateArguments / OrdinaryObjectAllocateParameters / "ordinary_object_allocate" { prototype:Value,immutable_prototype:I32 } => (Ref OrdinaryObject NonNullable);
     ValueToObject / ValueToObjectArguments / ValueToObjectParameters / "value_to_object" { realm:(Ref RealmRecord NonNullable),input:Value } => Completion;
+    FunctionNameFromKey / FunctionNameFromKeyArguments / FunctionNameFromKeyParameters / "function_name_from_key" { key:Key,prefix:I32 } => (Ref StringValue NonNullable);
+    RegExpLiteralAllocate / RegExpLiteralAllocateArguments / RegExpLiteralAllocateParameters / "regexp_literal_allocate" { prototype:Value,source:(Ref StringValue NonNullable),flags:(Ref StringValue NonNullable),program:(Ref RegExpProgram NonNullable),realm:(Ref RealmRecord NonNullable) } => (Ref RegExpObject NonNullable);
+    NativeRegExpLiteralFactory / NativeRegExpLiteralFactoryArguments / NativeRegExpLiteralFactoryParameters / "native_regexp_literal_factory" { source_units:(Ref CodeUnitArray NonNullable),flags_units:(Ref CodeUnitArray NonNullable),compiled:(Ref ImmutableByteArray NonNullable),environment:(Ref Environment NonNullable),realm:(Ref RealmRecord NonNullable) } => StatusCompletion;
     FunctionMetadataPublish / FunctionMetadataPublishArguments / FunctionMetadataPublishParameters / "function_metadata_publish" { callable:(Ref FunctionObject NonNullable),length_bits:I64,name:(Ref StringValue NonNullable),configurable:I32,has_caller:I32,create_prototype:I32,constructor_back_reference:I32,prototype_parent:Value } => Void;
     RealmInitializeIntrinsics / RealmInitializeIntrinsicsArguments / RealmInitializeIntrinsicsParameters / "realm_initialize_intrinsics" { realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable) } => RealmInitializeIntrinsics;
     ProxyCall / ProxyCallArguments / ProxyCallParameters / "proxy_call" { callee:Value,this_value:Value,arguments:(Ref ValueArray NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
@@ -1111,6 +1114,9 @@ runtime_helper_domain! {
     PrivateFieldDefine / PrivateFieldDefineArguments / PrivateFieldDefineParameters / "private_field_define" { receiver:Value,private_environment:(Ref PrivateEnvironment Nullable),class_scope:I64,name_ordinal:I32,value:Value,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     CompactArrayLiteral / CompactArrayLiteralArguments / CompactArrayLiteralParameters / "compact_array_literal" { offset:I32,bytes:I32,depth:I32,prototype:Value,caller_program:Program } => Completion;
     InitializeInstanceElements / InitializeInstanceElementsArguments / InitializeInstanceElementsParameters / "initialize_instance_elements" { caller_program:Program,caller_function_context:(Ref FunctionContext NonNullable),receiver:Value } => Completion;
+    GlobalLexicalDeclarationCheck / GlobalLexicalDeclarationCheckArguments / GlobalLexicalDeclarationCheckParameters / "global_lexical_declaration_check" { key:(Ref StringValue NonNullable),global_environment:(Ref Environment NonNullable),caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalVarDeclarationCheck / GlobalVarDeclarationCheckArguments / GlobalVarDeclarationCheckParameters / "global_var_declaration_check" { object:Value,key:Key,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
+    GlobalVarDeclarationInstall / GlobalVarDeclarationInstallArguments / GlobalVarDeclarationInstallParameters / "global_var_declaration_install" { object:Value,key:Key,deletable:I32,caller_execution_realm:(Ref RealmRecord NonNullable),caller_environment:(Ref Environment Nullable),caller_program:Program } => Completion;
     JsonStringifyValue / JsonStringifyValueArguments / JsonStringifyValueParameters / "json_stringify_value" { holder:Value,key:(Ref StringValue NonNullable),context:(Ref JsonStringifyContext NonNullable),indent:I64,seen:(Ref ValueArray NonNullable),caller_program:Program } => Completion;
 }
 
@@ -1143,6 +1149,9 @@ impl RuntimeHelperId {
             Self::ObjectHeaderProjection => HelperOwner::Runtime,
             Self::OrdinaryObjectAllocate => HelperOwner::Runtime,
             Self::ValueToObject => HelperOwner::Runtime,
+            Self::FunctionNameFromKey => HelperOwner::Runtime,
+            Self::RegExpLiteralAllocate => HelperOwner::Runtime,
+            Self::NativeRegExpLiteralFactory => HelperOwner::Runtime,
             Self::FunctionMetadataPublish => HelperOwner::Runtime,
             Self::RealmInitializeIntrinsics => HelperOwner::Runtime,
             Self::ProxyCall => HelperOwner::Runtime,
@@ -1236,6 +1245,9 @@ impl RuntimeHelperId {
             Self::GlobalIdentifierTypeofStrict => HelperOwner::Runtime,
             Self::PrivateElementAdd => HelperOwner::Runtime,
             Self::PrivateFieldDefine => HelperOwner::Runtime,
+            Self::GlobalLexicalDeclarationCheck => HelperOwner::Runtime,
+            Self::GlobalVarDeclarationCheck => HelperOwner::Runtime,
+            Self::GlobalVarDeclarationInstall => HelperOwner::Runtime,
             Self::JsonStringifyValue => HelperOwner::Runtime,
             Self::CompactArrayLiteral => HelperOwner::Program,
             Self::InitializeInstanceElements => HelperOwner::ContextHook,
@@ -1254,6 +1266,9 @@ impl RuntimeHelperId {
             Self::ObjectHeaderProjection => true,
             Self::OrdinaryObjectAllocate => true,
             Self::ValueToObject => true,
+            Self::FunctionNameFromKey => true,
+            Self::RegExpLiteralAllocate => true,
+            Self::NativeRegExpLiteralFactory => true,
             Self::FunctionMetadataPublish => true,
             Self::RealmInitializeIntrinsics => true,
             Self::ProxyCall => true,
@@ -1345,6 +1360,9 @@ impl RuntimeHelperId {
             Self::AsyncGeneratorYieldReactions => true,
             Self::AsyncGeneratorYieldReturnReactions => true,
             Self::AsyncGeneratorAwaitReturnReactions => true,
+            Self::GlobalLexicalDeclarationCheck => true,
+            Self::GlobalVarDeclarationCheck => true,
+            Self::GlobalVarDeclarationInstall => true,
             Self::JsonStringifyValue => emission.holds(RuntimeHelperFact::UsesJsonStringify),
             Self::CompactArrayLiteral => true,
             Self::InitializeInstanceElements => true,

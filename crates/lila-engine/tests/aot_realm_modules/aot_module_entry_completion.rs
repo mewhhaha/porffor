@@ -32,6 +32,51 @@ const POLICIES: [PromiseRejectionPolicy; 2] = [
 ];
 
 #[test]
+fn prelude_failure_never_claims_a_rooted_entry_snapshot() {
+    // Constructor metadata describes the actual thrown value. It does not
+    // imply that Module entry evaluation started or produced a rooted snapshot.
+    for (reason, rendered, constructor) in [
+        ("7", "7", None),
+        ("undefined", "undefined", None),
+        ("({})", "object", Some("Object")),
+        (
+            "({ constructor: { name: 'PreludeReason' } })",
+            "object",
+            Some("PreludeReason"),
+        ),
+        ("Object.create(null)", "object", None),
+        (
+            "({ get constructor() { throw new Error('getter must not execute'); } })",
+            "object",
+            None,
+        ),
+    ] {
+        let failure = engine()
+            .observe_module(
+                "throw new RangeError('entry must not execute');",
+                CompileOptions {
+                    module_prelude: Some(format!("throw {reason};")),
+                    ..CompileOptions::default()
+                },
+                execution(),
+            )
+            .expect_err("prelude is setup, before entry observation");
+        assert!(failure.is_global_prelude_failure());
+        assert_eq!(
+            failure.wasm_execution_failure_kind(),
+            Some(WasmExecutionFailureKind::JavaScriptException)
+        );
+        assert_eq!(
+            failure.wasm_javascript_exception_constructor_name(),
+            constructor,
+            "reason: {reason}, failure: {failure}"
+        );
+        assert!(failure.message().contains(rendered), "{failure}");
+        assert!(!failure.message().contains("entry must not execute"));
+    }
+}
+
+#[test]
 fn synchronous_and_fulfilled_async_entries_return_only_undefined() {
     for policy in POLICIES {
         for source in ["42;", "await 0; 42;", "await Promise.resolve(42); 99;"] {

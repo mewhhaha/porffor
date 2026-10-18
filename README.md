@@ -1,3 +1,13 @@
+Focused native repairs — 2026-10-18: ordinary Cargo execution on compiler
+source `a59219629f735ebf7524090a6560ad7597c2a7a7` passes 173 checks with
+zero failures or ignored tests across nine targets. Every one of the 14 exact
+D6 failure IDs now passes. The unchanged large RegExp regression completes in
+8.35 seconds under its original 30-second deadline. Three targets ran in full;
+six used explicit matching filters. This verifies the repair batch; complete
+current workspace, CLI retention, all-features and pinned conformance gates
+remain open. Original D6 failed evidence is preserved.
+[Exact focused coverage and raw evidence](docs/rust-rewrite/focused-native-repairs-173-20261018.json).
+
 Default workspace discovery — 2026-10-18: all 111 default-feature scopes
 have executed: 98 native targets and 13 documentation targets. The frozen D6
 source records 9,512 native passes and 14 failures,
@@ -7,6 +17,76 @@ arguments regressions, and one large RegExp source timeout. Repairs are prepared
 separately; current native/CLI acceptance, all-features, pinned suites and task
 cleanup remain open. Original failed outcomes are preserved.
 [Exact coverage and literal failure evidence](docs/rust-rewrite/default-workspace-discovery-20261018.json).
+
+Generated Intl provenance refresh — 2026-10-18: deterministic source
+identities now include the Cargo test-profile alignment. The pinned source
+archives, catalogue data and selected semantics remain unchanged. The full
+read-only preflight previously exposed eight exact reproducibility failures;
+the original receipt is retained. Current source a592 passes all604 tooling
+controls, eight source CI checks and three static checks.
+
+Trace source guard — 2026-10-18: the default-workspace source gate now
+recognizes the bounded cache-counter protocol alongside phase timings. It
+requires exact numeric fields, explicit process scope, callback ownership and
+optional cache acquisition; disabled tracing still reads no cache counters.
+Ordinary native execution remains pending.
+
+CLI Unsupported verdict control — 2026-10-18: an older authored fixture now
+reaches supported argument evaluation and produces a correct ReferenceError.
+Its replacement exercises the existing external-caller import capability
+boundary, retaining the native ID and all run/shard verdict and snapshot checks.
+Corrected ordinary D6 CLI checks pass for both run and shard; successor native
+verification remains pending.
+
+NumberFormat authored control — 2026-10-18: the broader D6 native discovery
+finds an older fixture that contradicts the explicitly selected legacy chaining
+policy. Its correction preserves the existing native ID and primitive-option
+checks, and checks wrapper identity, fallback descriptors, unwrapping and the
+direct parts-brand boundary. Product code and pinned Test262 fixtures are
+unchanged; successor native verification remains pending.
+
+RegExp source construction — 2026-10-18 (ordinary verification pending): the
+full D6 native run exposes a 30-second timeout on the unchanged long Unicode
+escape fixture. Frozen-CLI prefix diagnostics finish string creation and RegExp
+construction in about3–4seconds, while reading `.source` exceeds90seconds. Its
+getter copies a growing string for each code unit. The candidate counts escaped
+UTF-16 output once and fills one exact-size construction only when needed,
+preserving original source, slash/class state, line escapes and surrogate units.
+The original large regression remains unchanged; existing roundtrip controls
+gain two mixed escape cases. Native execution and measured gains remain pending.
+
+Annex B arguments repair — 2026-10-18 (ordinary verification pending): the
+broader D6 run exposes two unchanged Engine regressions. Eligibility incorrectly
+treated the implicit arguments binding as a formal parameter. The pinned
+FunctionDeclarationInstantiation checks `paramNames`, while implicit arguments
+belongs to the separate `paramBindings` list. The candidate removes that
+exclusion, retains actual formal and lexical collision guards, and preserves
+evaluation-time writes to the correct variable environment. Existing Engine
+fixtures remain unchanged; IR controls now check both copy eligibility and exact
+owner targets. Native execution and the full workspace remain unaccepted.
+
+Workspace ownership checks — 2026-10-18 (ordinary verification pending): seven
+failures in the frozen D6 workspace discovery use superseded entry-role,
+owner-binding and ProgramInstance ABI assertions. The repaired checks preserve
+all existing test IDs, typed hooks and owner-ordering controls. All 13 focused
+structure diagnostics pass against the current test files; the product-linked
+ABI test and complete workspace remain pending. The batch also aligns the small
+`cow-utils` test dependency's debug info across normal and proc-macro contexts;
+unit-graph reuse is verified, while actual build-time savings remain unmeasured.
+The D6 discovery is terminal with14 literal native failures. No full-suite acceptance is claimed.
+Two later Engine structure failures use the old inline unit-test boundary;
+their repaired three-test scope also passes. Optional bounded native tracing now
+distinguishes module hits from Cranelift function-cache activity, with explicit
+process-wide counter scope. Ordinary compilation and trace execution are pending.
+
+Literal eval dispatch candidate — 2026-10-18 (verification pending): a first
+argument that is an actual IR string literal now selects only prepared sources
+with identical JavaScript UTF-16 units. Dynamic arguments retain every candidate.
+Argument evaluation, intrinsic/Realm guards, runtime source comparison, completions
+and native misses remain intact. New controls cover surrogate transport aliases
+and emitted-code growth across increasing literal sites. This follow-up stays
+separate from the frozen D6 native/CLI verification; no timing or acceptance gain
+is claimed yet. Full workspace, pinned suites and task cleanup remain open.
 
 Test build reuse — 2026-10-18: `cow-utils` now uses the same debug-info
 setting in its normal and proc-macro test contexts. Six isolated Cargo unit graphs
@@ -140,6 +220,19 @@ checks each producer first and regenerates only stale output, then rechecks all
 Five focused controls pass; an actual refresh preserves the bytes, modes, inodes
 and modification times of all 5,858 checked-out tracked files. No Cargo build-time
 saving is claimed. [Exact checks and lossless evidence](docs/rust-rewrite/intl-idempotent-refresh-20261018.json).
+Joined throughput repair — 2026-10-18 (ordinary Cargo pending): immutable GC
+type declarations share storage; template ownership checks use the existing
+header/body passes; stale ABI guards follow the current layout. Manifest version4
+explicitly admits the optimized runtime image under both execution modes.
+The opt2 AOT/Engine diagnostic passes all17 original native template tests
+unfiltered, with debug validation and unchanged deadlines. The earlier mixed
+profile passed11000eval and15/16 other controls, with one method-test timeout;
+that failure remains recorded. [Exact diagnostic and rejected replay evidence](docs/rust-rewrite/native-source-throughput-diagnostic-20261018.json)
+records the source/profile/cache scope. The rejected c927 actual CLI completed
+Unicode13 at13Success and prior197 at193Success/4deadlineCrash, including one
+prior-pass regression. Its remaining20 stage was deliberately interrupted; all20
+must be rerun. Fresh ordinary native, releaseCLI230, full workspace and pinned
+conformance acceptance remain open. Do not delete CONTINUE.md or tasks/ yet.
 
 Verification checkpoint (2026-10-18): the ABI10/code-sharing candidate remains
 rejected: the six native inventories contain 4,180 IDs, with 4,159 completed
@@ -173,7 +266,48 @@ ELFs retire only after their exact identities and raw evidence are sealed.
 retain the scope. This establishes tooling behavior; full Lila verification is open.
 Refresh controls with `python3 -B -m unittest scripts.tests.test_workspace_cohorts`.
 
-Current focused checkpoint (2026-10-17): all230 original stress executions have
+Recovery verification (2026-10-18, compiler source `35c94675f`): all **4,161**
+tests in six complete selected native targets pass, with zero failed or ignored:
+AOT **418**, IR **1,599**, IR integration **740**, Engine **965**, native templates
+**11** and Realm **428**. The [native checkpoint](docs/rust-rewrite/coherent-throughput-core-20261017.json)
+retains exact inventories and the earlier rejected Realm verdict. The actual
+warm Cargo command reuses all **15** native artifacts in **0.880 seconds**, with
+executable bytes, inodes and mtimes unchanged. The combined graph has two normal
+AOT build variants instead of four and one runtime-image producer cohort instead
+of two; these are build-unit measurements, not a controlled wall-time speedup.
+
+The actual release CLI passes all **13 original Unicode cases**. The complete
+**197-case retention replay is red: 191 Success and six deadline Crash**, with
+zero absent executions and unchanged 60-second execution / 300-second compile
+limits, one worker and four 64-MiB disk-cache tiers. The [exact CLI evidence](docs/rust-rewrite/coherent-throughput-cli-20261017.json)
+retains every result. The other 20 original focused IDs remain unaccepted; this
+is not a new 230-case aggregate. Compiler changes remain on the recovery branch
+until retention passes. Full workspace, pinned conformance and task closure are
+open; generated real-suite status counts remain unchanged.
+
+The repeated-read emission controls retain every live identifier read and its
+completion/throw behavior. Five 10,000-read variants have largest bodies of
+**4,428–5,654 bytes**, down from **1,924,213–1,955,436 bytes**, with byte-identical
+shared runtime Wasm. Native semantic controls now pass within the six complete
+targets above. The throughput batch also shares immutable bootstrap plans,
+indexes local declarations and omits unused native-factory Main code; the full
+retention result remains the acceptance gate.
+
+ABI10 repair (2026-10-18, optimized verification pending): each fresh
+ProgramInstance owns its immutable source payload while stateless native code
+can share an Instance. Exact typed method bodies also share machine code while
+per-function objects, declaration IDs, constructor plans, names and source stay
+separate. A diagnostic1001-method module retains byte-identical public Wasm;
+its native template has21 bodies instead of1020. This is structural evidence.
+The two new opt0 execution controls finish1pass/1timeout; the same timed-out
+case passes later with a warm module cache. No cold-deadline repair is claimed.
+All573 isolated tooling tests pass after generated provenance is refreshed;
+the final merged primary tooling universe requires579 current-source tests.
+[Exact diagnostic scope](docs/rust-rewrite/owned-native-code-sharing-diagnostic-20261018.json)
+retains failures and cache conditions. Ordinary optimized Cargo and actual
+release-CLI retention remain required; generated real-suite counts are unchanged.
+
+Earlier focused checkpoint (2026-10-17): all230 original stress executions have
 completed with the current compiler:197Success/16Bug/17Crash, zero skipped.
 The remaining203 contribute171Success/16Bug/16Crash; all26 earlier stress passes
 are retained. These are a focused inventory, not full pinned Test262 acceptance.

@@ -60,3 +60,32 @@ suite acceptance must be verified with the coherent ABI8 companion components.
 Repeated-source code/data reuse is a separate measured compiler optimization;
 this contract introduces no fixture recognition, source-pattern shortcut or
 prepared-catalogue capacity increase.
+
+## Proven empty direct eval
+
+After validating the actual caller/source witness, the host still parses every
+UTF-16 request under its actual caller grammar and completes normal lowering.
+Only `RuntimeDirectEvalProgram::empty_completion` can mint an
+`EmptyRuntimeDirectEval` borrow. It requires a genuinely empty parsed statement
+list and an empty executable direct-eval root, with no source declarations,
+observable bindings, functions, nested prepared sources or lexical block. The
+existing intrinsic lookup catalog and exact unspellable immutable caller-context
+capture are dead metadata; arbitrary captures or source initializers are rejected.
+Empty-looking declaration nodes and directive prologues do not qualify.
+
+This proof allows dead allocation elimination: an empty source creates no
+observable function, closure, template site or value that could retain P or its
+source/environment. Its only executable operation is normal undefined
+completion. `NativeProgramTemplate::for_empty_direct_eval` emits that completion
+as a real stateless Wasm function, including the normal completion/Entered ABI.
+The host calls this function; it does not synthesize JavaScript completion.
+The template has no imports, globals, memories, tables, data, elements or start.
+
+The native-source context retains one such immutable template under its exact
+validated R owner. Its actual Store Instance uses the existing bounded cache,
+full code equality, actual Wasmtime Engine and context authority. The original
+execution deadline covers parsing, lowering, lookup, invocation and reply.
+Every request still gets its own syntax decision. In particular, LF, CR, LS
+and PS can terminate a line comment and expose executable code, which must use
+the ordinary source-owned path. Invalid comments remain parser SyntaxErrors.
+This optimization uses no fixture names, source-text patterns or changed limits.

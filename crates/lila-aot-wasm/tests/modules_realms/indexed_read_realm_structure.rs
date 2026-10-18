@@ -38,12 +38,25 @@ fn indexed_get_forwards_one_typed_environment_and_whole_completion() {
         "ifletSome(program)=parameters.caller_program(){",
         "letowner=crate::gc_types::ProgramInstanceLocals::bind(",
         "self.schema,program.load(self.schema,function),function,);",
-        "self.bind_entry_program(owner);}"
+        "self.bind_entry_program(owner,function);}"
     )));
     assert!(
-        parameters.find("self.bind_entry_program(owner)").unwrap()
+        parameters
+            .find("self.bind_entry_program(owner,function)")
+            .unwrap()
             < parameters.find("parameters.caller_environment()").unwrap()
     );
+    let binding = normalized(bounded(
+        EMIT,
+        "pub(crate) fn bind_entry_program(",
+        "pub(crate) fn capture_current_program(",
+    ));
+    assert!(binding.contains("self.body_entry_locals.is_none()&&self.entry_program.is_none()"));
+    let mark = binding
+        .find("program.mark_native_context(self.schema,function);")
+        .unwrap();
+    let retain = binding.find("self.entry_program=Some(program);").unwrap();
+    assert!(mark < retain, "mark the selected owner before retaining it");
     let helpers = normalized(HELPERS);
     for typed_role in [
         "(@argumentProgram)=>{&'aProgramInstanceLocals}",

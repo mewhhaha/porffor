@@ -1,9 +1,28 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Diagnose native source compilation — 2026-10-18
+
+`LILA_NATIVE_SOURCE_TRACE=1` enables the existing execution-local timing trace,
+bounded to 256 callbacks. Each traced module lookup now also reports the
+in-memory module-cache result and Cranelift function-cache hit/miss deltas. The default path does
+not obtain the cache or read those counters. A missing function cache is reported
+as unavailable rather than as zero activity.
+
+The counters are process-wide: other concurrent compilations can contribute.
+Use a single isolated case worker for attribution and preserve the original
+case deadlines and bounded cache settings. An in-memory module-cache miss can
+still hit Wasmtime's disk module cache or reuse compiled functions, so it does
+not by itself measure native code generation.
+The phase includes validation, cache reads and compilation; combine its duration
+with the counter deltas before choosing an optimization. Instance reuse can
+bypass module lookup entirely. Diagnostic output does not establish acceptance.
+
 ## Opt-in Intl incremental scratch — 2026-10-18
 
-Set `LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside `--no-test-incremental` to
-retain Cargo's existing incremental argument for the normal `lila_intl` library.
+Set `CARGO_INCREMENTAL=1 LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside
+`--no-test-incremental` to retain Cargo's existing incremental argument for the
+normal `lila_intl` library. The cloud activation script defaults Cargo incremental
+compilation to zero, so both environment variables are required there.
 The wrapper still removes incremental scratch from every libtest and other
 normal crate. It adds no incremental argument to release builds or queries.
 The runner records the exception; existing low-disk pruning and the two-GiB

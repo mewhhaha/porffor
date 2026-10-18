@@ -6,6 +6,9 @@ use crate::gc_types::{
 };
 use lila_ir::DirectEvalContextIr;
 
+mod source;
+use source::DirectEvalSource;
+
 impl FunctionBuilder<'_> {
     pub(super) fn emit_direct_eval_call(
         &mut self,
@@ -28,8 +31,10 @@ impl FunctionBuilder<'_> {
             self.emit_propagate_current_throw_if_needed(function);
         }
         let list = self.emit_call_args_vector(arguments, function)?;
+        let source = DirectEvalSource::of(arguments);
         self.emit_direct_eval_or_call_with_argv(
             context,
+            &source,
             &callee,
             &receiver,
             &list,
@@ -46,6 +51,7 @@ impl FunctionBuilder<'_> {
     pub(crate) fn emit_direct_eval_or_call_with_argv(
         &mut self,
         context: &DirectEvalContextIr,
+        source: &DirectEvalSource,
         callee: &ValueLocals,
         receiver: &ValueLocals,
         arguments: &GcLocal<ValueArray>,
@@ -67,7 +73,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_direct_eval_argument(context, &realm, arguments, &pending, function)?;
+        self.emit_direct_eval_argument(context, source, &realm, arguments, &pending, function)?;
         function.instruction(&Instruction::Else);
         match continuation {
             CallContinuation::Continue => self.emit_function_or_proxy_call_with_argv(
@@ -91,6 +97,7 @@ impl FunctionBuilder<'_> {
     fn emit_direct_eval_argument(
         &mut self,
         context: &DirectEvalContextIr,
+        source_hint: &DirectEvalSource,
         realm: &GcLocal<RealmRecord>,
         arguments: &GcLocal<ValueArray>,
         pending: &CompletionLocals,
@@ -131,7 +138,14 @@ impl FunctionBuilder<'_> {
             argument.cast_reference::<StringValue>(schema, function),
             function,
         );
-        self.emit_direct_eval_script_dispatch(context, realm, &source, pending, function)?;
+        self.emit_direct_eval_script_dispatch(
+            context,
+            source_hint,
+            realm,
+            &source,
+            pending,
+            function,
+        )?;
         source.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
@@ -142,6 +156,7 @@ impl FunctionBuilder<'_> {
     fn emit_direct_eval_script_dispatch(
         &mut self,
         context: &DirectEvalContextIr,
+        source_hint: &DirectEvalSource,
         realm: &GcLocal<RealmRecord>,
         source: &GcLocal<StringValue>,
         pending: &CompletionLocals,
@@ -151,7 +166,10 @@ impl FunctionBuilder<'_> {
             .functions
             .prepared_scripts()
             .iter()
-            .filter(|entry| entry.kind == PreparedScriptKind::DirectEval(context.clone()))
+            .filter(|entry| {
+                entry.kind == PreparedScriptKind::DirectEval(context.clone())
+                    && source_hint.admits(&entry.source)
+            })
             .cloned()
             .collect::<Vec<_>>();
         let schema = self.runtime_schema();

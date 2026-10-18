@@ -108,12 +108,12 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
     assert!(manifest::Manifest::decode(&extended).is_none());
     assert!(EmbeddedNativeRuntime::admit().is_some());
     let mut previous_version = manifest_bytes().to_vec();
-    previous_version[8..12].copy_from_slice(&1_u32.to_le_bytes());
+    previous_version[8..12].copy_from_slice(&3_u32.to_le_bytes());
     assert!(manifest::Manifest::decode(&previous_version).is_none());
     // Both optimization modes and the producer allocator have closed domains.
-    for offset in [16, 17, 18] {
+    for (offset, unknown) in [(16, 2), (17, 3), (18, 2), (17, 255)] {
         let mut unknown_mode = manifest_bytes().to_vec();
-        unknown_mode[offset] = 2;
+        unknown_mode[offset] = unknown;
         assert!(manifest::Manifest::decode(&unknown_mode).is_none());
     }
     for field in [
@@ -132,7 +132,7 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
             "target" => manifest.target.push_str("-different"),
             "configuration" => manifest.configuration += 1,
             "runtime mode" => manifest.modes.runtime = WasmNativeCompilationMode::Fast,
-            "execution mode" => manifest.modes.execution = WasmNativeCompilationMode::SizeOptimized,
+            "execution mode" => manifest.modes.execution = manifest::ExecutionModes::Fast,
             "runtime register allocation" => {
                 manifest.modes.register_allocation =
                     manifest::RuntimeRegisterAllocation::SinglePass;
@@ -204,7 +204,7 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
             );
             assert_eq!(
                 bundle.manifest.modes.execution,
-                WasmNativeCompilationMode::Fast
+                manifest::ExecutionModes::FastAndSizeOptimized
             );
             assert_eq!(
                 bundle.manifest.modes.register_allocation,
@@ -254,21 +254,29 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
                 second.image_range().start,
                 "the embedded authority retains no native Module"
             );
-            assert!(
-                bundle
-                    .load(
-                        &runtime_compiler,
-                        &runtime,
-                        WasmNativeCompilationMode::SizeOptimized
-                    )
-                    .is_none(),
-                "a matching R image mode cannot authorize a different execution mode"
-            );
-            assert!(
-                load_native(&runtime_compiler, &runtime, WasmNativeCompilationMode::SizeOptimized)
-                    .is_none(),
-                "the product entry also preserves the ordinary path for unsupported execution modes"
-            );
+            let size_engine = Engine::new(&base_config(
+                WasmNativeCompilationMode::SizeOptimized,
+                WasmBacktraceDetails::Disable,
+            ))
+            .unwrap();
+            crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY
+                .verify_engine(&size_engine)
+                .unwrap();
+            let optimized = bundle
+                .load(
+                    &size_engine,
+                    &runtime,
+                    WasmNativeCompilationMode::SizeOptimized,
+                )
+                .expect("the same image loads into the SizeOptimized/SinglePass product Engine");
+            assert!(Engine::same(optimized.engine(), &size_engine));
+            let admitted = load_native(
+                &size_engine,
+                &runtime,
+                WasmNativeCompilationMode::SizeOptimized,
+            )
+            .expect("the product entry admits both declared execution modes");
+            assert!(Engine::same(admitted.engine(), &size_engine));
             let mut foreign_key = EmbeddedNativeRuntime::admit().unwrap();
             foreign_key.manifest.runtime_key[0] ^= 1;
             assert!(

@@ -13,6 +13,21 @@ pub(super) fn instantiate_and_execute(
     trace: Option<&CallbackTrace<'_>>,
 ) -> wasmtime::Result<[Val; 6]> {
     require_exact_program(&request.caller, &request.source, program)?;
+    context.check_budget()?;
+    if let Some(proof) = program.empty_completion() {
+        return super::empty::execute(store, engine, context, &proof, signature, trace);
+    }
+    // Inert preparation only adds dead declarative links above this actual
+    // chain. A null caller chain retains the ordinary prepared-script route.
+    if matches!(request.operands[3], Val::AnyRef(Some(_))) {
+        if let Some(proof) = program.static_regexp_literal() {
+            if let Some(output) =
+                super::regexp_literal::execute(store, context, &proof, request, signature)?
+            {
+                return Ok(output);
+            }
+        }
+    }
     let emit = trace.map(|trace| trace.phase(Phase::Emit));
     let artifact = lila_aot_wasm::emit_runtime_direct_eval_with_validated_runtime(
         program,
@@ -58,10 +73,18 @@ pub(super) fn instantiate_and_execute(
     let factory = instance
         .get_func(&mut *store, artifact.factory_export())
         .ok_or_else(|| abi_error("P2 has no declared direct eval factory"))?;
-    validate_initializer_type(&initialize.ty(&*store), signature)?;
+    let initialization = crate::wasm_native_program_template::initializer_arguments(
+        &mut *store,
+        &template,
+        &initialize,
+        &signature.program,
+    )?;
+    if initialization.is_empty() {
+        validate_initializer_type(&initialize.ty(&*store), signature)?;
+    }
     validate_factory_type(&factory.ty(&*store), signature)?;
     let mut owner = [Val::AnyRef(None)];
-    initialize.call(&mut *store, &[], &mut owner)?;
+    initialize.call(&mut *store, &initialization, &mut owner)?;
     context.check_budget()?;
     let Val::AnyRef(Some(reference)) = owner[0] else {
         return Err(abi_error("P2 initializer returned no owner"));

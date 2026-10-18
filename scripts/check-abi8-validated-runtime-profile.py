@@ -54,7 +54,7 @@ def check(sources):
             ordered(function(sources[P], "new"), ["runtime.layout_admission", "IntlDataSelection::new(profile)", "require_runtime_profile(", "Ok(Self{runtime,selection})"]),
             "single_profile_admission", "only the constructor validates actual layout and physical Intl pair before minting proof")
     runtime = c[A + "runtime_artifact.rs"]
-    require("constLAYOUT_VERSION:u32=9;" in runtime and
+    require("constLAYOUT_VERSION:u32=11;" in runtime and
             "structCurrentRuntimeLayoutVersion(u32);" in runtime and
             "(encoded==LAYOUT_VERSION).then_some(Self(encoded))" in runtime and
             "layout_admission:Option<CurrentRuntimeLayoutVersion>" in runtime and
@@ -125,7 +125,8 @@ def check(sources):
             "direct_witness_retained", "direct eval retains its complete caller and exact UTF16 source witness")
     tests = c[A + "runtime_artifact/validated_profile/tests.rs"]
     require("Arc::ptr_eq(proof.runtime(),&runtime)" in tests and
-            "CurrentRuntimeLayoutVersion::admit(old).is_none()" in tests and
+            "forwrongin(0..LAYOUT_VERSION).chain([LAYOUT_VERSION+1,u32::MAX])" in tests and
+            "CurrentRuntimeLayoutVersion::admit(wrong).is_none()" in tests and
             "ValidatedRuntimeArtifact::new(unadmitted,IntlCompilationProfile::Minimal)" in tests and
             "profile_image(IntlCompilationProfile::Minimal,true)" in tests and
             "CustomIntlProfile::for_services(id.clone(),&[\"ListFormat\"])" in tests and

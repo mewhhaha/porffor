@@ -119,3 +119,6 @@ fn source_images_preserve_surrogate_bits_and_slice_byte_offsets_and_traps() {
         Some(&wasmtime::Trap::ArrayOutOfBounds)
     );
 }
+
+mod bulk_reads;
+mod payload_tests;

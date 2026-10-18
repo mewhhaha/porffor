@@ -56,6 +56,9 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::ObjectHeaderProjection
             | RuntimeHelperId::OrdinaryObjectAllocate
             | RuntimeHelperId::ValueToObject
+            | RuntimeHelperId::FunctionNameFromKey
+            | RuntimeHelperId::RegExpLiteralAllocate
+            | RuntimeHelperId::NativeRegExpLiteralFactory
             | RuntimeHelperId::FunctionMetadataPublish
             | RuntimeHelperId::RealmInitializeIntrinsics
             | RuntimeHelperId::FunctionCall
@@ -140,6 +143,9 @@ impl<'a> FunctionBuilder<'a> {
             | RuntimeHelperId::RegExpProgramCandidate
             | RuntimeHelperId::RuntimeErrorObject
             | RuntimeHelperId::PooledStringsInitialize
+            | RuntimeHelperId::GlobalLexicalDeclarationCheck
+            | RuntimeHelperId::GlobalVarDeclarationCheck
+            | RuntimeHelperId::GlobalVarDeclarationInstall
             | RuntimeHelperId::JsonStringifyValue
             | RuntimeHelperId::CompactArrayLiteral
             | RuntimeHelperId::InitializeInstanceElements

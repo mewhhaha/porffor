@@ -285,3 +285,12 @@ fn every_runtime_function_reference_site_is_retained_in_the_initial_scan() {
 
 #[path = "tests/literal_operands.rs"]
 mod literal_operand_tests;
+
+#[path = "tests/program_owned_payload.rs"]
+mod program_owned_payload;
+
+#[path = "tests/emitted_names.rs"]
+mod emitted_names;
+
+#[path = "tests/shared_emitted_bodies.rs"]
+mod shared_emitted_bodies;

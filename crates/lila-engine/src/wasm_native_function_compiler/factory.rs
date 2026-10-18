@@ -54,10 +54,18 @@ pub(super) fn instantiate_and_create(
     let factory = instance
         .get_func(&mut *store, artifact.factory_export())
         .ok_or_else(|| abi_error("P has no declared function factory export"))?;
-    validate_initializer_type(&initialize.ty(&*store), signature)?;
+    let initialization = crate::wasm_native_program_template::initializer_arguments(
+        &mut *store,
+        &template,
+        &initialize,
+        &signature.program,
+    )?;
+    if initialization.is_empty() {
+        validate_initializer_type(&initialize.ty(&*store), signature)?;
+    }
     validate_factory_type(&factory.ty(&*store), signature)?;
     let mut owner = [Val::AnyRef(None)];
-    initialize.call(&mut *store, &[], &mut owner)?;
+    initialize.call(&mut *store, &initialization, &mut owner)?;
     context.check_budget()?;
     let Val::AnyRef(Some(reference)) = owner[0] else {
         return Err(abi_error("program initializer returned no program owner"));

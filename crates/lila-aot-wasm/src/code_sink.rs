@@ -78,81 +78,86 @@ impl Frame {
 /// The body owns this declaration from construction onward. Typed allocation
 /// appends exact scalar or reference types, and reuse accepts only the same
 /// declared type; publication emits that complete declaration.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+struct LocalRun {
+    end: u32,
+    ty: ValType,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct LocalDeclarations {
-    runs: Vec<(u32, ValType)>,
-    count: u32,
+    runs: Vec<LocalRun>,
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/local_declaration_index.rs"]
+mod local_declaration_index_tests;
 
 impl LocalDeclarations {
     pub(crate) fn from_types<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = ValType>,
     {
-        let mut runs: Vec<(u32, ValType)> = Vec::new();
-        let mut count = 0_u32;
-        for local_type in locals {
-            count = count.checked_add(1).expect("Wasm local count exceeds u32");
-            if let Some((run_count, run_type)) = runs.last_mut() {
-                if *run_type == local_type {
-                    *run_count += 1;
-                    continue;
-                }
-            }
-            runs.push((1, local_type));
+        let mut result = Self { runs: Vec::new() };
+        for ty in locals {
+            result.push(ty);
         }
-        Self { runs, count }
+        result
     }
 
-    /// Preserve deliberately ungrouped declarations used by decoder fixtures.
+    /// Preserve deliberately ungrouped declarations used by decoder fixtures,
+    /// including zero-length runs, without expanding their local count.
     #[cfg(test)]
     pub(crate) fn from_runs<L>(locals: L) -> Self
     where
         L: IntoIterator<Item = (u32, ValType)>,
     {
-        let runs: Vec<_> = locals.into_iter().collect();
-        let count = runs.iter().fold(0_u32, |count, (run_count, _)| {
-            count
-                .checked_add(*run_count)
-                .expect("Wasm local count exceeds u32")
-        });
-        Self { runs, count }
+        let mut result = Self { runs: Vec::new() };
+        for (count, ty) in locals {
+            let end = result
+                .count()
+                .checked_add(count)
+                .expect("Wasm local count exceeds u32");
+            result.runs.push(LocalRun { end, ty });
+        }
+        result
+    }
+
+    fn count(&self) -> u32 {
+        self.runs.last().map_or(0, |run| run.end)
     }
 
     fn push(&mut self, ty: ValType) {
-        self.count = self
-            .count
+        let end = self
+            .count()
             .checked_add(1)
             .expect("Wasm local count exceeds u32");
-        if let Some((count, last)) = self.runs.last_mut() {
-            if *last == ty {
-                *count += 1;
+        if let Some(last) = self.runs.last_mut() {
+            if last.ty == ty {
+                last.end = end;
                 return;
             }
         }
-        self.runs.push((1, ty));
+        self.runs.push(LocalRun { end, ty });
     }
 
     fn type_at(&self, index: u32) -> Option<ValType> {
-        let mut offset = index;
-        for (count, ty) in &self.runs {
-            if offset < *count {
-                return Some(*ty);
-            }
-            offset -= count;
-        }
-        None
+        self.runs
+            .get(self.runs.partition_point(|run| run.end <= index))
+            .map(|run| run.ty)
     }
 
     fn encode_body(&self) -> wasm_encoder::Function {
-        wasm_encoder::Function::new(self.runs.iter().copied())
+        wasm_encoder::Function::new(self.runs.iter().enumerate().map(|(index, run)| {
+            let previous = index.checked_sub(1).map_or(0, |index| self.runs[index].end);
+            (run.end - previous, run.ty)
+        }))
     }
 
     /// Only cloning a complete body may fork its private declaration plan.
     fn fork_for_body(&self) -> Self {
         Self {
             runs: self.runs.clone(),
-            count: self.count,
         }
     }
 }
@@ -172,6 +177,7 @@ pub(crate) struct Function {
     free_locals: Vec<u32>,
     operator_count: u32,
     literal_operands: Vec<crate::program_literal_operands::FunctionSite>,
+    native_program_context: Option<crate::native_program_contexts::FunctionContext>,
 }
 
 impl Clone for Function {
@@ -186,6 +192,7 @@ impl Clone for Function {
             free_locals: self.free_locals.clone(),
             operator_count: self.operator_count,
             literal_operands: self.literal_operands.clone(),
+            native_program_context: self.native_program_context,
         }
     }
 }
@@ -196,7 +203,7 @@ impl Function {
     }
 
     pub(crate) fn with_parameters(locals: LocalDeclarations, parameters: Vec<ValType>) -> Self {
-        let initial_local_count = locals.count;
+        let initial_local_count = locals.count();
         let body = locals.encode_body();
         let initial_prefix_len = body.byte_len();
         Self {
@@ -209,6 +216,7 @@ impl Function {
             free_locals: Vec::new(),
             operator_count: 0,
             literal_operands: Vec::new(),
+            native_program_context: None,
         }
     }
 
@@ -219,7 +227,7 @@ impl Function {
         &self.parameters
     }
     pub(crate) fn allocated_local_count(&self) -> u32 {
-        self.locals.count
+        self.locals.count()
     }
 
     pub(crate) fn reserve_typed_local(&mut self, ty: ValType) -> u32 {
@@ -234,7 +242,7 @@ impl Function {
         }
         let index = u32::try_from(self.parameters.len())
             .expect("parameter count overflow")
-            .checked_add(self.locals.count)
+            .checked_add(self.locals.count())
             .expect("local index overflow");
         self.locals.push(ty);
         index
@@ -243,7 +251,7 @@ impl Function {
     pub(crate) fn release_typed_local(&mut self, index: u32) {
         let base = u32::try_from(self.parameters.len()).expect("parameter count overflow");
         assert!(
-            index >= base + self.initial_local_count && index < base + self.locals.count,
+            index >= base + self.initial_local_count && index < base + self.locals.count(),
             "only this body's dynamically reserved locals can be released"
         );
         assert!(!self.free_locals.contains(&index), "local released twice");
@@ -400,6 +408,59 @@ impl Function {
 
     pub(crate) fn literal_operands(&self) -> &[crate::program_literal_operands::FunctionSite] {
         &self.literal_operands
+    }
+
+    pub(crate) fn native_program_context(
+        &self,
+    ) -> Option<crate::native_program_contexts::FunctionContext> {
+        self.native_program_context
+    }
+
+    pub(crate) fn bind_native_program_context(
+        &mut self,
+        schema: crate::native_program_contexts::Schema,
+        local: u32,
+    ) {
+        assert!(
+            self.native_program_context.is_none(),
+            "one effective program binding per body"
+        );
+        self.native_program_context =
+            Some(crate::native_program_contexts::FunctionContext::Program {
+                schema,
+                local,
+                ready: self.operator_count,
+            });
+    }
+
+    pub(crate) fn bind_native_bootstrap_context(
+        &mut self,
+        schema: crate::native_program_contexts::Schema,
+    ) {
+        assert!(self.native_program_context.is_none());
+        self.native_program_context =
+            Some(crate::native_program_contexts::FunctionContext::Bootstrap {
+                schema,
+                payload_operator: None,
+            });
+    }
+
+    pub(crate) fn native_program_payload_slot(&mut self) {
+        if self.native_program_context.is_none() {
+            return;
+        }
+        let Some(crate::native_program_contexts::FunctionContext::Bootstrap {
+            payload_operator,
+            ..
+        }) = &mut self.native_program_context
+        else {
+            panic!("source payload construction belongs to the explicit program bootstrap");
+        };
+        assert!(
+            payload_operator.is_none(),
+            "one original source payload slot per bootstrap"
+        );
+        *payload_operator = Some(self.operator_count);
     }
 
     /// Capture immediately after opening the frame that will be targeted.

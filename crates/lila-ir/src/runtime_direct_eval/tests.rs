@@ -6,6 +6,8 @@ use crate::{
 };
 use lila_front::{decode_js_string_utf16, EvalInvocationContext, ParseDiagnosticKind};
 use std::collections::BTreeMap;
+mod empty;
+mod regexp_literal;
 
 fn context(strictness: Strictness, invocation: EvalInvocationContext) -> DirectEvalContextIr {
     DirectEvalContextIr::new(
@@ -394,4 +396,14 @@ fn exact_utf16_source_and_literals_survive_native_direct_eval_lowering() {
         ),
         Err(RuntimeDirectEvalCompileError::Parse(_))
     ));
+}
+
+#[test]
+fn empty_completion_proof_requires_empty_actual_syntax_and_instantiation() {
+    empty::empty_completion_proof_requires_empty_actual_syntax_and_instantiation();
+}
+
+#[test]
+fn empty_completion_proof_rejects_observable_or_corrupt_preparation_metadata() {
+    empty::empty_completion_proof_rejects_observable_or_corrupt_preparation_metadata();
 }

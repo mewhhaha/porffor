@@ -22,6 +22,31 @@ fn run_boolean(source: &str) {
 }
 
 #[test]
+fn bare_global_declarations_preserve_descriptors_getters_and_statement_completion() {
+    run_boolean(
+        r#"
+var realm = __lilaCreateRealm();
+var other = realm.global;
+var gets = 0;
+var getter = function() { gets++; return 7; };
+Object.defineProperty(other, 'accessor', {get: getter, configurable: true});
+var emptyResult = realm.evalScript('var bare; var accessor; var undefined, NaN, Infinity;');
+var bare = Object.getOwnPropertyDescriptor(other, 'bare');
+var accessor = Object.getOwnPropertyDescriptor(other, 'accessor');
+var overlapResult = realm.evalScript('var mixed; function mixed() { return 19; }');
+emptyResult === undefined && gets === 0 && accessor.get === getter
+  && other.undefined === void 0 && other.NaN !== other.NaN && other.Infinity === 1 / 0
+  && overlapResult === undefined && other.mixed() === 19
+  && bare.value === undefined && bare.writable && bare.enumerable && !bare.configurable
+  && realm.evalScript("'use strict'; var strictBare;") === 'use strict'
+  && realm.evalScript("'literal completion'; var literalBare;") === 'literal completion'
+  && realm.evalScript('var assigned = 3; assigned;') === 3
+  && realm.evalScript('var readBack; typeof readBack;') === 'undefined';
+"#,
+    );
+}
+
+#[test]
 fn realm_scripts_share_lexical_cells_and_refresh_function_objects() {
     run_boolean(
         r#"

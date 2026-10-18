@@ -1,4 +1,5 @@
 use super::*;
+mod empty_kernel;
 use crate::gc_types::{AbiType, GcLayout, GcNullability};
 use crate::{module::StaticSignature, runtime_helpers::RuntimeHelperId};
 use lila_ir::{
@@ -195,6 +196,11 @@ fn emitted_direct_eval_factory_retains_full_witness_exact_r_and_valid_typed_hook
         }
     }
     assert_eq!(imported, expected_imports.len());
+    assert!(!exports.contains_key("main"));
+    assert_eq!(
+        exports[artifact.program_initialize_export()],
+        imported as u32
+    );
     assert!(
         !exports.contains_key(crate::runtime_global_script::RUNTIME_GLOBAL_SCRIPT_FACTORY_EXPORT)
     );
@@ -213,4 +219,9 @@ fn emitted_direct_eval_factory_retains_full_witness_exact_r_and_valid_typed_hook
     assert_eq!(ty.params().len(), 15);
     assert_eq!(ty.results().len(), 6);
     assert_eq!(ty.results().last(), Some(&wasmparser::ValType::I32));
+}
+
+#[test]
+fn proven_empty_eval_kernel_has_only_source_independent_completion_code() {
+    empty_kernel::proven_empty_eval_kernel_has_only_source_independent_completion_code();
 }

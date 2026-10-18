@@ -263,21 +263,22 @@ uses serial native precompilation on the existing compiler stack, and disables
 ambient backtrace-detail selection. It produces a bundle only for supported
 little-endian x86_64, aarch64 and riscv64 targets. Other targets retain ordinary
 runtime compilation and capability checks. The initial bundle covers exact
-Minimal R for Fast execution; other raw identities or execution modes use the
+Minimal R for Fast and SizeOptimized execution; other raw identities use the
 original path. R is deserialized into the actual P Engine, not returned from a
 separate optimized Engine.
 
 The Engine's private native authority accepts only immutable include_bytes
 outputs from that Cargo producer. No file, cache blob or caller-provided native
 slice can enter its unsafe deserializer. A manifest binds source, target,
-configuration, the explicit pair of R image and execution modes, the closed
+configuration, the R image mode and closed set of execution modes, the closed
 R allocator identity, and both image digests to the actual admitted R key.
-The version-three manifest requires SizeOptimized/Backtracking R with Fast
-execution; each field is decoded and admitted independently.
+The version-four manifest requires SizeOptimized/Backtracking R and explicitly
+admits both Fast and SizeOptimized execution. Version-three manifests retain no
+authority under this format. Each field is decoded and admitted independently.
 Wasmtime still checks compiler version, proposals, collector, tunables and ISA;
 an incompatible known-valid image is an optimization miss. The pinned compiler
 [treats optimization level and register allocation as compatibility-neutral for deserialization](https://github.com/bytecodealliance/wasmtime/blob/v47.0.0/crates/wasmtime/src/engine.rs),
-while product mode admission still rejects each unsupported pair. The shared
+while product admission still requires the exact supported mode set. The shared
 module-cache key remains the execution Engine's mode and raw Wasm digest, so
 an image compiled in a different mode cannot cross Engine ownership.
 Native deserialization runs only inside the existing shared R/P cache factory.

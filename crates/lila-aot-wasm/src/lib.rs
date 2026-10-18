@@ -102,7 +102,8 @@ pub use runtime_artifact::{
     runtime_artifact, runtime_artifact_with_cache, runtime_artifact_with_inputs, RuntimeArtifact,
     RuntimeArtifactCache, RuntimeArtifactCacheKey, RuntimeArtifactInputs, RuntimeArtifactKey,
     RuntimeBuildArtifact, RuntimeSourceCompilationProfile, ValidatedRuntimeArtifact,
-    RUNTIME_IMPORT_NAMESPACE, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
+    NATIVE_REGEXP_LITERAL_FACTORY_EXPORT, RUNTIME_IMPORT_NAMESPACE,
+    RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
 };
 mod runtime_direct_eval;
 mod runtime_function;
@@ -191,6 +192,8 @@ mod tests {
     use lila_front::{parse, ParseOptions};
     use lila_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSurfacePolicy};
     use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
+
+    mod direct_eval_dispatch;
 
     fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
         let source = parse(source, ParseOptions::script()).expect("script should parse");
@@ -4247,10 +4250,12 @@ if (!caught) throw "revoked proxy missing TypeError";"#,
     }
 }
 
+mod native_program_contexts;
 mod native_program_template;
 mod program_literal_operands;
 pub use native_program_template::{
     NativeProgramArrayConstruction, NativeProgramArrayFactory, NativeProgramArrayWidth,
-    NativeProgramDataImage, NativeProgramLiteralOperand, NativeProgramTemplate,
-    NativeProgramTemplateError, NATIVE_PROGRAM_DATA_MODULE,
+    NativeProgramDataImage, NativeProgramLiteralOperand, NativeProgramPayload,
+    NativeProgramPayloadDirectory, NativeProgramTemplate, NativeProgramTemplateError,
+    NATIVE_PROGRAM_DATA_MODULE,
 };

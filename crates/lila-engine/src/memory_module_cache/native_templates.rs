@@ -1,4 +1,7 @@
 use super::*;
+mod instances;
+pub(crate) use instances::MemoryNativeInstanceCache;
+
 impl MemoryWasmModuleCache {
     /// Native templates use the same aggregate budget and actual image sizes.
     /// A matching byte key never authorizes a Module from another Engine.

@@ -5,10 +5,12 @@ use lila_aot_wasm::GcHostImport;
 use lila_ir::lower_runtime_direct_eval;
 use wasmtime::{ExternType, RootScope, Val};
 
+mod empty;
 mod factory;
 #[cfg(test)]
 mod observer;
 mod outcome;
+mod regexp_literal;
 mod schema;
 mod signature;
 mod sources;

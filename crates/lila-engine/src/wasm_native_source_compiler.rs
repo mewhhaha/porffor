@@ -14,6 +14,9 @@ pub(super) struct NativeSourceCompilerContext {
     execution: Arc<WasmAgentExecutionControl>,
     trace: Option<TraceState>,
     pub(super) native_compilation_mode: WasmNativeCompilationMode,
+    pub(super) instance_authority: Arc<()>,
+    pub(super) empty_direct_eval_template:
+        std::sync::OnceLock<lila_aot_wasm::NativeProgramTemplate>,
     pub(super) array_constructors:
         Mutex<crate::wasm_native_program_template::NativeArrayConstructorCache>,
     #[cfg(test)]
@@ -55,6 +58,8 @@ impl NativeSourceCompilerContext {
             policy,
             execution,
             native_compilation_mode,
+            instance_authority: Arc::new(()),
+            empty_direct_eval_template: std::sync::OnceLock::new(),
             trace: TraceState::from_environment(),
             array_constructors: Mutex::new(Default::default()),
             #[cfg(test)]

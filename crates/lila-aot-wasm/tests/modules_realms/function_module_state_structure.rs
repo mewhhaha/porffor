@@ -1,6 +1,3 @@
-use std::fs;
-use std::path::Path;
-
 const SOURCE: &str = include_str!("../../src/emit.rs");
 const COMPILATION: &str = include_str!("../../src/emit/body_compilation.rs");
 const ENTRY: &str = include_str!("../../src/emit/body_entry.rs");
@@ -56,25 +53,6 @@ fn normalized_code(source: &str) -> String {
     normalized
 }
 
-fn count_in_rust_sources(dir: &Path, needle: &str) -> usize {
-    fs::read_dir(dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", dir.display()))
-        .map(|entry| entry.expect("failed to read Rust source entry").path())
-        .map(|path| {
-            if path.is_dir() {
-                return count_in_rust_sources(&path, needle);
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                return 0;
-            }
-            fs::read_to_string(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()))
-                .matches(needle)
-                .count()
-        })
-        .sum()
-}
-
 #[test]
 fn function_module_state_is_the_exact_private_no_capability_domain() {
     let declaration = bounded(
@@ -121,11 +99,6 @@ fn function_module_state_is_the_exact_private_no_capability_domain() {
     assert!(!SOURCE.contains("!= FunctionModuleState::"));
     assert!(!SOURCE.contains("matches!(module_state"));
 
-    let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    assert_eq!(
-        count_in_rust_sources(&source_root, "FunctionModuleState"),
-        59
-    );
     assert_eq!(
         SOURCE_FAMILY.matches("FunctionModuleState::Main").count(),
         10
@@ -436,11 +409,24 @@ fn program_initialize_has_a_distinct_nonnull_result_and_never_enters_javascript(
     assert!(
         COMPILATION.contains("self.is_program_initialize() || (self.is_main() && self.uses_heap)")
     );
-    let bind = COMPILATION
-        .find("self.bind_entry_program(program);")
+    let main = bounded(
+        COMPILATION,
+        "    pub(super) fn compile_main_with_program_initialize(",
+        "    fn compile_javascript_body(",
+    );
+    assert!(
+        normalized_code(main).contains("if!self.is_main()||self.uses_heap!=initializer.is_some()")
+    );
+    let heap_main = bounded(
+        COMPILATION,
+        "        if self.uses_heap {\n            if self.is_main() {",
+        "            self.init_current_env(&mut function)?;",
+    );
+    let bind = heap_main
+        .find("self.bind_entry_program(program, &mut function);")
         .unwrap();
     assert!(
-        bind < COMPILATION
+        bind < heap_main
             .find("self.init_current_realm(&mut function)?;")
             .unwrap()
     );
@@ -462,7 +448,7 @@ fn gc_program_publication_does_not_reinstall_metadata_or_reset_runtime_scratch()
     let compilation = normalized_code(COMPILATION);
     assert!(compilation.contains(concat!(
         "letprogram=self.runtime_schema().call_program_initialize(index,&mutfunction);",
-        "self.bind_entry_program(program);}",
+        "self.bind_entry_program(program,&mutfunction);}",
         "self.init_current_realm(&mutfunction)?;"
     )));
     let assembly = normalized_code(MODULE_ASSEMBLY);

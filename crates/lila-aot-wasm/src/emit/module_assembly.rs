@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::function_layout::ModuleEntryRole;
 use crate::runtime_artifact::{EmittedModule, ModuleKind, RuntimeLayout};
 use crate::runtime_helpers::ProgramHook;
 
@@ -314,6 +315,11 @@ fn emit_script_module_with_factory(
         source.program.len() + script.prepared_script_units().count(),
         program_helper_count,
         kind,
+        if factory.is_some() {
+            ModuleEntryRole::NativeFactory
+        } else {
+            ModuleEntryRole::for_module(kind)
+        },
     );
     let function_metas = FunctionMetaRegistry::new(
         build_function_metas(
@@ -401,7 +407,7 @@ fn emit_script_module_with_factory(
     } else {
         layout.first_program_index()
     };
-    let mut module_package = module_sections.begin(first_defined_function);
+    let mut module_package = module_sections.begin(first_defined_function, layout.entry_role());
     if let Some(index) = layout.program_initialize_index() {
         let image =
             ProgramInstanceImage::from_program_pool(&string_pool, kind, script.language_features)?;
@@ -414,7 +420,7 @@ fn emit_script_module_with_factory(
             index,
         )?)?;
     }
-    if compile_program {
+    if layout.main_index().is_some() {
         module_package.compile_main(MainFunctionCompilation::new(
             script,
             promise_rejection_policy,
@@ -1287,6 +1293,18 @@ fn emit_script_module_with_factory(
                 helper_bodies.insert(RuntimeHelperId::$id, builder.$compile()?);
             })+ };
         }
+        register_runtime_helper!(
+            GlobalLexicalDeclarationCheck,
+            compile_global_lexical_declaration_check_helper
+        );
+        register_runtime_helper!(
+            GlobalVarDeclarationCheck,
+            compile_global_var_declaration_check_helper
+        );
+        register_runtime_helper!(
+            GlobalVarDeclarationInstall,
+            compile_global_var_declaration_install_helper
+        );
         register_runtime_helper!(OrdinaryPropertyFind, compile_ordinary_property_find_helper);
         register_runtime_helper!(
             OrdinaryPropertyAppend,
@@ -1326,45 +1344,26 @@ fn emit_script_module_with_factory(
             GlobalIdentifierTypeofSloppy, compile_global_identifier_typeof_sloppy_helper;
             GlobalIdentifierTypeofStrict, compile_global_identifier_typeof_strict_helper;
         );
-        register_runtime_helper!(PrivateElementAdd, compile_private_element_add_helper);
-        register_runtime_helper!(PrivateFieldDefine, compile_private_field_define_helper);
-        register_runtime_helper!(
-            FunctionMetadataPublish,
-            compile_function_metadata_publish_helper
-        );
-        register_runtime_helper!(
-            RealmInitializeIntrinsics,
-            compile_realm_initialize_intrinsics_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorStartBody,
-            compile_async_generator_start_body_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorDrainQueue,
-            compile_async_generator_drain_queue_helper
-        );
-        register_runtime_helper!(PromiseDrainJobs, compile_promise_drain_jobs_helper);
         register_runtime_helper!(
             PooledStringsInitialize,
             compile_pooled_strings_initialize_helper
         );
-        register_runtime_helper!(AsyncAwaitReactions, compile_async_await_reactions_helper);
         register_runtime_helper!(
-            AsyncGeneratorAwaitReactions,
-            compile_async_generator_await_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorYieldReactions,
-            compile_async_generator_yield_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorYieldReturnReactions,
-            compile_async_generator_yield_return_reactions_helper
-        );
-        register_runtime_helper!(
-            AsyncGeneratorAwaitReturnReactions,
-            compile_async_generator_await_return_reactions_helper
+            PrivateElementAdd, compile_private_element_add_helper;
+            PrivateFieldDefine, compile_private_field_define_helper;
+            FunctionNameFromKey, compile_function_name_from_key_helper;
+            RegExpLiteralAllocate, compile_regexp_literal_allocate_helper;
+            NativeRegExpLiteralFactory, compile_native_regexp_literal_factory;
+            FunctionMetadataPublish, compile_function_metadata_publish_helper;
+            RealmInitializeIntrinsics, compile_realm_initialize_intrinsics_helper;
+            AsyncGeneratorStartBody, compile_async_generator_start_body_helper;
+            AsyncGeneratorDrainQueue, compile_async_generator_drain_queue_helper;
+            PromiseDrainJobs, compile_promise_drain_jobs_helper;
+            AsyncAwaitReactions, compile_async_await_reactions_helper;
+            AsyncGeneratorAwaitReactions, compile_async_generator_await_reactions_helper;
+            AsyncGeneratorYieldReactions, compile_async_generator_yield_reactions_helper;
+            AsyncGeneratorYieldReturnReactions, compile_async_generator_yield_return_reactions_helper;
+            AsyncGeneratorAwaitReturnReactions, compile_async_generator_await_return_reactions_helper;
         );
     }
     if compile_program_helpers {
@@ -1683,6 +1682,12 @@ fn emit_script_module_with_factory(
         data = Some(section);
     }
     if compile_runtime {
+        exports.export(
+            crate::NATIVE_REGEXP_LITERAL_FACTORY_EXPORT,
+            ExportKind::Func,
+            RuntimeHelperId::NativeRegExpLiteralFactory
+                .index(runtime_helper_base.expect("runtime has typed helpers")),
+        );
         crate::runtime_artifact::export_runtime_symbols(
             &mut exports,
             layout.defined_functions().start..layout.first_program_index(),
@@ -1712,7 +1717,7 @@ fn emit_script_module_with_factory(
     );
     let mut debug_dump = vec![
         "module: js-aot".to_string(),
-        "export func: main -> tag/scalar/reference/kind/target".to_string(),
+        entry_exports.debug_entry().to_string(),
         format!("static result kind: {}", script.result_kind().as_str()),
         format!("locals: {main_emitted_local_count}"),
         format!(
@@ -1901,6 +1906,9 @@ fn emit_script_module_with_factory(
         data: Cow::Owned(vec![kind.source_compilation_profile().wire()]),
     });
     metadata::append_function_name_and_check_budget(&mut module, &mut debug_dump, &function_table)?;
+    if let Some(section) = factory.and_then(|_| function_table.native_program_context_section()) {
+        module.section(&section);
+    }
 
     let runtime_layout = matches!(kind, ModuleKind::Runtime(_)).then(|| {
         RuntimeLayout::new(

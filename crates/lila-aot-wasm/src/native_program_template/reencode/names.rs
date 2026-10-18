@@ -10,8 +10,26 @@ pub(super) fn subsection(
             for row in reader {
                 let row = row?;
                 if let Some(index) = encoder.plan.function(row.index) {
-                    map.append(index, row.name);
+                    if encoder.plan.contexts.is_some()
+                        && encoder.plan.reusable
+                        && row.index >= encoder.plan.imported_functions
+                        && row.name.starts_with("js::")
+                    {
+                        // One stateless native body can serve different source
+                        // owners. Its backtrace symbol must not name whichever
+                        // source happened to populate the cache first. JS names
+                        // and toString source still come from the actual P.
+                        map.append(index, &format!("js::native_function_{index}"));
+                    } else {
+                        map.append(index, row.name);
+                    }
                 }
+            }
+            if encoder.plan.contexts.is_some() {
+                map.append(
+                    encoder.plan.literal_helper(),
+                    "lila::native_payload_literal",
+                );
             }
             names.functions(&map);
             Ok(())
@@ -39,7 +57,11 @@ fn indirect(
         let mut inner = wasm_encoder::NameMap::new();
         for entry in row.names {
             let entry = entry?;
-            inner.append(entry.index, entry.name);
+            let shift = !labels
+                && encoder.plan.contexts.as_ref().is_some_and(|contexts| {
+                    row.index == encoder.plan.imported_functions + contexts.bootstrap_body
+                });
+            inner.append(entry.index + u32::from(shift), entry.name);
         }
         map.append(index, &inner);
     }

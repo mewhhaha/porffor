@@ -923,6 +923,7 @@ gc_layout_registry! {
             LITERAL_COUNT: I32Value, Immutable, NonNullable;
             METADATA: GcRef<ImmutableByteArray>, Immutable, NonNullable;
             LANGUAGE_FEATURE_POLICY: lila_ir::LanguageFeaturePolicy, Immutable, NonNullable;
+            NATIVE_SOURCE_PAYLOAD: GcRef<NativeSourcePayloadArray>, Immutable, NonNullable;
         }
         // Completed captures are immutable. The actual function/context cycle
         // is closed only after function allocation, so its back edge is mutable.
@@ -2062,6 +2063,9 @@ gc_layout_registry! {
             NEW_TARGET_CELL: GcRef<BindingCell>, Immutable, NonNullable;
             ACTIVE_FUNCTION_CELL: GcRef<BindingCell>, Immutable, NonNullable;
         }
+        // Unlike construction-only mutable metadata bytes, this data crosses
+        // the typed host boundary and is physically immutable in Wasm.
+        array NativeSourcePayloadArray => NativeSourcePayloadArraySchema { ELEMENT: I8Value, Immutable, NonNullable; }
 }
 
 /// Indices are assigned before encoding the one mutually recursive graph.

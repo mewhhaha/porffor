@@ -48,6 +48,7 @@ pub(crate) use module_namespace::NamespaceOwnKeys;
 mod private_elements;
 mod property_storage;
 mod proxy_own_keys_list;
+mod regexp_literal;
 pub(crate) use proxy_own_keys_list::CompletedOwnPropertyKeys;
 mod proxy_target_descriptor;
 pub(crate) use proxy_target_descriptor::CompletedProxyTargetDescriptor;

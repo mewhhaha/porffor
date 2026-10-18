@@ -18,7 +18,8 @@ HISTORICAL = {'crates/lila-engine/src/tests.rs': {'count': 707, 'sha256': '40ea9
 TEST_ONLY_ALLOWLIST = ['crates/lila-front/tests', 'crates/lila-ir/tests', 'crates/lila-ir/src/tests', 'crates/lila-aot-wasm/tests', 'crates/lila-aot-wasm/src/runtime_artifact/build_package/tests.rs', 'crates/lila-aot-wasm/src/runtime_artifact/cache/tests.rs', 'crates/lila-aot-wasm/src/runtime_artifact/validated_profile/tests.rs', 'crates/lila-runtime/tests', 'crates/lila-intl/tests', 'crates/lila-engine/src/embedded_runtime/compile_tests.rs', 'crates/lila-engine/src/embedded_runtime/tests.rs', 'crates/lila-engine/src/wasm_runtime_link/tests.rs', 'crates/lila-engine/src/wasm_compilation_policy/tests.rs', 'crates/lila-engine/src/tests.rs', 'crates/lila-engine/src/regexp_program_boundary_tests.rs', 'crates/lila-engine/src/runtime_regexp_compiler_tests.rs', 'crates/lila-engine/src/array_present_index_tests.rs', 'crates/lila-engine/src/module_async_runtime_tests.rs', 'crates/lila-engine/src/wasm_native_source_compiler/tests.rs', 'crates/lila-engine/src/native_function_compiler_tests.rs', 'crates/lila-engine/src/native_function_compiler_tests', 'crates/lila-engine/src/wasm_native_function_compiler/observer.rs', 'crates/lila-engine/src/wasm_native_function_compiler/tests.rs', 'crates/lila-engine/src/wasm_native_function_compiler/tests', 'crates/lila-engine/src/native_global_script_compiler_tests.rs', 'crates/lila-engine/src/native_global_script_compiler_tests', 'crates/lila-engine/src/wasm_native_global_script_compiler/observer.rs', 'crates/lila-engine/src/wasm_native_global_script_compiler/tests.rs', 'crates/lila-engine/src/wasm_native_global_script_compiler/tests', 'crates/lila-engine/src/native_direct_eval_compiler_tests.rs', 'crates/lila-engine/src/native_direct_eval_compiler_tests', 'crates/lila-engine/src/wasm_native_direct_eval_compiler/observer.rs', 'crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs', 'crates/lila-engine/src/wasm_native_direct_eval_compiler/tests', 'crates/lila-engine/src/native_language_feature_policy_tests.rs']
 AUTHORED_CONTROLS = [['crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs', 'native_direct_eval_keeps_caller_lexical_writes_var_admission_and_strictness'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs', 'native_direct_eval_uses_actual_this_arguments_and_new_target_records'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs', 'native_unicode_private_names_keep_hidden_ancestor_scope_and_escaping_gc_roots'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/caller_records.rs', 'native_super_arrow_initializes_the_defining_constructor_after_gc'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/ownership.rs', 'native_nested_eval_and_old_program_reentry_keep_separate_defining_owners'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/ownership.rs', 'direct_eval_native_compilation_and_execution_keep_the_original_parent_timeout'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs', 'native_direct_syntax_uses_real_caller_grammar_and_intrinsic_error_identity'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs', 'native_direct_source_keeps_exact_lone_utf16_units_and_non_string_identity'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs', 'unused_external_import_bodies_do_not_reject_native_direct_eval'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs', 'external_import_operand_throws_precede_its_runtime_capability_boundary'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/source_and_errors.rs', 'executed_external_import_keeps_its_distinct_uncatchable_capability_error'], ['crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs', 'only_malformed_javascript_parse_rejections_become_direct_eval_syntax_messages'], ['crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs', 'factory_request_identity_includes_hidden_private_floor_and_exact_utf16_source'], ['crates/lila-engine/src/wasm_native_direct_eval_compiler/tests.rs', 'actual_syntax_and_thrown_reference_roots_survive_temporary_scope_exit_and_gc']]
 EMPTY_BLOCK_CONTROLS = [['crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs', 'native_direct_empty_blocks_preserve_update_empty_and_nested_values'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs', 'native_direct_empty_loop_bodies_keep_condition_and_update_effects'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs', 'native_direct_empty_blocks_keep_lexical_shadowing_and_early_errors'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs', 'native_direct_empty_try_clauses_keep_update_empty_and_catch_ownership'], ['crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs', 'native_direct_empty_statement_lists_keep_declarations_and_resource_lifetimes']]
-ALL_AUTHORED_CONTROLS = AUTHORED_CONTROLS + EMPTY_BLOCK_CONTROLS
+EMPTY_COMMENT_CONTROLS = [[ENGINE + "src/native_direct_eval_compiler_tests/empty_blocks.rs", "native_direct_empty_comments_keep_real_parsing_and_nonempty_completion"]]
+ALL_AUTHORED_CONTROLS = AUTHORED_CONTROLS + EMPTY_BLOCK_CONTROLS + EMPTY_COMMENT_CONTROLS
 
 CAPS = {
     ENGINE + "src/tests.rs": 31719,
@@ -33,6 +34,7 @@ CAPS = {
     ENGINE + "src/native_direct_eval_compiler_tests/ownership.rs": 80,
     ENGINE + "src/native_direct_eval_compiler_tests/source_and_errors.rs": 110,
     ENGINE + "src/native_direct_eval_compiler_tests/empty_blocks.rs": 100,
+    ENGINE + "src/native_direct_eval_compiler_tests/empty_cases.rs": 100,
 }
 FILES = tuple(sorted(set(CAPS) | set(HISTORICAL) | {
     ENGINE + "compiler_fingerprint.rs", ENGINE + "src/wasm_native_source_compiler.rs",
@@ -144,14 +146,15 @@ def check(sources: dict[str, str]) -> list[dict[str, str]]:
             host.count("context.check_budget()?") >= 5 and factory.count("context.check_budget()?") >= 5 and
             "crate::wasm_native_program_template::instantiate(&mut*store,engine,context,&template,trace,)?" in factory and
             "NativeProgramTemplate::for_direct_eval(&artifact)" in factory and
-            "initialize.call(&mut*store,&[],&mutowner)?" in factory and
+            "initialize.call(&mut*store,&initialization,&mutowner)?" in factory and
+            "crate::wasm_native_program_template::initializer_arguments(" in factory and
             "arguments.push(owner[0]);arguments.extend(request.operands);" in factory and
             "factory.call(&mut*store,&arguments,&mutoutput)?" in factory,
             "same_store_factory", "compile/instantiate/initialize/factory preserve original Store and deadline")
     template_plan = c[TEMPLATE_PLAN]
     require("Payload::StartSection{..}" in template_plan and "parse_all(artifact.bytes())" not in factory and
             "results.as_slice(),[owner]ifprogram_reference(owner,signature)" in factory,
-            "bootstrap_only", "P initialization has exact []->P type and cannot execute a module start function")
+            "bootstrap_only", "raw P keeps []->P while the checked native template receives its fresh payload; no module start function")
     outcome = c[HOST + "/outcome.rs"]
     require("reference:Option<OwnedRooted<AnyRef>>" in outcome and "Syntax(OwnedRooted<AnyRef>)" in outcome and
             ".map(|r|r.to_owned_rooted(&mut*store)).transpose()?" in outcome and
@@ -202,10 +205,10 @@ def check(sources: dict[str, str]) -> list[dict[str, str]]:
     for name in sorted(set(path for path, _ in ALL_AUTHORED_CONTROLS)):
         for test in re.findall(r"#\[test\]\s*fn\s+(\w+)\s*\(", sources[name]):
             actual_controls.append([name, test])
-    require(sorted(actual_controls) == sorted(ALL_AUTHORED_CONTROLS) and len(actual_controls) == 19 and
-            len(AUTHORED_CONTROLS) == 14 and len(EMPTY_BLOCK_CONTROLS) == 5 and
+    require(sorted(actual_controls) == sorted(ALL_AUTHORED_CONTROLS) and len(actual_controls) == 20 and
+            len(AUTHORED_CONTROLS) == 14 and len(EMPTY_BLOCK_CONTROLS) == 5 and len(EMPTY_COMMENT_CONTROLS) == 1 and
             not any("#[ignore" in c[path] for path, _ in ALL_AUTHORED_CONTROLS),
-            "nineteen_controls", "retain all original fourteen selectors and five empty-block controls")
+            "nineteen_controls", "retain all original fourteen selectors, five empty-block controls and the new empty-comment control")
     protocol = c[HOST + "/tests.rs"]
     records = c[ENGINE + "src/native_direct_eval_compiler_tests/caller_records.rs"]
     ownership = c[ENGINE + "src/native_direct_eval_compiler_tests/ownership.rs"]

@@ -32,6 +32,43 @@ fn request(kind: RuntimeGlobalScriptKind, source: &str) -> RuntimeGlobalScriptPr
 }
 
 #[test]
+fn declaration_only_global_scripts_share_checks_and_do_not_allocate_var_frame_caches() {
+    let runtime = minimal_runtime();
+    for directive in ["", "\"use strict\";"] {
+        let declarations = (0..1200)
+            .map(|index| format!("var declared_{index};"))
+            .collect::<String>();
+        let source = format!("{directive}{declarations}");
+        let program = request(RuntimeGlobalScriptKind::RealmScript, &source);
+        let artifact =
+            emit_runtime_global_script(&program, &runtime, &IntlCompilationProfile::Minimal)
+                .unwrap();
+        Validator::new_with_features(WasmFeatures::all())
+            .validate_all(artifact.bytes())
+            .unwrap();
+        for payload in Parser::new(0).parse_all(artifact.bytes()) {
+            if let Payload::CodeSectionEntry(body) = payload.unwrap() {
+                let locals = body
+                    .get_locals_reader()
+                    .unwrap()
+                    .into_iter()
+                    .map(|row| row.unwrap().0)
+                    .sum::<u32>();
+                assert!(
+                    locals < 512,
+                    "bare global declarations retained {locals} frame locals ({directive})"
+                );
+                assert!(
+                    body.range().len() < 256 * 1024,
+                    "declaration checks expanded to {} bytes at every source name ({directive})",
+                    body.range().len()
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn native_script_factory_witness_rejects_source_kind_nested_id_and_deferred_substitution() {
     let program = request(
         RuntimeGlobalScriptKind::IndirectEval,
@@ -155,7 +192,8 @@ fn emitted_native_global_scripts_are_fresh_valid_p_with_owned_hook_factory_and_i
             assert_eq!(imported as usize, expected_imports.len());
             let initialize = exports[artifact.program_initialize_export()];
             let factory = exports[artifact.factory_export()];
-            let main = exports["main"];
+            assert!(!exports.contains_key("main"));
+            assert_eq!(initialize, imported);
             assert!(!exports.contains_key(crate::runtime_function::RUNTIME_FUNCTION_FACTORY_EXPORT));
             assert_eq!(
                 function_types[initialize as usize],
@@ -186,7 +224,6 @@ fn emitted_native_global_scripts_are_fresh_valid_p_with_owned_hook_factory_and_i
                 .position(|index| *index == RuntimeHelperId::PooledStringsInitialize.type_index())
                 .unwrap() as u32;
             assert_eq!(calls[&initialize], [r_init]);
-            assert!(!calls[&initialize].contains(&main));
         }
     }
 }
