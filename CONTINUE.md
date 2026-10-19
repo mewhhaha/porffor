@@ -1,31 +1,44 @@
 # Continue Lila — 2026-10-19
 
-Frozen native compiler/worker source is `1c302df9f`. All14 source audits pass;
-the ordinary all-feature Cargo CLI/worker build completes in965.861s. Two IR
-and AOT variants serve distinct build-host/product dependency feature graphs.
-The original cold4 remains red:3PASS/1TIMEOUT at unchanged5000ms/fresh normal
-caches/four actual jobs. Seed9 fails and seed10 passes; earlier variability
-establishes no causal speedup. The complete whole35 is33PASS/2FAIL, exact35IDs
-retained: four prior failures pass, one prior pass now times out and one prior
-failure remains. Recursive ordinary worker graph proof passes. Keep every red.
-[Lossless current native checkpoint](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+Frozen native compiler/worker source is `1c302df9f`. All 14 source audits and
+the ordinary all-feature CLI/worker build pass. Complete affected default
+verification now passes3120/0/0: AOT 442/modules74/IR 1607/Engine972/templates 21/
+cache-process 4, across exactly six whole scopes. All 3115 prior IDs remain and
+five controls are added. Both original 60s template failures and the original
+raw-Unicode staging body pass. Actual bounded compiler CPU receipts, serial
+Cargo/libtest, ordinary recursive feature graphs and exact Cargo/ELF/native
+outcomes are sealed. [Lossless3120 proof](docs/rust-rewrite/iteration-default-scopes-20261019.json).
 
-Complete current default templates21/runtime_cache4 passes25/0/0, including
-both original60s template failures. Actual new bounded compiler-CPU policy is
-verified for these scopes with serial cases/Cargo. Matched allocation count
-49,390,823→49,400,430 shows no whole-program reduction. The actual failed CLI,
-worker, four whole-worker harnesses, sharedR and producer are byte-preserved
-and fully readback-verified before retiring only four closed libtest outputs.
-Normal products/dependencies/caches/fingerprints remain. Decoder:zstd --long=29.
+Full default discovery is queued through
+`../.lila-tools/start-full-default-after-focus-20261019-run2.py`, carrying only
+these six sealed current scopes and executing the remaining 105: exact111/
+9549native+11docs. Its child is
+`target/full-default-iteration-20261019-run2/receipt.json`.
+`../.lila-tools/start-all-features-after-default-20261019-run2.py` follows a
+terminal complete default discovery, including literal native failures, with
+fresh all113 all-feature scopes. Its child is
+`target/all-features-iteration-20261019-run2/receipt.json`. AF retains every
+current default ID and the current35 worker IDs; do not guess its total.
+Both owners keep original deadlines and continue literal native failures;
+operational/source/provenance errors stop without invented outcomes. Do not
+launch old CAB/2d coordinators. Primary remains frozen until owners drain.
 
-Continue default AOT442/modules74, IR1607 and Engine library972, in four total
-storage-bounded focus cohorts including the completed25. Each complete cohort
-is proved and passed harnesses retired before the next build. The full-default
-successor carries exactly these six current whole scopes/3120 IDs with exact
-retirement proof, then executes the other105 scopes:9549native+11docs total.
-All broader acceptance and task closure remain false. Do not delete CONTINUE/tasks.
-An auxiliary plan omitted LILA_TEST_CODEGEN_JOBS=auto and stopped before work;
-its rejection is preserved and corrected plan3 passes without repeating native25.
+The separate original cold4 remains3PASS/1original5000msTIMEOUT: seed9 fails,
+seed10 passes. Whole35 remains33PASS/2FAIL, exact35 IDs retained; four prior
+failures pass, one prior pass now times out, and one prior failure remains.
+Recursive ordinary worker graph passes. These variable timeout results and the
+matched49,390,823→49,400,430 allocation calls establish no causal speedup or
+whole-program allocation reduction. Preserve every red receipt and actual image.
+[Earlier cold/worker/allocation proof](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+
+All four focus cohorts are proved before retiring only their passed libtests.
+Two closed private stripped diagnostic copies were archived with full-byte
+readback, releasing558554376B in/tmp; three already verified closed archives
+were copied/fsynced/readback-verified there with canonical symlinks, recovering
+437233699B in workspace. No normal product, dependency, cache or fingerprint
+was retired. Workspace TMPDIR is set before Python starts; original storage
+reserves remain. Full default/all-features and every later CLI/conformance/task
+criterion remain unaccepted. Keep CONTINUE/tasks until all requirements pass.
 
 Main's separate plan-only reporting repair passes16 scheduler controls and a
 real two-scope metadata plan. It changes only the plan AST; the native owner
@@ -62,7 +75,8 @@ return unit: all12 production sites discarded the previous value, while the
 old implementation cloned its key and sometimes a deep shared signature just
 to discard it. Five exact-source standalone catalog controls pass, retaining
 every existing ID and checking zero replacement clones/fork isolation/non-Clone
-facts. Full IR/AOT/Engine and actual allocation measurements remain required.
+facts. Full IR/AOT/Engine now pass in the3120 checkpoint above; the actual allocation
+sample establishes no whole-program reduction.
 [Exact standalone controls and phase samples](docs/rust-rewrite/iteration-candidate-controls-20261019.json).
 
 FunctionCache startup now scans once below its normal cap, with the existing

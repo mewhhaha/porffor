@@ -1,15 +1,23 @@
 # Lila Rust AOT + Test262 execution plan
 
-Current source `1c302df9f`:14 audits and ordinary CLI/worker build pass965.861s.
-Original cold4 remains3PASS/1original5000msTIMEOUT (seed9 fails/seed10 passes).
-Whole35 remains33PASS/2FAIL: every ID stays, four prior failures pass and one
-prior pass now times out. Recursive worker graph passes. Complete default
-native templates21/cache-process4 passes25/0/0, including both original60s
-failures; actual bounded compiler CPUs/serial tests are verified. Matched
-allocation49,390,823→49,400,430 establishes no reduction. Preserve failed bytes.
-Continue the other3095 affected IDs in small whole-scope cohorts, then carry
-exact6/3120 into full111/9549native+11docs. All broad/conformance/task closure
-remains pending; keep CONTINUE/tasks. [Exact current evidence](../docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+Current frozen source `1c302df9f` passes all 3120 affected default IDs across
+six complete scopes: AOT 442/modules74/IR 1607/Engine972/templates 21/cache4.
+Zero failed or ignored; all3115 prior IDs plus five controls remain. Both
+original60s template failures and original raw-Unicode staging pass. Exact
+bounded compiler CPU, serial test/build, Cargo/ELF and recursive graph proofs
+are sealed before retiring passed closed harnesses. Full111 default discovery
+carries these six and executes the other105, exact9549native+11docs. Fresh113
+all-feature discovery follows even when literal default assertions fail; it
+retains exact current IDs and measures its actual inventory. All broad gates
+remain unaccepted until their own receipts complete.
+
+Original cold4 stays3PASS/1original5000msTIMEOUT; whole35 stays33PASS/2FAIL,
+with every earlier ID and each literal red retained. These variable timings
+and allocation 49,390,823→49,400,430 establish no causal speedup or allocation
+reduction. All 14 source audits and the ordinary CLI/worker build pass965.861s.
+Keep CONTINUE/tasks until every acceptance requirement passes.
+[Complete3120 proof](../docs/rust-rewrite/iteration-default-scopes-20261019.json).
+[Exact earlier timeouts](../docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
 
 Previous native-mode checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
 worker build and14 source audits. Original cold4 remains red:3PASS/1TIMEOUT
@@ -20,8 +28,9 @@ gates remain unrun. [Exact cold evidence](../docs/rust-rewrite/large-program-mod
 [Exact997 and red35](../docs/rust-rewrite/large-program-mode-engine-workers-20261019.json).
 The next candidate removes the unaccepted native policy and avoids discarded
 catalog clones/redundant cache walks, with an explicit bounded compiler-CPU
-verifier opt-in. Catalog5/Python618/final15 controls pass; actual native,
-allocation and broad acceptance remain pending. Keep this directory/CONTINUE.
+verifier opt-in. Catalog5/Python618/final15 controls pass; complete affected3120 now pass.
+Allocation shows no reduction and broad acceptance remains pending. Keep
+this directory/CONTINUE.
 
 Prior checkpoint: source `cab9f9f2e` passes all2,146 affected
 native IDs, including both original60s template failures. Four whole scopes

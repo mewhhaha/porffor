@@ -1,22 +1,23 @@
-Iteration checkpoint — 2026-10-19: frozen compiler source `1c302df9f` passes
-all **21 native template tests and 4 cache-process tests**, including both
-original template failures at unchanged 60-second limits. The explicit bounded
-compiler-CPU policy has now executed with serial Cargo/libtest. All 14 source
-audits pass; the ordinary Cargo build takes 965.86s, rebuilding separate host
-and product IR/AOT dependency graphs.
+Verification checkpoint — 2026-10-19: frozen compiler source `1c302df9f` passes
+**all 3,120 tests across six complete affected default scopes**, zero failed or
+ignored: AOT 442, modules/realms 74, IR 1607, Engine library 972, native templates 21
+and cache-process 4. Every prior 3,115 ID remains, with five added controls.
+Both original template failures and the original raw-Unicode staging test pass
+at their existing limits. Actual bounded compiler CPUs and serial Cargo/libtest
+are verified. [Complete native proof](docs/rust-rewrite/iteration-default-scopes-20261019.json).
 
-The complete all-feature worker run remains **red: 33 passed, 2 failed** at the
-original five-second limits. Every prior 35 ID remains: four earlier failures
-pass, one earlier pass times out, and one earlier failure remains. The separate
-original cold run is **three passes and one timeout**: mutation seed9 fails and
-seed10 passes. Recursive worker graph proof passes. These changing timeout
-outcomes establish no causal speedup. Failed images and exact logs are preserved.
+Full default discovery carries these six scopes and runs the remaining 105:
+9,549 native + 11 documentation IDs across 111 scopes. All 113 all-feature scopes
+follow, retaining the exact default IDs and discovering their actual extra
+inventory. Full-suite, CLI, conformance and task acceptance remain pending.
 
-The matched allocation sample is 49,400,430 calls versus 49,390,823 before;
-no whole-program reduction is established. Current AOT, IR and Engine-library
-verification continues in smaller storage-bounded cohorts; full default,
-all-features, CLI and conformance acceptance remain pending.
-[Lossless current native results and remaining failures](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+The separate complete all-feature worker run remains **red: 33 passed, 2 failed**;
+all 35 IDs remain. The original cold run remains **three passes and one timeout**
+at unchanged five-second limits. These timeouts are unresolved. All 14 source
+audits pass; the ordinary CLI/worker Cargo build takes 965.86s, with distinct host
+and product dependency graphs. The matched allocation 49,390,823→49,400,430
+establishes no whole-program reduction. Failed images and raw logs are preserved.
+[Exact earlier timeouts and allocation sample](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
 
 The plan-only compiler-CPU barrier/order repair passes all 16 scheduler controls
 and a real two-scope metadata plan; every non-plan runner AST is unchanged.

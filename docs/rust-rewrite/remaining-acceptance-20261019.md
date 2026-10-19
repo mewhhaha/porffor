@@ -1,15 +1,23 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
-Current source `1c302df9f`:14 audits and ordinary CLI/worker build pass965.861s.
-Original cold4 remains3PASS/1original5000msTIMEOUT (seed9 fails/seed10 passes).
-Whole35 remains33PASS/2FAIL: every ID stays, four prior failures pass and one
-prior pass now times out. Recursive worker graph passes. Complete default
-native templates21/cache-process4 passes25/0/0, including both original60s
-failures; actual bounded compiler CPUs/serial tests are verified. Matched
-allocation49,390,823→49,400,430 establishes no reduction. Preserve failed bytes.
-Continue the other3095 affected IDs in small whole-scope cohorts, then carry
-exact6/3120 into full111/9549native+11docs. All broad/conformance/task closure
-remains pending; keep CONTINUE/tasks. [Exact current evidence](iteration-native-checkpoint-20261019.json).
+Current frozen source `1c302df9f` passes all 3120 affected default IDs across
+six complete scopes: AOT 442/modules74/IR 1607/Engine972/templates 21/cache4.
+Zero failed or ignored; all3115 prior IDs plus five controls remain. Both
+original60s template failures and original raw-Unicode staging pass. Exact
+bounded compiler CPU, serial test/build, Cargo/ELF and recursive graph proofs
+are sealed before retiring passed closed harnesses. Full111 default discovery
+carries these six and executes the other105, exact9549native+11docs. Fresh113
+all-feature discovery follows even when literal default assertions fail; it
+retains exact current IDs and measures its actual inventory. All broad gates
+remain unaccepted until their own receipts complete.
+
+Original cold4 stays3PASS/1original5000msTIMEOUT; whole35 stays33PASS/2FAIL,
+with every earlier ID and each literal red retained. These variable timings
+and allocation 49,390,823→49,400,430 establish no causal speedup or allocation
+reduction. All 14 source audits and the ordinary CLI/worker build pass965.861s.
+Keep CONTINUE/tasks until every acceptance requirement passes.
+[Complete3120 proof](iteration-default-scopes-20261019.json).
+[Exact earlier timeouts](iteration-native-checkpoint-20261019.json).
 
 Previous native-mode source `be26faf2e` passes997 Engine IDs but records
 30PASS/5FAIL across whole35 and3PASS/1TIMEOUT across cold4. These historical
@@ -50,8 +58,9 @@ Prior-source results supply no current-source acceptance.
 
 ## Native suites and retention
 
-After the affected repair passes, execute all111 current-source default scopes.
-The CAB inventory contains9549 expected native and11 documentation IDs; a successor
+Complete all111 current-source default scopes even while the separate cold
+performance gate remains red.
+The current inventory contains9549 expected native and11 documentation IDs; a successor
 must retain every prior ID and account for added controls explicitly. Carry
 only proven complete same-source/profile scopes with exact Cargo/graph and raw
 outcome evidence. All four CAB affected whole scopes pass at their prior source;
