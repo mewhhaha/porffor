@@ -19,7 +19,7 @@ from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cl
 from workspace_test_storage import storage_snapshot
 import workspace_feature_roots as feature_roots
 from workspace_test_artifacts import build_script_artifact, doc_cohorts, isolated_test_packages, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');parser.add_argument('--selected-feature-roots',action='store_true',help='Narrow native Cargo roots with an empty auxiliary and prove each selected root matches the ordinary workspace graph');parser.add_argument('--differential-native-cpus',choices=['auto'],help='explicit quota-bound native compilation in idle-exclusive differential scopes; libtest/cases remain serial');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');parser.add_argument('--selected-feature-roots',action='store_true',help='Narrow native Cargo roots with an empty auxiliary and prove each selected root matches the ordinary workspace graph');parser.add_argument('--differential-native-cpus',choices=['auto'],help='explicit quota-bound native compilation in idle-exclusive differential scopes; libtest/cases remain serial');parser.add_argument('--idle-builds',action='store_true',help='Wait for owned native tests before each uncached Cargo build so LLVM starts with the full bounded CPU budget');args=parser.parse_args()
 if args.selected_feature_roots:
     assert not (args.all_features or args.packages or (set(args.isolate_test_package)-{'lila-intl'}) or args.retry_from or args.reuse_library_build_from or args.restored_library_provenance), 'Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt'
 native_filters=dict(row.split('=',1) for row in args.native_filter)
@@ -99,12 +99,14 @@ combined_selectors=selected_cohort_selectors(cases,isolated_packages) if args.bu
 result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets,'preserve_test_artifacts':args.preserve_test_artifacts}
 result['selected_feature_roots']=args.selected_feature_roots
 result['differential_native_cpus']=args.differential_native_cpus
+result['idle_builds']=args.idle_builds
 result['build_selected_together']=args.build_selected_together
 result['selected_build_selectors']=combined_selectors
 result['selected_target_members']=selected_target_members(cases)
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
+    assert previous.get('idle_builds',False)==args.idle_builds, 'Continuation cannot change idle-build policy'
     assert previous.get('differential_native_cpus')==args.differential_native_cpus, 'Continuation cannot change differential native CPU policy'
     assert previous['head']==result['head'] and previous['source_unchanged']
     assert previous.get('profile','debug')==args.profile, 'Retry profile changed'
@@ -133,6 +135,7 @@ if args.retry_from:
     result['continuation_phase']=args.continuation_phase
     result['retry_input']={'path':str(args.retry_from),'sha256':hashlib.sha256(args.retry_from.read_bytes()).hexdigest(),'policy':'exact previously unstarted, explicitly interrupted or storage-deferred whole targets from immutable same-source input; parallel excludes docs/timing; barriers externally idle; original outcomes preserved'}
 build_env=os.environ.copy()
+assert not args.idle_builds or (args.no_test_incremental and build_env.get('LILA_TEST_CODEGEN_JOBS')=='auto'), 'Idle builds require --no-test-incremental and LILA_TEST_CODEGEN_JOBS=auto'
 if args.no_test_incremental:build_env['LILA_TEST_NO_INCREMENTAL']='1'
 if args.shared_runtime_linker:
     linker=args.shared_runtime_linker.resolve()
@@ -195,7 +198,8 @@ slots=available[:args.test_processes]
 result['artifact_selection_policy']='Exact Cargo package identity, target name, kind and test profile; normal selectors exclude explicitly isolated test roots; each isolated package has its own exact Cargo cohort; all native IDs execute once.'
 result['scheduling']={'native_cpus':slots,'test_processes':args.test_processes,
  'test_threads_per_process':1,'cargo_jobs':1,'strip_test_debug':args.strip_test_debug,
- 'compilation_policy':'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited'}
+ 'idle_builds':args.idle_builds,
+ 'compilation_policy':('uncached Cargo builds wait for owned native tests to finish, then start with the full quota-bound parent budget; cached native targets may still overlap' if args.idle_builds else 'all quota-bound inherited parent CPUs when idle; one free CPU while native targets run; the build tree expands to the parent budget once every native wrapper has exited')}
 active={}
 from workspace_build_cpus import expand_build_tree
 def group_key(case):
@@ -565,6 +569,10 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
     print('START',label,flush=True)
     base=cargo_test_base(case)
     cached_native=case['kind']!='doc' and group_key(case) in artifact_cohorts
+    if args.idle_builds and not cached_native and active:
+        waited_at=time.monotonic();waiting=len(active)
+        while active:reap(wait=True)
+        case['idle_build_wait']={'seconds':round(time.monotonic()-waited_at,3),'native_processes_drained':waiting}
     if not admit_build_space(case,label,cached_native=cached_native,native_processes=len(slots) if partitioned else 1):continue
     cpu=next(cpu for cpu in slots if cpu not in active)
     start=time.monotonic();case.update(state='building',started_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()));save()

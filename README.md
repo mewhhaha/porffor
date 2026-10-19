@@ -492,6 +492,17 @@ expected checksum; enabling or disabling the option reuses every existing output
 with identical bytes, inodes and timestamps. Lila rebuild timing is still
 unmeasured. [Exact fixture evidence](docs/rust-rewrite/bounded-rustc-codegen-20261018.json).
 
+Opt-in idle builds — 2026-10-19: add `--idle-builds` to the workspace test
+runner with `--no-test-incremental` and `LILA_TEST_CODEGEN_JOBS=auto`. It waits
+for owned native tests before uncached Cargo builds, so Rustc starts with the
+full bounded budget. Cached native scopes can still overlap. All99 workspace
+and37 cloud-budget controls pass; the command plan retains its exact selected
+scope. In a16-codegen-unit probe, starting on four CPUs took5.58–8.81s versus
+10.78–13.33s when starting on one. Adding private tokens after startup still
+used about one CPU, so that prototype was discarded. These small measurements
+do not establish a full Lila build speedup.
+[Exact controls, negative control and rejected prototype](docs/rust-rewrite/idle-codegen-startup-capacity-20261019.json).
+
 Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
 checks each producer first and regenerates only stale output, then rechecks all
 13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.

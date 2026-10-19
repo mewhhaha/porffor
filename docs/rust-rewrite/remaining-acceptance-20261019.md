@@ -5,8 +5,11 @@ Its complete focused checkpoint passes all35 native IDs and all39 filtered
 admission controls, retaining every prior control. The separate original fresh
 cold gate records three passes/one5,000ms mutation-seed9 timeout during P native
 compilation and remains red. [Exact current outcomes](runtime-admission-checkpoint-20261019.json).
-Isolate and repair that remaining cost before the expensive broad successor gates.
-All earlier stopped queues remain terminal and need fresh source-bound owners.
+Keep that cold failure open while independent fresh native discovery runs at
+the unchanged252 source. Current owners are `full-default-runtime-admission`,
+`all-features-runtime-admission`, and then
+`runtime-admission-ci-release-retention230`, all dated20261019/run1 under target.
+All earlier stopped queues remain terminal; none supplies current outcomes.
 
 The last complete default at `2d719` passes9,538 native/11 documentation IDs.
 That prior source's ordinary release, four original deadline cases and all733
@@ -17,7 +20,7 @@ their actual completed evidence before acceptance.
 
 ## Native suites and retention
 
-Run all 111 current-source default scopes fresh. Actual inventories are expected
+The active run executes all111 current-source default scopes fresh. Actual inventories are expected
 to contain 9,544 native and 11 documentation IDs, retaining every prior 9,538
 native ID and adding four AOT/two Intl controls. A disk deferral has no native
 outcome; retain its receipt and run only genuinely unobserved scopes later.
@@ -51,9 +54,10 @@ compatible baseline/candidate reports and actual calibration.
 
 ## Debug and optimized oracle campaigns
 
-Capture the actual non-test, `spec-exec-oracle` debug CLI emitted by the
-all-feature integration Cargo build, using its successful artifact event and
-verified executable bytes. This avoids an extra debug Cargo build. Image
+The actual non-test, `spec-exec-oracle` debug CLI is captured in
+`target/runtime-admission-oracle-debug-admission-20261019-run1`. Its successful
+all-feature integration Cargo artifact event and verified executable bytes bind
+the copy. This avoids an extra debug Cargo build. Image
 capture alone does not prove the oracle works.
 
 For each profile, use the first complete 14-case `differential replay-corpus

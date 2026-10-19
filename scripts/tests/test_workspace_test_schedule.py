@@ -175,6 +175,52 @@ class WorkspaceScheduleTests(unittest.TestCase):
         self.assertEqual(active, {})
         self.assertEqual(calls, [False, True, True])
 
+    def test_idle_builds_drain_only_uncached_work_before_storage_admission(self):
+        runner = SOURCE.with_name('run_workspace_tests.py')
+        tree = ast.parse(runner.read_text())
+        loop = next(node for node in tree.body if isinstance(node, ast.For)
+                    and isinstance(node.target, ast.Tuple)
+                    and ast.unparse(node.target) == '(i, case)')
+        prefix = []
+        for node in loop.body:
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
+                    and target.id == 'start' for target in node.targets):
+                break
+            prefix.append(node)
+        for requested, cached, remaining in [(True, False, 0), (True, True, 2),
+                                              (False, False, 2)]:
+            with self.subTest(idle_builds=requested, cached=cached):
+                active = {0: object(), 1: object()}
+                calls = []
+                admissions = []
+                def reap(wait=False):
+                    calls.append(wait)
+                    if wait:
+                        active.pop(next(iter(active)))
+                def admit(*arguments, **options):
+                    admissions.append((len(active), options['cached_native']))
+                    return False  # Stop before any real Cargo or filesystem work.
+                selected = case('lila-front', 'independent')
+                scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap,
+                         'case': selected, 'artifact_cohorts': {'group': {}} if cached else {},
+                         'args': SimpleNamespace(partition_cli=False, continuation_phase='all',
+                                                 idle_builds=requested),
+                         'partition_native_targets': [], 'is_barrier': schedule.is_barrier,
+                         'is_partitioned_native': schedule.is_partitioned_native,
+                         'cargo_test_base': lambda selected: ['cargo', 'test'],
+                         'group_key': lambda selected: 'group', 'admit_build_space': admit,
+                         'out': Path('/unused'), 'time': __import__('time')}
+                harness = ast.For(target=loop.target, iter=ast.List(elts=[ast.Tuple(
+                    elts=[ast.Constant(value=0), ast.Name(id='case', ctx=ast.Load())],
+                    ctx=ast.Load())], ctx=ast.Load()), body=prefix, orelse=[])
+                module = ast.fix_missing_locations(ast.Module(body=[harness], type_ignores=[]))
+                exec(compile(module, str(runner), 'exec'), scope)
+                self.assertEqual(admissions, [(remaining, cached)])
+                self.assertEqual(len(active), remaining)
+                self.assertEqual(calls, [False, True, True] if remaining == 0 else [False])
+                self.assertEqual(selected['selector'], ['--test', 'independent'])
+                self.assertEqual('idle_build_wait' in selected, remaining == 0)
+
 
 if __name__ == '__main__':
     unittest.main()

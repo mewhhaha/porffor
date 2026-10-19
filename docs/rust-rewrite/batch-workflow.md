@@ -66,6 +66,26 @@ same Cargo artifacts with unchanged output bytes, inodes and timestamps. The
 fixture ran alongside product compilation; its timings do not establish a Lila
 rebuild speedup. See the [lossless fixture](bounded-rustc-codegen-20261018.json).
 
+### Choose LLVM capacity before compilation — 2026-10-19
+
+For expensive uncached compilation, add `--idle-builds` to
+`scripts/run_workspace_tests.py`, together with `--no-test-incremental` and
+`LILA_TEST_CODEGEN_JOBS=auto`. The runner drains its owned native tests before
+an uncached Cargo build, then uses the existing bounded idle compilation
+command. Already built scopes may still execute concurrently. Receipts record
+the option and each drain; continuation requires the same policy.
+
+Widening affinity after Rustc starts does not ensure more LLVM workers. The
+16-unit probe started on one CPU and widened after0.4s: old-wrapper walls were
+13.33/10.78s at about one average CPU. A private dynamic-token prototype stayed
+near one CPU at10.89/10.41s and was discarded. Starting the original wrapper
+with four CPUs took5.58/8.81s at about two average CPUs. An initial single-unit
+fixture is retained as a negative control. All99 workspace and37 cloud-budget
+controls pass, including actual scheduling-flow checks for uncached opt-in,
+cached opt-in and the default overlap. A real plan-only invocation retains its
+selected scope. This is a small compiler probe, not a measured full Lila build
+speedup. [Exact source, commands, outcomes and controls](idle-codegen-startup-capacity-20261019.json).
+
 
 ## Preserve current provenance timestamps — 2026-10-18
 

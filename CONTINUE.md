@@ -20,7 +20,7 @@ before any native outcome. The inactive2d ordinary release is byte-preserved in
 `target/closed-2d-release-before-runtime-admission-20261019-run1` with all aliases;
 its retirement freed333 MiB without changing dependencies or fixtures.
 
-Next isolate the remaining P native compile cost before another source batch.
+Keep isolating the remaining P native compile cost before another product batch.
 The exact cold seed9 P has45 bodies,557,768 bytes and a145,552-byte largest JS
 body; it imports standard/host runtime implementations from R. Preserve the
 complete35 and39-control passes while repairing cold startup. Every function
@@ -28,14 +28,22 @@ body remains validated, with only immutable Cargo output reusing the producer's
 full validation. Keep all source/profile/Intl/checksum/section/data/layout
 checks and full safe/disk admission; default concurrency remains serial.
 
-After the coherent cold repair, run fresh111-scope default verification with
-actual inventories expected at9,544 native/11 documentation IDs, retaining all
-prior9,538 native IDs. The six additions are four AOT and two Intl controls.
-Then complete all113 all-feature scopes and the remaining schedule below.
-The unstarted all-feature successor now retains complete native failures and
+The unchanged252 source is now running fresh111-scope default verification in
+`target/full-default-runtime-admission-20261019-run1`, independently of the
+separate red cold gate. Actual inventories are expected at9,544 native/11
+documentation IDs, retaining all prior9,538 native IDs. The six additions are
+four AOT and two Intl controls. The current all113-scope all-feature successor
+waits for that default gate. It retains complete native failures and
 continues independent discovery; failed ELFs stay preserved and acceptance
 remains false when red. Build, evidence, documentation and storage errors stop
-without inventing missing outcomes. Keep CONTINUE and tasks until all gates pass.
+without inventing missing outcomes. The queued
+`../.lila-tools/finish-runtime-admission-ci-release-retention230-20261019-run1.py`
+then requires both native gates, runs both all-target checks, builds a fresh
+ordinary release, and executes the original four cases and complete230 replay
+with exact prior219-success retention. Queued work supplies no result.
+The actual oracle-enabled debug CLI has already been captured under
+`target/runtime-admission-oracle-debug-admission-20261019-run1`; its corpus and
+sustained campaigns remain unaccepted. Keep CONTINUE and tasks until all gates pass.
 
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
