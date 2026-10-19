@@ -1,36 +1,40 @@
 # Continue Lila — 2026-10-19
 
 Current frozen source is `2d71987461ed1390eac43fbdaebd4c110df31b66`.
-The ordinary release passes in144.84s; all four original untraced deadline cases
-pass with the original60s/300s budgets, one worker and fresh four64MiB cache
-tiers per case. All733 focused ordinary native IDs pass:437 AOT library,
-115 async structure,151 language structure and the complete30 runtime-link
-target, with zero failed/ignored. The old runtime-link failure is eliminated
-in ordinary Cargo verification. [Lossless current ordinary evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+Full default verification is complete and green: all 111 scopes, **9,538 native
+passes and 11 documentation passes**, zero failed or ignored. Every prior 9,535
+native inventory ID is retained. The sole earlier runtime-link failure is
+eliminated in the complete ordinary scope.
+[Lossless complete current default evidence](docs/rust-rewrite/native-default-runtime-type-suffix-20261019.json).
 
-The first current full-default coordinator stopped for disk admission after
-eight completed scopes/3568passes/zero failures, then incorrectly treated the
-unstarted storage deferral as a failed native proof. Preserve that rejected
-receipt and its deferred child. Closed byte-verified archives were relocated
-with original paths preserved. The fresh continuation
-`../.lila-tools/continue-full-default-runtime-type-suffix-20261019-run1.py`
-validates/carries only those eight exact same-source completed scopes, runs the
-remaining103 of111, and pauses above the native disk reserve. Storage deferrals
-carry no test outcome; every actual failed scope remains red. Fresh successors
-`../.lila-tools/run-all-features-runtime-type-suffix-20261019-run1.py` and
-`../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`
-require green predecessor gates. All113 all-feature scopes, both all-target
-checks and complete230 remain mandatory. Keep CONTINUE/tasks until every gate
-passes; current ordinary evidence is no full-pin or task-closure claim.
+The ordinary release passes in 144.84s. All four original untraced deadline
+cases pass with the original 60s/300s budgets, one worker and fresh four 64 MiB
+cache tiers per case. All 733 focused ordinary native IDs pass: 437 AOT library,
+115 async structure, 151 language structure and the complete 30 runtime-link
+target, zero failed/ignored.
+[Lossless current ordinary evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
 
-The [current remaining-gate schedule](docs/rust-rewrite/remaining-acceptance-20261019.md)
-also queues real mechanics, idle product measurements and complete debug/release
-oracle tiers after those owners drain. Capture the actual all-feature debug
-product instead of rebuilding it. Preserve the ordinary image and all aliases
-before building the oracle feature in its warmed release target. Source review
-confirms that one of T26's two fresh complete families can also supply T01's
-baseline/backlog/publication, avoiding a third full execution; both fresh
-closure families and all literal zero-failure requirements remain mandatory.
+Preserve the first current coordinator's disk-admission rejection at eight
+completed scopes/3,568 passes/zero failures and its unstarted deferred child.
+The fresh `../.lila-tools/continue-full-default-runtime-type-suffix-20261019-run1.py`
+validated/carried only those eight exact same-source scopes and completed the
+remaining 103. Storage deferrals have no native outcome. The earlier complete-red
+459-source discovery remains unchanged.
+
+Next owners are `../.lila-tools/run-all-features-runtime-type-suffix-20261019-run1.py`
+and `../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`.
+Require all 113 all-feature scopes, both all-target checks and complete original
+230 retention. Their green default prerequisite is now satisfied; no dependent
+outcome is inferred. Real mechanics, idle product measurements and complete
+debug/release oracle tiers remain separately owned after those workloads drain.
+
+Follow the [current remaining-gate schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
+Capture the actual all-feature debug product instead of rebuilding it. Preserve
+the ordinary image/all aliases before building the oracle feature in its warmed
+release target. One of T26's two fresh complete families can also supply T01's
+baseline/backlog/publication, avoiding a third full execution. Both fresh closure
+families and literal zero-failure requirements remain mandatory. Keep CONTINUE
+and tasks until every acceptance criterion passes.
 
 Frozen-source459d7ef full default discovery is complete: all111 scopes,
 **9,537 native passes/one known layout assertion failure**, all11 documentation
@@ -65,7 +69,8 @@ The original current-source full-default helper completed focused733 before its
 later disk-admission stop; preserve its receipt and focused seal. Require all111
 default scopes/9538native/11doc and every prior9535 exact native ID. Use the fresh
 continuation and dependent20261019 queues above. No production code changed in
-the test repair; full-default/all-features/all-target/230 acceptance remains open.
+the test repair. Current full-default acceptance is complete above; all-features,
+all-target and 230 acceptance remain open.
 
 The completed R14 verification source was
 `459d7ef49e99c7fb71d99542a15f965159867634`. Ordinary Cargo passes all703 focused

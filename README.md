@@ -1,13 +1,18 @@
 Current ordinary verification — 2026-10-19: at frozen source
-`2d71987461ed1390eac43fbdaebd4c110df31b66`, all **733 focused native tests**
-pass with zero failures or ignored tests, including the complete 30-test
-runtime-link target that contained the prior sole failure. The ordinary release
-builds in 144.84s. All four original untraced deadline cases pass in one complete
-fresh-cache run at the unchanged 60s execution/300s compilation limits, with one
-worker and four 64 MiB cache tiers per case. Full default, all-features, all-target
-and 230-case retention verification remain separately owned; pinned conformance
-and task closure remain open.
-[Lossless ordinary release, deadline and native evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+`2d71987461ed1390eac43fbdaebd4c110df31b66`, the complete default workspace
+passes **9,538 native tests and 11 documentation tests across all 111 scopes**,
+with zero failures or ignored tests. Every prior 9,535 native inventory ID is
+retained. The corrected runtime-link target passes all 30 original tests;
+the earlier source's red result remains preserved.
+[Lossless complete default inventories, receipts and logs](docs/rust-rewrite/native-default-runtime-type-suffix-20261019.json).
+
+All 733 focused native tests also pass. The ordinary release builds in 144.84s,
+and all four original untraced deadline cases pass in one complete fresh-cache
+run at the unchanged 60s execution/300s compilation limits, with one worker and
+four 64 MiB cache tiers per case.
+[Ordinary release, original deadline and focused evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+All-features, all-target and complete 230-case retention verification remain
+separately owned. Pinned conformance, performance and task closure remain open.
 [Remaining verification schedule and artifact reuse](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Runtime type grouping — native discovery checkpoint, 2026-10-18:
