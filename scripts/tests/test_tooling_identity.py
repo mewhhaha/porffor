@@ -25,7 +25,9 @@ spec.loader.exec_module(provenance)
 class FrozenProofTests(unittest.TestCase):
     def test_current_closed_checkpoints_are_byte_bound(self):
         for name in ('differential-jobs-checkpoint-20261019.json',
-                     'runtime-admission-checkpoint-20261019.json'):
+                     'runtime-admission-checkpoint-20261019.json',
+                     'native-default-runtime-type-suffix-doc-cohorts-20261019.json',
+                     'runtime-type-suffix-ordinary-checkpoint-20261019.json'):
             with self.subTest(name=name):
                 path = Path('docs/rust-rewrite') / name
                 raw = (REPO / path).read_bytes()
