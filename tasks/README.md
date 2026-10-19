@@ -1,3 +1,23 @@
+Intl verification checkpoint — 2026-10-19: the whole Intl target passes all
+299 IDs, zero failures or ignored tests, in 2,288.55 seconds. Four further
+whole scopes pass 1,171/0/0; the frozen discovery snapshot now records 45
+closed scopes with 6,781 passes and the original seed 9 timeout. Full discovery
+continues; default, release, conformance and cleanup remain pending.
+
+All 55 Intl fixture setup calls explicitly selected one compiler thread,
+despite the runner allocating four CPUs. A separate test-only candidate honors
+positive inherited LILA_JOBS, capped by available parallelism, and stays serial
+when unset. All 299 IDs, assertions, fixtures and deadlines remain. Product
+sources and runtime fingerprint inputs are unchanged. The candidate is saved
+locally, uncompiled and unpushed; its speed benefit is not measured.
+
+One original-budget idle replay is prepared after discovery and full failure
+preservation. It uses the exact archived binaries and request, with read-only
+observation of existing trace/journal files. No original case has been rerun.
+Keep CONTINUE/tasks until every acceptance criterion passes.
+
+[Exact native outcomes, prepared candidate and diagnostic controls](../docs/rust-rewrite/intl-native-budget-candidate-20261019.json).
+
 Matched native checkpoint — 2026-10-19: the same 41 scopes and 5,611 test
 IDs now record 5,610 passes and one failure, compared with 5,599 passes and
 12 failures at the previous source. All 12 pool setup failures now pass.
