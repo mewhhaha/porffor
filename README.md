@@ -1,37 +1,26 @@
-Runtime admission candidate — 2026-10-19: explicit compiler jobs also bound
-concurrent initialization of the same checked Minimal Intl components and full
-runtime function-body validation. Serial defaults, custom-profile admission,
-all checksums, layout checks and original deadlines remain in force. Generated
-Intl source identities bind the new admission module. Complete
-native differential scopes can opt in with `--differential-native-cpus auto`;
-the coordinator drains other scopes and records actual CPUs/jobs while libtest,
-cases and backends stay serial. Development/test CLI and Test262 products strip
-debug information: each worker hashes its own complete executable within the
-deadline, and unused debug sections accounted for roughly225 MB per image.
-Private stripped copies pass all15 campaign tests and all3 original cold inputs;
-ordinary Cargo-built candidate verification is still pending. Release profiles
-retain their line tables.
+Runtime admission checkpoint — 2026-10-19: frozen source `252cbb179`
+passes **all 35 tests across four complete differential scopes**, including the
+entire 15-test generated campaign that previously recorded two timeouts. All
+**39 filtered admission controls** pass, retaining all 38 preceding IDs and
+adding the malformed-body replacement control. Zero tests were ignored.
+[Lossless source-bound results and retained failures](docs/rust-rewrite/runtime-admission-checkpoint-20261019.json).
 
-The immutable Cargo runtime candidate now reuses the producer's full function
-validation before native compilation. A private Engine boundary supplies only
-that exact static package through an explicitly unsafe API; runtime source,
-profile, Intl, checksum, section, data and layout checks still run. Safe package
-inputs and disk caches always validate every body. At the previous `2c445fd26`
-source, ordinary cold3 passed, complete focused scopes recorded33 passes and2
-timeouts, and all38 admission controls passed. Those red outcomes remain;
-fresh candidate verification is required. See the
-[immutable package contract](docs/rust-rewrite/contracts/immutable-runtime-build-package.md).
+The immutable Cargo package reuses its producer's complete function-body
+validation through a private, explicitly unsafe Engine boundary. Runtime
+source, profile, Intl, checksum, section, data and layout checks still run;
+safe inputs and disk caches validate every body. Explicit compiler jobs bound
+independent validation and Minimal Intl initialization. The native coordinator
+records actual quota-bound CPUs/jobs; cases, backends and libtest remain serial.
+Development/test CLI and worker products omit debug information while retaining
+each worker's own complete executable SHA256 check. Release line tables remain.
+[Immutable package safety contract](docs/rust-rewrite/contracts/immutable-runtime-build-package.md).
 
-Differential worker configuration repair — 2026-10-19: explicit native compiler
-jobs now reach the selected worker. CLI `--jobs` overrides `LILA_JOBS`; cases and
-backends remain serial. Complete focused verification at `e13d926d4` records
-**34 passes, one remaining cold timeout, zero ignored**. Worker execution passes
-all 17 tests and CLI worker dispatch all three; the complete generated campaign
-records 14 passes and one timeout. Three original inputs replayed with fresh
-normal-capacity caches, four quota-bound compiler CPUs and unchanged 5s limits
-produce two passes and one timeout. Cold startup remains open; prior red results
-are preserved without combining selective passes.
-[Lossless configuration checkpoint and remaining failure](docs/rust-rewrite/differential-jobs-checkpoint-20261019.json).
+The separate four-request fresh-cache gate records **three passes and one
+original 5,000ms timeout** in mutation seed 9's program native compilation.
+That gate remains red. Prior red outcomes and the zero-outcome storage deferral
+are retained. Fresh full-default inventories are expected to contain 9,544
+native and 11 documentation IDs; current-source broad verification, pinned
+conformance, performance and task closure remain open.
 
 Last complete ordinary verification — 2026-10-19: at frozen source
 `2d71987461ed1390eac43fbdaebd4c110df31b66`, the complete default workspace

@@ -305,10 +305,12 @@ the final link. The selected worker still hashes every byte of its own loaded
 executable, checks file metadata around the read and retains exact executable
 identity in manifests. Stripping removes unused debug sections without changing
 allocated code or data; dependency optimization and release line tables remain.
-Private-copy measurements reduced the496 MB worker to274 MB and passed all15
-campaign tests plus all3 original cold requests. Ordinary Cargo-built products
-must independently pass those gates; transformed copies supply no native
-acceptance or broad-suite denominator.
+Private-copy measurements reduced the496 MB worker to274 MB. Fresh ordinary
+Cargo products at252cbb179 now pass all35 focused native IDs, including all15
+campaign tests, plus39 filtered admission controls. Their separate four-request
+fresh-cache gate remains three passes/one original5,000ms timeout. Preserve each
+complete result and all preceding red observations; broader gates remain open.
+[Lossless checkpoint](runtime-admission-checkpoint-20261019.json).
 
 The CLI accepts `LILA_JOBS` as the native compilation default; an explicit
 `--jobs N` wins. Differential runners also accept that explicit environment

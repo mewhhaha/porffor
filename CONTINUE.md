@@ -1,64 +1,41 @@
 # Continue Lila — 2026-10-19
 
-Latest sealed checkpoint source is `e13d926d4a7d554e7739768190e05220f201a0de`.
-The current candidate adds bounded parallel complete runtime-function validation,
-concurrent initialization of the same checked Minimal Intl components, and an
-explicit idle-exclusive differential CPU opt-in with actual resource receipts.
-All13 generated Intl source identities also bind the new admission module;
-refresh and verify every recipe before freezing the final candidate.
-All identity, checksum, layout and data checks remain. Every function body is
-validated; only immutable Cargo output can reuse that producer validation. Default
-admission stays serial; Custom profiles retain their existing admission order.
-Verify malformed-data rejection, exact runtime/frame parity, cold original5s
-inputs and complete affected native scopes before broad candidate acceptance.
-The six added default native controls should extend the inventory without
-removing any of the prior9,538 IDs; require actual inventories to establish counts.
-At frozen `f8ecd5d4b`, the ordinary fresh cold gate remained red: one pass and
-two original5s timeouts. Complete f3 focused scopes had32 passes/3 failures;
-preserve both results. SHA256 of the worker's complete496 MB image costs about
-0.6–0.9s inside its deadline. Independent copies with debug information removed
-preserve every allocated ELF section and reduce the worker to274 MB. These
-copies pass all3 fresh original cold requests and the entire15-test generated
-campaign at the original deadlines, actual4 compiler jobs and serial backends.
-That diagnostic does not establish ordinary Cargo acceptance. The candidate now
-uses package-scoped debug stripping for development/test CLI and Test262 units;
-release line tables remain. Refresh all13 Intl identities for Cargo.toml, then
-require fresh ordinary cold3, complete focused35, the added unit controls and
-recursive Cargo graph proof before a new checkpoint or full workspace sweep.
-The completed `2c445fd26` ordinary run passes all3 original fresh cold requests,
-but complete focused35 records33 passes/2 timeouts (async seed9 and mutation
-seed10). Its36 AOT admission and2 Intl controls pass; the complete15 campaign
-remains red. A controlled identical-request pair confirms native module-cache
-hits and25–35ms P loading; native optimizer comparisons show no consistent win.
-Preserve `target/runtime-admission-focused-20261019-run4`, coldrun4 and both
-retained generated evidence roots under `/tmp/lila-generated-campaign-1819406-*`.
-The new candidate reuses full producer body validation only for the exact
-immutable Cargo package, through an unsafe API in private Engine code. Keep all
-runtime source/profile/Intl/checksum/section/data/layout checks and full body
-validation for safe candidates and disk caches. The producer itself still fully
-validates before native compilation. New coverage checks exact producer/full
-admission parity and safe replacement rejecting a self-checksummed invalid
-body. Require fresh39 filtered admission controls and full cold3/focused35,
-then actual111-scope default inventories for9,544 native/11 documentation IDs.
-Explicit differential native compiler jobs propagation is verified, including
-serial defaults and CLI override of an invalid environment setting. The four
-complete focused scopes record **34 passes, one failure, zero ignored**: worker
-execution17/17, CLI worker3/3, empty feature anchor, generated campaign14/15.
-The remaining failure is the mutation campaign's original5s cold worker timeout.
-Three byte-identical original requests with fresh normal-capacity caches and
-explicit quota-bound4CPU native compilation give seed9 timeout, seed10 pass,
-and transformed Temporal pass. Preserve every outcome; do not union these with
-the whole one-CPU campaign result or claim the cold problem solved.
-[Lossless current checkpoint](docs/rust-rewrite/differential-jobs-checkpoint-20261019.json).
+Latest sealed compiler/worker source is
+`252cbb17934153630e96fcb2003994e8306015f9`. Complete focused verification now
+passes all35 IDs across four scopes, including the full15 generated campaign;
+the previous source recorded33 passes/two timeouts. All39 filtered admission
+controls pass with every previous38 ID retained and exactly one additional
+malformed-body replacement control. No IDs were removed or ignored.
+[Lossless current checkpoint and all predecessor red outcomes](docs/rust-rewrite/runtime-admission-checkpoint-20261019.json).
 
-Next isolate the remaining cold cost before another broad rebuild. The current
-trace attributes roughly0.65–0.75s to Intl admission and0.86–1.00s to raw runtime
-package admission, nested within roughly2s emission. Four compiler threads cut
-seed10's program native compilation to1.29s in this diagnostic; seed9 still
-times out before program loading completes. These observations are not a
-controlled general speedup claim. Root is measuring exact raw-R validation
-separately with existing compiled dependencies; keep all admission checks and
-original deadlines unless a separately justified implementation preserves them.
+The independent fresh-cache gate remains red: three original requests pass and
+mutation seed9 times out at its unchanged5,000ms deadline during P native
+compilation. All four use the same ordinary Cargo products, actual4 CPUs/jobs
+and serial backends. Traces confirm immutable Cargo producer body validation
+reuse, raw package/native R hits and no memory-reclaim or material CPU-throttle
+event. Do not combine separate passes to replace this failure.
+Preserve `target/runtime-admission-cold-20261019-run6` and the complete ordinary
+`target/runtime-admission-focused-20261019-run7`. Run6 focused was storage-deferred
+before any native outcome. The inactive2d ordinary release is byte-preserved in
+`target/closed-2d-release-before-runtime-admission-20261019-run1` with all aliases;
+its retirement freed333 MiB without changing dependencies or fixtures.
+
+Next isolate the remaining P native compile cost before another source batch.
+The exact cold seed9 P has45 bodies,557,768 bytes and a145,552-byte largest JS
+body; it imports standard/host runtime implementations from R. Preserve the
+complete35 and39-control passes while repairing cold startup. Every function
+body remains validated, with only immutable Cargo output reusing the producer's
+full validation. Keep all source/profile/Intl/checksum/section/data/layout
+checks and full safe/disk admission; default concurrency remains serial.
+
+After the coherent cold repair, run fresh111-scope default verification with
+actual inventories expected at9,544 native/11 documentation IDs, retaining all
+prior9,538 native IDs. The six additions are four AOT and two Intl controls.
+Then complete all113 all-feature scopes and the remaining schedule below.
+The unstarted all-feature successor now retains complete native failures and
+continues independent discovery; failed ELFs stay preserved and acceptance
+remains false when red. Build, evidence, documentation and storage errors stop
+without inventing missing outcomes. Keep CONTINUE and tasks until all gates pass.
 
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
@@ -95,7 +72,7 @@ The previous owners `../.lila-tools/run-all-features-runtime-type-suffix-2026101
 and `../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`
 are terminally stopped; prepare fresh source-bound successors after the repair.
 Require all 113 all-feature scopes, both all-target checks and complete original
-230 retention. Their green default prerequisite is now satisfied; no dependent
+230 retention. The current-source default prerequisite remains pending; no dependent
 outcome is inferred. Real mechanics, idle product measurements and complete
 debug/release oracle tiers remain separately owned after those workloads drain.
 

@@ -1,10 +1,11 @@
-# Remaining acceptance after differential jobs repair — 2026-10-19
+# Remaining acceptance after runtime admission checkpoint — 2026-10-19
 
-Current compiler/worker source is `e13d926d4a7d554e7739768190e05220f201a0de`.
-Its complete focused checkpoint records34 passes/one remaining cold timeout;
-the native job configuration repair is verified, while cold startup remains
-open. [Exact current outcomes](differential-jobs-checkpoint-20261019.json).
-Finish that repair before launching the expensive broad successor gates below.
+Current compiler/worker source is `252cbb17934153630e96fcb2003994e8306015f9`.
+Its complete focused checkpoint passes all35 native IDs and all39 filtered
+admission controls, retaining every prior control. The separate original fresh
+cold gate records three passes/one5,000ms mutation-seed9 timeout during P native
+compilation and remains red. [Exact current outcomes](runtime-admission-checkpoint-20261019.json).
+Isolate and repair that remaining cost before the expensive broad successor gates.
 All earlier stopped queues remain terminal and need fresh source-bound owners.
 
 The last complete default at `2d719` passes9,538 native/11 documentation IDs.
@@ -16,10 +17,10 @@ their actual completed evidence before acceptance.
 
 ## Native suites and retention
 
-Finish all 111 default scopes, including all 9,538 native and 11 documentation
-IDs, with every prior 9,535 native ID retained. The continuation carries only
-the eight already completed, revalidated same-source scopes. A disk deferral
-has no native outcome; preserve the rejected original coordinator receipt.
+Run all 111 current-source default scopes fresh. Actual inventories are expected
+to contain 9,544 native and 11 documentation IDs, retaining every prior 9,538
+native ID and adding four AOT/two Intl controls. A disk deferral has no native
+outcome; retain its receipt and run only genuinely unobserved scopes later.
 
 Then run all 113 all-feature scopes with freshly validated integration Cargo
 graphs, followed by ordinary default and all-feature all-target checks. Run
