@@ -29,8 +29,8 @@ also groups legitimate adaptations and diagnostic observations by owner.
 | Input | SHA-256 |
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `a2f61a1a28deb2fe09fbf33b0973d9cb8ec4f0f0931a476b6752c19766ea9fa3` |
-| `test262/backlog/shortcut-inventory.md` | `bbdd507a3d39cc0bb149a2b910e9502b199e4bc630cf1c5dda0a32cf3a1feeac` |
-| `crates/lila-test262/src/lib.rs` | `0e94c52eb0b942e5b0166ceb763496d8789b400cae3e09fe74d81ba7e407ed45` |
+| `test262/backlog/shortcut-inventory.md` | `8382bf9ce6905546702604b2eeae95210ab66a5dac3347b69498843d8ec32d39` |
+| `crates/lila-test262/src/lib.rs` | `7e565f15de4d16c6c22d5deb468c32f11099cac7987bde93be5d9c569ef26e19` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.

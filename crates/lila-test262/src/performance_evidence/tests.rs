@@ -32,6 +32,7 @@ impl Fixture {
             worker_count: 3,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::Supervisor,
         };
         for (category, count) in [("Array", 12), ("Object", 2)] {

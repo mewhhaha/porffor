@@ -41,6 +41,7 @@ impl Fixture {
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         fs::create_dir_all(config.suite_root.join("test/language/comparison"))

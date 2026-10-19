@@ -30,6 +30,7 @@ mod compiler_provenance;
 mod module_catalog;
 mod performance_evidence;
 mod source_pins;
+mod suite_identity;
 pub use performance_evidence::ConformancePerformanceEvidence;
 #[cfg(test)]
 mod snapshot_comparison_identity_tests;
@@ -500,7 +501,28 @@ pub struct SuiteConfig {
     /// request still has a fresh Engine/Realm/Store and its own outer deadline.
     /// One-shot remains available for replay and arbitrary external workers.
     pub reuse_case_workers: bool,
+    // The supervisor's output namespace survives replacement of snapshot_dir
+    // with a worker's isolated result directory.
+    source_output_root: Option<PathBuf>,
     execution_role: CaseExecutionRole,
+}
+
+impl SuiteConfig {
+    /// Carries the supervisor's output role over the private worker protocol.
+    #[doc(hidden)]
+    pub fn inherit_case_output_root(&mut self, path: PathBuf) -> Result<(), String> {
+        let mut candidate = self.clone();
+        candidate.source_output_root = Some(path);
+        suite_identity::owned_output_root(&candidate)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    fn source_output_root(&self) -> &Path {
+        self.source_output_root
+            .as_deref()
+            .unwrap_or(&self.snapshot_dir)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -578,6 +600,7 @@ impl Default for SuiteConfig {
                 .unwrap_or(4),
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::Supervisor,
         }
     }
@@ -2384,11 +2407,12 @@ impl ConformanceRunner {
 pub fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
     PinnedRevisions {
         ecma262: source_pins::ecma262_revision().to_string(),
-        test262: suite_test262_pin(&config.suite_root),
+        test262: suite_test262_pin(config),
     }
 }
 
 pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<SuiteManifest, String> {
+    suite_identity::owned_output_root(config)?;
     let test_root = config.suite_root.join("test");
     if !test_root.exists() {
         return Err(format!(
@@ -4716,7 +4740,10 @@ fn result_from_single_case_snapshot(
     ))
 }
 
-fn create_child_snapshot_directory(case: &TestCase) -> Result<PathBuf, String> {
+fn create_child_snapshot_directory(
+    config: &SuiteConfig,
+    case: &TestCase,
+) -> Result<PathBuf, String> {
     static NEXT_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 
     let timestamp = std::time::SystemTime::now()
@@ -4729,6 +4756,9 @@ fn create_child_snapshot_directory(case: &TestCase) -> Result<PathBuf, String> {
             "lila-test262-child-{}-{timestamp}-{directory_id}",
             std::process::id()
         ));
+        // TMPDIR is caller-controlled. Reject a scratch namespace that would
+        // become a new suite input before creating any directory or journal.
+        suite_identity::validate_case_destination(config, &path)?;
         match fs::create_dir(&path) {
             Ok(()) => return Ok(path),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -4778,7 +4808,7 @@ fn run_one_case_in_reused_process(
     run: &RunConfig,
 ) -> Result<TestResult, String> {
     let manifest = single_case_manifest(config, case);
-    let directory = create_child_snapshot_directory(case)?;
+    let directory = create_child_snapshot_directory(config, case)?;
     let name = format!(
         "{}-case-{}",
         run.snapshot_name,
@@ -4786,6 +4816,7 @@ fn run_one_case_in_reused_process(
     );
     let child_config = SuiteConfig {
         snapshot_dir: directory.clone(),
+        source_output_root: Some(config.source_output_root().to_path_buf()),
         ..config.clone()
     };
     let result = (|| {
@@ -4872,7 +4903,7 @@ fn run_one_case_in_child_process(
     run_config: &RunConfig,
 ) -> Result<TestResult, String> {
     let child_manifest = single_case_manifest(config, case);
-    let child_snapshot_dir = create_child_snapshot_directory(case)?;
+    let child_snapshot_dir = create_child_snapshot_directory(config, case)?;
     run_one_case_in_child_snapshot_directory(
         case_runner_bin,
         config,
@@ -4898,6 +4929,7 @@ fn run_one_case_in_child_snapshot_directory(
     );
     let child_config = SuiteConfig {
         snapshot_dir: child_snapshot_dir.clone(),
+        source_output_root: Some(config.source_output_root().to_path_buf()),
         ..config.clone()
     };
     let child_snapshot_paths = snapshot_paths_for_name(
@@ -4920,6 +4952,8 @@ fn run_one_case_in_child_snapshot_directory(
             .arg(&child_snapshot_dir)
             .arg("--snapshot-name")
             .arg(&child_snapshot_name)
+            .arg("--case-suite-output")
+            .arg(config.source_output_root())
             .arg("--threads")
             .arg("1")
             .arg("--timeout-ms")
@@ -9242,9 +9276,23 @@ fn suite_git_context(suite_root: &Path) -> Option<SuiteGitContext> {
 /// repository commit are accepted only after `test262_pins_equivalent`
 /// verifies (via the git object store) that the vendored suite tree at that
 /// commit is byte-identical to the current one.
-fn suite_test262_pin(suite_root: &Path) -> String {
-    static CACHE: OnceLock<Mutex<BTreeMap<PathBuf, String>>> = OnceLock::new();
-    let key = suite_root.canonicalize().ok();
+fn suite_test262_pin(config: &SuiteConfig) -> String {
+    type CacheKey = (PathBuf, PathBuf, Option<PathBuf>);
+    static CACHE: OnceLock<Mutex<BTreeMap<CacheKey, String>>> = OnceLock::new();
+    let suite_root = &config.suite_root;
+    // Public configuration fields may have changed since worker admission.
+    // An invalid role never suppresses bytes or reuses an earlier cache hit.
+    let output = match suite_identity::owned_output_root(config) {
+        Ok(output) => output,
+        Err(_) => return compute_suite_test262_pin(suite_root),
+    };
+    let key = suite_root.canonicalize().ok().and_then(|root| {
+        let harness = match &config.local_harness {
+            LocalHarnessSource::File(path) => Some(suite_identity::normalize(path).ok()?),
+            _ => None,
+        };
+        Some((root, output.clone(), harness))
+    });
     if let Some(key) = &key {
         if let Some(hit) = CACHE
             .get_or_init(Mutex::default)
@@ -9255,7 +9303,7 @@ fn suite_test262_pin(suite_root: &Path) -> String {
             return hit.clone();
         }
     }
-    let pin = compute_suite_test262_pin(suite_root);
+    let pin = suite_identity::compute_pin(suite_root, &output);
     if let Some(key) = key {
         CACHE
             .get_or_init(Mutex::default)
@@ -9296,8 +9344,12 @@ fn compute_suite_test262_pin(suite_root: &Path) -> String {
 }
 
 fn hash_directory_content(root: &Path) -> u64 {
+    hash_directory_content_excluding(root, None)
+}
+
+fn hash_directory_content_excluding(root: &Path, output: Option<&Path>) -> u64 {
     let mut relative_paths = Vec::new();
-    collect_relative_files(root, root, &mut relative_paths);
+    collect_relative_files(root, root, &mut relative_paths, output);
     relative_paths.sort();
     let mut hasher = DefaultHasher::new();
     for relative in &relative_paths {
@@ -9309,14 +9361,17 @@ fn hash_directory_content(root: &Path) -> u64 {
     hasher.finish()
 }
 
-fn collect_relative_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+fn collect_relative_files(root: &Path, dir: &Path, out: &mut Vec<String>, output: Option<&Path>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
+        if output.is_some_and(|output| path.canonicalize().is_ok_and(|path| path == output)) {
+            continue;
+        }
         if path.is_dir() {
-            collect_relative_files(root, &path, out);
+            collect_relative_files(root, &path, out, output);
         } else if let Ok(relative) = path.strip_prefix(root) {
             out.push(relative.to_string_lossy().replace('\\', "/"));
         }
@@ -9987,6 +10042,7 @@ function $DONE(error) {
             worker_count: 2,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
@@ -10767,6 +10823,7 @@ function $DONE(error) {
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let exact = discover_suite(
@@ -24632,6 +24689,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 2,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let first = load_or_build_run_matrix(&config, ExecutionBackend::SpecExec)
@@ -25981,6 +26039,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::SingleCaseWorker(id.clone()),
         };
         let manifest = discover_suite(&config, Some(&id.wire_key()))
@@ -26058,6 +26117,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 1,
             case_runner_bin: Some(runner_path),
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::Supervisor,
         };
         let case = synthetic_case("staging/sm/JSON/parse-mega-huge-array.js");
@@ -26099,8 +26159,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert!(failure.detail.contains("timeout exceeded"));
         // Observe parent-owned scratch even if the deadline expires before
         // the child starts. Keep the same 50ms budget for both timeout paths.
-        let child_snapshot_dir =
-            create_child_snapshot_directory(&case).expect("parent scratch directory should create");
+        let child_snapshot_dir = create_child_snapshot_directory(&config, &case)
+            .expect("parent scratch directory should create");
         assert!(child_snapshot_dir.is_dir());
         let timed_out = run_one_case_in_child_snapshot_directory(
             config.case_runner_bin.as_deref().unwrap(),
@@ -26848,6 +26908,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let run_config = RunConfig {
@@ -26915,6 +26976,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let config = SuiteConfig {
             case_runner_bin: Some(runner_path),
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::Supervisor,
             ..config
         };
@@ -27503,6 +27565,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         }
     }
@@ -28844,6 +28907,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             worker_count: 1,
             case_runner_bin: None,
             reuse_case_workers: false,
+            source_output_root: None,
             execution_role: CaseExecutionRole::FixtureWorker,
         };
         let rules =

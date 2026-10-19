@@ -154,6 +154,8 @@ impl Session {
             .arg("__case-worker-server-v1")
             .arg("--suite-root")
             .arg(&config.suite_root)
+            .arg("--case-suite-output")
+            .arg(config.source_output_root())
             .arg("--threads")
             .arg("1")
             .arg("--timeout-ms")

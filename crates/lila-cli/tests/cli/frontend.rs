@@ -975,32 +975,41 @@ fn test262_feature_metadata_does_not_reject_a_supported_raw_execution() {
         "test/language/supported/feature.js",
         "/*---\nfeatures: [immutable-arraybuffer]\nflags: [raw]\n---*/\ntrue;\n",
     );
-    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"))
-        .arg("test262")
-        .arg("run")
-        .arg("--suite-root")
-        .arg(&suite_root)
-        .arg("--execution-backend")
-        .arg("wasm-aot")
-        .arg("--threads")
-        .arg("1")
-        .arg("--snapshot-dir")
-        .arg(suite_root.join("snapshots"))
-        .arg("--snapshot-name")
-        .arg("supported-feature-metadata")
-        .output()
-        .expect("metadata-only selection should complete");
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("total: 1") && stdout.contains("passed: 1"),
-        "{stdout}"
-    );
-    assert!(stdout.contains("Unsupported: 0"), "{stdout}");
+    // Preserve the nested output directory and exercise both worker protocols
+    // against the same source after a previous process has written snapshots.
+    for reuse in [false, true] {
+        let mut command = ProcessCommand::new(env!("CARGO_BIN_EXE_lila"));
+        command
+            .arg("test262")
+            .arg("run")
+            .arg("--suite-root")
+            .arg(&suite_root)
+            .arg("--execution-backend")
+            .arg("wasm-aot")
+            .arg("--threads")
+            .arg("1")
+            .arg("--snapshot-dir")
+            .arg(suite_root.join("snapshots"))
+            .arg("--snapshot-name")
+            .arg("supported-feature-metadata");
+        if reuse {
+            command.arg("--reuse-case-workers");
+        }
+        let output = command
+            .output()
+            .expect("metadata-only selection should complete");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("total: 1") && stdout.contains("passed: 1"),
+            "{stdout}"
+        );
+        assert!(stdout.contains("Unsupported: 0"), "{stdout}");
+    }
 }
 
 #[test]

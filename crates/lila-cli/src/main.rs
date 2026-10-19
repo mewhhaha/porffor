@@ -3620,9 +3620,20 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
 fn parse_test262_case_worker_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     let mut normal = Vec::new();
     let mut harness = None;
+    let mut suite_output = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--case-suite-output" => {
+                if suite_output.is_some() {
+                    return Err("case worker suite output may be specified once".into());
+                }
+                index += 1;
+                suite_output = Some(PathBuf::from(
+                    args.get(index)
+                        .ok_or("case worker suite output requires a path")?,
+                ));
+            }
             "--case-harness" | "--case-harness-file" => {
                 if harness.is_some() {
                     return Err("case worker harness may be specified once".into());
@@ -3654,6 +3665,9 @@ fn parse_test262_case_worker_args(args: &[String]) -> Result<ParsedTest262Args, 
     }
     parsed.config.local_harness =
         harness.ok_or("case worker requires its exact harness selection")?;
+    if let Some(output) = suite_output {
+        parsed.config.inherit_case_output_root(output)?;
+    }
     Ok(parsed)
 }
 

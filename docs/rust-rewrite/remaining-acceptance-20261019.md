@@ -1,5 +1,17 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
+Prepared suite-output identity repair — 2026-10-19: the original CLI scope
+records847PASS/1FAIL. A successful child recomputed a journal-contaminated suite
+pin and wrote a different snapshot filename. The candidate carries one explicit
+owned output namespace through both worker protocols; all other source inputs
+remain hashed. Tracked suite inputs, harness overlap and contaminating scratch
+destinations reject. Three isolated std-only controls pass; full product
+validation remains pending. The existing CLI regression retains nested snapshots
+and exercises one-shot and reused workers. Baseline continuation validates59
+completed scopes (8742PASS/2FAIL), then runs only52 unexecuted scopes. Both
+literal failures and original images remain preserved; no native IDs repeat.
+[Exact failure, source and isolated controls](suite-output-identity-candidate-20261019.json).
+
 Prepared-source provenance correction — 2026-10-19: the read-only3c check
 rejected stale generated DateTime identities. All13 recipes were genuinely
 refreshed in producer order and independently rechecked; ten generated
