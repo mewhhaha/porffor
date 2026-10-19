@@ -1,5 +1,13 @@
 # Continue Lila — 2026-10-19
 
+The iteration candidate is implemented at `7f7093da9`; native verification is
+pending. Its first audit owner stopped before any build because the catalog
+source guard still required the discarded previous-value return. The guard now
+requires unit-return insertion without a Clone bound or key/value copies.
+Current source passes the complete module-boundary audit; four deliberate
+key-copy/value-copy/return-value/Clone-bound mutations are rejected. Keep the
+original rejected owner receipt and restart against this corrected source.
+
 Last compiled compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
 pushed to main. Separate Program/Runtime native thresholds are implemented:
 128KiB for P, unchanged1MiB for R. Ordinary Cargo build passes in62.487s;
