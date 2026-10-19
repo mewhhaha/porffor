@@ -30,7 +30,7 @@ also groups legitimate adaptations and diagnostic observations by owner.
 | --- | --- |
 | `test262/backlog/shortcut-allowlist.tsv` | `a2f61a1a28deb2fe09fbf33b0973d9cb8ec4f0f0931a476b6752c19766ea9fa3` |
 | `test262/backlog/shortcut-inventory.md` | `8382bf9ce6905546702604b2eeae95210ab66a5dac3347b69498843d8ec32d39` |
-| `crates/lila-test262/src/lib.rs` | `7e565f15de4d16c6c22d5deb468c32f11099cac7987bde93be5d9c569ef26e19` |
+| `crates/lila-test262/src/lib.rs` | `636d2df8bcc58c77af5d425ce8e79d0df045d77d01a0890078204b07f4e24ae3` |
 
 Run `bash scripts/audit-test262-shortcuts.sh --check` before regenerating this
 report. CI runs that source-level audit as well as `--check` on this generator.

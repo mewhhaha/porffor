@@ -9752,7 +9752,7 @@ function $DONE(error) {
         store
     }
 
-    fn unique_temp_path(label: &str) -> PathBuf {
+    pub(crate) fn unique_temp_path(label: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock should be after unix epoch")

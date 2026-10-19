@@ -1,5 +1,15 @@
 # Continue Lila — 2026-10-19
 
+Test-helper visibility correction — 2026-10-19: the isolated identity
+scaffold had exposed a private temporary-path helper and therefore missed the
+real sibling-module access error. The existing cfg(test) helper is now
+crate-visible; its body and product behavior are unchanged. The corrected
+isolated probe compiles the exact helper and passes3/0/0. The af10 IR scope
+finishes1607/0/0 with full Cargo/resource proof; its warm artifact and outcomes
+are preserved. Nine waiting successors stopped before native admission.
+The corrected source still requires ordinary focused validation before main.
+[Exact correction and preserved IR evidence](docs/rust-rewrite/suite-output-visibility-correction-20261019.json).
+
 Prepared suite-output identity repair — 2026-10-19: the original CLI scope
 records847PASS/1FAIL. A successful child recomputed a journal-contaminated suite
 pin and wrote a different snapshot filename. The candidate carries one explicit
