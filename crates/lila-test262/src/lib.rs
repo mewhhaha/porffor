@@ -4873,6 +4873,24 @@ fn run_one_case_in_child_process(
 ) -> Result<TestResult, String> {
     let child_manifest = single_case_manifest(config, case);
     let child_snapshot_dir = create_child_snapshot_directory(case)?;
+    run_one_case_in_child_snapshot_directory(
+        case_runner_bin,
+        config,
+        case,
+        run_config,
+        child_manifest,
+        child_snapshot_dir,
+    )
+}
+
+fn run_one_case_in_child_snapshot_directory(
+    case_runner_bin: &Path,
+    config: &SuiteConfig,
+    case: &TestCase,
+    run_config: &RunConfig,
+    child_manifest: SuiteManifest,
+    child_snapshot_dir: PathBuf,
+) -> Result<TestResult, String> {
     let child_snapshot_name = format!(
         "{}-case-{}",
         run_config.snapshot_name,
@@ -26023,15 +26041,8 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         fs::create_dir_all(&snapshot_dir).expect("snapshot dir should exist");
 
         let runner_path = unique_temp_path("child-runner-timeout-script");
-        let child_snapshot_dir_path = unique_temp_path("child-runner-timeout-path");
-        fs::write(
-            &runner_path,
-            format!(
-                "#!/bin/sh\nsnapshot_dir=\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--snapshot-dir\" ]; then\n    shift\n    snapshot_dir=$1\n  fi\n  shift\ndone\nprintf '%s' \"$snapshot_dir\" > '{}'\nsleep 2\n",
-                child_snapshot_dir_path.display()
-            ),
-        )
-        .expect("timeout runner script should write");
+        fs::write(&runner_path, "#!/bin/sh\nsleep 2\n")
+            .expect("timeout runner script should write");
         let mut permissions = fs::metadata(&runner_path)
             .expect("timeout runner metadata should read")
             .permissions();
@@ -26086,10 +26097,25 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         };
         assert_eq!(failure.kind, FailureKind::Runtime);
         assert!(failure.detail.contains("timeout exceeded"));
-        let child_snapshot_dir = PathBuf::from(
-            fs::read_to_string(&child_snapshot_dir_path)
-                .expect("timeout runner should record its snapshot directory"),
-        );
+        // Observe parent-owned scratch even if the deadline expires before
+        // the child starts. Keep the same 50ms budget for both timeout paths.
+        let child_snapshot_dir =
+            create_child_snapshot_directory(&case).expect("parent scratch directory should create");
+        assert!(child_snapshot_dir.is_dir());
+        let timed_out = run_one_case_in_child_snapshot_directory(
+            config.case_runner_bin.as_deref().unwrap(),
+            &config,
+            &case,
+            &run_config,
+            single_case_manifest(&config, &case),
+            child_snapshot_dir.clone(),
+        )
+        .expect("timed out child should retire its known scratch directory");
+        let TestStatus::Failed(timeout) = timed_out.status else {
+            panic!("direct child execution should time out");
+        };
+        assert_eq!(timeout.kind, FailureKind::Runtime);
+        assert!(timeout.detail.contains("timeout exceeded"));
         assert!(!child_snapshot_dir.exists());
 
         let resumed_snapshot = load_previous_snapshot(

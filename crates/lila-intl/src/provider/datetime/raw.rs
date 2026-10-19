@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+mod token;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Profile {
@@ -177,8 +179,6 @@ pub(super) struct NumberingOverride {
     pub(super) field: Option<char>,
     pub(super) numbering: String,
 }
-#[derive(Deserialize)]
-#[serde(untagged)]
 pub(super) enum Token {
     Literal(LiteralToken),
     Field(FieldToken),

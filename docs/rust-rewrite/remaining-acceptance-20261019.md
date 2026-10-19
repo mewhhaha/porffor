@@ -1,5 +1,10 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
+The prepared timeout/DateTime batch retains the original50ms deadline; isolated
+schema3 passes, whole raw-profile values match, and parse medians are146.994ms
+before/81.907ms after (phase only). Ordinary Cargo acceptance remains pending.
+[Exact code, tests, measurements and superseded queue](timeout-token-candidate-20261019.json).
+
 Current frozen source `1c302df9f` passes all 3120 affected default IDs across
 six complete scopes: AOT 442/modules74/IR 1607/Engine972/templates 21/cache4.
 Zero failed or ignored; all3115 prior IDs plus five controls remain. Both
@@ -7,8 +12,9 @@ original60s template failures and original raw-Unicode staging pass. Exact
 bounded compiler CPU, serial test/build, Cargo/ELF and recursive graph proofs
 are sealed before retiring passed closed harnesses. Full111 default discovery
 carries these six and executes the other105, exact9549native+11docs. Fresh113
-all-feature discovery follows even when literal default assertions fail; it
-retains exact current IDs and measures its actual inventory. All broad gates
+all-feature discovery will run the prepared repair source after current default
+discovery and ordinary repair validation. The unstarted old-source waiter is
+superseded with zero outcomes lost. Retain exact IDs and measure actual inventory. All broad gates
 remain unaccepted until their own receipts complete.
 
 Original cold4 stays3PASS/1original5000msTIMEOUT; whole35 stays33PASS/2FAIL,

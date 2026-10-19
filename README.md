@@ -1,3 +1,15 @@
+Prepared repair batch — 2026-10-19: the timeout cleanup test now observes
+parent-created scratch, retaining its original 50 ms deadline and resumable
+snapshot assertions. DateTime object tokens decode directly; original derived
+sequence forms and strict field validation remain. Three isolated schema
+checks pass, including the exact candidate module's two controls and whole
+raw-profile equality. All eight parsing samples are retained; medians are
+146.994 ms before / 81.907 ms after, a phase measurement only. Ordinary Cargo
+and broad verification remain pending. Current default discovery continues at
+its frozen source; the unstarted old-source all-features waiter was superseded
+with zero native cases or outcomes lost. Fresh all-features follows the repair.
+[Exact candidate checks and queue change](docs/rust-rewrite/timeout-token-candidate-20261019.json).
+
 Verification checkpoint — 2026-10-19: frozen compiler source `1c302df9f` passes
 **all 3,120 tests across six complete affected default scopes**, zero failed or
 ignored: AOT 442, modules/realms 74, IR 1607, Engine library 972, native templates 21

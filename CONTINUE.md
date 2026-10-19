@@ -1,5 +1,17 @@
 # Continue Lila — 2026-10-19
 
+Prepared repair batch — 2026-10-19: the timeout cleanup test now observes
+parent-created scratch, retaining its original 50 ms deadline and resumable
+snapshot assertions. DateTime object tokens decode directly; original derived
+sequence forms and strict field validation remain. Three isolated schema
+checks pass, including the exact candidate module's two controls and whole
+raw-profile equality. All eight parsing samples are retained; medians are
+146.994 ms before / 81.907 ms after, a phase measurement only. Ordinary Cargo
+and broad verification remain pending. Current default discovery continues at
+its frozen source; the unstarted old-source all-features waiter was superseded
+with zero native cases or outcomes lost. Fresh all-features follows the repair.
+[Exact candidate checks and queue change](docs/rust-rewrite/timeout-token-candidate-20261019.json).
+
 Frozen native compiler/worker source is `1c302df9f`. All 14 source audits and
 the ordinary all-feature CLI/worker build pass. Complete affected default
 verification now passes3120/0/0: AOT 442/modules74/IR 1607/Engine972/templates 21/
@@ -14,14 +26,16 @@ Full default discovery is queued through
 these six sealed current scopes and executing the remaining 105: exact111/
 9549native+11docs. Its child is
 `target/full-default-iteration-20261019-run2/receipt.json`.
-`../.lila-tools/start-all-features-after-default-20261019-run2.py` follows a
-terminal complete default discovery, including literal native failures, with
-fresh all113 all-feature scopes. Its child is
-`target/all-features-iteration-20261019-run2/receipt.json`. AF retains every
-current default ID and the current35 worker IDs; do not guess its total.
-Both owners keep original deadlines and continue literal native failures;
-operational/source/provenance errors stop without invented outcomes. Do not
-launch old CAB/2d coordinators. Primary remains frozen until owners drain.
+The unstarted `start-all-features-after-default-20261019-run2.py` waiter is
+superseded: `target/superseded-unstarted-all-features-iteration-20261019-run2`
+proves zero native cases/outcomes lost and retains its exact original receipt.
+After this default owner drains, validate the prepared timeout/DateTime batch
+with ordinary Cargo, then fresh all113 AF scopes on repaired source. Retain all
+9549 current-default IDs, the two added token controls and all35 worker IDs;
+measure AF's actual total. Original deadlines remain; literal failures remain.
+Operational/source/provenance errors stop without invented outcomes. Do not
+launch old CAB/2d coordinators or the superseded waiter. Primary stays frozen
+until the current default outer handoff is terminal and complete.
 
 The separate original cold4 remains3PASS/1original5000msTIMEOUT: seed9 fails,
 seed10 passes. Whole35 remains33PASS/2FAIL, exact35 IDs retained; four prior

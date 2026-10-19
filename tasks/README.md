@@ -1,5 +1,17 @@
 # Lila Rust AOT + Test262 execution plan
 
+Prepared repair batch — 2026-10-19: the timeout cleanup test now observes
+parent-created scratch, retaining its original 50 ms deadline and resumable
+snapshot assertions. DateTime object tokens decode directly; original derived
+sequence forms and strict field validation remain. Three isolated schema
+checks pass, including the exact candidate module's two controls and whole
+raw-profile equality. All eight parsing samples are retained; medians are
+146.994 ms before / 81.907 ms after, a phase measurement only. Ordinary Cargo
+and broad verification remain pending. Current default discovery continues at
+its frozen source; the unstarted old-source all-features waiter was superseded
+with zero native cases or outcomes lost. Fresh all-features follows the repair.
+[Exact candidate checks and queue change](../docs/rust-rewrite/timeout-token-candidate-20261019.json).
+
 Current frozen source `1c302df9f` passes all 3120 affected default IDs across
 six complete scopes: AOT 442/modules74/IR 1607/Engine972/templates 21/cache4.
 Zero failed or ignored; all3115 prior IDs plus five controls remain. Both
@@ -7,8 +19,9 @@ original60s template failures and original raw-Unicode staging pass. Exact
 bounded compiler CPU, serial test/build, Cargo/ELF and recursive graph proofs
 are sealed before retiring passed closed harnesses. Full111 default discovery
 carries these six and executes the other105, exact9549native+11docs. Fresh113
-all-feature discovery follows even when literal default assertions fail; it
-retains exact current IDs and measures its actual inventory. All broad gates
+all-feature discovery will run the prepared repair source after current default
+discovery and ordinary repair validation. The unstarted old-source waiter is
+superseded with zero outcomes lost. Retain exact IDs and measure actual inventory. All broad gates
 remain unaccepted until their own receipts complete.
 
 Original cold4 stays3PASS/1original5000msTIMEOUT; whole35 stays33PASS/2FAIL,
