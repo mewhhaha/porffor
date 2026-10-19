@@ -107,6 +107,11 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
     extended.push(0);
     assert!(manifest::Manifest::decode(&extended).is_none());
     assert!(EmbeddedNativeRuntime::admit().is_some());
+    assert_eq!(
+        digests::images(1).unwrap(),
+        digests::images(2).unwrap(),
+        "both image digests must be identical under serial and bounded concurrent admission"
+    );
     let mut previous_version = manifest_bytes().to_vec();
     previous_version[8..12].copy_from_slice(&3_u32.to_le_bytes());
     assert!(manifest::Manifest::decode(&previous_version).is_none());

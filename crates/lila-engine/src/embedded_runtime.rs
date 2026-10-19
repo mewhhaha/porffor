@@ -8,12 +8,12 @@
 #[cfg(test)]
 #[path = "embedded_runtime/compile.rs"]
 mod build_compile;
+mod digests;
 mod manifest;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
 use lila_aot_wasm::{
     RuntimeArtifact, RuntimeArtifactCache, RuntimeArtifactInputs, RuntimeSourceCompilationProfile,
 };
-use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 use wasmtime::{Engine, Module};
 
@@ -73,9 +73,19 @@ impl EmbeddedNativeRuntime {
             || manifest.target != env!("LILA_RUNTIME_BUILD_TARGET")
             || manifest.configuration != CONFIGURATION_SCHEMA
             || manifest.modes != manifest::COMPILATION_MODES
-            || manifest.package_digest != <[u8; 32]>::from(Sha256::digest(package()))
-            || manifest.native_digest != <[u8; 32]>::from(Sha256::digest(native()))
         {
+            return None;
+        }
+        let started = std::env::var_os("LILA_WASM_TRACE").map(|_| std::time::Instant::now());
+        let (package_digest, native_digest) =
+            digests::images(crate::configured_compilation_jobs().unwrap_or(1))?;
+        if let Some(started) = started {
+            eprintln!(
+                "lila wasm trace: runtime-native-bundle digest admission: {:?}",
+                started.elapsed()
+            );
+        }
+        if manifest.package_digest != package_digest || manifest.native_digest != native_digest {
             return None;
         }
         Some(Self { manifest })
@@ -108,7 +118,15 @@ impl EmbeddedNativeRuntime {
         // execution Engine. The admitted modes explicitly allow optimized R
         // with Fast or SizeOptimized P; no build Engine survives in the cache.
         // Wasmtime still checks version/features/collector/tunables/ISA.
-        match unsafe { Module::deserialize(engine, native()) } {
+        let started = std::env::var_os("LILA_WASM_TRACE").map(|_| std::time::Instant::now());
+        let loaded = unsafe { Module::deserialize(engine, native()) };
+        if let Some(started) = started {
+            eprintln!(
+                "lila wasm trace: runtime-native-bundle deserialization: {:?}",
+                started.elapsed()
+            );
+        }
+        match loaded {
             Ok(module) => {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
