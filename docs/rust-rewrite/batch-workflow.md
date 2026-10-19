@@ -296,6 +296,16 @@ opt-in setting. Runtime admission checks every function body and every existing
 Intl component; only their independent work is concurrent. Without an explicit
 job setting, admission remains serial.
 
+Development/test CLI and Test262 package overrides strip debug information at
+the final link. The selected worker still hashes every byte of its own loaded
+executable, checks file metadata around the read and retains exact executable
+identity in manifests. Stripping removes unused debug sections without changing
+allocated code or data; dependency optimization and release line tables remain.
+Private-copy measurements reduced the496 MB worker to274 MB and passed all15
+campaign tests plus all3 original cold requests. Ordinary Cargo-built products
+must independently pass those gates; transformed copies supply no native
+acceptance or broad-suite denominator.
+
 The CLI accepts `LILA_JOBS` as the native compilation default; an explicit
 `--jobs N` wins. Differential runners also accept that explicit environment
 setting or `new_with_compilation_jobs(path, N)`, otherwise defaulting to one. The selected

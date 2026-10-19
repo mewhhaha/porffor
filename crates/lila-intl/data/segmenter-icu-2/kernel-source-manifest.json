@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "4f224b24e7f5bfa115e9ce93e90802e6b8469bf5bc77da3ffb343660cd9cd037",
+  "kernel_sha256": "0c56fc7958e8d331aad89dff3559c39ec959f90022562f5e8ab593d3178fd6f3",
   "operations_reserved": [
     33,
     34,
@@ -383,9 +383,9 @@
       "sha256": "fba47d96864c296e61a1063548562a7b4d8f8ceccaca24cbc185ab3be1ca22bc"
     },
     {
-      "bytes": 4552,
+      "bytes": 4632,
       "path": "Cargo.toml",
-      "sha256": "529bde5fd401ec689774f2641fcd1b383ce3db8f9f48f8d0ef8a6b6247012e68"
+      "sha256": "9093e39edaca992b7748fc50deba60d40c3415b2cebdfa11dd6ae318047b6894"
     },
     {
       "bytes": 81265,

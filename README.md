@@ -5,7 +5,12 @@ all checksums, layout checks and original deadlines remain in force. Generated
 Intl source identities bind the new admission module. Complete
 native differential scopes can opt in with `--differential-native-cpus auto`;
 the coordinator drains other scopes and records actual CPUs/jobs while libtest,
-cases and backends stay serial. Candidate verification is pending.
+cases and backends stay serial. Development/test CLI and Test262 products strip
+debug information: each worker hashes its own complete executable within the
+deadline, and unused debug sections accounted for roughly225 MB per image.
+Private stripped copies pass all15 campaign tests and all3 original cold inputs;
+ordinary Cargo-built candidate verification is still pending. Release profiles
+retain their line tables.
 
 Differential worker configuration repair — 2026-10-19: explicit native compiler
 jobs now reach the selected worker. CLI `--jobs` overrides `LILA_JOBS`; cases and

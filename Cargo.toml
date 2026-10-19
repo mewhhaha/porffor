@@ -112,8 +112,10 @@ opt-level = 0
 opt-level = 0
 [profile.dev.package.lila-cli]
 opt-level = 0
+strip = "debuginfo"
 [profile.dev.package.lila-test262]
 opt-level = 0
+strip = "debuginfo"
 
 [profile.test.package.lila-front]
 opt-level = 0
@@ -137,5 +139,7 @@ opt-level = 0
 opt-level = 0
 [profile.test.package.lila-cli]
 opt-level = 0
+strip = "debuginfo"
 [profile.test.package.lila-test262]
 opt-level = 0
+strip = "debuginfo"

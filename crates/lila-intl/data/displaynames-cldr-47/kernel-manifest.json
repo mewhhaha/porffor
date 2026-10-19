@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 4552,
+      "bytes": 4632,
       "path": "Cargo.toml",
-      "sha256": "529bde5fd401ec689774f2641fcd1b383ce3db8f9f48f8d0ef8a6b6247012e68"
+      "sha256": "9093e39edaca992b7748fc50deba60d40c3415b2cebdfa11dd6ae318047b6894"
     },
     {
       "bytes": 87129,
@@ -613,7 +613,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "7754bb57c75d0e116eeda8a83c84ac0655e69d9b6f9712450aae31733afb1097",
+  "provider_data_sha256": "8dce064c238aacffff1d4c065e75221b2cf040f61ab871706a1fbd38c332959c",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

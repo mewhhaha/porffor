@@ -12,6 +12,18 @@ Verify malformed-data rejection, exact runtime/frame parity, cold original5s
 inputs and complete affected native scopes before broad candidate acceptance.
 The five added default native controls should extend the inventory without
 removing any of the prior9,538 IDs; require actual inventories to establish counts.
+At frozen `f8ecd5d4b`, the ordinary fresh cold gate remained red: one pass and
+two original5s timeouts. Complete f3 focused scopes had32 passes/3 failures;
+preserve both results. SHA256 of the worker's complete496 MB image costs about
+0.6–0.9s inside its deadline. Independent copies with debug information removed
+preserve every allocated ELF section and reduce the worker to274 MB. These
+copies pass all3 fresh original cold requests and the entire15-test generated
+campaign at the original deadlines, actual4 compiler jobs and serial backends.
+That diagnostic does not establish ordinary Cargo acceptance. The candidate now
+uses package-scoped debug stripping for development/test CLI and Test262 units;
+release line tables remain. Refresh all13 Intl identities for Cargo.toml, then
+require fresh ordinary cold3, complete focused35, the added unit controls and
+recursive Cargo graph proof before a new checkpoint or full workspace sweep.
 Explicit differential native compiler jobs propagation is verified, including
 serial defaults and CLI override of an invalid environment setting. The four
 complete focused scopes record **34 passes, one failure, zero ignored**: worker
