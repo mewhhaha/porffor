@@ -1,6 +1,15 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
-Current compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`.
+Current compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`.
+Ordinary worker Cargo build passes in62.487s, all14 source audits pass, and
+original cold4 is complete-red:3PASS/1original5000msTIMEOUT. Seed9 passes;
+seed10 still times out. Checks, deadlines and normal cache capacities remain
+unchanged. Current complete Engine library/templates/runtime_cache discovery
+is running independently. Current whole35, recursive worker graph and all
+broad gates remain unrun; no prepared or historical scope supplies acceptance.
+[Exact current cold outcomes](large-program-mode-cold-checkpoint-20261019.json).
+
+Prior CAB compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`.
 Complete affected2146PASS/0FAIL/0IGNORED includes four whole scopes/2144IDs and
 filteredIntl2. All2139 prior whole IDs/2137 passes remain; five added controls
 pass. Both original60s template failures pass in the complete ordinary scope.
@@ -24,8 +33,8 @@ The original failed receipts/images must survive every future overwrite.
 All616 Python controls and14 source audits pass for this compiler tree; they
 supply no missing broader acceptance.
 [Exact35 and bounded optimization experiments](cold-start-hills-and-workers-20261019.json).
-The next candidate separates program128KiB and runtime1MiB native mode limits.
-Its smaller private program image is measured; end-to-end acceptance is pending.
+The successor separates program128KiB and runtime1MiB native mode limits.
+Its smaller private program image is measured; actual cold acceptance remains red.
 
 Prior252 complete default discovery records9542PASS/2FAIL and11docPASS across
 all111 scopes. The last complete green default at `2d719` records9538 native/
@@ -39,7 +48,8 @@ After the affected repair passes, execute all111 current-source default scopes.
 The CAB inventory contains9549 expected native and11 documentation IDs; a successor
 must retain every prior ID and account for added controls explicitly. Carry
 only proven complete same-source/profile scopes with exact Cargo/graph and raw
-outcome evidence. All four current affected whole scopes pass; filteredIntl2 and unrun worker targets never enter the default denominator. A disk
+outcome evidence. All four CAB affected whole scopes pass at their prior source;
+filteredIntl2 and unrun worker targets never enter the default denominator. A disk
 deferral has no native outcome; retain its receipt without inventing outcomes.
 
 Then run all 113 all-feature scopes with freshly validated integration Cargo

@@ -1,6 +1,12 @@
 # Lila Rust AOT + Test262 execution plan
 
-Current checkpoint — 2026-10-19: source `cab9f9f2e` passes all2,146 affected
+Current checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
+worker build and14 source audits. Original cold4 remains red:3PASS/1TIMEOUT
+at unchanged5000ms; seed9 passes and seed10 still times out. Complete affected
+Engine scopes are running; current whole35/broad/conformance gates remain
+unrun. [Exact current evidence](../docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+
+Prior checkpoint: source `cab9f9f2e` passes all2,146 affected
 native IDs, including both original60s template failures. Four whole scopes
 retain all2,139 earlier IDs/2,137 passes and add five controls; Intl2 remains
 explicitly filtered. [Exact evidence](../docs/rust-rewrite/shared-facts-native-cold-checkpoint-20261019.json).

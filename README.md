@@ -1,4 +1,14 @@
-Compiler-fact checkpoint — 2026-10-19: frozen source `cab9f9f2e` passes
+Native mode checkpoint — 2026-10-19: source `be26faf2e` separates the large
+program threshold (128 KiB) from the unchanged runtime threshold (1 MiB).
+The ordinary Cargo worker build succeeds in 62.49s and all 14 source audits
+pass. The original fresh-cache cold run remains **red: three passes and one
+five-second timeout**. Object-mutation seed9 now passes; seed10 still times out.
+These variable timings establish no causal speedup. Complete affected Engine
+scopes are running; current whole-worker, broad and conformance acceptance
+remain unverified. Failed images and literal outcomes are preserved.
+[Lossless current cold evidence](docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+
+Prior compiler-fact checkpoint — 2026-10-19: source `cab9f9f2e` passes
 **2,146 affected tests, zero failed or ignored**: AOT442, IR1607,
 modules/realms74, native templates21, and two explicitly filtered Intl controls.
 Every prior2,139 whole-scope ID and2,137 pass remains; five added controls pass.
@@ -23,10 +33,10 @@ speedup is established. Separate warm and fresh-cache diagnostic passes do
 not replace the complete red cold run. Keep CONTINUE and tasks until every
 acceptance criterion passes.
 [Measured cold-start candidates and complete worker scopes](docs/rust-rewrite/cold-start-hills-and-workers-20261019.json).
-The next candidate uses separate native compiler limits for large program
+The successor uses separate native compiler limits for large program
 functions (128 KiB) and runtime helpers (the existing 1 MiB). A private comparison
-produced a 23% smaller program image with overlapping compile times; actual
-product deadlines and broader acceptance still require verification. Engine
+produced a 23% smaller program image with overlapping compile times; the actual
+product cold run above remains red and broader acceptance is pending. Engine
 and SHA-256 profile experiments showed no gain and leave those profiles unchanged.
 [Remaining verification schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
 

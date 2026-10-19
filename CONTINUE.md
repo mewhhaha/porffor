@@ -1,7 +1,28 @@
 # Continue Lila — 2026-10-19
 
-Frozen compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`,
-pushed to main. Complete affected verification passes2,146/2,146, zero failed
+Frozen compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
+pushed to main. Separate Program/Runtime native thresholds are implemented:
+128KiB for P, unchanged1MiB for R. Ordinary Cargo build passes in62.487s;
+all14 source audits pass. The exact original cold4 run is complete-red:
+3PASS/1TIMEOUT at unchanged5000ms/four actual jobs/fresh normal caches.
+Seed9 passes; seed10 still times out. No causal speedup is established.
+[Lossless current cold checkpoint](docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+
+Current Engine library/templates/runtime_cache complete-scope discovery is
+running independently under `target/large-program-mode-engine-discovery-20261019-run2`.
+Keep the source frozen until it terminates. The first coordinator/build remain
+rejected by cold4; do not relabel them green. Current whole35/recursive worker
+graph, full default/all-features and all later gates remain unrun. Preserve
+`target/large-program-mode-cold-20261019-run1` and the byte-verified failed
+images archive `target/closed-large-program-mode-red-images-20261019-run1`.
+It also preserves five retired closed historical libtest images; no current
+product, dependency, cache or fingerprint was retired. Decoder: zstd --long=29.
+Two closed archives were byte-verified and relocated to /tmp, with canonical
+symlinks and a separate relocation receipt. Native scratch uses workspace
+TMPDIR set before Python starts; no cache budget or check changed.
+
+Prior CAB source `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`:
+complete affected verification passes2,146/2,146, zero failed
 or ignored: AOT442, IR1607, modules/realms74, native templates21 and filtered
 Intl2. Four whole scopes contain2,144 IDs; every prior2,139 ID and2,137 pass
 remains, with five added controls. Both original native-template60s failures
@@ -45,16 +66,15 @@ with overlapping compilation times. All four private Engine samples retain
 the exact print transcript and graph; they supply no worker acceptance.
 [Lossless measurements and complete35](docs/rust-rewrite/cold-start-hills-and-workers-20261019.json).
 
-Candidate batch: use the optimizing native mode for program functions at128KiB,
+Implemented successor batch: use the optimizing native mode for program functions at128KiB,
 retaining the existing1MiB runtime threshold through explicit Program/Runtime
 roles. Current R has an857,978-byte body: a single shared lower threshold would
 incorrectly promote every tiny linked program. The existing selector control
 now checks both role boundaries and keeps large R below its old limit Fast.
 No ABI/cache layout, capability, deadline or capacity changes. Callback children
-inherit the outer Engine mode, so actual cold4, whole21 template, worker35 and
-affected Engine verification remain required before accepting this candidate.
-Finish the coherent source batch, drain current owners, freeze the new source
-once, then build and run the original cold requests first. Root writes code;
+inherit the outer Engine mode. Actual successor cold4 is red as recorded above;
+whole21 template/affected Engine discovery is running and current worker35
+remains required. Root writes code;
 Luna agents inspect/review only. Prepared chain3/pin2/historical2 successors
 were not launched after cold2 rejected. Future full-pin scratch can use an
 admitted workspace TMPDIR set before Python starts; normal cache capacities
