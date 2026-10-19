@@ -1,5 +1,21 @@
 # Continue Lila — 2026-10-19
 
+Active frozen-source continuation: read
+`../.lila-tools/active-frozen71-continuation-20261019.json` for the AF, gate
+archive/join and default owners. The prior15-script pipeline owners are all
+terminal; preserve their receipts. Keep primary71 unchanged until AF113 and
+default111 drain. No native outcomes are carried across source changes.
+
+The generated campaign scope now passes all15 original IDs; source1c had13PASS/
+2FAIL at the same original5000ms deadlines. The original cold4 still has one
+timeout, so this is a whole-scope observation rather than a causal cold repair.
+Prepared local changes contain only bounded embedded-image digest admission
+and the two test setup fixes described below; ordinary native verification is
+still required. An unused247,880,040B CLI copy was separately archived with
+full streamed mode/size/SHA readback, then retired after proving current
+canonical CLI/worker products and live processes do not use its inode.
+See `target/archived-unlinked-cli-product-20261019-run1/receipt.json`.
+
 All-feature discovery checkpoint — 2026-10-19: the frozen71 source has
 completed12 whole library scopes with3852PASS/12FAIL/0IGN. Engine973, IR1607,
 AOT442 and Front177 pass. Test262475/1 and CLI71/11 expose two test setup

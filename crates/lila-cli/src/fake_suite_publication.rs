@@ -152,6 +152,9 @@ mod tests {
     fn measure_fixture_worker_entries(
         config: SuiteConfig,
     ) -> Result<VerifiedFakeSuiteCounts, String> {
+        if let Some(jobs) = crate::take_global_jobs(&mut Vec::new())? {
+            lila_engine::configure_compilation_jobs(jobs)?;
+        }
         let runner = ConformanceRunner::with_config(config.clone());
         let full = runner.discover_suite(None)?;
         let safe = runner.discover_suite(Some("language/wasm/pass"))?;

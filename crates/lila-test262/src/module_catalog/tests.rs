@@ -225,7 +225,6 @@ Promise.all(checks).then(() => print('literal-runtime-attributes:ok'));
     let directory = Directory::new();
     let entry = directory.0.join("entry.js");
     fs::write(directory.0.join("2nd-param_FIXTURE.json"), "262").unwrap();
-    lila_engine::configure_compilation_jobs(1).unwrap();
     for directive in ["", "'use strict';\n"] {
         let source = format!("{directive}{BODY}");
         fs::write(&entry, &source).unwrap();
