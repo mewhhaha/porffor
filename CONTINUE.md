@@ -1,4 +1,27 @@
-# Continue Lila — 2026-10-18
+# Continue Lila — 2026-10-19
+
+Current frozen source is `2d71987461ed1390eac43fbdaebd4c110df31b66`.
+The ordinary release passes in144.84s; all four original untraced deadline cases
+pass with the original60s/300s budgets, one worker and fresh four64MiB cache
+tiers per case. All733 focused ordinary native IDs pass:437 AOT library,
+115 async structure,151 language structure and the complete30 runtime-link
+target, with zero failed/ignored. The old runtime-link failure is eliminated
+in ordinary Cargo verification. [Lossless current ordinary evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+
+The first current full-default coordinator stopped for disk admission after
+eight completed scopes/3568passes/zero failures, then incorrectly treated the
+unstarted storage deferral as a failed native proof. Preserve that rejected
+receipt and its deferred child. Closed byte-verified archives were relocated
+with original paths preserved. The fresh continuation
+`../.lila-tools/continue-full-default-runtime-type-suffix-20261019-run1.py`
+validates/carries only those eight exact same-source completed scopes, runs the
+remaining103 of111, and pauses above the native disk reserve. Storage deferrals
+carry no test outcome; every actual failed scope remains red. Fresh successors
+`../.lila-tools/run-all-features-runtime-type-suffix-20261019-run1.py` and
+`../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`
+require green predecessor gates. All113 all-feature scopes, both all-target
+checks and complete230 remain mandatory. Keep CONTINUE/tasks until every gate
+passes; current ordinary evidence is no full-pin or task-closure claim.
 
 Frozen-source459d7ef full default discovery is complete: all111 scopes,
 **9,537 native passes/one known layout assertion failure**, all11 documentation
@@ -27,16 +50,13 @@ and exact R14 release/all hardlink aliases were byte-verified and archived befor
 retirement; keep `target/closed-r14-before-runtime-type-suffix-guard-20261018-run1`
 and its inventory. Primary is now frozen at published successor
 `2d71987461ed1390eac43fbdaebd4c110df31b66`. Its610 tooling,8sourceCI and3static
-checks pass. `../.lila-tools/advance-runtime-type-suffix-20261018-run1.py` owns
+checks pass. `../.lila-tools/advance-runtime-type-suffix-20261018-run1.py` completed
 the ordinary release and complete original4 with unchanged budgets/caches.
-`../.lila-tools/run-full-default-runtime-type-suffix-20261018-run1.py` then owns
-focused733: existing703 plus the complete30 runtime-link target. Require all111
-default scopes/9538native/11doc; carry only same-source whole scopes, then execute
-the remaining107. `../.lila-tools/run-all-features-runtime-type-suffix-20261018-run1.py`
-owns fresh113-scope all-feature verification and graph proofs after green default.
-`../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261018-run1.py`
-owns both all-target checks and full230. No production code changed in the
-test repair; all corrected-source ordinary/full/230 acceptance remains pending.
+The original current-source full-default helper completed focused733 before its
+later disk-admission stop; preserve its receipt and focused seal. Require all111
+default scopes/9538native/11doc and every prior9535 exact native ID. Use the fresh
+continuation and dependent20261019 queues above. No production code changed in
+the test repair; full-default/all-features/all-target/230 acceptance remains open.
 
 The completed R14 verification source was
 `459d7ef49e99c7fb71d99542a15f965159867634`. Ordinary Cargo passes all703 focused

@@ -1,3 +1,14 @@
+Current ordinary verification — 2026-10-19: at frozen source
+`2d71987461ed1390eac43fbdaebd4c110df31b66`, all **733 focused native tests**
+pass with zero failures or ignored tests, including the complete 30-test
+runtime-link target that contained the prior sole failure. The ordinary release
+builds in 144.84s. All four original untraced deadline cases pass in one complete
+fresh-cache run at the unchanged 60s execution/300s compilation limits, with one
+worker and four 64 MiB cache tiers per case. Full default, all-features, all-target
+and 230-case retention verification remain separately owned; pinned conformance
+and task closure remain open.
+[Lossless ordinary release, deadline and native evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+
 Runtime type grouping — native discovery checkpoint, 2026-10-18:
 ordinary runtime-helper signatures now follow the recursive GC schema as
 standalone types. Only helper signatures stored in GC fields stay in that
@@ -34,9 +45,9 @@ Full default discovery at that frozen source is complete across all111 scopes:
 11 documentation passes**, with zero ignored tests. Every prior9,535 inventory
 ID remains. [Lossless full discovery evidence](docs/rust-rewrite/native-default-r14-discovery-20261018.json)
 preserves the red result. The assertion correction below is already on main;
-its current-source release/original-four, ordinary733, full default/all-features,
-all-target and230 gates remain separately owned. Pinned conformance and task
-closure remain open.
+its current-source release/original-four and ordinary733 now pass as recorded
+above. Full default/all-features, all-target and230 gates remain separately
+owned. Pinned conformance and task closure remain open.
 [Source, exact native inventories, both four-case runs and diagnostics](docs/rust-rewrite/standalone-runtime-signatures-checkpoint-20261018.json).
 Refresh with `scripts/run_workspace_tests.py --include-ignored` under the cloud
 wrapper. The R13 results below belong to their recorded source.
@@ -46,8 +57,9 @@ to end at the recursive type group. It now checks the actual standalone runtime
 signature suffix and keeps ProgramInstance plus its five hook types inside the
 shared GC group. Runtime bytes, exact R/P prefix, import and call ABI checks
 remain. The complete private 30-test target passes with every original ID;
-ordinary and full verification of this follow-up remain pending. The original
-29-pass/1-failure scope stays recorded.
+ordinary verification of the complete target now passes as recorded above.
+Full verification remains pending. The original 29-pass/1-failure scope stays
+recorded.
 [Exact assertion repair and private whole-target evidence](docs/rust-rewrite/runtime-type-suffix-guard-20261018.json).
 
 Array accumulation kernel — checkpoint, 2026-10-18: ordinary spread and iterable
