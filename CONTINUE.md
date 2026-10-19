@@ -1,5 +1,27 @@
 # Continue Lila — 2026-10-19
 
+Verified repair checkpoint — 2026-10-19: source71bced27c is pushed to main.
+All14 source audits and eight whole ordinary scopes pass3148/0/0. Both original
+baseline failures now pass: the timeout control within Test262438/0/0 and the
+original CLI ID through one-shot and reused workers (one filtered control;
+whole CLI remains pending). The matched thousand-method sample passes its
+original60s budget with49,400,430→20,429,399 allocations, a58.6% reduction.
+This is a fixture measurement; broad performance acceptance remains pending.
+Intl646/0/0 took335.60s in one process; the old644 used three partitions in
+109.506s, so those wall times do not establish a regression. The broad schedule
+retains partitions. Original fresh5000ms/four-job cold4 remains3PASS/1TIMEOUT.
+Full AF113 is running at frozen71, with fresh default111 after it. Keep all
+literal reds and CONTINUE/tasks until every acceptance criterion passes.
+
+The separate next candidate bounds both unchanged embedded-image SHA256 checks
+to at most two threads within the explicit CPU/affinity budget, adds timing
+traces, and retains all source/profile/checksum/runtime/Wasmtime admission.
+It is uncompiled and unaccepted; its benefit is unmeasured. The primary remains
+frozen while broad discovery runs. A separate artifact-only watcher tries to
+retain at most256MiB of passed IR/Intl libtests before their owner retires its
+paths; it never supplies native outcomes or modifies Cargo fingerprints.
+[Exact checkpoint, raw evidence and prepared candidate](docs/rust-rewrite/focused-repair-and-startup-candidate-20261019.json).
+
 Test-helper visibility correction — 2026-10-19: the isolated identity
 scaffold had exposed a private temporary-path helper and therefore missed the
 real sibling-module access error. The existing cfg(test) helper is now
