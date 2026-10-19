@@ -5,7 +5,7 @@ use lila_engine::{
 
 #[test]
 fn genuine_cldr_range_endpoint_alternatives_reach_temporal_aot_parts() {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let source = include_str!("../fixtures/intl_datetime_range_endpoints/temporal_and_fallback.js");
     for directive in ["", "\"use strict\";\n"] {
         let script = format!("{directive}{source}");

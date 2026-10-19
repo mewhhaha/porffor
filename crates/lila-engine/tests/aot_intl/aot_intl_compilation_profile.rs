@@ -10,7 +10,7 @@ const SOURCE: &str = include_str!("../fixtures/intl_compilation_profile/selected
 
 #[test]
 fn sparse_service_frames_preserve_selected_operations_and_reject_dependency_only_public_services() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let profile = IntlCompilationProfile::CustomProjection(CustomIntlProfile::from_manifest_json(
         r#"{"schema_version":6,"custom_id":"relative-only-emitted","services":["RelativeTimeFormat"],"locale_filters":{"relative_time":["fr"]}}"#).unwrap());
@@ -85,7 +85,7 @@ fn sparse_service_frames_preserve_selected_operations_and_reject_dependency_only
 
 #[test]
 fn sparse_supported_values_separates_retained_keys_missing_data_and_invalid_key_errors() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let profile = IntlCompilationProfile::CustomProjection(
         CustomIntlProfile::for_services(
@@ -123,7 +123,7 @@ fn sparse_supported_values_separates_retained_keys_missing_data_and_invalid_key_
 
 #[test]
 fn named_zone_projection_emits_real_transition_name_closure_and_preserves_global_identity() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_named_zones.js");
     for composed in [false, true] {
@@ -235,7 +235,7 @@ fn named_zone_projection_emits_real_transition_name_closure_and_preserves_global
 
 #[test]
 fn paired_numbering_projection_emits_sparse_service_rows_and_full_global_digit_authority() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_numbering.js");
     for composed in [false, true] {
@@ -321,7 +321,7 @@ fn paired_numbering_projection_emits_sparse_service_rows_and_full_global_digit_a
 
 #[test]
 fn localized_calendar_projection_preserves_global_kernels_and_emits_only_real_service_rows() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_calendars.js");
     for locale_filter in [false, true] {
@@ -394,7 +394,7 @@ fn localized_calendar_projection_preserves_global_kernels_and_emits_only_real_se
 
 #[test]
 fn paired_currency_projection_emits_actual_pruned_data_and_original_code_fallbacks() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_currencies.js");
     for locale_filter in [false, true] {
@@ -453,7 +453,7 @@ fn paired_currency_projection_emits_actual_pruned_data_and_original_code_fallbac
 
 #[test]
 fn segmenter_only_and_eight_component_projections_emit_selected_models_and_remint_wire_owners() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_segmenter.js");
     for with_other_filters in [false, true] {
@@ -633,7 +633,7 @@ fn segmenter_only_and_eight_component_projections_emit_selected_models_and_remin
 
 #[test]
 fn collator_only_and_seven_component_projections_emit_real_rows_and_preserve_locale_preferences() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_collator.js");
     for with_other_filters in [false, true] {
@@ -856,7 +856,7 @@ fn assert_selected_sections(artifact: &Artifact, profile: &IntlCompilationProfil
 
 #[test]
 fn ordinary_custom_compilation_emits_the_selected_graph_and_runs_the_same_unit() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let options = custom_options("library-image-selection");
     let engine = Engine::new(RealmBuilder::new().build());
     let unit = engine.compile_script(SOURCE, options.clone()).unwrap();
@@ -935,7 +935,7 @@ fn custom_compilation_rejects_backends_that_cannot_consume_the_selection() {
 
 #[test]
 fn custom_code_only_catalogue_and_locale_case_consumers_execute_normally() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let options = custom_options("data-only-selection");
     for source in [
@@ -952,7 +952,7 @@ fn custom_code_only_catalogue_and_locale_case_consumers_execute_normally() {
 
 #[test]
 fn actual_list_projection_emits_a_smaller_selected_graph_and_keeps_duration_dependencies_private() {
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let profile = IntlCompilationProfile::CustomProjection(
         CustomIntlProfile::new(
             CustomProfileId::parse("library-projection").unwrap(),
@@ -1042,7 +1042,7 @@ fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_sele
         NumberProfilesDataImage, RelativeHostOp, RelativeNumeric, RelativeRequest, RelativeStyle,
         RelativeTimeConfiguration, RelativeTimeDataImage, RelativeTimeError, RelativeUnit,
     };
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let combined =
         include_str!("../fixtures/intl_compilation_profile/projected_list_relative_time.js");
@@ -1231,7 +1231,7 @@ fn display_names_and_three_component_projections_emit_selected_tables_and_run_re
         DisplayNamesDataImage, DisplayNamesError, DisplayNamesFallback, DisplayNamesSelection,
         DisplayNamesStyle, LocaleDataImage,
     };
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let display_source =
         include_str!("../fixtures/intl_compilation_profile/projected_display_names.js");
@@ -1397,7 +1397,7 @@ fn display_names_and_three_component_projections_emit_selected_tables_and_run_re
 #[test]
 fn duration_only_and_four_component_projections_emit_and_execute_the_selected_graph() {
     use lila_intl::{DurationDataImage, ListDataImage, LocaleDataImage, NumberProfilesDataImage};
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let duration_source =
         include_str!("../fixtures/intl_compilation_profile/projected_duration.js");
@@ -1554,7 +1554,7 @@ fn coupled_number_only_and_five_component_projections_reach_real_library_artifac
         CustomListProfile, DurationDataImage, ListDataImage, LocaleDataImage, LocaleId,
         NumberProfilesDataImage, RelativeTimeDataImage,
     };
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_number.js");
     for with_other_filters in [false, true] {
@@ -1738,7 +1738,7 @@ fn datetime_only_and_six_component_projections_bind_real_pools_plans_and_library
         DateTimeSupportedLocalesRequest, DateTimeValueKind, LocaleDataImage,
         NamedTimeZoneDataImage, TimeZoneId, TimeZoneSelection,
     };
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let fixture = include_str!("../fixtures/intl_compilation_profile/projected_datetime.js");
     for with_other_filters in [false, true] {

@@ -20,7 +20,7 @@ fn run_options() -> RunOptions {
 }
 
 fn assert_list_script(source: &str, expected: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     for directive in ["", "\"use strict\";\n"] {
         let script = format!("{directive}{source}");
         let observation = Engine::new(RealmBuilder::new().build())
@@ -41,7 +41,7 @@ fn assert_list_script(source: &str, expected: &str) {
 }
 
 fn assert_list_runtime_exception(source: &str, constructor: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     for directive in ["", "\"use strict\";\n"] {
         let script = format!("{directive}{source}");
         let error = Engine::new(RealmBuilder::new().build())

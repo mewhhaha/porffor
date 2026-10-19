@@ -12,6 +12,10 @@ import sys
 
 PROOFS = {
     # Closed reports keep their literal host paths; admission binds every byte.
+    'complete-af-discovery-cpu-tooling-20261019.json': (None, 'b2feece42ecce05946c290a9e86354a4f1558b949ccf72a0dc5cdcb3f955abd4'),
+    'discovery-storage-checkpoint-20261019.json': (None, 'f80be59f74bebd32a054569da505c3aab31f1e8a591d209414a1dd86e239f5ba'),
+    'intl-native-budget-candidate-20261019.json': (None, 'a6a91abf675e3ba92121e9853b4fbf6795cf17c65534a23785349b49a5bdc306'),
+    'matched-native-progress-20261019.json': (None, '846eafb85052bd94d05f7f0392e1fdb39518e145fe50a0d4d33b522f9c6351cd'),
     'iteration-default-scopes-20261019.json': (None, '57b6a9bf6d726ab5a83ff94e17fda4e44bbf3b027c006010a4021e474f8ccbe2'),
     'iteration-native-checkpoint-20261019.json': (None, 'ae6bd479e95a6d0db439206576eb7775cd58bd17f08d9b5f77049abc5e63349e'),
     'token-provenance-correction-20261019.json': (None, '6726911f7a48f63c0c13ebac690490fd594f1a70520b8e6b847ccf32ead3b846'),
@@ -114,8 +118,32 @@ def audit_source(path, raw):
     else:
         return raw
     source = raw.decode("utf-8")
-    source = ROOT.sub("/workspace/HISTORICAL_CHECKOUT", source)
-    source = WORKTREE.sub("HISTORICAL_WORKTREE", source)
+    # Most proof bytes are encoded payloads. Keep the same expressions and
+    # physical lines while visiting only lines that can contain these paths.
+    lines = []
+    for line in source.splitlines(keepends=True):
+        if "/workspace/" + RETIRED in line:
+            line = ROOT.sub("/workspace/HISTORICAL_CHECKOUT", line)
+        if "/.git/worktrees/" + RETIRED in line:
+            line = WORKTREE.sub("HISTORICAL_WORKTREE", line)
+        lines.append(line)
+    source = "".join(lines)
+    if name in PROOFS and PROOFS[name][1]:
+        # A declared, byte-bound locator remains a host path in any field that
+        # references it, like the absolute ROOT paths above. Other strings,
+        # including undeclared paths and product identifiers, stay visible.
+        assets = value.get("assets", [])
+        asset_paths = {row["path"] for row in assets
+                       if isinstance(row, dict) and isinstance(row.get("path"), str)
+                       and row["path"].startswith(RETIRED + "/target/")}
+        locator = re.compile(r'(?<!\\)"' + RETIRED + r'/target/[^"\\]*(?:\\.[^"\\]*)*"')
+        def normalize_locator(match):
+            if json.loads(match.group()) not in asset_paths:
+                return match.group()
+            return '"HISTORICAL_CHECKOUT/' + match.group()[len(RETIRED) + 2:]
+        source = "".join(locator.sub(normalize_locator, line)
+                         if '"' + RETIRED + '/target/' in line else line
+                         for line in source.splitlines(keepends=True))
     # These are exact JSON field locators, rather than filesystem path suffixes.
     if name == "workspace-source-revalidation-eb1ca63c9-20261015.json":
         for phase in ("before", "after"):

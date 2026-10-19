@@ -1,3 +1,11 @@
+The Engine Intl integration tests now honor the verifier's bounded `LILA_JOBS`
+allocation instead of forcing one compiler job in55 setup calls. Direct runs
+without that setting remain serial. The complete299-test native verification
+is pending; fixtures, assertions and deadlines are unchanged.
+
+Four closed verification reports now have exact byte-bound identity admission.
+Their captured host paths remain literal; product identifiers stay audited.
+
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.
 Every failure and its executable are preserved. One subsequent idle diagnostic

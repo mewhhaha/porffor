@@ -3,7 +3,7 @@ use lila_engine::{
     ObservedCompletion, RealmBuilder, RunOptions,
 };
 fn assert_lists(source: &str, policy: HostSurfacePolicy) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compiler worker");
+    crate::configure_compilation_jobs();
     for strict in [false, true] {
         let source = format!("{}{source}", if strict { "'use strict';\n" } else { "" });
         let observed = Engine::new(RealmBuilder::new().build())

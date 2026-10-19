@@ -4,7 +4,7 @@ use lila_engine::{
 };
 
 fn assert_intl_locale(source: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let observation = Engine::new(RealmBuilder::new().build())
         .observe_script(
             source,

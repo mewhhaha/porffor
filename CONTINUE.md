@@ -1,5 +1,15 @@
 # Continue Lila — 2026-10-19
 
+Next coherent batch: validate all299 Engine Intl IDs with the saved55-call
+CPU-budget setup repair, then complete native/default/release/conformance
+acceptance. The existing fullAF timeout stays unresolved; no repeated diagnostic
+supplies repair acceptance. Production Intl scheduling remains unchanged after
+the28-sample host comparison.
+
+The first source-audit pass stopped before compilation at the identity check:
+four closed reports needed exact provenance admission. Keep that literal red;
+the candidate preserves all raw report bytes and adds bounded, tested admission.
+
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.
 Every failure and its executable are preserved. One subsequent idle diagnostic

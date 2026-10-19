@@ -3,7 +3,7 @@ use lila_engine::{
 };
 
 fn assert_standalone_locale(source: &str, host_surface_policy: HostSurfacePolicy) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let outcome = Engine::new(RealmBuilder::new().build())
         .run_script(
             source,
