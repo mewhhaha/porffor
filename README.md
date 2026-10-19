@@ -12,6 +12,16 @@ Private stripped copies pass all15 campaign tests and all3 original cold inputs;
 ordinary Cargo-built candidate verification is still pending. Release profiles
 retain their line tables.
 
+The immutable Cargo runtime candidate now reuses the producer's full function
+validation before native compilation. A private Engine boundary supplies only
+that exact static package through an explicitly unsafe API; runtime source,
+profile, Intl, checksum, section, data and layout checks still run. Safe package
+inputs and disk caches always validate every body. At the previous `2c445fd26`
+source, ordinary cold3 passed, complete focused scopes recorded33 passes and2
+timeouts, and all38 admission controls passed. Those red outcomes remain;
+fresh candidate verification is required. See the
+[immutable package contract](docs/rust-rewrite/contracts/immutable-runtime-build-package.md).
+
 Differential worker configuration repair — 2026-10-19: explicit native compiler
 jobs now reach the selected worker. CLI `--jobs` overrides `LILA_JOBS`; cases and
 backends remain serial. Complete focused verification at `e13d926d4` records

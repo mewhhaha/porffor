@@ -1,8 +1,11 @@
-//! Build-owned raw R packages use the same Wasm/layout admission as disk R.
+//! Build-owned raw R packages retain canonical identity and layout admission.
 //!
 //! The package is a candidate, never authority for unchecked layout or native
 //! code. Its source identity deliberately excludes the eventual executable.
+//! Safe candidates receive complete body validation. The explicitly unsafe
+//! immutable Cargo boundary can reuse the producer's full body validation.
 
+use super::validation::FunctionBodyValidation;
 use super::{
     cache, emit_runtime_artifact, CurrentRuntimeLayoutVersion, RuntimeArtifact,
     RuntimeArtifactCache, RuntimeArtifactKey, RuntimeSourceCompilationProfile, LAYOUT_VERSION,
@@ -73,10 +76,11 @@ pub fn build_runtime_artifact_with_source_compilation_profile(
 struct Candidate<'a> {
     bytes: &'a [u8],
     expected_source: &'a [u8; DIGEST_BYTES],
+    body_validation: FunctionBodyValidation,
 }
 
 /// Optional inputs to the one lazy runtime resolver. A package can be supplied
-/// by any caller: full identity/Wasm/layout admission precedes every use.
+/// by any safe caller: full identity/Wasm/layout admission precedes every use.
 #[derive(Clone, Copy)]
 pub struct RuntimeArtifactInputs<'a> {
     cache: Option<&'a dyn RuntimeArtifactCache>,
@@ -126,6 +130,33 @@ impl<'a> RuntimeArtifactInputs<'a> {
         self.package = Some(Candidate {
             bytes,
             expected_source,
+            body_validation: FunctionBodyValidation::AtUse,
+        });
+        self
+    }
+
+    /// Reuse complete producer body validation for immutable build output.
+    /// Identity, checksum, section, data and typed layout admission still run.
+    /// Construction is lazy and does not admit or hash the package.
+    ///
+    /// # Safety
+    ///
+    /// `bytes` must be the exact package returned by this compiler's
+    /// `build_runtime_artifact_with_source_compilation_profile` (or its portable
+    /// wrapper), whose successful round-trip fully validated every Wasm body.
+    /// The package and `expected_source` must remain immutable for their entire
+    /// static lifetimes. A static lifetime alone does not prove producer
+    /// validation. Caller input, disk caches and re-encoded packages do not
+    /// satisfy this contract. Use the safe `with_build_package` for those.
+    pub const unsafe fn with_immutable_build_package(
+        mut self,
+        bytes: &'static [u8],
+        expected_source: &'static [u8; DIGEST_BYTES],
+    ) -> Self {
+        self.package = Some(Candidate {
+            bytes,
+            expected_source,
+            body_validation: FunctionBodyValidation::ValidatedAtBuild,
         });
         self
     }
@@ -137,11 +168,12 @@ impl<'a> RuntimeArtifactInputs<'a> {
     ) -> Result<Arc<RuntimeArtifact>, EmitError> {
         if let Some(candidate) = self.package {
             let started = std::time::Instant::now();
-            if let Some(runtime) = decode_with_jobs(
+            if let Some(runtime) = decode_with_body_validation(
                 candidate.bytes,
                 identity,
                 candidate.expected_source,
                 self.admission_jobs,
+                candidate.body_validation,
             ) {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
@@ -200,6 +232,22 @@ fn decode_with_jobs(
     expected_source: &[u8; DIGEST_BYTES],
     jobs: std::num::NonZeroUsize,
 ) -> Option<RuntimeArtifact> {
+    decode_with_body_validation(
+        package,
+        identity,
+        expected_source,
+        jobs,
+        FunctionBodyValidation::AtUse,
+    )
+}
+
+fn decode_with_body_validation(
+    package: &[u8],
+    identity: &cache::RuntimeIdentity,
+    expected_source: &[u8; DIGEST_BYTES],
+    jobs: std::num::NonZeroUsize,
+    body_validation: FunctionBodyValidation,
+) -> Option<RuntimeArtifact> {
     let digest_offset = package.len().checked_sub(DIGEST_BYTES)?;
     let (framed, digest) = package.split_at(digest_offset);
     let mut payload = framed;
@@ -219,7 +267,7 @@ fn decode_with_jobs(
     if actual_digest.as_slice() != digest {
         return None;
     }
-    let runtime = cache::decode_payload(payload, identity, version, jobs)?;
+    let runtime = cache::decode_payload(payload, identity, version, jobs, body_validation)?;
     (runtime.key().as_bytes() == &expected_runtime).then_some(runtime)
 }
 

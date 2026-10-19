@@ -1,7 +1,9 @@
 //! Native R authority is limited to this Cargo build's embedded output.
 //!
-//! Raw package bytes still pass AOT's complete admission. No native constructor
-//! accepts a caller slice/path/cache blob, and no Module is retained here.
+//! Raw package bytes retain complete identity, metadata, data and layout
+//! admission. Immutable Cargo output reuses the producer's full body validation.
+//! No native constructor accepts a caller slice/path/cache blob, and no Module
+//! is retained here.
 
 #[cfg(test)]
 #[path = "embedded_runtime/compile.rs"]
@@ -46,7 +48,14 @@ pub(super) fn inputs(
     if package().is_empty() {
         inputs
     } else {
-        inputs.with_build_package(package(), expected_source())
+        // SAFETY: package() returns the immutable Cargo-owned array from
+        // lila-runtime-image. Its sole producer round-trips these exact package
+        // bytes through complete AOT body/layout validation before native
+        // compilation and publication. expected_source() is immutable and
+        // build-bound. No external slice, path or cache reaches this boundary.
+        // AOT still checks source/profile/Intl identity, checksums, sections,
+        // data and the reconstructed layout before using the candidate.
+        unsafe { inputs.with_immutable_build_package(package(), expected_source()) }
     }
 }
 

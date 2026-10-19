@@ -64,6 +64,19 @@ fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
     .expect("every raw function and layout also admits with explicit jobs");
     assert_eq!(concurrent.bytes(), admitted.bytes());
     assert_eq!(concurrent.layout(), admitted.layout());
+    // SAFETY: the static fixture is the exact immutable output of the producer
+    // above, which fully admitted every function before returning its package.
+    let immutable = unsafe {
+        RuntimeArtifactInputs::new(None)
+            .with_immutable_build_package(package.package_bytes(), &SOURCE)
+    }
+    .load_or_emit(&identity, || {
+        panic!("immutable producer package must admit")
+    })
+    .unwrap();
+    assert_eq!(immutable.key(), admitted.key());
+    assert_eq!(immutable.bytes(), admitted.bytes());
+    assert_eq!(immutable.layout(), admitted.layout());
     let target = std::thread::Builder::new()
         .name("runtime-build-package-target-parity".to_owned())
         .stack_size(64 * 1024 * 1024)
@@ -84,6 +97,48 @@ fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
         "normal target emission owns the exact same raw R"
     );
     assert_eq!(target.layout(), admitted.layout());
+}
+
+#[test]
+fn safe_package_replacement_rejects_self_checksummed_invalid_bodies_after_a_trusted_candidate() {
+    let package = fixture();
+    let identity = minimal_identity();
+    let mut bytes = package.wasm().to_vec();
+    let offset = wasmparser::Parser::new(0)
+        .parse_all(&bytes)
+        .find_map(|payload| match payload.unwrap() {
+            wasmparser::Payload::CodeSectionEntry(body) => {
+                Some(body.get_operators_reader().unwrap().original_position())
+            }
+            _ => None,
+        })
+        .unwrap();
+    // Preserve every section, index, layout and data byte, but replace one body
+    // opcode. Re-sign both the runtime key and package checksum, so only full
+    // body validation can reject this otherwise well-formed envelope.
+    bytes[offset] = 0xff;
+    let invalid =
+        RuntimeArtifact::unadmitted_fixture(Arc::from(bytes), package.runtime.layout().clone());
+    let invalid_package = encode(&invalid, &identity, &SOURCE);
+    assert!(decode(&invalid_package, &identity, &SOURCE).is_none());
+    let emitted = Cell::new(false);
+    // SAFETY: only the first, unchanged static producer fixture is trusted.
+    // Replacing it through the safe setter must restore complete validation.
+    let inputs = unsafe {
+        RuntimeArtifactInputs::new(None)
+            .with_immutable_build_package(package.package_bytes(), &SOURCE)
+    }
+    .with_build_package(&invalid_package, &SOURCE)
+    .with_admission_jobs(std::num::NonZeroUsize::new(4).unwrap());
+    let admitted = inputs
+        .load_or_emit(&identity, || {
+            emitted.set(true);
+            Ok(package.runtime.clone())
+        })
+        .unwrap();
+    assert!(emitted.get());
+    assert_eq!(admitted.key(), package.key());
+    assert_eq!(admitted.bytes().as_ref(), package.wasm());
 }
 
 #[test]

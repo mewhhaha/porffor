@@ -266,7 +266,13 @@ fn decode_with_jobs(
     if &take::<DIGEST_BYTES>(&mut payload)? != key.as_bytes() {
         return None;
     }
-    decode_payload(payload, identity, version, jobs)
+    decode_payload(
+        payload,
+        identity,
+        version,
+        jobs,
+        super::validation::FunctionBodyValidation::AtUse,
+    )
 }
 
 pub(super) fn decode_payload(
@@ -274,6 +280,7 @@ pub(super) fn decode_payload(
     identity: &RuntimeIdentity,
     version: CurrentRuntimeLayoutVersion,
     jobs: std::num::NonZeroUsize,
+    body_validation: super::validation::FunctionBodyValidation,
 ) -> Option<RuntimeArtifact> {
     let static_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
     let code_unit_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
@@ -283,7 +290,7 @@ pub(super) fn decode_payload(
         return None;
     }
     let pool = PoolBoundary::from_runtime_cache(static_len, code_unit_len, strings)?;
-    let layout = decode_layout(payload, pool, identity, jobs)?;
+    let layout = decode_layout(payload, pool, identity, jobs, body_validation)?;
     Some(RuntimeArtifact::new(
         Arc::from(payload),
         layout,
@@ -297,6 +304,7 @@ fn decode_layout(
     pool: PoolBoundary,
     identity: &RuntimeIdentity,
     jobs: std::num::NonZeroUsize,
+    body_validation: super::validation::FunctionBodyValidation,
 ) -> Option<RuntimeLayout> {
     let features = WasmFeatures::default()
         | WasmFeatures::THREADS
@@ -323,7 +331,12 @@ fn decode_layout(
         let payload = payload.ok()?;
         match validator.payload(&payload).ok()? {
             ValidPayload::Func(function, body) => {
-                functions.push((function, body));
+                if matches!(
+                    body_validation,
+                    super::validation::FunctionBodyValidation::AtUse
+                ) {
+                    functions.push((function, body));
+                }
             }
             ValidPayload::End(_) => validated_end = true,
             ValidPayload::Ok => {}
@@ -437,7 +450,20 @@ fn decode_layout(
             return None;
         }
     }
-    super::validation::validate_all(functions, jobs)?;
+    match body_validation {
+        super::validation::FunctionBodyValidation::AtUse => {
+            super::validation::validate_all(functions, jobs)?;
+        }
+        super::validation::FunctionBodyValidation::ValidatedAtBuild => {
+            // The unsafe package owner guarantees these exact immutable bodies
+            // passed the producer's full validation. All section, metadata,
+            // identity, data and layout checks above still run at use.
+            debug_assert!(functions.is_empty());
+            if std::env::var_os("LILA_WASM_TRACE").is_some() {
+                eprintln!("lila wasm trace: runtime-function bodies: reused immutable Cargo producer validation");
+            }
+        }
+    }
     Some(RuntimeLayout::new(
         imported_functions,
         function_types,

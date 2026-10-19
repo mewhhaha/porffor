@@ -5,6 +5,14 @@ use wasmparser::{FuncToValidate, FuncValidatorAllocations, FunctionBody, Validat
 
 type Function<'a> = (FuncToValidate<ValidatorResources>, FunctionBody<'a>);
 
+/// External bytes always require body admission. Only the unsafe immutable
+/// build-package boundary can reuse full validation by the Cargo producer.
+#[derive(Clone, Copy)]
+pub(super) enum FunctionBodyValidation {
+    AtUse,
+    ValidatedAtBuild,
+}
+
 fn bounded_jobs(requested: NonZeroUsize, functions: usize) -> usize {
     requested
         .get()

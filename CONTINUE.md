@@ -6,11 +6,12 @@ concurrent initialization of the same checked Minimal Intl components, and an
 explicit idle-exclusive differential CPU opt-in with actual resource receipts.
 All13 generated Intl source identities also bind the new admission module;
 refresh and verify every recipe before freezing the final candidate.
-All identity, checksum, function-body, layout and data checks remain. Default
+All identity, checksum, layout and data checks remain. Every function body is
+validated; only immutable Cargo output can reuse that producer validation. Default
 admission stays serial; Custom profiles retain their existing admission order.
 Verify malformed-data rejection, exact runtime/frame parity, cold original5s
 inputs and complete affected native scopes before broad candidate acceptance.
-The five added default native controls should extend the inventory without
+The six added default native controls should extend the inventory without
 removing any of the prior9,538 IDs; require actual inventories to establish counts.
 At frozen `f8ecd5d4b`, the ordinary fresh cold gate remained red: one pass and
 two original5s timeouts. Complete f3 focused scopes had32 passes/3 failures;
@@ -24,6 +25,21 @@ uses package-scoped debug stripping for development/test CLI and Test262 units;
 release line tables remain. Refresh all13 Intl identities for Cargo.toml, then
 require fresh ordinary cold3, complete focused35, the added unit controls and
 recursive Cargo graph proof before a new checkpoint or full workspace sweep.
+The completed `2c445fd26` ordinary run passes all3 original fresh cold requests,
+but complete focused35 records33 passes/2 timeouts (async seed9 and mutation
+seed10). Its36 AOT admission and2 Intl controls pass; the complete15 campaign
+remains red. A controlled identical-request pair confirms native module-cache
+hits and25–35ms P loading; native optimizer comparisons show no consistent win.
+Preserve `target/runtime-admission-focused-20261019-run4`, coldrun4 and both
+retained generated evidence roots under `/tmp/lila-generated-campaign-1819406-*`.
+The new candidate reuses full producer body validation only for the exact
+immutable Cargo package, through an unsafe API in private Engine code. Keep all
+runtime source/profile/Intl/checksum/section/data/layout checks and full body
+validation for safe candidates and disk caches. The producer itself still fully
+validates before native compilation. New coverage checks exact producer/full
+admission parity and safe replacement rejecting a self-checksummed invalid
+body. Require fresh39 filtered admission controls and full cold3/focused35,
+then actual111-scope default inventories for9,544 native/11 documentation IDs.
 Explicit differential native compiler jobs propagation is verified, including
 serial defaults and CLI override of an invalid environment setting. The four
 complete focused scopes record **34 passes, one failure, zero ignored**: worker

@@ -292,9 +292,13 @@ Existing `LILA_JOBS` and `RAYON_NUM_THREADS` limits still apply. The coordinator
 drains independent scopes first and seals actual affinity, native jobs and the
 unchanged serial libtest setting. Performance, publication, documentation and
 other scopes keep their existing CPU policy. Continuations must preserve this
-opt-in setting. Runtime admission checks every function body and every existing
-Intl component; only their independent work is concurrent. Without an explicit
-job setting, admission remains serial.
+opt-in setting. External package and disk admission checks every function body
+and every existing Intl component; their independent work can be concurrent.
+Only the immutable Cargo package can reuse full producer body validation before
+native compilation. That private Engine boundary retains runtime identity,
+checksum, section, data and layout admission; see the
+[safety contract](contracts/immutable-runtime-build-package.md). Without an
+explicit job setting, runtime admission work remains serial.
 
 Development/test CLI and Test262 package overrides strip debug information at
 the final link. The selected worker still hashes every byte of its own loaded
