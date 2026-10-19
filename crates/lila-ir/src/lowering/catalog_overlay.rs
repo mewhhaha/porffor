@@ -2,11 +2,12 @@
 
 use std::collections::{btree_map, BTreeMap};
 use std::iter::Peekable;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(super) struct CatalogOverlay<V: 'static> {
     baseline: Option<&'static BTreeMap<String, V>>,
-    changes: BTreeMap<String, Option<V>>,
+    changes: BTreeMap<String, Option<Arc<V>>>,
 }
 
 impl<V: 'static> Default for CatalogOverlay<V> {
@@ -28,7 +29,7 @@ impl<V: 'static> CatalogOverlay<V> {
 
     pub(super) fn get(&self, key: &str) -> Option<&V> {
         match self.changes.get(key) {
-            Some(value) => value.as_ref(),
+            Some(value) => value.as_deref(),
             None => self.baseline.and_then(|baseline| baseline.get(key)),
         }
     }
@@ -76,15 +77,23 @@ impl<V: Clone + 'static> CatalogOverlay<V> {
     pub(super) fn get_mut(&mut self, key: &str) -> Option<&mut V> {
         if !self.changes.contains_key(key) {
             let (key, value) = self.baseline?.get_key_value(key)?;
-            self.changes.insert(key.clone(), Some(value.clone()));
+            self.changes
+                .insert(key.clone(), Some(Arc::new(value.clone())));
         }
-        self.changes.get_mut(key).and_then(Option::as_mut)
+        self.changes
+            .get_mut(key)
+            .and_then(Option::as_mut)
+            .map(Arc::make_mut)
     }
 
     pub(super) fn insert(&mut self, key: String, value: V) -> Option<V> {
-        let previous = self.get(&key).cloned();
-        self.changes.insert(key, Some(value));
-        previous
+        // Forks share immutable changed facts. Replacing an exclusively owned
+        // row can return it by move; a shared row still returns an owned copy.
+        let baseline = self.baseline;
+        match self.changes.insert(key.clone(), Some(Arc::new(value))) {
+            Some(previous) => previous.map(Arc::unwrap_or_clone),
+            None => baseline.and_then(|values| values.get(&key)).cloned(),
+        }
     }
 
     #[cfg(test)]
@@ -127,7 +136,7 @@ impl<V: PartialEq + 'static> CatalogOverlay<V> {
         if self.baseline.and_then(|baseline| baseline.get(&key)) == value.as_ref() {
             self.changes.remove(&key);
         } else {
-            self.changes.insert(key, value);
+            self.changes.insert(key, value.map(Arc::new));
         }
     }
 }
@@ -149,7 +158,7 @@ impl<V: Eq + 'static> Eq for CatalogOverlay<V> {}
 
 pub(super) struct CatalogIter<'a, V: 'a> {
     baseline: Option<Peekable<btree_map::Iter<'a, String, V>>>,
-    changes: Peekable<btree_map::Iter<'a, String, Option<V>>>,
+    changes: Peekable<btree_map::Iter<'a, String, Option<Arc<V>>>>,
 }
 
 impl<'a, V: 'a> Iterator for CatalogIter<'a, V> {
@@ -178,7 +187,7 @@ impl<'a, V: 'a> Iterator for CatalogIter<'a, V> {
                 .next()
                 .expect("selected catalog change must exist");
             if let Some(value) = value {
-                return Some((key, value));
+                return Some((key, value.as_ref()));
             }
         }
     }

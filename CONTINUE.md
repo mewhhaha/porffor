@@ -34,8 +34,9 @@ its bounded first8192 stack samples frequently include deep FunctionSignature,
 ValueInfo and HeapShape copies. Samples are allocation counts, not CPU samples,
 and their cap biases the retained stacks toward earlier execution.
 
-Next coherent repair: let CatalogOverlay forks share changed immutable facts,
-then copy only the row actually mutated. Preserve effective values, tombstones,
+The next coherent candidate is written: CatalogOverlay forks share changed
+immutable facts, then copy only the row actually mutated. Five standalone Rust
+ownership tests pass; full ordinary verification remains pending. Preserve effective values, tombstones,
 key order, fixpoint equality and isolated observations. Root writes code; Luna
 agents review/explore read-only. Compile the complete batch once, compare real
 allocation/phase measurements, rerun complete affected scopes and original cold

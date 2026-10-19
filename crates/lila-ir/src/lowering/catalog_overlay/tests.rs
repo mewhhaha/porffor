@@ -55,8 +55,13 @@ fn untouched_catalog_and_prepass_forks_never_clone_recipe_values() {
     assert_eq!(clones.load(Ordering::SeqCst), 1);
     assert_eq!(fork.get("a").unwrap().value, 0);
     let mut second = facts.clone();
-    assert_eq!(clones.load(Ordering::SeqCst), 2);
+    assert_eq!(clones.load(Ordering::SeqCst), 1);
+    assert!(std::ptr::eq(
+        facts.get("a").unwrap(),
+        second.get("a").unwrap()
+    ));
     second.get_mut("a").unwrap().value = 9;
+    assert_eq!(clones.load(Ordering::SeqCst), 2);
     assert_eq!(facts.get("a").unwrap().value, 8);
     assert_eq!(baseline.get("a").unwrap().value, 0);
 }
@@ -127,3 +132,6 @@ fn targeted_bulk_edits_clone_only_selected_rows_in_effective_key_order() {
         baseline.get("c").unwrap()
     ));
 }
+
+#[path = "tests/changed_facts.rs"]
+mod changed_facts;

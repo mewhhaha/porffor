@@ -7496,9 +7496,11 @@ done
 # Immutable compiler catalogs retain only per-lowering fact deviations.
 require_file crates/lila-ir/src/lowering/catalog_overlay.rs
 require_file crates/lila-ir/src/lowering/catalog_overlay/tests.rs
+require_file crates/lila-ir/src/lowering/catalog_overlay/tests/changed_facts.rs
 require_file crates/lila-ir/src/lowering/builtin_catalog/flow_tests.rs
 check_raw_line_budget crates/lila-ir/src/lowering/catalog_overlay.rs 220
 check_raw_line_budget crates/lila-ir/src/lowering/catalog_overlay/tests.rs 160
+check_raw_line_budget crates/lila-ir/src/lowering/catalog_overlay/tests/changed_facts.rs 70
 check_raw_line_budget crates/lila-ir/src/lowering/builtin_catalog/flow_tests.rs 180
 python3 -B scripts/check-ir-shared-catalog-overlay.py . || fail 'IR shared catalog ownership checks failed'
 

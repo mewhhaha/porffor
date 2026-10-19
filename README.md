@@ -20,6 +20,10 @@ open. A fresh-cache diagnostic attributes about 9 seconds to parse/lower and
 20 seconds to native compilation; actual method execution takes under 0.05
 seconds. Allocation sampling identifies deep compiler-fact copies as a next
 repair target, without establishing a speedup or resolving the timeout.
+A follow-up candidate shares unchanged compiler facts between lowering passes
+and copies a changed row on mutation. Five standalone ownership controls pass;
+ordinary IR, runtime and broad verification are still required. No allocation
+or timing improvement is claimed before matched measurements.
 [Remaining verification schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Last complete ordinary verification — 2026-10-19: at frozen source

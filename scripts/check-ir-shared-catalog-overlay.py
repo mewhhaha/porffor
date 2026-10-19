@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep immutable builtin recipes on the real lowering path, with owned deltas."""
+"""Keep immutable recipes and copy-on-write fact rows on the real lowering path."""
 import re
 import sys
 from pathlib import Path
@@ -40,13 +40,17 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
          and 'function_signature_baseline().clone()' not in catalog,
          'catalog accessors cannot copy whole builtin maps')
     need("baseline:Option<&'staticBTreeMap<String,V>>" in compact(overlay)
-         and 'changes:BTreeMap<String,Option<V>>' in compact(overlay),
+         and 'changes:BTreeMap<String,Option<Arc<V>>>' in compact(overlay),
          'baseline storage must be immutable and changes must retain tombstones')
     need('pub(super) baseline' not in overlay and 'DerefMut' not in overlay,
          'shared recipes cannot expose mutable storage')
-    need('self.changes.insert(key.clone(),Some(value.clone()))' in compact(overlay)
-         and 'self.baseline?.get_key_value(key)?' in compact(overlay),
-         'writes must copy just their selected baseline entry')
+    need('Some(Arc::new(value.clone()))' in compact(overlay)
+         and 'self.baseline?.get_key_value(key)?' in compact(overlay)
+         and '.map(Arc::make_mut)' in compact(overlay),
+         'writes must copy only the selected baseline or shared changed row')
+    need('Some(previous)=>previous.map(Arc::unwrap_or_clone)' in compact(overlay)
+         and 'None=>baseline.and_then(|values|values.get(&key)).cloned()' in compact(overlay),
+         'replacement must preserve owned previous values and tombstones')
     need('impl<V:PartialEq' in compact(overlay)
          and 'self.same_baseline(other)' in overlay
          and 'self.changes.keys().chain(other.changes.keys())' in compact(overlay),
@@ -57,6 +61,8 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
          'branch joins must preserve shared baselines and absence')
     need('propagated: FunctionSignatures' in signatures,
          'signature propagation cannot flatten overlays into an owned catalog')
+    need('#[path = "tests/changed_facts.rs"]\nmod changed_facts;' in source(prefix + 'catalog_overlay/tests.rs'),
+         'the ordinary overlay tests must own changed-fact isolation controls')
     need('FnMut(KindSet,&FunctionTargetKnowledge,&mutHeapShape)->bool' in compact(lowering)
          and 'signature.has_live_shape_roots()' in lowering
          and 'self.function_signatures.values_mut()' not in lowering,
@@ -66,6 +72,7 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
     for path, name in [
         (prefix + 'catalog_overlay/tests.rs', 'untouched_catalog_and_prepass_forks_never_clone_recipe_values'),
         (prefix + 'catalog_overlay/tests.rs', 'merged_iteration_preserves_order_overrides_and_deleted_baseline_entries'),
+        (prefix + 'catalog_overlay/tests/changed_facts.rs', 'changed_facts_share_until_mutated_and_replacement_preserves_previous_values'),
         (prefix + 'builtin_catalog/flow_tests.rs', 'global_branch_join_retains_shadowing_tombstones_and_intersection_presence'),
         (prefix + 'builtin_catalog/flow_tests.rs', 'present_shape_invalidation_owns_only_live_rows_and_preserves_fresh_returns'),
         ('crates/lila-engine/tests/aot_native_program_templates/catalog_overlays.rs', 'native_catalog_overlays_preserve_shadowing_alias_writes_and_branch_joins'),
