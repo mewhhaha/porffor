@@ -1,13 +1,15 @@
 # Lila Rust AOT + Test262 execution plan
 
-Current checkpoint — 2026-10-19: compiler/worker source `e13d926d4` has a verified
-native job propagation repair and complete focused outcomes of34 passes/one
-remaining cold timeout. [Exact evidence](../docs/rust-rewrite/differential-jobs-checkpoint-20261019.json).
-The complete default9,538 native/11 documentation pass belongs to prior source
-`2d719`; no current broad acceptance or task closure is inferred. The older
-status snapshots below remain historical. Follow the
-[current remaining acceptance schedule](../docs/rust-rewrite/remaining-acceptance-20261019.md)
-and keep this directory and CONTINUE until every requirement is actually met.
+Current checkpoint — 2026-10-19: source `cab9f9f2e` passes all2,146 affected
+native IDs, including both original60s template failures. Four whole scopes
+retain all2,139 earlier IDs/2,137 passes and add five controls; Intl2 remains
+explicitly filtered. [Exact evidence](../docs/rust-rewrite/shared-facts-native-cold-checkpoint-20261019.json).
+The separate original cold4 run is2PASS/2five-secondTIMEOUT; one prior pass now
+fails. That regression stays open. All616 tooling and14 source audits pass;
+whole35, broad native/230/conformance and task closure remain unverified.
+No allocation reduction is established. Historical evidence below stays at its
+own source. Follow the [remaining schedule](../docs/rust-rewrite/remaining-acceptance-20261019.md)
+and keep this directory and CONTINUE until every requirement passes.
 
 Unapplied repair checkpoint (2026-10-15): the fresh ABI6 runtime passes all
 **four prepared same-Store ownership cases**, including conflicting function

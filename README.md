@@ -1,29 +1,26 @@
-Primitive eval checkpoint — 2026-10-19: frozen source `ed9936d8c`
-records **2,144 passes, one timeout and zero ignored tests** across four complete
-native scopes and two explicitly filtered Intl controls. All 2,139 previous
-whole-scope IDs remain, all 2,137 previous passes still pass, and all four new
-controls pass. The original 11,000-eval timeout is eliminated; the 1,000-method
-control still times out at its unchanged 60-second limit. Isolated diagnostic
-passes do not replace that complete red result.
-[Lossless affected scopes, retained failures and diagnostics](docs/rust-rewrite/primitive-eval-red-checkpoint-20261019.json).
+Compiler-fact checkpoint — 2026-10-19: frozen source `cab9f9f2e` passes
+**2,146 affected tests, zero failed or ignored**: AOT442, IR1607,
+modules/realms74, native templates21, and two explicitly filtered Intl controls.
+Every prior2,139 whole-scope ID and2,137 pass remains; five added controls pass.
+Both original native-template timeout cases pass in their complete scope at
+unchanged60-second limits. Changed immutable compiler facts now share storage
+between lowering forks and copy a row when it is mutated.
+[Lossless native results, original failures and cold checks](docs/rust-rewrite/shared-facts-native-cold-checkpoint-20261019.json).
 
-Scalar direct eval now requires actual parsing, early errors, lowering and a
-typed inert-program proof before executing a shared real Wasm factory. Every
-call supplies its own tag and bits. The original source and behavior controls
-remain. Five hot third-party compiler dependencies use optimized dev/test
-profiles; workspace checks remain enabled. No whole-product speedup is claimed.
-All 616 Python tooling tests and 14 source audits pass for this compiler tree.
+The separate original four-request cold gate remains **two passes and two
+five-second timeouts**. One previously passing cold request now fails, so that
+regression remains open. Whole worker35, full default/all-features,230-case
+retention and conformance acceptance remain unverified at this source.
+A wrapper handoff rejected before any cold case; its corrected continuation
+reused the exact successful Cargo build and same-source completed checks,
+without rebuilding or repeating the2,146 tests. Both rejections are preserved.
 
-Broad successors stopped before running: current full-default, all-features,
-cold four-request, worker-scope, 230-case retention and conformance gates remain
-open. A fresh-cache diagnostic attributes about 9 seconds to parse/lower and
-20 seconds to native compilation; actual method execution takes under 0.05
-seconds. Allocation sampling identifies deep compiler-fact copies as a next
-repair target, without establishing a speedup or resolving the timeout.
-A follow-up candidate shares unchanged compiler facts between lowering passes
-and copies a changed row on mutation. Five standalone ownership controls pass;
-ordinary IR, runtime and broad verification are still required. No allocation
-or timing improvement is claimed before matched measurements.
+All616 Python tooling controls and14 source audits pass at this compiler tree.
+The matched advisory allocation counter is essentially unchanged:
+49,387,675 before versus49,390,823 after. No allocation reduction or product
+speedup is established. Separate warm and fresh-cache diagnostic passes do
+not replace the complete red cold run. Keep CONTINUE and tasks until every
+acceptance criterion passes.
 [Remaining verification schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Last complete ordinary verification — 2026-10-19: at frozen source

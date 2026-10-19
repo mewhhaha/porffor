@@ -1,47 +1,54 @@
 # Continue Lila — 2026-10-19
 
-Frozen compiler/worker source is `ed9936d8c9888e644e987ef13491f54516fb5f6c`.
-Complete affected discovery records **2,144 PASS / 1 FAIL / 0 IGNORED**:
-AOT library442, IR1606 and modules/realms74 all pass; native program templates
-record20 passes and one original60s timeout; the two explicitly filtered Intl
-admission controls pass. All2139 previous whole-scope IDs and2137 prior passes
-are retained; allfour added native controls pass. The unchanged11000-eval test
-now passes. The unchanged1000-method test remains failed in this complete scope.
-[Lossless current red checkpoint](docs/rust-rewrite/primitive-eval-red-checkpoint-20261019.json).
+Frozen compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`,
+pushed to main. Complete affected verification passes2,146/2,146, zero failed
+or ignored: AOT442, IR1607, modules/realms74, native templates21 and filtered
+Intl2. Four whole scopes contain2,144 IDs; every prior2,139 ID and2,137 pass
+remains, with five added controls. Both original native-template60s failures
+pass in the complete scope. No fixture or deadline changed.
+[Lossless current checkpoint](docs/rust-rewrite/shared-facts-native-cold-checkpoint-20261019.json).
 
-Preserve `target/primitive-eval-focused-default-20261019-run1`, the terminal
-`primitive-eval-first-native-20261019-run2` and both blocked successor receipts.
-The failed ELF, exact shared runtime and producer R archive are byte-verified in
-`target/closed-primitive-eval-native-template-red-images-20261019-run1`.
-No current cold4, worker35 or broad successor ran. The prepared green sealer
-must not be executed against this red discovery.
+The original cold4 gate is complete-red:2PASS/2TIMEOUT at5,000ms, four actual
+compiler jobs, fresh normal-capacity caches. Object-mutation seeds9 and10
+both time out; seed10 previously passed and remains an open regression.
+Temporal and module-graph requests retain their passes. No whole35, recursive
+worker graph or broader current-source gate ran. Do not run a green sealer.
+Preserve `target/shared-facts-cold-20261019-run2`, terminal first-native2/build2,
+and all original blocked/pre-case receipts. The actual CLI/worker, prepared4
+harnesses and shared R/producer archive are byte-verified under
+`target/closed-shared-facts-cold-red-images-20261019-run1`.
 
-The product repair admits primitive eval only after actual parsing, early
-errors, lowering and the typed inert-program proof, then executes real shared
-Wasm with per-call tag/bits. Owned/effectful/declaration sources retain their
-normal path. Five hot third-party compiler dependencies have optimized dev/test
-profiles; workspace assertions/checks remain. All616 Python controls and14
-source audits pass, bound to this compiler tree. No whole-product speedup is
-established by the profile change.
+The first cold handoff compared a mutable live receipt against an immutable
+prepared receipt after the builder changed stage. It rejected before any case.
+The corrected continuation reads the immutable receipt and admits the exact
+successful Cargo events and live executable bytes. Completed same-source14
+audits,616 Python controls and2,146 native IDs were retained without repeats.
+Original rejection bytes remain unchanged; this supplies no missing acceptance.
 
-The remaining timeout is timing-sensitive: the exact test passes in isolated
-warm and fresh-cache diagnostics, which do not replace the complete red scope.
-Fresh-cache phase times are parse/lower8.914s, emission0.191s, canonicalization
-0.724s, native lookup/compilation20.233s, and factory execution0.046s. Another
-lowering trace attributes most lowering time to prepass and final function
-lowering. An advisory allocation sample records49,387,675 allocation calls;
-its bounded first8192 stack samples frequently include deep FunctionSignature,
-ValueInfo and HeapShape copies. Samples are allocation counts, not CPU samples,
-and their cap biases the retained stacks toward earlier execution.
+CatalogOverlay forks share immutable changed values; mutation uses isolated
+copy-on-write rows, preserving effective values, tombstones, order and equality.
+The matched method allocation sample is49,390,823 calls versus49,387,675 before:
+no reduction is established. Separate warm and fresh size-report diagnostics
+pass the exact seed9 request at its unchanged5s limit but replace no formal
+cold outcome. The successful fresh diagnostic measures parse13ms,lower371ms,
+emission1.268s(including616ms Intl admission and210ms R-package lookup),
+R loading468ms,P loading1.207s and execution232ms. P contains557,768 bytes;
+largest bodies are145,552 and98,243 bytes. Full cold timings vary; retain both
+literal outcomes and measurements. No memory-limit event/direct reclamation
+occurred in either failed formal request.
 
-The next coherent candidate is written: CatalogOverlay forks share changed
-immutable facts, then copy only the row actually mutated. Five standalone Rust
-ownership tests pass; full ordinary verification remains pending. Preserve effective values, tombstones,
-key order, fixpoint equality and isolated observations. Root writes code; Luna
-agents review/explore read-only. Compile the complete batch once, compare real
-allocation/phase measurements, rerun complete affected scopes and original cold
-requests, then the sequential broad gates. Never close the timeout with isolated
-passes or extend deadlines. Keep CONTINUE and tasks until every criterion passes.
+The bounded same-pool R/P loading overlap pilot showed no reliable gain;
+neither did the private Intl FIFO/LIFO pilot. Neither change is adopted.
+Next: compare the existing unoptimized SHA-256 dependency with an optimized
+private build on the exact runtime bytes, retaining all integrity checks.
+Existing modes already use fast Cranelift/SinglePass and four jobs.
+Do not start another broad source-bound
+run while an actual compiler repair is still being chosen. Root writes code;
+Luna agents inspect/review only. Prepared chain3/pin2/historical2 successors
+were not launched after cold2 rejected. Future full-pin scratch can use an
+admitted workspace TMPDIR set before Python starts; normal cache capacities
+and per-device reserve remain unchanged. Keep every dependency/cache and
+failed result. Keep CONTINUE/tasks until every acceptance gate passes.
 
 Prior252 default discovery is complete-red across111 scopes:9542 nativePASS,
 2FAIL, zeroignored, plus11docPASS. The only failed scope was the20-test template

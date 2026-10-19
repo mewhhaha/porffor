@@ -1,19 +1,26 @@
-# Remaining acceptance after primitive eval discovery — 2026-10-19
+# Remaining acceptance after compiler-fact verification — 2026-10-19
 
-Current compiler/worker source is `ed9936d8c9888e644e987ef13491f54516fb5f6c`.
-Its affected discovery records2144PASS/1FAIL/0IGNORED, including two explicitly
-filtered Intl controls. All2139 previous whole-scope IDs and2137 prior passes
-remain, and allfour new controls pass. The11000-eval timeout is eliminated;
-the1000-method original60s timeout remains. Isolated warm/cold diagnostic
-passes do not replace that red scope.
-[Exact current outcomes and diagnostics](primitive-eval-red-checkpoint-20261019.json).
+Current compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`.
+Complete affected2146PASS/0FAIL/0IGNORED includes four whole scopes/2144IDs and
+filteredIntl2. All2139 prior whole IDs/2137 passes remain; five added controls
+pass. Both original60s template failures pass in the complete ordinary scope.
+[Exact current outcomes and diagnostics](shared-facts-native-cold-checkpoint-20261019.json).
 
-The first-native coordinator is terminal-red. Native-through-oracle and pinned
-closure queues stopped before any dependent gate. Cold4/worker35 and broader
-current-source outcomes are unobserved. Prepare fresh source-bound successors
-after the complete copy-on-write fact repair and affected verification.
-All616 Python controls and14 source audits pass for the current compiler tree;
-this supplies no missing native or conformance acceptance.
+Cold4 is separately complete-red:2PASS/2original5000msTIMEOUT, four actual jobs
+and fresh normal caches. Object-mutation seeds9/10 fail; seed10 previously
+passed, so its regression remains open. Temporal/module-graph passes remain.
+Whole35, recursive worker graph and broad gates remain unrun. The first
+handoff rejected before cases; its corrected immutable-receipt continuation
+reused the actual successful Cargo build and completed same-source14/616/2146,
+retaining every rejected receipt. Actual products and sharedR are archived and
+byte-verified. No green sealer or prepared broad successor was launched.
+
+Matched allocation calls49,387,675→49,390,823 establish no reduction. Separate
+warm/fresh diagnostics pass but replace no cold failure. Finish the measured
+cold repair and all four original requests, then whole35 and recursive graph.
+The original failed receipts/images must survive every future overwrite.
+All616 Python controls and14 source audits pass for this compiler tree; they
+supply no missing broader acceptance.
 
 Prior252 complete default discovery records9542PASS/2FAIL and11docPASS across
 all111 scopes. The last complete green default at `2d719` records9538 native/
@@ -24,10 +31,10 @@ Prior-source results supply no current-source acceptance.
 ## Native suites and retention
 
 After the affected repair passes, execute all111 current-source default scopes.
-The ed993 inventory is expected to contain9548 native and11 documentation IDs; a successor
+The CAB inventory contains9549 expected native and11 documentation IDs; a successor
 must retain every prior ID and account for added controls explicitly. Carry
 only proven complete same-source/profile scopes with exact Cargo/graph and raw
-outcome evidence. The current red template scope is not accepted. A disk
+outcome evidence. All four current affected whole scopes pass; filteredIntl2 and unrun worker targets never enter the default denominator. A disk
 deferral has no native outcome; retain its receipt without inventing outcomes.
 
 Then run all 113 all-feature scopes with freshly validated integration Cargo
@@ -60,7 +67,7 @@ compatible baseline/candidate reports and actual calibration.
 ## Debug and optimized oracle campaigns
 
 After fresh worker verification, capture the actual non-test, `spec-exec-oracle` debug CLI in
-`target/primitive-eval-oracle-debug-admission-20261019-run1`. Its successful
+`target/shared-facts-oracle-debug-admission-20261019-run1`. Its successful
 all-feature integration Cargo artifact event and verified executable bytes bind
 the copy. This avoids an extra debug Cargo build. Image
 capture alone does not prove the oracle works.
