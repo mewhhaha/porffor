@@ -11,8 +11,9 @@ pass in the complete scope. No fixture or deadline changed.
 The original cold4 gate is complete-red:2PASS/2TIMEOUT at5,000ms, four actual
 compiler jobs, fresh normal-capacity caches. Object-mutation seeds9 and10
 both time out; seed10 previously passed and remains an open regression.
-Temporal and module-graph requests retain their passes. No whole35, recursive
-worker graph or broader current-source gate ran. Do not run a green sealer.
+Temporal and module-graph requests retain their passes. Complete whole35 now
+passes, retaining all prior35 IDs/passes. Recursive worker graph and broader
+current-source gates remain unrun. Do not run a green sealer.
 Preserve `target/shared-facts-cold-20261019-run2`, terminal first-native2/build2,
 and all original blocked/pre-case receipts. The actual CLI/worker, prepared4
 harnesses and shared R/producer archive are byte-verified under
@@ -37,13 +38,23 @@ largest bodies are145,552 and98,243 bytes. Full cold timings vary; retain both
 literal outcomes and measurements. No memory-limit event/direct reclamation
 occurred in either failed formal request.
 
-The bounded same-pool R/P loading overlap pilot showed no reliable gain;
-neither did the private Intl FIFO/LIFO pilot. Neither change is adopted.
-Next: compare the existing unoptimized SHA-256 dependency with an optimized
-private build on the exact runtime bytes, retaining all integrity checks.
-Existing modes already use fast Cranelift/SinglePass and four jobs.
-Do not start another broad source-bound
-run while an actual compiler repair is still being chosen. Root writes code;
+The bounded same-pool R/P overlap, Intl FIFO/LIFO, SHA-256 opt2→3 and Engine
+opt0→2 pilots show no established gain; none is adopted. The exact program's
+optimizing native mode produces3,992,664 bytes versus5,160,024 in Fast mode,
+with overlapping compilation times. All four private Engine samples retain
+the exact print transcript and graph; they supply no worker acceptance.
+[Lossless measurements and complete35](docs/rust-rewrite/cold-start-hills-and-workers-20261019.json).
+
+Candidate batch: use the optimizing native mode for program functions at128KiB,
+retaining the existing1MiB runtime threshold through explicit Program/Runtime
+roles. Current R has an857,978-byte body: a single shared lower threshold would
+incorrectly promote every tiny linked program. The existing selector control
+now checks both role boundaries and keeps large R below its old limit Fast.
+No ABI/cache layout, capability, deadline or capacity changes. Callback children
+inherit the outer Engine mode, so actual cold4, whole21 template, worker35 and
+affected Engine verification remain required before accepting this candidate.
+Finish the coherent source batch, drain current owners, freeze the new source
+once, then build and run the original cold requests first. Root writes code;
 Luna agents inspect/review only. Prepared chain3/pin2/historical2 successors
 were not launched after cold2 rejected. Future full-pin scratch can use an
 admitted workspace TMPDIR set before Python starts; normal cache capacities

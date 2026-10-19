@@ -177,11 +177,12 @@ const WASM_HOST_IMPORT_WALL_CLOCK_MILLIS: &str = "wall_clock_millis";
 const WASM_HOST_IMPORT_MONOTONIC_CLOCK_NANOS: &str = "monotonic_clock_nanos";
 const WASM_HOST_IMPORT_SLEEP_NANOS: &str = "sleep_nanos";
 const WASM_HOST_IMPORT_REJECT_RUNTIME_SEMANTICS: &str = "reject_runtime_semantics";
-/// Cut over before the multi-megabyte function bodies seen in slow Test262
-/// artifacts can exhaust Cranelift's fast-compilation per-function limits.
-/// This is a performance heuristic only; the normal compiler retains its
-/// authoritative `CodeTooLarge` fallback below the cutoff.
-const SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
+/// Keep large program bodies compact before native execution. The existing
+/// runtime limit remains separate: lowering P's threshold must not promote
+/// every small program merely because its shared R contains large helpers.
+/// Both heuristics retain the authoritative `CodeTooLarge` fallback.
+const SIZE_OPTIMIZED_PROGRAM_MIN_CODE_BODY_BYTES: usize = 128 * 1024;
+const SIZE_OPTIMIZED_RUNTIME_MIN_CODE_BODY_BYTES: usize = 1024 * 1024;
 /// Cranelift's `CodegenError::CodeTooLarge` display text, verbatim
 /// (`cranelift-codegen/src/result.rs`). Both the size-optimized retry and the
 /// per-function attribution key on it, and a single constant keeps the two from
@@ -1130,15 +1131,32 @@ fn memory_wasm_modules() -> &'static Mutex<MemoryWasmModuleCache> {
     MODULES.get_or_init(|| Mutex::new(MemoryWasmModuleCache::from_env()))
 }
 
-fn plan_wasm_native_compilation(bytes: &[u8]) -> WasmNativeCompilationPlan {
+#[derive(Clone, Copy)]
+enum WasmNativeModuleKind {
+    Program,
+    Runtime,
+}
+
+impl WasmNativeModuleKind {
+    const fn size_optimized_threshold(self) -> usize {
+        match self {
+            Self::Program => SIZE_OPTIMIZED_PROGRAM_MIN_CODE_BODY_BYTES,
+            Self::Runtime => SIZE_OPTIMIZED_RUNTIME_MIN_CODE_BODY_BYTES,
+        }
+    }
+}
+
+fn plan_wasm_native_compilation(
+    bytes: &[u8],
+    kind: WasmNativeModuleKind,
+) -> WasmNativeCompilationPlan {
     let largest_code_body_bytes = largest_wasm_code_body_size(bytes);
-    let mode = if largest_code_body_bytes
-        .is_some_and(|size| size >= SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES)
-    {
-        WasmNativeCompilationMode::SizeOptimized
-    } else {
-        WasmNativeCompilationMode::Fast
-    };
+    let mode =
+        if largest_code_body_bytes.is_some_and(|size| size >= kind.size_optimized_threshold()) {
+            WasmNativeCompilationMode::SizeOptimized
+        } else {
+            WasmNativeCompilationMode::Fast
+        };
     WasmNativeCompilationPlan {
         mode,
         largest_code_body_bytes,
@@ -3742,7 +3760,7 @@ impl Engine {
                     "lila wasm trace: native compiler: {} (largest code body: {} bytes, size-optimized threshold: {} bytes)",
                     native_compilation_plan.mode.as_str(),
                     largest_code_body_bytes,
-                    SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES
+                    SIZE_OPTIMIZED_PROGRAM_MIN_CODE_BODY_BYTES
                 ),
                 None => eprintln!(
                     "lila wasm trace: native compiler: fast (code-body scan could not parse artifact; Wasmtime validation remains authoritative)"

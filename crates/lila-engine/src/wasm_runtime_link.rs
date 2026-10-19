@@ -202,7 +202,7 @@ fn runtime_native_compilation_mode(runtime: &RuntimeArtifact) -> WasmNativeCompi
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mode = match modes.iter().position(|(key, _)| *key == runtime.key()) {
         Some(position) => modes.remove(position).unwrap().1,
-        None => plan_wasm_native_compilation(runtime.bytes()).mode,
+        None => plan_wasm_native_compilation(runtime.bytes(), WasmNativeModuleKind::Runtime).mode,
     };
     if modes.len() == RETAINED_RUNTIME_PROFILES {
         modes.pop_front();
@@ -215,7 +215,7 @@ fn runtime_native_compilation_mode(runtime: &RuntimeArtifact) -> WasmNativeCompi
 /// the program's own plan, raised to size-optimized when the runtime needs it.
 /// An embedded R image's independent optimization never changes this decision.
 pub(super) fn plan_native_compilation(program: WasmProgramRef<'_>) -> WasmNativeCompilationPlan {
-    let mut plan = plan_wasm_native_compilation(program.bytes);
+    let mut plan = plan_wasm_native_compilation(program.bytes, WasmNativeModuleKind::Program);
     if let Some(runtime) = program.runtime {
         if runtime_native_compilation_mode(runtime) == WasmNativeCompilationMode::SizeOptimized {
             plan.mode = WasmNativeCompilationMode::SizeOptimized;

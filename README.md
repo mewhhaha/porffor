@@ -9,8 +9,9 @@ between lowering forks and copy a row when it is mutated.
 
 The separate original four-request cold gate remains **two passes and two
 five-second timeouts**. One previously passing cold request now fails, so that
-regression remains open. Whole worker35, full default/all-features,230-case
-retention and conformance acceptance remain unverified at this source.
+regression remains open. All 35 complete worker controls also pass, retaining
+every prior ID and pass. Full default/all-features,230-case retention and
+conformance acceptance remain unverified at this source.
 A wrapper handoff rejected before any cold case; its corrected continuation
 reused the exact successful Cargo build and same-source completed checks,
 without rebuilding or repeating the2,146 tests. Both rejections are preserved.
@@ -21,6 +22,12 @@ The matched advisory allocation counter is essentially unchanged:
 speedup is established. Separate warm and fresh-cache diagnostic passes do
 not replace the complete red cold run. Keep CONTINUE and tasks until every
 acceptance criterion passes.
+[Measured cold-start candidates and complete worker scopes](docs/rust-rewrite/cold-start-hills-and-workers-20261019.json).
+The next candidate uses separate native compiler limits for large program
+functions (128 KiB) and runtime helpers (the existing 1 MiB). A private comparison
+produced a 23% smaller program image with overlapping compile times; actual
+product deadlines and broader acceptance still require verification. Engine
+and SHA-256 profile experiments showed no gain and leave those profiles unchanged.
 [Remaining verification schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Last complete ordinary verification — 2026-10-19: at frozen source

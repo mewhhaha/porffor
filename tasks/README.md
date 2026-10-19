@@ -6,7 +6,8 @@ retain all2,139 earlier IDs/2,137 passes and add five controls; Intl2 remains
 explicitly filtered. [Exact evidence](../docs/rust-rewrite/shared-facts-native-cold-checkpoint-20261019.json).
 The separate original cold4 run is2PASS/2five-secondTIMEOUT; one prior pass now
 fails. That regression stays open. All616 tooling and14 source audits pass;
-whole35, broad native/230/conformance and task closure remain unverified.
+Complete whole35 also passes with every prior ID/pass retained. Broad native,
+230/conformance and task closure remain unverified.
 No allocation reduction is established. Historical evidence below stays at its
 own source. Follow the [remaining schedule](../docs/rust-rewrite/remaining-acceptance-20261019.md)
 and keep this directory and CONTINUE until every requirement passes.

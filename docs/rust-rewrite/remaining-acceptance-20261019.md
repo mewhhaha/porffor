@@ -9,7 +9,8 @@ pass. Both original60s template failures pass in the complete ordinary scope.
 Cold4 is separately complete-red:2PASS/2original5000msTIMEOUT, four actual jobs
 and fresh normal caches. Object-mutation seeds9/10 fail; seed10 previously
 passed, so its regression remains open. Temporal/module-graph passes remain.
-Whole35, recursive worker graph and broad gates remain unrun. The first
+Complete whole35 now passes with every prior35 ID/pass retained. Recursive
+worker graph and broad gates remain unrun. The first
 handoff rejected before cases; its corrected immutable-receipt continuation
 reused the actual successful Cargo build and completed same-source14/616/2146,
 retaining every rejected receipt. Actual products and sharedR are archived and
@@ -17,10 +18,14 @@ byte-verified. No green sealer or prepared broad successor was launched.
 
 Matched allocation calls49,387,675→49,390,823 establish no reduction. Separate
 warm/fresh diagnostics pass but replace no cold failure. Finish the measured
-cold repair and all four original requests, then whole35 and recursive graph.
+cold repair and all four original requests, then rerun affected whole scopes
+and the recursive graph against that actual successor.
 The original failed receipts/images must survive every future overwrite.
 All616 Python controls and14 source audits pass for this compiler tree; they
 supply no missing broader acceptance.
+[Exact35 and bounded optimization experiments](cold-start-hills-and-workers-20261019.json).
+The next candidate separates program128KiB and runtime1MiB native mode limits.
+Its smaller private program image is measured; end-to-end acceptance is pending.
 
 Prior252 complete default discovery records9542PASS/2FAIL and11docPASS across
 all111 scopes. The last complete green default at `2d719` records9538 native/
