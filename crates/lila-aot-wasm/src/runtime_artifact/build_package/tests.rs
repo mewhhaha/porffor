@@ -117,8 +117,16 @@ fn safe_package_replacement_rejects_self_checksummed_invalid_bodies_after_a_trus
     // opcode. Re-sign both the runtime key and package checksum, so only full
     // body validation can reject this otherwise well-formed envelope.
     bytes[offset] = 0xff;
-    let invalid =
-        RuntimeArtifact::unadmitted_fixture(Arc::from(bytes), package.runtime.layout().clone());
+    let layout = package.runtime.layout();
+    let invalid = RuntimeArtifact::unadmitted_fixture(
+        Arc::from(bytes),
+        super::super::RuntimeLayout::new(
+            layout.imported_functions,
+            layout.function_types.clone(),
+            layout.globals.clone(),
+            layout.pool,
+        ),
+    );
     let invalid_package = encode(&invalid, &identity, &SOURCE);
     assert!(decode(&invalid_package, &identity, &SOURCE).is_none());
     let emitted = Cell::new(false);
