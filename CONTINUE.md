@@ -6,6 +6,7 @@ passes and 11 documentation passes**, zero failed or ignored. Every prior 9,535
 native inventory ID is retained. The sole earlier runtime-link failure is
 eliminated in the complete ordinary scope.
 [Lossless complete current default evidence](docs/rust-rewrite/native-default-runtime-type-suffix-20261019.json).
+[Complete documentation-cohort transcripts](docs/rust-rewrite/native-default-runtime-type-suffix-doc-cohorts-20261019.json).
 
 The ordinary release passes in 144.84s. All four original untraced deadline
 cases pass with the original 60s/300s budgets, one worker and fresh four 64 MiB

@@ -5,6 +5,7 @@ with zero failures or ignored tests. Every prior 9,535 native inventory ID is
 retained. The corrected runtime-link target passes all 30 original tests;
 the earlier source's red result remains preserved.
 [Lossless complete default inventories, receipts and logs](docs/rust-rewrite/native-default-runtime-type-suffix-20261019.json).
+[Complete documentation-cohort transcripts](docs/rust-rewrite/native-default-runtime-type-suffix-doc-cohorts-20261019.json).
 
 All 733 focused native tests also pass. The ordinary release builds in 144.84s,
 and all four original untraced deadline cases pass in one complete fresh-cache
