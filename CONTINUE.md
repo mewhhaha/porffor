@@ -1,6 +1,6 @@
 # Continue Lila — 2026-10-19
 
-Frozen compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
+Last compiled compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
 pushed to main. Separate Program/Runtime native thresholds are implemented:
 128KiB for P, unchanged1MiB for R. Ordinary Cargo build passes in62.487s;
 all14 source audits pass. The exact original cold4 run is complete-red:
@@ -8,11 +8,15 @@ all14 source audits pass. The exact original cold4 run is complete-red:
 Seed9 passes; seed10 still times out. No causal speedup is established.
 [Lossless current cold checkpoint](docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
 
-Current Engine library/templates/runtime_cache complete-scope discovery is
-running independently under `target/large-program-mode-engine-discovery-20261019-run2`.
-Keep the source frozen until it terminates. The first coordinator/build remain
-rejected by cold4; do not relabel them green. Current whole35/recursive worker
-graph, full default/all-features and all later gates remain unrun. Preserve
+Complete Engine library/templates/runtime_cache discovery passes997/0/0
+(972+21+4). Every prior996 ID remains, one template control is added and both
+prior template60s failures pass. Complete whole35 is red:30PASS/5FAIL, every
+failure an original5000ms Wasm worker timeout. All35 prior IDs remain; five
+prior passes regress. No semantic mismatch is established. All owners drained.
+The first coordinator/build remain rejected by cold4; do not relabel them green.
+Recursive worker graph, full default/all-features and all later gates remain unrun.
+[Exact997 and red35](docs/rust-rewrite/large-program-mode-engine-workers-20261019.json).
+Preserve
 `target/large-program-mode-cold-20261019-run1` and the byte-verified failed
 images archive `target/closed-large-program-mode-red-images-20261019-run1`.
 It also preserves five retired closed historical libtest images; no current
@@ -20,6 +24,44 @@ product, dependency, cache or fingerprint was retired. Decoder: zstd --long=29.
 Two closed archives were byte-verified and relocated to /tmp, with canonical
 symlinks and a separate relocation receipt. Native scratch uses workspace
 TMPDIR set before Python starts; no cache budget or check changed.
+
+The next coherent batch removes the unaccepted128KiB native policy, returning
+all three policy/selector files to CAB. It also makes CatalogOverlay insertion
+return unit: all12 production sites discarded the previous value, while the
+old implementation cloned its key and sometimes a deep shared signature just
+to discard it. Five exact-source standalone catalog controls pass, retaining
+every existing ID and checking zero replacement clones/fork isolation/non-Clone
+facts. Full IR/AOT/Engine and actual allocation measurements remain required.
+[Exact standalone controls and phase samples](docs/rust-rewrite/iteration-candidate-controls-20261019.json).
+
+FunctionCache startup now scans once below its normal cap, with the existing
+rescan after pruning and unchanged70%/LRU/error handling. A closed enum prevents
+using a pre-deletion size as post-pruning accounting. Balanced same-cache
+constructor samples give medians18.890ms before/4.992ms after over3015files,
+799413530bytes and unchanged1GiB limit; exact inventory/sizes/mtimes remain.
+This is a small phase gain, not a whole-product fix. No cache is cleared or resized.
+
+The verifier adds --native-target-cpus auto plus exact repeated
+--native-cpu-target PACKAGE:TARGET. These complete scopes become exclusive
+barriers, retaining the exact command, deadlines and serial Cargo/libtest.
+Actual affinity, native/Rayon/Cargo/test settings and scheduler hash are bound.
+618 Python controls, final15 focused controls and metadata plan pass; actual
+new native policy execution is pending. Root writes code; Luna inspects only.
+
+Before the next build, six closed libtest outputs were retired with a separate
+receipt; all three worker images, including both failed targets, are byte-
+preserved in the verified original be26 archive. Three passing Engine images
+have sealed complete source/graph/inventory/transcript proofs. Ordinary products,
+DSO, dependencies, caches and fingerprints remain. That230253692B archive was
+copied/fsynced/readback-verified into /tmp with its canonical path kept as a
+symlink; workspace TMPDIR remains mandatory for subsequent native owners.
+
+Freeze the completed candidate once, run14 source audits and one ordinary
+worker/focus build. Run all original cold requests without replacing the red
+be26 receipts. Continue complete default discovery even if that separate gate
+is red, recording it as unresolved; do not let one performance gate prevent
+finding other actual failures. Preserve all literal budgets, exact IDs and
+new failures. Keep CONTINUE/tasks until all acceptance criteria pass.
 
 Prior CAB source `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`:
 complete affected verification passes2,146/2,146, zero failed

@@ -1782,44 +1782,23 @@ fn wasm_module_with_code_body_size(code_body_size: usize) -> Vec<u8> {
 
 #[test]
 fn oversized_wasm_code_bodies_select_size_optimized_native_compilation() {
-    for (kind, threshold) in [
-        (
-            WasmNativeModuleKind::Program,
-            SIZE_OPTIMIZED_PROGRAM_MIN_CODE_BODY_BYTES,
-        ),
-        (
-            WasmNativeModuleKind::Runtime,
-            SIZE_OPTIMIZED_RUNTIME_MIN_CODE_BODY_BYTES,
-        ),
-    ] {
-        let below_threshold = wasm_module_with_code_body_size(threshold - 1);
-        assert_eq!(
-            plan_wasm_native_compilation(&below_threshold, kind),
-            WasmNativeCompilationPlan {
-                mode: WasmNativeCompilationMode::Fast,
-                largest_code_body_bytes: Some(threshold - 1),
-            }
-        );
-
-        let at_threshold = wasm_module_with_code_body_size(threshold);
-        assert_eq!(
-            plan_wasm_native_compilation(&at_threshold, kind),
-            WasmNativeCompilationPlan {
-                mode: WasmNativeCompilationMode::SizeOptimized,
-                largest_code_body_bytes: Some(threshold),
-            }
-        );
-    }
-    // Large R helpers below the existing runtime cutoff must not force every
-    // small linked P into the optimizing compiler. The same body in P does.
-    let large = wasm_module_with_code_body_size(SIZE_OPTIMIZED_RUNTIME_MIN_CODE_BODY_BYTES - 1);
+    let below_threshold =
+        wasm_module_with_code_body_size(SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES - 1);
     assert_eq!(
-        plan_wasm_native_compilation(&large, WasmNativeModuleKind::Runtime).mode,
-        WasmNativeCompilationMode::Fast
+        plan_wasm_native_compilation(&below_threshold),
+        WasmNativeCompilationPlan {
+            mode: WasmNativeCompilationMode::Fast,
+            largest_code_body_bytes: Some(SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES - 1),
+        }
     );
+
+    let at_threshold = wasm_module_with_code_body_size(SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES);
     assert_eq!(
-        plan_wasm_native_compilation(&large, WasmNativeModuleKind::Program).mode,
-        WasmNativeCompilationMode::SizeOptimized
+        plan_wasm_native_compilation(&at_threshold),
+        WasmNativeCompilationPlan {
+            mode: WasmNativeCompilationMode::SizeOptimized,
+            largest_code_body_bytes: Some(SIZE_OPTIMIZED_WASM_MIN_CODE_BODY_BYTES),
+        }
     );
 }
 
@@ -1829,7 +1808,7 @@ fn malformed_wasm_remains_on_the_authoritative_validation_path() {
     malformed.pop();
 
     assert_eq!(
-        plan_wasm_native_compilation(&malformed, WasmNativeModuleKind::Program),
+        plan_wasm_native_compilation(&malformed),
         WasmNativeCompilationPlan {
             mode: WasmNativeCompilationMode::Fast,
             largest_code_body_bytes: None,

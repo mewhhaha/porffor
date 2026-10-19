@@ -75,7 +75,9 @@ fn merged_iteration_preserves_order_overrides_and_deleted_baseline_entries() {
     ])));
     let mut facts = CatalogOverlay::new(baseline);
     assert_eq!(facts.remove("a"), Some(1));
-    assert_eq!(facts.insert("c".to_string(), 30), Some(3));
+    assert_eq!(facts.get("c"), Some(&3));
+    facts.insert("c".to_string(), 30);
+    assert_eq!(facts.get("c"), Some(&30));
     facts.insert("b".to_string(), 2);
     facts.insert("f".to_string(), 6);
     assert_eq!(

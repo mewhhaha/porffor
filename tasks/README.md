@@ -1,10 +1,16 @@
 # Lila Rust AOT + Test262 execution plan
 
-Current checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
+Last compiled checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
 worker build and14 source audits. Original cold4 remains red:3PASS/1TIMEOUT
 at unchanged5000ms; seed9 passes and seed10 still times out. Complete affected
-Engine scopes are running; current whole35/broad/conformance gates remain
-unrun. [Exact current evidence](../docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+Engine scopes pass997/0/0. Whole35 is red:30PASS/5FAIL, all original worker
+timeouts; all35 IDs remain and five prior passes regress. Broad/conformance
+gates remain unrun. [Exact cold evidence](../docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+[Exact997 and red35](../docs/rust-rewrite/large-program-mode-engine-workers-20261019.json).
+The next candidate removes the unaccepted native policy and avoids discarded
+catalog clones/redundant cache walks, with an explicit bounded compiler-CPU
+verifier opt-in. Catalog5/Python618/final15 controls pass; actual native,
+allocation and broad acceptance remain pending. Keep this directory/CONTINUE.
 
 Prior checkpoint: source `cab9f9f2e` passes all2,146 affected
 native IDs, including both original60s template failures. Four whole scopes

@@ -22,6 +22,38 @@ def case(package, target, kind='test'):
 
 
 class WorkspaceScheduleTests(unittest.TestCase):
+    def test_native_compiler_targets_remain_complete_and_exclusive(self):
+        inventory = self.inventory()
+        validate = schedule.validate_native_cpu_targets
+        selected = validate(inventory, ['lila-engine:aot_intl'] * 2, {}, True)
+        self.assertEqual(selected, ['lila-engine:aot_intl'])
+        ordered = schedule.execution_order(inventory, False, (), selected)
+        self.assertEqual([i for i, _ in ordered], [1, 2, 3, 4, 0, 5, 6])
+        for index, scope in ordered:
+            self.assertIs(scope, inventory[index])
+        for names, filters, ignored, partitions in [
+                (selected, {}, True, selected), (selected, {}, False, []),
+                (selected, {selected[0]: 'partial'}, True, []),
+                (['lila-cli:perf'], {}, True, []),
+                (['lila-front:doc'], {}, True, []),
+                (['lila-engine:aot_*'], {}, True, [])]:
+            with self.subTest(names=names, filters=filters, partitions=partitions):
+                with self.assertRaises(ValueError):
+                    validate(inventory, names, filters, ignored, partitions)
+
+    def test_native_resource_receipt_rejects_changed_command_or_parallel_tests(self):
+        command = ['/actual/test', '--test-threads=1', '--include-ignored']
+        valid = dict(cpus=[2, 3], native_jobs=2, rayon_threads=2,
+                     cargo_jobs=1, libtest_threads=1, command=command)
+        schedule.validate_native_resources(valid, command, [1, 2, 3])
+        for change in [dict(cpus=[]), dict(cpus=[2, 2]), dict(cpus=[0]),
+                       dict(native_jobs=3), dict(rayon_threads=3),
+                       dict(cargo_jobs=2), dict(libtest_threads=2),
+                       dict(command=['/actual/test', 'filtered'])]:
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError):
+                    schedule.validate_native_resources(dict(valid, **change), command, [1, 2, 3])
+
     def test_native_cpu_opt_in_excludes_performance_docs_and_independent_scopes(self):
         for scope in [case('lila-test262','differential_generated_campaign'),
                       case('lila-cli','differential_worker')]:
@@ -37,7 +69,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
             path=Path(directory)/'resource.json'
             command=[sys.executable,'-c','raise SystemExit(7)']
             result=subprocess.run([sys.executable,'-c',schedule.NATIVE_RESOURCE_EXEC,str(path),*command],
-                                  env=dict(os.environ,LILA_JOBS='1',RUST_TEST_THREADS='1'),
+                                  env=dict(os.environ,LILA_JOBS='1',RUST_TEST_THREADS='1',
+                                           RAYON_NUM_THREADS='1',CARGO_BUILD_JOBS='1'),
                                   capture_output=True)
             self.assertEqual(result.returncode,7,result.stderr)
             resource=json.loads(path.read_text())
@@ -45,6 +78,9 @@ class WorkspaceScheduleTests(unittest.TestCase):
             self.assertEqual(resource['cpus'],sorted(os.sched_getaffinity(0)))
             self.assertEqual(resource['native_jobs'],1)
             self.assertEqual(resource['libtest_threads'],1)
+            self.assertEqual(resource['rayon_threads'],1)
+            self.assertEqual(resource['cargo_jobs'],1)
+            schedule.validate_native_resources(resource,command,os.sched_getaffinity(0))
 
     def inventory(self):
         return [case('lila-engine', 'aot_intl'),
@@ -139,7 +175,13 @@ class WorkspaceScheduleTests(unittest.TestCase):
 
 
 
-    def test_actual_runner_drains_existing_native_processes_before_partition_admission(self):
+    def test_actual_runner_drains_before_partition_or_compiler_cpu_admission(self):
+        for partitions, compiler in [(['lila-engine:aot_intl'], []),
+                                     ([], ['lila-engine:aot_intl'])]:
+            with self.subTest(partitions=partitions, compiler=compiler):
+                self._assert_actual_runner_drains(partitions,compiler)
+
+    def _assert_actual_runner_drains(self,partitions,compiler):
         runner = SOURCE.with_name('run_workspace_tests.py')
         tree = ast.parse(runner.read_text())
         loop = next(node for node in tree.body if isinstance(node, ast.For)
@@ -161,7 +203,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
         scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap, 'case': case('lila-engine', 'aot_intl'),
                  'args': SimpleNamespace(partition_cli=True, continuation_phase='all',
                                          test_processes=4),
-                 'partition_native_targets': ['lila-engine:aot_intl'],
+                 'partition_native_targets': partitions,
+                 'native_cpu_targets': compiler, 'native_cpu_target': schedule.native_cpu_target,
                  'is_barrier': schedule.is_barrier,
                  'is_partitioned_native': schedule.is_partitioned_native}
         # The prefix contains a doc-only continue, so retain its actual loop context.
@@ -170,7 +213,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
             ctx=ast.Load()), body=prefix, orelse=[])
         module = ast.fix_missing_locations(ast.Module(body=[harness], type_ignores=[]))
         exec(compile(module, str(runner), 'exec'), scope)
-        self.assertTrue(scope['partitioned'])
+        self.assertEqual(scope['partitioned'],bool(partitions))
         self.assertTrue(scope['barrier'])
         self.assertEqual(active, {})
         self.assertEqual(calls, [False, True, True])
@@ -205,7 +248,9 @@ class WorkspaceScheduleTests(unittest.TestCase):
                          'case': selected, 'artifact_cohorts': {'group': {}} if cached else {},
                          'args': SimpleNamespace(partition_cli=False, continuation_phase='all',
                                                  idle_builds=requested),
-                         'partition_native_targets': [], 'is_barrier': schedule.is_barrier,
+                         'partition_native_targets': [], 'native_cpu_targets': [],
+                         'native_cpu_target': schedule.native_cpu_target,
+                         'is_barrier': schedule.is_barrier,
                          'is_partitioned_native': schedule.is_partitioned_native,
                          'cargo_test_base': lambda selected: ['cargo', 'test'],
                          'group_key': lambda selected: 'group', 'admit_build_space': admit,

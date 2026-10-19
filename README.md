@@ -1,12 +1,29 @@
-Native mode checkpoint — 2026-10-19: source `be26faf2e` separates the large
+Pending iteration batch — 2026-10-19: catalog insertion now discards replaced
+facts without cloning their keys or values; all 12 production callers already
+discarded the return. Five exact-source standalone catalog controls pass,
+including fork isolation and insertion of non-Clone facts. Cache startup uses
+one metadata walk below budget and retains the existing post-pruning rescan;
+an advisory constructor median changes from 18.89ms to 4.99ms over the same
+3,015 files. No end-to-end gain is established. The unaccepted lower native
+mode threshold is removed. Complete native verification of this batch is pending.
+An explicit complete-target compiler CPU opt-in keeps Cargo/libtest serial;
+618 Python controls, 15 final focused controls and the metadata plan pass.
+Actual execution under the new target policy remains unverified.
+[Exact candidate controls and phase measurements](docs/rust-rewrite/iteration-candidate-controls-20261019.json).
+
+Native mode checkpoint — 2026-10-19: prior source `be26faf2e` separates the large
 program threshold (128 KiB) from the unchanged runtime threshold (1 MiB).
 The ordinary Cargo worker build succeeds in 62.49s and all 14 source audits
 pass. The original fresh-cache cold run remains **red: three passes and one
 five-second timeout**. Object-mutation seed9 now passes; seed10 still times out.
-These variable timings establish no causal speedup. Complete affected Engine
-scopes are running; current whole-worker, broad and conformance acceptance
-remain unverified. Failed images and literal outcomes are preserved.
+These variable timings establish no causal speedup. Complete Engine scopes pass
+**997 tests** (972 library, 21 templates, 4 runtime-cache), zero failed or ignored.
+The complete worker run is **red: 30 passed, 5 failed**; every failure is an
+original five-second timeout, with no established semantic mismatch. All 35
+prior IDs remain. Broad and conformance acceptance remain unverified.
+Failed images and literal outcomes are preserved.
 [Lossless current cold evidence](docs/rust-rewrite/large-program-mode-cold-checkpoint-20261019.json).
+[Complete Engine and red worker evidence](docs/rust-rewrite/large-program-mode-engine-workers-20261019.json).
 
 Prior compiler-fact checkpoint — 2026-10-19: source `cab9f9f2e` passes
 **2,146 affected tests, zero failed or ignored**: AOT442, IR1607,
@@ -33,7 +50,7 @@ speedup is established. Separate warm and fresh-cache diagnostic passes do
 not replace the complete red cold run. Keep CONTINUE and tasks until every
 acceptance criterion passes.
 [Measured cold-start candidates and complete worker scopes](docs/rust-rewrite/cold-start-hills-and-workers-20261019.json).
-The successor uses separate native compiler limits for large program
+The rejected experiment uses separate native compiler limits for large program
 functions (128 KiB) and runtime helpers (the existing 1 MiB). A private comparison
 produced a 23% smaller program image with overlapping compile times; the actual
 product cold run above remains red and broader acceptance is pending. Engine

@@ -1,13 +1,24 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
-Current compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`.
+Last compiled compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`.
 Ordinary worker Cargo build passes in62.487s, all14 source audits pass, and
 original cold4 is complete-red:3PASS/1original5000msTIMEOUT. Seed9 passes;
 seed10 still times out. Checks, deadlines and normal cache capacities remain
-unchanged. Current complete Engine library/templates/runtime_cache discovery
-is running independently. Current whole35, recursive worker graph and all
-broad gates remain unrun; no prepared or historical scope supplies acceptance.
+unchanged. Complete Engine library/templates/runtime_cache passes997/0/0.
+Complete whole35 is red:30PASS/5FAIL, all original5000ms Wasm worker timeouts;
+all35 IDs remain but five prior passes regress. Recursive worker graph and
+all broad gates remain unrun; no prepared or historical scope supplies acceptance.
 [Exact current cold outcomes](large-program-mode-cold-checkpoint-20261019.json).
+[Exact997 and red35 outcomes](large-program-mode-engine-workers-20261019.json).
+
+The next candidate removes the unaccepted native mode change, eliminates
+discarded previous-value/key clones at catalog insertion and redundant
+below-budget cache scans, and adds explicit complete-target compiler CPUs
+while keeping Cargo/libtest serial. Standalone catalog5 and Python618/final15
+controls pass. Native/current-source/allocation verification remains pending.
+After that build, keep the separate cold gate red if it fails and proceed with
+complete default discovery to expose every remaining issue. Never invent
+acceptance or replace a failed case with a separate diagnostic pass.
 
 Prior CAB compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`.
 Complete affected2146PASS/0FAIL/0IGNORED includes four whole scopes/2144IDs and

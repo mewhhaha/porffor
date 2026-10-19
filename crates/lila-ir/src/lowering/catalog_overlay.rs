@@ -34,6 +34,12 @@ impl<V: 'static> CatalogOverlay<V> {
         }
     }
 
+    /// Replace a fact without materializing the discarded previous value.
+    /// Forks retain their own immutable row; no Clone bound is needed here.
+    pub(super) fn insert(&mut self, key: String, value: V) {
+        self.changes.insert(key, Some(Arc::new(value)));
+    }
+
     pub(super) fn contains_key(&self, key: &str) -> bool {
         self.get(key).is_some()
     }
@@ -84,16 +90,6 @@ impl<V: Clone + 'static> CatalogOverlay<V> {
             .get_mut(key)
             .and_then(Option::as_mut)
             .map(Arc::make_mut)
-    }
-
-    pub(super) fn insert(&mut self, key: String, value: V) -> Option<V> {
-        // Forks share immutable changed facts. Replacing an exclusively owned
-        // row can return it by move; a shared row still returns an owned copy.
-        let baseline = self.baseline;
-        match self.changes.insert(key.clone(), Some(Arc::new(value))) {
-            Some(previous) => previous.map(Arc::unwrap_or_clone),
-            None => baseline.and_then(|values| values.get(&key)).cloned(),
-        }
     }
 
     #[cfg(test)]

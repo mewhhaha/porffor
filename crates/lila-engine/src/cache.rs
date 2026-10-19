@@ -172,11 +172,10 @@ pub(crate) struct FunctionCache {
 impl FunctionCache {
     pub(crate) fn new(directory: PathBuf, limit_bytes: u64) -> io::Result<Self> {
         fs::create_dir_all(&directory)?;
-        let initial_bytes = directory_usage(&directory)?.0;
         let cache = Self {
             directory,
             limit_bytes,
-            current_bytes: AtomicU64::new(initial_bytes),
+            current_bytes: AtomicU64::new(0),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             prune_lock: Mutex::new(()),
@@ -200,9 +199,14 @@ impl FunctionCache {
             .prune_lock
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        prune_directory_to_limit(&self.directory, self.limit_bytes)?;
-        self.current_bytes
-            .store(directory_usage(&self.directory)?.0, Ordering::Relaxed);
+        let bytes = match prune_directory_to_limit(&self.directory, self.limit_bytes)? {
+            CachePruneResult::WithinLimit { observed_bytes } => observed_bytes,
+            // Keep the existing post-deletion accounting. Other processes can
+            // also write this directory; a sum of our removed sizes is not a
+            // replacement for observing the files that actually remain.
+            CachePruneResult::Pruned => directory_usage(&self.directory)?.0,
+        };
+        self.current_bytes.store(bytes, Ordering::Relaxed);
         Ok(())
     }
 
@@ -420,11 +424,18 @@ fn directory_usage(path: &Path) -> io::Result<(u64, u64)> {
     Ok((bytes, files))
 }
 
-fn prune_directory_to_limit(path: &Path, limit_bytes: u64) -> io::Result<()> {
+enum CachePruneResult {
+    WithinLimit { observed_bytes: u64 },
+    Pruned,
+}
+
+fn prune_directory_to_limit(path: &Path, limit_bytes: u64) -> io::Result<CachePruneResult> {
     let mut entries = cache_files(path)?;
     let total = entries.iter().map(|entry| entry.1).sum::<u64>();
     if total <= limit_bytes {
-        return Ok(());
+        return Ok(CachePruneResult::WithinLimit {
+            observed_bytes: total,
+        });
     }
     let target = limit_bytes.saturating_mul(CACHE_PRUNE_PERCENT) / 100;
     entries.sort_by_key(|entry| Reverse(entry.2));
@@ -441,7 +452,7 @@ fn prune_directory_to_limit(path: &Path, limit_bytes: u64) -> io::Result<()> {
             Err(err) => return Err(err),
         }
     }
-    Ok(())
+    Ok(CachePruneResult::Pruned)
 }
 
 fn cache_files(path: &Path) -> io::Result<Vec<(PathBuf, u64, SystemTime)>> {

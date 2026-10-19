@@ -1,5 +1,26 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Opt-in native compiler CPUs for complete targets — 2026-10-19
+
+The workspace runner normally pins each native executable to one CPU. An outer
+`--cloud-cpus auto` does not change that child policy. To let an exact complete
+target use the inherited quota for Wasmtime and code generation, add
+`--native-target-cpus auto --native-cpu-target lila-engine:lila_engine` to
+`scripts/run_workspace_tests.py`, launched under
+`scripts/limited_verification.py --cloud --cloud-cpus auto`. Repeat
+`--native-cpu-target PACKAGE:TARGET` for additional complete scopes and include
+`--include-ignored`. The default remains one CPU per native executable.
+
+These targets run exclusively after other native work drains. Cargo and
+libtest remain serial, with the original executable command, inventories,
+deadlines, cache limits and watcher allowance. The child resource receipt binds
+actual affinity, native/Rayon jobs, Cargo jobs and libtest threads. The opt-in
+rejects filtered targets, documentation, existing timing/campaign barriers and
+partitioned targets; the separate differential CPU option retains its policy.
+Continuations must retain the exact selected targets and CPU policy. This
+changes scheduling only; native results and elapsed-time gains need actual
+verification at the selected source.
+
 ## Pending literal-eval and compiler-profile batch — 2026-10-19
 
 The candidate reuses a stateless real Wasm factory only after a typed proof of
