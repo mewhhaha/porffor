@@ -1,3 +1,17 @@
+Verified repair checkpoint — 2026-10-19: source867ad6145 is pushed to main.
+All14 source audits and all12 affected whole AF libraries pass3864/0/0.
+Every prior library ID remains; all12 previous pool-setup failures now pass,
+including complete Test262476 and CLI82. Both repairs use normal pool setup
+and retain the original four-CPU budget and assertions.
+
+All four original cold requests also pass with fresh caches, four jobs and
+the unchanged5000ms deadlines. Earlier red outcomes remain preserved. Host,
+cache and other phase timings vary, so no causal whole-product speedup is
+claimed. Full AF113 revalidates these12 scopes once and runs the remaining101;
+fresh default111 follows green AF, with no AF outcome carry. Release230,
+conformance, performance and cleanup remain pending. Keep CONTINUE/tasks.
+[Exact audits, native IDs, cold inputs/outcomes and tooling](docs/rust-rewrite/bounded-digests-pool-checkpoint-20261019.json).
+
 All-feature discovery checkpoint — 2026-10-19: the frozen71 source has
 completed12 whole library scopes with3852PASS/12FAIL/0IGN. Engine973, IR1607,
 AOT442 and Front177 pass. Test262475/1 and CLI71/11 expose two test setup

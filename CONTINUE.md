@@ -1,5 +1,19 @@
 # Continue Lila — 2026-10-19
 
+Verified repair checkpoint — 2026-10-19: source867ad6145 is pushed to main.
+All14 source audits and all12 affected whole AF libraries pass3864/0/0.
+Every prior library ID remains; all12 previous pool-setup failures now pass,
+including complete Test262476 and CLI82. Both repairs use normal pool setup
+and retain the original four-CPU budget and assertions.
+
+All four original cold requests also pass with fresh caches, four jobs and
+the unchanged5000ms deadlines. Earlier red outcomes remain preserved. Host,
+cache and other phase timings vary, so no causal whole-product speedup is
+claimed. Full AF113 revalidates these12 scopes once and runs the remaining101;
+fresh default111 follows green AF, with no AF outcome carry. Release230,
+conformance, performance and cleanup remain pending. Keep CONTINUE/tasks.
+[Exact audits, native IDs, cold inputs/outcomes and tooling](docs/rust-rewrite/bounded-digests-pool-checkpoint-20261019.json).
+
 Frozen71 drain is complete:41 closed scopes record5599PASS/12FAIL/0IGN.
 The final owned batch passed; its exact Cargo products, inventories, raw native
 outcomes and archive are sealed. Source stayed unchanged until all children
