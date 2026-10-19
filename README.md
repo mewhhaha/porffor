@@ -8,6 +8,7 @@ worker and four 64 MiB cache tiers per case. Full default, all-features, all-tar
 and 230-case retention verification remain separately owned; pinned conformance
 and task closure remain open.
 [Lossless ordinary release, deadline and native evidence](docs/rust-rewrite/runtime-type-suffix-ordinary-checkpoint-20261019.json).
+[Remaining verification schedule and artifact reuse](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Runtime type grouping — native discovery checkpoint, 2026-10-18:
 ordinary runtime-helper signatures now follow the recursive GC schema as

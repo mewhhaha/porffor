@@ -23,6 +23,15 @@ require green predecessor gates. All113 all-feature scopes, both all-target
 checks and complete230 remain mandatory. Keep CONTINUE/tasks until every gate
 passes; current ordinary evidence is no full-pin or task-closure claim.
 
+The [current remaining-gate schedule](docs/rust-rewrite/remaining-acceptance-20261019.md)
+also queues real mechanics, idle product measurements and complete debug/release
+oracle tiers after those owners drain. Capture the actual all-feature debug
+product instead of rebuilding it. Preserve the ordinary image and all aliases
+before building the oracle feature in its warmed release target. Source review
+confirms that one of T26's two fresh complete families can also supply T01's
+baseline/backlog/publication, avoiding a third full execution; both fresh
+closure families and all literal zero-failure requirements remain mandatory.
+
 Frozen-source459d7ef full default discovery is complete: all111 scopes,
 **9,537 native passes/one known layout assertion failure**, all11 documentation
 passes and zero ignored tests. Every prior9,535 inventory ID remains. No other
