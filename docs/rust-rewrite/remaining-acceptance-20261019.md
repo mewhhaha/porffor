@@ -1,11 +1,18 @@
-# Remaining acceptance at frozen source 2d719 — 2026-10-19
+# Remaining acceptance after differential jobs repair — 2026-10-19
 
-Compiler source remains `2d71987461ed1390eac43fbdaebd4c110df31b66` while
-the current verification owners run. This schedule supersedes the older
-EB-source schedule where they differ. Completed ordinary release, four original
-deadline cases and all 733 focused native IDs are sealed in the
+Current compiler/worker source is `e13d926d4a7d554e7739768190e05220f201a0de`.
+Its complete focused checkpoint records34 passes/one remaining cold timeout;
+the native job configuration repair is verified, while cold startup remains
+open. [Exact current outcomes](differential-jobs-checkpoint-20261019.json).
+Finish that repair before launching the expensive broad successor gates below.
+All earlier stopped queues remain terminal and need fresh source-bound owners.
+
+The last complete default at `2d719` passes9,538 native/11 documentation IDs.
+That prior source's ordinary release, four original deadline cases and all733
+focused native IDs are sealed in the
 [ordinary checkpoint](runtime-type-suffix-ordinary-checkpoint-20261019.json).
-Other gates require their actual completed evidence before acceptance.
+No prior-source result supplies current-source acceptance. Other gates require
+their actual completed evidence before acceptance.
 
 ## Native suites and retention
 

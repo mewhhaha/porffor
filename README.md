@@ -1,9 +1,13 @@
-Differential worker configuration repair — 2026-10-19: isolated workers now
-honor explicit native compilation jobs, including quota-bound `LILA_JOBS` from
-the cloud launcher; CLI `--jobs` takes precedence. Cases and oracle backends
-remain serial, and deadlines are unchanged. The first all-features run stopped
-with two cold worker timeouts in the generated campaign target; its original
-red result is preserved. Verification of this repair is pending.
+Differential worker configuration repair — 2026-10-19: explicit native compiler
+jobs now reach the selected worker. CLI `--jobs` overrides `LILA_JOBS`; cases and
+backends remain serial. Complete focused verification at `e13d926d4` records
+**34 passes, one remaining cold timeout, zero ignored**. Worker execution passes
+all 17 tests and CLI worker dispatch all three; the complete generated campaign
+records 14 passes and one timeout. Three original inputs replayed with fresh
+normal-capacity caches, four quota-bound compiler CPUs and unchanged 5s limits
+produce two passes and one timeout. Cold startup remains open; prior red results
+are preserved without combining selective passes.
+[Lossless configuration checkpoint and remaining failure](docs/rust-rewrite/differential-jobs-checkpoint-20261019.json).
 
 Last complete ordinary verification — 2026-10-19: at frozen source
 `2d71987461ed1390eac43fbdaebd4c110df31b66`, the complete default workspace

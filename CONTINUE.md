@@ -1,11 +1,25 @@
 # Continue Lila — 2026-10-19
 
-Current work repairs differential native compilation jobs propagation. The
-runner, selected worker and CLI must preserve the serial default while honoring
-explicit `--jobs` or the cloud launcher's quota-bound `LILA_JOBS`. CLI flags
-override the environment. Original request deadlines and serial case/backend
-scheduling remain unchanged. Verify cold cases and whole affected targets
-before publishing acceptance; old-source results do not carry to this repair.
+Current frozen source is `e13d926d4a7d554e7739768190e05220f201a0de`.
+Explicit differential native compiler jobs propagation is verified, including
+serial defaults and CLI override of an invalid environment setting. The four
+complete focused scopes record **34 passes, one failure, zero ignored**: worker
+execution17/17, CLI worker3/3, empty feature anchor, generated campaign14/15.
+The remaining failure is the mutation campaign's original5s cold worker timeout.
+Three byte-identical original requests with fresh normal-capacity caches and
+explicit quota-bound4CPU native compilation give seed9 timeout, seed10 pass,
+and transformed Temporal pass. Preserve every outcome; do not union these with
+the whole one-CPU campaign result or claim the cold problem solved.
+[Lossless current checkpoint](docs/rust-rewrite/differential-jobs-checkpoint-20261019.json).
+
+Next isolate the remaining cold cost before another broad rebuild. The current
+trace attributes roughly0.65–0.75s to Intl admission and0.86–1.00s to raw runtime
+package admission, nested within roughly2s emission. Four compiler threads cut
+seed10's program native compilation to1.29s in this diagnostic; seed9 still
+times out before program loading completes. These observations are not a
+controlled general speedup claim. Root is measuring exact raw-R validation
+separately with existing compiled dependencies; keep all admission checks and
+original deadlines unless a separately justified implementation preserves them.
 
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
