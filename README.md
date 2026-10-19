@@ -1,3 +1,18 @@
+Verification checkpoint — 2026-10-19: twelve more whole scopes pass
+1,185/0/0, bringing the frozen all-feature discovery to57 closed scopes,
+7,966 passes and the same unresolved seed9 timeout. Regexp152, Temporal202,
+Realm/module/language checks778 and the remaining small scopes are green.
+CLI855 is still running. Full AF113, default111, release, conformance and
+cleanup remain pending; no original failure has been replaced by a retry.
+
+Closed private diagnostic bytes were archived with full mode/size/SHA readback
+before retirement, recovering514MB of workspace space and1.03GB of tmpfs RAM.
+Normal Cargo/Intl/D6/shared caches, sources, fixtures and literal outcomes
+remain. Passive CLI timing samples about three CPU cores of the four-core
+quota; a fourth partition is a future scheduling opportunity, with no speedup
+claim or change to the current run. Keep CONTINUE/tasks until acceptance.
+[Exact native scopes, preserved storage and passive measurements](docs/rust-rewrite/discovery-storage-checkpoint-20261019.json).
+
 Intl verification checkpoint — 2026-10-19: the whole Intl target passes all
 299 IDs, zero failures or ignored tests, in 2,288.55 seconds. Four further
 whole scopes pass 1,171/0/0; the frozen discovery snapshot now records 45
