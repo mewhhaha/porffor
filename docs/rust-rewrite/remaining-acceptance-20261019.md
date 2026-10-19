@@ -9,6 +9,13 @@ The corrected descendant still needs14 source audits, all eight ordinary
 focused scopes and the original allocation sample before main publication.
 [Exact rejected preflight and generated correction](token-provenance-correction-20261019.json).
 
+The completed prepared batch now passes all14 original source audits and
+all23 identity controls. Receiver projection and its old-expression comparison
+share one consumed helper; the original lowering parent stays below its810-line
+limit. Closed proof admissions bind exact bytes, and shortcut inventory/status
+are genuinely regenerated after the timeout helper moved source locations.
+Ordinary focused validation and allocation measurement remain pending.
+
 Prepared lowering repair — 2026-10-19: historical allocation stacks identify
 2,110 early receiver and 2,118 late parameter signature-copy samples. The
 projection source is byte-identical at that sample and current frozen source.

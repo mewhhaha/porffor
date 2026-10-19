@@ -12,6 +12,9 @@ import sys
 
 PROOFS = {
     # Closed reports keep their literal host paths; admission binds every byte.
+    'iteration-default-scopes-20261019.json': (None, '57b6a9bf6d726ab5a83ff94e17fda4e44bbf3b027c006010a4021e474f8ccbe2'),
+    'iteration-native-checkpoint-20261019.json': (None, 'ae6bd479e95a6d0db439206576eb7775cd58bd17f08d9b5f77049abc5e63349e'),
+    'token-provenance-correction-20261019.json': (None, '6726911f7a48f63c0c13ebac690490fd594f1a70520b8e6b847ccf32ead3b846'),
     'differential-jobs-checkpoint-20261019.json': (None, 'da2e86722971e38d7e81a400f74e046c86c8afea328419ba51c2b0ff1db79667'),
     'runtime-admission-checkpoint-20261019.json': (None, '71622731147e3fb95bad6e9a178f615446f55882b116ff13aa7dd4a3a471ea17'),
     'native-default-runtime-type-suffix-doc-cohorts-20261019.json': (None, 'db5759fe5e23275bea3b4fba93d746bc504bee1927c0e45337252ddfc504a47a'),

@@ -1,5 +1,7 @@
 use super::*;
 
+mod receiver_info;
+
 impl<'a> ScriptLowerer<'a> {
     pub(super) fn lower_function(
         &mut self,
@@ -165,50 +167,8 @@ impl<'a> ScriptLowerer<'a> {
                 CurrentThisBinding::Root(lowerer.root_this_binding)
             }
         } else {
-            // Only receiver facts are consumed here. A full signature clone
-            // also copies unused parameter, return and global-object trees.
-            let current_flow_signature = exact_context_signature
-                .as_ref()
-                .or_else(|| lowerer.function_signatures.get(&function.id));
-            let this_info = current_flow_signature
-                .map(|signature| {
-                    if signature.this_observed {
-                        ValueInfo {
-                            kind: signature.this_info.kind,
-                            possible_kinds: signature.this_info.possible_kinds,
-                            heap_shape: if lowerer.function_signature_shape_evidence
-                                == FunctionSignatureShapeEvidence::Available
-                            {
-                                signature.this_info.heap_shape.clone()
-                            } else {
-                                None
-                            },
-                            function_targets: signature.this_info.function_targets.clone(),
-                        }
-                    } else if function.strict {
-                        ValueInfo::undefined()
-                    } else {
-                        Self::unobserved_sloppy_this_info()
-                    }
-                })
-                .unwrap_or_else(ValueInfo::undefined);
-            #[cfg(test)]
-            {
-                let previous = exact_context_signature
-                    .clone()
-                    .or_else(|| lowerer.function_signature_for_current_flow(&function.id))
-                    .map(|signature| {
-                        if signature.this_observed {
-                            signature.this_info
-                        } else if function.strict {
-                            ValueInfo::undefined()
-                        } else {
-                            Self::unobserved_sloppy_this_info()
-                        }
-                    })
-                    .unwrap_or_else(ValueInfo::undefined);
-                assert_eq!(this_info, previous, "receiver facts for {}", function.id);
-            }
+            let this_info =
+                lowerer.receiver_info_for_function(function, exact_context_signature.as_ref());
             CurrentThisBinding::Activation(this_info)
         };
         if function.protocol.flavor() != FunctionFlavor::Arrow
