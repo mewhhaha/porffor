@@ -15,7 +15,11 @@ fn expect(args: &mut impl Iterator<Item = OsString>, literal: &str) -> Result<()
 fn run() -> Result<(), String> {
     let mut args = std::env::args_os().skip(1);
     expect(&mut args, "--jobs")?;
-    expect(&mut args, "1")?;
+    let jobs = args
+        .next()
+        .and_then(|value| value.into_string().ok())
+        .and_then(|value| value.parse::<std::num::NonZeroUsize>().ok())
+        .ok_or("worker --jobs must be a positive integer")?;
     expect(&mut args, "differential")?;
     expect(&mut args, "__worker")?;
     expect(&mut args, "--request")?;
@@ -28,7 +32,8 @@ fn run() -> Result<(), String> {
         return Err("worker refuses extra arguments".into());
     }
     let oracle = SpecExecOracle::explicitly_enabled();
-    run_differential_worker(&request, &journal, oracle).map_err(|error| error.to_string())
+    run_differential_worker(&request, &journal, oracle, jobs.get())
+        .map_err(|error| error.to_string())
 }
 
 fn main() {

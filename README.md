@@ -1,4 +1,11 @@
-Current ordinary verification — 2026-10-19: at frozen source
+Differential worker configuration repair — 2026-10-19: isolated workers now
+honor explicit native compilation jobs, including quota-bound `LILA_JOBS` from
+the cloud launcher; CLI `--jobs` takes precedence. Cases and oracle backends
+remain serial, and deadlines are unchanged. The first all-features run stopped
+with two cold worker timeouts in the generated campaign target; its original
+red result is preserved. Verification of this repair is pending.
+
+Last complete ordinary verification — 2026-10-19: at frozen source
 `2d71987461ed1390eac43fbdaebd4c110df31b66`, the complete default workspace
 passes **9,538 native tests and 11 documentation tests across all 111 scopes**,
 with zero failures or ignored tests. Every prior 9,535 native inventory ID is

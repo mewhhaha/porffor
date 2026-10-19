@@ -277,6 +277,14 @@ compilation job limit. Cargo builds keep their separate compilation policy.
 
 ## Explicit cloud conformance workers — 2026-10-15
 
+The CLI accepts `LILA_JOBS` as the native compilation default; an explicit
+`--jobs N` wins. Differential runners also accept that explicit environment
+setting or `new_with_compilation_jobs(path, N)`, otherwise defaulting to one. The selected
+worker receives the positive job count before constructing its Engine. This
+setting does not increase case/backend concurrency or extend deadlines.
+`--cloud-cpus auto` supplies a job count bounded by inherited affinity and cgroup
+CPU quota; Cargo and libtest retain their independent serial limits.
+
 For a conformance command that already specifies its worker count, give the
 workers the inherited CPU set bounded by the tightest visible cgroup CPU quota:
 

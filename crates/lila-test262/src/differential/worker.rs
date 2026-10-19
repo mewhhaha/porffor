@@ -229,8 +229,13 @@ pub fn run_differential_worker(
     request_path: &Path,
     journal_path: &Path,
     _oracle: SpecExecOracle,
+    compilation_jobs: usize,
 ) -> Result<(), DifferentialError> {
-    lila_engine::configure_compilation_jobs(1).map_err(DifferentialError::WorkerConfiguration)?;
+    lila_engine::configure_compilation_jobs(compilation_jobs)
+        .map_err(DifferentialError::WorkerConfiguration)?;
+    if std::env::var_os("LILA_WASM_TRACE").is_some() {
+        eprintln!("lila wasm trace: differential worker compilation jobs: {compilation_jobs}");
+    }
     let file = fs::File::open(request_path)
         .map_err(|error| DifferentialError::WorkerConfiguration(error.to_string()))?;
     let mut bytes = Vec::new();

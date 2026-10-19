@@ -59,6 +59,36 @@ fn replay(path: &Path, worker: &str) -> lila_cli::CliCapture {
 
 #[cfg(all(unix, feature = "spec-exec-oracle"))]
 #[test]
+fn selected_cli_worker_preserves_serial_default_and_explicit_jobs_precedence() {
+    let _serial = EXECUTION.lock().unwrap();
+    let directory = CaseDirectory::new();
+    let case = directory.case("print('worker-jobs'); 3;");
+    for jobs in [None, Some(2)] {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_lila"));
+        command.env_remove("LILA_JOBS").env("LILA_WASM_TRACE", "1");
+        if let Some(jobs) = jobs {
+            command
+                .env("LILA_JOBS", "invalid")
+                .args(["--jobs", &jobs.to_string()]);
+        }
+        let output = command
+            .args(["differential", "replay"])
+            .arg(&case)
+            .args(["--oracle", "spec-exec"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let trace = String::from_utf8(output.stderr).unwrap();
+        let expected = format!(
+            "lila wasm trace: differential worker compilation jobs: {}",
+            jobs.unwrap_or(1)
+        );
+        assert_eq!(trace.matches(&expected).count(), 2, "{trace}");
+    }
+}
+
+#[cfg(all(unix, feature = "spec-exec-oracle"))]
+#[test]
 fn embedded_cli_replay_uses_the_selected_cli_image_and_worker_only_admission() {
     let _serial = EXECUTION.lock().unwrap();
     let directory = CaseDirectory::new();

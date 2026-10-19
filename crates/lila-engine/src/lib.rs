@@ -1029,6 +1029,7 @@ pub fn wasm_aot_module_is_cached(source: &str, options: &CompileOptions) -> bool
 }
 
 static COMPILATION_JOBS: OnceLock<usize> = OnceLock::new();
+static EXPLICIT_COMPILATION_JOBS: OnceLock<usize> = OnceLock::new();
 static COMPILATION_POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
 
 /// Default Cranelift parallelism: half the logical CPUs, with a minimum of one.
@@ -1050,6 +1051,7 @@ pub fn configure_compilation_jobs(jobs: usize) -> Result<(), String> {
     }
     let configured = COMPILATION_JOBS.get_or_init(|| jobs);
     if *configured == jobs {
+        let _ = EXPLICIT_COMPILATION_JOBS.set(jobs);
         Ok(())
     } else {
         Err(format!(
@@ -1060,6 +1062,13 @@ pub fn configure_compilation_jobs(jobs: usize) -> Result<(), String> {
 
 pub fn compilation_jobs() -> usize {
     *COMPILATION_JOBS.get_or_init(default_compilation_jobs)
+}
+
+/// Returns explicit configuration without choosing the CPU-derived default.
+/// Isolated developer workers can therefore preserve their serial default.
+#[doc(hidden)]
+pub fn configured_compilation_jobs() -> Option<usize> {
+    EXPLICIT_COMPILATION_JOBS.get().copied()
 }
 
 fn compilation_pool() -> Result<&'static rayon::ThreadPool, EngineError> {

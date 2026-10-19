@@ -70,6 +70,17 @@ fn committed_v1_foundation_case_replays_through_both_backends() {
 
 #[cfg(unix)]
 #[test]
+fn selected_worker_accepts_explicit_native_compilation_jobs() {
+    let _serial = serial_execution();
+    let selected = env!("CARGO_BIN_EXE_lila-differential-worker");
+    assert!(DifferentialWorkerRunner::new_with_compilation_jobs(selected, 0).is_err());
+    let runner = DifferentialWorkerRunner::new_with_compilation_jobs(selected, 2).unwrap();
+    let report = replay_case(&case_v1(), SpecExecOracle::explicitly_enabled(), &runner).unwrap();
+    assert!(report.is_green(), "{report:?}");
+}
+
+#[cfg(unix)]
+#[test]
 fn committed_v2_primitive_case_replays_through_both_backends() {
     let report = replay(&case_v2());
 

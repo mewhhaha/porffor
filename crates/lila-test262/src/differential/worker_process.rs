@@ -39,6 +39,8 @@ pub(super) fn write_bounded_json(
 #[derive(Debug)]
 pub struct DifferentialWorkerRunner {
     #[cfg(feature = "spec-exec-oracle")]
+    compilation_jobs: std::num::NonZeroUsize,
+    #[cfg(feature = "spec-exec-oracle")]
     executable: PathBuf,
     #[cfg(feature = "spec-exec-oracle")]
     selected_image: lila_engine::CompilerDigest,
@@ -48,6 +50,29 @@ pub struct DifferentialWorkerRunner {
 
 impl DifferentialWorkerRunner {
     pub fn new(executable: impl Into<PathBuf>) -> Result<Self, DifferentialError> {
+        let jobs = match std::env::var("LILA_JOBS") {
+            Ok(value) => value.parse::<std::num::NonZeroUsize>().map_err(|_| {
+                DifferentialError::WorkerConfiguration(
+                    "LILA_JOBS must be a positive integer".into(),
+                )
+            })?,
+            Err(std::env::VarError::NotPresent) => std::num::NonZeroUsize::MIN,
+            Err(error) => {
+                return Err(DifferentialError::WorkerConfiguration(error.to_string()));
+            }
+        };
+        Self::new_with_compilation_jobs(executable, jobs.get())
+    }
+
+    /// Select native compiler threads independently of the serial case workers.
+    /// Unlike `new`, an explicit count overrides `LILA_JOBS` without reading it.
+    pub fn new_with_compilation_jobs(
+        executable: impl Into<PathBuf>,
+        jobs: usize,
+    ) -> Result<Self, DifferentialError> {
+        let jobs = std::num::NonZeroUsize::new(jobs).ok_or_else(|| {
+            DifferentialError::WorkerConfiguration("compilation jobs must be positive".into())
+        })?;
         let executable = executable.into();
         if executable.as_os_str().is_empty() {
             return Err(DifferentialError::WorkerConfiguration(
@@ -96,6 +121,7 @@ impl DifferentialWorkerRunner {
                 .map(|byte| format!("{byte:02x}"))
                 .collect();
             return Ok(Self {
+                compilation_jobs: jobs,
                 executable,
                 selected_image: lila_engine::CompilerDigest::parse(&spelling)
                     .map_err(DifferentialError::WorkerConfiguration)?,
@@ -105,6 +131,7 @@ impl DifferentialWorkerRunner {
         }
         #[cfg(not(feature = "spec-exec-oracle"))]
         {
+            let _ = jobs;
             Ok(Self {})
         }
     }
@@ -535,7 +562,9 @@ impl DifferentialWorkerRunner {
             })?;
         let mut command = Command::new(&self.executable);
         command
-            .args(["--jobs", "1", "differential", "__worker", "--request"])
+            .arg("--jobs")
+            .arg(self.compilation_jobs.to_string())
+            .args(["differential", "__worker", "--request"])
             .arg(&request_path)
             .arg("--journal")
             .arg(&journal_path)
@@ -1168,6 +1197,7 @@ mod tests {
     ) {
         let identity = provenance("1", "2");
         let runner = DifferentialWorkerRunner {
+            compilation_jobs: std::num::NonZeroUsize::MIN,
             executable: "selected-worker".into(),
             selected_image: identity.identity().executable_sha256(),
             parent_identity: identity,

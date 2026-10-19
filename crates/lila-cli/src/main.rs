@@ -288,8 +288,8 @@ test262 options:
   --readme-path PATH
 
 global options:
-  --jobs N                              Cranelift compiler threads (default: half
-                                        the logical CPUs; independent of
+  --jobs N                              Cranelift compiler threads (LILA_JOBS,
+                                        otherwise half the logical CPUs; independent of
                                         test262 --threads)
   --host-surface product|test262        host-global authority (default: product;
                                         test262 is for conformance harnesses)
@@ -592,7 +592,11 @@ fn differential_worker_runner(
             format!("cannot locate the differential worker executable: {error}")
         })?,
     };
-    DifferentialWorkerRunner::new(executable).map_err(|error| error.to_string())
+    match lila_engine::configured_compilation_jobs() {
+        Some(jobs) => DifferentialWorkerRunner::new_with_compilation_jobs(executable, jobs),
+        None => DifferentialWorkerRunner::new(executable),
+    }
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "spec-exec-oracle")]
@@ -622,8 +626,13 @@ fn handle_differential_worker(args: &[String]) -> Result<(), String> {
     let journal = journal.ok_or_else(|| "differential worker needs --journal".to_string())?;
     let oracle = oracle
         .ok_or_else(|| "differential worker requires explicit --oracle spec-exec".to_string())?;
-    lila_test262::differential::run_differential_worker(&request, &journal, oracle)
-        .map_err(|error| error.to_string())
+    lila_test262::differential::run_differential_worker(
+        &request,
+        &journal,
+        oracle,
+        lila_engine::configured_compilation_jobs().unwrap_or(1),
+    )
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(not(feature = "spec-exec-oracle"))]
@@ -1032,6 +1041,18 @@ fn take_global_jobs(args: &mut Vec<String>) -> Result<Option<usize>, String> {
         }
         jobs = Some(value);
         args.drain(index..=index + 1);
+    }
+    if jobs.is_none() {
+        jobs = match std::env::var("LILA_JOBS") {
+            Ok(value) => Some(
+                value
+                    .parse::<std::num::NonZeroUsize>()
+                    .map_err(|_| "LILA_JOBS must be a positive integer".to_string())?
+                    .get(),
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(error) => return Err(error.to_string()),
+        };
     }
     Ok(jobs)
 }

@@ -1,6 +1,22 @@
 # Continue Lila — 2026-10-19
 
-Current frozen source is `2d71987461ed1390eac43fbdaebd4c110df31b66`.
+Current work repairs differential native compilation jobs propagation. The
+runner, selected worker and CLI must preserve the serial default while honoring
+explicit `--jobs` or the cloud launcher's quota-bound `LILA_JOBS`. CLI flags
+override the environment. Original request deadlines and serial case/backend
+scheduling remain unchanged. Verify cold cases and whole affected targets
+before publishing acceptance; old-source results do not carry to this repair.
+
+The first all-features run is rejected after twelve complete scopes / 3,853
+passes. Its generated-campaign target reports thirteen passes and two original
+5,000ms cold worker timeouts, with no established semantic mismatch. Preserve
+`target/all-features-runtime-type-suffix-20261019-run1/receipt.json`, its child
+receipts and `/tmp/lila-generated-campaign-*` evidence. Dependent queues stopped
+without producing acceptance. Before rebuilding, the actual failed test, CLI
+and selected-worker images were archived and fully byte-verified under
+`target/closed-all-features-red-images-20261019-run1/`.
+
+Last complete default source is `2d71987461ed1390eac43fbdaebd4c110df31b66`.
 Full default verification is complete and green: all 111 scopes, **9,538 native
 passes and 11 documentation passes**, zero failed or ignored. Every prior 9,535
 native inventory ID is retained. The sole earlier runtime-link failure is
@@ -22,8 +38,9 @@ validated/carried only those eight exact same-source scopes and completed the
 remaining 103. Storage deferrals have no native outcome. The earlier complete-red
 459-source discovery remains unchanged.
 
-Next owners are `../.lila-tools/run-all-features-runtime-type-suffix-20261019-run1.py`
-and `../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`.
+The previous owners `../.lila-tools/run-all-features-runtime-type-suffix-20261019-run1.py`
+and `../.lila-tools/finish-runtime-type-suffix-ci-and-retention230-20261019-run1.py`
+are terminally stopped; prepare fresh source-bound successors after the repair.
 Require all 113 all-feature scopes, both all-target checks and complete original
 230 retention. Their green default prerequisite is now satisfied; no dependent
 outcome is inferred. Real mechanics, idle product measurements and complete
