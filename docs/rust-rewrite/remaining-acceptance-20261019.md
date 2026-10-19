@@ -1,34 +1,34 @@
-# Remaining acceptance after runtime admission checkpoint — 2026-10-19
+# Remaining acceptance after primitive eval discovery — 2026-10-19
 
-Current compiler/worker source is `252cbb17934153630e96fcb2003994e8306015f9`.
-Its complete focused checkpoint passes all35 native IDs and all39 filtered
-admission controls, retaining every prior control. The separate original fresh
-cold gate records three passes/one5,000ms mutation-seed9 timeout during P native
-compilation and remains red. [Exact current outcomes](runtime-admission-checkpoint-20261019.json).
-Keep that cold failure open while independent fresh native discovery runs at
-the unchanged252 source. Current owners are `full-default-runtime-admission`,
-`all-features-runtime-admission`, and then
-`runtime-admission-ci-release-retention230`, all dated20261019/run1 under target.
-All earlier stopped queues remain terminal; none supplies current outcomes.
+Current compiler/worker source is `ed9936d8c9888e644e987ef13491f54516fb5f6c`.
+Its affected discovery records2144PASS/1FAIL/0IGNORED, including two explicitly
+filtered Intl controls. All2139 previous whole-scope IDs and2137 prior passes
+remain, and allfour new controls pass. The11000-eval timeout is eliminated;
+the1000-method original60s timeout remains. Isolated warm/cold diagnostic
+passes do not replace that red scope.
+[Exact current outcomes and diagnostics](primitive-eval-red-checkpoint-20261019.json).
 
-All614 current Python tooling tests and the identity audit pass, with exact
-source binding and predecessor failures retained in the
-[tooling checkpoint](tooling-guards-20261019.json). This supplies no native,
-cold-start or conformance acceptance.
+The first-native coordinator is terminal-red. Native-through-oracle and pinned
+closure queues stopped before any dependent gate. Cold4/worker35 and broader
+current-source outcomes are unobserved. Prepare fresh source-bound successors
+after the complete copy-on-write fact repair and affected verification.
+All616 Python controls and14 source audits pass for the current compiler tree;
+this supplies no missing native or conformance acceptance.
 
-The last complete default at `2d719` passes9,538 native/11 documentation IDs.
-That prior source's ordinary release, four original deadline cases and all733
-focused native IDs are sealed in the
+Prior252 complete default discovery records9542PASS/2FAIL and11docPASS across
+all111 scopes. The last complete green default at `2d719` records9538 native/
+11docPASS, with ordinary release/original-four evidence in the
 [ordinary checkpoint](runtime-type-suffix-ordinary-checkpoint-20261019.json).
-No prior-source result supplies current-source acceptance. Other gates require
-their actual completed evidence before acceptance.
+Prior-source results supply no current-source acceptance.
 
 ## Native suites and retention
 
-The active run executes all111 current-source default scopes fresh. Actual inventories are expected
-to contain 9,544 native and 11 documentation IDs, retaining every prior 9,538
-native ID and adding four AOT/two Intl controls. A disk deferral has no native
-outcome; retain its receipt and run only genuinely unobserved scopes later.
+After the affected repair passes, execute all111 current-source default scopes.
+The ed993 inventory is expected to contain9548 native and11 documentation IDs; a successor
+must retain every prior ID and account for added controls explicitly. Carry
+only proven complete same-source/profile scopes with exact Cargo/graph and raw
+outcome evidence. The current red template scope is not accepted. A disk
+deferral has no native outcome; retain its receipt without inventing outcomes.
 
 Then run all 113 all-feature scopes with freshly validated integration Cargo
 graphs, followed by ordinary default and all-feature all-target checks. Run
@@ -59,8 +59,8 @@ compatible baseline/candidate reports and actual calibration.
 
 ## Debug and optimized oracle campaigns
 
-The actual non-test, `spec-exec-oracle` debug CLI is captured in
-`target/runtime-admission-oracle-debug-admission-20261019-run1`. Its successful
+After fresh worker verification, capture the actual non-test, `spec-exec-oracle` debug CLI in
+`target/primitive-eval-oracle-debug-admission-20261019-run1`. Its successful
 all-feature integration Cargo artifact event and verified executable bytes bind
 the copy. This avoids an extra debug Cargo build. Image
 capture alone does not prove the oracle works.
@@ -107,8 +107,9 @@ LILA_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" \
   bash scripts/check-test262-closure.sh --cloud
 ```
 
-The default is one worker, 60,000 ms per execution, without resume or worker
-reuse. The current source-pin census contains 102,994 mode-aware executions.
+The default is one worker; the existing explicit cloud `--threads 4` route
+uses at most the machine quota with one compilation job per worker. Keep
+60,000ms per execution, without resume or worker reuse. The current source-pin census contains 102,994 mode-aware executions.
 Both complete result maps must agree and contain zero nonpasses for T26 to
 pass. Explicit unsupported dynamic-source cases remain nonpasses.
 

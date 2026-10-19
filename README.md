@@ -1,26 +1,26 @@
-Runtime admission checkpoint — 2026-10-19: frozen source `252cbb179`
-passes **all 35 tests across four complete differential scopes**, including the
-entire 15-test generated campaign that previously recorded two timeouts. All
-**39 filtered admission controls** pass, retaining all 38 preceding IDs and
-adding the malformed-body replacement control. Zero tests were ignored.
-[Lossless source-bound results and retained failures](docs/rust-rewrite/runtime-admission-checkpoint-20261019.json).
+Primitive eval checkpoint — 2026-10-19: frozen source `ed9936d8c`
+records **2,144 passes, one timeout and zero ignored tests** across four complete
+native scopes and two explicitly filtered Intl controls. All 2,139 previous
+whole-scope IDs remain, all 2,137 previous passes still pass, and all four new
+controls pass. The original 11,000-eval timeout is eliminated; the 1,000-method
+control still times out at its unchanged 60-second limit. Isolated diagnostic
+passes do not replace that complete red result.
+[Lossless affected scopes, retained failures and diagnostics](docs/rust-rewrite/primitive-eval-red-checkpoint-20261019.json).
 
-The immutable Cargo package reuses its producer's complete function-body
-validation through a private, explicitly unsafe Engine boundary. Runtime
-source, profile, Intl, checksum, section, data and layout checks still run;
-safe inputs and disk caches validate every body. Explicit compiler jobs bound
-independent validation and Minimal Intl initialization. The native coordinator
-records actual quota-bound CPUs/jobs; cases, backends and libtest remain serial.
-Development/test CLI and worker products omit debug information while retaining
-each worker's own complete executable SHA256 check. Release line tables remain.
-[Immutable package safety contract](docs/rust-rewrite/contracts/immutable-runtime-build-package.md).
+Scalar direct eval now requires actual parsing, early errors, lowering and a
+typed inert-program proof before executing a shared real Wasm factory. Every
+call supplies its own tag and bits. The original source and behavior controls
+remain. Five hot third-party compiler dependencies use optimized dev/test
+profiles; workspace checks remain enabled. No whole-product speedup is claimed.
+All 616 Python tooling tests and 14 source audits pass for this compiler tree.
 
-The separate four-request fresh-cache gate records **three passes and one
-original 5,000ms timeout** in mutation seed 9's program native compilation.
-That gate remains red. Prior red outcomes and the zero-outcome storage deferral
-are retained. Fresh full-default inventories are expected to contain 9,544
-native and 11 documentation IDs; current-source broad verification, pinned
-conformance, performance and task closure remain open.
+Broad successors stopped before running: current full-default, all-features,
+cold four-request, worker-scope, 230-case retention and conformance gates remain
+open. A fresh-cache diagnostic attributes about 9 seconds to parse/lower and
+20 seconds to native compilation; actual method execution takes under 0.05
+seconds. Allocation sampling identifies deep compiler-fact copies as a next
+repair target, without establishing a speedup or resolving the timeout.
+[Remaining verification schedule](docs/rust-rewrite/remaining-acceptance-20261019.md).
 
 Last complete ordinary verification — 2026-10-19: at frozen source
 `2d71987461ed1390eac43fbdaebd4c110df31b66`, the complete default workspace

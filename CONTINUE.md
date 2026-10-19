@@ -1,105 +1,56 @@
 # Continue Lila — 2026-10-19
 
-The next coherent candidate is written but has not been compiled. Fresh default
-discovery at252 has completed52 scopes:7,867 passes and two60s timeouts in the
-complete20-test native-program-template scope, zero ignored. Keep that red
-scope and its executable. A separate trace attributes repeated literal eval's
-cost mainly to repeated Wasm emission/canonicalization. Its candidate repair
-admits a scalar only after actual parsing, early errors, lowering and the typed
-inert-program proof, then executes a real stateless Wasm factory with per-call
-tag/bits. Source effects, declarations, strings and owned values retain their
-normal path. The original11,000-eval and1,000-method controls are unchanged.
+Frozen compiler/worker source is `ed9936d8c9888e644e987ef13491f54516fb5f6c`.
+Complete affected discovery records **2,144 PASS / 1 FAIL / 0 IGNORED**:
+AOT library442, IR1606 and modules/realms74 all pass; native program templates
+record20 passes and one original60s timeout; the two explicitly filtered Intl
+admission controls pass. All2139 previous whole-scope IDs and2137 prior passes
+are retained; allfour added native controls pass. The unchanged11000-eval test
+now passes. The unchanged1000-method test remains failed in this complete scope.
+[Lossless current red checkpoint](docs/rust-rewrite/primitive-eval-red-checkpoint-20261019.json).
 
-The candidate also gives five hot third-party compiler dependencies release-
-style dev/test profiles: wasmtime, its Cranelift backend, cranelift-codegen,
-cranelift-frontend and regalloc2. Actual Cargo graph inspection confirms ten
-compiled units at opt3 with assertions/overflow checks off; workspace crates
-and wasmparser retain their checks. This narrower intervention has no measured
-speedup yet and cannot inherit the earlier whole-graph1.77x measurement. Its
-new Cargo identity requires a fresh native-cache generation. All13 Intl source
-recipes were refreshed and rechecked. Four added native controls and the new
-Python mutation controls cover proof and raw-envelope validation bypasses.
-All616 Python tooling controls pass in363.756s, with the candidate source
-unchanged. All14 source checks pass, including the complete module-boundary,
-identity, host ABI, source-pin and shortcut audits. Raw package framing now
-has a private envelope owner; validation fixtures retain both cfg(test) gates
-and their original native IDs. The230/180-line owner caps remain unchanged.
-Four new native controls still require their complete affected suites. Freeze
-this exact source, then compile once after
-the252 discovery and artifact owners drain. No252 pass is candidate acceptance.
+Preserve `target/primitive-eval-focused-default-20261019-run1`, the terminal
+`primitive-eval-first-native-20261019-run2` and both blocked successor receipts.
+The failed ELF, exact shared runtime and producer R archive are byte-verified in
+`target/closed-primitive-eval-native-template-red-images-20261019-run1`.
+No current cold4, worker35 or broad successor ran. The prepared green sealer
+must not be executed against this red discovery.
 
-Latest sealed compiler/worker source is
-`252cbb17934153630e96fcb2003994e8306015f9`. Complete focused verification now
-passes all35 IDs across four scopes, including the full15 generated campaign;
-the previous source recorded33 passes/two timeouts. All39 filtered admission
-controls pass with every previous38 ID retained and exactly one additional
-malformed-body replacement control. No IDs were removed or ignored.
-[Lossless current checkpoint and all predecessor red outcomes](docs/rust-rewrite/runtime-admission-checkpoint-20261019.json).
+The product repair admits primitive eval only after actual parsing, early
+errors, lowering and the typed inert-program proof, then executes real shared
+Wasm with per-call tag/bits. Owned/effectful/declaration sources retain their
+normal path. Five hot third-party compiler dependencies have optimized dev/test
+profiles; workspace assertions/checks remain. All616 Python controls and14
+source audits pass, bound to this compiler tree. No whole-product speedup is
+established by the profile change.
 
-The independent fresh-cache gate remains red: three original requests pass and
-mutation seed9 times out at its unchanged5,000ms deadline during P native
-compilation. All four use the same ordinary Cargo products, actual4 CPUs/jobs
-and serial backends. Traces confirm immutable Cargo producer body validation
-reuse, raw package/native R hits and no memory-reclaim or material CPU-throttle
-event. Do not combine separate passes to replace this failure.
-Preserve `target/runtime-admission-cold-20261019-run6` and the complete ordinary
-`target/runtime-admission-focused-20261019-run7`. Run6 focused was storage-deferred
-before any native outcome. The inactive2d ordinary release is byte-preserved in
-`target/closed-2d-release-before-runtime-admission-20261019-run1` with all aliases;
-its retirement freed333 MiB without changing dependencies or fixtures.
+The remaining timeout is timing-sensitive: the exact test passes in isolated
+warm and fresh-cache diagnostics, which do not replace the complete red scope.
+Fresh-cache phase times are parse/lower8.914s, emission0.191s, canonicalization
+0.724s, native lookup/compilation20.233s, and factory execution0.046s. Another
+lowering trace attributes most lowering time to prepass and final function
+lowering. An advisory allocation sample records49,387,675 allocation calls;
+its bounded first8192 stack samples frequently include deep FunctionSignature,
+ValueInfo and HeapShape copies. Samples are allocation counts, not CPU samples,
+and their cap biases the retained stacks toward earlier execution.
 
-Keep isolating the remaining P native compile cost before another product batch.
-The exact cold seed9 P has45 bodies,557,768 bytes and a145,552-byte largest JS
-body; it imports standard/host runtime implementations from R. Preserve the
-complete35 and39-control passes while repairing cold startup. Every function
-body remains validated, with only immutable Cargo output reusing the producer's
-full validation. Keep all source/profile/Intl/checksum/section/data/layout
-checks and full safe/disk admission; default concurrency remains serial.
+Next coherent repair: let CatalogOverlay forks share changed immutable facts,
+then copy only the row actually mutated. Preserve effective values, tombstones,
+key order, fixpoint equality and isolated observations. Root writes code; Luna
+agents review/explore read-only. Compile the complete batch once, compare real
+allocation/phase measurements, rerun complete affected scopes and original cold
+requests, then the sequential broad gates. Never close the timeout with isolated
+passes or extend deadlines. Keep CONTINUE and tasks until every criterion passes.
 
-The unchanged252 source is now running fresh111-scope default verification in
-`target/full-default-runtime-admission-20261019-run1`, independently of the
-separate red cold gate. Actual inventories are expected at9,544 native/11
-documentation IDs, retaining all prior9,538 native IDs. The six additions are
-four AOT and two Intl controls. The current all113-scope all-feature successor
-waits for that default gate. It retains complete native failures and
-continues independent discovery; failed ELFs stay preserved and acceptance
-remains false when red. Build, evidence, documentation and storage errors stop
-without inventing missing outcomes. The queued
-`../.lila-tools/finish-runtime-admission-ci-release-retention230-20261019-run1.py`
-then requires both native gates, runs both all-target checks, builds a fresh
-ordinary release, and executes the original four cases and complete230 replay
-with exact prior219-success retention. Queued work supplies no result.
-The actual oracle-enabled debug CLI has already been captured under
-`target/runtime-admission-oracle-debug-admission-20261019-run1`; its corpus and
-sustained campaigns remain unaccepted. Keep CONTINUE and tasks until all gates pass.
-
-Current tooling verification passes all614 Python tests and the product identity
-audit. LocaleText checks all44 unique provenance inputs, retaining the old43 and
-requiring the new admission module. Closed differential-jobs/runtime-admission
-reports are admitted at exact paths and whole-file hashes; their bytes remain
-unchanged and tampered inputs are rejected. The earlier613-test red run and
-failed identity audit remain preserved. [Exact tooling checkpoint](docs/rust-rewrite/tooling-guards-20261019.json).
-The mechanics and performance successors are prepared under
-`../.lila-tools/queue-runtime-admission-{real-mechanics,idle-performance}-20261019-run1.py`;
-neither is launched or accepted. Their unchanged normal cache capacities and
-physical-filesystem scratch admission replace the predecessor's unrelated
-3.25GiB blanket. Require current native/check/release/230 evidence first.
-
-The complete current native cohort011 passes all1,171 IDs across builtins541,
-GC entries164, generators167 and Intl299, zero failed/ignored. The broader
-default and all-feature gates remain open. A private8-round ABBAABBA probe of
-the exact current coldseed9 P measures single-CPU native compilation medians
-2.5093s for existing dev/test dependencies versus1.4195s for retained release
-dependencies. This combines optimizer/assertion/overflow profiles, not an
-isolated cause or a whole-cold acceptance result. No source/profile changed.
-Passive closed-Intl stdout spans identify expensive custom projections around
-190–337s; timings are advisory and active partitions stay unchanged.
-[Exact scopes, cost probe and observer limits](docs/rust-rewrite/native-cost-hills-20261019.json).
-Current debug/release campaign successors are also prepared under
-`../.lila-tools/queue-runtime-admission-{debug,release}-campaigns-20261019-run1.py`.
-They retain all14x3/704/1,216 cases and original deadlines, but neither is
-launched. The optimized oracle builder still needs its current-source binding
-and safe ordinary-image hardlink retirement before use.
+Prior252 default discovery is complete-red across111 scopes:9542 nativePASS,
+2FAIL, zeroignored, plus11docPASS. The only failed scope was the20-test template
+target; both original60s failures and failed image are preserved. Its earlier
+worker checkpoint passes35 whole-scope and39 filtered admission controls,
+while its separate cold4 gate remains3PASS/1original5000ms timeout. These are
+prior-source evidence, not current acceptance.
+[Prior runtime admission checkpoint](docs/rust-rewrite/runtime-admission-checkpoint-20261019.json).
+[Earlier tooling checkpoint](docs/rust-rewrite/tooling-guards-20261019.json).
+[Measured native cost hills and observer limits](docs/rust-rewrite/native-cost-hills-20261019.json).
 
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
