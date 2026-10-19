@@ -1,5 +1,22 @@
 # Continue Lila — 2026-10-19
 
+All-feature discovery checkpoint — 2026-10-19: the frozen71 source has
+completed12 whole library scopes with3852PASS/12FAIL/0IGN. Engine973, IR1607,
+AOT442 and Front177 pass. Test262475/1 and CLI71/11 expose two test setup
+conflicts with the process-wide compiler pool. Both small test-only repairs
+are prepared; neither has been compiled or accepted. Keep the original four-CPU
+budget, every native ID and every assertion for their verification.
+
+The verifier now checks four exact default-only tests against their explicit
+oracle-off source attributes. The continuation revalidates all12 completed
+scopes without repeating native IDs, then runs the remaining101 scopes.
+Failed executables, their shared image/producer and literal logs are archived
+with full mode/size/SHA readback. The two archived failed test executables were
+retired to recover link space. Passed IR/Intl Cargo output paths now stay warm
+within256MiB; successor results still require ordinary Cargo and fresh tests.
+Full AF/default, the original cold timeout, conformance and cleanup remain open.
+[Exact native outcomes, cfg sources, prepared fixes and continuation](docs/rust-rewrite/all-feature-library-discovery-20261019.json).
+
 Verified repair checkpoint — 2026-10-19: source71bced27c is pushed to main.
 All14 source audits and eight whole ordinary scopes pass3148/0/0. Both original
 baseline failures now pass: the timeout control within Test262438/0/0 and the
