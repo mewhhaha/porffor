@@ -446,9 +446,14 @@
       "sha256": "f3158b1640699ceac9348fd02afef1df86fdcfffecac4a1d6a46eb765bc9e4b1"
     },
     {
-      "bytes": 8259,
+      "bytes": 8351,
+      "path": "crates/lila-intl/src/provider/datetime/raw/token.rs",
+      "sha256": "edd91a59c55a494ca38cf5a8c03949af5d3c7b59678a3b8bdcde04474faa9b47"
+    },
+    {
+      "bytes": 8229,
       "path": "crates/lila-intl/src/provider/datetime/raw.rs",
-      "sha256": "e8401c19d1e0bcd08fbbdec7e4e33a7acd399207a031e98a2ba2ee440e0cf711"
+      "sha256": "863bbc88308614c81f384ce83aa33e3088e15b99262910699d67a3230eb7c64e"
     },
     {
       "bytes": 9074,
@@ -842,7 +847,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "72aed7438499bf438f3402888c9fb42ceb0659643ae5254987919ef345e826f7",
+  "provider_data_sha256": "005bec3f512c2dd1dc5a7a8d8a1fba98e44ceda6081e0057da1d0f9c2d5dbbe8",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

@@ -75,9 +75,9 @@
         "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
       },
       {
-        "bytes": 31225,
+        "bytes": 31411,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "097890830978c354f79851d139307bcb2eed9bf311b65c3715d5670a52cc642b"
+        "sha256": "efcfd17715fe4c26b1cca3a7ecfedaa377d29b472c8ede43384e4bf6555f281d"
       },
       {
         "bytes": 34690,
@@ -147,7 +147,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "8a2574c8c3f6b9c280693720e965265c840c89de35cadd2dcf520e7e8b030cd4"
+        "sha256": "ad5f08349bf92c94f363940a51a2ebc4060092c51ad586b2d062b650c983ab41"
       },
       {
         "bytes": 4101,
@@ -256,7 +256,7 @@
       }
     ]
   },
-  "kernel_sha256": "d1e0ee641a847775521d69286a1bb909461df4fc23d6f9e0bd9e5cf8b15c98e5",
+  "kernel_sha256": "eaaaf42666e53c02149e763c74b5a6f8da137651bdb98e8735fa6795ec1634e5",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

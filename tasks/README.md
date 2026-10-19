@@ -1,5 +1,14 @@
 # Lila Rust AOT + Test262 execution plan
 
+Prepared-source provenance correction — 2026-10-19: the read-only3c check
+rejected stale generated DateTime identities. All13 recipes were genuinely
+refreshed in producer order and independently rechecked; ten generated
+identity/provenance files changed. The active1c native discovery continues.
+Only ten unstarted successors were superseded, with zero native outcomes lost.
+The corrected descendant still needs14 source audits, all eight ordinary
+focused scopes and the original allocation sample before main publication.
+[Exact rejected preflight and generated correction](../docs/rust-rewrite/token-provenance-correction-20261019.json).
+
 Prepared lowering repair — 2026-10-19: historical allocation stacks identify
 2,110 early receiver and 2,118 late parameter signature-copy samples. The
 projection source is byte-identical at that sample and current frozen source.
