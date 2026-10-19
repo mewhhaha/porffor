@@ -1,23 +1,37 @@
 # Continue Lila — 2026-10-19
 
-The native owner is frozen at `1c302df9f`: all14 source audits pass and the
-ordinary build is running. Its build-host and product IR/AOT graphs compile
-separately because their dependency features differ. Keep this owner intact.
-Separately, plan-only reporting now gives explicit compiler-CPU scopes the
-same exclusive barrier/order as execution. All16 scheduler controls and a real
-two-scope metadata plan pass; every non-plan runner AST remains identical.
-[Exact tooling-only proof](docs/rust-rewrite/native-cpu-plan-reporting-20261019.json).
-This supplies no native result and does not restart or alter the frozen owner.
+Frozen native compiler/worker source is `1c302df9f`. All14 source audits pass;
+the ordinary all-feature Cargo CLI/worker build completes in965.861s. Two IR
+and AOT variants serve distinct build-host/product dependency feature graphs.
+The original cold4 remains red:3PASS/1TIMEOUT at unchanged5000ms/fresh normal
+caches/four actual jobs. Seed9 fails and seed10 passes; earlier variability
+establishes no causal speedup. The complete whole35 is33PASS/2FAIL, exact35IDs
+retained: four prior failures pass, one prior pass now times out and one prior
+failure remains. Recursive ordinary worker graph proof passes. Keep every red.
+[Lossless current native checkpoint](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
 
-The iteration candidate is implemented at `7f7093da9`; native verification is
-pending. Its first audit owner stopped before any build because the catalog
-source guard still required the discarded previous-value return. The guard now
-requires unit-return insertion without a Clone bound or key/value copies.
-Current source passes the complete module-boundary audit; four deliberate
-key-copy/value-copy/return-value/Clone-bound mutations are rejected. Keep the
-original rejected owner receipt and restart against this corrected source.
+Complete current default templates21/runtime_cache4 passes25/0/0, including
+both original60s template failures. Actual new bounded compiler-CPU policy is
+verified for these scopes with serial cases/Cargo. Matched allocation count
+49,390,823→49,400,430 shows no whole-program reduction. The actual failed CLI,
+worker, four whole-worker harnesses, sharedR and producer are byte-preserved
+and fully readback-verified before retiring only four closed libtest outputs.
+Normal products/dependencies/caches/fingerprints remain. Decoder:zstd --long=29.
 
-Last compiled compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
+Continue default AOT442/modules74, IR1607 and Engine library972, in four total
+storage-bounded focus cohorts including the completed25. Each complete cohort
+is proved and passed harnesses retired before the next build. The full-default
+successor carries exactly these six current whole scopes/3120 IDs with exact
+retirement proof, then executes the other105 scopes:9549native+11docs total.
+All broader acceptance and task closure remain false. Do not delete CONTINUE/tasks.
+An auxiliary plan omitted LILA_TEST_CODEGEN_JOBS=auto and stopped before work;
+its rejection is preserved and corrected plan3 passes without repeating native25.
+
+Main's separate plan-only reporting repair passes16 scheduler controls and a
+real two-scope metadata plan. It changes only the plan AST; the native owner
+keeps its original frozen driver. [Exact tooling proof](docs/rust-rewrite/native-cpu-plan-reporting-20261019.json).
+
+Previous rejected native-mode candidate is `be26faf2ec3c139062cd4be6120d0628949e3b67`,
 pushed to main. Separate Program/Runtime native thresholds are implemented:
 128KiB for P, unchanged1MiB for R. Ordinary Cargo build passes in62.487s;
 all14 source audits pass. The exact original cold4 run is complete-red:
@@ -42,7 +56,7 @@ Two closed archives were byte-verified and relocated to /tmp, with canonical
 symlinks and a separate relocation receipt. Native scratch uses workspace
 TMPDIR set before Python starts; no cache budget or check changed.
 
-The next coherent batch removes the unaccepted128KiB native policy, returning
+The current coherent batch removes the unaccepted128KiB native policy, returning
 all three policy/selector files to CAB. It also makes CatalogOverlay insertion
 return unit: all12 production sites discarded the previous value, while the
 old implementation cloned its key and sometimes a deep shared signature just
@@ -63,7 +77,7 @@ The verifier adds --native-target-cpus auto plus exact repeated
 barriers, retaining the exact command, deadlines and serial Cargo/libtest.
 Actual affinity, native/Rayon/Cargo/test settings and scheduler hash are bound.
 618 Python controls, final15 focused controls and metadata plan pass; actual
-new native policy execution is pending. Root writes code; Luna inspects only.
+new native policy execution passes the complete25 above. Root writes code; Luna inspects only.
 
 Before the next build, six closed libtest outputs were retired with a separate
 receipt; all three worker images, including both failed targets, are byte-

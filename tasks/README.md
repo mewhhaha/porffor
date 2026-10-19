@@ -1,6 +1,17 @@
 # Lila Rust AOT + Test262 execution plan
 
-Last compiled checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
+Current source `1c302df9f`:14 audits and ordinary CLI/worker build pass965.861s.
+Original cold4 remains3PASS/1original5000msTIMEOUT (seed9 fails/seed10 passes).
+Whole35 remains33PASS/2FAIL: every ID stays, four prior failures pass and one
+prior pass now times out. Recursive worker graph passes. Complete default
+native templates21/cache-process4 passes25/0/0, including both original60s
+failures; actual bounded compiler CPUs/serial tests are verified. Matched
+allocation49,390,823→49,400,430 establishes no reduction. Preserve failed bytes.
+Continue the other3095 affected IDs in small whole-scope cohorts, then carry
+exact6/3120 into full111/9549native+11docs. All broad/conformance/task closure
+remains pending; keep CONTINUE/tasks. [Exact current evidence](../docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+
+Previous native-mode checkpoint — 2026-10-19: source `be26faf2e` passes the ordinary Cargo
 worker build and14 source audits. Original cold4 remains red:3PASS/1TIMEOUT
 at unchanged5000ms; seed9 passes and seed10 still times out. Complete affected
 Engine scopes pass997/0/0. Whole35 is red:30PASS/5FAIL, all original worker

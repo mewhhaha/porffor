@@ -1,24 +1,19 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
-Last compiled compiler/worker source is `be26faf2ec3c139062cd4be6120d0628949e3b67`.
-Ordinary worker Cargo build passes in62.487s, all14 source audits pass, and
-original cold4 is complete-red:3PASS/1original5000msTIMEOUT. Seed9 passes;
-seed10 still times out. Checks, deadlines and normal cache capacities remain
-unchanged. Complete Engine library/templates/runtime_cache passes997/0/0.
-Complete whole35 is red:30PASS/5FAIL, all original5000ms Wasm worker timeouts;
-all35 IDs remain but five prior passes regress. Recursive worker graph and
-all broad gates remain unrun; no prepared or historical scope supplies acceptance.
-[Exact current cold outcomes](large-program-mode-cold-checkpoint-20261019.json).
-[Exact997 and red35 outcomes](large-program-mode-engine-workers-20261019.json).
+Current source `1c302df9f`:14 audits and ordinary CLI/worker build pass965.861s.
+Original cold4 remains3PASS/1original5000msTIMEOUT (seed9 fails/seed10 passes).
+Whole35 remains33PASS/2FAIL: every ID stays, four prior failures pass and one
+prior pass now times out. Recursive worker graph passes. Complete default
+native templates21/cache-process4 passes25/0/0, including both original60s
+failures; actual bounded compiler CPUs/serial tests are verified. Matched
+allocation49,390,823→49,400,430 establishes no reduction. Preserve failed bytes.
+Continue the other3095 affected IDs in small whole-scope cohorts, then carry
+exact6/3120 into full111/9549native+11docs. All broad/conformance/task closure
+remains pending; keep CONTINUE/tasks. [Exact current evidence](iteration-native-checkpoint-20261019.json).
 
-The next candidate removes the unaccepted native mode change, eliminates
-discarded previous-value/key clones at catalog insertion and redundant
-below-budget cache scans, and adds explicit complete-target compiler CPUs
-while keeping Cargo/libtest serial. Standalone catalog5 and Python618/final15
-controls pass. Native/current-source/allocation verification remains pending.
-After that build, keep the separate cold gate red if it fails and proceed with
-complete default discovery to expose every remaining issue. Never invent
-acceptance or replace a failed case with a separate diagnostic pass.
+Previous native-mode source `be26faf2e` passes997 Engine IDs but records
+30PASS/5FAIL across whole35 and3PASS/1TIMEOUT across cold4. These historical
+reds remain unchanged. [Prior Engine/worker proof](large-program-mode-engine-workers-20261019.json).
 
 Prior CAB compiler/worker source is `cab9f9f2ec6ec138a67123f7135bb0be8b244c02`.
 Complete affected2146PASS/0FAIL/0IGNORED includes four whole scopes/2144IDs and

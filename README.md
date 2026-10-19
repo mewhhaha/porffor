@@ -1,15 +1,26 @@
-Pending iteration batch — 2026-10-19: catalog insertion now discards replaced
-facts without cloning their keys or values; all 12 production callers already
-discarded the return. Five exact-source standalone catalog controls pass,
-including fork isolation and insertion of non-Clone facts. Cache startup uses
-one metadata walk below budget and retains the existing post-pruning rescan;
-an advisory constructor median changes from 18.89ms to 4.99ms over the same
-3,015 files. No end-to-end gain is established. The unaccepted lower native
-mode threshold is removed. Complete native verification of this batch is pending.
-An explicit complete-target compiler CPU opt-in keeps Cargo/libtest serial;
-618 Python controls, 15 final focused controls and the metadata plan pass.
-Actual execution under the new target policy remains unverified.
-[Exact candidate controls and phase measurements](docs/rust-rewrite/iteration-candidate-controls-20261019.json).
+Iteration checkpoint — 2026-10-19: frozen compiler source `1c302df9f` passes
+all **21 native template tests and 4 cache-process tests**, including both
+original template failures at unchanged 60-second limits. The explicit bounded
+compiler-CPU policy has now executed with serial Cargo/libtest. All 14 source
+audits pass; the ordinary Cargo build takes 965.86s, rebuilding separate host
+and product IR/AOT dependency graphs.
+
+The complete all-feature worker run remains **red: 33 passed, 2 failed** at the
+original five-second limits. Every prior 35 ID remains: four earlier failures
+pass, one earlier pass times out, and one earlier failure remains. The separate
+original cold run is **three passes and one timeout**: mutation seed9 fails and
+seed10 passes. Recursive worker graph proof passes. These changing timeout
+outcomes establish no causal speedup. Failed images and exact logs are preserved.
+
+The matched allocation sample is 49,400,430 calls versus 49,390,823 before;
+no whole-program reduction is established. Current AOT, IR and Engine-library
+verification continues in smaller storage-bounded cohorts; full default,
+all-features, CLI and conformance acceptance remain pending.
+[Lossless current native results and remaining failures](docs/rust-rewrite/iteration-native-checkpoint-20261019.json).
+
+The plan-only compiler-CPU barrier/order repair passes all 16 scheduler controls
+and a real two-scope metadata plan; every non-plan runner AST is unchanged.
+[Exact tooling-only proof](docs/rust-rewrite/native-cpu-plan-reporting-20261019.json).
 
 Native mode checkpoint — 2026-10-19: prior source `be26faf2e` separates the large
 program threshold (128 KiB) from the unchanged runtime threshold (1 MiB).
