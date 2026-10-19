@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "3c0e8531d3a636ef0cde38f3f4ba4a0bc3b93154cba585b5cd19f4a483a9c10f",
+  "kernel_sha256": "4f224b24e7f5bfa115e9ce93e90802e6b8469bf5bc77da3ffb343660cd9cd037",
   "operations_reserved": [
     33,
     34,
@@ -633,9 +633,14 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
-      "bytes": 56700,
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 7999,
@@ -648,9 +653,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 14590,
+      "bytes": 14645,
       "path": "scripts/generate-intl-segmenter-identity.py",
-      "sha256": "a396fb0982338cd46812f5334b95a31703fcac5160bf8961941ebc81cf96bfa0"
+      "sha256": "4115f091d2ed6b20f3771e8896ffdc2f8b123c250a86530a6c7d78bb1432ece4"
     }
   ],
   "wire_version": 1

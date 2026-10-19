@@ -123,7 +123,7 @@ def generate(repository):
     paths = {DATA / 'source-inputs.json', Path('scripts/generate-intl-list-identity.py'),
              Path('crates/lila-intl/Cargo.toml'), Path('crates/lila-intl/src/list_format.rs'),
              Path('crates/lila-intl/src/list_protocol.rs'), Path('crates/lila-intl/src/lib.rs'),
-             Path('crates/lila-intl/src/protocol.rs'), Path('crates/lila-intl/src/provider.rs'), Path('crates/lila-intl/src/provider/conformance.rs'), Path('crates/lila-intl/src/selection.rs'),
+             Path('crates/lila-intl/src/protocol.rs'), Path('crates/lila-intl/src/provider.rs'), Path('crates/lila-intl/src/provider/conformance.rs'), Path('crates/lila-intl/src/selection.rs'), Path('crates/lila-intl/src/selection/minimal_admission.rs'),
              Path('crates/lila-intl/src/service_selection.rs'),
              Path('crates/lila-intl/src/selection/manifest.rs'),
              Path('crates/lila-intl/src/selection/export.rs'),

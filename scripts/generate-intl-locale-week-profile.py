@@ -32,7 +32,7 @@ LOCALE_HELPERS = [Path(p) for p in [
 LOCALE_HELPERS.extend(Path(path) for path in [
     'crates/lila-intl/build.rs',
     'crates/lila-intl/src/lib.rs',
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs',
+    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
     'crates/lila-intl/src/protocol.rs',
     'crates/lila-intl/src/image.rs',
     'crates/lila-intl/src/locale_image.rs',

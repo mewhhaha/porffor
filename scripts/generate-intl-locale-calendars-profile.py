@@ -16,7 +16,7 @@ NATIVE = Path('crates/lila-intl/src/provider/locale_calendars')
 IDENTITY = NATIVE / 'profile_identity.rs'
 REGION_HELPER = Path('crates/lila-intl/src/provider/region_preference.rs')
 PRODUCTION = [NATIVE.with_suffix('.rs'), NATIVE / 'record.rs', NATIVE / 'profile.rs']
-HELPERS = [Path(p) for p in ['crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs',
+HELPERS = [Path(p) for p in ['crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
     'crates/lila-intl/src/protocol.rs', 'crates/lila-intl/src/locale_information_wire.rs',
     'crates/lila-intl/src/provider/language_domain.rs',
     'crates/lila-intl/src/provider/keyword_aliases.rs',

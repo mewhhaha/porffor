@@ -19,7 +19,7 @@ COLLATOR_PRODUCTION = [
     'crates/lila-intl-collator-data/src/lib.rs', 'crates/lila-intl-collator-data/src/baked.rs',
 ]
 HELPERS = [
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/protocol.rs',
+    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs', 'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/protocol.rs',
     'crates/lila-intl/src/service_selection.rs',
     'crates/lila-intl/src/selection/manifest.rs',
     'crates/lila-intl/src/selection/export.rs',

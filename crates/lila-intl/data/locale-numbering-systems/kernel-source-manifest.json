@@ -24,7 +24,7 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "lila-locale-numbering-systems-native-v1",
-  "kernel_sha256": "bde547652d3700e682f48696922b7e4e183732408ef1fe288fac73d333b4e55d",
+  "kernel_sha256": "2d1893c5b25749aa78e2304c03ee7df394b2a3a3c2897191f02f7b43c418138c",
   "number_locales": 1082,
   "production_sources": [
     {
@@ -278,9 +278,9 @@
       "sha256": "f9cddf291e053fb1980fea123ca06b8053ea7566ea9b15e2e24b9b917c489d66"
     },
     {
-      "bytes": 56700,
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 21454,
@@ -293,6 +293,11 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
       "bytes": 7999,
       "path": "crates/lila-intl/src/service_selection.rs",
       "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
@@ -303,9 +308,9 @@
       "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
     },
     {
-      "bytes": 8916,
+      "bytes": 8971,
       "path": "scripts/generate-intl-locale-numbering-systems-identity.py",
-      "sha256": "7242856a86c02fe6c892f8555b4c1d99ad673fe38fa56050ffb4274669542a5c"
+      "sha256": "a9654ec1caf069029efa10012fb5e9cb6bdd3d69e41d6498c8115d6506eb89fd"
     },
     {
       "bytes": 11411,

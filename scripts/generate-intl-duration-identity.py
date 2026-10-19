@@ -19,7 +19,7 @@ def generate(root):
   if sha(raw)!=row['sha256'] or len(raw)!=row['bytes']:raise ValueError('captured Duration input changed: '+str(name))
   paths.add(name.as_posix())
  paths|={'Cargo.toml','Cargo.lock','crates/lila-intl/Cargo.toml','scripts/generate-intl-duration-identity.py',
-  'crates/lila-intl/src/lib.rs','crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs','crates/lila-intl/src/protocol.rs',
+  'crates/lila-intl/src/lib.rs','crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs','crates/lila-intl/src/protocol.rs',
   'crates/lila-intl/src/service_selection.rs','crates/lila-intl/src/selection/manifest.rs','crates/lila-intl/src/selection/export.rs',
   'crates/lila-intl/src/supported_values.rs','crates/lila-intl/src/duration_wire.rs',
   'crates/lila-intl/src/number_protocol.rs','crates/lila-engine/src/intl_duration_host.rs',

@@ -131,7 +131,7 @@ def locked_packages(root):
 def kernel_sources(root):
     sources = [pathlib.Path(name) for name in (
         "Cargo.toml", "Cargo.lock", "crates/lila-intl/Cargo.toml",
-        "crates/lila-intl/src/lib.rs", "crates/lila-intl/src/provider.rs", "crates/lila-intl/src/provider/conformance.rs", "crates/lila-intl/src/selection.rs",
+        "crates/lila-intl/src/lib.rs", "crates/lila-intl/src/provider.rs", "crates/lila-intl/src/provider/conformance.rs", "crates/lila-intl/src/selection.rs", "crates/lila-intl/src/selection/minimal_admission.rs",
         "crates/lila-intl/src/service_selection.rs",
         "crates/lila-intl/src/selection/manifest.rs",
         "crates/lila-intl/src/selection/export.rs",

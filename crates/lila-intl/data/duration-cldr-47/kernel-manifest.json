@@ -191,9 +191,9 @@
       "sha256": "38ae2b82a51ff319f10fb3fe18e60fc431a782d057e0dde8c941d8fbd4cd0137"
     },
     {
-      "bytes": 12549,
+      "bytes": 12735,
       "path": "crates/lila-intl/data/list-icu-2/manifest.json",
-      "sha256": "a7ccea09ac32692e14e09ac0e6467e9e903767e6b3bf21a64e722c9022e475ff"
+      "sha256": "15cabe9d39db0478c18635b9a408a67a54d3279f420c202af849bc1b8e7fc46d"
     },
     {
       "bytes": 3359,
@@ -368,7 +368,7 @@
     {
       "bytes": 327,
       "path": "crates/lila-intl/src/list_format/identity.rs",
-      "sha256": "493db9226630f3716ed74fa1cb4fc94b7e262fed201d779e9afdebb8f69795af"
+      "sha256": "33e45839033f974e640b4319de8ad60638bf8ed1117c0c102f4704c65ab15e27"
     },
     {
       "bytes": 5033,
@@ -621,9 +621,9 @@
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
     },
     {
-      "bytes": 56700,
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 21454,
@@ -636,6 +636,11 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
       "bytes": 7999,
       "path": "crates/lila-intl/src/service_selection.rs",
       "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
@@ -646,9 +651,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 6979,
+      "bytes": 7034,
       "path": "scripts/generate-intl-duration-identity.py",
-      "sha256": "6da6dcc252e2b3b2f97e2cf5b26d97827981bc4deb9fd19fe4898469a6c30c93"
+      "sha256": "b0d9eff78d7c6cf5307d42442ad16483f7f61b62b79d7607a8c22ce038b8c218"
     },
     {
       "bytes": 11177,
@@ -1033,7 +1038,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "aec3eb5ae160a8dbc000b062fad8319581be742d70463278661199931b526db6",
+  "provider_data_sha256": "52025014d1de7173b0ba1d82b4451bb95a01607067a1039a28801da48a6ca8c4",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

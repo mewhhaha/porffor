@@ -172,9 +172,14 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
-      "bytes": 56700,
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 7999,
@@ -182,9 +187,9 @@
       "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
     },
     {
-      "bytes": 10414,
+      "bytes": 10475,
       "path": "scripts/generate-intl-list-identity.py",
-      "sha256": "2306fd7ca9e73abc9b20002d12e42c14296c2c549df1a8c7f676ca3ed9fd71d5"
+      "sha256": "ca06d26142a7c13912abc3750724b4d2480310e31a2b4826bc724a20134a01fc"
     }
   ],
   "packages": [
@@ -328,7 +333,7 @@
       }
     ]
   },
-  "provider_data_sha256": "a756c68befe7e9c80e328f47c5a9e2e0310fd497795f52e47f58cde34aa7bb14",
+  "provider_data_sha256": "0bc2bc9b736c512cc043c3a6e86659a9dfcdb2baa4992bc72e6af8ee6fc8947a",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

@@ -10,7 +10,7 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = {
     'Cargo.toml', 'crates/lila-intl/Cargo.toml',
-    'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs',
+    'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
     'crates/lila-intl/src/service_selection.rs',
     'crates/lila-intl/src/selection/manifest.rs',
     'crates/lila-intl/src/selection/export.rs',

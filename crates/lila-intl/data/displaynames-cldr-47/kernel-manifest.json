@@ -496,9 +496,9 @@
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
     },
     {
-      "bytes": 56700,
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 21454,
@@ -511,6 +511,11 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
       "bytes": 7999,
       "path": "crates/lila-intl/src/service_selection.rs",
       "sha256": "804f5d8864ad5c39aacced5889166438caac07cb8a33f90ccbb3e49d16ea76f3"
@@ -521,9 +526,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 9748,
+      "bytes": 9803,
       "path": "scripts/generate-intl-display-relative-identity.py",
-      "sha256": "c4a952cce74db55bfee3ccf9198bce9c94b167894da175672e0ebdad910c51df"
+      "sha256": "6b426c171f3d02992d5765fdd9484c376e5f7bd4f5bef74c76f96eba97c08e78"
     },
     {
       "bytes": 14051,
@@ -608,7 +613,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "e58acf4624e0aed833ee8d76d5d0b686a2d0a9e67d915fcd5ebd80edfcb20905",
+  "provider_data_sha256": "7754bb57c75d0e116eeda8a83c84ac0655e69d9b6f9712450aae31733afb1097",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

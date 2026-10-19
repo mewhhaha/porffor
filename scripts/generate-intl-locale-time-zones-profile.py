@@ -31,7 +31,7 @@ HELPERS = [
     'crates/lila-intl/src/time_zone/named_query.rs',
     'crates/lila-intl/src/identifiers.rs',
     'crates/lila-intl/src/provider/region_preference.rs',
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs',
+    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
     'crates/lila-intl/src/lib.rs',
     'crates/lila-intl/src/protocol.rs',
     'crates/lila-intl/src/locale_information_wire.rs',

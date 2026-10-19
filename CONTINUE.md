@@ -4,6 +4,8 @@ Latest sealed checkpoint source is `e13d926d4a7d554e7739768190e05220f201a0de`.
 The current candidate adds bounded parallel complete runtime-function validation,
 concurrent initialization of the same checked Minimal Intl components, and an
 explicit idle-exclusive differential CPU opt-in with actual resource receipts.
+All13 generated Intl source identities also bind the new admission module;
+refresh and verify every recipe before freezing the final candidate.
 All identity, checksum, function-body, layout and data checks remain. Default
 admission stays serial; Custom profiles retain their existing admission order.
 Verify malformed-data rejection, exact runtime/frame parity, cold original5s

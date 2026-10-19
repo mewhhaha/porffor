@@ -75,9 +75,9 @@
         "sha256": "9b1b4c8d79106c695ae67c28205943df1a91b234f907bc1241dc7a8643c6fd64"
       },
       {
-        "bytes": 31039,
+        "bytes": 31225,
         "path": "crates/lila-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "dadaf8280fa30959d502d1968aa984456c863d16e6e3e6ef3d3d8cf715d23bd4"
+        "sha256": "39625afdf4b150bcb94e26e28e7fcaf3c0ca943841aefc25769357df8130ea08"
       },
       {
         "bytes": 34690,
@@ -147,7 +147,7 @@
       {
         "bytes": 328,
         "path": "crates/lila-intl/src/provider/datetime/identity.rs",
-        "sha256": "82c02a4885733381f344132a9b5d632eab754d887615ce79ab372bef110886fc"
+        "sha256": "6f11265a87bc890ecd24f250d128d5b23802e8d640bed9aa0a4893c4ba085a04"
       },
       {
         "bytes": 4101,
@@ -235,9 +235,14 @@
         "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
       },
       {
-        "bytes": 56700,
+        "bytes": 5015,
+        "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+        "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+      },
+      {
+        "bytes": 57278,
         "path": "crates/lila-intl/src/selection.rs",
-        "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+        "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
       },
       {
         "bytes": 9139,
@@ -245,13 +250,13 @@
         "sha256": "4a90bf6ee7b263b86aaf764f098d357bad884ccabed33760f51fb6b591589fbd"
       },
       {
-        "bytes": 10535,
+        "bytes": 10590,
         "path": "scripts/generate-intl-locale-text-profile.py",
-        "sha256": "1cd166f00569cbca1927f1199c4285b052188854737112661ed7b5089a5c3163"
+        "sha256": "7904c418b58f775627f3fc99b8e6eade113e7e4c9fecb36085fce2a4578c7cfc"
       }
     ]
   },
-  "kernel_sha256": "969873859f9fc3f9bd5c01ea483df465e2080ada97cf9d35d42f749034ae0763",
+  "kernel_sha256": "df4e65018d49dc18a647f7c1c3c1131e8108fe8a2d07fb7c3fe4ce1f0ad76d39",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

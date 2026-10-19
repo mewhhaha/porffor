@@ -201,9 +201,9 @@
       "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
     },
     {
-      "bytes": 20776,
+      "bytes": 20972,
       "path": "crates/lila-intl/data/iana-tzdb-2026a/manifest.json",
-      "sha256": "f3c45015879df8404154dc4b68cad3929d67ba9e526f612051c910331f339356"
+      "sha256": "6606dfa3d0b284190f45f97a2c385d1ec2c5f3036a75240c845be4c9ad73a4d7"
     },
     {
       "bytes": 8141,
@@ -508,7 +508,7 @@
     {
       "bytes": 565,
       "path": "crates/lila-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "aa509991e57eb1850303ce48db6014ee2d08fc63e3053819e2e4a16dde5cb5da"
+      "sha256": "64ce627930ffaf2b617b40105555760ac8ec0a0d6a4898330144e0f3d30ae33c"
     },
     {
       "bytes": 1169,
@@ -541,9 +541,14 @@
       "sha256": "49d9eb32c3d338c3d4f2da7dcb6b674972930215bf3ec01ff29ecfb1e88c9427"
     },
     {
-      "bytes": 56700,
+      "bytes": 5015,
+      "path": "crates/lila-intl/src/selection/minimal_admission.rs",
+      "sha256": "fd5855c0e9c7e114c2845b67f2d14a0d58a5d2e1948c2d0c43494c15b0591bbe"
+    },
+    {
+      "bytes": 57278,
       "path": "crates/lila-intl/src/selection.rs",
-      "sha256": "f5ea3d75758a0215281cb4f5df9d786a0a8b318dde956fd5bf2e9ae45735e3cd"
+      "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
       "bytes": 7999,
@@ -561,9 +566,9 @@
       "sha256": "77f90d8e57b0d0c063cbd8ac30957ebc12b27811a3806b106f76428a9cb2ad33"
     },
     {
-      "bytes": 8718,
+      "bytes": 8773,
       "path": "scripts/generate-intl-datetime-identity.py",
-      "sha256": "8a330206b82fd863cdfc4a19dc80e603048ef631ebb78a6e9fa22426fe350588"
+      "sha256": "482e80722e219bcf9ccd65b83c7643f88efae64574915b795a2ac286ba8d91ba"
     },
     {
       "bytes": 18118,
@@ -837,7 +842,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "a6e465f64e61f5a2fa36d46a6f91a33f708eb125bdeb980d83943e7fceabf314",
+  "provider_data_sha256": "66daaaf2d81d1fc7d77f2f60c0cb2b0797e0e4f4ff2c7b295c78ac0f1cf40a0c",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }
