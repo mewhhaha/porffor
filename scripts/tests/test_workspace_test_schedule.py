@@ -4,6 +4,11 @@ import importlib.util
 from types import SimpleNamespace
 from pathlib import Path
 import unittest
+import os
+import subprocess
+import sys
+import tempfile
+import json
 
 SOURCE = Path(__file__).resolve().parents[1] / 'workspace_test_schedule.py'
 spec = importlib.util.spec_from_file_location('workspace_test_schedule', SOURCE)
@@ -17,6 +22,30 @@ def case(package, target, kind='test'):
 
 
 class WorkspaceScheduleTests(unittest.TestCase):
+    def test_native_cpu_opt_in_excludes_performance_docs_and_independent_scopes(self):
+        for scope in [case('lila-test262','differential_generated_campaign'),
+                      case('lila-cli','differential_worker')]:
+            self.assertTrue(schedule.differential_native_compilation(scope,'auto'))
+            self.assertFalse(schedule.differential_native_compilation(scope,None))
+        for scope in self.inventory()+[case('lila-engine','differential_corpus'),
+                                      case('lila-cli','perf'),
+                                      case('lila-cli','doc','doc')]:
+            self.assertFalse(schedule.differential_native_compilation(scope,'auto'))
+
+    def test_resource_prelude_records_actual_policy_and_preserves_exit_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'resource.json'
+            command=[sys.executable,'-c','raise SystemExit(7)']
+            result=subprocess.run([sys.executable,'-c',schedule.NATIVE_RESOURCE_EXEC,str(path),*command],
+                                  env=dict(os.environ,LILA_JOBS='1',RUST_TEST_THREADS='1'),
+                                  capture_output=True)
+            self.assertEqual(result.returncode,7,result.stderr)
+            resource=json.loads(path.read_text())
+            self.assertEqual(resource['command'],command)
+            self.assertEqual(resource['cpus'],sorted(os.sched_getaffinity(0)))
+            self.assertEqual(resource['native_jobs'],1)
+            self.assertEqual(resource['libtest_threads'],1)
+
     def inventory(self):
         return [case('lila-engine', 'aot_intl'),
                 case('lila-engine', 'aot_regexp'),

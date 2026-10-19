@@ -1,5 +1,7 @@
 //! One selected provider owns emitted frames and compile-time catalogues.
 
+mod minimal_admission;
+
 use crate::number_format::options::CurrencyCode;
 use crate::number_format::{InvalidNumberingSystemOption, NumberingSystemOption};
 use crate::supported_values::SupportedValuesCatalogue;
@@ -940,13 +942,26 @@ impl IntlDataSelection {
     }
 
     pub fn selected(&self) -> Result<&SelectedIntlDataBundle, &EmbeddedIntlProviderSetupError> {
+        self.selected_with_jobs(std::num::NonZeroUsize::MIN)
+    }
+
+    /// Admit the same immutable data, with explicitly bounded concurrent
+    /// initialization of independent canonical Minimal components.
+    /// Custom profiles retain their existing selection and admission order.
+    pub fn selected_with_jobs(
+        &self,
+        jobs: std::num::NonZeroUsize,
+    ) -> Result<&SelectedIntlDataBundle, &EmbeddedIntlProviderSetupError> {
         match &self.profile {
             IntlCompilationProfile::Minimal => {
                 static MINIMAL: OnceLock<
                     Result<SelectedIntlDataBundle, EmbeddedIntlProviderSetupError>,
                 > = OnceLock::new();
                 MINIMAL
-                    .get_or_init(|| SelectedIntlDataBundle::build(&IntlCompilationProfile::Minimal))
+                    .get_or_init(|| {
+                        minimal_admission::prewarm(jobs)?;
+                        SelectedIntlDataBundle::build(&IntlCompilationProfile::Minimal)
+                    })
                     .as_ref()
             }
             IntlCompilationProfile::Conformance

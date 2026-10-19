@@ -112,6 +112,7 @@ def main():
     parser.add_argument('--cohort-size', type=int, default=8)
     parser.add_argument('--test-processes', type=int, default=4)
     parser.add_argument('--all-features', action='store_true')
+    parser.add_argument('--differential-native-cpus', choices=['auto'])
     parser.add_argument('--plan-only', action='store_true')
     parser.add_argument('--partition-native-target', action='append', default=[])
     parser.add_argument('--isolate-test-package', action='append', default=[])
@@ -127,6 +128,8 @@ def main():
             '--strip-test-debug', '--no-test-incremental', '--stop-on-build-failure']
     if args.all_features:
         base.append('--all-features')
+    if args.differential_native_cpus:
+        base.extend(['--differential-native-cpus', args.differential_native_cpus])
     for package in args.isolate_test_package:
         base.extend(['--isolate-test-package', package])
 
@@ -161,6 +164,7 @@ def main():
               'inventory_receipt': str(plan_path), 'inventory_sha256': sha(plan_path),
               'targets': plan['selected_target_members'], 'cohorts': [],
               'all_features': args.all_features, 'native_accepted': False,
+              'differential_native_cpus': args.differential_native_cpus,
               'auxiliary_anchor': args.anchor, 'complete': False}
 
     def save():

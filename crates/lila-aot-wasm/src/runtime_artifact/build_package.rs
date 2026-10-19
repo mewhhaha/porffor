@@ -82,6 +82,7 @@ pub struct RuntimeArtifactInputs<'a> {
     cache: Option<&'a dyn RuntimeArtifactCache>,
     package: Option<Candidate<'a>>,
     source_compilation_profile: RuntimeSourceCompilationProfile,
+    admission_jobs: std::num::NonZeroUsize,
 }
 
 impl<'a> RuntimeArtifactInputs<'a> {
@@ -90,6 +91,7 @@ impl<'a> RuntimeArtifactInputs<'a> {
             cache,
             package: None,
             source_compilation_profile: RuntimeSourceCompilationProfile::Portable,
+            admission_jobs: std::num::NonZeroUsize::MIN,
         }
     }
 
@@ -103,6 +105,17 @@ impl<'a> RuntimeArtifactInputs<'a> {
 
     pub const fn source_compilation_profile(self) -> RuntimeSourceCompilationProfile {
         self.source_compilation_profile
+    }
+
+    /// Bound concurrent admission work by this explicit limit and the visible
+    /// CPU capacity. Every identity, Wasm body and layout check still runs.
+    pub const fn with_admission_jobs(mut self, jobs: std::num::NonZeroUsize) -> Self {
+        self.admission_jobs = jobs;
+        self
+    }
+
+    pub(super) const fn admission_jobs(self) -> std::num::NonZeroUsize {
+        self.admission_jobs
     }
 
     pub const fn with_build_package(
@@ -124,7 +137,12 @@ impl<'a> RuntimeArtifactInputs<'a> {
     ) -> Result<Arc<RuntimeArtifact>, EmitError> {
         if let Some(candidate) = self.package {
             let started = std::time::Instant::now();
-            if let Some(runtime) = decode(candidate.bytes, identity, candidate.expected_source) {
+            if let Some(runtime) = decode_with_jobs(
+                candidate.bytes,
+                identity,
+                candidate.expected_source,
+                self.admission_jobs,
+            ) {
                 if std::env::var_os("LILA_WASM_TRACE").is_some() {
                     eprintln!(
                         "lila wasm trace: runtime-build-package hit: {} bytes in {:?}",
@@ -138,7 +156,11 @@ impl<'a> RuntimeArtifactInputs<'a> {
                 eprintln!("lila wasm trace: runtime-build-package miss: identity or layout rejected in {:?}", started.elapsed());
             }
         }
-        cache::load_or_emit(identity, self.cache, emit)
+        if self.admission_jobs == std::num::NonZeroUsize::MIN {
+            cache::load_or_emit(identity, self.cache, emit)
+        } else {
+            cache::load_or_emit_with_jobs(identity, self.cache, self.admission_jobs, emit)
+        }
     }
 }
 
@@ -164,6 +186,20 @@ fn decode(
     identity: &cache::RuntimeIdentity,
     expected_source: &[u8; DIGEST_BYTES],
 ) -> Option<RuntimeArtifact> {
+    decode_with_jobs(
+        package,
+        identity,
+        expected_source,
+        std::num::NonZeroUsize::MIN,
+    )
+}
+
+fn decode_with_jobs(
+    package: &[u8],
+    identity: &cache::RuntimeIdentity,
+    expected_source: &[u8; DIGEST_BYTES],
+    jobs: std::num::NonZeroUsize,
+) -> Option<RuntimeArtifact> {
     let digest_offset = package.len().checked_sub(DIGEST_BYTES)?;
     let (framed, digest) = package.split_at(digest_offset);
     let mut payload = framed;
@@ -183,7 +219,7 @@ fn decode(
     if actual_digest.as_slice() != digest {
         return None;
     }
-    let runtime = cache::decode_payload(payload, identity, version)?;
+    let runtime = cache::decode_payload(payload, identity, version, jobs)?;
     (runtime.key().as_bytes() == &expected_runtime).then_some(runtime)
 }
 

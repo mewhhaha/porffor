@@ -55,6 +55,15 @@ fn build_package_round_trips_real_runtime_and_matches_fresh_target_emission() {
     assert_eq!(admitted.key(), package.key());
     assert_eq!(admitted.bytes().as_ref(), package.wasm());
     assert_eq!(admitted.layout(), package.runtime.layout());
+    let concurrent = decode_with_jobs(
+        package.package_bytes(),
+        &identity,
+        &SOURCE,
+        std::num::NonZeroUsize::new(4).unwrap(),
+    )
+    .expect("every raw function and layout also admits with explicit jobs");
+    assert_eq!(concurrent.bytes(), admitted.bytes());
+    assert_eq!(concurrent.layout(), admitted.layout());
     let target = std::thread::Builder::new()
         .name("runtime-build-package-target-parity".to_owned())
         .stack_size(64 * 1024 * 1024)

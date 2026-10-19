@@ -277,6 +277,25 @@ compilation job limit. Cargo builds keep their separate compilation policy.
 
 ## Explicit cloud conformance workers — 2026-10-15
 
+For complete idle-exclusive differential native targets, opt into bounded
+compiler/admission CPUs without increasing case or backend concurrency:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+  python3 -B scripts/run_workspace_tests.py --all-features --include-ignored \
+  --output target/differential-native --test-processes 1 \
+  --differential-native-cpus auto \
+  --only-targets lila-test262:differential_generated_campaign
+```
+
+Existing `LILA_JOBS` and `RAYON_NUM_THREADS` limits still apply. The coordinator
+drains independent scopes first and seals actual affinity, native jobs and the
+unchanged serial libtest setting. Performance, publication, documentation and
+other scopes keep their existing CPU policy. Continuations must preserve this
+opt-in setting. Runtime admission checks every function body and every existing
+Intl component; only their independent work is concurrent. Without an explicit
+job setting, admission remains serial.
+
 The CLI accepts `LILA_JOBS` as the native compilation default; an explicit
 `--jobs N` wins. Differential runners also accept that explicit environment
 setting or `new_with_compilation_jobs(path, N)`, otherwise defaulting to one. The selected

@@ -1,3 +1,11 @@
+Runtime admission candidate — 2026-10-19: explicit compiler jobs also bound
+concurrent initialization of the same checked Minimal Intl components and full
+runtime function-body validation. Serial defaults, custom-profile admission,
+all checksums, layout checks and original deadlines remain in force. Complete
+native differential scopes can opt in with `--differential-native-cpus auto`;
+the coordinator drains other scopes and records actual CPUs/jobs while libtest,
+cases and backends stay serial. Candidate verification is pending.
+
 Differential worker configuration repair — 2026-10-19: explicit native compiler
 jobs now reach the selected worker. CLI `--jobs` overrides `LILA_JOBS`; cases and
 backends remain serial. Complete focused verification at `e13d926d4` records

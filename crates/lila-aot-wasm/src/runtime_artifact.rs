@@ -26,6 +26,7 @@ pub use source_compilation::{
     RuntimeSourceCompilationProfile, RUNTIME_SOURCE_COMPILATION_PROFILE_CUSTOM_SECTION,
 };
 mod validated_profile;
+mod validation;
 pub use build_package::{
     build_runtime_artifact, build_runtime_artifact_with_source_compilation_profile,
     RuntimeArtifactInputs, RuntimeBuildArtifact,
@@ -332,7 +333,11 @@ pub fn runtime_artifact_with_inputs(
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
     static RUNTIMES: OnceLock<Mutex<residency::RuntimeResidency>> = OnceLock::new();
     let admission_started = std::time::Instant::now();
-    let identity = cache::RuntimeIdentity::admit(selection, inputs.source_compilation_profile())?;
+    let identity = cache::RuntimeIdentity::admit_with_jobs(
+        selection,
+        inputs.source_compilation_profile(),
+        inputs.admission_jobs(),
+    )?;
     if std::env::var_os("LILA_WASM_TRACE").is_some() {
         eprintln!(
             "lila wasm trace: runtime-data admission: {:?}",

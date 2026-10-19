@@ -34,7 +34,11 @@ pub(super) fn inputs(
     source_compilation_profile: RuntimeSourceCompilationProfile,
 ) -> RuntimeArtifactInputs<'_> {
     let inputs = RuntimeArtifactInputs::new(cache)
-        .with_source_compilation_profile(source_compilation_profile);
+        .with_source_compilation_profile(source_compilation_profile)
+        .with_admission_jobs(
+            std::num::NonZeroUsize::new(crate::configured_compilation_jobs().unwrap_or(1))
+                .expect("explicit compilation jobs are positive"),
+        );
     // The embedded native bundle is never a candidate for exported products.
     if source_compilation_profile == RuntimeSourceCompilationProfile::Portable {
         return inputs;

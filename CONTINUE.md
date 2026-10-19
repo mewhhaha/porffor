@@ -1,6 +1,15 @@
 # Continue Lila — 2026-10-19
 
-Current frozen source is `e13d926d4a7d554e7739768190e05220f201a0de`.
+Latest sealed checkpoint source is `e13d926d4a7d554e7739768190e05220f201a0de`.
+The current candidate adds bounded parallel complete runtime-function validation,
+concurrent initialization of the same checked Minimal Intl components, and an
+explicit idle-exclusive differential CPU opt-in with actual resource receipts.
+All identity, checksum, function-body, layout and data checks remain. Default
+admission stays serial; Custom profiles retain their existing admission order.
+Verify malformed-data rejection, exact runtime/frame parity, cold original5s
+inputs and complete affected native scopes before broad candidate acceptance.
+The five added default native controls should extend the inventory without
+removing any of the prior9,538 IDs; require actual inventories to establish counts.
 Explicit differential native compiler jobs propagation is verified, including
 serial defaults and CLI override of an invalid environment setting. The four
 complete focused scopes record **34 passes, one failure, zero ignored**: worker

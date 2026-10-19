@@ -11,8 +11,8 @@ use std::sync::{Arc, OnceLock};
 use lila_intl::{INTL_ARTIFACT_IDENTITY_CUSTOM_SECTION, INTL_SERVICE_SELECTION_CUSTOM_SECTION};
 use sha2::{Digest, Sha256};
 use wasmparser::{
-    DataKind, ExternalKind, FuncValidatorAllocations, Operator, Parser, Payload, TypeRef,
-    ValidPayload, Validator, WasmFeatures,
+    DataKind, ExternalKind, Operator, Parser, Payload, TypeRef, ValidPayload, Validator,
+    WasmFeatures,
 };
 
 use super::source_compilation::SourceCompilationProfileAdmission;
@@ -64,7 +64,19 @@ impl RuntimeIdentity {
         selection: &lila_intl::IntlDataSelection,
         source_compilation_profile: RuntimeSourceCompilationProfile,
     ) -> Result<Self, EmitError> {
-        let selected = selection.selected().map_err(|error| {
+        Self::admit_with_jobs(
+            selection,
+            source_compilation_profile,
+            std::num::NonZeroUsize::MIN,
+        )
+    }
+
+    pub(super) fn admit_with_jobs(
+        selection: &lila_intl::IntlDataSelection,
+        source_compilation_profile: RuntimeSourceCompilationProfile,
+        jobs: std::num::NonZeroUsize,
+    ) -> Result<Self, EmitError> {
+        let selected = selection.selected_with_jobs(jobs).map_err(|error| {
             EmitError::unsupported(format!("failed to select the Intl artifact data: {error}"))
         })?;
         if matches!(
@@ -155,6 +167,15 @@ pub(super) fn load_or_emit(
     cache: Option<&dyn RuntimeArtifactCache>,
     emit: impl FnOnce() -> Result<Arc<RuntimeArtifact>, EmitError>,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
+    load_or_emit_with_jobs(identity, cache, std::num::NonZeroUsize::MIN, emit)
+}
+
+pub(super) fn load_or_emit_with_jobs(
+    identity: &RuntimeIdentity,
+    cache: Option<&dyn RuntimeArtifactCache>,
+    jobs: std::num::NonZeroUsize,
+    emit: impl FnOnce() -> Result<Arc<RuntimeArtifact>, EmitError>,
+) -> Result<Arc<RuntimeArtifact>, EmitError> {
     let Some(cache) = cache else {
         return emit();
     };
@@ -162,7 +183,12 @@ pub(super) fn load_or_emit(
     let trace = std::env::var_os("LILA_WASM_TRACE").is_some();
     let key = identity.cache_key(cache.compiler_identity());
     if let Some(entry) = cache.load(key) {
-        if let Some(runtime) = decode(&entry, key, identity) {
+        let decoded = if jobs == std::num::NonZeroUsize::MIN {
+            decode(&entry, key, identity)
+        } else {
+            decode_with_jobs(&entry, key, identity, jobs)
+        };
+        if let Some(runtime) = decoded {
             if trace {
                 eprintln!(
                     "lila wasm trace: runtime-cache hit: {} bytes in {:?}",
@@ -221,6 +247,15 @@ fn decode(
     key: RuntimeArtifactCacheKey,
     identity: &RuntimeIdentity,
 ) -> Option<RuntimeArtifact> {
+    decode_with_jobs(entry, key, identity, std::num::NonZeroUsize::MIN)
+}
+
+fn decode_with_jobs(
+    entry: &[u8],
+    key: RuntimeArtifactCacheKey,
+    identity: &RuntimeIdentity,
+    jobs: std::num::NonZeroUsize,
+) -> Option<RuntimeArtifact> {
     let digest_offset = entry.len().checked_sub(DIGEST_BYTES)?;
     let (mut payload, digest) = entry.split_at(digest_offset);
     let expected_digest: [u8; DIGEST_BYTES] = Sha256::digest(payload).into();
@@ -231,13 +266,14 @@ fn decode(
     if &take::<DIGEST_BYTES>(&mut payload)? != key.as_bytes() {
         return None;
     }
-    decode_payload(payload, identity, version)
+    decode_payload(payload, identity, version, jobs)
 }
 
 pub(super) fn decode_payload(
     mut payload: &[u8],
     identity: &RuntimeIdentity,
     version: CurrentRuntimeLayoutVersion,
+    jobs: std::num::NonZeroUsize,
 ) -> Option<RuntimeArtifact> {
     let static_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
     let code_unit_len = usize::try_from(u64::from_le_bytes(take(&mut payload)?)).ok()?;
@@ -247,7 +283,7 @@ pub(super) fn decode_payload(
         return None;
     }
     let pool = PoolBoundary::from_runtime_cache(static_len, code_unit_len, strings)?;
-    let layout = decode_layout(payload, pool, identity)?;
+    let layout = decode_layout(payload, pool, identity, jobs)?;
     Some(RuntimeArtifact::new(
         Arc::from(payload),
         layout,
@@ -260,6 +296,7 @@ fn decode_layout(
     bytes: &[u8],
     pool: PoolBoundary,
     identity: &RuntimeIdentity,
+    jobs: std::num::NonZeroUsize,
 ) -> Option<RuntimeLayout> {
     let features = WasmFeatures::default()
         | WasmFeatures::THREADS
@@ -272,7 +309,7 @@ fn decode_layout(
     let mut validator = Validator::new_with_features(features);
     let mut parser = Parser::new(0);
     parser.set_features(features);
-    let mut function_allocations = FuncValidatorAllocations::default();
+    let mut functions = Vec::new();
     let mut validated_end = false;
 
     let mut imported_functions = 0u32;
@@ -286,9 +323,7 @@ fn decode_layout(
         let payload = payload.ok()?;
         match validator.payload(&payload).ok()? {
             ValidPayload::Func(function, body) => {
-                let mut function_validator = function.into_validator(function_allocations);
-                function_validator.validate(&body).ok()?;
-                function_allocations = function_validator.into_allocations();
+                functions.push((function, body));
             }
             ValidPayload::End(_) => validated_end = true,
             ValidPayload::Ok => {}
@@ -402,6 +437,7 @@ fn decode_layout(
             return None;
         }
     }
+    super::validation::validate_all(functions, jobs)?;
     Some(RuntimeLayout::new(
         imported_functions,
         function_types,

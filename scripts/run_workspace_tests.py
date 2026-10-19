@@ -4,7 +4,9 @@ Run from the repository root under limited_verification.py --cloud. Cargo stays
 serial; up to four native targets use one CPU and one test thread each. Original
 worker/campaign deadlines, publication, performance and rustdoc scopes remain
 idle-exclusive. Explicitly isolated test roots use their own Cargo cohort while
-retaining every selected target. --partition-cli inventories and executes every qualified CLI
+retaining every selected target. --differential-native-cpus auto permits
+quota-bound compiler/admission work only inside idle-exclusive differential
+scopes, recording actual CPUs and jobs. --partition-cli inventories and executes every qualified CLI
 test exactly once across disjoint processes. --partition-native-target names an
 opt-in complete native scope, such as lila-engine:aot_intl; original native
 watcher allowances and existing timing/campaign barriers remain intact.
@@ -13,11 +15,11 @@ import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
 from pathlib import Path
 root=Path.cwd()
 sys.path.insert(0,str(root/'scripts'))
-from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds
+from workspace_test_schedule import execution_order,is_barrier,is_partitioned_cli,is_partitioned_native,validate_partition_native_targets,native_stall_seconds,differential_native_compilation,NATIVE_RESOURCE_EXEC
 from workspace_test_storage import storage_snapshot
 import workspace_feature_roots as feature_roots
 from workspace_test_artifacts import build_script_artifact, doc_cohorts, isolated_test_packages, package_selection, selector_key, selected_cohort_selectors, selected_target_members, test_artifacts
-parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');parser.add_argument('--selected-feature-roots',action='store_true',help='Narrow native Cargo roots with an empty auxiliary and prove each selected root matches the ordinary workspace graph');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--profile',choices=['debug','release'],default='debug');parser.add_argument('--plan-only',action='store_true');parser.add_argument('--packages',nargs='*');parser.add_argument('--isolate-test-package',action='append',default=[]);parser.add_argument('--output',required=True);parser.add_argument('--all-features',action='store_true');parser.add_argument('--include-ignored',action='store_true');parser.add_argument('--test-processes',type=int,default=1);parser.add_argument('--shared-runtime-linker',type=Path);parser.add_argument('--shared-runtime-linker-contract',type=Path);parser.add_argument('--strip-test-debug',action='store_true');parser.add_argument('--no-test-incremental',action='store_true');parser.add_argument('--preserve-test-artifacts',action='store_true',help='Keep verified completed and unselected Cargo test outputs for ordinary Cargo reuse');parser.add_argument('--retry-from',type=Path);parser.add_argument('--reuse-library-build-from',type=Path);parser.add_argument('--restored-library-provenance',type=Path);parser.add_argument('--retry-interrupted',action='store_true');parser.add_argument('--only-targets',nargs='*');parser.add_argument('--native-filter',action='append',default=[]);parser.add_argument('--stop-on-build-failure',action='store_true');parser.add_argument('--partition-cli',action='store_true');parser.add_argument('--partition-native-target',action='append',default=[]);parser.add_argument('--continuation-phase',choices=['parallel','barriers','all'],default='all');parser.add_argument('--build-selected-together',action='store_true',help='Build the union of selected normal native selectors once; preserve every per-target execution and isolated package graph');parser.add_argument('--selected-feature-roots',action='store_true',help='Narrow native Cargo roots with an empty auxiliary and prove each selected root matches the ordinary workspace graph');parser.add_argument('--differential-native-cpus',choices=['auto'],help='explicit quota-bound native compilation in idle-exclusive differential scopes; libtest/cases remain serial');args=parser.parse_args()
 if args.selected_feature_roots:
     assert not (args.all_features or args.packages or (set(args.isolate_test_package)-{'lila-intl'}) or args.retry_from or args.reuse_library_build_from or args.restored_library_provenance), 'Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt'
 native_filters=dict(row.split('=',1) for row in args.native_filter)
@@ -96,12 +98,14 @@ if args.only_targets:
 combined_selectors=selected_cohort_selectors(cases,isolated_packages) if args.build_selected_together else []
 result={'verification_driver_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'source_map_sha256':hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest(),'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'profile':args.profile,'target_directory':str(cargo_target_dir),'all_features':args.all_features,'include_ignored':args.include_ignored,'cases':cases,'targets_disabled_by_cargo_features':disabled_targets,'selected_workspace_packages':[p['name'] for p in packages],'isolated_test_packages':isolated_packages,'partition_cli':args.partition_cli,'partition_native_targets':partition_native_targets,'preserve_test_artifacts':args.preserve_test_artifacts}
 result['selected_feature_roots']=args.selected_feature_roots
+result['differential_native_cpus']=args.differential_native_cpus
 result['build_selected_together']=args.build_selected_together
 result['selected_build_selectors']=combined_selectors
 result['selected_target_members']=selected_target_members(cases)
 if args.retry_from:
     assert args.continuation_phase in ('parallel','barriers')
     previous=json.loads(args.retry_from.read_text())
+    assert previous.get('differential_native_cpus')==args.differential_native_cpus, 'Continuation cannot change differential native CPU policy'
     assert previous['head']==result['head'] and previous['source_unchanged']
     assert previous.get('profile','debug')==args.profile, 'Retry profile changed'
     assert Path(previous.get('target_directory',root/'target')).resolve()==cargo_target_dir, 'Retry Cargo target directory changed'
@@ -373,6 +377,16 @@ def complete(cpu):
       inventory_matches=matches_inventory,seconds=round(time.monotonic()-entry['start'],3),outcomes=outcomes,
       transcript_log=evidence_path(watch))
     if watch.exists():case['transcript_sha256']=hashlib.sha256(watch.read_bytes()).hexdigest()
+    if case.get('execution_resource_log'):
+        resource_path=root/case['execution_resource_log']
+        if resource_path.exists():
+            resource=json.loads(resource_path.read_text())
+            case['execution_resources']=resource
+            case['execution_resource_sha256']=hashlib.sha256(resource_path.read_bytes()).hexdigest()
+            assert resource['command']==case['command']
+            assert resource['libtest_threads']==1 and 1<=resource['native_jobs']<=len(resource['cpus'])
+        elif case['state']=='passed':
+            raise AssertionError('Native scope passed without its actual CPU/job receipt')
     if entry.get('partition_receipt'):
         partition_path=entry['partition_receipt']
         if partition_path.exists():
@@ -719,6 +733,14 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets)
         launch=['./scripts/run-watched.sh','--label',watch_label,'--stall',str(native_stall_seconds(case['package'])),'--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-worker-cpus','auto','--',*command]
         case['test_cpus']=slots
         case['test_policy']='complete logical native target; all exact qualified IDs in disjoint source-bound partitions, each on one inherited CPU and one libtest thread; no other native target active; source-bound partition driver and original native stall allowance retained'
+        save()
+    elif differential_native_compilation(case,args.differential_native_cpus):
+        assert barrier and not active
+        resource_path=out/(label+'.native-resources.json')
+        launch=['./scripts/run-watched.sh','--label',watch_label,'--stall',str(native_stall_seconds(case['package'])),'--poll','1','--','python3','-B','scripts/limited_verification.py','--cloud','--cloud-cpus','auto','--','python3','-B','-c',NATIVE_RESOURCE_EXEC,str(resource_path),*command]
+        case['scheduler_slot']=case.pop('test_cpu')
+        case['execution_resource_log']=evidence_path(resource_path)
+        case['test_policy']='complete idle-exclusive differential scope; one libtest thread and serial case/backends; explicit native compilation CPUs bounded by inherited affinity, cgroup quota and job limits; actual CPUs/jobs sealed in execution resource receipt; original deadlines unchanged'
         save()
     run=subprocess.Popen(launch,stdout=stream,stderr=subprocess.STDOUT,env=build_env)
     active[cpu]={'run':run,'stream':stream,'case':case,'start':start,'watch':watch,'log':log,

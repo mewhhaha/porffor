@@ -115,6 +115,42 @@ enum Defect {
     IntlIdentity,
 }
 
+#[test]
+fn concurrent_cache_admission_rejects_invalid_bodies_and_rebuilds_checked_layout() {
+    let identity = identity();
+    let cache = MemoryCache::new();
+    let key = identity.cache_key(cache.compiler_identity());
+    let invalid = fixture(Defect::FunctionResult);
+    cache
+        .entries
+        .borrow_mut()
+        .insert(key, encode(&invalid, key));
+    let valid = fixture(Defect::None);
+    let emitted = Cell::new(false);
+    let admitted = load_or_emit_with_jobs(
+        &identity,
+        Some(&cache),
+        std::num::NonZeroUsize::new(4).unwrap(),
+        || {
+            emitted.set(true);
+            Ok(Arc::clone(&valid))
+        },
+    )
+    .unwrap();
+    assert!(emitted.get());
+    assert_eq!(cache.removals.get(), 1);
+    assert_eq!(admitted.bytes(), valid.bytes());
+    let restored = decode_with_jobs(
+        &cache.entries.borrow()[&key],
+        key,
+        &identity,
+        std::num::NonZeroUsize::new(4).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored.bytes(), valid.bytes());
+    assert_eq!(restored.layout(), valid.layout());
+}
+
 fn fixture(defect: Defect) -> Arc<RuntimeArtifact> {
     let mut module = Module::new();
     let mut types = TypeSection::new();
