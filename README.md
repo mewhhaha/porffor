@@ -1,3 +1,13 @@
+Prepared lowering repair — 2026-10-19: historical allocation stacks identify
+2,110 early receiver and 2,118 late parameter signature-copy samples. The
+projection source is byte-identical at that sample and current frozen source.
+The candidate borrows only needed receiver facts and skips the late lookup for
+parameterless functions. Test builds compare receiver facts against the old
+expression; stored facts and nonempty parameter handling remain unchanged.
+Current allocation savings and ordinary native correctness are unmeasured.
+Run complete IR and the original method fixture before accepting or pushing.
+[Exact attribution and candidate](docs/rust-rewrite/signature-projection-candidate-20261019.json).
+
 Prepared repair batch — 2026-10-19: the timeout cleanup test now observes
 parent-created scratch, retaining its original 50 ms deadline and resumable
 snapshot assertions. DateTime object tokens decode directly; original derived

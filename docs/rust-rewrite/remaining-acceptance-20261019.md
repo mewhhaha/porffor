@@ -1,5 +1,15 @@
 # Remaining acceptance after compiler-fact verification — 2026-10-19
 
+Prepared lowering repair — 2026-10-19: historical allocation stacks identify
+2,110 early receiver and 2,118 late parameter signature-copy samples. The
+projection source is byte-identical at that sample and current frozen source.
+The candidate borrows only needed receiver facts and skips the late lookup for
+parameterless functions. Test builds compare receiver facts against the old
+expression; stored facts and nonempty parameter handling remain unchanged.
+Current allocation savings and ordinary native correctness are unmeasured.
+Run complete IR and the original method fixture before accepting or pushing.
+[Exact attribution and candidate](signature-projection-candidate-20261019.json).
+
 The prepared timeout/DateTime batch retains the original50ms deadline; isolated
 schema3 passes, whole raw-profile values match, and parse medians are146.994ms
 before/81.907ms after (phase only). Ordinary Cargo acceptance remains pending.

@@ -165,23 +165,51 @@ impl<'a> ScriptLowerer<'a> {
                 CurrentThisBinding::Root(lowerer.root_this_binding)
             }
         } else {
+            // Only receiver facts are consumed here. A full signature clone
+            // also copies unused parameter, return and global-object trees.
             let current_flow_signature = exact_context_signature
-                .clone()
-                .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
-            CurrentThisBinding::Activation(
-                current_flow_signature
-                    .as_ref()
+                .as_ref()
+                .or_else(|| lowerer.function_signatures.get(&function.id));
+            let this_info = current_flow_signature
+                .map(|signature| {
+                    if signature.this_observed {
+                        ValueInfo {
+                            kind: signature.this_info.kind,
+                            possible_kinds: signature.this_info.possible_kinds,
+                            heap_shape: if lowerer.function_signature_shape_evidence
+                                == FunctionSignatureShapeEvidence::Available
+                            {
+                                signature.this_info.heap_shape.clone()
+                            } else {
+                                None
+                            },
+                            function_targets: signature.this_info.function_targets.clone(),
+                        }
+                    } else if function.strict {
+                        ValueInfo::undefined()
+                    } else {
+                        Self::unobserved_sloppy_this_info()
+                    }
+                })
+                .unwrap_or_else(ValueInfo::undefined);
+            #[cfg(test)]
+            {
+                let previous = exact_context_signature
+                    .clone()
+                    .or_else(|| lowerer.function_signature_for_current_flow(&function.id))
                     .map(|signature| {
                         if signature.this_observed {
-                            signature.this_info.clone()
+                            signature.this_info
                         } else if function.strict {
                             ValueInfo::undefined()
                         } else {
                             Self::unobserved_sloppy_this_info()
                         }
                     })
-                    .unwrap_or_else(ValueInfo::undefined),
-            )
+                    .unwrap_or_else(ValueInfo::undefined);
+                assert_eq!(this_info, previous, "receiver facts for {}", function.id);
+            }
+            CurrentThisBinding::Activation(this_info)
         };
         if function.protocol.flavor() != FunctionFlavor::Arrow
             && !function.strict
@@ -631,22 +659,24 @@ impl<'a> ScriptLowerer<'a> {
             return_info = lowerer.merge_value_infos(return_info, ValueInfo::undefined());
         }
 
-        let context_signature = lowerer
-            .exact_signature_for_function(&function.id, context_key_override.as_ref())
-            .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
-        if let Some(signature) = context_signature {
-            for (param, signature_param) in params.iter_mut().zip(signature.params.iter()) {
-                param.kind = signature_param.kind;
-                lowerer.update_binding_shape_path(
-                    &param.name,
-                    &[],
-                    ValueInfo {
-                        kind: signature_param.kind,
-                        possible_kinds: signature_param.possible_kinds,
-                        heap_shape: signature_param.heap_shape.clone(),
-                        function_targets: signature_param.function_targets.clone(),
-                    },
-                );
+        if !params.is_empty() {
+            let context_signature = lowerer
+                .exact_signature_for_function(&function.id, context_key_override.as_ref())
+                .or_else(|| lowerer.function_signature_for_current_flow(&function.id));
+            if let Some(signature) = context_signature {
+                for (param, signature_param) in params.iter_mut().zip(signature.params.iter()) {
+                    param.kind = signature_param.kind;
+                    lowerer.update_binding_shape_path(
+                        &param.name,
+                        &[],
+                        ValueInfo {
+                            kind: signature_param.kind,
+                            possible_kinds: signature_param.possible_kinds,
+                            heap_shape: signature_param.heap_shape.clone(),
+                            function_targets: signature_param.function_targets.clone(),
+                        },
+                    );
+                }
             }
         }
         if function.protocol.execution_kind() == FunctionExecutionKind::Generator {
