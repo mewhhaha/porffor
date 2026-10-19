@@ -163,10 +163,11 @@ mod prepared_function;
 mod runtime_direct_eval;
 mod runtime_global_script;
 pub use runtime_direct_eval::{
-    lower_runtime_direct_eval, EmptyRuntimeDirectEval, RuntimeDirectEvalCaller,
-    RuntimeDirectEvalCallerDescriptor, RuntimeDirectEvalCallerError, RuntimeDirectEvalCompileError,
-    RuntimeDirectEvalDerivedOwner, RuntimeDirectEvalImportOrigin, RuntimeDirectEvalPrivateScope,
-    RuntimeDirectEvalProgram, StaticRegExpRuntimeDirectEval,
+    lower_runtime_direct_eval, EmptyRuntimeDirectEval, PrimitiveRuntimeDirectEval,
+    RuntimeDirectEvalCaller, RuntimeDirectEvalCallerDescriptor, RuntimeDirectEvalCallerError,
+    RuntimeDirectEvalCompileError, RuntimeDirectEvalDerivedOwner, RuntimeDirectEvalImportOrigin,
+    RuntimeDirectEvalPrimitive, RuntimeDirectEvalPrivateScope, RuntimeDirectEvalProgram,
+    StaticRegExpRuntimeDirectEval,
 };
 pub use runtime_global_script::{
     lower_runtime_global_script, RuntimeGlobalScriptCompileError, RuntimeGlobalScriptKind,

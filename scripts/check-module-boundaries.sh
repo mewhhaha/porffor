@@ -3464,8 +3464,14 @@ require_fixed_string_count crates/lila-engine/src/lib.rs 'cache::NativeFunctionC
 require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, native())' 1 'native load accepts only immutable embedded bytes'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
-require_fixed_string_count "$wasm_build_package" 'cache::decode_payload(payload, identity, version)?' 1 'canonical complete raw layout admission consumes the checked actual version'
-require_fixed_string_count "$wasm_build_package" 'CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mut payload)?))?' 1 'build envelope admits actual current layout before raw payload'
+wasm_build_envelope="crates/lila-aot-wasm/src/runtime_artifact/build_package/envelope.rs"
+require_file "$wasm_build_envelope"
+require_module_decl "$wasm_build_package" envelope
+check_raw_line_budget "$wasm_build_envelope" 110
+require_fixed_string_count "$wasm_build_envelope" 'cache::decode_payload(payload, identity, version, jobs, body_validation)?' 1 'canonical complete raw layout admission consumes checked version and explicit validation mode'
+require_fixed_string_count "$wasm_build_envelope" 'CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mut payload)?))?' 1 'build envelope admits actual current layout before raw payload'
+require_fixed_string_count "$wasm_build_envelope" 'actual_digest.as_slice() != digest' 1 'raw build envelope retains complete checksum admission'
+require_fixed_string_count "$wasm_build_envelope" 'runtime.key().as_bytes() == &expected_runtime' 1 'raw build envelope retains exact runtime key admission'
 require_fixed_string_count crates/lila-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(source, policy, mode, || {' 1 'typed embedded R uses the shared bounded retention owner'
 check_raw_line_budget "$engine_native_config" 100
 check_raw_line_budget "$engine_embedded_runtime" 180
@@ -3497,6 +3503,12 @@ fi
 if [[ "$(sed -n '/^#\[cfg(test)\]$/{N;p;}' "$runtime_source_profile_fixture_parent")" != $'#[cfg(test)]\nmod tests;' ]]; then
   fail 'source-profile metadata fixture parent must retain its exact test-only gate'
 fi
+runtime_validation_fixture_source="crates/lila-aot-wasm/src/runtime_artifact/validation/tests.rs"
+if [[ "$(head -n 1 "$runtime_validation_fixture_source")" != '#![cfg(test)]' ]]; then
+  fail 'runtime validation fixture constructors must be compiled only for tests'
+fi
+require_fixed_string_count crates/lila-aot-wasm/src/runtime_artifact/validation.rs '#[cfg(test)]' 1 'validation fixture parent retains its test-only gate'
+require_module_decl crates/lila-aot-wasm/src/runtime_artifact/validation.rs tests
 for sealed_section in types globals code; do
   source_profile_fixture_exclusions=()
   if [ "$sealed_section" = types ]; then
@@ -3506,6 +3518,7 @@ for sealed_section in types globals code; do
     find crates/lila-aot-wasm/src -type f -name '*.rs' \
       ! -path "$compiled_module_package" \
       ! -path "$runtime_cache_fixture_source" \
+      ! -path "$runtime_validation_fixture_source" \
       ! -path "$native_template_fixture_source" \
       ! -path "$native_template_literal_fixture_source" \
       ! -path "$native_template_shared_body_fixture_source" \
@@ -5177,7 +5190,11 @@ require_text_regex_count "$worker_module_attributes" '^#\[cfg\(feature = "spec-e
 # The existing compile-boundary test checks every gated declaration and the
 # feature-off refusal. The executable controls are bound to the required worker.
 require_exact_line_count "$test262_worker_controls" '#![cfg(feature = "spec-exec-oracle")]' 1 'feature-only paired worker controls'
-require_fixed_string_count "$test262_worker_controls" 'env!("CARGO_BIN_EXE_lila-differential-worker")' 2 'actual Cargo worker selection and image identity controls'
+require_fixed_string_count "$test262_worker_controls" 'env!("CARGO_BIN_EXE_lila-differential-worker")' 3 'actual Cargo worker selection, explicit native jobs and image identity controls'
+worker_jobs_control="$(braced_rust_item_source "$test262_worker_controls" '^fn selected_worker_accepts_explicit_native_compilation_jobs[(]')"
+for worker_jobs_requirement in 'new_with_compilation_jobs(selected, 0).is_err()' 'new_with_compilation_jobs(selected, 2).unwrap()' 'replay_case(&case_v1(), SpecExecOracle::explicitly_enabled(), &runner)' 'assert!(report.is_green()'; do
+  require_fixed_string_present <(printf '%s\n' "$worker_jobs_control") "$worker_jobs_requirement" 'explicit native-job worker control'
+done
 require_fixed_string_count "$test262_worker_controls" 'fn module_loader_context_sources(' 1 'feature-only module-loader fixture owner'
 require_exact_line_count crates/lila-test262/src/lib.rs 'fn skip_template_source(bytes: &[u8], mut idx: usize) -> usize {' 0 'obsolete template-source scanner'
 require_exact_line_count crates/lila-test262/src/lib.rs '    fn values_mut(&mut self) -> Option<&mut Vec<T>> {' 1 'test-only wire-list mutation entry'

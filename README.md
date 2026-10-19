@@ -519,6 +519,15 @@ failure. Passive stdout observations identify several custom Intl projection
 tests at roughly190–337s during the suite. Full native and calibrated performance
 acceptance remain pending. [Exact scopes, inputs, profiles and bounded observations](docs/rust-rewrite/native-cost-hills-20261019.json).
 
+Pending native-cost candidate — 2026-10-19: proven scalar direct evals share a
+real stateless Wasm factory, supplying fresh tag/bits on each call after normal
+parsing, early errors and lowering. Five hot third-party compiler dependencies
+use optimized dev/test profiles; workspace and Wasm validation checks remain
+enabled. All13 Intl source recipes were refreshed. All616 Python tooling
+controls and14 source audits pass; the candidate has not been compiled or
+timed. The current full-default discovery retains two60s template
+timeouts; its original tests and limits remain unchanged.
+
 Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
 checks each producer first and regenerates only stale output, then rechecks all
 13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.

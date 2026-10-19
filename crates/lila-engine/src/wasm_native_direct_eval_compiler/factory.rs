@@ -2,7 +2,6 @@ use super::*;
 use crate::wasm_native_source_compiler::CallbackTrace;
 use lila_ir::{PreparedScriptKind, PreparedScriptOutcome, RuntimeDirectEvalProgram};
 use wasmtime::{AsContextMut, FuncType, HeapType, StructType, ValType};
-
 pub(super) fn instantiate_and_execute(
     store: &mut impl AsContextMut<Data = WasmHostState>,
     engine: &WasmtimeEngine,
@@ -16,6 +15,9 @@ pub(super) fn instantiate_and_execute(
     context.check_budget()?;
     if let Some(proof) = program.empty_completion() {
         return super::empty::execute(store, engine, context, &proof, signature, trace);
+    }
+    if let Some(proof) = program.primitive_literal() {
+        return super::primitive::execute(store, engine, context, &proof, signature, trace);
     }
     // Inert preparation only adds dead declarative links above this actual
     // chain. A null caller chain retains the ordinary prepared-script route.
@@ -110,7 +112,6 @@ pub(super) fn instantiate_and_execute(
     }
     Ok(output)
 }
-
 pub(super) fn require_exact_program(
     caller: &lila_ir::RuntimeDirectEvalCaller,
     source: &[u16],
@@ -135,7 +136,6 @@ pub(super) fn require_exact_program(
     }
     Ok(())
 }
-
 fn program_reference(value: &ValType, signature: &NativeDirectEvalSignature) -> bool {
     matches!(value, ValType::Ref(r) if !r.is_nullable()
         && matches!(r.heap_type(), HeapType::ConcreteStruct(t) if StructType::eq(t, &signature.program)))

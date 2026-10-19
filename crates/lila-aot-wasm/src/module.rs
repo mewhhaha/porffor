@@ -16,8 +16,8 @@ pub(crate) use static_signature::{StaticSignature, StaticSignatureDefinition, CO
 
 mod compiled_module_package;
 pub(crate) use compiled_module_package::{
-    empty_direct_eval_module, ModuleAssemblySections, ModuleGlobalSectionBuilder,
-    ModuleTypeRegistry,
+    empty_direct_eval_module, primitive_direct_eval_module, ModuleAssemblySections,
+    ModuleGlobalSectionBuilder, ModuleTypeRegistry,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

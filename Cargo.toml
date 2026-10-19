@@ -74,6 +74,56 @@ incremental = true
 [profile.test.package."*"]
 opt-level = 2
 
+# Build the third-party native compiler with its normal release checks/profile
+# once, then reuse it while editing Lila. Wasm input validation and Lila's own
+# debug assertions remain active. Cranelift's compiled-in SSA/debug traversals
+# otherwise run inside every cold native compilation, even with its separate
+# configurable verifier disabled. Keep dev and test dependency graphs equal.
+[profile.dev.package.wasmtime]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.test.package.wasmtime]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.wasmtime-internal-cranelift]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.test.package.wasmtime-internal-cranelift]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.test.package.cranelift-codegen]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.cranelift-frontend]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.test.package.cranelift-frontend]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.dev.package.regalloc2]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.test.package.regalloc2]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
 # Boa uses this small crate through both its normal and proc-macro graphs.
 # Keep its debug info identical in both contexts so selecting a different
 # test target does not invalidate Boa, the frontend and the IR libraries.

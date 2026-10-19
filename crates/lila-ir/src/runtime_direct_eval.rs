@@ -130,6 +130,8 @@ pub fn lower_runtime_direct_eval(
 
 mod empty;
 pub use empty::EmptyRuntimeDirectEval;
+mod primitive_literal;
+pub use primitive_literal::{PrimitiveRuntimeDirectEval, RuntimeDirectEvalPrimitive};
 mod regexp_literal;
 pub use regexp_literal::StaticRegExpRuntimeDirectEval;
 

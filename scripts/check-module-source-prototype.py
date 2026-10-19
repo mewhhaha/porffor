@@ -67,7 +67,7 @@ def check(root: Path, overrides=None):
     need("!runtime.layout_admission.is_some_and(|version|version.0==LAYOUT_VERSION)" in proof,
          "opaque native runtime proof requires current admitted layout")
     for relative, token in [("runtime_artifact/cache.rs", "CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(take(&mutpayload)?))?"),
-                            ("runtime_artifact/build_package.rs", "CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mutpayload)?))?")]:
+                            ("runtime_artifact/build_package/envelope.rs", "CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mutpayload)?))?")]:
         need(token in compact(A + relative), "authenticated current layout checked by " + relative)
     for relative, helper in [("runtime_artifact/cache/tests.rs", "assert_previous_runtime_cache_entry_replaced"),
                              ("runtime_artifact/build_package/tests.rs", "assert_previous_build_package_replaced")]:

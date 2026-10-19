@@ -33,12 +33,12 @@ impl NativeProgramTemplate {
                 .payload
                 .as_ref()
                 .is_some_and(|p| p.permits_instance_reuse()),
-            TemplateEntry::EmptyDirectEval => true,
+            TemplateEntry::EmptyDirectEval | TemplateEntry::PrimitiveDirectEval => true,
         }
     }
     pub fn empty_direct_eval_export(&self) -> Option<&'static str> {
         match self.entry {
-            TemplateEntry::Program => None,
+            TemplateEntry::Program | TemplateEntry::PrimitiveDirectEval => None,
             TemplateEntry::EmptyDirectEval => Some(empty_direct_eval::EXPORT),
         }
     }

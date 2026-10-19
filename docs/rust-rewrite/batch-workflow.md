@@ -1,5 +1,31 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Pending literal-eval and compiler-profile batch — 2026-10-19
+
+The candidate reuses a stateless real Wasm factory only after a typed proof of
+one inert scalar expression from normally parsed/lowered direct-eval IR. Each
+call supplies its own scalar tag/bits; the context retains no source value or
+declaration state. The original11,000 distinct-source and1,000-method tests keep
+their60s limits. Four new native controls cover proof rejection, kernel shape
+and per-call values. Compilation and complete affected scopes are still pending.
+
+Five exact third-party package overrides optimize wasmtime, its Cranelift
+backend, cranelift-codegen, cranelift-frontend and regalloc2 in dev/test. Cargo
+graph inspection confirms opt3/checks-off for their ten compiled units, while
+compiled workspace crates and wasmparser retain debug and overflow checks.
+Normal Wasm validation, features, quotas, deadlines and cache capacities remain.
+All13 Intl identity recipes were refreshed and rechecked. This narrower change
+must be measured separately from the earlier whole-graph profile comparison;
+new Cargo fingerprints must fill a new native-cache generation. Do not relabel
+retained artifacts or infer a speedup from the earlier1.77x ratio.
+
+Finish static controls and freeze the coherent candidate before its first
+Cargo build. Drain the current full-default discovery and preserve failed
+images before advancing its source. Use the verified opt-in idle-build mode,
+then run complete affected native scopes and the original cold requests before
+fresh default/all-feature acceptance. Old-source outcomes establish inventory
+retention only. Keep CONTINUE and tasks until all literal acceptance gates pass.
+
 ## Diagnose native source compilation — 2026-10-18
 
 `LILA_NATIVE_SOURCE_TRACE=1` enables the existing execution-local timing trace,

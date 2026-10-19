@@ -381,19 +381,35 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
     assert!(!EMITTER_FAMILY.contains("CompiledModulePackage"));
     assert!(!EMITTER_FAMILY.contains("FinalizedModuleSections"));
     assert!(!EMITTER_FAMILY.contains("FunctionSection"));
-    let (package_owner, empty_entry) = OWNER_SOURCE
+    let (package_owner, stateless_entries) = OWNER_SOURCE
         .split_once("pub(crate) fn empty_direct_eval_module(")
         .expect("stateless empty eval has its separate proof-gated entry");
     assert!(!package_owner.contains("FunctionSection"));
+    let (empty_entry, primitive_entry) = stateless_entries
+        .split_once("pub(crate) fn primitive_direct_eval_module(")
+        .expect("scalar eval has a separate typed proof entry");
     let signature = compact(empty_entry.split_once(") -> Vec<u8> {").unwrap().0);
     assert_eq!(
         signature,
         "_proof:&lila_ir::EmptyRuntimeDirectEval<'_>,export:&str,"
     );
-    assert_eq!(empty_entry.matches("FunctionSection::new()").count(), 1);
-    assert!(empty_entry.contains("let mut body = Function::new([]);"));
-    assert!(empty_entry.contains("WasmRuntimeValueTag::Undefined.tag()"));
-    assert!(empty_entry.contains("CompletionKindIr::Normal.abi_code()"));
+    assert!(compact(empty_entry)
+        .contains("stateless_direct_eval_module(export,DirectEvalCompletionOperands::Undefined)"));
+    let (primitive_entry, shared_factory) = primitive_entry
+        .split_once("fn stateless_direct_eval_module(")
+        .expect("stateless entries share only the typed completion assembler");
+    assert_eq!(
+        compact(primitive_entry.split_once(") -> Vec<u8> {").unwrap().0),
+        "_proof:&lila_ir::PrimitiveRuntimeDirectEval<'_>,export:&str,"
+    );
+    assert!(compact(primitive_entry)
+        .contains("stateless_direct_eval_module(export,DirectEvalCompletionOperands::Primitive)"));
+    assert_eq!(shared_factory.matches("FunctionSection::new()").count(), 1);
+    assert!(shared_factory.contains("let mut body = Function::new([]);"));
+    assert!(shared_factory.contains("WasmRuntimeValueTag::Undefined.tag()"));
+    assert!(shared_factory.contains("CompletionKindIr::Normal.abi_code()"));
+    assert!(shared_factory.contains("Instruction::LocalGet(0)"));
+    assert!(shared_factory.contains("Instruction::LocalGet(1)"));
     for stateful_section in [
         "ImportSection",
         "GlobalSection",
@@ -401,7 +417,7 @@ fn emitter_consumes_the_package_through_the_reviewed_lifecycle() {
         "DataSection",
     ] {
         assert!(
-            !empty_entry.contains(stateful_section),
+            !stateless_entries.contains(stateful_section),
             "{stateful_section}"
         );
     }

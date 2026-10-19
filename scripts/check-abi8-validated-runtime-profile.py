@@ -11,6 +11,7 @@ C = E + "wasm_native_source_compiler.rs"
 KINDS = ("function", "global_script", "direct_eval")
 FILES = (P, C, A + "runtime_artifact.rs", A + "runtime_artifact/cache.rs",
          A + "runtime_artifact/build_package.rs", A + "runtime_function/runtime_profile.rs",
+         A + "runtime_artifact/build_package/envelope.rs",
          A + "runtime_artifact/validated_profile/tests.rs", E + "wasm_native_source_compiler/tests.rs",
          A + "lib.rs", E + "lib.rs") + tuple(A + "runtime_" + kind + ".rs" for kind in KINDS) + tuple(
     E + "wasm_native_" + kind + "_compiler/factory.rs" for kind in KINDS)
@@ -67,13 +68,13 @@ def check(sources):
             "layout_admission:Some(" not in fixture,
             "unadmitted_fixtures", "synthetic fixtures cannot infer layout admission from valid-looking Intl bytes")
     cache = c[A + "runtime_artifact/cache.rs"]
-    build = c[A + "runtime_artifact/build_package.rs"]
+    build = c[A + "runtime_artifact/build_package/envelope.rs"]
     require("CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(take(&mutpayload)?))?" in cache and
-            "decode_payload(payload,identity,version)" in cache and
+            "decode_payload(payload,identity,version,jobs,super::validation::FunctionBodyValidation::AtUse,)" in cache and
             "version:CurrentRuntimeLayoutVersion" in cache and
             "RuntimeArtifact::new(Arc::from(payload),layout,version,identity.source_compilation_profile,)" in cache and
             "CurrentRuntimeLayoutVersion::admit(u32::from_le_bytes(cache::take(&mutpayload)?))?" in build and
-            "cache::decode_payload(payload,identity,version)?" in build,
+            "cache::decode_payload(payload,identity,version,jobs,body_validation)?" in build,
             "checked_envelopes", "both cache and build envelopes propagate the admitted actual version token")
     physical = c[A + "runtime_function/runtime_profile.rs"]
     require("selected.component_sections().into_iter().collect()" in physical and

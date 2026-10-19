@@ -19,6 +19,29 @@ fn repeated_distinct_eval_sources_do_not_consume_one_store_instance_per_invocati
 }
 
 #[test]
+fn shared_primitive_eval_code_preserves_each_operand_and_observable_fallback() {
+    succeeds(
+        r#"
+        for (var i = 0; i < 128; i++) {
+            if (eval('/* first ' + i + ' */ ' + i) !== i) throw 1;
+            if (eval('23.5') !== 23.5 || eval('true') !== true) throw 2;
+            if (eval('false') !== false || eval('null') !== null) throw 3;
+            if (eval('1e309') !== Infinity || !Object.is(eval('-0'), -0)) throw 4;
+        }
+        function shadow(undefined) { return eval('undefined'); }
+        if (shadow(91) !== 91) throw 5;
+        var effects = 0;
+        if (eval('++effects; 42') !== 42 || effects !== 1) throw 6;
+        eval('var declared = 29; 42');
+        if (declared !== 29) throw 7;
+        try { eval('42; let duplicate; let duplicate;'); throw 8; }
+        catch (error) { if (!(error instanceof SyntaxError)) throw error; }
+        1;
+    "#,
+    );
+}
+
+#[test]
 fn saved_native_functions_keep_their_own_literals_regex_data_and_sources_across_gc() {
     let engine = Engine::new(RealmBuilder::new().build());
     let observed = engine

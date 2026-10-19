@@ -7,6 +7,7 @@ use std::sync::Arc;
 mod contexts;
 mod empty_direct_eval;
 mod error;
+mod primitive_direct_eval;
 use error::invalid;
 pub use error::NativeProgramTemplateError;
 mod literal_operands;
@@ -20,7 +21,6 @@ pub use literal_operands::NativeProgramLiteralOperand;
 pub use payload::{NativeProgramPayload, NativeProgramPayloadDirectory};
 #[cfg(test)]
 mod tests;
-
 pub const NATIVE_PROGRAM_DATA_MODULE: &str = "lila.native_program.data";
 
 /// Packed Wasm storage, not a JavaScript value or a guessed GC shape.
@@ -93,6 +93,7 @@ pub struct NativeProgramTemplate {
 enum TemplateEntry {
     Program,
     EmptyDirectEval,
+    PrimitiveDirectEval,
 }
 impl NativeProgramTemplate {
     pub fn for_function(

@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 4632,
+      "bytes": 6051,
       "path": "Cargo.toml",
-      "sha256": "9093e39edaca992b7748fc50deba60d40c3415b2cebdfa11dd6ae318047b6894"
+      "sha256": "5c8ff688593f5c5a5bd32696233435f548b045947253f25c584f5c477e8b7159"
     },
     {
       "bytes": 87129,
@@ -754,7 +754,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "d96d639e3eace12df0c5db67322ea63ea4d09b54cac21605fcc97cf0d569bc63",
+  "provider_data_sha256": "81306aea69bcc8d6af3896fdfef18dde1f5f6031ffab63487224ef5849791174",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

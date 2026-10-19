@@ -17,6 +17,10 @@ CAPS = {
     E + 'wasm_native_direct_eval_compiler/regexp_literal.rs': 150,
     'crates/lila-engine/tests/aot_native_program_templates/regexp_literals.rs': 110,
     T + '/empty_direct_eval.rs': 110,
+    T + '/primitive_direct_eval.rs': 100,
+    'crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs': 100,
+    'crates/lila-ir/src/runtime_direct_eval/tests/primitive_literal.rs': 140,
+    E + 'wasm_native_direct_eval_compiler/primitive.rs': 110,
     'crates/lila-ir/src/runtime_direct_eval/empty.rs': 100,
     'crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs': 90,
     E + 'wasm_native_direct_eval_compiler/empty.rs': 100,
@@ -238,12 +242,33 @@ def check(sources):
          "_proof:&lila_ir::EmptyRuntimeDirectEval<'_>" in assembly and
          'WasmRuntimeValueTag::Undefined.tag()' in assembly and 'Instruction::RefNull(RefType::EQREF.heap_type)' in assembly and
          'CompletionKindIr::Normal.abi_code()' in assembly and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
-         'TemplateEntry::EmptyDirectEval=>true' in kernel and
+         'TemplateEntry::EmptyDirectEval|TemplateEntry::PrimitiveDirectEval=>true' in kernel and
          'crate::wasm_native_program_template::instantiate(&mut*store,engine,context,template,trace,)?' in entry and
          'context.empty_direct_eval_template.get_or_init(' in entry and
          'factory.call(&mut*store,&[],&mutoutput)?' in entry and
          'zip(&signature.completion)' in entry and entry.count('context.check_budget()?') >= 2,
          'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline')
+    primitive = c['crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs']
+    primitive_kernel = c[T + '/primitive_direct_eval.rs']
+    primitive_host = c[E + 'wasm_native_direct_eval_compiler/primitive.rs']
+    need('letunit=self.inert_preparation()?' in primitive and
+         'let[StatementIr::Expression(expression)]=unit.body.statements.as_slice()' in primitive and
+         'expression.value_info()!=ValueInfo::new(kind)' in primitive and
+         all('ExprIr::' + kind in primitive for kind in ('Undefined', 'Null', 'Boolean', 'Number')) and
+         '_=>returnNone' in primitive and '_program:&' in primitive and
+         'pubvalue:' not in primitive and 'pub_program:' not in primitive,
+         'primitive_eval_requires_exact_scalar_IR_and_inert_preparation')
+    need("proof:&lila_ir::PrimitiveRuntimeDirectEval<'_>" in primitive_kernel and
+         'crate::module::primitive_direct_eval_module(proof,EXPORT)' in primitive_kernel and
+         "_proof:&lila_ir::PrimitiveRuntimeDirectEval<'_>" in assembly and
+         'stateless_direct_eval_module(export,DirectEvalCompletionOperands::Primitive)' in assembly and
+         'DirectEvalCompletionOperands::Primitive=>&[ValType::I32,ValType::I64]' in assembly and
+         'Instruction::LocalGet(0)' in assembly and 'Instruction::LocalGet(1)' in assembly and
+         'context.primitive_direct_eval_template.get_or_init(' in primitive_host and
+         'matchproof.value()' in primitive_host and 'Val::I64(bitsasi64)' in primitive_host and
+         'factory.call(&mut*store,&arguments,&mutoutput)?' in primitive_host and
+         'zip(&signature.completion)' in primitive_host and primitive_host.count('context.check_budget()?') >= 2,
+         'primitive_eval_executes_real_stateless_wasm_with_current_operands_and_budget')
     regexp = c['crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs']
     need('letunit=self.inert_preparation()?' in regexp and
          'let[StatementIr::Expression(expression)]=unit.body.statements.as_slice()' in regexp and

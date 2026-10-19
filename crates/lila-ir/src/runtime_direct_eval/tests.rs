@@ -7,6 +7,7 @@ use crate::{
 use lila_front::{decode_js_string_utf16, EvalInvocationContext, ParseDiagnosticKind};
 use std::collections::BTreeMap;
 mod empty;
+mod primitive_literal;
 mod regexp_literal;
 
 fn context(strictness: Strictness, invocation: EvalInvocationContext) -> DirectEvalContextIr {

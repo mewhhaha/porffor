@@ -1,5 +1,6 @@
 use super::*;
 mod empty_kernel;
+mod primitive_kernel;
 use crate::gc_types::{AbiType, GcLayout, GcNullability};
 use crate::{module::StaticSignature, runtime_helpers::RuntimeHelperId};
 use lila_ir::{
@@ -224,4 +225,10 @@ fn emitted_direct_eval_factory_retains_full_witness_exact_r_and_valid_typed_hook
 #[test]
 fn proven_empty_eval_kernel_has_only_source_independent_completion_code() {
     empty_kernel::proven_empty_eval_kernel_has_only_source_independent_completion_code();
+}
+
+#[test]
+fn proven_primitive_eval_kernel_shares_code_and_keeps_literal_operands_per_call() {
+    primitive_kernel::proven_primitive_eval_kernel_shares_code_and_keeps_literal_operands_per_call(
+    );
 }

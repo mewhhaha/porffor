@@ -12,6 +12,28 @@ spec.loader.exec_module(controls)
 
 
 class NativeTemplateSourceControls(unittest.TestCase):
+    def test_primitive_proof_wasm_and_per_call_operands_cannot_be_bypassed(self):
+        proof = 'primitive_eval_requires_exact_scalar_IR_and_inert_preparation'
+        execution = 'primitive_eval_executes_real_stateless_wasm_with_current_operands_and_budget'
+        mutations = [
+            ('crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs',
+             'self.inert_preparation()?', 'None?', proof),
+            ('crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs',
+             'expression.value_info() != ValueInfo::new(kind)', 'false', proof),
+            (controls.A + 'module/compiled_module_package.rs',
+             'Instruction::LocalGet(1)', 'Instruction::I64Const(0)', execution),
+            (controls.E + 'wasm_native_direct_eval_compiler/primitive.rs',
+             'match proof.value()', 'match RuntimeDirectEvalPrimitive::Null', execution),
+            (controls.E + 'wasm_native_direct_eval_compiler/primitive.rs',
+             'factory.call(&mut *store, &arguments, &mut output)?;', '', execution),
+        ]
+        for path, before, after, expected in mutations:
+            with self.subTest(path=path, before=before):
+                sources = dict(self.sources)
+                self.assertEqual(sources[path].count(before), 1)
+                sources[path] = sources[path].replace(before, after)
+                self.assertIn(expected, controls.check(sources))
+
     def test_bulk_reads_keep_the_actual_payload_span_and_fresh_typed_arrays(self):
         mutations = [
             ('/bindings/allocation/bulk.rs', 'image.copy_i8_range_to_slice', 'image.copy_to_i8_slice',

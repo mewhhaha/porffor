@@ -1,5 +1,33 @@
 # Continue Lila — 2026-10-19
 
+The next coherent candidate is written but has not been compiled. Fresh default
+discovery at252 has completed52 scopes:7,867 passes and two60s timeouts in the
+complete20-test native-program-template scope, zero ignored. Keep that red
+scope and its executable. A separate trace attributes repeated literal eval's
+cost mainly to repeated Wasm emission/canonicalization. Its candidate repair
+admits a scalar only after actual parsing, early errors, lowering and the typed
+inert-program proof, then executes a real stateless Wasm factory with per-call
+tag/bits. Source effects, declarations, strings and owned values retain their
+normal path. The original11,000-eval and1,000-method controls are unchanged.
+
+The candidate also gives five hot third-party compiler dependencies release-
+style dev/test profiles: wasmtime, its Cranelift backend, cranelift-codegen,
+cranelift-frontend and regalloc2. Actual Cargo graph inspection confirms ten
+compiled units at opt3 with assertions/overflow checks off; workspace crates
+and wasmparser retain their checks. This narrower intervention has no measured
+speedup yet and cannot inherit the earlier whole-graph1.77x measurement. Its
+new Cargo identity requires a fresh native-cache generation. All13 Intl source
+recipes were refreshed and rechecked. Four added native controls and the new
+Python mutation controls cover proof and raw-envelope validation bypasses.
+All616 Python tooling controls pass in363.756s, with the candidate source
+unchanged. All14 source checks pass, including the complete module-boundary,
+identity, host ABI, source-pin and shortcut audits. Raw package framing now
+has a private envelope owner; validation fixtures retain both cfg(test) gates
+and their original native IDs. The230/180-line owner caps remain unchanged.
+Four new native controls still require their complete affected suites. Freeze
+this exact source, then compile once after
+the252 discovery and artifact owners drain. No252 pass is candidate acceptance.
+
 Latest sealed compiler/worker source is
 `252cbb17934153630e96fcb2003994e8306015f9`. Complete focused verification now
 passes all35 IDs across four scopes, including the full15 generated campaign;

@@ -9,6 +9,7 @@ E = "crates/lila-engine/src/"
 FILES = tuple(A + name for name in (
     "runtime_artifact.rs", "runtime_artifact/source_compilation.rs",
     "runtime_artifact/cache.rs", "runtime_artifact/build_package.rs",
+    "runtime_artifact/build_package/envelope.rs",
     "runtime_artifact/validated_profile.rs", "emit/module_assembly.rs",
     "gc_types/host.rs", "prepared_script.rs", "functions/native_direct_eval.rs",
     "builtins/function/dynamic_constructor.rs",
@@ -49,7 +50,7 @@ def check(root, overrides=None):
     runtime = c[A + "runtime_artifact.rs"]
     require("Self::Program(runtime)=>runtime.source_compilation_profile()" in runtime and
             "Self::Standalone=>RuntimeSourceCompilationProfile::Portable" in runtime and
-            "cache::RuntimeIdentity::admit(selection,inputs.source_compilation_profile())?" in runtime and
+            "cache::RuntimeIdentity::admit_with_jobs(selection,inputs.source_compilation_profile(),inputs.admission_jobs(),)?" in runtime and
             "emit_runtime_artifact(selection,inputs.source_compilation_profile())" in runtime,
             "P inherits its actual R and residency resolves the complete selected profile")
     cache = c[A + "runtime_artifact/cache.rs"]
@@ -61,10 +62,12 @@ def check(root, overrides=None):
             "RuntimeArtifact::new(Arc::from(payload),layout,version,identity.source_compilation_profile,)" in cache,
             "identity and full raw admission bind physical frame plus exact import capability")
     package = c[A + "runtime_artifact/build_package.rs"]
+    envelope = c[A + "runtime_artifact/build_package/envelope.rs"]
     require("source_compilation_profile:RuntimeSourceCompilationProfile::Portable" in package and
             "build_runtime_artifact_with_source_compilation_profile(selection,compiler_source,RuntimeSourceCompilationProfile::Portable,)" in package and
             "RuntimeIdentity::admit(selection,source_compilation_profile)?" in package and
-            "identity.digest()" in package and "cache::decode_payload(payload,identity,version)?" in package,
+            "identity.digest()" in envelope and
+            "cache::decode_payload(payload,identity,version,jobs,body_validation)?" in envelope,
             "ordinary build packages default Portable and retain profile-separated admission")
     assembly = c[A + "emit/module_assembly.rs"]
     require("uses_heap,kind.source_compilation_profile()," in assembly and

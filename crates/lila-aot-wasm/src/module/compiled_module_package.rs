@@ -337,6 +337,22 @@ pub(crate) fn empty_direct_eval_module(
     _proof: &lila_ir::EmptyRuntimeDirectEval<'_>,
     export: &str,
 ) -> Vec<u8> {
+    stateless_direct_eval_module(export, DirectEvalCompletionOperands::Undefined)
+}
+
+pub(crate) fn primitive_direct_eval_module(
+    _proof: &lila_ir::PrimitiveRuntimeDirectEval<'_>,
+    export: &str,
+) -> Vec<u8> {
+    stateless_direct_eval_module(export, DirectEvalCompletionOperands::Primitive)
+}
+
+enum DirectEvalCompletionOperands {
+    Undefined,
+    Primitive,
+}
+
+fn stateless_direct_eval_module(export: &str, operands: DirectEvalCompletionOperands) -> Vec<u8> {
     use crate::WasmRuntimeValueTag;
     use lila_ir::CompletionKindIr;
     use wasm_encoder::{
@@ -345,8 +361,12 @@ pub(crate) fn empty_direct_eval_module(
     };
     let mut module = Module::new();
     let mut types = TypeSection::new();
+    let parameters: &[ValType] = match operands {
+        DirectEvalCompletionOperands::Undefined => &[],
+        DirectEvalCompletionOperands::Primitive => &[ValType::I32, ValType::I64],
+    };
     types.ty().function(
-        [],
+        parameters.iter().copied(),
         [
             ValType::I32,
             ValType::I64,
@@ -364,8 +384,16 @@ pub(crate) fn empty_direct_eval_module(
     exports.export(export, ExportKind::Func, 0);
     module.section(&exports);
     let mut body = Function::new([]);
-    body.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
-    body.instruction(&Instruction::I64Const(0));
+    match operands {
+        DirectEvalCompletionOperands::Undefined => {
+            body.instruction(&Instruction::I32Const(WasmRuntimeValueTag::Undefined.tag()));
+            body.instruction(&Instruction::I64Const(0));
+        }
+        DirectEvalCompletionOperands::Primitive => {
+            body.instruction(&Instruction::LocalGet(0));
+            body.instruction(&Instruction::LocalGet(1));
+        }
+    }
     body.instruction(&Instruction::RefNull(RefType::EQREF.heap_type));
     body.instruction(&Instruction::I32Const(
         CompletionKindIr::Normal.abi_code() as i32

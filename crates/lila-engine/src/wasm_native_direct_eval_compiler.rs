@@ -10,6 +10,7 @@ mod factory;
 #[cfg(test)]
 mod observer;
 mod outcome;
+mod primitive;
 mod regexp_literal;
 mod schema;
 mod signature;
