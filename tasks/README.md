@@ -1,3 +1,23 @@
+Matched native checkpoint — 2026-10-19: the same 41 scopes and 5,611 test
+IDs now record 5,610 passes and one failure, compared with 5,599 passes and
+12 failures at the previous source. All 12 pool setup failures now pass.
+One previously passing mutation case, seed 9, timed out at its original
+5,000 ms deadline. Its exact request and worker bytes match the successful
+cold check; that earlier pass did not establish reliable timing margin.
+Every original ID and literal result is retained.
+
+Full all-feature discovery is still running at source 867ad6145. Fresh default,
+release, conformance, performance and task cleanup remain pending. Default
+verification starts only after green all-feature results. Keep CONTINUE/tasks.
+
+A separate, uncompiled candidate replaces per-element GC String extraction
+with one checked packed-i16 read and records extraction timing. It preserves
+the original six native selectors, adds assertions for every UTF-16 value,
+empty strings, collection, array types, lengths and expired roots, and passes
+all 14 source audits. Its correctness and timing still require ordinary native
+verification. Neither a timeout repair nor a performance gain is established.
+[Exact matched outcomes, original timeout and prepared candidate](../docs/rust-rewrite/matched-native-progress-20261019.json).
+
 Verified repair checkpoint — 2026-10-19: source867ad6145 is pushed to main.
 All14 source audits and all12 affected whole AF libraries pass3864/0/0.
 Every prior library ID remains; all12 previous pool-setup failures now pass,
