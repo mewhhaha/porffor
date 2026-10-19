@@ -23,6 +23,19 @@ spec.loader.exec_module(provenance)
 
 
 class FrozenProofTests(unittest.TestCase):
+    def test_current_closed_checkpoints_are_byte_bound(self):
+        for name in ('differential-jobs-checkpoint-20261019.json',
+                     'runtime-admission-checkpoint-20261019.json'):
+            with self.subTest(name=name):
+                path = Path('docs/rust-rewrite') / name
+                raw = (REPO / path).read_bytes()
+                admitted = provenance.audit_source(path, raw)
+                self.assertNotEqual(admitted, raw)
+                self.assertNotIn(('/workspace/' + RETIRED_NAME).encode(), admitted)
+                self.assertEqual((REPO / path).read_bytes(), raw)
+                with self.assertRaisesRegex(ValueError, 'frozen historical proof changed'):
+                    provenance.audit_source(path, raw + b' ')
+
     def test_frozen_admission_changes_only_host_paths_and_preserves_product_tokens(self):
         raw = (
             '{"cwd":"/workspace/' + RETIRED_NAME + '-next",'

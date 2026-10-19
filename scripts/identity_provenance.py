@@ -12,6 +12,8 @@ import sys
 
 PROOFS = {
     # Closed reports keep their literal host paths; admission binds every byte.
+    'differential-jobs-checkpoint-20261019.json': (None, 'da2e86722971e38d7e81a400f74e046c86c8afea328419ba51c2b0ff1db79667'),
+    'runtime-admission-checkpoint-20261019.json': (None, '71622731147e3fb95bad6e9a178f615446f55882b116ff13aa7dd4a3a471ea17'),
     'coherent-throughput-core-20261017.json': (None, 'fd792f9448a04be826717fe1b078e662c85de5725829755c860534c635ab498d'),
     'native-source-throughput-emission-20261017.json': (None, '0de34c17799fcf120b39a576fca4b95a9b077b35643fdcd0d180d64888d00822'),
     'complete-current-native-inventories-20261017.json': (None, '5230af16e2631be1771e2970de9b724fcb662ec3d34533ef06933eaa8a2e6dbb'),

@@ -90,9 +90,13 @@ class LocaleTextProfileAdmission(unittest.TestCase):
         for path, data in outputs.items():
             self.assertEqual((TREE / path).read_bytes(), data, str(path))
         provenance = json.loads(outputs[gen.DEST / 'provenance.json'])
-        # Four text owners and 39 shared image/data/admission inputs bind
+        # Four text owners and 40 shared image/data/admission inputs bind
         # the selected image, generator and actual artifact consumers.
-        self.assertEqual(len(provenance['kernel_input']['sources']), 43)
+        sources = provenance['kernel_input']['sources']
+        self.assertEqual(len(sources), 44)
+        paths = {source['path'] for source in sources}
+        self.assertEqual(len(paths), 44)
+        self.assertIn('crates/lila-intl/src/selection/minimal_admission.rs', paths)
         self.assertEqual(provenance['inputs'][0]['sha256'], gen.SOURCE_SHA)
 
 

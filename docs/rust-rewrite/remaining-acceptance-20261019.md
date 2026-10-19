@@ -11,6 +11,11 @@ the unchanged252 source. Current owners are `full-default-runtime-admission`,
 `runtime-admission-ci-release-retention230`, all dated20261019/run1 under target.
 All earlier stopped queues remain terminal; none supplies current outcomes.
 
+All614 current Python tooling tests and the identity audit pass, with exact
+source binding and predecessor failures retained in the
+[tooling checkpoint](tooling-guards-20261019.json). This supplies no native,
+cold-start or conformance acceptance.
+
 The last complete default at `2d719` passes9,538 native/11 documentation IDs.
 That prior source's ordinary release, four original deadline cases and all733
 focused native IDs are sealed in the
@@ -69,8 +74,13 @@ Then run the unchanged nightly drivers: 11 grammars times 64 seeds (704), and
 identities are separate byte-comparison baselines.
 
 After every ordinary-image owner and the debug campaigns finish, preserve the
-ordinary release ELF, all its Cargo hardlink aliases and its separately frozen
-230-replay copy. Build only the oracle feature in the already warmed
+ordinary release ELF, all its Cargo hardlink aliases and the frozen230-replay
+image. The completed replay may share a verified inode with the ordinary
+image. Before an oracle build, either detach a byte-verified replay copy or
+preserve and unlink every Cargo alias under the Cargo lock, leaving the frozen
+ordinary inode unreachable by Cargo. Recheck every remaining alias and byte;
+an ordinary replay path alone does not establish independence. Build only the
+oracle feature in the already warmed
 `target/release-cli` directory:
 
 ```sh

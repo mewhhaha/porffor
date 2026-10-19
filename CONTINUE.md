@@ -45,6 +45,18 @@ The actual oracle-enabled debug CLI has already been captured under
 `target/runtime-admission-oracle-debug-admission-20261019-run1`; its corpus and
 sustained campaigns remain unaccepted. Keep CONTINUE and tasks until all gates pass.
 
+Current tooling verification passes all614 Python tests and the product identity
+audit. LocaleText checks all44 unique provenance inputs, retaining the old43 and
+requiring the new admission module. Closed differential-jobs/runtime-admission
+reports are admitted at exact paths and whole-file hashes; their bytes remain
+unchanged and tampered inputs are rejected. The earlier613-test red run and
+failed identity audit remain preserved. [Exact tooling checkpoint](docs/rust-rewrite/tooling-guards-20261019.json).
+The mechanics and performance successors are prepared under
+`../.lila-tools/queue-runtime-admission-{real-mechanics,idle-performance}-20261019-run1.py`;
+neither is launched or accepted. Their unchanged normal cache capacities and
+physical-filesystem scratch admission replace the predecessor's unrelated
+3.25GiB blanket. Require current native/check/release/230 evidence first.
+
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
 5,000ms cold worker timeouts, with no established semantic mismatch. Preserve

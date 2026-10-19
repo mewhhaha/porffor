@@ -503,6 +503,13 @@ used about one CPU, so that prototype was discarded. These small measurements
 do not establish a full Lila build speedup.
 [Exact controls, negative control and rejected prototype](docs/rust-rewrite/idle-codegen-startup-capacity-20261019.json).
 
+Tooling verification — 2026-10-19: all **614 Python tooling tests pass**, and
+the product identity audit passes. LocaleText provenance retains its43 earlier
+inputs and explicitly checks the new admission module as input44. Two closed
+reports keep their exact bytes through path-specific SHA256 admission; tamper
+checks still reject changes. The native suites and separate cold-start gate
+remain pending. [Complete tooling evidence and earlier failures](docs/rust-rewrite/tooling-guards-20261019.json).
+
 Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
 checks each producer first and regenerates only stale output, then rechecks all
 13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.
