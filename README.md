@@ -510,6 +510,15 @@ reports keep their exact bytes through path-specific SHA256 admission; tamper
 checks still reject changes. The native suites and separate cold-start gate
 remain pending. [Complete tooling evidence and earlier failures](docs/rust-rewrite/tooling-guards-20261019.json).
 
+Native cost checkpoint — 2026-10-19: a fresh four-scope cohort passes all
+**1,171 tests**, including all299 Intl IDs. Eight single-CPU compilation probes
+of the exact failing cold program measure medians2.51s with existing dev/test
+dependencies and1.42s with retained release dependencies. This combines profile
+optimization and compiled-in checks; it does not replace the original5s cold
+failure. Passive stdout observations identify several custom Intl projection
+tests at roughly190–337s during the suite. Full native and calibrated performance
+acceptance remain pending. [Exact scopes, inputs, profiles and bounded observations](docs/rust-rewrite/native-cost-hills-20261019.json).
+
 Intl provenance refresh — 2026-10-18: `intl_source_identities.py --write`
 checks each producer first and regenerates only stale output, then rechecks all
 13 recipes. This preserves unchanged timestamps that Cargo uses for freshness.

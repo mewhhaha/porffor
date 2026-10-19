@@ -86,6 +86,24 @@ cached opt-in and the default overlap. A real plan-only invocation retains its
 selected scope. This is a small compiler probe, not a measured full Lila build
 speedup. [Exact source, commands, outcomes and controls](idle-codegen-startup-capacity-20261019.json).
 
+Current native-cost observations — 2026-10-19: the complete four-scope cohort
+passes1,171 IDs, including all299 Intl tests. A passive observer records250
+conservative stdout visibility spans from the completed Intl scope; several
+custom projection tests span roughly190–337s under the actual concurrent run.
+These are scheduling observations with censored/coalesced output, not exact
+internal phase timings. Do not change active partitions based on partial data.
+
+Eight fresh single-CPU `Module::new` probes use the exact current557,768-byte
+mutation-seed9 program and existing normal Cargo dependency artifacts. The
+dev/test median is2.5093s and retained release-dependency median1.4195s, with
+identical features and product Fast settings. Dev/test is opt2 with assertions
+and overflow checks; release is opt3 without them, so individual causes remain
+confounded. The older release artifacts supply diagnostic dependency provenance,
+not current release acceptance. Other-CPU native work continued and only the
+debug Cargo target was locked. No generated module was executed, no product
+profile changed and the original5s cold timeout remains red.
+[Lossless cohort and cost evidence](native-cost-hills-20261019.json).
+
 
 ## Preserve current provenance timestamps — 2026-10-18
 

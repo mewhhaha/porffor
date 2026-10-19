@@ -57,6 +57,22 @@ neither is launched or accepted. Their unchanged normal cache capacities and
 physical-filesystem scratch admission replace the predecessor's unrelated
 3.25GiB blanket. Require current native/check/release/230 evidence first.
 
+The complete current native cohort011 passes all1,171 IDs across builtins541,
+GC entries164, generators167 and Intl299, zero failed/ignored. The broader
+default and all-feature gates remain open. A private8-round ABBAABBA probe of
+the exact current coldseed9 P measures single-CPU native compilation medians
+2.5093s for existing dev/test dependencies versus1.4195s for retained release
+dependencies. This combines optimizer/assertion/overflow profiles, not an
+isolated cause or a whole-cold acceptance result. No source/profile changed.
+Passive closed-Intl stdout spans identify expensive custom projections around
+190–337s; timings are advisory and active partitions stay unchanged.
+[Exact scopes, cost probe and observer limits](docs/rust-rewrite/native-cost-hills-20261019.json).
+Current debug/release campaign successors are also prepared under
+`../.lila-tools/queue-runtime-admission-{debug,release}-campaigns-20261019-run1.py`.
+They retain all14x3/704/1,216 cases and original deadlines, but neither is
+launched. The optimized oracle builder still needs its current-source binding
+and safe ordinary-image hardlink retirement before use.
+
 The first all-features run is rejected after twelve complete scopes / 3,853
 passes. Its generated-campaign target reports thirteen passes and two original
 5,000ms cold worker timeouts, with no established semantic mismatch. Preserve
