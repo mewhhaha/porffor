@@ -1,20 +1,31 @@
 # Continue Lila — 2026-10-19
 
-Active frozen-source continuation: read
-`../.lila-tools/active-frozen71-continuation-20261019.json` for the AF, gate
-archive/join and default owners. The prior15-script pipeline owners are all
-terminal; preserve their receipts. Keep primary71 unchanged until AF113 and
-default111 drain. No native outcomes are carried across source changes.
+Frozen71 drain is complete:41 closed scopes record5599PASS/12FAIL/0IGN.
+The final owned batch passed; its exact Cargo products, inventories, raw native
+outcomes and archive are sealed. Source stayed unchanged until all children
+exited. Two waiting owners stopped with zero native executions. The remaining
+72 old-source AF scopes and unstarted default111 are explicitly superseded;
+no completed outcome was discarded. See
+`target/frozen71-native-batch-drain-20261019-run1/receipt.json` (complete,
+source_advance_permitted=true). This avoids spending several more hours on a
+revision that already has two prepared setup repairs. Full suites must run
+fresh on the repaired revision; no old-source outcome supplies acceptance.
 
-The generated campaign scope now passes all15 original IDs; source1c had13PASS/
-2FAIL at the same original5000ms deadlines. The original cold4 still has one
-timeout, so this is a whole-scope observation rather than a causal cold repair.
-Prepared local changes contain only bounded embedded-image digest admission
-and the two test setup fixes described below; ordinary native verification is
-still required. An unused247,880,040B CLI copy was separately archived with
-full streamed mode/size/SHA readback, then retired after proving current
-canonical CLI/worker products and live processes do not use its inode.
-See `target/archived-unlinked-cli-product-20261019-run1/receipt.json`.
+The prepared batch contains bounded full-image SHA256 admission/timing and
+the two test-only pool setup fixes below. It remains uncompiled/unaccepted.
+Run14 source audits, the whole AF Test262476 and CLI82 libraries, the original
+embedded-runtime controls under both serial and four-CPU admission, the whole
+original35 worker scopes and all four original fresh5000ms cold requests.
+Keep literal failures and original budgets. Push only after affected ordinary
+native checks pass, then run full AF113/default111 at that same source. Keep
+CONTINUE/tasks until every acceptance criterion passes.
+
+The closed125,937,151B AF library archive was relocated to tmpfs with full
+compressed-byte readback and its original logical path preserved as a symlink.
+Use archive.resolve() before zstd. Inventory:
+`/tmp/lila-closed-af-library-archive-relocated-20261019-run1/inventory.json`.
+All active/future verification scratch is explicitly on workspace; cloud
+activation now defaults unset TMPDIR to `/workspace/.lila-cache/tmp`.
 
 All-feature discovery checkpoint — 2026-10-19: the frozen71 source has
 completed12 whole library scopes with3852PASS/12FAIL/0IGN. Engine973, IR1607,
