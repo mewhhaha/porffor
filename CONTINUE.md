@@ -1,5 +1,14 @@
 # Continue Lila — 2026-10-19
 
+The native owner is frozen at `1c302df9f`: all14 source audits pass and the
+ordinary build is running. Its build-host and product IR/AOT graphs compile
+separately because their dependency features differ. Keep this owner intact.
+Separately, plan-only reporting now gives explicit compiler-CPU scopes the
+same exclusive barrier/order as execution. All16 scheduler controls and a real
+two-scope metadata plan pass; every non-plan runner AST remains identical.
+[Exact tooling-only proof](docs/rust-rewrite/native-cpu-plan-reporting-20261019.json).
+This supplies no native result and does not restart or alter the frozen owner.
+
 The iteration candidate is implemented at `7f7093da9`; native verification is
 pending. Its first audit owner stopped before any build because the catalog
 source guard still required the discarded previous-value return. The guard now

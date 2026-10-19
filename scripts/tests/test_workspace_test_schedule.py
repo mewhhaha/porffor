@@ -22,6 +22,33 @@ def case(package, target, kind='test'):
 
 
 class WorkspaceScheduleTests(unittest.TestCase):
+    def test_actual_plan_reports_compiler_cpu_scopes_after_independent_work(self):
+        runner = SOURCE.with_name('run_workspace_tests.py')
+        tree = ast.parse(runner.read_text())
+        planning = next(node for node in tree.body if isinstance(node, ast.If)
+                        and ast.unparse(node.test) == 'args.plan_only')
+        assignment = next(node for node in planning.body if isinstance(node, ast.Assign)
+                          and any(ast.unparse(target) == "result['command_plan']"
+                                  for target in node.targets))
+        inventory = [case('lila-engine', 'aot_intl'),
+                     case('lila-engine', 'runtime_cache')]
+        original = [dict(scope, selector=list(scope['selector'])) for scope in inventory]
+        scope = dict(cases=inventory, native_cpu_targets=['lila-engine:aot_intl'],
+                     partition_native_targets=[],
+                     args=SimpleNamespace(partition_cli=False, include_ignored=True),
+                     cargo_test_base=lambda _: ['cargo', 'test'],
+                     group_key=lambda _: ('selected-native', '*'),
+                     **{name: getattr(schedule, name) for name in (
+                         'execution_order', 'is_barrier', 'is_partitioned_native',
+                         'is_partitioned_cli', 'native_cpu_target')})
+        expression = ast.Expression(body=assignment.value)
+        rows = eval(compile(expression, str(runner), 'eval'), scope)
+        self.assertEqual([row['target'] for row in rows], ['runtime_cache', 'aot_intl'])
+        self.assertEqual([row['barrier'] for row in rows], [False, True])
+        self.assertEqual(inventory, original)
+        self.assertTrue(all(row['execution_arguments'] ==
+                            ['--test-threads=1', '--include-ignored'] for row in rows))
+
     def test_native_compiler_targets_remain_complete_and_exclusive(self):
         inventory = self.inventory()
         validate = schedule.validate_native_cpu_targets

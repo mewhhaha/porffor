@@ -251,11 +251,11 @@ if args.plan_only:
         'build_command':cargo_test_base(case)+([] if case['kind']=='doc' else ['--no-run','--message-format=json-render-diagnostics']),
         'inventory_arguments':['--list'],
         'execution_arguments':['--test-threads=1']+(['--include-ignored'] if args.include_ignored else []),
-        'barrier':is_barrier(case) or is_partitioned_native(case,args.partition_cli,partition_native_targets),
+        'barrier':is_barrier(case) or is_partitioned_native(case,args.partition_cli,partition_native_targets) or native_cpu_target(case,native_cpu_targets),
         'partitioned_cli':is_partitioned_cli(case,args.partition_cli),
         'partitioned_native':is_partitioned_native(case,args.partition_cli,partition_native_targets),
         'build_group':':'.join(group_key(case)) if case['kind']!='doc' else None}
-        for _,case in execution_order(cases,args.partition_cli,partition_native_targets)]
+        for _,case in execution_order(cases,args.partition_cli,partition_native_targets,native_cpu_targets)]
     result['documentation_cohort_plan']=[{'group':group,'packages':sorted(names),
         'inventory_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--list'],
         'execution_command':['cargo','test','--locked','--offline',*profile_flags,*selection,*(['--all-features'] if args.all_features else []),'--doc','--no-fail-fast','--','--test-threads=1',*(['--include-ignored'] if args.include_ignored else [])]}
