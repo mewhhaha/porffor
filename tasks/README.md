@@ -16,6 +16,15 @@ the original six native selectors, adds assertions for every UTF-16 value,
 empty strings, collection, array types, lengths and expired roots, and passes
 all 14 source audits. Its correctness and timing still require ordinary native
 verification. Neither a timeout repair nor a performance gain is established.
+Follow-up measurement: the old host extraction loop takes a median 26 ms
+for 65,536 code units in a standalone seven-sample diagnostic. All samples
+and the slow outlier are retained; no original worker case was rerun. This
+makes bulk copying a secondary optimization and does not justify restarting
+broad verification by itself. Finish the current discovery, preserve its
+failures, then measure the original request once while idle before choosing
+a substantial repair. The original failed worker image is fully archived
+and verified, with its live file retained.
+
 [Exact matched outcomes, original timeout and prepared candidate](../docs/rust-rewrite/matched-native-progress-20261019.json).
 
 Verified repair checkpoint — 2026-10-19: source867ad6145 is pushed to main.
