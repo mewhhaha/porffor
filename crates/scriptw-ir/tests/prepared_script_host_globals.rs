@@ -1,7 +1,7 @@
-use scriptw_front::{parse, ParseOptions};
+use scriptw_front::{parse, ParseOptions, ParsedSource};
 use scriptw_ir::{
     lower_with_host_surface_policy, GlobalDeclarationSetIr, GlobalPropertyInitializerIr,
-    HostBuiltinId, HostSurfacePolicy, ScriptIr,
+    HostBuiltinId, HostSurfacePolicy, LoweringSession, ScriptIr,
 };
 
 fn lower(source: &str) -> ScriptIr {
@@ -75,4 +75,81 @@ fn prepared_declarations_are_not_published_with_host_requirements() {
         .global_bindings
         .lexical_names()
         .any(|name| name == "privateName"));
+}
+
+fn lower_after_prelude(source: &str, prelude: &str, policy: HostSurfacePolicy) -> ScriptIr {
+    let source = parse(source, ParseOptions::script()).expect("entry Script parses");
+    let ParsedSource::Script(prelude) =
+        parse(prelude, ParseOptions::script()).expect("prelude Script parses")
+    else {
+        panic!("prelude is a Script");
+    };
+    let program = LoweringSession::default().lower_source_with_prelude(&source, &prelude, policy);
+    assert!(program.is_wasm_supported(), "{:?}", program.diagnostics);
+    program.script.expect("entry Script IR")
+}
+
+#[test]
+fn prelude_bootstrap_retains_unreferenced_canonical_host_globals() {
+    for policy in [HostSurfacePolicy::Product, HostSurfacePolicy::Test262] {
+        for source in [
+            "Object.getOwnPropertyNames(this);",
+            "var global = this; Object.getOwnPropertyDescriptor(global, 'parseInt');",
+            "'use strict'; Object.getOwnPropertyDescriptor(this, 'parseFloat');",
+        ] {
+            let script = lower_after_prelude(source, "void 0;", policy);
+            for builtin in HostBuiltinId::every_realm_globals() {
+                assert!(!script.host_builtins.contains(&builtin), "{source}");
+                let binding = script
+                    .global_bindings
+                    .get(builtin.global_name().unwrap())
+                    .expect("canonical host global exists before either Script");
+                assert_eq!(
+                    binding.initializer,
+                    GlobalPropertyInitializerIr::HostFunction(builtin)
+                );
+                assert_eq!(binding.declarations, GlobalDeclarationSetIr::None);
+            }
+        }
+    }
+}
+
+#[test]
+fn prelude_bootstrap_keeps_entry_host_redeclarations_delayed() {
+    let script = lower_after_prelude(
+        "function parseInt() { return 99; } var parseFloat; let entryOnly;",
+        "void 0;",
+        HostSurfacePolicy::Test262,
+    );
+    for builtin in HostBuiltinId::every_realm_globals() {
+        let binding = script
+            .global_bindings
+            .get(builtin.global_name().unwrap())
+            .unwrap();
+        assert_eq!(
+            binding.initializer,
+            GlobalPropertyInitializerIr::HostFunction(builtin)
+        );
+        assert_eq!(binding.declarations, GlobalDeclarationSetIr::None);
+    }
+    assert!(script.global_bindings.lexical_names().next().is_none());
+    let entry = script.script_entry_after_prelude.as_ref().unwrap().unit();
+    let integer = entry.global_bindings.get("parseInt").unwrap();
+    assert!(matches!(
+        integer.initializer,
+        GlobalPropertyInitializerIr::SourceFunction(_)
+    ));
+    assert_eq!(integer.declarations, GlobalDeclarationSetIr::Function);
+    assert_eq!(
+        entry
+            .global_bindings
+            .get("parseFloat")
+            .unwrap()
+            .declarations,
+        GlobalDeclarationSetIr::Var
+    );
+    assert!(entry
+        .global_bindings
+        .lexical_names()
+        .any(|name| name == "entryOnly"));
 }

@@ -84,9 +84,12 @@ pub(super) fn retain_global_script_entry(
     // Realm creation precedes both Scripts. Their declarations remain owned by
     // the delayed units, while canonical standard globals exist before either.
     super::builtin_catalog::retain_canonical_standard_globals(&mut script.global_bindings);
-    // Bootstrap still installs the host surface used by either independent Script.
-    for builtin in &script.host_builtins {
-        script.global_bindings.require_host_global(*builtin);
+    // Canonical Realm globals exist even when neither Script refers to their
+    // identifiers. Reflection through `this` must see parseInt/parseFloat before
+    // either Script runs; entry declarations must still wait for the prelude.
+    for builtin in HostBuiltinId::every_realm_globals().chain(script.host_builtins.iter().copied())
+    {
+        script.global_bindings.require_host_global(builtin);
     }
     script.strict = false;
 }

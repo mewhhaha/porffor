@@ -81,3 +81,12 @@ capabilities from verification and release acceptance.
 Earlier continuation notes remain in Git history. The [full prior AF proof](docs/rust-rewrite/full-af-checkpoint-20261020.json)
 and [focused current batch proof](docs/rust-rewrite/checkpoint-batch-focused-20261020.json)
 remain unchanged.
+
+
+## Canonical global-property repair after the baseline — 2026-10-20
+
+The prelude bootstrap repair passes all ten original global-reflection failures,
+four retained controls and all 742 IR integration tests in the isolated build.
+[Exact validation and remaining acceptance](docs/rust-rewrite/global-prelude-hosts-fix-20261020.md).
+Keep the original full baseline and its raw failures. Run the complete fixed
+compiler suite before claiming full conformance or deleting this file/tasks.

@@ -1,5 +1,14 @@
 # Current implementation and remaining work — 2026-10-20
 
+## Canonical global-property repair after the baseline
+
+The source now retains unreferenced `parseInt`/`parseFloat` globals across a
+Script prelude. Ten original failing executions and four retained controls pass
+the isolated ordinary Wasm-AOT compiler; all 742 IR integration tests pass.
+The canonical chart still records the completed pre-fix compiler measurement.
+A complete fixed-source campaign remains pending.
+[Repair, validation and evidence](global-prelude-hosts-fix-20261020.md).
+
 ## Fresh full Test262 measurement — 2026-10-20
 
 All 102,994 current-pin mode-specific executions were measured through
