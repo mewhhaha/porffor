@@ -89,9 +89,9 @@
         "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
       },
       {
-        "bytes": 31753,
+        "bytes": 31947,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "bafc398893466a097217c4b0c236074242440ef691b6fea65d4658397c301b08"
+        "sha256": "7fc0f75fcdf9f72b690d9173f5cc638ba35890d4f8da8c1b2c148d4aa8a68b6c"
       },
       {
         "bytes": 34690,
@@ -161,12 +161,17 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "089719cd5d029b43cff66a7e9fe45a272af13408211febd609a44b51c941a9b6"
+        "sha256": "f347c2ef6e4061bba780203fddf4165822f3b48f354b0e880eeb840c67b1f7a7"
       },
       {
         "bytes": 3906,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
         "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
+      },
+      {
+        "bytes": 340,
+        "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+        "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
       },
       {
         "bytes": 17366,
@@ -269,13 +274,13 @@
         "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
       },
       {
-        "bytes": 11844,
+        "bytes": 11908,
         "path": "scripts/generate-intl-locale-week-profile.py",
-        "sha256": "771f6593f586e0c858d8da3fb6b78080144a641b1027dd4494ef3bbb4cac641f"
+        "sha256": "354dadb51af88b8883929280108dc1f950f5ab30ccc83b8e18cacca72982ecd7"
       }
     ]
   },
-  "kernel_sha256": "4467d1c5f6f3263d40bb6a07e5ec3e2f426d666c8577b87334ad7665d2efd3bf",
+  "kernel_sha256": "49d5aa93acd49d7a980db838c335d01302fc31a1f166f47ea3330ea47cce0bcf",
   "kernel_source_closure": "explicit production module inventory; missing/added production modules reject",
   "minimalDays_exposed": false,
   "primary_manifest_path": "crates/scriptw-intl/data/datetime-cldr-47/manifest.json",

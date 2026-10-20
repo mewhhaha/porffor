@@ -24,7 +24,7 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "scriptw-locale-numbering-systems-native-v1",
-  "kernel_sha256": "a996795d658646dfc150c7bc457183b68436a3bdbafd59c958333648d7f18b51",
+  "kernel_sha256": "72eb8ae970f542643260b5869ab3371c49cac2d1dee9df2322936c3cd77caecc",
   "number_locales": 1082,
   "production_sources": [
     {
@@ -263,6 +263,11 @@
       "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
+    },
+    {
       "bytes": 21618,
       "path": "crates/scriptw-intl/src/provider/language_domain.rs",
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
@@ -308,9 +313,9 @@
       "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
     },
     {
-      "bytes": 9145,
+      "bytes": 9209,
       "path": "scripts/generate-intl-locale-numbering-systems-identity.py",
-      "sha256": "a0f2088b927d165994c3a99c220f9607a8fc205ecb5757e952fe924120de7584"
+      "sha256": "0f26e2fe2e35f782b921ea85c9dd274433b6dae09f17cd33f559514315b294c8"
     },
     {
       "bytes": 11423,

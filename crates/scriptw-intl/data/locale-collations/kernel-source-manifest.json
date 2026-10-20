@@ -56,9 +56,9 @@
       "sha256": "e5dae398d77a31ee7fcd86e4b35041cf9bf4643c694794629fc7c5dca76d9c6b"
     },
     {
-      "bytes": 9356,
+      "bytes": 9530,
       "path": "crates/scriptw-intl/data/collator-icu-2/manifest.json",
-      "sha256": "8a92095041160969fb712445efcfed457fbe5d76366e371bda4cb9782ad6949a"
+      "sha256": "e5e10febefcb2d422b5ae511f36fb1710fee97738e7b7f3fd72e575401b9eb2e"
     },
     {
       "bytes": 8076,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "ecb238be202651e9f4cf54c658b47ad78b2187349188284dede207cd7cf82e5b",
+  "kernel_sha256": "a9a03a18baf73312fdb1c3b1f9a335a93d28e19c8787cbd2eebbe09f6d2e7030",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/scriptw-intl/src/collator/identity.rs",
-      "sha256": "41cbd7bd9d2c8fb7c249b58bcdfc4d5f4d117656841e8f0d5a679ae73624b70d"
+      "sha256": "eec311950a9f08a00ecccd54492009d7a37dd9513a457e61cbd3d01d980b6848"
     },
     {
       "bytes": 31472,
@@ -511,6 +511,11 @@
       "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
+    },
+    {
       "bytes": 21618,
       "path": "crates/scriptw-intl/src/provider/language_domain.rs",
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
@@ -556,9 +561,9 @@
       "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
     },
     {
-      "bytes": 13006,
+      "bytes": 13070,
       "path": "scripts/generate-intl-locale-collations-identity.py",
-      "sha256": "9ac30d12c18f2101b53ee0c2666e902b135369eed1fe2492626621b4f54d7c11"
+      "sha256": "1934e1d0ab5ac539c3e5952a55e76ef04189cd95134c3d46a59f5ca97b463f39"
     }
   ],
   "schema": 1,

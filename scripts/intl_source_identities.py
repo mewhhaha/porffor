@@ -10,6 +10,7 @@ import sys
 # manifest. Keep dependent recipes after their actual producers.
 RECIPES = (
     'generate-intl-keyword-aliases.py',
+    'generate-intl-collator-data.py',
     'generate-intl-named-time-zones.py',
     'generate-intl-locale-time-zones-profile.py',
     'generate-intl-datetime-identity.py',

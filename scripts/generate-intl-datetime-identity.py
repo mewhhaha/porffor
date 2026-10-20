@@ -36,6 +36,7 @@ def generate(repository, calendar_root, lock_path):
         Path("crates/scriptw-intl/src/datetime_protocol.rs"),
         Path("crates/scriptw-intl/src/provider/keyword_aliases.rs"),
         Path("crates/scriptw-intl/src/provider/keyword_aliases/generated.rs"),
+        Path("crates/scriptw-intl/src/provider/keyword_aliases/identity.rs"),
         Path("crates/scriptw-intl/src/provider/datetime.rs"), PROVIDER / "generated/profile.json",
         *(Path("scripts") / name for name in PRODUCERS),
     }

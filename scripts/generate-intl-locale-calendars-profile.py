@@ -20,7 +20,7 @@ HELPERS = [Path(p) for p in ['crates/scriptw-intl/src/lib.rs', 'crates/scriptw-i
     'crates/scriptw-intl/src/protocol.rs', 'crates/scriptw-intl/src/locale_information_wire.rs',
     'crates/scriptw-intl/src/provider/language_domain.rs',
     'crates/scriptw-intl/src/provider/keyword_aliases.rs',
-    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs',
     'crates/scriptw-intl/src/identifiers.rs', 'crates/scriptw-intl/src/datetime.rs',
     'crates/scriptw-intl/src/datetime_protocol.rs', 'crates/scriptw-intl/src/provider/datetime.rs',
     'crates/scriptw-intl/src/provider/datetime/locale.rs', 'crates/scriptw-intl/src/provider/datetime/profile.rs',

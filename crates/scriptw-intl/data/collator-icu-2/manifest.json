@@ -68,7 +68,7 @@
     },
     {
       "path": "scripts/generate-intl-collator-data.py",
-      "sha256": "262d9ff2fcf00c1a57d00d4928f9d4fceee7f68c3471ce4966ffa925f03551ec"
+      "sha256": "ee2264a0a12e848805443cc61bd2b93cbc5d3c0b38e2e3c7ed8493aad1c9f79c"
     },
     {
       "path": "crates/scriptw-intl/src/provider.rs",
@@ -140,11 +140,15 @@
     },
     {
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
     },
     {
       "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-      "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+      "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
+    },
+    {
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
     },
     {
       "path": "crates/scriptw-intl/data/cldr-47-bcp47/manifest.json",
@@ -237,5 +241,5 @@
   "utf16_policy": "direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker",
   "available_locales_count": null,
   "available_sort_collations_count": null,
-  "data_sha256": "c6c2ce96c950c6f733d50ead455923ffeb67a6bdb2ad64d144fdfc91624bc860"
+  "data_sha256": "9d8557baf05caa684465c2a65370b8a3afe192cff9e631d7329a4792a7b43104"
 }

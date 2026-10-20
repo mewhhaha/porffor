@@ -35,7 +35,7 @@ def generate(root):
   'crates/scriptw-intl/src/list_format/identity.rs','crates/scriptw-intl/src/number_operation.rs','crates/scriptw-intl/src/plural_protocol.rs',
   'crates/scriptw-intl/data/list-icu-2/manifest.json',
   'crates/scriptw-intl/src/identifiers.rs'}
- paths.update(['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
+ paths.update(['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
  paths.update(['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs'])
  paths.update(['crates/scriptw-intl/src/list_image/projection.rs',
                'crates/scriptw-intl/src/list_image/projection/export.rs'])

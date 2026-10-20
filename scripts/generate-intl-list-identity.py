@@ -130,7 +130,7 @@ def generate(repository):
              Path('crates/scriptw-intl/src/number_protocol.rs'), Path('crates/scriptw-intl/src/number_protocol/primitives.rs'),
              Path('crates/scriptw-engine/src/intl_list_host.rs')}
     paths.update(Path(name) for name in ['crates/scriptw-intl/build.rs', 'crates/scriptw-intl/src/image.rs', 'crates/scriptw-intl/src/locale_image.rs', 'crates/scriptw-intl/src/image_build/locale.rs', 'crates/scriptw-engine/src/intl_data_images.rs', 'crates/scriptw-intl/src/list_image.rs', 'crates/scriptw-intl/src/image_build/list.rs'])
-    paths.update(Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
+    paths.update(Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
     paths.update(Path(name) for name in ['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs'])
     paths.update(Path(name) for name in [
         'crates/scriptw-intl/src/list_image/projection.rs',

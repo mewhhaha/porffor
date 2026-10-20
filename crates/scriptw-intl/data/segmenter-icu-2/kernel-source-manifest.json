@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "e264ac1bda6d394a521c8dd781fa086abf59a43891428d50c857f0444dd11a56",
+  "kernel_sha256": "934493b7168e11cb962e56adca0253fb74f1a15f54e4db4ccfa9ba0fd7f663e9",
   "operations_reserved": [
     33,
     34,
@@ -553,6 +553,11 @@
       "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
+    },
+    {
       "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
       "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
@@ -653,9 +658,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 14765,
+      "bytes": 14829,
       "path": "scripts/generate-intl-segmenter-identity.py",
-      "sha256": "710a00a605b98515cb97f1fefda872b6fd17433403847b3ae3cfc5b148742470"
+      "sha256": "110dfb5644d3e66d1bbe932d1421843574af832abc156ab12817609f671794c5"
     }
   ],
   "wire_version": 1

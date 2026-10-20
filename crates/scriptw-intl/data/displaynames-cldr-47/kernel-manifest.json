@@ -531,9 +531,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 10001,
+      "bytes": 10065,
       "path": "scripts/generate-intl-display-relative-identity.py",
-      "sha256": "f0576b33fbc333b5f86ee2593468450ea2439b612b60374282821894ac00d4f4"
+      "sha256": "2832dd3195e3eee2039c46f6d87a3787204bad01c7863386e9e0572022786022"
     },
     {
       "bytes": 14066,
@@ -618,7 +618,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "da1968c28fb55da2a0e01ff445d80d89e28dd80b40e7b768ce600a50b0e60eda",
+  "provider_data_sha256": "887648f5e25bb2273eb182875633260d2a3651d07993e51d09f8b1c4a633f17c",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

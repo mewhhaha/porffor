@@ -75,9 +75,9 @@
         "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
       },
       {
-        "bytes": 31753,
+        "bytes": 31947,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "bafc398893466a097217c4b0c236074242440ef691b6fea65d4658397c301b08"
+        "sha256": "7fc0f75fcdf9f72b690d9173f5cc638ba35890d4f8da8c1b2c148d4aa8a68b6c"
       },
       {
         "bytes": 34690,
@@ -147,12 +147,17 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "089719cd5d029b43cff66a7e9fe45a272af13408211febd609a44b51c941a9b6"
+        "sha256": "f347c2ef6e4061bba780203fddf4165822f3b48f354b0e880eeb840c67b1f7a7"
       },
       {
         "bytes": 3906,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
         "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
+      },
+      {
+        "bytes": 340,
+        "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+        "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
       },
       {
         "bytes": 17366,
@@ -250,13 +255,13 @@
         "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
       },
       {
-        "bytes": 10713,
+        "bytes": 10777,
         "path": "scripts/generate-intl-locale-text-profile.py",
-        "sha256": "288923686d14932a2be76cd1bf735dd342e687c7069b7ef5b54328a65513463b"
+        "sha256": "c3bd31949bde2abd74cf21b16a7cf0bfd014133eb5a2906e9fd2d4cff8a35bba"
       }
     ]
   },
-  "kernel_sha256": "a71c09d87e69fc4806062feba10d87b093174da41289ec75721d8ff38039fea5",
+  "kernel_sha256": "5609492f1e0983582360f32574dc31808b7b5a7c0e8d1e0e0a09fe490c28eebb",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

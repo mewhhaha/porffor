@@ -22,7 +22,7 @@ LOCALE_HELPERS = [Path(p) for p in [
     'crates/scriptw-intl/src/provider/language_domain.rs',
     'crates/scriptw-intl/src/provider/region_preference.rs',
     'crates/scriptw-intl/src/provider/keyword_aliases.rs',
-    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs',
     'crates/scriptw-intl/src/identifiers.rs', 'Cargo.lock', 'Cargo.toml',
     'crates/scriptw-intl/Cargo.toml',
 ]]

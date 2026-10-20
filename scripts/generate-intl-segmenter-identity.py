@@ -145,7 +145,7 @@ def kernel_sources(root):
         "crates/scriptw-intl/src/image_build/locale.rs", "crates/scriptw-intl/src/segmenter_image.rs",
         "crates/scriptw-intl/src/image_build/segmenter.rs",
     )]
-    sources += [pathlib.Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs']]
+    sources += [pathlib.Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs']]
     sources += [pathlib.Path(name) for name in ['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs']]
     sources += [p.relative_to(root) for p in sorted((root / "crates/scriptw-intl/src/segmenter_image").rglob("*.rs"))
         if p.name != "tests.rs" and "tests" not in p.relative_to(root / "crates/scriptw-intl/src/segmenter_image").parts]

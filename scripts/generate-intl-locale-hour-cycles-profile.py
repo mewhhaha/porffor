@@ -18,7 +18,7 @@ REGION_HELPER = Path('crates/scriptw-intl/src/provider/region_preference.rs')
 PRODUCTION = [NATIVE.with_suffix('.rs'), NATIVE / 'record.rs', NATIVE / 'profile.rs']
 HELPERS = [Path(p) for p in ['crates/scriptw-intl/src/provider/language_domain.rs',
     'crates/scriptw-intl/src/provider/keyword_aliases.rs',
-    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs',
     'crates/scriptw-intl/src/identifiers.rs', 'crates/scriptw-intl/src/datetime.rs',
     'Cargo.lock', 'Cargo.toml', 'crates/scriptw-intl/Cargo.toml']]
 

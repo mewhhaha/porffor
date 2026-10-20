@@ -201,9 +201,9 @@
       "sha256": "bd10c0094e5542508260bb02480f202203cc106252b692e8260070c5cec8436a"
     },
     {
-      "bytes": 21411,
+      "bytes": 21615,
       "path": "crates/scriptw-intl/data/iana-tzdb-2026a/manifest.json",
-      "sha256": "e50d8771a908ae98abcbbc5137c0d13ed88d11b4e3c21ff9d010f72043f11096"
+      "sha256": "bdd042c75b036e603735507f6bdceb8c2a9e6d6ecd1e40333dbfb5e6e11a82e1"
     },
     {
       "bytes": 8141,
@@ -496,6 +496,11 @@
       "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
+    },
+    {
       "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
       "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
@@ -513,7 +518,7 @@
     {
       "bytes": 565,
       "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "90542febeeee1fe0156ba39181b7a6d8a67060a0dd24e263d91765158e5fe17a"
+      "sha256": "4d819915d3f68e6f3419f0c7aede0bd8c070b851149d2adb445352f073b4ba73"
     },
     {
       "bytes": 1169,
@@ -571,9 +576,9 @@
       "sha256": "cbdb5d124f1af4844208488d51b8258baae197162fc4ef85ac031ff90dbfe1ac"
     },
     {
-      "bytes": 8923,
+      "bytes": 9001,
       "path": "scripts/generate-intl-datetime-identity.py",
-      "sha256": "8e82209c5ce32105b1a2a9a97d15b5df7d817613dc174f0b4cd70770ce5f2e74"
+      "sha256": "a5d112628249a7f68ecf64a1f084d74e2d58b0a96be3bf4e53414d4f8e3c2a3b"
     },
     {
       "bytes": 18121,
@@ -847,7 +852,7 @@
       "version": "1.0.149"
     }
   ],
-  "provider_data_sha256": "b220d6e9ed7b84ed1dd11433b325a478d620778d62ec95848351ec354da08ba4",
+  "provider_data_sha256": "b600735e28f84da3cb1a94e47d95f9b02f457d7aafb9219d99934d4f4356b494",
   "purpose": "DateTimeFormat inherited CLDR profile and exact calendar/parts kernel",
   "schema_version": 1
 }

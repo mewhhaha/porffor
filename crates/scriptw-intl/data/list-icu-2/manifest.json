@@ -147,6 +147,11 @@
       "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
+    },
+    {
       "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
       "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
@@ -187,9 +192,9 @@
       "sha256": "ef1a57d9ed9b457f7574a6d589dda692f3d5c8290ba57cd563b3cdba068f6dd1"
     },
     {
-      "bytes": 10583,
+      "bytes": 10647,
       "path": "scripts/generate-intl-list-identity.py",
-      "sha256": "7b3b638dee04d02f0763b176cc0bd595ab20e166a558fd3a9de2ef9db0b9fb66"
+      "sha256": "12bd32fbcc0658ce139d6213541043618517cca330016a4258b26490d7ed3f78"
     }
   ],
   "packages": [
@@ -333,7 +338,7 @@
       }
     ]
   },
-  "provider_data_sha256": "5de612bcd97eae17305bbdbfe2b52833689d38e905363d2868831cdd69a5988b",
+  "provider_data_sha256": "5101399d4991a71c99156928514d8c053214635466f92b34cc7ab5323fdb5717",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

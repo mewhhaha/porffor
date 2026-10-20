@@ -661,9 +661,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 10001,
+      "bytes": 10065,
       "path": "scripts/generate-intl-display-relative-identity.py",
-      "sha256": "f0576b33fbc333b5f86ee2593468450ea2439b612b60374282821894ac00d4f4"
+      "sha256": "2832dd3195e3eee2039c46f6d87a3787204bad01c7863386e9e0572022786022"
     },
     {
       "bytes": 10535,
@@ -759,7 +759,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "849038d6f5500e4361778f3845f6e032ca8554cf0e8bcf70ab9c1c7b40d18c27",
+  "provider_data_sha256": "e8b3dec3bbd21b370747a0fdcdcd5c4e2050a2edffc2fcb7878ed1b0df59ce8b",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

@@ -38,7 +38,7 @@ HELPERS.extend([
     'crates/scriptw-intl/src/image_build/keyword.rs',
     'crates/scriptw-intl/src/provider/language_domain.rs',
     'crates/scriptw-intl/src/provider/keyword_aliases.rs',
-    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs',
     'scripts/generate-intl-keyword-aliases.py',
     'crates/scriptw-engine/src/intl_data_images.rs',
     'crates/scriptw-engine/src/wasm_gc_intl_host.rs',

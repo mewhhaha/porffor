@@ -77,6 +77,19 @@ class IntlKeywordAliasGenerationTests(unittest.TestCase):
         self.assertIn('identity.rs', child.stderr)
         self.assertEqual(identity.read_text(), '[0; 32]\n')
 
+    def test_dependent_source_manifests_cover_the_shared_identity_input(self):
+        root = SCRIPT.parents[1] / 'crates/scriptw-intl/data'
+        generated = 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs'
+        identity = 'crates/scriptw-intl/src/provider/keyword_aliases/identity.rs'
+        matched = []
+        for path in root.rglob('*.json'):
+            text = path.read_text()
+            if generated not in text:
+                continue
+            matched.append(path)
+            self.assertIn(identity, text, str(path))
+        self.assertGreaterEqual(len(matched), 15)
+
     def test_unlisted_xml_cannot_silently_escape_generation(self):
         (self.source / "common/bcp47/new.xml").write_text("<ldmlBCP47/>")
         with self.assertRaisesRegex(ValueError, "directory and pinned source manifest disagree"):
