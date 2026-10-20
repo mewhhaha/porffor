@@ -1,5 +1,13 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+Engine `aot_intl` test setup honors the runner's bounded `LILA_JOBS`, capped
+to actual available CPUs. An absent setting selects one job; invalid settings
+fail. This repairs55 hardcoded serial setup calls while keeping the whole299
+inventory and all fixture/assertion/deadline checks. The complete299 IDs pass
+with four native compiler/Rayon jobs and serial Cargo/libtest in1212.14s.
+The prior one-job observation was2288.55s; revision/cache differences prevent
+a controlled product-speedup claim. Full-suite and timeout acceptance remain open.
+
 ## Opt-in native compiler CPUs for complete targets — 2026-10-19
 
 The workspace runner normally pins each native executable to one CPU. An outer

@@ -4,7 +4,7 @@ use lila_engine::{
 };
 
 fn assert_likely_subtags(source: &str, host_surface_policy: HostSurfacePolicy) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compiler worker");
+    crate::configure_compilation_jobs();
     let observation = Engine::new(RealmBuilder::new().build())
         .observe_script(
             source,

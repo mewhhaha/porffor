@@ -1,13 +1,15 @@
-The identity audit now passes with exact byte-bound admission for four closed
-reports. Captured host locators remain literal in the reports; changed proof
-bytes, undeclared paths and product identifiers stay audited. All14 source
-audits pass. The621 tooling tests have passing results:620 in the original
-run and one after restoring four missing tracked proof files to its sparse
-checkout. The original errors are retained; the repaired test took0.49s.
+Engine Intl verification passes all **299 tests**, with zero failures or ignored
+tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
+compiler CPU budget; the actual run used four compiler/Rayon jobs, serial
+Cargo/libtest, and the original299 IDs, fixtures, assertions and deadlines.
+The earlier serial observation was2288.55 seconds; revision and cache state
+differ, so this comparison does not establish product performance acceptance.
 
-The299-test Intl CPU-budget candidate is under separate native verification.
-Full-suite, timeout repair, release and conformance acceptance remain open.
-[Exact source, literal outcomes and retained evidence](docs/rust-rewrite/identity-provenance-repair-20261020.json).
+All14 source audits and all621 tooling tests have passing results. The
+tooling result retains620 original passes and one repaired missing-input
+test; the original errors remain recorded. The identity fix is also on main.
+[Exact Intl verification and evidence](docs/rust-rewrite/intl-native-budget-repair-20261020.json);
+[identity and tooling evidence](docs/rust-rewrite/identity-provenance-repair-20261020.json).
 
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.

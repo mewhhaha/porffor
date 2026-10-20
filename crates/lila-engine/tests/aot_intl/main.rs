@@ -35,3 +35,20 @@ mod aot_intl_plural_rules;
 mod aot_intl_relative_time_format;
 mod aot_intl_segmenter;
 mod aot_intl_supported_values;
+
+fn configure_compilation_jobs() {
+    // The whole target runs with one libtest thread. Allow native compilation
+    // to use the runner's bounded CPU allocation while retaining serial setup
+    // for direct invocations without an explicit budget.
+    let requested = match std::env::var("LILA_JOBS") {
+        Ok(value) => value
+            .parse::<std::num::NonZeroUsize>()
+            .expect("LILA_JOBS must be a positive integer")
+            .get(),
+        Err(std::env::VarError::NotPresent) => 1,
+        Err(std::env::VarError::NotUnicode(_)) => panic!("LILA_JOBS must be a positive integer"),
+    };
+    let available = std::thread::available_parallelism().map_or(1, usize::from);
+    lila_engine::configure_compilation_jobs(requested.min(available))
+        .expect("consistent bounded native compilation budget");
+}

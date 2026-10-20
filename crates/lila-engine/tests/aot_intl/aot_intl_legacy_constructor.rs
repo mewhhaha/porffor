@@ -4,7 +4,7 @@ use lila_engine::{
 };
 
 fn assert_legacy_formatter(source: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     for prefix in ["", "'use strict';\n"] {
         let source = format!("{prefix}{source}");
         let observation = Engine::new(RealmBuilder::new().build())

@@ -4,7 +4,7 @@ use lila_engine::{
 };
 
 fn assert_calendar_script(source: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     for directive in ["", "\"use strict\";\n"] {
         let script = format!("{directive}{source}");
         let observation = Engine::new(RealmBuilder::new().build())

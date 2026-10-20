@@ -4,7 +4,7 @@ use lila_engine::{
 };
 
 fn assert_date_time_script(source: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let observation = Engine::new(RealmBuilder::new().build())
         .observe_script(
             source,
@@ -463,7 +463,7 @@ fn unchanged_original_temporal_comparison_checks_all_dates_in_both_execution_mod
         harness.push_str(&section.lines().skip(1).collect::<Vec<_>>().join("\n"));
         harness.push('\n');
     }
-    lila_engine::configure_compilation_jobs(1).unwrap();
+    crate::configure_compilation_jobs();
     for directive in ["\"use strict\";\n", ""] {
         let source = format!("{directive}{harness}{original}");
         assert!(source.ends_with(original));

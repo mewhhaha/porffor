@@ -60,7 +60,7 @@ fn assert_observation(observation: ObservedRunOutcome, output: &str, source: &st
 }
 
 fn assert_date(source: &str, identifier: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     // Clones retain the admitted immutable choice and injected clock. Each
     // mode receives a fresh Wasm instance while the Rust Realm proof is shared.
     let realm = configured_realm(identifier);
@@ -187,7 +187,7 @@ fn date_created_realm_shares_default_and_keeps_intrinsic_errors() {
 
 #[test]
 fn date_worker_inherits_primary_zone_and_injected_clock() {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let source = include_str!("../fixtures/date_system_time_zone/worker_inherits_default.js");
     for directive in ["", "\"use strict\";\n"] {
         let script = format!("{directive}{source}");

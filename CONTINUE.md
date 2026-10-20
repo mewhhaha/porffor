@@ -1,4 +1,19 @@
-# Continue Lila — 2026-10-19
+# Continue Lila — 2026-10-20
+
+Engine Intl verification passes all **299 tests**, with zero failures or ignored
+tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
+compiler CPU budget; the actual run used four compiler/Rayon jobs, serial
+Cargo/libtest, and the original299 IDs, fixtures, assertions and deadlines.
+The earlier serial observation was2288.55 seconds; revision and cache state
+differ, so this comparison does not establish product performance acceptance.
+
+All14 source audits and all621 tooling tests have passing results. The
+tooling result retains620 original passes and one repaired missing-input
+test; the original errors remain recorded. The identity fix is also on main.
+[Exact Intl verification and evidence](docs/rust-rewrite/intl-native-budget-repair-20261020.json);
+[identity and tooling evidence](docs/rust-rewrite/identity-provenance-repair-20261020.json).
+
+Next: repair the remaining original five-second mutation timeout, then finish current full AF/default, release, conformance and performance acceptance. Keep CONTINUE/tasks until every criterion passes. No repeated diagnostic supplies repair acceptance.
 
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.

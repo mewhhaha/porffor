@@ -1,7 +1,7 @@
 use lila_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
 
 fn assert_wasm_true(source: &str) {
-    lila_engine::configure_compilation_jobs(1).expect("one bounded compilation worker");
+    crate::configure_compilation_jobs();
     let engine = Engine::new(RealmBuilder::new().build());
     let outcome = engine
         .run_script(
