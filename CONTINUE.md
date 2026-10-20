@@ -1,22 +1,21 @@
 # Continue Lila — 2026-10-20
 
-Cold-admission runtime verification passes all **650 Intl library tests** and
-all **35 worker tests**, with no failures or ignored tests. All14 source audits
-and all622 Python tooling bodies pass. Every prior646 library ID and every
-worker ID is retained; four library controls were added.
+Current runtime verification passes **984 targeted native tests**: all650 Intl
+library tests, all35 worker tests and the complete299 Engine Intl tests, with
+zero failures or ignored tests. All original IDs are retained; four new Intl
+controls were added. All14 source audits and all622 Python tooling bodies pass.
 
-All four original cold requests pass with their unchanged **5000ms** budgets,
-four compiler jobs and a fresh normal-capacity private cache per request. The
-original mutation seed9 request also passes in its complete native worker scope.
-Historical failures remain recorded. Current Engine299, full AF/default,
-release, conformance, performance acceptance and task cleanup remain pending.
+All four original cold requests pass with unchanged **5000ms** budgets, four
+compiler jobs and fresh normal-capacity private caches. The complete Engine
+Intl scope took1187.69s. Its native body ran once; a closed cloud output pipe
+affected the final progress print, and completion validated the sealed result
+without repeating tests. Historical errors remain recorded.
 
-An alternating seven-pair host measurement observed median Minimal Intl
-admission of **540.2ms before** and **207.6ms after**.
-All samples and12 actual frame checks are retained. This measures fresh host
-processes with current OS caches; it does not replace product benchmark gates.
+Full all-features discovery is running against the same frozen source, followed
+by fresh default-feature tests and CI checks. Full-suite, release, conformance,
+performance acceptance and task cleanup remain pending.
 
-[Exact runtime checkpoint and evidence](docs/rust-rewrite/cold-admission-runtime-checkpoint-20261020.json).
+[Engine299 evidence](docs/rust-rewrite/engine299-runtime-checkpoint-20261020.json); [cold-admission runtime evidence](docs/rust-rewrite/cold-admission-runtime-checkpoint-20261020.json).
 
 Engine Intl verification passes all **299 tests**, with zero failures or ignored
 tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
