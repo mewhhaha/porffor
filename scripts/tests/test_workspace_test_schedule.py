@@ -81,6 +81,32 @@ class WorkspaceScheduleTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     schedule.validate_native_resources(dict(valid, **change), command, [1, 2, 3])
 
+    def test_publication_cpu_budget_keeps_one_complete_idle_scope(self):
+        publication = case('lila-cli', 'fake_suite_publication')
+        name = 'lila-cli:fake_suite_publication'
+        inventory = self.inventory() + [publication]
+        selected = schedule.validate_native_cpu_targets(
+            inventory, [name, name], {}, True)
+        self.assertEqual(selected, [name])
+        self.assertTrue(schedule.native_cpu_target(publication, selected))
+        self.assertTrue(schedule.is_barrier(publication))
+        self._assert_actual_runner_drains([], selected, publication)
+        for filters, ignored, partitions in [
+                ({name: 'one'}, True, []), ({}, False, []), ({}, True, [name])]:
+            with self.subTest(filters=filters, ignored=ignored, partitions=partitions):
+                with self.assertRaises(ValueError):
+                    schedule.validate_native_cpu_targets(
+                        inventory, [name], filters, ignored, partitions)
+        with self.assertRaises(ValueError):
+            schedule.validate_partition_native_targets(inventory, [name], {}, True)
+        for invalid in [case('lila-cli', 'fake_suite_publication', 'lib'),
+                        case('lila-cli', 'perf'),
+                        case('lila-cli', 'differential_worker')]:
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    schedule.validate_native_cpu_targets(
+                        [invalid], [invalid['package'] + ':' + invalid['target']], {}, True)
+
     def test_native_cpu_opt_in_excludes_performance_docs_and_independent_scopes(self):
         for scope in [case('lila-test262','differential_generated_campaign'),
                       case('lila-cli','differential_worker')]:
@@ -208,7 +234,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
             with self.subTest(partitions=partitions, compiler=compiler):
                 self._assert_actual_runner_drains(partitions,compiler)
 
-    def _assert_actual_runner_drains(self,partitions,compiler):
+    def _assert_actual_runner_drains(self,partitions,compiler,selected=None):
         runner = SOURCE.with_name('run_workspace_tests.py')
         tree = ast.parse(runner.read_text())
         loop = next(node for node in tree.body if isinstance(node, ast.For)
@@ -227,7 +253,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
             calls.append(wait)
             if wait:
                 active.pop(next(iter(active)))
-        scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap, 'case': case('lila-engine', 'aot_intl'),
+        scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap, 'case': selected or case('lila-engine', 'aot_intl'),
                  'args': SimpleNamespace(partition_cli=True, continuation_phase='all',
                                          test_processes=4),
                  'partition_native_targets': partitions,

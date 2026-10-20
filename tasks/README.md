@@ -1,3 +1,18 @@
+All-feature discovery is complete at compiler source `867ad6145`:
+**9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.
+Every failure and its executable are preserved. One subsequent idle diagnostic
+passes the same five-second request, but establishes no repair and does not
+replace the suite failure. Default, release, conformance and cleanup remain open.
+
+The verifier now admits the exact whole fake-suite publication target to its
+opt-in cloud CPU budget, keeping its idle barrier, original jobs/worker count
+and deadline. All620 Python tooling controls pass, including real separate-device
+storage checks. Native publication speedup remains unmeasured. An Intl startup
+comparison linked the existing optimized library in1.99s and retained all28
+samples; small, variable median differences did not justify changing production
+scheduling. Keep CONTINUE/tasks until every acceptance criterion passes.
+[Exact discovery, diagnostic, measurements and tooling controls](../docs/rust-rewrite/complete-af-discovery-cpu-tooling-20261019.json).
+
 Verification checkpoint — 2026-10-19: twelve more whole scopes pass
 1,185/0/0, bringing the frozen all-feature discovery to57 closed scopes,
 7,966 passes and the same unresolved seed9 timeout. Regexp152, Temporal202,

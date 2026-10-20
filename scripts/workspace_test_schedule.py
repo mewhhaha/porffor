@@ -40,9 +40,31 @@ def validate_partition_native_targets(inventory, requested, native_filters,
 
 def validate_native_cpu_targets(inventory, requested, native_filters,
                                 include_ignored, partition_targets=()):
-    """Admit exact complete independent scopes, never nested CPU owners."""
-    selected = validate_partition_native_targets(inventory, requested,
-                                                  native_filters, include_ignored)
+    """Admit complete idle scopes without partitioning publication or timing."""
+    selected = sorted(set(requested))
+    if selected and not include_ignored:
+        raise ValueError('Complete native CPU targets require --include-ignored')
+    for name in selected:
+        matches = [case for case in inventory
+                   if case['package'] + ':' + case['target'] == name]
+        if len(matches) != 1:
+            raise ValueError(f'Native CPU target must name one available '
+                             f'Cargo metadata scope: {name}')
+        scope = matches[0]
+        # Publication already runs its fixed case workers in one idle scope.
+        # Let them share the inherited CPU budget without changing their CLI
+        # jobs/worker counts, assertions or termination bound. Timing gates
+        # retain their separate original measurement policy.
+        publication = (scope['package'] == 'lila-cli'
+                       and scope['target'] == 'fake_suite_publication'
+                       and scope['kind'] == 'test')
+        if (scope['kind'] not in ('lib', 'bin', 'test')
+                or (is_barrier(scope) and not publication)):
+            raise ValueError(f'Native CPU targets exclude documentation, timing '
+                             f'and campaign barriers: {name}')
+        if name in native_filters:
+            raise ValueError(f'Native CPU targets require an unfiltered whole '
+                             f'target: {name}')
     if set(selected) & set(partition_targets):
         raise ValueError('A native target cannot own compiler CPUs and partitions')
     return selected

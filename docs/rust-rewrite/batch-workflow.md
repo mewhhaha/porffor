@@ -15,8 +15,14 @@ These targets run exclusively after other native work drains. Cargo and
 libtest remain serial, with the original executable command, inventories,
 deadlines, cache limits and watcher allowance. The child resource receipt binds
 actual affinity, native/Rayon jobs, Cargo jobs and libtest threads. The opt-in
-rejects filtered targets, documentation, existing timing/campaign barriers and
+rejects filtered targets, documentation, timing/campaign barriers and
 partitioned targets; the separate differential CPU option retains its policy.
+The exact whole `lila-cli:fake_suite_publication` test is also eligible: add
+`--native-target-cpus auto --native-cpu-target lila-cli:fake_suite_publication`.
+It remains one idle-exclusive libtest scope. Its two existing case workers
+share the inherited CPU budget; explicit CLI `--jobs 1`, worker count and
+900-second deadline stay unchanged. This opt-in has focused scheduler coverage;
+a native speedup has not yet been measured.
 Continuations must retain the exact selected targets and CPU policy. This
 changes scheduling only; native results and elapsed-time gains need actual
 verification at the selected source.
