@@ -1,3 +1,36 @@
+# Lila
+
+Lila is a Rust JavaScript-to-Wasm AOT compiler and embedding library.
+
+## Current implementation and verification — 2026-10-20
+
+[Current inventory: capabilities, builds, completed work and remaining gates](docs/rust-rewrite/current-inventory.md)
+is the current project summary; [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json)
+contains the receipts and runnable example sources.
+
+- Working product: `run` and `build wasm`. Six fresh representative JavaScript/
+  module examples and one Wasm emission check pass through the current debug CLI.
+  C/native emitters and the REPL remain unimplemented.
+- Current source `cbf7cc71f`: 14 source audits, two shell controls and 624 tooling
+  tests pass; all 12 ordinary library scopes pass 3,865 tests.
+- Broad verification is **stopped and incomplete: 7,560 passed, one failed,
+  zero ignored across 49/113 closed scopes**. The failure is an original-budget
+  5-second Wasm-worker timeout. Default, release, full conformance and calibrated
+  performance acceptance remain open.
+- Old cloud coordinators did not survive restoration. Saved waiting receipts
+  are not live processes. Resume only uncompleted scopes after admission.
+- Recorded tasks: four complete, 25 in progress, T26 blocked. Keep CONTINUE/tasks
+  until all acceptance criteria pass.
+
+The generated Test262 publication farther below is a dated historical
+checkpoint, not a current compiler conformance percentage. Its bytes remain
+publisher-owned; no published totals were changed for this inventory.
+
+## Historical development checkpoints
+
+The dated notes below preserve earlier observations. Present-tense statements
+inside them refer to their recorded source, not the current inventory above.
+
 The current source integrates atomic checkpoint replacement and measured CLI
 partition costs. A complete same-directory snapshot replaces the prior file
 only after writing and syncing; JSON remains the resume authority. CLI
@@ -1040,7 +1073,7 @@ storage, and discovers for-in initializer environments before lowering. The
 [focused checkpoint](docs/rust-rewrite/compiler-source-regression-checkpoint-20261017.json)
 contains literal native results, retained passes and outstanding verification.
 
-# Lila
+## Project background
 
 The workspace runner offers `--preserve-test-artifacts` for machines with enough
 disk space; it retains verified binaries for subsequent ordinary Cargo reuse.

@@ -1,3 +1,11 @@
+## Current acceptance inventory — 2026-10-20
+
+[Current capabilities, builds, tests and remaining acceptance](current-inventory.md).
+Current source has 7,560 native passes and one timeout in 49/113 closed AF
+scopes; discovery stopped and old cloud coordinators are absent. The 624
+tooling checks and all 12 ordinary libraries (3,865 tests) pass. Later gates
+remain unstarted. Dated checkpoint notes below are historical, not live status.
+
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.
 Every failure and its executable are preserved. One subsequent idle diagnostic

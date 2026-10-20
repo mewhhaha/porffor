@@ -1,5 +1,14 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+## Current verification inventory — 2026-10-20
+
+[Current capabilities, builds, tests and remaining acceptance](current-inventory.md).
+Current source has 7,560 native passes and one timeout in 49/113 closed AF
+scopes; discovery stopped and old cloud coordinators are absent. The 624
+tooling checks and all 12 ordinary libraries (3,865 tests) pass. Later gates
+remain unstarted. Dated checkpoint notes below are historical, not live status.
+
+
 The current source integrates atomic checkpoint replacement and measured CLI
 partition costs. A complete same-directory snapshot replaces the prior file
 only after writing and syncing; JSON remains the resume authority. CLI

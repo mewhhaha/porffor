@@ -1,5 +1,8 @@
 # Lila Rust Rewrite
 
+[Current implementation, verified builds and remaining work](current-inventory.md)
+is the project status entry point. Historical notes below retain their source/date.
+
 Big rule first: Lila compiles JavaScript directly to Wasm. Lila does not sneak
 an interpreter into Wasm and call that victory.
 
