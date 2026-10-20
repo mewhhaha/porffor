@@ -257,3 +257,15 @@ and the [ownership index](conformance-ownership.md).
    current complete evidence authorizes replacement.
 5. Finish supported-host and calibrated performance obligations, resolve every
    remaining semantic failure, and only then remove `CONTINUE.md` and `tasks/`.
+
+
+## Three disputed Test262 executions — reviewed corrections
+
+The same global-prelude candidate passes 24/27 focused original executions,
+retaining exactly the Annex B arguments failure and both Johnston/Honolulu
+timezone failures. Explicit versioned fixture corrections pass 27/27, including
+all twelve repaired global-property executions and retained controls. Seven
+preparation regressions and eleven pinned-provider offset samples also pass.
+Original vendor bytes, source pins, canonical full counts and chart are unchanged.
+This is focused amended-suite evidence, not unmodified upstream or full-suite
+acceptance. [Corrections, exact comparison and remaining specification gap](test262-errata-20261020.md).

@@ -1,0 +1,51 @@
+{
+  "schema": "scriptw-test262-errata-v1",
+  "base_source_pins": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+    "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "classification": "Explicit locally amended fixtures; not unmodified upstream Test262. Original vendor files and native baseline results remain unchanged.",
+  "authorities": [
+    {
+      "id": "ecma262",
+      "revision": "5345883164f463e87f8b40aca4956157ecba8783",
+      "url": "https://raw.githubusercontent.com/tc39/ecma262/5345883164f463e87f8b40aca4956157ecba8783/spec.html",
+      "sha256": "5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d",
+      "section": "FunctionDeclarationInstantiation, including Annex B steps"
+    },
+    {
+      "id": "ecma402-observed",
+      "revision": "730ca2b88c305862db7be2f83c510dcca33ab48c",
+      "url": "https://raw.githubusercontent.com/tc39/ecma402/730ca2b88c305862db7be2f83c510dcca33ab48c/spec/locales-currencies-tz.html",
+      "sha256": "96162f26bf0ff1478f7359cf8d637ea954da8e633e433204e2d67fb4e7411ebd",
+      "section": "Use of the IANA Time Zone Database; country-preserving identifier requirement",
+      "authority_note": "Recorded observation; the repository does not currently pin ECMA-402."
+    }
+  ],
+  "corrections": [
+    {
+      "path": "test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "replacement": "replacements/test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "original_sha256": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+      "replacement_sha256": "fab1c51fabadcb3fed49fd595ab945a4de248a3e411b2edf3ce7904a7d4970c2",
+      "reason": "The 2017 test appends implicit arguments to parameterNames. The pinned algorithm leaves formal paramNames unchanged and appends implicit arguments to paramBindings, allowing the Annex B copy. Preserve pre-block/in-block assertions, correct all three post-block assertions, and add an explicit-formal control.",
+      "execution_modes": [
+        "sloppy-script"
+      ],
+      "owner": "T24 conformance / Test262 errata"
+    },
+    {
+      "path": "test/intl402/Temporal/ZonedDateTime/links.js",
+      "replacement": "replacements/test/intl402/Temporal/ZonedDateTime/links.js",
+      "original_sha256": "79341d40e022b1c2d6320bdb9ac3edc7352235c913479b92c50a3fb7fde4b324",
+      "replacement_sha256": "275a6d1b97a3151e5179d0de14dc16f1ab17b2e201fbc9db0236003e7a199422",
+      "reason": "The default tzdb Link crosses from UM to US, conflicting with ECMA-402 country preservation. Move only Johnston into the existing acceptance/name-preservation group; retain all valid alias equality and offset assertions. The backzone-Zone/algorithm-Link hole remains documented; this correction does not claim to resolve it.",
+      "execution_modes": [
+        "sloppy-script",
+        "strict-script"
+      ],
+      "owner": "T24 conformance / Test262 errata"
+    }
+  ]
+}

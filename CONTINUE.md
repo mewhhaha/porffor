@@ -90,3 +90,13 @@ four retained controls and all 742 IR integration tests in the isolated build.
 [Exact validation and remaining acceptance](docs/rust-rewrite/global-prelude-hosts-fix-20261020.md).
 Keep the original full baseline and its raw failures. Run the complete fixed
 compiler suite before claiming full conformance or deleting this file/tasks.
+
+
+## Reviewed Test262 fixture corrections — 2026-10-20
+
+All three disputed cases pass with explicit, hash-bound corrections; the same
+27-ID cohort is 24/27 on originals and 27/27 amended. The twelve global-property
+repairs remain green. Original vendor/pins/full results are preserved, and the
+Johnston backzone-Zone specification gap is still explicit. Do not count this
+as full upstream Test262 acceptance or delete continuation/tasks.
+[Exact proof and reproduction](docs/rust-rewrite/test262-errata-20261020.md).

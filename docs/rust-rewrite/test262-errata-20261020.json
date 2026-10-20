@@ -1,0 +1,268 @@
+{
+  "schema": "scriptw-reviewed-test262-errata-final-validation-v1",
+  "complete": true,
+  "native_comparison": {
+    "schema": "scriptw-reviewed-test262-errata-validation-v1",
+    "complete": true,
+    "checks": [
+      {
+        "label": "errata-tooling-tests",
+        "exit_code": 0,
+        "seconds": 0.216,
+        "stdout": "errata-tooling-tests.stdout",
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr": "errata-tooling-tests.stderr",
+        "stderr_sha256": "953ef1249f1f469cdaebe244bbacfaf66c6fd416864ffdc38527a453c13e7c3b"
+      },
+      {
+        "label": "prepare-amended-suite",
+        "exit_code": 0,
+        "seconds": 6.687,
+        "stdout": "prepare-amended-suite.stdout",
+        "stdout_sha256": "47ab86eb21d3c7eeacb52cff0dd6ce2ef9d945ea1ac47d3ab5dd71f2a3025d9a",
+        "stderr": "prepare-amended-suite.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "stock",
+        "exit_code": 1,
+        "seconds": 34.366,
+        "stdout": "stock.stdout",
+        "stdout_sha256": "e0a761cfec829e553d64008018bca55293b718afef22b9f0ce1d4160a3a59eeb",
+        "stderr": "stock.stderr",
+        "stderr_sha256": "c09a49c1f5442c8568cddc78551da193ecfe4873b4db4ee983e62e4be118a810"
+      },
+      {
+        "label": "amended",
+        "exit_code": 0,
+        "seconds": 16.975,
+        "stdout": "amended.stdout",
+        "stdout_sha256": "2bd0c3da84eaca61c0011c1ba7744bc64e8f4969e3895ba9d9636219536d6087",
+        "stderr": "amended.stderr",
+        "stderr_sha256": "e9f38932f30a581f49474229168f0e4dc28c96fd960f2b6065af9e5e2694ee35"
+      },
+      {
+        "label": "v8-annex-comparison",
+        "exit_code": 0,
+        "seconds": 0.066,
+        "stdout": "v8-annex-comparison.stdout",
+        "stdout_sha256": "c0ca84dcef1e9591de29528e4969af11642f2d21c18d8af7854fc3f4336e8962",
+        "stderr": "v8-annex-comparison.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "stock-source-pins-still-verified",
+        "exit_code": 0,
+        "seconds": 1.272,
+        "stdout": "stock-source-pins-still-verified.stdout",
+        "stdout_sha256": "85cb85643f5437e6b54080860661a4e59b154e6f9d075cdd17e384a7d4a01cfc",
+        "stderr": "stock-source-pins-still-verified.stderr",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ],
+    "stock_suite_changed": false,
+    "stock_results_changed": false,
+    "full_amended_suite_verified": false,
+    "unmodified_upstream_all_green": false,
+    "compiler_identity": {
+      "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+      "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+      "source_revision": {
+        "kind": "unversioned-archive"
+      },
+      "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+    },
+    "status": "verified",
+    "preparation": {
+      "schema": "scriptw-test262-errata-preparation-v1",
+      "complete": true,
+      "check_only": false,
+      "upstream_unmodified": false,
+      "eligible_for_stock_test262_publication": false,
+      "base_source_pins": {
+        "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+        "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+        "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+      },
+      "manifest_sha256": "fd3c68bfd43a6abdd577b61f7b73670934d2eca23e561c30e85a31c5ca55170c",
+      "corrections": [
+        {
+          "path": "test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "replacement": "replacements/test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "original_sha256": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+          "replacement_sha256": "fab1c51fabadcb3fed49fd595ab945a4de248a3e411b2edf3ce7904a7d4970c2",
+          "reason": "The 2017 test appends implicit arguments to parameterNames. The pinned algorithm leaves formal paramNames unchanged and appends implicit arguments to paramBindings, allowing the Annex B copy. Preserve pre-block/in-block assertions, correct all three post-block assertions, and add an explicit-formal control.",
+          "execution_modes": [
+            "sloppy-script"
+          ],
+          "owner": "T24 conformance / Test262 errata"
+        },
+        {
+          "path": "test/intl402/Temporal/ZonedDateTime/links.js",
+          "replacement": "replacements/test/intl402/Temporal/ZonedDateTime/links.js",
+          "original_sha256": "79341d40e022b1c2d6320bdb9ac3edc7352235c913479b92c50a3fb7fde4b324",
+          "replacement_sha256": "275a6d1b97a3151e5179d0de14dc16f1ab17b2e201fbc9db0236003e7a199422",
+          "reason": "The default tzdb Link crosses from UM to US, conflicting with ECMA-402 country preservation. Move only Johnston into the existing acceptance/name-preservation group; retain all valid alias equality and offset assertions. The backzone-Zone/algorithm-Link hole remains documented; this correction does not claim to resolve it.",
+          "execution_modes": [
+            "sloppy-script",
+            "strict-script"
+          ],
+          "owner": "T24 conformance / Test262 errata"
+        }
+      ],
+      "amended_tree": "47a53530fdb5df46a15014e72a40f5eb82ac589c"
+    },
+    "unmodified_fixture_replay": {
+      "total": 27,
+      "passed": 24,
+      "counts_per_outcome": {
+        "Bug": 3,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 24
+      },
+      "failures": [
+        {
+          "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true",
+          "detail_hash": 10162307294149082881,
+          "duration_ms": 1121
+        },
+        {
+          "test_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 1283
+        },
+        {
+          "test_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 1350
+        }
+      ],
+      "native_snapshot": "stock-snapshots/reviewed-errata-stock-20261020-12132469723299439800.json",
+      "sha256": "884bbf82412ed5aff58a1e5dd71255044f3d91ebf1415f3b777d52ea0b285e45"
+    },
+    "corrected_fixture_replay": {
+      "total": 27,
+      "passed": 27,
+      "counts_per_outcome": {
+        "Bug": 0,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 27
+      },
+      "failures": [],
+      "native_snapshot": "amended-snapshots/reviewed-errata-amended-20261020-6121875851517221160.json",
+      "sha256": "370e9cfcc7aad92f21f0dc290232bc1c8f8e5db1daf7020d8ccaa288163afba1"
+    },
+    "v8_annex_comparison": {
+      "node": "v24.19.0",
+      "v8": "13.6.233.17-node.51",
+      "suites": [
+        {
+          "suite": "unmodified",
+          "passed": 2,
+          "cases": [
+            {
+              "file": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+              "outcome": "Failure",
+              "detail": "Test262Error: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true"
+            },
+            {
+              "file": "staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+              "outcome": "Success"
+            },
+            {
+              "file": "staging/sm/regress/regress-602621.js",
+              "outcome": "Success"
+            }
+          ]
+        },
+        {
+          "suite": "explicitly-amended",
+          "passed": 3,
+          "cases": [
+            {
+              "file": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+              "outcome": "Success"
+            },
+            {
+              "file": "staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+              "outcome": "Success"
+            },
+            {
+              "file": "staging/sm/regress/regress-602621.js",
+              "outcome": "Success"
+            }
+          ]
+        }
+      ]
+    },
+    "disputed_executions_corrected": 3,
+    "corrected_executions_passed": 27,
+    "retained_controls_passed": 24
+  },
+  "final_preparation_tooling": {
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0,
+    "log": "tooling-final.log",
+    "sha256": "71ee14f79ff951869271a30201f28b9b36b272289f1c67120c912d89f3f6919a",
+    "windows_branch": "Simulated sys.platform=win32 with a real source Git index; not native Windows verification."
+  },
+  "provider_specific_offset_probe": {
+    "passed": true,
+    "sample_count": 11,
+    "backend_used": "WasmAot",
+    "stdout": "johnston-offsets.stdout",
+    "stdout_sha256": "ade3a28cce4a007e6c39b97a66467d8e117a84db477a4736e3462bed9d59acb2",
+    "stderr": "johnston-offsets.stderr",
+    "stderr_sha256": "3fe03837adf80971930299067d62e8a7d35579d5716e59be997377d2ec8fbd4e"
+  },
+  "reviewed_files_sha256": {
+    "scripts/prepare_test262_errata.py": "ab767950ce6e82f162f2bd89d44c3bbde8367b549f65369e0830eea987e23465",
+    "scripts/tests/test_prepare_test262_errata.py": "27129cf0330415482d4ee94d7f0f9109c947a84d26e45d48432d8e2fa8abeef2",
+    "test262/errata/README.md": "ae3e06cdc77c76db7bae6acba83b9ba5b7db2f08ca8767541acac26ea8305cc7",
+    "test262/errata/manifest.json": "fd3c68bfd43a6abdd577b61f7b73670934d2eca23e561c30e85a31c5ca55170c",
+    "test262/errata/controls/johnston-offsets.js": "9ce73a5b299c3f141500386f9f579cb540ea646f3c16a5cd5257cf787e0b238d",
+    "test262/errata/replacements/test/annexB/language/function-code/block-decl-func-skip-arguments.js": "fab1c51fabadcb3fed49fd595ab945a4de248a3e411b2edf3ce7904a7d4970c2",
+    "test262/errata/replacements/test/intl402/Temporal/ZonedDateTime/links.js": "275a6d1b97a3151e5179d0de14dc16f1ab17b2e201fbc9db0236003e7a199422"
+  },
+  "stock_suite_changed": false,
+  "stock_source_pins_changed": false,
+  "stock_results_changed": false,
+  "full_amended_suite_verified": false,
+  "unmodified_upstream_all_green": false,
+  "baseline_publication_commit": "5176eab42da3911cf08197831a8c290efbf8f7c1",
+  "integrated_global_fix_commit": "cbb07c6cfa0cfa94cfdd34a1e8cccd8cd94361c8",
+  "evidence_archive": "test262/snapshots/reviewed-test262-errata-20261020.tar.gz",
+  "evidence_archive_sha256": "b3dd4dbf14d2eafd9c9e26c6f5c0f10400a4fdad34202f8062a820d57e1d5e2f",
+  "complete_tooling_verification": {
+    "passed": 648,
+    "failed": 0,
+    "skipped": 0,
+    "log": "test262/snapshots/reviewed-test262-errata-tooling-20261020.log",
+    "sha256": "dfca636305a95703b9b9360d44c6a6b7438d69f1015ba75f0c572a575807670b"
+  },
+  "canonical_stock_artifacts_preserved": {
+    "test262/snapshots/published-status-wasm-aot.json": "ee9814828afc2dea281091ea780767b02fdb5896d47f8a629306d2d8f9c1c079",
+    "test262/snapshots/published-status-wasm-aot.txt": "a8263816d0122f73004dee9820b91f8034136d544fb247260e9aac2f7a0f92c6",
+    "crates/scriptw-test262/src/source-pins.json": "ab47a6da190c07bc54ac2cc752580345f89fce9c31b739e7987be78b5ffea480"
+  },
+  "literal_validation_member": "final-validation.json",
+  "literal_validation_sha256": "336fcc76ad5cecb34f025ca60e084a8c31d8efa67ac9843e0f6e0d2a3799c48b"
+}
