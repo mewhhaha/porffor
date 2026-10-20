@@ -1,21 +1,22 @@
 # Continue Lila — 2026-10-20
 
-Current runtime verification passes **984 targeted native tests**: all650 Intl
-library tests, all35 worker tests and the complete299 Engine Intl tests, with
-zero failures or ignored tests. All original IDs are retained; four new Intl
-controls were added. All14 source audits and all622 Python tooling bodies pass.
+Current all-features discovery has passed **5,851 native tests**
+across **38 of113 scopes**, with zero failures or ignored tests in
+the completed scopes. All12 ordinary library scopes pass. The original
+650 Intl,35 worker and299 Engine Intl tests are included once. All14 source
+audits,622 tooling bodies and four original5000ms cold requests pass.
 
-All four original cold requests pass with unchanged **5000ms** budgets, four
-compiler jobs and fresh normal-capacity private caches. The complete Engine
-Intl scope took1187.69s. Its native body ran once; a closed cloud output pipe
-affected the final progress print, and completion validated the sealed result
-without repeating tests. Historical errors remain recorded.
+Remaining integration suites are running at the same frozen source, then
+fresh default-feature tests and CI checks. Ordinary release/230-case replay,
+real harness mechanics, idle measurements and debug campaigns are queued
+sequentially. Full-suite, release, conformance, calibrated performance and
+task cleanup acceptance remain pending.
 
-Full all-features discovery is running against the same frozen source, followed
-by fresh default-feature tests and CI checks. Full-suite, release, conformance,
-performance acceptance and task cleanup remain pending.
+A checkpoint replacement bug was found during review. Its atomic-write
+repair and partial-write regression are prepared in a separate checkout;
+they have not been compiled or applied to the source under verification.
 
-[Engine299 evidence](docs/rust-rewrite/engine299-runtime-checkpoint-20261020.json); [cold-admission runtime evidence](docs/rust-rewrite/cold-admission-runtime-checkpoint-20261020.json).
+[Closed scope evidence and prepared repair](docs/rust-rewrite/native-progress-checkpoint-20261020.json).
 
 Engine Intl verification passes all **299 tests**, with zero failures or ignored
 tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
