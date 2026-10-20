@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">
+<title id="title">Published Test262 results</title>
+<desc id="description">Passing: 96,678; Failing: 4,240; Not implemented: 1,125. Linear counts from zero. Historical snapshot: 2026-10-02 · pin aa55200d1 · 102,043 entries. Not a current conformance percentage.</desc>
+<rect width="760" height="422" rx="12" fill="#ffffff"/>
+<g font-family="system-ui, sans-serif" fill="#24292f">
+<text x="30" y="35" font-size="20" font-weight="600">Published Test262 results</text>
+<text x="30" y="57" font-size="12" fill="#57606a">Historical snapshot · number of test entries</text>
+<path d="M 96 326 H 724" stroke="#d8dee4" stroke-width="1"/>
+<text x="84" y="330" text-anchor="end" font-size="12" fill="#57606a">0</text>
+<path d="M 96 264 H 724" stroke="#d8dee4" stroke-width="1"/>
+<text x="84" y="268" text-anchor="end" font-size="12" fill="#57606a">25,000</text>
+<path d="M 96 202 H 724" stroke="#d8dee4" stroke-width="1"/>
+<text x="84" y="206" text-anchor="end" font-size="12" fill="#57606a">50,000</text>
+<path d="M 96 140 H 724" stroke="#d8dee4" stroke-width="1"/>
+<text x="84" y="144" text-anchor="end" font-size="12" fill="#57606a">75,000</text>
+<path d="M 96 78 H 724" stroke="#d8dee4" stroke-width="1"/>
+<text x="84" y="82" text-anchor="end" font-size="12" fill="#57606a">100,000</text>
+<rect id="passing" data-count="96678" x="166" y="86.238560" width="80" height="239.761440" fill="#2da44e"/>
+<text x="206" y="74.238560" text-anchor="middle" font-size="17" font-weight="600">96,678</text>
+<text x="206" y="357" text-anchor="middle" font-size="15">Passing</text>
+<rect id="failing" data-count="4240" x="376" y="315.484800" width="80" height="10.515200" fill="#cf222e"/>
+<text x="416" y="303.484800" text-anchor="middle" font-size="17" font-weight="600">4,240</text>
+<text x="416" y="357" text-anchor="middle" font-size="15">Failing</text>
+<rect id="not-implemented" data-count="1125" x="586" y="323.210000" width="80" height="2.790000" fill="#8c959f"/>
+<text x="626" y="311.210000" text-anchor="middle" font-size="17" font-weight="600">1,125</text>
+<text x="626" y="357" text-anchor="middle" font-size="15">Not implemented</text>
+<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">2026-10-02 · pin aa55200d1 · 102,043 entries</text>
+</g>
+</svg>

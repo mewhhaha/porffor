@@ -48,7 +48,7 @@ jobs:
       - name: Check canonical Scriptw identities
         run: ./scripts/check-scriptw-identity.sh
 
-      - name: Check generated README test diagrams
+      - name: Check generated README Test262 chart
         run: python3 -B scripts/generate-test-graph.py --check
 
       - name: Check pinned Intl source identities

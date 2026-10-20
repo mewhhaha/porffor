@@ -1,7 +1,9 @@
 # Scriptw Rust Rewrite
 
 [Project rename](scriptw-identity-migration.md) ·
-[Wasmtime/V8 benchmark methodology](v8-baseline.md).
+[Wasmtime/V8 benchmark methodology](v8-baseline.md) ·
+[Runtime requirements and eval limits](runtime-requirements.md) ·
+[Archived development history](../../DEVELOPMENT_HISTORY.md).
 
 [Current implementation, verified builds and remaining work](current-inventory.md)
 is the project status entry point. Historical notes below retain their source/date.

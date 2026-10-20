@@ -66,6 +66,15 @@ if [ "$base_status" = "$head_status" ]; then
   exit 0
 fi
 
+# Admit only canonical markers around the byte-identical historical record.
+# This lets the publisher preserve a collapsed README section on its next run.
+wrapped_status="<!-- scriptw-status:start -->"$'\n'"$base_status"$'\n'"<!-- scriptw-status:end -->"
+if [[ "$base_status" == '<!-- lila-status:start -->'* ]] \
+  && [ "$head_status" = "$wrapped_status" ]; then
+  printf 'check-readme-status-artifacts: unchanged historical evidence wrapped in canonical publisher markers\n'
+  exit 0
+fi
+
 if grep -Eq '^test262/snapshots/published-status-spec-exec\.(json|txt)$' <<<"$changed_files"; then
   cat >&2 <<'EOF'
 check-readme-status-artifacts: spec-exec is oracle-only and cannot authorize the generated README status block.

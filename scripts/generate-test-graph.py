@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate dated README diagrams from committed evidence, without rerunning tests."""
+"""Generate the README's dated Test262 bar chart from published evidence."""
 import argparse
-import hashlib
+from html import escape
 import json
 from pathlib import Path
 import re
@@ -10,6 +10,8 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 START = '<!-- scriptw-test-graph:start -->'
 END = '<!-- scriptw-test-graph:end -->'
+SNAPSHOT = 'test262/snapshots/published-status-wasm-aot.json'
+CHART = 'docs/rust-rewrite/assets/test262-status.svg'
 
 
 def read_committed_or_local(root, name):
@@ -18,110 +20,114 @@ def read_committed_or_local(root, name):
         ['git', 'show', ':' + name], cwd=root)
 
 
-def render(inventory, publication):
-    native = inventory['current_af']
-    counts = native['native_tests']
-    pending = native['expected_native_tests'] - sum(counts.values())
-    if pending != native['remaining_uncompleted_native_tests'] or pending < 0:
-        raise ValueError('native totals disagree with the saved inventory')
+def categories(publication):
     real = publication['real_suite']
-    outcomes = {row['label']: row['count'] for row in real['counts_per_outcome']}
+    outcomes = {}
+    for row in real['counts_per_outcome']:
+        label, count = row['label'], row['count']
+        if label in outcomes:
+            raise ValueError('duplicate published outcome')
+        if type(count) is not int or count < 0:
+            raise ValueError('outcome counts must be nonnegative integers')
+        outcomes[label] = count
     if set(outcomes) != {'Success', 'NotImplemented', 'Crash', 'Bug'}:
-        raise ValueError('unknown published outcomes need an explicit diagram category')
-    if sum(outcomes.values()) != real['total'] or outcomes['Success'] != real['passed']:
+        raise ValueError('unknown published outcomes need an explicit chart category')
+    if (type(real['total']) is not int or real['total'] <= 0
+            or type(real['passed']) is not int
+            or sum(outcomes.values()) != real['total']
+            or outcomes['Success'] != real['passed']):
         raise ValueError('published totals disagree')
+    return [
+        ('passing', 'Passing', outcomes['Success'], '#2da44e'),
+        ('failing', 'Failing', outcomes['Bug'] + outcomes['Crash'], '#cf222e'),
+        ('not-implemented', 'Not implemented', outcomes['NotImplemented'], '#8c959f'),
+    ]
+
+
+def render(publication):
+    real = publication['real_suite']
+    passed, failed, missing = [row[2] for row in categories(publication)]
+    tick = chr(96)
     return f'''{START}
-### Test results at their measured revisions
+![Test262: {passed:,} passing, {failed:,} failing, {missing:,} not implemented]({CHART})
 
-These diagrams use **different dated checkpoints**. They do not establish
-results for the renamed compiler or a current full-suite pass rate.
-
-Latest saved all-feature Rust workspace run: source `{inventory['tested_source'][:9]}`,
-2026-10-20, before the scriptw rename. The red case is an original-budget
-5-second Wasm-worker timeout, not an established JavaScript semantic mismatch.
-
-```mermaid
----
-config:
-  look: handDrawn
-  theme: neutral
----
-flowchart LR
-  AF["Rust workspace tests<br/>{native['expected_native_tests']:,} native tests"]
-  AF --> PASS["Succeeding<br/>{counts['passed']:,}"]
-  AF --> FAIL["Failing: worker timeout<br/>{counts['failed']:,}"]
-  AF --> WAIT["Not run yet<br/>{pending:,}"]
-  AF --> IGNORED["Ignored<br/>{counts['ignored']:,}"]
-  DOC["Documentation tests<br/>{native['expected_documentation_tests']} not run"]
-  classDef pass fill:#e0f1df,stroke:#34714b,color:#193d27
-  classDef fail fill:#ffe4df,stroke:#a63d32,color:#702a23
-  classDef wait fill:#f2eee4,stroke:#8b8170,color:#514a3d
-  class PASS pass
-  class FAIL fail
-  class WAIT,DOC,IGNORED wait
-```
-
-Scopes: {native['green_scopes']} green, {native['red_scopes']} red and
-{native['remaining_uncompleted_scopes']} unclosed of {native['expected_scopes']}.
-
-Latest **published historical Test262** snapshot: `{real['refresh_date']}`,
-pin `{real['pinned_revisions']['test262'][:9]}`, {real['total']:,} path-based entries.
-These older counts are preserved for reference; the current mode-aware
-102,994-execution families have not completed.
-
-```mermaid
----
-config:
-  look: handDrawn
-  theme: neutral
----
-flowchart LR
-  OLD["Historical Test262 publication<br/>{real['refresh_date']}"]
-  OLD --> OK["Success<br/>{outcomes['Success']:,}"]
-  OLD --> MISSING["NotImplemented<br/>{outcomes['NotImplemented']:,}"]
-  OLD --> BUG["Bug<br/>{outcomes['Bug']:,}"]
-  OLD --> CRASH["Crash<br/>{outcomes['Crash']:,}"]
-  classDef pass fill:#e0f1df,stroke:#34714b,color:#193d27
-  classDef fail fill:#ffe4df,stroke:#a63d32,color:#702a23
-  classDef missing fill:#fff0cc,stroke:#94742e,color:#614b1e
-  class OK pass
-  class BUG,CRASH fail
-  class MISSING missing
-```
-
-**Unrun is not the same as unimplemented.** Current capability gaps include
-unmatched runtime-generated source and selected host/weak-reachability
-operations; see the [inventory](docs/rust-rewrite/current-inventory.md).
-The diagrams use Mermaid's hand-drawn look, rendered directly by GitHub.
-Refresh/check: `python3 scripts/generate-test-graph.py [--check]`.
-Inputs: [workspace evidence](docs/rust-rewrite/current-inventory-20261020.json)
-and [historical publication](test262/snapshots/published-status-wasm-aot.json).
+Published snapshot: **{real['refresh_date']}**, pin {tick}{real['pinned_revisions']['test262'][:9]}{tick},
+{real['total']:,} path-based entries. Red combines {failed:,} bugs/crashes;
+gray means unimplemented, not unrun. This historical snapshot does not establish
+current compiler conformance. [Published evidence]({SNAPSHOT}).
 {END}'''
+
+
+def render_svg(publication):
+    rows = categories(publication)
+    real = publication['real_suite']
+    highest = max(row[2] for row in rows)
+    step = 10 ** (len(str(highest)) - 1)
+    maximum = max(4, ((highest + step - 1) // step) * step)
+    top, bottom, left, right = 78, 326, 96, 724
+    height = bottom - top
+    description = '; '.join(f'{label}: {count:,}' for _, label, count, _ in rows)
+    source = f"{real['refresh_date']} · pin {real['pinned_revisions']['test262'][:9]} · {real['total']:,} entries"
+    elements = [
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">',
+        '<title id="title">Published Test262 results</title>',
+        f'<desc id="description">{escape(description)}. Linear counts from zero. Historical snapshot: {escape(source)}. Not a current conformance percentage.</desc>',
+        '<rect width="760" height="422" rx="12" fill="#ffffff"/>',
+        '<g font-family="system-ui, sans-serif" fill="#24292f">',
+        '<text x="30" y="35" font-size="20" font-weight="600">Published Test262 results</text>',
+        '<text x="30" y="57" font-size="12" fill="#57606a">Historical snapshot · number of test entries</text>',
+    ]
+    for index in range(5):
+        value = maximum * index / 4
+        y = bottom - height * index / 4
+        label = f'{value:,.0f}' if value.is_integer() else f'{value:g}'
+        elements.extend([
+            f'<path d="M {left} {y:g} H {right}" stroke="#d8dee4" stroke-width="1"/>',
+            f'<text x="{left - 12}" y="{y + 4:g}" text-anchor="end" font-size="12" fill="#57606a">{label}</text>',
+        ])
+    for (key, label, count, color), x in zip(rows, [206, 416, 626], strict=True):
+        bar_height = height * count / maximum
+        y = bottom - bar_height
+        elements.extend([
+            f'<rect id="{key}" data-count="{count}" x="{x - 40}" y="{y:.6f}" width="80" height="{bar_height:.6f}" fill="{color}"/>',
+            f'<text x="{x}" y="{y - 12:.6f}" text-anchor="middle" font-size="17" font-weight="600">{count:,}</text>',
+            f'<text x="{x}" y="357" text-anchor="middle" font-size="15">{label}</text>',
+        ])
+    elements.extend([
+        f'<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">{escape(source)}</text>',
+        '</g>', '</svg>', '',
+    ])
+    return '\n'.join(elements)
+
+
+def replace_block(readme, graph):
+    if readme.count(START) != 1 or readme.count(END) != 1 or readme.index(START) >= readme.index(END):
+        raise ValueError('expected one ordered generated chart block in README')
+    return re.sub(re.escape(START) + '.*?' + re.escape(END), lambda _: graph, readme, flags=re.S)
+
+
+def generate(root=ROOT, check=False):
+    publication = json.loads(read_committed_or_local(root, SNAPSHOT))
+    path = root / 'README.md'
+    outputs = {
+        path: replace_block(path.read_text(), render(publication)),
+        root / CHART: render_svg(publication),
+    }
+    stale = [path for path, text in outputs.items() if not path.exists() or path.read_text() != text]
+    if check and stale:
+        raise ValueError('stale generated chart output: ' + ', '.join(str(path.relative_to(root)) for path in stale))
+    for path in stale:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(outputs[path])
+    return stale
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
-    inventory = json.loads(read_committed_or_local(ROOT, 'docs/rust-rewrite/current-inventory-20261020.json'))
-    publication = json.loads(read_committed_or_local(ROOT, 'test262/snapshots/published-status-wasm-aot.json'))
-    graph = render(inventory, publication)
-    path = ROOT / 'README.md'
-    before = path.read_text()
-    if START in before:
-        if before.count(START) != 1 or before.count(END) != 1:
-            raise ValueError('expected one generated diagram block')
-        after = re.sub(re.escape(START) + '.*?' + re.escape(END), lambda _: graph, before, flags=re.S)
-    else:
-        after = before.replace('## Historical development checkpoints', graph + '\n\n## Historical development checkpoints', 1)
-        if after == before:
-            raise ValueError('missing README insertion point')
-    if args.check:
-        if after != before:
-            raise ValueError('README diagrams are stale; regenerate them')
-    else:
-        path.write_text(after)
-    print('README test diagrams: current with recorded evidence')
+    generate(check=args.check)
+    print('README Test262 chart: current with published evidence')
 
 
 if __name__ == '__main__':

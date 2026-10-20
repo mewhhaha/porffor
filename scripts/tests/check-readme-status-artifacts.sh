@@ -302,6 +302,47 @@ if [ "$legacy_spec_status" -ne 1 ]; then
 fi
 printf 'check-readme-status-artifacts regression: legacy-spec-exec-artifact ok\n'
 
+# Canonical outer markers may wrap an exact historical record. They do not
+# authorize changed evidence, refresh commands or additional generated content.
+git checkout -q -B historical-wrapper-base "$base_commit"
+write_base_readme
+rewrite_readme 's/scriptw-status/lila-status/g'
+git add README.md
+git commit -qm historical-wrapper-base
+historical_wrapper_base="$(git rev-parse HEAD)"
+
+run_wrapper_case() {
+  local name="$1"
+  local expected_status="$2"
+  local expression="$3"
+  local output
+  local status
+
+  git checkout -q -B "wrapper-$name" "$historical_wrapper_base"
+  sed \
+    -e '/<!-- lila-status:start -->/i <!-- scriptw-status:start -->' \
+    -e '/<!-- lila-status:end -->/a <!-- scriptw-status:end -->' \
+    README.md > README.md.next
+  mv README.md.next README.md
+  rewrite_readme "$expression"
+  git add README.md
+  git commit -qm "$name"
+
+  set +e
+  output="$("$guard" "$historical_wrapper_base" 2>&1)"
+  status=$?
+  set -e
+  if [ "$status" -ne "$expected_status" ]; then
+    fail "$name returned $status, expected $expected_status: $output"
+  fi
+  printf 'check-readme-status-artifacts regression: %s ok\n' "$name"
+}
+
+run_wrapper_case exact-historical-wrapper 0 's/outside=base/outside=changed/'
+run_wrapper_case changed-historical-evidence 1 's/status=base/status=changed/'
+run_wrapper_case changed-historical-command 1 's/publish-real-status-low-ram.sh wasm-aot/publish-real-status-low-ram.sh spec-exec/'
+run_wrapper_case added-historical-content 1 '/<!-- scriptw-status:end -->/i unbound=evidence'
+
 # Exercise the real repository comparison. At the migration boundary this has
 # a changed-file list large enough to reproduce the former pipefail/SIGPIPE
 # false negative; after the boundary lands it remains a normal smoke check.

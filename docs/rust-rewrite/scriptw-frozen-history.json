@@ -270,10 +270,17 @@
     "docs/rust-rewrite/workspace-tooling-eb1ca63c9-20261015.json": "5f50747964a0b32e5a96f584323cc93a73118141ed64d64d2770287526700255",
     "docs/rust-rewrite/workspace8429-open-failures-20261014.json": "d8a7d44db508e58cdbe42b1c63bec2e258f35c44c94fdde7fb8a836a19f95457",
     "tasks/29-lila-identifier-migration.md": "7892ac86064b3d21cb1ab6a130161dd81d23fba260c2c38d91e9842a6bacfe09",
-    "crates/scriptw-intl/data/zone-names-cldr-47/manifest.json": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd"
+    "crates/scriptw-intl/data/zone-names-cldr-47/manifest.json": "51a23e38b7a70a0fd831c4c9779d72d9fc75bf85f4ac86ad23d4f82da7abafbd",
+    "DEVELOPMENT_HISTORY.md": "3890109fe473d828286a2203a10faab3aa3c4d912a2df764eed10e4a066a7937"
   },
   "readme_status_sha256": "01c92f04c7ab702f1107b52e8181d90b55735debf205c1a5dd2da6f6bed7e1e0",
   "relocated_inputs": {
     "crates/scriptw-intl/data/zone-names-cldr-47/manifest.json": "crates/lila-intl/data/zone-names-cldr-47/manifest.json"
+  },
+  "readme_archive": {
+    "path": "DEVELOPMENT_HISTORY.md",
+    "source_commit": "ef8e8423e141f1cfb3fa9dc1d38cee8cfba6633d",
+    "original_readme_sha256": "4bcfcdc70585c4c08d84fa94e2976ad1992026bf8fc1309d8da096c8df5ef782",
+    "prefix_bytes": 469
   }
 }

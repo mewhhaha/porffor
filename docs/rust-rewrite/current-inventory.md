@@ -104,10 +104,12 @@ WASI or generic Wasm runtime compatibility claim. Native compilation in
 verification means building the Rust compiler or Wasmtime compiling Wasm
 to machine code; it does not add a native JavaScript output target.
 
-Finite prepared eval/Function sources use the real compiler. Arbitrary
-runtime-produced source, unmatched source/context/Realm combinations and
+Finite prepared eval/Function sources use the real compiler. The native host
+can also compile additional supported runtime strings. Portable Wasm artifacts
+do not contain a parser; unsupported source/context/Realm combinations and
 selected host operations remain explicit capability gaps. Such cases remain
 non-passing in real Test262 accounting. Full ECMAScript support is not established.
+See [runtime requirements and dynamic-source limits](runtime-requirements.md).
 
 From the repository root, an ordinary CLI rebuild recipe is:
 
