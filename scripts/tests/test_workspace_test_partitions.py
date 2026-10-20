@@ -14,6 +14,10 @@ TREE = ast.parse(SOURCE.read_text())
 FUNCTIONS = [node for node in TREE.body if isinstance(node, ast.FunctionDef)
              and node.name in ('names', 'outcomes', 'weight', 'partition_groups', 'partition_label')]
 NAMESPACE = {'re': re, 'hashlib': hashlib, 'os': os, 'Path': Path}
+NAMESPACE['CLI_OBSERVED_SECONDS'] = ast.literal_eval(next(
+    node.value for node in TREE.body if isinstance(node, ast.Assign)
+    and any(isinstance(target, ast.Name) and target.id == 'CLI_OBSERVED_SECONDS'
+            for target in node.targets)))
 exec(compile(ast.Module(body=FUNCTIONS, type_ignores=[]), str(SOURCE), 'exec'), NAMESPACE)
 
 ENGINE_UTF16_OUTLIER = (
@@ -68,6 +72,34 @@ class NativePartitionProofTests(unittest.TestCase):
         self.assertEqual(original, saved)
         self.assertEqual(Counter(name for group in groups for name in group), Counter(original))
         self.assertEqual(groups, NAMESPACE['partition_groups'](list(reversed(original)), 4))
+
+    def test_measured_cli_outliers_balance_without_dropping_any_of_855_ids(self):
+        measured = NAMESPACE['CLI_OBSERVED_SECONDS']
+        original = list(measured) + [f'array::ordinary_{index:03}'
+                                    for index in range(855 - len(measured))]
+        saved = list(original)
+        groups = NAMESPACE['partition_groups'](original, 3)
+        self.assertEqual(Counter(name for group in groups for name in group), Counter(original))
+        self.assertEqual(original, saved)
+        self.assertEqual(groups, NAMESPACE['partition_groups'](list(reversed(original)), 3))
+        # Scheduling must account for the projection and matrix tests that
+        # previously accumulated on one partition behind a cheap prefix weight.
+        costs = [sum(NAMESPACE['weight'](name) for name in group) for group in groups]
+        self.assertLessEqual(max(costs) - min(costs), 3)
+        largest = sorted(measured, key=measured.get, reverse=True)[:3]
+        owners = [next(index for index, group in enumerate(groups) if name in group)
+                  for name in largest]
+        self.assertEqual(len(set(owners)), 3)
+
+    def test_cli_cost_estimates_match_exact_ids_and_never_change_unknown_tests(self):
+        name = 'intl::datetime_cli_projection_matches_sdk_and_runs_six_selected_components'
+        self.assertGreater(NAMESPACE['weight'](name), NAMESPACE['weight']('intl::ordinary'))
+        self.assertEqual(NAMESPACE['weight'](name + '_new'), 25)
+        self.assertEqual(NAMESPACE['weight']('other::' + name), 3)
+        self.assertEqual(NAMESPACE['weight']('frontend::unmeasured'), 1)
+        for estimate in NAMESPACE['CLI_OBSERVED_SECONDS'].values():
+            self.assertIs(type(estimate), int)
+            self.assertGreaterEqual(estimate, 30)
 
     def test_duplicate_empty_and_oversubscribed_inventories_are_rejected(self):
         for names, count in [([], 1), (['one', 'one'], 1), (['one'], 2),

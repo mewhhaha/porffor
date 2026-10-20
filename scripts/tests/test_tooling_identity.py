@@ -24,7 +24,10 @@ spec.loader.exec_module(provenance)
 
 class FrozenProofTests(unittest.TestCase):
     def test_current_closed_checkpoints_are_byte_bound(self):
-        for name in ('differential-jobs-checkpoint-20261019.json',
+        for name in ('engine299-runtime-checkpoint-20261020.json',
+                     'native-progress-checkpoint-20261020.json',
+                     'full-af-checkpoint-20261020.json',
+                     'differential-jobs-checkpoint-20261019.json',
                      'runtime-admission-checkpoint-20261019.json',
                      'native-default-runtime-type-suffix-doc-cohorts-20261019.json',
                      'runtime-type-suffix-ordinary-checkpoint-20261019.json',

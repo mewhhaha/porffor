@@ -12,6 +12,9 @@ import sys
 
 PROOFS = {
     # Closed reports keep their literal host paths; admission binds every byte.
+    'engine299-runtime-checkpoint-20261020.json': (None, '64dc8cac8079d228a0ae4c178d0caa20e839a6a3082c92a2c55e5bfc23e232d2'),
+    'native-progress-checkpoint-20261020.json': (None, '15044cdd415a466b4d01ba9be9a6eae58b9bf3758e5ad18d8349adbb77c52df6'),
+    'full-af-checkpoint-20261020.json': (None, 'b3efd1aee65ecd4bc9e4a567a5a7a364b86dea07717b1c9e0415881080942378'),
     'complete-af-discovery-cpu-tooling-20261019.json': (None, 'b2feece42ecce05946c290a9e86354a4f1558b949ccf72a0dc5cdcb3f955abd4'),
     'discovery-storage-checkpoint-20261019.json': (None, 'f80be59f74bebd32a054569da505c3aab31f1e8a591d209414a1dd86e239f5ba'),
     'intl-native-budget-candidate-20261019.json': (None, 'a6a91abf675e3ba92121e9853b4fbf6795cf17c65534a23785349b49a5bdc306'),

@@ -12,6 +12,36 @@ from pathlib import Path
 from workspace_test_schedule import native_stall_seconds
 
 
+# Approximate watcher intervals from the complete 855-ID CLI run on 2026-10-20.
+# Three units per second keep these comparable to the ordinary-test weight.
+# See docs/rust-rewrite/contracts/native-partition-costs.md. These are estimates,
+# never selectors: renamed/new tests retain the fallback weights below.
+CLI_OBSERVED_SECONDS = {
+    'frontend::test262_run_writes_summary': 114,
+    'frontend_test262_subset::test262_wasm_backend_runs_supported_fixture_subset': 498,
+    'frontend::test262_backlog_and_snapshot_compare_read_completed_matrix_snapshots': 233,
+    'frontend::test262_report_all_aggregates_fixture_suite': 118,
+    'intl::calendar_manifest_v3_build_export_and_run_share_the_sdk_projected_service_graph': 58,
+    'intl::combined_projection_cli_build_matches_sdk_and_runs_both_selected_services': 71,
+    'intl::custom_intl_profile_reaches_ordinary_cli_build_script_and_module_run': 76,
+    'intl::datetime_cli_projection_matches_sdk_and_runs_six_selected_components': 180,
+    'intl::duration_cli_projection_matches_sdk_and_runs_four_selected_components': 143,
+    'intl::number_cli_projection_matches_sdk_and_runs_the_coupled_public_services': 130,
+    'intl::projected_list_cli_build_and_module_run_use_the_actual_sdk_projection': 43,
+    'intl::segmenter_cli_projection_matches_sdk_and_runs_eight_selected_components': 159,
+    'frontend::test262_report_groups_failures_by_bucket': 90,
+    'frontend::test262_triage_and_failure_details_read_completed_matrix_snapshots': 91,
+    'intl::calendar_manifest_v3_cli_matches_sdk_and_preserves_global_available_values': 58,
+    'intl::collator_cli_projection_matches_sdk_and_runs_seven_selected_components': 119,
+    'intl::currency_manifest_v2_build_and_export_use_the_actual_sdk_data_before_loading_source': 33,
+    'intl::custom_manifest_cli_matches_the_actual_sdk_graph_and_rejects_before_source_loading': 64,
+    'intl::display_names_cli_projection_matches_sdk_and_composes_all_three_filters': 95,
+    'intl::named_zone_manifest_v5_build_export_and_unavailable_data_follow_actual_sdk_dependencies': 81,
+    'intl::numbering_manifest_v4_build_export_and_run_consume_the_same_paired_sdk_selection': 44,
+    'intl::service_manifest_v6_cli_build_export_and_run_share_the_checked_sparse_sdk_owner': 66,
+}
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--executable', required=True, type=Path)
 parser.add_argument('--inventory', required=True, type=Path)
@@ -66,6 +96,8 @@ def outcomes(text):
 
 def weight(name):
     # Scheduling estimates are never used to select, drop or retry a test.
+    if name in CLI_OBSERVED_SECONDS:
+        return 3 * CLI_OBSERVED_SECONDS[name]
     # This measured Engine outlier dominates an otherwise balanced partition.
     if name == ('runtime_regexp_compiler_tests::raw_utf16::'
                 'literal_prepared_and_static_constructor_patterns_share_actual_utf16_units'):

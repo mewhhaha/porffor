@@ -1,5 +1,15 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+The current source integrates atomic checkpoint replacement and measured CLI
+partition costs. A complete same-directory snapshot replaces the prior file
+only after writing and syncing; JSON remains the resume authority. CLI
+costs redistribute every test across the existing processes and retain
+their CPU, worker and deadline policy. Verification of this batch is pending.
+
+The complete all-features result below belongs to source `78593daf2`,
+before this batch. Full final-source, conformance, performance and task
+cleanup acceptance remain open. See the [checkpoint contract](contracts/checkpoint-publication.md) and [partition costs](contracts/native-partition-costs.md).
+
 The complete all-features workspace suite passes **9,654 native tests and 11
 documentation tests across all 113 scopes**, with zero failures or ignored
 tests. Every prior execution ID remains, plus four new Intl regressions.

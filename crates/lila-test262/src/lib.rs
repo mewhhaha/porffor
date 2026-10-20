@@ -29,6 +29,7 @@ mod case_worker_server;
 mod compiler_provenance;
 mod module_catalog;
 mod performance_evidence;
+mod snapshot_publication;
 mod source_pins;
 mod suite_identity;
 pub use performance_evidence::ConformancePerformanceEvidence;
@@ -3589,9 +3590,13 @@ pub fn write_snapshot(
         )
     })?;
 
-    fs::write(&json_path, render_snapshot_json(snapshot))
+    // Publish each complete file by rename. JSON alone owns resume state;
+    // interruption while preparing either replacement leaves valid JSON.
+    let json = render_snapshot_json(snapshot);
+    let text = render_human_summary(snapshot);
+    snapshot_publication::write_snapshot_file(&json_path, json.as_bytes())
         .map_err(|err| format!("failed to write snapshot {}: {err}", json_path.display()))?;
-    fs::write(&txt_path, render_human_summary(snapshot))
+    snapshot_publication::write_snapshot_file(&txt_path, text.as_bytes())
         .map_err(|err| format!("failed to write summary {}: {err}", txt_path.display()))?;
 
     Ok(SnapshotPaths {
@@ -29819,6 +29824,100 @@ assert.sameValue(bytes[3], 0);
                 .expect_err("v7 may not carry even null compiler binding")
                 .contains("must omit compiler_identity"));
         }
+    }
+
+    #[test]
+    fn snapshot_partial_write_failure_keeps_the_previous_resumable_checkpoint() {
+        use std::io::Write as _;
+
+        let mut config = fixture_config();
+        config.snapshot_dir = unique_temp_path("snapshot-publication-failure");
+        #[cfg(unix)]
+        let snapshot_name = "s".repeat(240);
+        #[cfg(not(unix))]
+        let snapshot_name = "partial".to_string();
+        let completed =
+            TestExecutionId::new("language/completed.js", TestExecutionMode::SloppyScript);
+        let remaining =
+            TestExecutionId::new("language/remaining.js", TestExecutionMode::SloppyScript);
+        let mut checkpoint = compiler_provenance_snapshot_fixture();
+        checkpoint.run_kind = "resume-case-checkpoint".into();
+        checkpoint.checkpoint_identity = Some(CheckpointRunIdentity::full());
+        checkpoint.matrix_path.clear();
+        checkpoint.total = 1;
+        checkpoint.passed = 1;
+        checkpoint.completed_test_ids = vec![completed.clone()];
+        checkpoint
+            .counts_per_outcome
+            .insert(OutcomeKind::Success, 1);
+        let paths = write_snapshot(&config, &checkpoint, &snapshot_name).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&paths.json_path, fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        let original_json = fs::read(&paths.json_path).unwrap();
+        let original_text = fs::read(&paths.txt_path).unwrap();
+
+        for path in [&paths.json_path, &paths.txt_path] {
+            let error = snapshot_publication::write_snapshot_file_with(path, |file| {
+                file.write_all(b"incomplete replacement")?;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "injected failure after a partial write",
+                ))
+            })
+            .expect_err("an incomplete replacement must not publish");
+            assert_eq!(error.kind(), std::io::ErrorKind::WriteZero);
+            assert_eq!(fs::read(&paths.json_path).unwrap(), original_json);
+            assert_eq!(fs::read(&paths.txt_path).unwrap(), original_text);
+            let file = read_snapshot_file(&paths.json_path).unwrap();
+            file.require_running(&paths.json_path, "resume after a write failure")
+                .unwrap();
+            let preserved = snapshot_from_file(file).unwrap();
+            validate_case_snapshot_contract(
+                &preserved,
+                &[completed.clone(), remaining.clone()],
+                CaseSetRequirement::UniqueSubset,
+                "preserved partial checkpoint",
+            )
+            .unwrap();
+            assert_eq!(
+                preserved.checkpoint_identity,
+                Some(CheckpointRunIdentity::full())
+            );
+            assert_eq!(preserved.completed_test_ids, vec![completed.clone()]);
+            assert_eq!(fs::read_dir(&config.snapshot_dir).unwrap().count(), 2);
+        }
+
+        checkpoint.run_kind = "full".into();
+        checkpoint.checkpoint_identity = None;
+        checkpoint.total = 2;
+        checkpoint.passed = 2;
+        checkpoint.completed_test_ids.push(remaining.clone());
+        checkpoint
+            .counts_per_outcome
+            .insert(OutcomeKind::Success, 2);
+        write_snapshot(&config, &checkpoint, &snapshot_name).unwrap();
+        let terminal = snapshot_from_file(read_snapshot_file(&paths.json_path).unwrap()).unwrap();
+        validate_case_snapshot_contract(
+            &terminal,
+            &[completed, remaining],
+            CaseSetRequirement::Exact,
+            "completed replacement",
+        )
+        .unwrap();
+        assert_eq!(terminal.run_kind, "full");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&paths.json_path).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
+        assert_eq!(fs::read_dir(&config.snapshot_dir).unwrap().count(), 2);
+        fs::remove_dir_all(config.snapshot_dir).unwrap();
     }
 
     #[test]
