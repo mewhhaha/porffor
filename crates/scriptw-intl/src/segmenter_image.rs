@@ -14,6 +14,7 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 pub const INTL_SEGMENTER_DATA_CUSTOM_SECTION: &str = "scriptw.intl-segmenter-data.v1";
+const MAGIC: &[u8; 8] = b"SCRWSEG1";
 const MARKERS: [&str; 7] = [
     "segmenter/break/grapheme/cluster/v1",
     "segmenter/break/word/v1",
@@ -46,7 +47,7 @@ impl DynamicDataProvider<BufferMarker> for SegmenterBacking {
 }
 
 fn split_payload(payload: &[u8]) -> Result<(&[u8], &[u8]), IntlDataImageError> {
-    if payload.get(..8) != Some(b"SCRIPTWSEG1".as_slice()) {
+    if payload.get(..MAGIC.len()) != Some(MAGIC.as_slice()) {
         return Err(IntlDataImageError::consumer("Segmenter payload framing"));
     }
     let length = payload

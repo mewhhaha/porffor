@@ -91,7 +91,7 @@ fn coherent_manifest_cannot_substitute_icu_or_locale_descriptor_bytes() {
     let mut descriptor_value: serde_json::Value = serde_json::from_slice(descriptor).unwrap();
     descriptor_value["locales"] = serde_json::json!(["en-US"]);
     let descriptor = serde_json::to_vec(&descriptor_value).unwrap();
-    let mut altered = b"SCRIPTWSEG1".to_vec();
+    let mut altered = b"SCRWSEG1".to_vec();
     altered.extend_from_slice(&u32::try_from(descriptor.len()).unwrap().to_le_bytes());
     altered.extend_from_slice(&descriptor);
     altered.extend_from_slice(split_payload(PINNED_PAYLOAD).unwrap().1);

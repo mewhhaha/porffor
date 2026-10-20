@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
+const MAGIC: &[u8; 8] = b"SCRWTNP1";
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Descriptor {
@@ -96,7 +98,7 @@ fn derive(
             .collect(),
     };
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"SCRIPTWTNP1");
+    bytes.extend_from_slice(MAGIC);
     let descriptor = serde_json::to_vec(&descriptor).map_err(IntlDataImageError::consumer)?;
     bytes.extend_from_slice(
         &u32::try_from(descriptor.len())
@@ -123,7 +125,7 @@ pub(super) fn admit<'a>(
             "projected names require Custom",
         ));
     };
-    if bytes.get(..8) != Some(b"SCRIPTWTNP1".as_slice()) {
+    if bytes.get(..MAGIC.len()) != Some(MAGIC.as_slice()) {
         return Err(IntlDataImageError::consumer(
             "time-zone name projection schema",
         ));

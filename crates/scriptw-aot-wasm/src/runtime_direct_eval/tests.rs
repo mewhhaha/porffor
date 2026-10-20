@@ -13,7 +13,7 @@ fn caller(
     scopes: impl IntoIterator<Item = RuntimeDirectEvalPrivateScope>,
 ) -> RuntimeDirectEvalCaller {
     // Canonical sloppy function grammar, no derived owner/import record/names.
-    let mut descriptor = b"SCRIPTWDE01".to_vec();
+    let mut descriptor = b"SCRWDE01".to_vec();
     descriptor.extend_from_slice(&[0, 1, 0, 0]);
     descriptor.extend_from_slice(&0u64.to_le_bytes());
     RuntimeDirectEvalCaller::validate(

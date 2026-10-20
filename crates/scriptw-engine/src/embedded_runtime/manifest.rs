@@ -1,7 +1,7 @@
 //! Fixed manifest shared by the Cargo producer and the embedded-only loader.
 
 use crate::wasmtime_config::WasmNativeCompilationMode;
-const MAGIC: &[u8; 8] = b"SCRIPTWNR01";
+const MAGIC: &[u8; 8] = b"SCRWNR01";
 const VERSION: u32 = 4;
 
 /// Only the immutable Cargo-produced image uses the optimizing allocator.

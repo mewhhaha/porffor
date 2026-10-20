@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWTZP1";
+const MAGIC: &[u8; 8] = b"SCRWTZP1";
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Descriptor {

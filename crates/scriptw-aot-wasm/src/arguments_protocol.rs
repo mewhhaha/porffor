@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn eval_visible_empty_strict_methods_have_no_arguments_observer() {
-        let mut descriptor = b"SCRIPTWDE01".to_vec();
+        let mut descriptor = b"SCRWDE01".to_vec();
         descriptor.extend_from_slice(&[0, 1, 0, 0]);
         descriptor.extend_from_slice(&0u64.to_le_bytes());
         let caller = scriptw_ir::RuntimeDirectEvalCaller::validate(

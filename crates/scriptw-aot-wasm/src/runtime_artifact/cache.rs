@@ -25,7 +25,7 @@ use crate::heap::STATIC_DATA_OFFSET;
 use crate::module::HOST_IMPORT_MODULE;
 use crate::EmitError;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWRT01";
+const MAGIC: &[u8; 8] = b"SCRWRT01";
 const DIGEST_BYTES: usize = 32;
 
 /// A domain-separated key for one compiler build, runtime ABI and admitted Intl

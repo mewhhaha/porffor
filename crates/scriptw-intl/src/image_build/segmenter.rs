@@ -7,6 +7,8 @@ use icu_provider_blob::export::BlobExporter;
 use icu_segmenter::provider::*;
 use std::collections::BTreeSet;
 
+const MAGIC: &[u8; 8] = b"SCRWSEG1";
+
 struct PinnedSegmenterProvider;
 const _: () = {
     use icu_segmenter_data::*;
@@ -85,7 +87,7 @@ pub(super) fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         return Err("Segmenter export produced no ICU payload".into());
     }
     let descriptor = include_bytes!("../segmenter/profile.json");
-    let mut payload = b"SCRIPTWSEG1".to_vec();
+    let mut payload = MAGIC.to_vec();
     payload.extend_from_slice(&u32::try_from(descriptor.len())?.to_le_bytes());
     payload.extend_from_slice(descriptor);
     payload.extend_from_slice(&blob);

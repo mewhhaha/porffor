@@ -68,7 +68,7 @@ fn service_manifest_v6_cli_build_export_and_run_share_the_checked_sparse_sdk_own
     let selected = selection.selected().unwrap();
     assert_eq!(selected.component_sections().len(), 4);
     let expected_bundle = selected.export_bytes().unwrap();
-    assert_eq!(&expected_bundle[..8], b"SCRIPTWB002");
+    assert_eq!(&expected_bundle[..8], b"SCRWB002");
     let engine = scriptw_engine::Engine::new(scriptw_engine::RealmBuilder::new().build());
     let unit = engine
         .compile_script(

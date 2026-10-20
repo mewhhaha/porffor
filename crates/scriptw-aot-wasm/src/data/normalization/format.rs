@@ -1,6 +1,6 @@
 //! Pointer-free little-endian rows shared by the build producer and consumer.
 
-const MAGIC: &[u8; 8] = b"SCRIPTWNR01";
+const MAGIC: &[u8; 8] = b"SCRWNR01";
 const HEADER_BYTES: usize = MAGIC.len() + 6 * 4;
 const ROW_BYTES: [usize; 6] = [12, 4, 12, 4, 8, 12];
 

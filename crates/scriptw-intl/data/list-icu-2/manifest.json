@@ -57,9 +57,9 @@
       "sha256": "e0f3eb0796a34a44a70f19e32a543ac98de1afc165833ecbba93122a5351da7d"
     },
     {
-      "bytes": 10336,
+      "bytes": 10333,
       "path": "crates/scriptw-intl/src/image.rs",
-      "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+      "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
       "bytes": 1366,
@@ -102,9 +102,9 @@
       "sha256": "81c2d9d07b26499120dcaa9dc01fc12cbc5afa5f1ef998832842d4a406aef6d4"
     },
     {
-      "bytes": 14968,
+      "bytes": 14965,
       "path": "crates/scriptw-intl/src/list_image/projection.rs",
-      "sha256": "4f6e56a8b01f01c24e8592584dbbd7ad0d49b864ecc426ceffc2059283459a15"
+      "sha256": "b9656476348e92c3a4d6f6dcd314a28b664f67b976532d947c5c0d9bb39936c8"
     },
     {
       "bytes": 8644,
@@ -162,9 +162,9 @@
       "sha256": "9f8e71493f749ddd0e8909271c22fff308ce4959c03e78fb14a29d986377fe90"
     },
     {
-      "bytes": 21460,
+      "bytes": 21454,
       "path": "crates/scriptw-intl/src/selection/export.rs",
-      "sha256": "0c0993ce613b968cb93d956c519a3d0efb918eb4b4265e7f156caff7c8a70ba5"
+      "sha256": "19326de14f2bcfbf472c044cbe5a1f6bf036450f0c01f368fcb2ae7a56a4b092"
     },
     {
       "bytes": 35819,
@@ -333,7 +333,7 @@
       }
     ]
   },
-  "provider_data_sha256": "59d5a902bc45d106d83bdaf6769bc021fcd3e9ec8ac32033dd5b7ef815b9bb98",
+  "provider_data_sha256": "0cb171a77a5983e125bb530ce63b1825fe4f8207f5a11280f3f48954fd9100a8",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

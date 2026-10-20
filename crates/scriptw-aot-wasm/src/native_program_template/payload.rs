@@ -2,7 +2,7 @@
 use super::*;
 use std::ops::Range;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWNP01";
+const MAGIC: &[u8; 8] = b"SCRWNP01";
 const VERSION: u32 = 1;
 
 #[derive(Debug)]

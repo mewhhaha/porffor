@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWRTP1";
+const MAGIC: &[u8; 8] = b"SCRWRTP1";
 const HEADER_BYTES: usize = 20;
 const MAX_DESCRIPTOR_BYTES: usize = 16 * 1024;
 

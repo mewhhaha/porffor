@@ -227,7 +227,7 @@ fn all_three_checked_raw_emitters_match_proof_emitters_and_keep_exact_r() {
     .is_err());
     // Canonical sloppy function caller with no derived owner, import record,
     // or private bindings. Use the public host codec rather than IR internals.
-    let mut descriptor = b"SCRIPTWDE01".to_vec();
+    let mut descriptor = b"SCRWDE01".to_vec();
     descriptor.extend_from_slice(&[0, 1, 0, 0]);
     descriptor.extend_from_slice(&0u64.to_le_bytes());
     let caller = RuntimeDirectEvalCaller::validate(

@@ -5,6 +5,11 @@ The project is now **scriptw**, a Rust JavaScript-to-Wasm compiler. The CLI is
 imports use `scriptw_`, environment variables use `SCRIPTW_`, and emitted host
 imports use `scriptw_host`. Wasm remains the sole product compilation target.
 
+Fixed-width binary format tags use `SCRW` plus their original service/version
+suffix, preserving their eight-byte field sizes. Writers, readers and fixtures
+move together. The few previously untyped header literals now have eight-byte
+array types; manually encoded Wasm import names derive their byte length.
+
 This is a coordinated clean break. Rebuild the compiler and regenerate emitted
 Wasm with its matching runtime/host adapters; old artifacts and hosts cannot be
 mixed across import namespaces. The default cache directory and compiler/native

@@ -44,7 +44,7 @@ fn service_manifest_v6_publishes_exact_frames_and_preserves_dependent_number_own
         .supported_values(SupportedValuesKey::Currency)
         .is_ok());
     let bytes = selected.export_bytes().unwrap();
-    assert_eq!(&bytes[..8], b"SCRIPTWB002");
+    assert_eq!(&bytes[..8], b"SCRWB002");
     let admitted = SelectedIntlDataBundle::from_export_bytes(&bytes).unwrap();
     assert_eq!(admitted.identity(), selected.identity());
     assert_eq!(admitted.export_bytes().unwrap(), bytes);
@@ -146,8 +146,8 @@ fn complete_legacy_export_and_explicit_all_preserve_frames_with_distinct_framing
     let explicit = explicit_owner.selected().unwrap();
     assert_eq!(full.identity(), explicit.identity());
     assert_eq!(full.component_sections(), explicit.component_sections());
-    assert_eq!(&full.export_bytes().unwrap()[..8], b"SCRIPTWB001");
-    assert_eq!(&explicit.export_bytes().unwrap()[..8], b"SCRIPTWB002");
+    assert_eq!(&full.export_bytes().unwrap()[..8], b"SCRWB001");
+    assert_eq!(&explicit.export_bytes().unwrap()[..8], b"SCRWB002");
     assert_eq!(
         SelectedIntlDataBundle::from_export_bytes(&explicit.export_bytes().unwrap())
             .unwrap()

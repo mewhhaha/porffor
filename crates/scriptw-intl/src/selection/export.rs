@@ -2,8 +2,8 @@
 use super::*;
 use crate::{IntlDataImageError, MAX_INTL_COMPONENT_IMAGE_BYTES};
 
-const MAGIC: &[u8; 8] = b"SCRIPTWB001";
-const SPARSE_MAGIC: &[u8; 8] = b"SCRIPTWB002";
+const MAGIC: &[u8; 8] = b"SCRWB001";
+const SPARSE_MAGIC: &[u8; 8] = b"SCRWB002";
 const COMPONENTS: usize = 12;
 const MAX_IDENTITY_BYTES: usize = 64 * 1024;
 

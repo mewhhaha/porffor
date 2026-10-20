@@ -2,7 +2,7 @@
 
 use std::error::Error;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWTZ01";
+const MAGIC: &[u8; 8] = b"SCRWTZ01";
 const CATALOGUE: &[u8] = include_bytes!("../../data/iana-tzdb-2026a/catalogue.tsv");
 const ZONE_TAB: &[u8] = include_bytes!("../../data/locale-time-zones-iana2026a/zone.tab");
 const REGIONS: &[u8] = include_bytes!("../../data/locale-time-zones-iana2026a/regions.tsv");

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAGIC: &[u8; 8] = b"SCRIPTWDNP1";
+const MAGIC: &[u8; 8] = b"SCRWDNP1";
 const HEADER_BYTES: usize = 20;
 const MAX_DESCRIPTOR_BYTES: usize = 16 * 1024;
 const STYLES: &[&str] = &["long", "short", "narrow"];

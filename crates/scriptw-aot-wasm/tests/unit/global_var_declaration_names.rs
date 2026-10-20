@@ -71,7 +71,7 @@ fn a_collected_empty_plan_is_distinct_from_a_missing_plan() {
 
 #[test]
 fn sloppy_direct_eval_collects_global_branch_names_without_becoming_a_global_frame() {
-    let mut descriptor = b"SCRIPTWDE01".to_vec();
+    let mut descriptor = b"SCRWDE01".to_vec();
     descriptor.extend_from_slice(&[0, 1, 0, 0]);
     descriptor.extend_from_slice(&0_u64.to_le_bytes());
     let caller = scriptw_ir::RuntimeDirectEvalCaller::validate(

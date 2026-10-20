@@ -51,8 +51,9 @@ fn program_cache_decoder_reattaches_only_the_recorded_runtime() {
                     "compile_direct_eval",
                 ] {
                     assert!(name.len() < 128);
-                    imports.push(9);
-                    imports.extend_from_slice(b"scriptw_host");
+                    let host = b"scriptw_host";
+                    imports.push(u8::try_from(host.len()).unwrap());
+                    imports.extend_from_slice(host);
                     imports.push(u8::try_from(name.len()).unwrap());
                     imports.extend_from_slice(name.as_bytes());
                     imports.extend_from_slice(&[0, 0]); // function, type index 0

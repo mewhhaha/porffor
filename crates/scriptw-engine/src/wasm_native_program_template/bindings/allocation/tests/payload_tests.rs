@@ -3,7 +3,7 @@ fn payload(store: &mut Store<()>, data: &[u8]) -> Val {
     let mut bytes = data.to_vec();
     bytes.extend_from_slice(&0u32.to_le_bytes());
     bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(b"SCRIPTWNP01");
+    bytes.extend_from_slice(b"SCRWNP01");
     for word in [1, data.len() as u32, 1, data.len() as u32 + 8, 0] {
         bytes.extend_from_slice(&word.to_le_bytes());
     }

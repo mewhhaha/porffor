@@ -7,7 +7,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWI001";
+const MAGIC: &[u8; 8] = b"SCRWI001";
 const SCHEMA: u16 = 1;
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 pub const MAX_INTL_COMPONENT_IMAGE_BYTES: usize = 64 * 1024 * 1024;

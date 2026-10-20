@@ -4,7 +4,7 @@ use crate::{PrivateNameId, Strictness};
 use scriptw_front::EvalInvocationContext;
 use std::collections::BTreeMap;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWDE01";
+const MAGIC: &[u8; 8] = b"SCRWDE01";
 
 impl RuntimeDirectEvalCallerDescriptor {
     pub fn encode(&self) -> Vec<u8> {

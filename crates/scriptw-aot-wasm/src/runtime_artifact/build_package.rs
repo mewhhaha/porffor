@@ -19,7 +19,7 @@ mod envelope;
 use envelope::decode_with_jobs;
 use envelope::{decode, decode_with_body_validation, encode};
 
-const MAGIC: &[u8; 8] = b"SCRIPTWRB01";
+const MAGIC: &[u8; 8] = b"SCRWRB01";
 const DIGEST_BYTES: usize = 32;
 
 /// An exact emitted runtime paired with its fully checked raw package. There

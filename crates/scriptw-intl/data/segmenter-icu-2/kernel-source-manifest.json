@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "4917ea3f088c4a65472a31276d58b8e0e7efbb63084240b47eb67ffafc71fb7e",
+  "kernel_sha256": "afb6fc45163d50647c0e068cf6eff6ed0796a317fd26a323250fc77d07371af2",
   "operations_reserved": [
     33,
     34,
@@ -473,9 +473,9 @@
       "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
     },
     {
-      "bytes": 10336,
+      "bytes": 10333,
       "path": "crates/scriptw-intl/src/image.rs",
-      "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+      "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
       "bytes": 1366,
@@ -488,9 +488,9 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 3986,
+      "bytes": 4015,
       "path": "crates/scriptw-intl/src/image_build/segmenter.rs",
-      "sha256": "12c9a1616e3bd9f8f5b4933caf2bac10cc03ade5cd88d3cac7b1cd204bc012b7"
+      "sha256": "7bdaf50414b0f9365da5cc688526d5a0163a7eb67b34233295ad72b31a402015"
     },
     {
       "bytes": 41356,
@@ -608,9 +608,9 @@
       "sha256": "763a464b494adae0e01ad04d9d07ba08ec6f2a8c8a6eb0d053e26aedbfeb4012"
     },
     {
-      "bytes": 10454,
+      "bytes": 10492,
       "path": "crates/scriptw-intl/src/segmenter_image.rs",
-      "sha256": "0d7fcca704b9acf073348516f2848ef4692fb032dedf28c51f805b62e1607f9e"
+      "sha256": "f5e5230d67f109e61ec1cc3d50555807a58f3da4d72065b3ecfe055ef974f82f"
     },
     {
       "bytes": 6783,
@@ -623,9 +623,9 @@
       "sha256": "3d590bf6bbc2260f70d0095dbf18d06f4d78f73132670f6ca867a2a4b6cd110f"
     },
     {
-      "bytes": 21460,
+      "bytes": 21454,
       "path": "crates/scriptw-intl/src/selection/export.rs",
-      "sha256": "0c0993ce613b968cb93d956c519a3d0efb918eb4b4265e7f156caff7c8a70ba5"
+      "sha256": "19326de14f2bcfbf472c044cbe5a1f6bf036450f0c01f368fcb2ae7a56a4b092"
     },
     {
       "bytes": 35819,

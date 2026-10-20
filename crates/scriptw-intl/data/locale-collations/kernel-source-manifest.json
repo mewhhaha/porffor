@@ -58,7 +58,7 @@
     {
       "bytes": 9356,
       "path": "crates/scriptw-intl/data/collator-icu-2/manifest.json",
-      "sha256": "94fab907440524b4ed33d1b475f27db4a9875a33c8d23bc78f87dfa0f427b30c"
+      "sha256": "8a92095041160969fb712445efcfed457fbe5d76366e371bda4cb9782ad6949a"
     },
     {
       "bytes": 8076,
@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "bdfb7ab57d58cd752908bc4db96aaab7b8b97ab89ca01c22db541b33ae7caaa4",
+  "kernel_sha256": "f9bd8e53a681d993fb75b00f9078199d4813453327d1ffdd913f3bb6a4d4d0a8",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -278,7 +278,7 @@
     {
       "bytes": 324,
       "path": "crates/scriptw-intl/src/collator/identity.rs",
-      "sha256": "e3c593387a6e41154caa49ead188357d4a42db414f47e7f95f3672556bd4c34a"
+      "sha256": "41cbd7bd9d2c8fb7c249b58bcdfc4d5f4d117656841e8f0d5a679ae73624b70d"
     },
     {
       "bytes": 31472,
@@ -316,9 +316,9 @@
       "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
     },
     {
-      "bytes": 10336,
+      "bytes": 10333,
       "path": "crates/scriptw-intl/src/image.rs",
-      "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+      "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
       "bytes": 2715,
@@ -531,9 +531,9 @@
       "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
-      "bytes": 21460,
+      "bytes": 21454,
       "path": "crates/scriptw-intl/src/selection/export.rs",
-      "sha256": "0c0993ce613b968cb93d956c519a3d0efb918eb4b4265e7f156caff7c8a70ba5"
+      "sha256": "19326de14f2bcfbf472c044cbe5a1f6bf036450f0c01f368fcb2ae7a56a4b092"
     },
     {
       "bytes": 35819,

@@ -326,9 +326,9 @@
       "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
     },
     {
-      "bytes": 10336,
+      "bytes": 10333,
       "path": "crates/scriptw-intl/src/image.rs",
-      "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+      "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
       "bytes": 1366,
@@ -486,9 +486,9 @@
       "sha256": "2e95cfab9a5bb6a0f03bf9283335050088848f719ce682e10e626afd7987566a"
     },
     {
-      "bytes": 18449,
+      "bytes": 18446,
       "path": "crates/scriptw-intl/src/number_image/projection.rs",
-      "sha256": "48bede443ff42e6ee50570bdbde61f4f137a1346861b8a40c197581668d43c4c"
+      "sha256": "2141a58f9a6b05f3b42007b9c9507473663be6ee541bb6ac3552267dcfb3d0b8"
     },
     {
       "bytes": 3283,
@@ -611,9 +611,9 @@
       "sha256": "be9cf954ceb5b6aaf14ad178e49ff40d3d201ca3d08f21c638a634ff43a515fa"
     },
     {
-      "bytes": 12360,
+      "bytes": 12357,
       "path": "crates/scriptw-intl/src/relative_time_image/projection.rs",
-      "sha256": "a6bbba81154297bb039f16c42d2b7497b94af243224468d7d3dc4adef57ab4a5"
+      "sha256": "99567ceeed9fe3071e54c381bc844adae1d77b8a956aaa9ed5fe3e12637c995c"
     },
     {
       "bytes": 15546,
@@ -631,9 +631,9 @@
       "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
     },
     {
-      "bytes": 21460,
+      "bytes": 21454,
       "path": "crates/scriptw-intl/src/selection/export.rs",
-      "sha256": "0c0993ce613b968cb93d956c519a3d0efb918eb4b4265e7f156caff7c8a70ba5"
+      "sha256": "19326de14f2bcfbf472c044cbe5a1f6bf036450f0c01f368fcb2ae7a56a4b092"
     },
     {
       "bytes": 35819,
@@ -754,7 +754,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "e33c895a7ce4e24882962a0bfd0e531de079857665fd83d878e0eb833aa7879e",
+  "provider_data_sha256": "0748e8cef449eb769cf6b2fefbb869227a7eac03bbc757c72539afdc18c0f8cb",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

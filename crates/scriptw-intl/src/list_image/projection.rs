@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 
 mod export;
 
-const MAGIC: &[u8; 8] = b"SCRIPTWLIP1";
+const MAGIC: &[u8; 8] = b"SCRWLIP1";
 const HEADER_BYTES: usize = 20;
 const MAX_DESCRIPTOR_BYTES: usize = 512 * 1024;
 

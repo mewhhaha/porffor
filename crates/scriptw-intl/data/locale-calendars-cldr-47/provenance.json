@@ -277,7 +277,7 @@
       {
         "bytes": 31753,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "68fef49a39134a8200b3044b62d4d05647334649475c3adc6b96693cfcdff105"
+        "sha256": "5a3bdb3f6d7482f95344404d1808734ccb75853102c4c7814a9a4a7f2e69b19b"
       },
       {
         "bytes": 4610,
@@ -297,7 +297,7 @@
       {
         "bytes": 21411,
         "path": "crates/scriptw-intl/data/iana-tzdb-2026a/manifest.json",
-        "sha256": "6b29716a629b0178452a5db34dfe2973b683943501250f4ff1f0a7d503681ee3"
+        "sha256": "0caf8099e8324dbd4fb3aa0484b5d2326b6027688d6e015d3c67fa2608989ec9"
       },
       {
         "bytes": 51680,
@@ -380,9 +380,9 @@
         "sha256": "247a64b70892d063e194f8a43736aa8f2c25ef7d7371ba50029a2b422b232226"
       },
       {
-        "bytes": 32334,
+        "bytes": 32331,
         "path": "crates/scriptw-intl/src/datetime_image/projection.rs",
-        "sha256": "e8309817e7e72e17f167dfa75da8b28bb7a049a2b92081baac0d9ad0eb8d0794"
+        "sha256": "9b749d61a07a06fa451d98d2c3ef8430dba06b26ed9eac288e6123785cd4558d"
       },
       {
         "bytes": 26104,
@@ -395,9 +395,9 @@
         "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
       },
       {
-        "bytes": 10336,
+        "bytes": 10333,
         "path": "crates/scriptw-intl/src/image.rs",
-        "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+        "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
       },
       {
         "bytes": 1367,
@@ -415,9 +415,9 @@
         "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
       },
       {
-        "bytes": 2308,
+        "bytes": 2305,
         "path": "crates/scriptw-intl/src/image_build/named_time_zones.rs",
-        "sha256": "ba307747ae691377412a64d72afa4fc2b0929dddf21087ea8c85216a3565b96e"
+        "sha256": "00e4e549e194cc3109e2169f15a7ae1fe050f008958d21c914ee2f47825ebc1e"
       },
       {
         "bytes": 41356,
@@ -435,14 +435,14 @@
         "sha256": "a9e496c66ff718f1de05d2a42910f6bb10ca5c7a911dcd2b75a74c866d787b4c"
       },
       {
-        "bytes": 7381,
+        "bytes": 7378,
         "path": "crates/scriptw-intl/src/named_time_zone_image.rs",
-        "sha256": "b71313a8b2ec5899cae5469bce1bab236ea5e80faf6456c254cf207c4843842c"
+        "sha256": "032505f416e41a504626bdfd6156c4a51b5f427a58c57c8cccec1818b8c15793"
       },
       {
-        "bytes": 5674,
+        "bytes": 5671,
         "path": "crates/scriptw-intl/src/named_time_zone_image/projection.rs",
-        "sha256": "7efa90c2ea00ad2ba21c4403f5d8c325d06ba56266ca8431f5e2a61af1446938"
+        "sha256": "3c840391fdff6254594337c4c37e153537e6d873f4f17d9ac25c9565dcbf6353"
       },
       {
         "bytes": 10262,
@@ -465,9 +465,9 @@
         "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
       },
       {
-        "bytes": 15219,
+        "bytes": 15216,
         "path": "crates/scriptw-intl/src/provider/datetime.rs",
-        "sha256": "8b3bd52e6f212507b532732288b238d79aa3f1569b275482353a7d68ea67f794"
+        "sha256": "2316ef119b0963a04f877cf27bdabbb7cfc893e1f14bea147034fd0704812f28"
       },
       {
         "bytes": 2951,
@@ -507,7 +507,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "2f0be7bceb5df07979a16c01dea64e3547aa7d35bceccd05a09837bca2033ad5"
+        "sha256": "b222aa17ca4299614981b574202ba3ea3b58e585fbc11226d94bd7e55d85983c"
       },
       {
         "bytes": 8582,
@@ -712,7 +712,7 @@
       {
         "bytes": 565,
         "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
-        "sha256": "e602ef40015de0e231074a4e423e9a010325737f605593c2c0d1963b708e841d"
+        "sha256": "99866e18fa1e84859e82f08734be0b98af041c8b63f78c4c54daf5402bf81d34"
       },
       {
         "bytes": 5089,
@@ -740,9 +740,9 @@
         "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
       },
       {
-        "bytes": 21460,
+        "bytes": 21454,
         "path": "crates/scriptw-intl/src/selection/export.rs",
-        "sha256": "0c0993ce613b968cb93d956c519a3d0efb918eb4b4265e7f156caff7c8a70ba5"
+        "sha256": "19326de14f2bcfbf472c044cbe5a1f6bf036450f0c01f368fcb2ae7a56a4b092"
       },
       {
         "bytes": 35819,
@@ -765,9 +765,9 @@
         "sha256": "cbdb5d124f1af4844208488d51b8258baae197162fc4ef85ac031ff90dbfe1ac"
       },
       {
-        "bytes": 5154,
+        "bytes": 5184,
         "path": "crates/scriptw-intl/src/time_zone_names_image/projection.rs",
-        "sha256": "273d4f0d023651cbf3217a0b6f10a5096c4c2affe8b14aec3015008572a76eb7"
+        "sha256": "a810a5fe0ad9ba67a77c860fbfe38adb84da36ec9a1b019a8eb177d04e6858eb"
       },
       {
         "bytes": 8923,
@@ -1016,7 +1016,7 @@
       }
     ]
   },
-  "kernel_sha256": "a6844c40da44792bb97c983f36891ce20773bf09a745b5ad9ca47d897ca71278",
+  "kernel_sha256": "9d90c5145f4148271c40b6f61ab7481ce6f075d7a95c80911da72fbfb34c0cd2",
   "language_region_selector_count": 0,
   "normative_source": "https://tc39.es/ecma402/#sec-calendarsoflocale",
   "ordering": "calendar preference order; canonical BCP47 aliases; stable uniqueness; runtime filter against actual checked DateTime AvailableCalendars",

@@ -59,7 +59,7 @@ fn only_malformed_javascript_parse_rejections_become_direct_eval_syntax_messages
 
 #[test]
 fn factory_request_identity_includes_hidden_private_floor_and_exact_utf16_source() {
-    let mut bytes = b"SCRIPTWDE01".to_vec();
+    let mut bytes = b"SCRWDE01".to_vec();
     bytes.extend([0, 1, 0, 0]);
     bytes.extend(0_u64.to_le_bytes());
     let descriptor = RuntimeDirectEvalCallerDescriptor::decode(&bytes).unwrap();

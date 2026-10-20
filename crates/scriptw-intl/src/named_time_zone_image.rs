@@ -11,7 +11,7 @@ pub(crate) mod projection;
 pub const INTL_NAMED_TIME_ZONE_DATA_CUSTOM_SECTION: &str = "scriptw.intl-named-time-zone-data.v1";
 // A native catalogue/record schema, rather than an ICU data marker.
 pub(crate) const NAMED_TIME_ZONE_IMAGE_MARKERS: &[&str] = &["scriptw/time-zone/iana/v1"];
-const MAGIC: &[u8; 8] = b"SCRIPTWTZ01";
+const MAGIC: &[u8; 8] = b"SCRWTZ01";
 const PINNED_PAYLOAD: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/named-time-zone-data.blob"));
 

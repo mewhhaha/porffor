@@ -7413,7 +7413,7 @@ require_fixed_string_count 'crates/scriptw-engine/src/module_loader.rs' 'match r
 require_fixed_string_count 'crates/scriptw-runtime/src/embedded_module_graph.rs' 'pub const fn target_kind(&self) -> EmbeddedModuleKind' 1 'host target kind has one validated projection'
 require_fixed_string_count 'crates/scriptw-runtime/src/embedded_module_graph.rs' 'target_kind: target.expect("checked declared target").kind(),' 1 'resolved host record kind retained rather than inferred later'
 require_fixed_string_count 'crates/scriptw-runtime/src/embedded_module_graph.rs' 'hash.update([match resolution.target_kind {' 1 'actual host record kind bound into graph fingerprint'
-require_fixed_string_count 'crates/scriptw-ir/src/modules/module_unit.rs' 'if let Some(tag) = self.record.module_source_tag() {' 1 'retained host tag participates in exact duplicate-load identity' 
+require_fixed_string_count 'crates/scriptw-ir/src/modules/module_unit.rs' 'if let Some(tag) = self.record.module_source_tag() {' 1 'retained host tag participates in exact duplicate-load identity'
 require_fixed_string_count 'crates/scriptw-test262/src/differential/embedded_graph.rs' '(ModuleKindWire::ModuleSource, Some(source_tag), None)' 1 'wire accepts exactly one declared source-tag payload'
 require_fixed_string_count 'crates/scriptw-test262/src/module_catalog.rs' 'specifier == "<module source>" && attributes.is_empty()' 1 'Test262-only implementation-defined virtual host contract'
 check_no_inline_legacy_includes "$ir_source_tests"

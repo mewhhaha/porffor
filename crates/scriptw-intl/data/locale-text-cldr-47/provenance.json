@@ -77,7 +77,7 @@
       {
         "bytes": 31753,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "68fef49a39134a8200b3044b62d4d05647334649475c3adc6b96693cfcdff105"
+        "sha256": "5a3bdb3f6d7482f95344404d1808734ccb75853102c4c7814a9a4a7f2e69b19b"
       },
       {
         "bytes": 34690,
@@ -105,9 +105,9 @@
         "sha256": "08bc33c06227bcddc779dc16212be0634361cb5dc77d0c4f83d3b5882a1e79b6"
       },
       {
-        "bytes": 10336,
+        "bytes": 10333,
         "path": "crates/scriptw-intl/src/image.rs",
-        "sha256": "0c35332b46dbe39d5c9c30a77560f5085ffb93d91e4d39468a1b6e12b425d56c"
+        "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
       },
       {
         "bytes": 1367,
@@ -147,7 +147,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "2f0be7bceb5df07979a16c01dea64e3547aa7d35bceccd05a09837bca2033ad5"
+        "sha256": "b222aa17ca4299614981b574202ba3ea3b58e585fbc11226d94bd7e55d85983c"
       },
       {
         "bytes": 4101,
@@ -256,7 +256,7 @@
       }
     ]
   },
-  "kernel_sha256": "49cd64473f4228bb8488e3aabe7f74a2e88dccb989b1ff8ac91b14cf2c1072f8",
+  "kernel_sha256": "ed7ea4f128d028ad72cce4191b89faf8eb931975ee99a4137103e93071b2b469",
   "kernel_source_closure": "explicit production module inventory; unknown/missing production source rejects",
   "license": "UNICODE LICENSE V3; exact same-commit pinned LICENSE copied",
   "normative_source": "https://tc39.es/ecma402/#sec-textdirectionoflocale",

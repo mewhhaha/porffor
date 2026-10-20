@@ -27,7 +27,7 @@ mod zones;
 use profile::Profile;
 
 pub(super) const PROVIDER_DATA_SHA256: [u8; 32] = identity::PROVIDER_DATA_SHA256;
-const PLAN_MAGIC: &[u8; 8] = b"SCRIPTWDTF2";
+const PLAN_MAGIC: &[u8; 8] = b"SCRWDTF2";
 
 pub(crate) struct DateTimeProvider {
     profile: Profile,
