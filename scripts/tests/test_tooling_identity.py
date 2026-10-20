@@ -27,7 +27,11 @@ class FrozenProofTests(unittest.TestCase):
         for name in ('differential-jobs-checkpoint-20261019.json',
                      'runtime-admission-checkpoint-20261019.json',
                      'native-default-runtime-type-suffix-doc-cohorts-20261019.json',
-                     'runtime-type-suffix-ordinary-checkpoint-20261019.json'):
+                     'runtime-type-suffix-ordinary-checkpoint-20261019.json',
+                     'complete-af-discovery-cpu-tooling-20261019.json',
+                     'discovery-storage-checkpoint-20261019.json',
+                     'intl-native-budget-candidate-20261019.json',
+                     'matched-native-progress-20261019.json'):
             with self.subTest(name=name):
                 path = Path('docs/rust-rewrite') / name
                 raw = (REPO / path).read_bytes()
@@ -37,6 +41,33 @@ class FrozenProofTests(unittest.TestCase):
                 self.assertEqual((REPO / path).read_bytes(), raw)
                 with self.assertRaisesRegex(ValueError, 'frozen historical proof changed'):
                     provenance.audit_source(path, raw + b' ')
+
+    def test_workspace_relative_asset_paths_require_exact_frozen_admission(self):
+        import json
+        name = 'closed-test-proof.json'
+        fields = {'path': RETIRED_NAME + '/target/proof.json',
+                  'product': RETIRED_NAME + '/target/proof.json',
+                  'product_identifier': RETIRED_NAME + '-cli',
+                  'undeclared_path': RETIRED_NAME + '/target/runtime',
+                  'other_path': RETIRED_NAME + '/target/other.json',
+                  'assets': [{'path': RETIRED_NAME + '/target/proof.json'}],
+                  'references': [RETIRED_NAME + '/target/proof.json'],
+                  'nearby': {'path': RETIRED_NAME + '/targetish/proof.json'}}
+        raw = (json.dumps(fields) + '\n').encode()
+        path = Path('docs/rust-rewrite') / name
+        with patch.dict(provenance.PROOFS, {name: (None, hashlib.sha256(raw).hexdigest())}):
+            actual = json.loads(provenance.audit_source(path, raw))
+            self.assertEqual(actual, dict(fields, path='HISTORICAL_CHECKOUT/target/proof.json',
+                                         product='HISTORICAL_CHECKOUT/target/proof.json',
+                                         assets=[{'path': 'HISTORICAL_CHECKOUT/target/proof.json'}],
+                                         references=['HISTORICAL_CHECKOUT/target/proof.json']))
+            with self.assertRaisesRegex(ValueError, 'frozen historical proof changed'):
+                provenance.audit_source(path, raw + b' ')
+        with patch.dict(provenance.PROOFS, {name: ('closed-test', None)}):
+            schema_raw = json.dumps(dict(fields, schema='closed-test')).encode()
+            self.assertEqual(provenance.audit_source(path, schema_raw), schema_raw)
+        self.assertEqual(provenance.audit_source(path, raw), raw)
+        self.assertEqual(provenance.audit_source(Path('crates/lila-cli') / name, raw), raw)
 
     def test_frozen_admission_changes_only_host_paths_and_preserves_product_tokens(self):
         raw = (

@@ -1,3 +1,14 @@
+The identity audit now passes with exact byte-bound admission for four closed
+reports. Captured host locators remain literal in the reports; changed proof
+bytes, undeclared paths and product identifiers stay audited. All14 source
+audits pass. The621 tooling tests have passing results:620 in the original
+run and one after restoring four missing tracked proof files to its sparse
+checkout. The original errors are retained; the repaired test took0.49s.
+
+The299-test Intl CPU-budget candidate is under separate native verification.
+Full-suite, timeout repair, release and conformance acceptance remain open.
+[Exact source, literal outcomes and retained evidence](docs/rust-rewrite/identity-provenance-repair-20261020.json).
+
 All-feature discovery is complete at compiler source `867ad6145`:
 **9,649 native passes, one timeout and 11 documentation passes across 113 scopes**.
 Every failure and its executable are preserved. One subsequent idle diagnostic
