@@ -1,5 +1,23 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+Cold-admission runtime verification passes all **650 Intl library tests** and
+all **35 worker tests**, with no failures or ignored tests. All14 source audits
+and all622 Python tooling bodies pass. Every prior646 library ID and every
+worker ID is retained; four library controls were added.
+
+All four original cold requests pass with their unchanged **5000ms** budgets,
+four compiler jobs and a fresh normal-capacity private cache per request. The
+original mutation seed9 request also passes in its complete native worker scope.
+Historical failures remain recorded. Current Engine299, full AF/default,
+release, conformance, performance acceptance and task cleanup remain pending.
+
+An alternating seven-pair host measurement observed median Minimal Intl
+admission of **540.2ms before** and **207.6ms after**.
+All samples and12 actual frame checks are retained. This measures fresh host
+processes with current OS caches; it does not replace product benchmark gates.
+
+[Exact runtime checkpoint and evidence](cold-admission-runtime-checkpoint-20261020.json).
+
 The same candidate prepares pinned Minimal DateTime data before waiting for
 named-zone admission, using the existing OnceLock. Its final typed value binds
 the actual Locale/IANA owners and image/Locale/IANA plan digests; custom and

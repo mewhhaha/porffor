@@ -1,21 +1,22 @@
 # Continue Lila — 2026-10-20
 
-Pinned Minimal DateTime admission now has a private preparation value: it
-validates rows and calendar kernels after Locale is ready, before waiting for
-the named-zone owner. Final admission retains that actual owner and all three
-plan digests. Custom/projection validation remains complete. The candidate
-uses the existing OnceLock and scheduler; native validation and any startup
-improvement are pending.
+Cold-admission runtime verification passes all **650 Intl library tests** and
+all **35 worker tests**, with no failures or ignored tests. All14 source audits
+and all622 Python tooling bodies pass. Every prior646 library ID and every
+worker ID is retained; four library controls were added.
 
-A separate cold-admission candidate shares immutable POSIX footer cycles and
-complete gap certificates within one named-zone catalogue. Each actual record
-still validates its full historical offsets, transitions and table/footer
-handoff. The private footer-only proof uses the same forward selector and its
-complete standard/daylight offset range. Tests retain all pinned payloads and
-compare against the uncached full-catalogue proof. Native verification, exact
-frame/identity parity and any timeout improvement remain pending.
+All four original cold requests pass with their unchanged **5000ms** budgets,
+four compiler jobs and a fresh normal-capacity private cache per request. The
+original mutation seed9 request also passes in its complete native worker scope.
+Historical failures remain recorded. Current Engine299, full AF/default,
+release, conformance, performance acceptance and task cleanup remain pending.
 
-Verify this frozen candidate with all14 source audits and all622 tooling controls before native compilation, then complete affected native scopes and the original cold requests. Full AF/default, release, conformance, performance and cleanup remain pending. The original five-second failure remains literal evidence.
+An alternating seven-pair host measurement observed median Minimal Intl
+admission of **540.2ms before** and **207.6ms after**.
+All samples and12 actual frame checks are retained. This measures fresh host
+processes with current OS caches; it does not replace product benchmark gates.
+
+[Exact runtime checkpoint and evidence](docs/rust-rewrite/cold-admission-runtime-checkpoint-20261020.json).
 
 Engine Intl verification passes all **299 tests**, with zero failures or ignored
 tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
