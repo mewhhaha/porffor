@@ -128,14 +128,14 @@ same focused surface:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test structure_builtins --quiet -- callable_function_prototype_structure::
-cargo test -p lila-aot-wasm --test realm_function_internal_prototype_policy_structure --quiet
-cargo test -p lila-aot-wasm --lib functions::realm_function_materialization_tests::specialized_created_realm_function_prototypes_are_explicitly_unsupported -- --exact
-cargo test -p lila-cli --test cli functions::run_wasm_backend_uses_created_realm_builtin_function_prototypes -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.3.1_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
-./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
-./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A2 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
-./target/debug/lila --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A5.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+cargo test -p scriptw-aot-wasm --test structure_builtins --quiet -- callable_function_prototype_structure::
+cargo test -p scriptw-aot-wasm --test realm_function_internal_prototype_policy_structure --quiet
+cargo test -p scriptw-aot-wasm --lib functions::realm_function_materialization_tests::specialized_created_realm_function_prototypes_are_explicitly_unsupported -- --exact
+cargo test -p scriptw-cli --test cli functions::run_wasm_backend_uses_created_realm_builtin_function_prototypes -- --exact --test-threads=1
+./target/debug/scriptw --jobs 1 test262 run built-ins/Function/prototype/S15.3.3.1_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A2 --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Function/prototype/S15.3.4_A5.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 ```
 
 The capability structure target passes `3/3`, its exact owner unit passes

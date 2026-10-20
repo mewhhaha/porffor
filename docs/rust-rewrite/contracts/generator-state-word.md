@@ -51,7 +51,7 @@ suspended-yield.
 
 ## Inventoried representation hazard
 
-Lila stores the synchronous state in the i64 word at
+Scriptw stores the synchronous state in the i64 word at
 `HEAP_GENERATOR_STATE_OFFSET`. At the inventoried pre-migration baseline, four
 crate-visible `u64` constants spelled its persisted encoding:
 
@@ -157,7 +157,7 @@ the typed boundary; no additional product owner is implied.
 ### Generator allocation
 
 `FunctionBuilder::emit_function_handle_call_with_argv_inner` in
-`crates/lila-aot-wasm/src/functions.rs` owns one store:
+`crates/scriptw-aot-wasm/src/functions.rs` owns one store:
 
 - `GeneratorState::SuspendedStart` after the generator object brand is stored
   and before the function, receiver, argument, resume, and pending-completion
@@ -174,7 +174,7 @@ entry points, not five independent state owners. The one
 ### Shared suspended-yield resume
 
 `FunctionBuilder::emit_generator_resume_call` in
-`crates/lila-aot-wasm/src/builtins/standard.rs` owns three stores:
+`crates/scriptw-aot-wasm/src/builtins/standard.rs` owns three stores:
 
 - `GeneratorState::Executing` before the indirect generator-body call;
 - `GeneratorState::SuspendedYield` after the body reports a live suspension
@@ -251,7 +251,7 @@ across emitted calls.
 
 ## Durable structural witness
 
-`crates/lila-aot-wasm/tests/generator_state_word_structure.rs` should be a
+`crates/scriptw-aot-wasm/tests/generator_state_word_structure.rs` should be a
 source-bounded guard over `heap.rs`, `functions.rs`, and
 `builtins/standard.rs`. It should require:
 
@@ -308,17 +308,17 @@ Under the shared eight-core, 22 GB cap, the durable structure suite passes
 exact Test262 leaves pass `12/12` Wasm-AOT variants with every failure and
 non-success bucket at zero under `--jobs 1 --threads 1`:
 
-- `crates/lila-cli/tests/cli/resource_management.rs::wasm_using_plain_generator_lifecycle`, backed by
+- `crates/scriptw-cli/tests/cli/resource_management.rs::wasm_using_plain_generator_lifecycle`, backed by
   `wasm_using_plain_generator_lifecycle.js`, for suspended-start laziness,
   repeated yield/resume, normal completion, external `return` and `throw`, and
   the absorbing completed state;
-- `crates/lila-cli/tests/cli/language_errors.rs::run_wasm_backend_preserves_property_reference_across_generator_suspension`,
+- `crates/scriptw-cli/tests/cli/language_errors.rs::run_wasm_backend_preserves_property_reference_across_generator_suspension`,
   backed by `wasm_generator_suspended_property_reference.js`, for values and
   References retained across ordinary and delegated suspension;
-- `crates/lila-cli/tests/cli/iterator.rs::run_wasm_backend_succeeds_for_iterator_to_array_exhausted_generator_fixture`,
+- `crates/scriptw-cli/tests/cli/iterator.rs::run_wasm_backend_succeeds_for_iterator_to_array_exhausted_generator_fixture`,
   backed by `wasm_iterator_to_array_exhausted_generator.js`, for immediate
   completion and repeated consumption of an exhausted generator; and
-- `crates/lila-cli/tests/cli/heap.rs::run_wasm_backend_succeeds_for_heap_rooted_generator_fixture`,
+- `crates/scriptw-cli/tests/cli/heap.rs::run_wasm_backend_succeeds_for_heap_rooted_generator_fixture`,
   backed by `wasm_heap_rooted_generator.js`, for a suspended generator record
   surviving intervening heap growth.
 

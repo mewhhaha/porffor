@@ -4,8 +4,8 @@ from pathlib import Path
 import re
 import sys
 
-A = "crates/lila-aot-wasm/src/"
-E = "crates/lila-engine/src/"
+A = "crates/scriptw-aot-wasm/src/"
+E = "crates/scriptw-engine/src/"
 P = A + "runtime_artifact/validated_profile.rs"
 C = E + "wasm_native_source_compiler.rs"
 KINDS = ("function", "global_script", "direct_eval")
@@ -115,9 +115,9 @@ def check(sources):
                 "emit_runtime_" + kind + "_module(program,validated)?" in emitted,
                 "exact_emission_pair", kind + " emission consumes the exact retained proof pair and returns exact R Arc")
         host = c[E + "wasm_native_" + kind + "_compiler/factory.rs"]
-        require("lila_aot_wasm::emit_runtime_" + kind + "_with_validated_runtime(program,context.validated_runtime()" in host and
+        require("scriptw_aot_wasm::emit_runtime_" + kind + "_with_validated_runtime(program,context.validated_runtime()" in host and
                 "!Arc::ptr_eq(artifact.runtime(),context.runtime())" in host and
-                "lila_aot_wasm::emit_runtime_" + kind + "(" not in host and
+                "scriptw_aot_wasm::emit_runtime_" + kind + "(" not in host and
                 "ValidatedRuntimeArtifact::new(" not in host and "require_runtime_profile(" not in host,
                 "native_proof_routes", kind + " actual native factory reuses the context proof, preserving exact R identity")
     direct = c[A + "runtime_direct_eval.rs"]

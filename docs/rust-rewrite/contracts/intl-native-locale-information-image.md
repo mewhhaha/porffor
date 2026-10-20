@@ -3,7 +3,7 @@
 The selected `LocaleDataImage` owns the five genuine ICU Locale markers and the
 actual CLDR47 keyword alias rows. Its checked payload contains both the locked
 ICU blob and deterministic `keyword-data.json` exported from the existing typed
-producer rows. The native descriptor `lila/keyword-aliases/profiles/v1` is not an
+producer rows. The native descriptor `scriptw/keyword-aliases/profiles/v1` is not an
 ICU marker. Admission requires exact producer bytes, complete schema/version
 identity, 60 Unicode and five transform aliases, ordered unique keys and sources,
 terminal canonical replacements, and typed keys and Unicode values. Runtime
@@ -21,7 +21,7 @@ authority retained from their actual Locale foundation.
 `NativeLocaleInformationDataImage` admits the exact four existing JSON profiles:
 292 calendar regions with 52 selectors, 292 hour-cycle regions with 275 selectors,
 293 week regions and 177 text scripts, totaling 122,201 source bytes. The four
-`lila/locale/*/profiles/v1` entries name real native schemas. The existing SHA,
+`scriptw/locale/*/profiles/v1` entries name real native schemas. The existing SHA,
 CLDR47/source, shape, domain, order, coverage and record validators remain the
 concrete consumers. Four independent default table decode caches are retired;
 the default accessor retains one admitted image.

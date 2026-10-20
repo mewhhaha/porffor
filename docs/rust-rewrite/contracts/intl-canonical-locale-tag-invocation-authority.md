@@ -72,7 +72,7 @@ resolution. The focused CLI test owns that fixture.
 At the 2026-08-27 focused checkpoint, the authority structure target passes
 `4/4`, the public CLI witness passes `1/1` with 749 tests filtered, and the
 neighboring Locale string-slot target passes `3/3`. `cargo check -p
-lila-aot-wasm --quiet` is green with the repository's existing warnings. The
+scriptw-aot-wasm --quiet` is green with the repository's existing warnings. The
 targeted Rust format check and scoped diff check are clean.
 
 This is not a complete Intl.Locale, DateTimeFormat, Intl402, or T23 closure

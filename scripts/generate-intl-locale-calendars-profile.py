@@ -10,52 +10,52 @@ import xml.etree.ElementTree as ET
 RELEASE = '47.0.0'
 COMMIT = '2ef784e3a4168bc2a43cd1b5b9839b6636f5899c'
 ALGORITHM = 'locale-calendars-cldr47-v1'
-PRIMARY = Path('crates/lila-intl/data/datetime-cldr-47')
-DEST = Path('crates/lila-intl/data/locale-calendars-cldr-47')
-NATIVE = Path('crates/lila-intl/src/provider/locale_calendars')
+PRIMARY = Path('crates/scriptw-intl/data/datetime-cldr-47')
+DEST = Path('crates/scriptw-intl/data/locale-calendars-cldr-47')
+NATIVE = Path('crates/scriptw-intl/src/provider/locale_calendars')
 IDENTITY = NATIVE / 'profile_identity.rs'
-REGION_HELPER = Path('crates/lila-intl/src/provider/region_preference.rs')
+REGION_HELPER = Path('crates/scriptw-intl/src/provider/region_preference.rs')
 PRODUCTION = [NATIVE.with_suffix('.rs'), NATIVE / 'record.rs', NATIVE / 'profile.rs']
-HELPERS = [Path(p) for p in ['crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
-    'crates/lila-intl/src/protocol.rs', 'crates/lila-intl/src/locale_information_wire.rs',
-    'crates/lila-intl/src/provider/language_domain.rs',
-    'crates/lila-intl/src/provider/keyword_aliases.rs',
-    'crates/lila-intl/src/provider/keyword_aliases/generated.rs',
-    'crates/lila-intl/src/identifiers.rs', 'crates/lila-intl/src/datetime.rs',
-    'crates/lila-intl/src/datetime_protocol.rs', 'crates/lila-intl/src/provider/datetime.rs',
-    'crates/lila-intl/src/provider/datetime/locale.rs', 'crates/lila-intl/src/provider/datetime/profile.rs',
-    'crates/lila-intl/src/provider/datetime/generated/profile.json',
-    'Cargo.lock', 'Cargo.toml', 'crates/lila-intl/Cargo.toml']]
+HELPERS = [Path(p) for p in ['crates/scriptw-intl/src/lib.rs', 'crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs',
+    'crates/scriptw-intl/src/protocol.rs', 'crates/scriptw-intl/src/locale_information_wire.rs',
+    'crates/scriptw-intl/src/provider/language_domain.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/identifiers.rs', 'crates/scriptw-intl/src/datetime.rs',
+    'crates/scriptw-intl/src/datetime_protocol.rs', 'crates/scriptw-intl/src/provider/datetime.rs',
+    'crates/scriptw-intl/src/provider/datetime/locale.rs', 'crates/scriptw-intl/src/provider/datetime/profile.rs',
+    'crates/scriptw-intl/src/provider/datetime/generated/profile.json',
+    'Cargo.lock', 'Cargo.toml', 'crates/scriptw-intl/Cargo.toml']]
 
 # Selected image admission and real keyword/data owners. Only upstream
 # DateTime metadata enters; this service's generated kernel outputs are excluded.
 HELPERS.extend(Path(path) for path in [
-    'crates/lila-intl/build.rs',
-    'crates/lila-intl/src/image.rs',
-    'crates/lila-intl/src/locale_image.rs',
-    'crates/lila-intl/src/image_build/locale.rs',
-    'crates/lila-intl/src/image_build/keyword.rs',
+    'crates/scriptw-intl/build.rs',
+    'crates/scriptw-intl/src/image.rs',
+    'crates/scriptw-intl/src/locale_image.rs',
+    'crates/scriptw-intl/src/image_build/locale.rs',
+    'crates/scriptw-intl/src/image_build/keyword.rs',
     'scripts/generate-intl-keyword-aliases.py',
-    'crates/lila-engine/src/intl_data_images.rs',
-    'crates/lila-engine/src/wasm_gc_intl_host.rs',
-    'crates/lila-aot-wasm/src/emit.rs',
-    'crates/lila-aot-wasm/src/emit/module_assembly.rs',
-    'crates/lila-intl/src/native_locale_information_image.rs',
-    'crates/lila-intl/src/datetime_image.rs',
-    'crates/lila-intl/src/image_build/calendar.rs',
-    'crates/lila-intl/src/provider/locale_hour_cycles.rs',
-    'crates/lila-intl/src/provider/locale_hour_cycles/record.rs',
-    'crates/lila-intl/src/provider/locale_hour_cycles/profile.rs',
-    'crates/lila-intl/data/locale-hour-cycles-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_week.rs',
-    'crates/lila-intl/src/provider/locale_week/record.rs',
-    'crates/lila-intl/src/provider/locale_week/profile.rs',
-    'crates/lila-intl/data/locale-week-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_text.rs',
-    'crates/lila-intl/src/provider/locale_text/record.rs',
-    'crates/lila-intl/src/provider/locale_text/profile.rs',
-    'crates/lila-intl/data/locale-text-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_text/script.rs',
+    'crates/scriptw-engine/src/intl_data_images.rs',
+    'crates/scriptw-engine/src/wasm_gc_intl_host.rs',
+    'crates/scriptw-aot-wasm/src/emit.rs',
+    'crates/scriptw-aot-wasm/src/emit/module_assembly.rs',
+    'crates/scriptw-intl/src/native_locale_information_image.rs',
+    'crates/scriptw-intl/src/datetime_image.rs',
+    'crates/scriptw-intl/src/image_build/calendar.rs',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles.rs',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles/record.rs',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles/profile.rs',
+    'crates/scriptw-intl/data/locale-hour-cycles-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_week.rs',
+    'crates/scriptw-intl/src/provider/locale_week/record.rs',
+    'crates/scriptw-intl/src/provider/locale_week/profile.rs',
+    'crates/scriptw-intl/data/locale-week-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_text.rs',
+    'crates/scriptw-intl/src/provider/locale_text/record.rs',
+    'crates/scriptw-intl/src/provider/locale_text/profile.rs',
+    'crates/scriptw-intl/data/locale-text-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_text/script.rs',
     'scripts/generate-intl-locale-calendars-profile.py',
 ])
 REGION = re.compile(r'(?:[A-Z]{2}|[0-9]{3})')
@@ -161,8 +161,8 @@ def kernel_sources(primary_root, native_root):
     producer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(producer)
     rust, receipt = producer.generate(primary_root, primary_root, primary_root / 'Cargo.lock')
-    identity_path = Path('crates/lila-intl/src/provider/datetime/identity.rs')
-    receipt_path = Path('crates/lila-intl/data/datetime-cldr-47/kernel-identity.json')
+    identity_path = Path('crates/scriptw-intl/src/provider/datetime/identity.rs')
+    receipt_path = Path('crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json')
     if (primary_root / identity_path).read_text() != rust or (primary_root / receipt_path).read_text() != receipt:
         raise ValueError('consumed DateTime source identity must be genuinely refreshed first')
     rows = {row['path']: row for row in result}
@@ -186,7 +186,7 @@ def outputs(primary_root, native_root=None):
         'primary_manifest_sha256': manifest_sha, 'primary_source_sha256': inputs[0]['sha256'],
         'regions': regions, 'selectors': [{'selector': key, 'calendars': selectors[key]} for key in sorted(selectors)]}
     profile_bytes = encode(profile)
-    kernel_input = {'domain': 'lila-locale-calendars-native-kernel-v1',
+    kernel_input = {'domain': 'scriptw-locale-calendars-native-kernel-v1',
         'profile_sha256': sha(profile_bytes), 'sources': kernel_sources(primary_root, native_root)}
     kernel_digest = sha(encode(kernel_input))
     def constant(name, value):

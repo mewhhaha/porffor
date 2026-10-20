@@ -28,7 +28,7 @@ def main():
     arguments = args.arguments
     if arguments[:1] == ['--']:
         arguments = arguments[1:]
-    fd = os.memfd_create('lila-native-test', os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
+    fd = os.memfd_create('scriptw-native-test', os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
     child = None
     try:
         child = subprocess.Popen(['zstd', '-q', '-d', '-c', str(args.archive)], stdout=subprocess.PIPE)

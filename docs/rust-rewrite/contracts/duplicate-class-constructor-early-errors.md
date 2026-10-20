@@ -45,7 +45,7 @@ literal.
 - Add exactly one parse-failure row. Its one fragment and one witness are the
   complete Boa literal above; a broader fragment would turn an adjacent
   constructor restriction into an unearned duplicate-constructor claim.
-- Map the new variant through `lila-ir`'s exhaustive `rejection_kind` match to
+- Map the new variant through `scriptw-ir`'s exhaustive `rejection_kind` match to
   `IrDiagnosticKind::EarlyError`. Phase and error type remain derived as
   `Early` and `SyntaxError` for entry and retained-module diagnostics.
 - Keep `ParseClassified` as the parse-stage gate. Existing const assertions

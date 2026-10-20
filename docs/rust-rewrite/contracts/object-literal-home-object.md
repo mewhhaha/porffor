@@ -17,7 +17,7 @@ language/expressions/object/setter-super-prop.js
 
 The existing Wasm binary reports `0/10`. Every execution reaches
 Runtime/NotImplemented with the exact diagnostic
-`unsupported in lila wasm-aot first slice: object literal method`.
+`unsupported in scriptw wasm-aot first slice: object literal method`.
 
 This is one semantic failure, not five unrelated syntax gaps. Object-literal
 methods without `super` already lower through `ObjectPropertyIr`; the missing
@@ -128,7 +128,7 @@ Nothing here changes ordinary object-literal data properties.
 
 ## Ownership
 
-The producer lane owns the contract and the `lila-ir` protocol, analysis, IR,
+The producer lane owns the contract and the `scriptw-ir` protocol, analysis, IR,
 lowering, traversal, and focused invariant tests. The backend lane owns AOT
 planning metadata, object-method materialization, function-context HomeObject
 storage/loading, the distinct super-write Receiver, and temp-local budgets. The
@@ -149,18 +149,18 @@ Central focused verification after all lanes are assembled:
 
 ```sh
 cargo check --workspace --all-targets
-cargo test -p lila-ir object_literal_home_object
-cargo test -p lila-aot-wasm --test structure_language -- object_literal_home_object_structure::
-cargo test -p lila-cli --test cli object_literal_home_object_fixture
+cargo test -p scriptw-ir object_literal_home_object
+cargo test -p scriptw-aot-wasm --test structure_language -- object_literal_home_object_structure::
+cargo test -p scriptw-cli --test cli object_literal_home_object_fixture
 
-./target/debug/lila test262 run language/expressions/object/method.js \
+./target/debug/scriptw test262 run language/expressions/object/method.js \
   --execution-backend wasm --timeout-ms 120000 --threads 1
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/object/method-definition/name-super-prop \
   --execution-backend wasm --timeout-ms 120000 --threads 1
-./target/debug/lila test262 run language/expressions/object/getter-super-prop.js \
+./target/debug/scriptw test262 run language/expressions/object/getter-super-prop.js \
   --execution-backend wasm --timeout-ms 120000 --threads 1
-./target/debug/lila test262 run language/expressions/object/setter-super-prop.js \
+./target/debug/scriptw test262 run language/expressions/object/setter-super-prop.js \
   --execution-backend wasm --timeout-ms 120000 --threads 1
 ```
 

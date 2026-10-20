@@ -20,7 +20,7 @@ all of them:
 The pinned producers are the exhaustive class-element match in
 `vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs`.
 The parser uses Boa AST's `contains_arguments` operation while it still owns the
-initializer syntax. Lila classifies that rejection at the parse boundary; IR
+initializer syntax. Scriptw classifies that rejection at the parse boundary; IR
 lowering must never receive the rejected class.
 
 ## Traversal boundary
@@ -67,8 +67,8 @@ The exact pinned Test262 checkpoint is the generated non-`eval` field
 `language/statements/class/elements`. Direct- and indirect-`eval` cases remain
 outside this bounded claim.
 
-At `2026-08-22`, the full `lila-front` suite passes `40/40`, the focused
-`lila-ir` early-error gate passes `3/3`, and all 60 exact pinned non-`eval`
+At `2026-08-22`, the full `scriptw-front` suite passes `40/40`, the focused
+`scriptw-ir` early-error gate passes `3/3`, and all 60 exact pinned non-`eval`
 files covering declaration/expression, public/private, instance/static, arrow
 and nested forms pass `120/120` Wasm-AOT executions. Every parser, early-error,
 lowering, runtime, backend, harness, unsupported, crash and bug bucket is zero.

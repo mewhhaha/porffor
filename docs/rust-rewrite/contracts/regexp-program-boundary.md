@@ -116,7 +116,7 @@ control exercises clone, compile, named results/indices, replacement, matchAll,
 split, failed compile and repeated execution across scratch rewinds.
 
 Run the IR descriptor tests, the backend RegExp unit and structural tests, and
-`cargo test -p lila-engine regexp_program_boundary_tests -- --test-threads=1`
+`cargo test -p scriptw-engine regexp_program_boundary_tests -- --test-threads=1`
 after integration. These controls do not establish full RegExp conformance.
 The runtime RegExp parser/compiler, shared grammar tables, closed opcode
 construction, iterative parsing/validation and unified resource policy remain

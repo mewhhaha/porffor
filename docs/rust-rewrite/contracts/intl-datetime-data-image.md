@@ -12,9 +12,9 @@ validation; they are not silently described as CLDR47-only data.
 `DateTimeDataImage` admits one bounded versioned frame containing native JSON
 and a deterministic postcard ICU calendar blob. The ordinary Minimal and named
 Custom factories retain the exact complete pinned bytes. The five consumed
-schema descriptors are the native `lila/datetime/profiles/v2`, ICU Chinese,
+schema descriptors are the native `scriptw/datetime/profiles/v2`, ICU Chinese,
 Dangi and modern Japanese singleton markers, and the vendored
-`lila/calendar/hijri/ummalqura/v1` marker. The last marker serializes the actual
+`scriptw/calendar/hijri/ummalqura/v1` marker. The last marker serializes the actual
 pre-existing 301-year Umm al-Qura table (1300–1600); it is not an upstream ICU
 marker inventory claim. Safe little-endian storage is derived from that table
 only for the build-time baked provider. The runtime calendar retains the
@@ -42,7 +42,7 @@ IANA owner. Standalone time-zone display-name data has a separate component;
 the native DateTime JSON already owns the CLDR names and patterns its renderer
 actually consumes.
 
-Opaque plans use `LILADTF2`, the complete DateTime image digest, selected Locale
+Opaque plans use `SCRIPTWDTF2`, the complete DateTime image digest, selected Locale
 and IANA image digests and the existing primitive recipe. Every scalar or range entry
 checks these bindings before date projection, named-zone lookup or range
 input-kind decisions. Plans remain portable between separately admitted owners
@@ -75,7 +75,7 @@ sixteen calendar associations per row, 78 positional digit systems, both
 algorithmic rules, geography, supplements and the complete four-marker calendar
 blob remain. The IANA image retains its complete named-zone inventory.
 
-The native field of the existing frame can carry a bounded `LILADTP1` projection
+The native field of the existing frame can carry a bounded `SCRIPTWDTP1` projection
 descriptor and canonical JSON. The descriptor binds the Custom ID, complete
 native source hash, Locale and IANA digests, sorted public rows and both original
 pool-index subsequences. Admission derives the complete projection again and

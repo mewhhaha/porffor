@@ -44,7 +44,7 @@ continues; default, release, conformance and cleanup remain pending.
 
 All 55 Intl fixture setup calls explicitly selected one compiler thread,
 despite the runner allocating four CPUs. A separate test-only candidate honors
-positive inherited LILA_JOBS, capped by available parallelism, and stays serial
+positive inherited SCRIPTW_JOBS, capped by available parallelism, and stays serial
 when unset. All 299 IDs, assertions, fixtures and deadlines remain. Product
 sources and runtime fingerprint inputs are unchanged. The candidate is saved
 locally, uncompiled and unpushed; its speed benefit is not measured.
@@ -317,12 +317,12 @@ oracle feature in the already warmed
 ```sh
 python3 scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   cargo build --release --target-dir target/release-cli --locked --offline \
-  -p lila-cli --bin lila --features lila-cli/spec-exec-oracle --jobs 1 \
+  -p scriptw-cli --bin scriptw --features scriptw-cli/spec-exec-oracle --jobs 1 \
   --message-format=json-render-diagnostics --timings
 ```
 
 This reuses ordinary release dependencies; oracle-only Boa dependencies still
-need compilation. Admit the actual `lila` bin artifact with
+need compilation. Admit the actual `scriptw` bin artifact with
 `profile.test == false`, `profile.opt_level == "3"`, the oracle feature and
 unchanged source. Independently copy/hash that executable before the optimized
 campaigns. Never edit Cargo fingerprints or reuse debug artifacts as release
@@ -334,7 +334,7 @@ T26 owns two independently fresh, unfiltered full families. Once the source
 is ready for this gate, use the actual ordinary product image:
 
 ```sh
-LILA_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" \
+SCRIPTW_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" \
   bash scripts/check-test262-closure.sh --cloud
 ```
 

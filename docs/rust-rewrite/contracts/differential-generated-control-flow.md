@@ -41,7 +41,7 @@ must fit the original step/depth budgets. A worker failure stops reduction and
 cancellation publishes no reduced case. Every changed source retains its
 own actual fingerprint in the existing durable campaign journal.
 
-SDK generation and `lila differential campaign --grammar control-flow-v1
+SDK generation and `scriptw differential campaign --grammar control-flow-v1
 --steps 8 --depth 4` use that owner; other generation-budget flags reject. Existing
 seed count, worker, timeout, replay and resource limits are unchanged. The eighth
 grammar joins the serial PR/nightly campaign tiers. Constructor damage,

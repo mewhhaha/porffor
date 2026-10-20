@@ -112,7 +112,7 @@ task-plan, shortcut-inventory, and diff checks remain green.
 Current focused structure command:
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
 ```
 
 The stable contract path remains

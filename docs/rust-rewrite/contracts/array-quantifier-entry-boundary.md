@@ -92,7 +92,7 @@ witnesses.
 
 ## Durable regression
 
-`crates/lila-aot-wasm/tests/typed_array_quantifier_family_witness_structure.rs`
+`crates/scriptw-aot-wasm/tests/typed_array_quantifier_family_witness_structure.rs`
 bounds the generic `every` body through `some` and the generic `some` body
 through `filter`. Its entry-family regression requires:
 

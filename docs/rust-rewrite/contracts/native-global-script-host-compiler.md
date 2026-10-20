@@ -41,8 +41,8 @@ Script execution entry.
 and role. Its public read-only `program()`, `script_id()`, and `kind()` accessors
 let the AOT factory emit the real compiled entry. Do not invoke `main` to
 execute this request. `emit_runtime_global_script` retains the exact admitted R
-Arc/profile and privately mints the P artifact with `lila.program_init` and
-`lila.runtime_global_script_factory` exports. The factory aliases the owned P2
+Arc/profile and privately mints the P artifact with `scriptw.program_init` and
+`scriptw.runtime_global_script_factory` exports. The factory aliases the owned P2
 PreparedScript hook. Registry admission requires its first row to equal the
 witness source/kind/root ID and to have the actual planned PreparedScript entry.
 The host must verify its exact decoded request against that witness before

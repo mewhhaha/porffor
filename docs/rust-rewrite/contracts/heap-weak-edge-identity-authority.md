@@ -48,12 +48,12 @@ target, process an ephemeron fixpoint, queue finalization cleanup, make `gc()`
 executable or give current linear-memory records weak semantics.
 
 ```sh
-cargo test -p lila-aot-wasm --test weak_edge_retention_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_weak_edge_registry_models_ephemerons_and_finalizers -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::weak_map_entries_are_ephemerons_not_strong_heap_edges -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::weak_ref_target_is_not_a_strong_heap_edge -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::finalization_registry_cells_keep_only_holdings_strongly_reachable -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test weak_edge_retention_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_weak_edge_registry_models_ephemerons_and_finalizers -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::weak_map_entries_are_ephemerons_not_strong_heap_edges -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::weak_ref_target_is_not_a_strong_heap_edge -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::finalization_registry_cells_keep_only_holdings_strongly_reachable -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
 git diff --check
 ```
 

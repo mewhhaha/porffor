@@ -47,8 +47,8 @@ primary pinned scope is five physical files and ten Script modes. These Rust
 and product controls are unexecuted until the fresh source build is admitted:
 
 ```sh
-cargo test --locked -p lila-intl locale_hour_cycles
-cargo test --locked -p lila-engine --test aot_intl -- aot_intl_locale_hour_cycles::
+cargo test --locked -p scriptw-intl locale_hour_cycles
+cargo test --locked -p scriptw-engine --test aot_intl -- aot_intl_locale_hour_cycles::
 ```
 
 Primary authorities are the current

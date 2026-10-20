@@ -50,7 +50,7 @@ evaluation, typed identifier/property/private targets, and exhaustive capture
 analysis in both nesting directions.
 
 `cargo fmt --all -- --check` and
-`cargo check -p lila-ir -p lila-aot-wasm -p lila-cli --all-targets` pass. The
+`cargo check -p scriptw-ir -p scriptw-aot-wasm -p scriptw-cli --all-targets` pass. The
 IR `for_of` filter passes `24/24`, and its exact unsupported-shape rejection
 witness passes `1/1`. Six focused and affected structure targets pass `25/25`.
 The new CLI oracle and the retained iterator-record, member-head, and captured

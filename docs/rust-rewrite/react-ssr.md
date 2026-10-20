@@ -1,7 +1,11 @@
 # React SSR through Wasm-AOT — 2026-10-20
 
+The recorded run predates the [scriptw rename](scriptw-identity-migration.md).
+Its receipts retain the actual earlier executable identity; reproduction
+commands below use the current project spelling.
+
 **React 19.3.1 synchronous server rendering works in this probe.** The
-unmodified ReactDOM synchronous production renderer ran through Lila's
+unmodified ReactDOM synchronous production renderer ran through Scriptw's
 Wasm-AOT path and produced exactly the same three HTML records as Node.
 The public `react-dom/server.browser` entry failed; both results are retained
 in the [source-bound evidence](react-ssr-20261020.json).
@@ -18,7 +22,7 @@ the actual upstream JavaScript into a production IIFE Script. Both variants
 use the same entry, React components and production environment definition.
 No DOM, stream, encoding or JavaScript semantic polyfills are supplied.
 
-| Entry layout | Actual Lila result |
+| Entry layout | Actual Scriptw result |
 | --- | --- |
 | Public `react-dom/server.browser` | Exit 1: `ReferenceError: wasm-aot completion: object: unbound identifier`; no HTML output |
 | Same import aliased to upstream `react-dom/cjs/react-dom-server-legacy.browser.production.js` | Exit 0; all three HTML records match Node byte for byte; terminal outcome identifies `WasmAot` |
@@ -36,7 +40,7 @@ The three cases exercise:
   default-value escaping.
 
 For example, the first output is `<h1 id="hello">Hello Wasm</h1>`. The full
-input, exact three Node/Lila outputs, diffs, package integrity lock, upstream
+input, exact three Node/Scriptw outputs, diffs, package integrity lock, upstream
 sources/licenses and literal commands are preserved in the evidence.
 
 The debug CLI was built with `spec-exec-oracle`, as recorded in the existing
@@ -48,15 +52,15 @@ explicitly reports `backend_used: WasmAot`; no interpreter fallback was used.
 The public browser entry eagerly loads both the synchronous legacy renderer
 and the modern streaming renderer. Source inspection finds module-level
 `MessageChannel` and `TextEncoder` construction in the modern renderer.
-Lila does not provide those browser APIs. The observed exception names only
+Scriptw does not provide those browser APIs. The observed exception names only
 an unbound identifier; this probe does **not** establish which missing global
 is encountered first.
 
 The first Node reference driver rendered all three records but remained alive
 with the public entry's idle ports and reached its 60-second process guard.
-No Lila execution had started. A fresh driver reused byte-identical bundles
+No Scriptw execution had started. A fresh driver reused byte-identical bundles
 and explicitly exited Node after synchronous rendering returned. That driver
-completed both Node references and both Lila executions, retaining the failed
+completed both Node references and both Scriptw executions, retaining the failed
 public entry. The initial reference-driver failure remains in the evidence.
 
 Streaming SSR, Suspense streaming, hydration, DOM/browser operation, Node API
@@ -65,13 +69,13 @@ do not establish full React support or a production server deployment.
 
 ## Reproduce the synchronous case
 
-Build a source-bound `target/debug/lila` as described in the
+Build a source-bound `target/debug/scriptw` as described in the
 [current inventory](current-inventory.md), then start from the repository root.
 The following commands create an isolated example; they do not change the
 repository's package manifests.
 
 ```sh
-LILA_BIN="$(pwd)/target/debug/lila"
+SCRIPTW_BIN="$(pwd)/target/debug/scriptw"
 mkdir -p target/react-ssr-example
 cd target/react-ssr-example
 npm install --ignore-scripts --no-audit --no-fund --save-exact \
@@ -101,15 +105,15 @@ JS
   '--define:process.env.NODE_ENV="production"' \
   --alias:react-dom/server.browser=./node_modules/react-dom/cjs/react-dom-server-legacy.browser.production.js \
   --outfile=ssr.js
-# The reference only adapts Lila's print output extension to Node.
+# The reference only adapts Scriptw's print output extension to Node.
 node -e 'globalThis.print = console.log; require(process.argv[1]); process.exit(0);' \
   ./ssr.js
 cd ../..
 python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
-  "$LILA_BIN" --jobs 4 run target/react-ssr-example/ssr.js
-LILA_WASM_DUMP=target/react-ssr-example/ssr.wasm \
+  "$SCRIPTW_BIN" --jobs 4 run target/react-ssr-example/ssr.js
+SCRIPTW_WASM_DUMP=target/react-ssr-example/ssr.wasm \
   python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
-  "$LILA_BIN" --jobs 4 build wasm target/react-ssr-example/ssr.js
+  "$SCRIPTW_BIN" --jobs 4 build wasm target/react-ssr-example/ssr.js
 ```
 
 Omitting the alias reproduces the public entry layout. The cloud wrapper uses
@@ -131,7 +135,7 @@ matching shared runtime sidecar, with both Wasm v1 headers verified:
 The binary pair is retained under ignored
 `target/react-ssr-compatibility-20261020-run2/`; its bytes are not embedded in
 Git. The evidence contains the emission receipt and hashes. These artifacts
-require Lila's runtime imports and host adapters on its experimental Wasmtime
+require Scriptw's runtime imports and host adapters on its experimental Wasmtime
 target. Generic browser or WASI loading was not tested. The emission check is
 separate from the successful `run` execution; no separate external loader was
 used to execute the dumped pair.

@@ -86,7 +86,7 @@ These are baseline/model proofs; candidate API verification remains required.
 The canonical regression target is:
 
 ```sh
-cargo test --locked -p lila-intl --test calendar_domain -- --test-threads=1
+cargo test --locked -p scriptw-intl --test calendar_domain -- --test-threads=1
 ```
 
 It checks public Chinese/Dangi APIs across the complete year domain, every year

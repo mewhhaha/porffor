@@ -3,9 +3,9 @@
 ## Scope
 
 This contract spans the realm-local active identity and Iterator body in
-`crates/lila-aot-wasm/src/builtins/standard.rs`, the direct-returning construct
-routing in `crates/lila-aot-wasm/src/functions.rs`, the structural guards in
-`crates/lila-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. The shared
+`crates/scriptw-aot-wasm/src/builtins/standard.rs`, the direct-returning construct
+routing in `crates/scriptw-aot-wasm/src/functions.rs`, the structural guards in
+`crates/scriptw-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. The shared
 function allocator establishes active identity for both entry and created-realm
 constructors before either bootstrap path publishes them.
 
@@ -132,13 +132,13 @@ the same active object.
 At the historical 2026-08-24 checkpoint, the structural guard passed
 `1/1`, the exact CLI fixture passed `1/1`, and the direct pinned leaf passed
 both ordinary sloppy and strict Wasm-AOT variants (`2/2`) with every failure
-bucket at zero. `cargo check -p lila-aot-wasm`, `cargo xc`, `node --check` and
+bucket at zero. `cargo check -p scriptw-aot-wasm`, `cargo xc`, `node --check` and
 `git diff --check` also passed. The commands were:
 
 ```sh
-cargo test -p lila-aot-wasm iterator_constructor_active_function_ --quiet
-cargo test -p lila-cli run_wasm_backend_distinguishes_iterator_active_function_across_realms --quiet
-./target/debug/lila --jobs 1 test262 run built-ins/Iterator/newtarget-or-active-function-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm iterator_constructor_active_function_ --quiet
+cargo test -p scriptw-cli run_wasm_backend_distinguishes_iterator_active_function_across_realms --quiet
+./target/debug/scriptw --jobs 1 test262 run built-ins/Iterator/newtarget-or-active-function-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The complete T15 ladder and current-SHA low-RAM publication path remain the

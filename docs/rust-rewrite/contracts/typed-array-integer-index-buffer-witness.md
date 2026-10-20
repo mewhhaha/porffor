@@ -13,7 +13,7 @@ the element length derived from one TypedArray-with-buffer-witness record. None
 of those states throws.
 
 `FunctionBuilder::emit_typed_array_valid_integer_index_i32` in
-`crates/lila-aot-wasm/src/builtins/binary_data.rs` is the shared Wasm-AOT
+`crates/scriptw-aot-wasm/src/builtins/binary_data.rs` is the shared Wasm-AOT
 owner used by integer-indexed `Get`, `HasProperty`, `GetOwnProperty`,
 `DefineOwnProperty`, `Set`, `Delete` and method consumers. Callers provide the
 already classified numeric-index payload and receive both its integer form and
@@ -79,7 +79,7 @@ caller's return value beyond the validity bit.
 
 ## Durable structural guard
 
-`crates/lila-aot-wasm/tests/typed_array_integer_index_witness_structure.rs`
+`crates/scriptw-aot-wasm/tests/typed_array_integer_index_witness_structure.rs`
 bounds only `emit_typed_array_valid_integer_index_i32`. It requires one
 private-state load, one immutable view, one live witness and one
 `IntegerIndexedProperty` projection. It pins the four early numeric exits,
@@ -95,7 +95,7 @@ semantics visible without snapshotting unrelated binary-data code.
 
 ## Focused runtime witnesses
 
-`crates/lila-cli/tests/fixtures/wasm_typedarray_has_property.js`, owned by
+`crates/scriptw-cli/tests/fixtures/wasm_typedarray_has_property.js`, owned by
 `typed_array::run_wasm_backend_checks_typedarray_integer_indices_through_buffer_witness`,
 is the focused CLI control. It exercises numeric and BigInt views, canonical
 and ordinary property keys, detached buffers, cross-Realm receivers, prototype
@@ -116,8 +116,8 @@ The coordinated batch verifier ran:
 
 1. `cargo fmt --all -- --check`;
 2. `cargo xc`;
-3. `cargo test -p lila-aot-wasm --test typed_array_integer_index_witness_structure -- --test-threads=1`;
-4. `cargo test -p lila-cli --test cli typed_array::run_wasm_backend_checks_typedarray_integer_indices_through_buffer_witness -- --exact --test-threads=1`;
+3. `cargo test -p scriptw-aot-wasm --test typed_array_integer_index_witness_structure -- --test-threads=1`;
+4. `cargo test -p scriptw-cli --test cli typed_array::run_wasm_backend_checks_typedarray_integer_indices_through_buffer_witness -- --exact --test-threads=1`;
 5. the exact Test262 leaf above through the Wasm-AOT backend with `--jobs 1`
    and `--threads 1`, inspecting discovery and every non-success bucket.
 

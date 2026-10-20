@@ -97,7 +97,7 @@ and call-to-propagation-to-result-check order.
 
 ## Runtime witness boundary
 
-`crates/lila-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` covers all
+`crates/scriptw-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` covers all
 five error conditions, their exact diagnostics, and a valid control. It
 lists the failures in protocol order. It is registered as
 `iterator::run_wasm_backend_reports_direct_for_of_protocol_type_errors`.
@@ -120,7 +120,7 @@ not dynamically compile `eval`, `Function`, or cross-Realm Function
 constructors. Created-Realm user-function observation is therefore a runtime
 test limitation, not a claimed result.
 
-`crates/lila-cli/tests/fixtures/wasm_direct_for_of_callable_proxy_methods.js`
+`crates/scriptw-cli/tests/fixtures/wasm_direct_for_of_callable_proxy_methods.js`
 is the separate Call witness. It covers callable Proxy iterator and `next`
 methods, their exact receivers and empty argument lists, once-only `next`
 lookup, apply-trap completion identity, non-callable Proxy diagnostics, and
@@ -157,7 +157,7 @@ published-status, or broad workspace claim. It does not change the
 ## Focused verification
 
 At this historical checkpoint, `cargo fmt --all -- --check` and
-`cargo check -p lila-aot-wasm` passed. The direct Realm, protocol-error
+`cargo check -p scriptw-aot-wasm` passed. The direct Realm, protocol-error
 ownership, then-current selector-capability, Array, String,
 IteratorClose, plain-async synchronous-iterator, synchronous-using, and
 async-disposable-head structure targets pass `37/37`. The exact error fixture
@@ -173,7 +173,7 @@ executions with every failure and non-success bucket at zero:
 - `iterator-next-result-type.js`.
 
 The callable-Proxy and body-Realm-source follow-up also passes the all-target
-`lila-aot-wasm`/`lila-cli` compile and formatting check. The five directly
+`scriptw-aot-wasm`/`scriptw-cli` compile and formatting check. The five directly
 affected structure targets pass `23/23`; the callable-Proxy, retained direct
 protocol-error, `Math.sumPrecise`, Array-destructuring, and ArrayAccumulation
 CLI controls pass `5/5`; and the fixture passes `node --check`. Eight unchanged
@@ -185,22 +185,22 @@ remains exactly 240.
 The focused commands included:
 
 ```sh
-cargo check -p lila-aot-wasm
-cargo test -p lila-aot-wasm --test direct_sync_for_of_protocol_error_realm_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test sync_iterator_protocol_error_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
-cargo test -p lila-cli --test cli iterator::run_wasm_backend_reports_direct_for_of_protocol_type_errors -- --exact
-cargo test -p lila-cli --test cli iterator::run_wasm_backend_preserves_direct_for_of_callable_proxy_methods -- --exact
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/head-expr-to-obj.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/head-expr-primitive-iterator-method.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/head-expr-obj-iterator-method.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/iterator-next-result-type.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/iterator-as-proxy.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/Proxy/apply/call-parameters.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo check -p scriptw-aot-wasm
+cargo test -p scriptw-aot-wasm --test direct_sync_for_of_protocol_error_realm_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test sync_iterator_protocol_error_ownership_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_async -- sync_iterator_consumer_capability_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli iterator::run_wasm_backend_reports_direct_for_of_protocol_type_errors -- --exact
+cargo test -p scriptw-cli --test cli iterator::run_wasm_backend_preserves_direct_for_of_callable_proxy_methods -- --exact
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/head-expr-to-obj.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/head-expr-primitive-iterator-method.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/head-expr-obj-iterator-method.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/iterator-next-result-type.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/iterator-as-proxy.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/Proxy/apply/call-parameters.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The source-structure target is
-`crates/lila-aot-wasm/tests/direct_sync_for_of_protocol_error_realm_structure.rs`.
+`crates/scriptw-aot-wasm/tests/direct_sync_for_of_protocol_error_realm_structure.rs`.
 Its intended checks are
 `direct_for_of_owners_project_five_typed_protocol_errors`,
 `async_disposable_for_of_boxes_primitives_in_the_current_function_realm`,

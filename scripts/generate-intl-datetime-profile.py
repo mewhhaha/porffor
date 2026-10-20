@@ -16,7 +16,7 @@ from intl_datetime_pool import canonical, pool_profile
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SOURCE_PATH = "crates/lila-intl/data/datetime-cldr-47"
+SOURCE_PATH = "crates/scriptw-intl/data/datetime-cldr-47"
 STYLES = ("full", "long", "medium", "short")
 NAME_BRANCHES = ("months", "monthPatterns", "days", "dayPeriods", "eras",
                  "cyclicNameSets/cyclicNameSet[@type='years']")

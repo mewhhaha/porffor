@@ -67,8 +67,8 @@ receipt = {'complete': False, 'source_before': before, 'profile': args.profile,
 env = dict(os.environ)
 assert not env.get('RUSTC_WRAPPER'), 'Cannot replace an existing compiler wrapper'
 env.update(RUSTC_WRAPPER=str(root / 'scripts/test-shared-runtime-images/test-rustc'),
-           LILA_TEST_NO_INCREMENTAL='1', LILA_VERIFICATION_WORKER_PROFILE=args.profile,
-           LILA_VERIFICATION_WORKER_LINK_RECEIPT=str(out / 'link.json'))
+           SCRIPTW_TEST_NO_INCREMENTAL='1', SCRIPTW_VERIFICATION_WORKER_PROFILE=args.profile,
+           SCRIPTW_VERIFICATION_WORKER_LINK_RECEIPT=str(out / 'link.json'))
 wrapper = root / 'scripts/test-shared-runtime-images/worker-cc'
 if args.share_runtime_images:
     assert os.access(wrapper, os.X_OK), 'Private linker must be executable'
@@ -108,7 +108,7 @@ def selected(row):
     records = [json.loads(line) for line in Path(row['stdout']).read_text().splitlines()]
     assert any(m.get('reason') == 'build-finished' and m['success'] for m in records)
     candidates = [m for m in records if m.get('reason') == 'compiler-artifact'
-                  and m['target']['name'] == 'lila' and m['target']['kind'] == ['bin']
+                  and m['target']['name'] == 'scriptw' and m['target']['kind'] == ['bin']
                   and not m['profile']['test']]
     assert len(candidates) == 1
     return candidates[0]
@@ -117,10 +117,10 @@ def selected(row):
 flags = (['--release'] if args.profile == 'release' else [])
 if args.oracle:
     flags += ['--features', 'spec-exec-oracle']
-normal = ['cargo', 'build', '--locked', '--offline', '-p', 'lila-cli', '--bin', 'lila', *flags,
+normal = ['cargo', 'build', '--locked', '--offline', '-p', 'scriptw-cli', '--bin', 'scriptw', *flags,
           '--message-format=json-render-diagnostics']
 ordinary = selected(run('ordinary-build', normal))
-canonical = root / 'target' / args.profile / 'lila'
+canonical = root / 'target' / args.profile / 'scriptw'
 assert Path(ordinary['executable']) == canonical
 original_hash = sha(canonical)
 receipt['ordinary_before'] = {'cargo_artifact': ordinary, 'sha256': original_hash,
@@ -128,10 +128,10 @@ receipt['ordinary_before'] = {'cargo_artifact': ordinary, 'sha256': original_has
 ordinary_identity = json.loads(Path(run('ordinary-identity', [str(canonical), '--jobs', '1', 'compiler-identity'])['stdout']).read_text())
 assert ordinary_identity['executable_sha256'] == original_hash
 assert ordinary_identity['source_revision'] == {'kind': 'git-commit', 'commit': before['head']}
-image = out / 'lila-worker'
+image = out / 'scriptw-worker'
 try:
     if args.share_runtime_images:
-        private = selected(run('private-link', ['cargo', 'rustc', '--locked', '--offline', '-p', 'lila-cli', '--bin', 'lila', *flags,
+        private = selected(run('private-link', ['cargo', 'rustc', '--locked', '--offline', '-p', 'scriptw-cli', '--bin', 'scriptw', *flags,
                                '--message-format=json-render-diagnostics', '--', '-C', 'linker=' + str(wrapper), '-C', 'metadata=' + leaf_tag]))
         if not (out / 'link.json').exists():
             assert private['fresh'], 'A new link must produce its own receipt'

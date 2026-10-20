@@ -112,7 +112,7 @@ substitute for this retained front-to-IR path.
   deleting its classifier row while retaining the variant must fail to build.
 - A const ownership assertion requires exactly one row for the code and the
   exact independently spelled `StartsWith` prefix.
-- The variant extends `lila-ir`'s exhaustive rejection-kind mapping. No
+- The variant extends `scriptw-ir`'s exhaustive rejection-kind mapping. No
   catch-all can absorb it.
 - Real Script, Module, module diagnostic and retained-dependency graph
   witnesses exercise the typed projection without a second message table.
@@ -165,8 +165,8 @@ not members of the negative cohort.
 The shared eight-core-capped verification phase passed:
 
 - `cargo xc` for the workspace;
-- `cargo test -p lila-front --lib -- --test-threads=1`, `101/101`;
-- the filtered `lila-ir` early-module projection tests, `41/41`;
+- `cargo test -p scriptw-front --lib -- --test-threads=1`, `101/101`;
+- the filtered `scriptw-ir` early-module projection tests, `41/41`;
 - the exact retained-dependency graph witness, `1/1`; and
 - all eight pinned Test262 files above, run one exact path at a time with
   `--jobs 1 --threads 1`, for exactly `15/15` successful Wasm-AOT variants.

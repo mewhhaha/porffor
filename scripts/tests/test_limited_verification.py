@@ -54,26 +54,26 @@ class KernelBudgetTests(unittest.TestCase):
             self.assertEqual(command, "payload")
             self.assertEqual(arguments, argv)
             self.assertEqual(launcher.os.sched_getaffinity(0), {2})
-            for setting in ("CARGO_BUILD_JOBS", "LILA_JOBS", "RUST_TEST_THREADS", "RAYON_NUM_THREADS"):
+            for setting in ("CARGO_BUILD_JOBS", "SCRIPTW_JOBS", "RUST_TEST_THREADS", "RAYON_NUM_THREADS"):
                 self.assertEqual(environment[setting], "1")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "1")
-            self.assertLessEqual(int(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"]), 64 * 1024 * 1024)
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "1")
+            self.assertLessEqual(int(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"]), 64 * 1024 * 1024)
 
     def test_large_inherited_caches_are_capped_and_stricter_image_limits_survive(self):
         for inherited, expected in (("536870912", "67108864"), ("1048576", "1048576")):
             with self.subTest(inherited=inherited), self.scope(), \
                     patch.dict(launcher.os.environ, {
-                        "LILA_MODULE_MEMORY_CACHE_ENTRIES": "64",
-                        "LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES": inherited,
+                        "SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES": "64",
+                        "SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES": inherited,
                     }), patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
                 with self.assertRaises(PayloadWouldStart):
                     launcher.main(["--in-scope", "--", "payload"])
                 environment = execute.call_args.args[2]
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "1")
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], expected)
+                self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "1")
+                self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"], expected)
 
     def test_invalid_cache_limits_never_reach_engine_fallback_defaults(self):
-        for setting in ("LILA_MODULE_MEMORY_CACHE_ENTRIES", "LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"):
+        for setting in ("SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES", "SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"):
             for invalid in ("0", "-1", "unlimited", "1.5", "", "9" * 21):
                 with self.subTest(setting=setting, invalid=invalid), \
                         patch.dict(launcher.os.environ, {setting: invalid}), \
@@ -144,10 +144,10 @@ class CloudBudgetTests(unittest.TestCase):
             self.assertEqual(command, "payload")
             self.assertEqual(arguments, argv)
             self.assertEqual(launcher.os.sched_getaffinity(0), {2})
-            for name in ("CARGO_BUILD_JOBS", "LILA_JOBS", "RUST_TEST_THREADS", "RAYON_NUM_THREADS"):
+            for name in ("CARGO_BUILD_JOBS", "SCRIPTW_JOBS", "RUST_TEST_THREADS", "RAYON_NUM_THREADS"):
                 self.assertEqual(environment[name], "1")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
 
     def test_cloud_cache_ceilings_preserve_stricter_explicit_limits(self):
         for entries, image_bytes, expected in (
@@ -156,27 +156,27 @@ class CloudBudgetTests(unittest.TestCase):
         ):
             with self.subTest(entries=entries, image_bytes=image_bytes), self.cloud(), \
                     patch.dict(launcher.os.environ, {
-                        "LILA_MODULE_MEMORY_CACHE_ENTRIES": entries,
-                        "LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES": image_bytes,
+                        "SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES": entries,
+                        "SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES": image_bytes,
                     }), patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
                 with self.assertRaises(PayloadWouldStart):
                     launcher.main(["--cloud", "--", "payload"])
                 environment = execute.call_args.args[2]
-                self.assertEqual((environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"],
-                                  environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"]), expected)
+                self.assertEqual((environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"],
+                                  environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"]), expected)
 
     def test_cloud_cache_image_ceiling_tracks_the_tightest_machine_budget(self):
         with self.cloud("/machine/task", {
             "/machine/task": "max", "/machine": "536870912", "/": "34359738368",
         }), patch.dict(launcher.os.environ, {
-            "LILA_MODULE_MEMORY_CACHE_ENTRIES": "64",
-            "LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES": "536870912",
+            "SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES": "64",
+            "SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES": "536870912",
         }), patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
             with self.assertRaises(PayloadWouldStart):
                 launcher.main(["--cloud", "--", "payload"])
             environment = execute.call_args.args[2]
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "8")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "67108864")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "8")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "67108864")
 
     def test_cloud_cache_ceilings_scale_with_the_machine_budget(self):
         for budget, expected in (
@@ -249,20 +249,20 @@ class CloudCpuBudgetTests(unittest.TestCase):
             environment = execute.call_args.args[2]
             for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS"):
                 self.assertEqual(environment[name], "1")
-            for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+            for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
                 self.assertEqual(environment[name], "4")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
-            self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+            self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
 
     def test_native_parallelism_avoids_nested_default_halving_and_preserves_explicit_share(self):
-        for supplied, expected in (({}, "100"), ({"LILA_CPU_PERCENT": "37"}, "37")):
+        for supplied, expected in (({}, "100"), ({"SCRIPTW_CPU_PERCENT": "37"}, "37")):
             with self.subTest(supplied=supplied), \
                     self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus={0, 1, 2, 3, 4}), \
                     patch.dict(launcher.os.environ, supplied), \
                     patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
                 with self.assertRaises(PayloadWouldStart):
                     launcher.main(["--cloud", "--cloud-cpus", "auto", "--", "payload"])
-                self.assertEqual(execute.call_args.args[2]["LILA_CPU_PERCENT"], expected)
+                self.assertEqual(execute.call_args.args[2]["SCRIPTW_CPU_PERCENT"], expected)
 
     def test_native_parallelism_respects_tightest_ancestor_quota(self):
         with self.cloud("/machine/task", {
@@ -293,8 +293,8 @@ class CloudCpuBudgetTests(unittest.TestCase):
                 self.assertEqual(launcher.os.sched_getaffinity(0), allowed)
 
     def test_native_parallelism_preserves_stricter_inherited_worker_limits(self):
-        for supplied in ({"LILA_JOBS": "1"}, {"RAYON_NUM_THREADS": "2"},
-                         {"LILA_JOBS": "16", "RAYON_NUM_THREADS": "16"}):
+        for supplied in ({"SCRIPTW_JOBS": "1"}, {"RAYON_NUM_THREADS": "2"},
+                         {"SCRIPTW_JOBS": "16", "RAYON_NUM_THREADS": "16"}):
             expected = min(map(int, supplied.values()), default=4)
             expected = min(expected, 4)
             with self.subTest(supplied=supplied), \
@@ -305,7 +305,7 @@ class CloudCpuBudgetTests(unittest.TestCase):
                     launcher.main(["--cloud", "--cloud-cpus", "auto", "--", "payload"])
                 self.assertEqual(len(launcher.os.sched_getaffinity(0)), expected)
                 environment = execute.call_args.args[2]
-                self.assertEqual(environment["LILA_JOBS"], str(expected))
+                self.assertEqual(environment["SCRIPTW_JOBS"], str(expected))
                 self.assertEqual(environment["RAYON_NUM_THREADS"], str(expected))
 
     def test_invalid_cpu_controller_never_executes(self):
@@ -342,7 +342,7 @@ class CloudCpuBudgetTests(unittest.TestCase):
             execute.assert_not_called()
 
     def test_invalid_inherited_native_limits_never_executes(self):
-        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+        for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
             for invalid in ("0", "-1", "unlimited", "1.5", "", "9" * 21):
                 with self.subTest(name=name, invalid=invalid), \
                         self.cloud(cpu_limits={"/": "400000 100000"}), \
@@ -369,9 +369,9 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
 
     def test_worker_affinity_is_independent_of_serial_compilation_and_preserves_payload(self):
         argv = ["payload", "--threads", "3", "--jobs", "1", "two words", "$HOME", "*"]
-        supplied = {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1",
-                    "LILA_ENABLE_SPEC_EXEC": "0", "FEATURE_SENTINEL": "unchanged"}
-        for share, expected_share in (({}, "100"), ({"LILA_CPU_PERCENT": "37"}, "37")):
+        supplied = {"SCRIPTW_JOBS": "1", "RAYON_NUM_THREADS": "1",
+                    "SCRIPTW_ENABLE_SPEC_EXEC": "0", "FEATURE_SENTINEL": "unchanged"}
+        for share, expected_share in (({}, "100"), ({"SCRIPTW_CPU_PERCENT": "37"}, "37")):
             with self.subTest(share=share), \
                     self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus={0, 1, 2}), \
                     patch.dict(launcher.os.environ, {**supplied, **share}), \
@@ -385,13 +385,13 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
                 self.assertEqual(execute.call_args.args[:2], ("payload", argv))
                 self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1, 2})
                 environment = execute.call_args.args[2]
-                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
                     self.assertEqual(environment[name], "1")
                 for name, value in supplied.items():
                     self.assertEqual(environment[name], value)
-                self.assertEqual(environment["LILA_CPU_PERCENT"], expected_share)
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_ENTRIES"], "512")
-                self.assertEqual(environment["LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
+                self.assertEqual(environment["SCRIPTW_CPU_PERCENT"], expected_share)
+                self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES"], "512")
+                self.assertEqual(environment["SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES"], "2147483648")
                 self.assertEqual(dict(launcher.os.environ), before)
                 self.assertIn("3 CPU(s)", output.getvalue())
                 self.assertIn("native compilation defaults up to 1 jobs", output.getvalue())
@@ -408,28 +408,28 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
         self.assertEqual(len(launches), 1)
         actual = compile(ast.Module(body=launches, type_ignores=[]), str(runner), "exec")
         for assigned in ({0}, {0, 1, 2, 3}, {2, 4, 6}):
-            for qualified in ("lila-engine:lila_engine", "lila-engine:aot_async",
-                              "lila-engine:aot_intl", "lila-cli:cli"):
+            for qualified in ("scriptw-engine:scriptw_engine", "scriptw-engine:aot_async",
+                              "scriptw-engine:aot_intl", "scriptw-cli:cli"):
                 package = qualified.split(":", 1)[0]
                 payload = ["python3", "-B", "scripts/workspace_test_partitions.py",
                            "--cpus", *map(str, sorted(assigned)),
                            "--qualified-target", qualified, "--include-ignored"]
                 scope = {"watch_label": "partition-proof", "case": {"package": package},
                          "command": payload,
-                         "native_stall_seconds": lambda name: 3600 if name == "lila-cli" else 900}
+                         "native_stall_seconds": lambda name: 3600 if name == "scriptw-cli" else 900}
                 exec(actual, scope)
                 invocation = scope["launch"]
                 options = invocation[invocation.index("scripts/limited_verification.py") + 1:]
                 with self.subTest(assigned=assigned, target=qualified), \
                         self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus=assigned), \
-                        patch.dict(launcher.os.environ, {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1"}), \
+                        patch.dict(launcher.os.environ, {"SCRIPTW_JOBS": "1", "RAYON_NUM_THREADS": "1"}), \
                         patch.object(launcher.sys, "stderr", new_callable=io.StringIO), \
                         patch.object(launcher.os, "execvpe", side_effect=PayloadWouldStart) as execute:
                     with self.assertRaises(PayloadWouldStart):
                         launcher.main(options)
                     self.assertEqual(launcher.os.sched_getaffinity(0), assigned)
                     self.assertEqual(execute.call_args.args[:2], (payload[0], payload))
-                    for setting in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                    for setting in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
                         self.assertEqual(execute.call_args.args[2][setting], "1")
 
     def test_worker_affinity_uses_tightest_quota_without_native_job_caps(self):
@@ -438,7 +438,7 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
         }, cpu_limits={
             "/machine/task": "800000 100000", "/machine": "250000 100000", "/": "400000 100000",
         }, allowed_cpus={0, 1, 2, 3, 4}), \
-                patch.dict(launcher.os.environ, {"LILA_JOBS": "1", "RAYON_NUM_THREADS": "1"}):
+                patch.dict(launcher.os.environ, {"SCRIPTW_JOBS": "1", "RAYON_NUM_THREADS": "1"}):
             self.assertEqual(launcher.require_cloud_budget(serial=False), 8589934592)
             self.assertEqual(launcher.cloud_worker_affinity(), 2)
             self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1})
@@ -457,7 +457,7 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
                 self.assertEqual(launcher.os.sched_getaffinity(0), expected)
 
     def test_worker_mode_keeps_native_defaults_serial_without_explicit_limits(self):
-        for supplied in ({}, {"LILA_JOBS": "16", "RAYON_NUM_THREADS": "8"}):
+        for supplied in ({}, {"SCRIPTW_JOBS": "16", "RAYON_NUM_THREADS": "8"}):
             with self.subTest(supplied=supplied), \
                     self.cloud(cpu_limits={"/": "400000 100000"}, allowed_cpus={0, 1, 2, 3, 4}), \
                     patch.dict(launcher.os.environ, supplied), \
@@ -465,7 +465,7 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
                 with self.assertRaises(PayloadWouldStart):
                     launcher.main(["--cloud", "--cloud-worker-cpus", "auto", "--", "payload"])
                 self.assertEqual(launcher.os.sched_getaffinity(0), {0, 1, 2, 3})
-                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "LILA_JOBS", "RAYON_NUM_THREADS"):
+                for name in ("CARGO_BUILD_JOBS", "RUST_TEST_THREADS", "SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
                     self.assertEqual(execute.call_args.args[2][name], "1")
 
     def test_invalid_worker_mode_selection_never_executes(self):
@@ -496,7 +496,7 @@ class CloudWorkerCpuBudgetTests(unittest.TestCase):
             execute.assert_not_called()
 
     def test_worker_mode_rejects_invalid_native_job_limits(self):
-        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+        for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
             with self.subTest(name=name), self.cloud(cpu_limits={"/": "400000 100000"}), \
                     patch.dict(launcher.os.environ, {name: "invalid"}), \
                     patch.object(launcher.os, "execvpe") as execute:

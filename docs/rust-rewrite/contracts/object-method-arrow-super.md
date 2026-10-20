@@ -13,7 +13,7 @@ language/expressions/super/prop-expr-obj-val-from-arrow.js
 
 The current Wasm-AOT binary reports `0/4`. Every execution reaches
 Runtime/NotImplemented with the exact diagnostic
-`unsupported in lila wasm-aot first slice: object literal method`.
+`unsupported in scriptw wasm-aot first slice: object literal method`.
 
 This is not a general object-method or resumable-function failure. At the same
 commit, `object/concise-generator.js` is `2/2`, the two
@@ -110,7 +110,7 @@ reload bug intact.
 
 ## Ownership
 
-The producer lane owns this contract and `lila-ir` owner-role analysis plus
+The producer lane owns this contract and `scriptw-ir` owner-role analysis plus
 focused IR invariants. The evidence lane owns the CLI fixture, bounded
 IR/AOT structure witness, exact Test262 inventory, task status and README. The
 review lane audits the existing AOT environment-slot producer/consumer and the
@@ -132,15 +132,15 @@ Central focused verification after the lanes are assembled:
 ```sh
 cargo check --workspace --all-targets
 cargo xc
-cargo test -p lila-ir object_method_arrow_super
-cargo test -p lila-aot-wasm --test structure_language -- object_method_arrow_super_structure::
-cargo test -p lila-cli --test cli object_method_arrow_super_fixture
+cargo test -p scriptw-ir object_method_arrow_super
+cargo test -p scriptw-aot-wasm --test structure_language -- object_method_arrow_super_structure::
+cargo test -p scriptw-cli --test cli object_method_arrow_super_fixture
 
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/super/prop-dot-obj-val-from-arrow.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 120000 --threads 1
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/super/prop-expr-obj-val-from-arrow.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 120000 --threads 1

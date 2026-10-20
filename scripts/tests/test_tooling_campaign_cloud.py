@@ -42,7 +42,7 @@ class CampaignCloudWrappers(unittest.TestCase):
                 self.assertEqual(calls, [])
 
     def setUp(self):
-        directory = tempfile.TemporaryDirectory(prefix="lila cloud campaign ")
+        directory = tempfile.TemporaryDirectory(prefix="scriptw cloud campaign ")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.trace = self.root / "launcher.jsonl"
@@ -58,7 +58,7 @@ raise SystemExit(7 if os.environ.get('CAMPAIGN_FAIL_ARG') in sys.argv[1:] else 0
 """)
         launcher.chmod(0o700)
         self.environment = dict(os.environ, PATH=str(self.root) + os.pathsep + os.environ["PATH"],
-                                CAMPAIGN_TRACE=str(self.trace), LILA_BIN=str(self.cli),
+                                CAMPAIGN_TRACE=str(self.trace), SCRIPTW_BIN=str(self.cli),
                                 CLOSURE_EVIDENCE_DIR=str(self.root / "closure"))
 
     def invoke(self, script, arguments, fail_argument=None):

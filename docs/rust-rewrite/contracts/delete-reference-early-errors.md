@@ -108,7 +108,7 @@ the parse-failure table from 52 to 54 rows:
 - add a `ParseClassified::from_parse_table(...)` const ownership witness per
   code, so deleting either parse row while retaining its variant fails to
   compile;
-- add both variants to `lila-ir`'s exhaustive `rejection_kind` map as
+- add both variants to `scriptw-ir`'s exhaustive `rejection_kind` map as
   `IrDiagnosticKind::EarlyError`; and
 - retain the existing const proofs for populated and disjoint rows, witness
   selection, wire-name injectivity, parse-table reachability and parse-to-IR
@@ -209,14 +209,14 @@ contain words shared with either fixed prefix.
 Implemented and focused-verified on `2026-08-23` under the repository's capped,
 serial verification policy:
 
-- `cargo check -p lila-front -p lila-ir --all-targets` passes.
-- `cargo test -p lila-front --lib -- --test-threads=1` passes `89/89`, including
+- `cargo check -p scriptw-front -p scriptw-ir --all-targets` passes.
+- `cargo test -p scriptw-front --lib -- --test-threads=1` passes `89/89`, including
   both optional-chain private productions, sloppy private-name precedence and
   final-public/final-call controls.
-- `cargo test -p lila-ir modules::early::tests -- --test-threads=1` passes
+- `cargo test -p scriptw-ir modules::early::tests -- --test-threads=1` passes
   `38/38`; the exact retained-dependency graph witness separately passes `1/1`.
-- `cargo test -p lila-ir early_error -- --test-threads=1` passes `3/3`.
-- `cargo xc` and a fresh `cargo build -p lila-cli --release` are green.
+- `cargo test -p scriptw-ir early_error -- --test-threads=1` passes `3/3`.
+- `cargo xc` and a fresh `cargo build -p scriptw-cli --release` are green.
 - The exact isolated cohort passes all `386/386` Wasm-AOT executions: 192
   sloppy Script and 194 strict Script identities over 194 physical sources.
   The verified snapshot has 386 unique `Success` outcomes, zero failures,

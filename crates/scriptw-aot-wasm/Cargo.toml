@@ -1,0 +1,25 @@
+[package]
+name = "scriptw-aot-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+icu_calendar = { version = "=2.0.6", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+icu_properties = "2.0.2"
+num-bigint = "0.4.6"
+scriptw-ir = { path = "../scriptw-ir" }
+scriptw-intl = { path = "../scriptw-intl" }
+scriptw-runtime = { path = "../scriptw-runtime" }
+scriptw-front = { path = "../scriptw-front" }
+sha2 = "0.10.9"
+wasm-encoder = { version = "0.245.1", features = ["wasmparser"] }
+wasmparser = "0.245.1"
+
+[build-dependencies]
+icu_calendar = { version = "=2.0.6", default-features = false, features = ["compiled_data"] }
+icu_normalizer = { version = "=2.0.1", default-features = false, features = ["compiled_data"] }
+
+[lib]
+path = "src/lib.rs"

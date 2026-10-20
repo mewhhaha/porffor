@@ -46,7 +46,7 @@ exists for `IteratorClose`.
 
 ## Observable witness
 
-`crates/lila-cli/tests/fixtures/wasm_for_of_array_iterator_protocol.js` keeps
+`crates/scriptw-cli/tests/fixtures/wasm_for_of_array_iterator_protocol.js` keeps
 the three behaviors separate:
 
 - a loop over `[1]` appends `2` during its first iteration and must visit both
@@ -74,12 +74,12 @@ or Array-specific call path was added.
 
 ## Verification boundary
 
-At the direct-path checkpoint, `cargo check -p lila-aot-wasm` passed and the
+At the direct-path checkpoint, `cargo check -p scriptw-aot-wasm` passed and the
 focused results were:
 
 - the direct Array protocol structure target passed `3/3`;
 - the now-retired resumable Array-walk ownership target passed `4/4`;
-- the `lila-ir` `for_of` tests passed `16/16`, and the remaining resumable-walk
+- the `scriptw-ir` `for_of` tests passed `16/16`, and the remaining resumable-walk
   obligation test passed `1/1`;
 - the nested generic-iterator planner regression passed `1/1` above the old
   2,048-local floor;
@@ -142,8 +142,8 @@ once-only Array `@@iterator` and `next` acquisition across awaits, a custom
 String result from a Number Array, natural exhaustion, directly awaiting String
 iteration, bare identifier assignment, close precedence, protocol errors that
 do not close, and six fresh captured loop bindings. All four fixtures pass
-`node --check`. `cargo check -p lila-aot-wasm` passes. The five focused
-structure targets pass `19/19`, the `lila-ir` `for_of` target passes `18/18`,
+`node --check`. `cargo check -p scriptw-aot-wasm` passes. The five focused
+structure targets pass `19/19`, the `scriptw-ir` `for_of` target passes `18/18`,
 and the four exact CLI oracles pass `4/4`. The two pinned `Array.fromAsync`
 leaves pass `4/4` Wasm-AOT executions with every failure and non-success bucket
 at zero. The complete 95-file `Array.fromAsync` leaf, semantic golden, and

@@ -21,11 +21,11 @@ build Engine do not reach any product Engine or retained-module owner.
 
 The package-version-only native cache had a real invalidation gap: its vendored
 47.0.0 namespace omitted edited native compiler source and lockfile changes.
-Both Cargo producers now derive `lila-native-compiler-v1` over Cargo.toml,
+Both Cargo producers now derive `scriptw-native-compiler-v1` over Cargo.toml,
 Cargo.lock, all vendored source and the Engine/runtime-image feature manifests.
 Registry dependencies are checksum-bound by the lockfile; patched dependencies
 are content-bound. This is native compiler identity, not a replacement or subset
-of Lila's full compiler identity. Lila source edits still invalidate program
+of Scriptw's full compiler identity. Scriptw source edits still invalidate program
 Wasm and produce a fresh current-source package, but do not churn native cache
 keys when exact R and native dependencies/configuration stay equal.
 
@@ -43,7 +43,7 @@ Cross-target builds never open the module cache. Cross-target and unavailable
 cache paths retain `precompile_module` on the same checked bytes. Incremental
 function caching remains enabled independently and warms native-module misses.
 The existing module-cache directory, budget and prune/status ownership remain
-unchanged. Cargo now watches `LILA_MODULE_CACHE_LIMIT_BYTES` as well as the
+unchanged. Cargo now watches `SCRIPTW_MODULE_CACHE_LIMIT_BYTES` as well as the
 existing cache inputs. Explicit target selection and serial native compilation
 remain unchanged.
 
@@ -52,7 +52,7 @@ check actual cache counters, execute both in a Fast product Engine, and require
 misses plus correct execution after raw Wasm, allocator or optimization changes.
 Dependency-version controls cover module misses/rejected foreign native images,
 distinct stencil generations sharing one budget, actual stencil recompilation,
-lockfile/feature/profile/vendor changes and stable native identity across Lila
+lockfile/feature/profile/vendor changes and stable native identity across Scriptw
 edits. Missing dependency input rejects fingerprinting.
 Existing complete embedded-manifest/raw-package parity and compatibility
 controls remain. Source fingerprint controls include both new helper files.

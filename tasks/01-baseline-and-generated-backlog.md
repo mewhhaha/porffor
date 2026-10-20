@@ -107,7 +107,7 @@ subsequent repairs and focused replays have not produced a fresh complete
 compiler aggregate or refreshed the canonical README publication pair.
 
 Deterministic backlog generation, ownership mapping, snapshot comparison and
-pin-mismatch tests exist in `lila-test262`, with CLI entry points for
+pin-mismatch tests exist in `scriptw-test262`, with CLI entry points for
 `generate-backlog` and `compare-snapshots`. The checked-in ownership map routes
 unknown cases to `T26-unclassified`. Ownership-map input is parsed into the
 closed repository `TaskId` domain and a closed debt-category domain;
@@ -163,7 +163,7 @@ a raw string, and its field codec exhaustively preserves the established
 are rejected with the offending value attached; file names and summaries only
 project the typed authority with `as_str()`. The focused structure target
 passes `4/4`, the exact deterministic-backlog witness passes `1/1`,
-`cargo check -p lila-test262 --quiet` passes with existing warnings, and the
+`cargo check -p scriptw-test262 --quiet` passes with existing warnings, and the
 scoped rustfmt and diff checks are clean.
 
 The retained version-7 baseline has no native compiler binding. The dry schema-8
@@ -186,7 +186,7 @@ publication. The retained baseline and nested status artifact do not authorize
 hand-editing the generated README block or inferring new full-suite totals from
 focused repairs.
 
-The vendored suite is committed inside the Lila repository. Its pin is the
+The vendored suite is committed inside the Scriptw repository. Its pin is the
 suite directory's Git content tree, rather than the enclosing checkout HEAD.
 The native pin helper already derives that tree identity and accepts an older
 enclosing-commit pin only after proving identical suite content. Unrelated
@@ -256,10 +256,10 @@ refresh both with a fixed current compiler before publishing new totals.
 
 ## Implementation steps
 
-- Build `lila` once and record the exact binary/source commit used.
+- Build `scriptw` once and record the exact binary/source commit used.
 - Verify the suite pin before running. Refuse to merge or compare snapshots with different pins or matrix strategy versions.
 - Run `report-all --resume` through `scripts/publish-real-status-low-ram.sh` with one matrix node per process until complete.
-- Extend `lila-test262` rather than writing a separate ad-hoc parser for snapshot files.
+- Extend `scriptw-test262` rather than writing a separate ad-hoc parser for snapshot files.
 - Normalize unstable data such as absolute paths and wall-clock timestamps before comparison.
 - Classify by the earliest trustworthy boundary. A backend message containing a runtime symptom must not overwrite a known parser or lowering origin.
 - Add a checked-in ownership mapping from stable feature/subtree prefixes to task IDs; unknown cases go to `T26-unclassified`, never to an ignored bucket.
@@ -295,13 +295,13 @@ refresh both with a fixed current compiler before publishing new totals.
 ## Required tests
 
 ```sh
-cargo test -p lila-test262 --quiet
-cargo test -p lila-cli test262_ --quiet
-./target/debug/lila test262 progress-status --execution-backend wasm-aot
-./target/debug/lila test262 triage-status --execution-backend wasm-aot
+cargo test -p scriptw-test262 --quiet
+cargo test -p scriptw-cli test262_ --quiet
+./target/debug/scriptw test262 progress-status --execution-backend wasm-aot
+./target/debug/scriptw test262 triage-status --execution-backend wasm-aot
 ./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real
 # Optional oracle triage snapshot; never published as product conformance:
-./target/debug/lila test262 report-all --execution-backend spec-exec \
+./target/debug/scriptw test262 report-all --execution-backend spec-exec \
   --snapshot-name codex-oracle-real
 ```
 

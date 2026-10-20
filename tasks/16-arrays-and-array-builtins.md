@@ -159,7 +159,7 @@ This is not T16 closure or a new full-suite percentage.
 
 Array exotic storage, descriptors, species and most prototype families have
 substantial implementations and many focused complete-leaf results recorded in
-the README. `crates/lila-aot-wasm/src/builtins/array.rs` remains a very large
+the README. `crates/scriptw-aot-wasm/src/builtins/array.rs` remains a very large
 shared implementation file. The current generated shortcut report records
 zero semantic shortcuts; earlier path-reduction checkpoints below retain their
 historical counts. This task cannot close until the full current-pin Array tree
@@ -1579,9 +1579,9 @@ Avoid method-specific duplicates of `LengthOfArrayLike`, `HasProperty`, `Get`, c
 ## Required tests
 
 ```sh
-cargo test -p lila-aot-wasm array_ --quiet
-cargo test -p lila-cli wasm_array --quiet
-./target/debug/lila test262 run built-ins/Array --execution-backend wasm --timeout-ms 180000 --threads 8
+cargo test -p scriptw-aot-wasm array_ --quiet
+cargo test -p scriptw-cli wasm_array --quiet
+./target/debug/scriptw test262 run built-ins/Array --execution-backend wasm --timeout-ms 180000 --threads 8
 ```
 
 During development use method-level filters and deterministic shards. Before closing, run the entire Array tree and all local `wasm_array_*` fixtures.

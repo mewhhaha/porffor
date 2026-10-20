@@ -25,7 +25,7 @@ controls pass, including the unchanged local controls and optional CPU policy. K
 checkpoint. No system service or Node runtime is needed.
 
 Rust/Cargo 1.99.0 stable, rustfmt, Clippy and bundled LLD 23.1.1 are installed
-under `/workspace/.lila-tools`; source its `activate.sh` in each Cargo shell.
+under `/workspace/.scriptw-tools`; source its `activate.sh` in each Cargo shell.
 Locked dependency fetch, offline metadata, default CLI build and inspect/run/
 build-Wasm smoke checks passed. Three missing Unicode16 Segmenter corpora were
 restored byte-for-byte from the committed ICU archive; pinned hashes and vector
@@ -87,7 +87,7 @@ The first repair batch addresses all 15 complete-checkpoint failures:
 - Discarded generator Update expressions enter the existing typed suspension
   plan used by value contexts. Prefix/postfix property and Annex B call controls
   cover both admitted contexts.
-- Direct Engine fixtures use their declared `print`/`__lilaCreateRealm` hosts.
+- Direct Engine fixtures use their declared `print`/`__scriptwCreateRealm` hosts.
   The Locale number projection uses `getNumberingSystems()`. Exact artifact,
   locale preference, output and Realm assertions remain.
 - Scalar restricted-global lexical declarations select R for the existing
@@ -113,7 +113,7 @@ The first repair batch addresses all 15 complete-checkpoint failures:
   empty capture with exact indices and finite rollback controls; Hebrew minimum
   YearMonth admits ISO April while conversion to an earlier PlainDate rejects.
   These do not change engine semantics, large count bounds or deadlines.
-- CLI `LILA_WASM_DUMP` writes exact P and optional R bytes and removes an earlier
+- CLI `SCRIPTW_WASM_DUMP` writes exact P and optional R bytes and removes an earlier
   sidecar when a replacement is runtime-free. A lifecycle control checks both
   replacement and the already-absent sidecar case.
 
@@ -386,13 +386,13 @@ the final complete engine and CLI checkpoints now pass, as recorded above.
 Reproduce the required checks from a configured cloud checkout:
 
 ```sh
-. /workspace/.lila-tools/activate.sh
+. /workspace/.scriptw-tools/activate.sh
 python3 -B scripts/limited_verification.py --cloud -- cargo check --locked --offline --workspace --all-features --all-targets
-python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p lila-ir --lib -- --test-threads=1
-python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p lila-engine -- --test-threads=1
-python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p lila-cli -- --test-threads=1
-python3 -B scripts/limited_verification.py --cloud -- cargo build --locked --offline -p lila-cli
-python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- ./target/debug/lila --jobs 1 test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-dir target/test262-scratch/FRESH-NAME --snapshot-name FRESH-NAME
+python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p scriptw-ir --lib -- --test-threads=1
+python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p scriptw-engine -- --test-threads=1
+python3 -B scripts/limited_verification.py --cloud -- cargo test --locked --offline -p scriptw-cli -- --test-threads=1
+python3 -B scripts/limited_verification.py --cloud -- cargo build --locked --offline -p scriptw-cli
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- ./target/debug/scriptw --jobs 1 test262 run --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm-aot --threads 4 --timeout-ms 60000 --snapshot-dir target/test262-scratch/FRESH-NAME --snapshot-name FRESH-NAME
 ```
 
 Use distinct watched labels for retained failures and retries. Run heavy scopes

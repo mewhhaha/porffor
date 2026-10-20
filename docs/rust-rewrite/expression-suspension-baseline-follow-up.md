@@ -160,10 +160,10 @@ validation commit, `d453d9ffe2cdca650edf19eb8b55e0877fb0d657`.
 Refresh the focused cohort with:
 
 ```sh
-cargo build --release --locked -j2 -p lila-cli
+cargo build --release --locked -j2 -p scriptw-cli
 python3 scripts/replay-test262-executions.py \
   test262/replays/expression-suspension-20260912.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/test262-scratch/expression-suspension-20260912 \
   --workers 4
 python3 scripts/audit-test262-replay.py \

@@ -131,7 +131,7 @@ invalidate this contract and must fail the structural source guard before
 classification is broadened.
 
 Before this extension, the complete Script message matches no row in
-`lila-front`'s classifier. The source is therefore reported as
+`scriptw-front`'s classifier. The source is therefore reported as
 `ParseCode::Malformed`, with phase `Parse` and native `SyntaxError`. The
 extension changes only its typed identity and derived phase to
 `ParseCode::Early(ScriptTopLevelSuper)` / `Early`; it does not create a new
@@ -172,7 +172,7 @@ forge this condition. The row must be accompanied by:
   interpolation-safety assertions;
 - an injection-safety const assertion using a user-controlled Module export
   name that contains the complete message; and
-- an explicit arm in `lila-ir`'s exhaustive `EarlyErrorCode` mapping to
+- an explicit arm in `scriptw-ir`'s exhaustive `EarlyErrorCode` mapping to
   `IrDiagnosticKind::EarlyError`, with no catch-all.
 
 The injection witness must prove that a diagnostic such as
@@ -263,13 +263,13 @@ change the message contract recorded here.
 
 ## IR and retained dependency graph boundary
 
-The enum extension must make `lila-ir`'s rejection-kind match exhaustive and
+The enum extension must make `scriptw-ir`'s rejection-kind match exhaustive and
 map `ScriptTopLevelSuper` to `IrDiagnosticKind::EarlyError`. A classifier-to-IR
 witness may project the complete rendered message and derive phase `Early` and
 native `SyntaxError`, but it must not present that projection as a real Module
 parse.
 
-This condition is honestly Script-only in Lila's static product path. Loaded
+This condition is honestly Script-only in Scriptw's static product path. Loaded
 dependencies are parsed as Module, so a real rejected `ModuleSourceIr` carrying
 `ScriptTopLevelSuper` cannot exist. Tests must not construct such a rejection
 and call it retained-graph evidence.
@@ -315,8 +315,8 @@ prove all of the following:
 - the Module parser retains exactly one separate raw message
   ``module cannot contain `super` on the top-level`` and its existing
   `ModuleTopLevelSuper` classifier owner; and
-- the product prefix of `lila-front` retains exactly one Script parse, one
-  Module parse and one classifier call, no other `lila-front` source owns a Boa
+- the product prefix of `scriptw-front` retains exactly one Script parse, one
+  Module parse and one classifier call, no other `scriptw-front` source owns a Boa
   parse route, and no other workspace crate declares Boa parser as a normal
   dependency.
 
@@ -330,7 +330,7 @@ or adding a second product parse route.
 At the repository's declared Test262 revision
 `e9d582d6b8b13afc5ba9a676664741592b5c7f69`, the complete static ScriptBody
 producer cohort contains eight physical files. None declares `onlyStrict`,
-`noStrict`, `raw` or `module`, so Lila's closed execution-plan expansion runs
+`noStrict`, `raw` or `module`, so Scriptw's closed execution-plan expansion runs
 each as sloppy Script and strict Script: exactly sixteen variants.
 
 The four dedicated clause-16.1.1 global-code leaves are:
@@ -378,20 +378,20 @@ variants and is not evidence for `ModuleTopLevelSuper`.
 
 Under the shared eight-core, 22 GB cap, the focused front group passes `4/4`,
 the exact `Contains super` traversal guard passes `1/1`, and the complete
-`lila-front` library passes `119/119`. The complete relevant IR groups pass
+`scriptw-front` library passes `119/119`. The complete relevant IR groups pass
 `44/44` for `modules::early::tests` and `41/41` for
 `modules::graph::tests`; their focused classifier, rejected-graph and
 method-owned graph witnesses each pass `1/1`. All eight Test262 files were run
 separately and produced exactly `16/16` passing Wasm-AOT variants, with every
 failure and non-success bucket at zero under `--jobs 1 --threads 1`.
 
-A broader serialized `cargo test -p lila-ir` checkpoint was also attempted and
+A broader serialized `cargo test -p scriptw-ir` checkpoint was also attempted and
 was stopped once two unrelated lowering tests were red. Exact reruns confirmed
 the repeatable current-working-tree failures in
 `boolean_method_fold_and_shape_are_invalidated_through_binding_aliases` and
 `dynamic_json_parse_observes_reviver_holder_kinds`; neither exercises the
 early-error or module-graph paths changed here. They remain explicit broad-suite
-debt, so this lane does not claim the complete `lila-ir` crate is green.
+debt, so this lane does not claim the complete `scriptw-ir` crate is green.
 
 The updated shared producer census was re-verified in the complete `129/129`
 front suite and the `47/47` IR early plus `45/45` graph groups on 2026-08-24.

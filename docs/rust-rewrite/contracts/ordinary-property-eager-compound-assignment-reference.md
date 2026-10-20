@@ -125,7 +125,7 @@ read key again has no typed API.
 
 ## Focused producer invariant
 
-The durable `lila-ir` witness lowers computed ordinary-property `+=`, `*=`,
+The durable `scriptw-ir` witness lowers computed ordinary-property `+=`, `*=`,
 `^=` and `**=` expressions and proves that each becomes exactly one fused IR
 carrier. It pins the source-order base and raw-key operands, the captured
 strictness, the carrier-minted old-value binding inside the result, and the
@@ -160,7 +160,7 @@ Producer/static stage:
 
 ```sh
 cargo fmt --all -- --check
-cargo test -p lila-ir ordinary_property_eager_compound_assignment
+cargo test -p scriptw-ir ordinary_property_eager_compound_assignment
 git diff --check
 ./scripts/check-module-boundaries.sh
 ```
@@ -168,7 +168,7 @@ git diff --check
 Integrated exact stage:
 
 ```sh
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/compound-assignment/S11.13.2_A7 \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name ordinary-property-eager-compound \

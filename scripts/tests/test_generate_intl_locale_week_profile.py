@@ -13,7 +13,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'generate-intl-locale-week-profil
 spec = importlib.util.spec_from_file_location('locale_week_generator', SCRIPT)
 gen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gen)
-PRIMARY_ROOT = Path(os.environ.get('LILA_WEEK_PRIMARY_ROOT', SCRIPT.parents[1]))
+PRIMARY_ROOT = Path(os.environ.get('SCRIPTW_WEEK_PRIMARY_ROOT', SCRIPT.parents[1]))
 
 
 class LocaleWeekGeneration(unittest.TestCase):

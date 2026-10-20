@@ -449,7 +449,7 @@ overwritten after lowering by a stale context signature. The positive captured
 `ArrayBuffer` shape witness remains exact when no later effect invalidates it;
 the mutation-before-call control proves that the body, function return targets
 and call result all omit the stale intrinsic `ArrayBuffer.prototype.resize`
-identity. Both focused regressions pass `1/1`, and the complete `lila-ir` unit
+identity. Both focused regressions pass `1/1`, and the complete `scriptw-ir` unit
 suite passes `892/892`. Context-sensitive captured-state specialization remains
 future work.
 
@@ -621,10 +621,10 @@ Implement shared `[[Call]]`/`[[Construct]]` paths with:
 ## Required tests
 
 ```sh
-cargo test -p lila-ir function_ --quiet
-cargo test -p lila-aot-wasm function_ --quiet
-cargo test -p lila-cli wasm_function --quiet
-cargo test -p lila-cli wasm_class --quiet
+cargo test -p scriptw-ir function_ --quiet
+cargo test -p scriptw-aot-wasm function_ --quiet
+cargo test -p scriptw-cli wasm_function --quiet
+cargo test -p scriptw-cli wasm_class --quiet
 ```
 
 Run real filters under `language/expressions/function`, `arrow-function`, `class`, `language/statements/function`, `built-ins/Function`, `Function/prototype`, and private-element feature groups.

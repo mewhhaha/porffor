@@ -50,12 +50,12 @@ Boolean conversion, descriptor invariants, ordinary fallback, direct delete,
 and `Reflect.deleteProperty` coverage.
 
 The structural boundary in
-`crates/lila-aot-wasm/tests/structure_builtins/proxy_delete_traversal_structure.rs` rejects a
+`crates/scriptw-aot-wasm/tests/structure_builtins/proxy_delete_traversal_structure.rs` rejects a
 source-generated depth emitter or recursive call, pins the single loop and its
 three transitions, and retains the exact three nested-target Test262 files.
 They have no single-mode flag: three physical files and six executions.
 
-At 2026-09-01, `cargo check -p lila-aot-wasm` is green. The traversal and
+At 2026-09-01, `cargo check -p scriptw-aot-wasm` is green. The traversal and
 adjacent revocation-route structure targets each pass `4/4`, and the exact CLI
 fixture passes `1/1` through emitted Wasm. The missing, null and undefined
 nested-target Test262 files each pass both default modes, for `6/6` total with

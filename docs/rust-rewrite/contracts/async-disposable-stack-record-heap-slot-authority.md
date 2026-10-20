@@ -46,10 +46,10 @@ change allocation, stack lifecycle, asynchronous disposal, resource retention,
 await completion, emitted Wasm or collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test async_disposable_stack_record_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::async_disposable_stack_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_async_disposable_stack_record_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/async_disposable_stack_record_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test async_disposable_stack_record_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::async_disposable_stack_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_async_disposable_stack_record_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/async_disposable_stack_record_heap_slot_structure.rs
 git diff --check
 ```
 

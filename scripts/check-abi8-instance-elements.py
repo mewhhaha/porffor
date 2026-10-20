@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-PREFIX = "crates/lila-aot-wasm/src/"
+PREFIX = "crates/scriptw-aot-wasm/src/"
 FILES = (
     "gc_types/layouts.rs", "gc_types/value/instance_elements.rs", "runtime_helpers.rs",
     "functions/instance_elements_hook.rs", "functions/function_object_allocation.rs",
@@ -69,8 +69,8 @@ def check(sources: dict[str, str]) -> list[str]:
     require("has_instance_work(meta)" in capture,
             "allocation must base hook presence on the complete instance plan")
     selection = body(hook, "emit_initialize_super_instance_elements")
-    require("Some(lila_ir::DirectEvalDerivedOwner::LocalFunction(owner))=>Some(owner.clone())," in selection and
-            "Some(lila_ir::DirectEvalDerivedOwner::ExternalCaller)=>None," in selection and
+    require("Some(scriptw_ir::DirectEvalDerivedOwner::LocalFunction(owner))=>Some(owner.clone())," in selection and
+            "Some(scriptw_ir::DirectEvalDerivedOwner::ExternalCaller)=>None," in selection and
             "ifletSome(owner)=local_owner{" in selection,
             "external owner must dispatch explicitly without foreign FunctionId lookup")
     active = body(hook, "emit_active_constructor_instance_elements")

@@ -1,6 +1,6 @@
 # Pinned conformance closure
 
-`lila --jobs 1 test262 close-release [--snapshot-dir PATH] [--threads N] [--reuse-case-workers]` is the release verdict owner.
+`scriptw --jobs 1 test262 close-release [--snapshot-dir PATH] [--threads N] [--reuse-case-workers]` is the release verdict owner.
 `scripts/check-test262-closure.sh` invokes it through the verification launcher.
 The shell wrapper's local route retains the 4096 MiB aggregate kernel budget with
 zero swap, grouped OOM, one CPU and one worker. Its explicit `--cloud` mode uses the cloud machine's

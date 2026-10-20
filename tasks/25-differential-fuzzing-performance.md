@@ -229,7 +229,7 @@ The final rebuilt worker confirms the same 5,000-ms failure in
 emission completes. SpecExec still completes eight actions; transformed
 CrossRealm and Temporal remain unrun. Final type/format checks and both adjacent
 Realm fixture corrections pass, but the checkpoint remains red. Final evidence:
-`target/verification-tmp/lila-generated-campaign-302393-1791478300025590477-0`.
+`target/verification-tmp/scriptw-generated-campaign-302393-1791478300025590477-0`.
 
 The subsequent bounded profile measures 6.452 seconds of cold emission and a
 41.2-MB runtime image. Samples identify Unicode inventory construction, named-zone
@@ -243,7 +243,7 @@ failure at 5,000 ms during emission (parse 1.80 ms; lower 122.31 ms). Native tes
 preceded this fresh worker, exercising the existing native disk cache, while
 the raw runtime artifact is still rebuilt in each process. These repairs do not
 close cold-start or generated-campaign acceptance. Evidence is retained at
-`target/verification-tmp/lila-generated-campaign-227144-1791477058089273934-0`;
+`target/verification-tmp/scriptw-generated-campaign-227144-1791477058089273934-0`;
 see the [current checkpoint](README.md#closure-audit-and-verification--2026-10-08).
 
 The fresh `fast-iteration-campaign-20261008` replay rebuilds the selected worker
@@ -253,7 +253,7 @@ It still times out during Wasm emission: parsing takes 2.22 ms, lowering
 118 bytes with no missing-metadata flood. SpecExec completes all eight actions;
 transformed CrossRealm and Temporal remain unrun. The exact request, pair and
 reports are retained at
-`target/verification-tmp/lila-generated-campaign-4136252-1791474858413422907-0`.
+`target/verification-tmp/scriptw-generated-campaign-4136252-1791474858413422907-0`.
 The launcher confirms 4096 MiB, zero swap, one CPU and the one-entry/64-MiB module
 cache. This is a fresh performance failure, not semantic-equivalence evidence.
 Profile the remaining emission cost before the next focused repair.
@@ -505,7 +505,7 @@ no uncapped fallback is available. The source was freshly recovered after
 external staging loss and remains unexecuted. See the
 [whole-corpus contract](../docs/rust-rewrite/contracts/differential-whole-corpus.md).
 
-The same batch adds a separate opt-in `lila performance report` command for the
+The same batch adds a separate opt-in `scriptw performance report` command for the
 existing twenty fixtures and three timing gates. It records raw samples, robust
 summaries, compatible-baseline deltas and compiler/toolchain/platform/workload
 identities on an explicitly identified idle machine. This is source reporting
@@ -514,7 +514,7 @@ infrastructure, not timing acceptance or subsystem-wide metrics. See the
 Broader generators, reducers, fuzz campaigns and metrics remain open; neither
 source addition completes T25.
 
-The compiler profile successor adds `lila performance compile` through the
+The compiler profile successor adds `scriptw performance compile` through the
 actual SDK preparation/lowering/emission and product Wasmtime validation stages.
 It uses the same twenty-source corpus, one warmup per source, 3–100 raw samples,
 retained deterministic artifacts and compatible-baseline stage comparisons.
@@ -557,7 +557,7 @@ Rust type and hygiene checks passed. Actual idle-machine timing remains pending;
 this is not performance or full T25 acceptance. See the
 [portable corpus contract](../docs/rust-rewrite/contracts/portable-performance-corpus.md).
 
-The `lila differential replay` command
+The `scriptw differential replay` command
 consumes a closed versioned Rust-owned corpus entry,
 always runs Wasm-AOT first, and can run the off-by-default spec-exec oracle only
 when both the cargo feature and explicit `--oracle spec-exec` flag are present.
@@ -617,7 +617,7 @@ Wasm, both backend runs and broad verification remain pending. See
 [`differential-embedded-module-graph.md`](../docs/rust-rewrite/contracts/differential-embedded-module-graph.md).
 
 The Rust-owned `integer-arithmetic-v1` campaign is the first non-decorative
-consumer of that replay path. `lila differential generate-arithmetic` uses a
+consumer of that replay path. `scriptw differential generate-arithmetic` uses a
 stable SplitMix64-v1 stream to build one or more self-checking Script probes
 from a closed Add/Sub grammar. Leaves are integers in `-32..=32`; the public
 plan types admit only 1–32 checks and depths 1–4, and expected results are
@@ -860,7 +860,7 @@ records the original SHA-256 witnesses
 and
 `bcecce80a7145d8c00525efc0bbfe0ec3b3a7110a6b7f8aa1590706231d21a89`.
 At the Batch BX checkpoint, default and `spec-exec-oracle` package checks are
-green without `lila-test262` warnings; the new boundary target passes `3/3`,
+green without `scriptw-test262` warnings; the new boundary target passes `3/3`,
 the retained output-policy and backend-ownership targets pass `10/10`, the two
 focused comparison units pass `2/2`, and the feature-enabled committed
 two-backend replay passes `1/1`.
@@ -869,8 +869,8 @@ two-backend replay passes `1/1`.
 
 Create a runner that can execute the same generated or minimized program through:
 
-- Lila Wasm-AOT (the product under test);
-- Lila `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
+- Scriptw Wasm-AOT (the product under test);
+- Scriptw `spec-exec` (the internal Boa-based oracle — this differential role is the only permitted use of an interpreter in the project);
 - one or more optional external standards-oriented engines configured
   explicitly for developer testing.
 
@@ -974,15 +974,15 @@ CI artifacts must retain minimized failures, random seeds and comparison reports
 
 ```sh
 cargo test --workspace --quiet
-cargo test -p lila-ir fuzz_regressions --quiet
-cargo test -p lila-aot-wasm fuzz_regressions --quiet
-cargo test --locked -p lila-test262 --test snapshot_use_structure -- --test-threads=1
-cargo test -p lila-test262 --features spec-exec-oracle differential::generated_arithmetic::tests::committed_generated_arithmetic_case_replays_through_both_backends -- --exact
-cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-arithmetic.json --grammar integer-arithmetic-v1 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
-cargo run -p lila-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/lila-t25-bitwise.json --grammar integer-bitwise-v2 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
-cargo run -p lila-cli --features spec-exec-oracle -- differential replay /tmp/lila-t25-arithmetic.json --oracle spec-exec
-cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v2/t25-foundation-primitive-number.json --oracle spec-exec
-cargo run -p lila-cli --features spec-exec-oracle -- differential replay crates/lila-test262/tests/differential/v3/t25-foundation-primitive-number-and-print.json --oracle spec-exec
+cargo test -p scriptw-ir fuzz_regressions --quiet
+cargo test -p scriptw-aot-wasm fuzz_regressions --quiet
+cargo test --locked -p scriptw-test262 --test snapshot_use_structure -- --test-threads=1
+cargo test -p scriptw-test262 --features spec-exec-oracle differential::generated_arithmetic::tests::committed_generated_arithmetic_case_replays_through_both_backends -- --exact
+cargo run -p scriptw-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/scriptw-t25-arithmetic.json --grammar integer-arithmetic-v1 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
+cargo run -p scriptw-cli --features spec-exec-oracle -- differential generate-arithmetic /tmp/scriptw-t25-bitwise.json --grammar integer-bitwise-v2 --seed 1 --checks 4 --depth 2 --max-replays 64 --oracle spec-exec
+cargo run -p scriptw-cli --features spec-exec-oracle -- differential replay /tmp/scriptw-t25-arithmetic.json --oracle spec-exec
+cargo run -p scriptw-cli --features spec-exec-oracle -- differential replay crates/scriptw-test262/tests/differential/v2/t25-foundation-primitive-number.json --oracle spec-exec
+cargo run -p scriptw-cli --features spec-exec-oracle -- differential replay crates/scriptw-test262/tests/differential/v3/t25-foundation-primitive-number-and-print.json --oracle spec-exec
 ```
 
 The snapshot ownership controls above do not establish byte determinism. The old

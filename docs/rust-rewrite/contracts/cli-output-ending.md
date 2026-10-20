@@ -1,7 +1,7 @@
 # CLI output ending authority
 
 `CliOutputEnding::{None, Newline}` is the private compile-time authority for
-whether the Lila CLI capture macros terminate one write with `\n`. The plain
+whether the Scriptw CLI capture macros terminate one write with `\n`. The plain
 `print!` producer selects `None`; both `println!` forms and both `eprintln!`
 forms select `Newline`.
 
@@ -11,7 +11,7 @@ typed ending and exhaustively emit the same `write!` or `writeln!` operation.
 Adding an ending therefore requires both stdout and stderr semantics instead of
 inheriting one side of a boolean branch.
 
-`crates/lila-cli/tests/cli_output_ending_structure.rs` recursively pins the
+`crates/scriptw-cli/tests/cli_output_ending_structure.rs` recursively pins the
 private two-row declaration, absent capabilities, exact five producers, both
 typed exhaustive consumers, identical byte-ending projections and retained
 lock-before-write order.

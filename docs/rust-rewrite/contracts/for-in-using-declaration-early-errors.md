@@ -31,7 +31,7 @@ and statement-list diagnostics.
 The producer is goal-independent. Ordinary `using` reaches it under Script and
 Module goals; `await using` reaches it inside an async function under both
 goals. Pinned Boa direct eval can also reach the statement-local producer, but
-Lila has no product direct-eval parser path; that remains T13.
+Scriptw has no product direct-eval parser path; that remains T13.
 
 `for-of` is the positive sibling: both declaration forms remain valid there.
 `let` and `const` remain valid `for-in` heads, and initialized `using` remains
@@ -57,7 +57,7 @@ loop grammar, T07 or aggregate closure.
 ## Evidence
 
 At `2026-08-23`, all verification ran under the repository's eight-CPU cap and
-serial test/harness settings. The complete `lila-front` gate passes `59/59`,
-the focused `lila-ir` early-error filter passes `3/3`, and `cargo xc` passes.
+serial test/harness settings. The complete `scriptw-front` gate passes `59/59`,
+the focused `scriptw-ir` early-error filter passes `3/3`, and `cargo xc` passes.
 The two exact pinned files above each pass `2/2` sloppy/strict Wasm-AOT
 executions, for `4/4` total, with every failure and non-success bucket at zero.

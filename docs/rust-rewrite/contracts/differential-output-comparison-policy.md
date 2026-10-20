@@ -42,9 +42,9 @@ that output from either backend makes a v1/v2 report red and that equal ordered
 v3 transcripts admit the distinct green verdict. Run:
 
 ```sh
-cargo test -p lila-test262 --test output_comparison_policy_structure -- --test-threads=1
-cargo test -p lila-test262 differential::tests::either_backend_output_makes_a_no_output_case_red -- --exact
-cargo test -p lila-test262 differential::tests::v3_matches_primitive_completion_and_exact_ordered_print_transcript -- --exact
+cargo test -p scriptw-test262 --test output_comparison_policy_structure -- --test-threads=1
+cargo test -p scriptw-test262 differential::tests::either_backend_output_makes_a_no_output_case_red -- --exact
+cargo test -p scriptw-test262 differential::tests::v3_matches_primitive_completion_and_exact_ordered_print_transcript -- --exact
 ```
 
 At the earlier checkpoint, the structure target passed `4/4`, both exact owner

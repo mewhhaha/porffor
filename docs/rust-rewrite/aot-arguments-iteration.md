@@ -64,7 +64,7 @@ cargo fmt --all -- --check
 python3 scripts/tests/test_engine_regression_inventory.py
 python3 scripts/run_engine_regression_inventory.py aot_language --module aot_arguments_iteration \
   --output-dir /tmp/arguments-engine
-cargo test --locked -p lila-aot-wasm --test structure_async \
+cargo test --locked -p scriptw-aot-wasm --test structure_async \
   --test direct_sync_for_of_protocol_error_realm_structure \
   --test math_sum_precise_runtime_structure -- \
   for_of_string_iterator_protocol_structure:: \
@@ -72,11 +72,11 @@ cargo test --locked -p lila-aot-wasm --test structure_async \
   synchronous_using_for_of_structure:: \
   sync_iterator_locals_release_ownership_structure:: \
   sync_iterator_consumer_capability_structure::
-cargo test --locked -p lila-engine --lib \
+cargo test --locked -p scriptw-engine --lib \
   wasm_backend_arguments_iterators_observe_length_truncation -- --nocapture
-cargo build --locked -p lila-cli
-./target/debug/lila test262 list language/statements/for-of/arguments-
-LILA_TEST262_FORCE_CASE_RUNNER=1 ./target/debug/lila test262 run \
+cargo build --locked -p scriptw-cli
+./target/debug/scriptw test262 list language/statements/for-of/arguments-
+SCRIPTW_TEST262_FORCE_CASE_RUNNER=1 ./target/debug/scriptw test262 run \
   language/statements/for-of/arguments- --execution-backend wasm \
   --threads 1 --jobs 1 --timeout-ms 60000 \
   --snapshot-dir /tmp/arguments-test262 --snapshot-name arguments-head
@@ -99,11 +99,11 @@ completed-epic count. T01 remains in progress until that publication exists.
 Use the existing T01 tooling rather than invent a second status format:
 
 ```sh
-cargo build --release --locked -p lila-cli
+cargo build --release --locked -p scriptw-cli
 git rev-parse HEAD
-sha256sum target/release/lila
+sha256sum target/release/scriptw
 rustc --version --verbose
-LILA_BIN=./target/release/lila THREADS=1 JOBS=1 \
+SCRIPTW_BIN=./target/release/scriptw THREADS=1 JOBS=1 \
   ./scripts/publish-real-status-low-ram.sh wasm-aot t01-full-baseline
 ```
 

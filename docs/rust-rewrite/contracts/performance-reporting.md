@@ -17,7 +17,7 @@ After building the actual default-feature CLI, run on an idle machine:
 
 ```sh
 python3 scripts/limited_verification.py -- \
-  ./target/release/lila performance report \
+  ./target/release/scriptw performance report \
   --output-dir target/performance/candidate \
   --samples 7 --machine-label dedicated-benchmark-host --idle-machine
 ```
@@ -28,14 +28,14 @@ defaults to all three. `--fixture-root PATH` selects an existing copy of the
 compiled fixture corpus; the default is the CLI package's tests/fixtures build
 path. Every source must match its embedded bytes. A relocated CLI can select a
 checkout or retained corpus directory explicitly. Cold timing prunes the usual
-Lila caches before each sample, as the existing gate does. This is an opt-in
+Scriptw caches before each sample, as the existing gate does. This is an opt-in
 measurement command with that real cache effect.
 
 Compare a later build against a retained complete report:
 
 ```sh
 python3 scripts/limited_verification.py -- \
-  ./target/release/lila performance report \
+  ./target/release/scriptw performance report \
   --output-dir target/performance/later \
   --samples 7 --machine-label dedicated-benchmark-host --idle-machine \
   --baseline target/performance/candidate/report.json

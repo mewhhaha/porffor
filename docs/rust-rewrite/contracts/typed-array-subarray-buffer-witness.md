@@ -66,7 +66,7 @@ stored byte offset is retained for construction.
 
 The sole product owner is the
 `StandardBuiltinId::TypedArrayPrototypeSubarray` arm in
-`crates/lila-aot-wasm/src/builtins/standard.rs`. Before this lane it loaded the
+`crates/scriptw-aot-wasm/src/builtins/standard.rs`. Before this lane it loaded the
 source viewed buffer, byte offset, stored byte length and bytes per element
 directly, called `emit_typed_array_current_byte_length`, divided the returned
 bytes locally and overwrote the stored-byte-length carrier.
@@ -150,7 +150,7 @@ buffer.
 
 ## Durable structural and runtime evidence
 
-`crates/lila-aot-wasm/tests/typed_array_subarray_witness_structure.rs` bounds
+`crates/scriptw-aot-wasm/tests/typed_array_subarray_witness_structure.rs` bounds
 only the `TypedArrayPrototypeSubarray` arm through the following `DateNow` arm.
 It requires one private-state load, one immutable view and one
 `ArrayLikeLengthSnapshot` witness, plus one separate result private-state load,
@@ -167,7 +167,7 @@ construction and result-brand validation before the distinct result witness;
 result witness before content-type validation; reverse-order local release; and
 focused CLI fixture connection.
 
-`crates/lila-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js`,
+`crates/scriptw-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js`,
 owned by
 `typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness`,
 checks:
@@ -239,14 +239,14 @@ omitted `end`, not the source or result buffer-witness boundary documented here.
 The coordinated checkpoint ran:
 
 ```sh
-cargo test -p lila-aot-wasm --test typed_array_subarray_witness_structure -- --test-threads=1
-cargo test -p lila-cli --test cli typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test typed_array_subarray_witness_structure -- --test-threads=1
+cargo test -p scriptw-cli --test cli typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness -- --exact --test-threads=1
 ```
 
 On 2026-08-25, the source-witness checkpoint recorded the exact CLI fixture at
 `1/1` and the six direct Test262 leaves at `12/12` variants under
 `--execution-backend wasm-aot --jobs 1 --threads 1`. That checkpoint also
-recorded `cargo check -p lila-aot-wasm`, `cargo xc` and the shared format and
+recorded `cargo check -p scriptw-aot-wasm`, `cargo xc` and the shared format and
 diff gates green. Its first CLI run exposed that created Realms did not
 materialize their own `subarray` builtin; after adding the method to the
 created-Realm TypedArray inventory, the borrowed method rejects invalid species

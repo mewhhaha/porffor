@@ -119,7 +119,7 @@ Cannot use 'let' as a lexically bound name at line
 Do not use `ContainsAll` or a shorter substring. A const ownership assertion
 must require exactly those two independently spelled rows for the new code, so
 deleting, broadening or transferring either producer fails to build. Add the
-one closed `EarlyErrorCode` variant and exhaustive `lila-ir` early-error
+one closed `EarlyErrorCode` variant and exhaustive `scriptw-ir` early-error
 projection; no catch-all may absorb it.
 
 The pre-extension `EarlyErrorCode::ALL` contains 60 variants and the classifier
@@ -173,7 +173,7 @@ The bounded front-end guard should recursively inventory pinned Boa and prove:
   and
 - the direct matrix, precedence, positives and injection controls above.
 
-The `lila-ir` witness must use a real failed Module parse and a retained rejected
+The `scriptw-ir` witness must use a real failed Module parse and a retained rejected
 dependency graph node. It must not construct the result it intends to prove.
 
 ## Exact pinned Test262 cohort
@@ -210,7 +210,7 @@ recursive binding-pattern propagations.
 
 Under the shared eight-core, 22 GB cap, `cargo fmt --all -- --check`, `cargo xc`
 and `git diff --check` are green. The focused front filter passes `4/4`, the
-exact vendored-source guard passes `1/1`, and the complete `lila-front` library
+exact vendored-source guard passes `1/1`, and the complete `scriptw-front` library
 passes `112/112`. The exact IR classifier passes `1/1`, the two focused real
 Module/retained-graph witnesses pass `2/2`, and the complete IR module-early
 group passes `43/43`.

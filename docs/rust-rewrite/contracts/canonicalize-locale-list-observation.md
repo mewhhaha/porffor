@@ -99,7 +99,7 @@ Defining-Realm primitive boxing, null TypeError and result Array prototype are
 structural obligations of the emitter: it calls
 `emit_value_to_current_function_realm_object_locals` and installs the Array
 prototype loaded from `HEAP_FUNCTION_DEFINING_REALM_OFFSET`. They do not yet
-have a cross-Realm runtime witness because `__lilaCreateRealm` does not install
+have a cross-Realm runtime witness because `__scriptwCreateRealm` does not install
 the `Intl` namespace in created realms.
 
 The adjacent pinned Test262 witnesses are
@@ -153,7 +153,7 @@ calling `emit_array_like_snapshot_payload`, `git diff --check`, file-scope and
 local-lifetime review, and fresh independent review.
 
 After the active shared-runtime work releases the verification ladder, run in
-order: a focused `lila-aot-wasm` check, the one registered CLI fixture, the four
+order: a focused `scriptw-aot-wasm` check, the one registered CLI fixture, the four
 pinned Test262 witnesses named above under Wasm AOT, their adjacent
 `Intl/getCanonicalLocales` filter, and finally the serialized broad batch
 ladder. Once T06/T23 installs Intl in created realms, add and run a cross-Realm

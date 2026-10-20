@@ -5,7 +5,7 @@
 Native replay input, mandatory selected-worker configuration and the typed
 feature-off result are available in default builds. A feature-off replay
 returns `OracleNotLinked` before spawn. The real process supervisor, source
-admission/backend worker and named `lila-differential-worker` binary require
+admission/backend worker and named `scriptw-differential-worker` binary require
 `spec-exec-oracle`; the CLI's hidden dispatch occurs before Realm construction.
 There is no interpreter product route or parent raw backend execution path.
 
@@ -18,7 +18,7 @@ test/oracle gates. The source guard checks these two physical responsibilities
 separately, including the feature-off refusal before any worker call.
 
 Cargo controls explicitly select the named worker instead of executing their
-own harness. CLI embedder controls select Cargo's `lila` through `--worker-bin`.
+own harness. CLI embedder controls select Cargo's `scriptw` through `--worker-bin`.
 V7 native graph wires and checked constructors remain available in default
 builds. Rooted comparison, signatures and terminal-limit validation retain the
 test/oracle compile gate; actual Script/Module graph execution remains only in
@@ -54,7 +54,7 @@ feature-enabled oracle behavior. It adds no Test262 materialization,
 capability claim or published count.
 
 At the Batch BX checkpoint, default and `spec-exec-oracle` package checks are
-green without `lila-test262` warnings; the new boundary target passes `3/3`,
+green without `scriptw-test262` warnings; the new boundary target passes `3/3`,
 the retained output-policy and backend-ownership targets pass `10/10`, the two
 focused comparison units pass `2/2`, and the feature-enabled committed
 two-backend replay passes `1/1`.

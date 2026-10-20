@@ -36,7 +36,7 @@ correct outer-environment capture even when the loop is its only use.
 
 ## Regression evidence
 
-`lila-ir` has three focused IR assertions: a mutable assignment head must
+`scriptw-ir` has three focused IR assertions: a mutable assignment head must
 contain an `AssignIdentifier` from the synthetic slot into the existing lexical
 storage; a write-only nested function must capture its outer target; and an
 immutable target must contain the runtime `TypeError` while a `let` declaration
@@ -61,9 +61,9 @@ helpers, or the rest of T15.
 
 On 2026-08-27:
 
-- `cargo test -p lila-ir --test for_await_identifier_assignment_head_structure
+- `cargo test -p scriptw-ir --test for_await_identifier_assignment_head_structure
   --quiet` passed `4/4`;
-- `cargo test -p lila-ir for_await_identifier_ --quiet` passed `3/3`;
+- `cargo test -p scriptw-ir for_await_identifier_ --quiet` passed `3/3`;
 - the focused CLI test passed `1/1`;
 - the exact pinned Test262 leaf passed both sloppy/strict Wasm-AOT variants,
   `2/2`, with every failure bucket at zero;

@@ -1,8 +1,8 @@
-# Lila Test262 host ABI contract.
-# Target profile: core-3-nonweb, wasm32, little-endian, single Lila heap unless a row says host-managed shared state.
-# ABI name: lila-test262-host
+# Scriptw Test262 host ABI contract.
+# Target profile: core-3-nonweb, wasm32, little-endian, single Scriptw heap unless a row says host-managed shared state.
+# ABI name: scriptw-test262-host
 # ABI version: 0.1
-# Wasm agent_call transport: lila-runtime::AgentHostOperation is the closed wire authority.
+# Wasm agent_call transport: scriptw-runtime::AgentHostOperation is the closed wire authority.
 # Stable i64 operations: 1 Start; 2 Broadcast; 3 ReceiveBroadcast; 4 Report; 5 ReportLength; 6 ReportCopy; 7 Sleep; 8 MonotonicNow; 9 Leaving; 10 RegisterAsyncWaiter; 11 PollAsyncWaiter; 12 NotifyAsyncWaiters; 13 CancelAsyncWaiter.
 # Operations 5 and 6 implement one agent.getReport surface transaction; operations 10 through 13 are internal cross-instance Atomics.waitAsync/notify transport, not additional ECMAScript methods.
 # Fields:

@@ -14,7 +14,7 @@ backend executor or current-test-executable heuristic.
 
 The CLI defaults to its own real executable. Library embedders and Cargo tests
 select a real worker with `--worker-bin PATH` or the runner constructor. The
-named `lila-differential-worker` Cargo binary requires the oracle feature. The
+named `scriptw-differential-worker` Cargo binary requires the oracle feature. The
 CLI's private worker dispatch runs before Realm or Engine construction, with
 one inherited job. Default builds return `OracleNotLinked` before spawning.
 Unsupported process platforms fail explicitly; there is no in-process fallback.

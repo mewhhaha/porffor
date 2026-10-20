@@ -86,7 +86,7 @@ backend match, entry-local isolation, fresh-environment lookup, and fixture and
 documentation ownership.
 
 `cargo fmt --all -- --check` and
-`cargo check -p lila-ir -p lila-aot-wasm -p lila-cli --all-targets` pass. The
+`cargo check -p scriptw-ir -p scriptw-aot-wasm -p scriptw-cli --all-targets` pass. The
 IR `for_of` filter passes `27/27`, and its exact unsupported-shape rejection
 witness passes `1/1`. The main structure target passes `6/6`; five affected
 companions pass `22/22`, for `28/28` across six targets. The exact lexical

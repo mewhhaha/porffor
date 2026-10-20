@@ -97,7 +97,7 @@ classification and must not introduce a second message table.
 - Evaluated const assertions encode one-row ownership by the exact reviewed
   prefix and the export-name anti-forgery boundary rather than leaving them as
   comments.
-- The variant appears in `lila-ir`'s exhaustive rejection-kind mapping. No
+- The variant appears in `scriptw-ir`'s exhaustive rejection-kind mapping. No
   catch-all can absorb it.
 - A real failed Module parse passes through
   `module_parse_failure_diagnostic`, and a rejected `ModuleSourceIr` dependency
@@ -154,7 +154,7 @@ short-circuiting.
 The shared capped lane completed the promised evidence:
 
 - `cargo xc` passed for the workspace;
-- the full `lila-front` library suite passed `97/97`, including both forbidden
+- the full `scriptw-front` library suite passed `97/97`, including both forbidden
   productions, both goals, both template token shapes, line-terminator forms,
   positive controls, exact producer inventory and anti-forgery witnesses;
 - `modules::early::tests` passed `40/40`, including the real Module parse

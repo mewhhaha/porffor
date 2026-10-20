@@ -20,7 +20,7 @@ generated status block. Matrix checkpoints, aggregate inputs, focused or fake
 snapshots, and oracle `spec-exec` artifacts are evidence inputs only and cannot
 authorize a published-status edit. The sole non-evidence exception is the
 historical combined T27/T29 migration: legacy/current status markers, the exact
-Porffor-to-Lila package, binary and fake-suite path identities, and the stale
+Porffor-to-Scriptw package, binary and fake-suite path identities, and the stale
 `spec-exec` publisher token changing to `wasm-aot`, with every other byte of the
 generated block unchanged.
 
@@ -30,7 +30,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
 
 ## Scope
 
-- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `lila-cli`, that verifies:
+- Add a small task-plan validator, preferably `scripts/check-task-plan.sh` or a Rust test under `scriptw-cli`, that verifies:
   - every `TNN` file has a unique ID;
   - every dependency points to an existing task;
   - every link in `tasks/README.md` resolves;
@@ -52,7 +52,7 @@ Turn the rules in `AGENTS.md` and `tasks/README.md` into lightweight, enforceabl
   described above. An explicitly documentation-only edit outside the generated
   block remains allowed.
 - Document which commands are smoke tests and which commands are evidence for real-suite progress.
-- Document the backend policy: only `wasm-aot` results are Lila conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
+- Document the backend policy: only `wasm-aot` results are Scriptw conformance evidence; `spec-exec` (Boa) output is internal oracle/differential diagnostics and must never appear as product status.
 
 ## Out of scope
 
@@ -83,7 +83,7 @@ Keep the validator dependency-free and deterministic. It must run on Linux and s
 ```sh
 ./scripts/check-task-plan.sh
 ./scripts/tests/check-readme-status-artifacts.sh
-cargo test -p lila-cli --quiet
+cargo test -p scriptw-cli --quiet
 ```
 
 Also run the validator against a temporary intentionally broken copy to prove both error paths before submitting the PR.

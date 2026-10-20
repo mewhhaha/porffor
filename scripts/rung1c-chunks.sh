@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rung 1c -- the whole `lila-cli --test cli` suite -- as RESUMABLE per-module
+# Rung 1c -- the whole `scriptw-cli --test cli` suite -- as RESUMABLE per-module
 # chunks.
 #
 # usage:
@@ -65,13 +65,13 @@
 # Every test runs exactly once and the union of the chunks is the suite, so a
 # chunked run is a complete rung 1c rather than a subset. The arithmetic that
 # proves it, per chunk: `N passed + N filtered out` must equal the compiled test
-# count reported by `cargo test -p lila-cli --test cli -- --list | tail -1`.
+# count reported by `cargo test -p scriptw-cli --test cli -- --list | tail -1`.
 # Recount the source side with the EXACT-line form (a substring
 # `grep '#\[test\]'` over-counts, because prose in `known_failures.rs` names the
 # attribute):
 #
 #   awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
-#     crates/lila-cli/tests/cli/*.rs
+#     crates/scriptw-cli/tests/cli/*.rs
 #
 # minus the `#[cfg(feature = "spec-exec-oracle")]`-gated tests in `frontend.rs`.
 #
@@ -83,7 +83,7 @@
 #
 # Per-module cost spans 6.8 s/test (`heap`) to 38 s/test (`date`). Add ~900 s of
 # dead wall-clock in `binary_data::` for the declared T17 `Atomics.wait` hang,
-# which `tests/cli/main.rs` converts into a bounded failure. `LILA_CPU_PERCENT=100`
+# which `tests/cli/main.rs` converts into a bounded failure. `SCRIPTW_CPU_PERCENT=100`
 # below is load-bearing: `scripts/run-watched.sh` routes through
 # `scripts/capped.sh`, which silently pins to half the CPUs and made an earlier
 # attempt look 2x slower than it was.
@@ -119,7 +119,7 @@ DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 # a pure `awk` tally of `#[test]` attributes in one file, so a RENAME, a BODY
 # REWRITE, or a delete-one-add-one leaves the fingerprint fixed and the stale
 # verdict banked. That is not hypothetical: batch 6 rewrote
-# `crates/lila-cli/tests/cli/iterator_helpers.rs` by 114 lines and only the
+# `crates/scriptw-cli/tests/cli/iterator_helpers.rs` by 114 lines and only the
 # incidental 13 -> 14 test count made this guard fire. Had the rewrite kept 13
 # tests, nine red fixtures would have stayed banked as red while the repair sat
 # in the tree -- the `date` case this sidecar is advertised on, mirrored.
@@ -130,7 +130,7 @@ DONE=${RUNG1C_DONE:-target/watched/rung1c-done}
 #   * a COMPILER change, which no count over the test sources can detect.
 #
 # The strictly stronger mechanism is a content hash --
-# `cksum "crates/lila-cli/tests/cli/$1.rs" | awk '{print $1}'` drops into
+# `cksum "crates/scriptw-cli/tests/cli/$1.rs" | awk '{print $1}'` drops into
 # `module_test_count`'s shape unchanged, including its fail-open 0. It is not
 # taken here because switching the fingerprint invalidates every recorded row at
 # once and forces a full 20-chunk re-run (~2.5 h); do it at the START of a batch
@@ -154,7 +154,7 @@ COUNTS=${RUNG1C_COUNTS:-target/watched/rung1c-done-counts}
 #
 # NOT read by default, and that is a correctness rule rather than caution. Its
 # verdicts were measured against a compiler that batch 5 then rewrote
-# (`lila-aot-wasm/{functions,objects,heap}.rs` and six `lila-ir` files),
+# (`scriptw-aot-wasm/{functions,objects,heap}.rs` and six `scriptw-ir` files),
 # so seeding from it makes a resumed run execute 6 of 17 chunks and still print
 # ALL CHUNKS DONE -- and the ledger is then filled from a run that never
 # measured most of the suite. `known_failures` is in that legacy list, so even
@@ -190,7 +190,7 @@ touch "$COUNTS"
 # "unknown" so a read error never invalidates a banked chunk.
 module_test_count() {
   mtc_count=$(awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n+0}' \
-    "crates/lila-cli/tests/cli/$1.rs" 2>/dev/null)
+    "crates/scriptw-cli/tests/cli/$1.rs" 2>/dev/null)
   echo "${mtc_count:-0}"
 }
 
@@ -292,7 +292,7 @@ run_chunk() {
   elif grep -qx "$name" "$DONE"; then
     tests_banked=$(banked_test_count "$name")
     if [ "$tests_now" = "0" ]; then
-      echo "rung1c: skip $name (already banked in $DONE; WARNING -- could not count tests in crates/lila-cli/tests/cli/$name.rs, so its verdict could not be re-validated)" >&2
+      echo "rung1c: skip $name (already banked in $DONE; WARNING -- could not count tests in crates/scriptw-cli/tests/cli/$name.rs, so its verdict could not be re-validated)" >&2
       return 0
     fi
     if [ -z "$tests_banked" ]; then
@@ -324,7 +324,7 @@ run_chunk() {
   log=target/watched/rung1c-$name.log
   echo "=== $name START $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
   # The three cache limits are CACHE HYGIENE and nothing more. They bound bytes
-  # ON DISK -- `lila-engine/src/cache.rs` implements all three tiers over
+  # ON DISK -- `scriptw-engine/src/cache.rs` implements all three tiers over
   # `fs::read`/`fs::write` -- so they do not bound any process's RSS and they did
   # not fix, and could not have fixed, the `frontend` chunk's OOM kill (that was
   # one child running 4 concurrent cold Wasm-AOT compiles in one process; the
@@ -345,8 +345,8 @@ run_chunk() {
   # sweep invocation in `docs/rust-rewrite/batch-workflow.md` (32 GiB function
   # tier). Two measurements say that is wrong on this container:
   #
-  #   * THE CACHE IS ONE SHARED DIRECTORY. `lila_cache_root()` is
-  #     `$LILA_CACHE_DIR` or `~/.cache/lila`, with no per-process keying,
+  #   * THE CACHE IS ONE SHARED DIRECTORY. `scriptw_cache_root()` is
+  #     `$SCRIPTW_CACHE_DIR` or `~/.cache/scriptw`, with no per-process keying,
   #     so the Test262 sweep and every CLI-test child manage the SAME bytes. The
   #     supervisor actually running on this box
   #     (`target/test262-scratch/sweep-supervisor.sh`, and confirmed in
@@ -356,7 +356,7 @@ run_chunk() {
   #     ITS 1 GiB budget: two processes with different budgets over one
   #     directory undo each other's sizing.
   #   * THE DISK IS A FIXED PER-SESSION ALLOWANCE. Measured 2026-08-10: 19 GiB
-  #     available, `target/debug` alone 7.3 GiB, `~/.cache/lila` 948 MiB (at
+  #     available, `target/debug` alone 7.3 GiB, `~/.cache/scriptw` 948 MiB (at
   #     the sweep's cap). An 8 GiB tier is a third of the remaining allowance
   #     spent on a cache, and "no space left on device" mid-chunk looks like
   #     anything but a disk problem.
@@ -372,25 +372,25 @@ run_chunk() {
   # `OnceLock` on first use, so `std::env::set_var` inside a test is both useless
   # (an earlier test in the same process may already have resolved it) and
   # unsound under libtest's threads. Set here, it is inherited by `cargo test`,
-  # by the test binary, and by every `lila` child it spawns -- which covers both
+  # by the test binary, and by every `scriptw` child it spawns -- which covers both
   # the in-process and the guarded execution paths at once.
   #
-  # `LILA_CPU_PERCENT=100` is separately load-bearing: `run-watched.sh` routes
+  # `SCRIPTW_CPU_PERCENT=100` is separately load-bearing: `run-watched.sh` routes
   # through `capped.sh`, which silently pins to half the CPUs.
   stall=$(chunk_stall "$name")
-  LILA_CPU_PERCENT=100 \
-  LILA_FUNCTION_CACHE_LIMIT_BYTES=1073741824 \
-  LILA_MODULE_CACHE_LIMIT_BYTES=67108864 \
-  LILA_PROGRAM_CACHE_LIMIT_BYTES=67108864 \
+  SCRIPTW_CPU_PERCENT=100 \
+  SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES=1073741824 \
+  SCRIPTW_MODULE_CACHE_LIMIT_BYTES=67108864 \
+  SCRIPTW_PROGRAM_CACHE_LIMIT_BYTES=67108864 \
     ./scripts/run-watched.sh --label "rung1c-$name" --stall "$stall" -- \
     python3 scripts/limited_verification.py -- \
-      cargo test -p lila-cli --test cli -- --test-threads=1 "$@"
+      cargo test -p scriptw-cli --test cli -- --test-threads=1 "$@"
   rc=$?
   line=$(grep -E '^test result:' "$log" 2>/dev/null | tail -1)
   # The partition arithmetic, banked mechanically instead of left for a human
   # to re-derive from the logs. `running N tests` is what libtest selected and
   # `filtered out` is what it did not; per chunk the two must sum to the
-  # compiled test count (`cargo test -p lila-cli --test cli -- --list | tail -1`).
+  # compiled test count (`cargo test -p scriptw-cli --test cli -- --list | tail -1`).
   ran=$(grep -Eo '^running ([0-9]+) tests?' "$log" 2>/dev/null | tail -1 | awk '{print $2}')
   filtered=$(printf '%s' "$line" | grep -Eo '[0-9]+ filtered out' | awk '{print $1}')
   ran=${ran:-0}
@@ -415,7 +415,7 @@ run_chunk() {
   # chunk which measured nothing -- exactly what a missing `mod <stem>;` line in
   # tests/cli/main.rs produces.
   if [ "$ran" -eq 0 ]; then
-    echo "$name RAN ZERO TESTS: the filter selected nothing (missing 'mod $name;' in crates/lila-cli/tests/cli/main.rs?). NOT banked." >> "$RESULTS"
+    echo "$name RAN ZERO TESTS: the filter selected nothing (missing 'mod $name;' in crates/scriptw-cli/tests/cli/main.rs?). NOT banked." >> "$RESULTS"
     echo "rung1c: $name selected zero tests; not banked" >&2
     echo "=== $name END $(date -u +%Y-%m-%dT%H:%M:%SZ) ===" >> "$RESULTS"
     UNBANKED="$UNBANKED $name"
@@ -464,7 +464,7 @@ run_chunk() {
 # bank anyway, so exiting with the reason beats exiting without one.
 subset_test_count=$(module_test_count frontend_test262_subset)
 if [ "$subset_test_count" != "1" ]; then
-  echo "rung1c: crates/lila-cli/tests/cli/frontend_test262_subset.rs declares $subset_test_count test(s); it must hold exactly ONE." >&2
+  echo "rung1c: crates/scriptw-cli/tests/cli/frontend_test262_subset.rs declares $subset_test_count test(s); it must hold exactly ONE." >&2
   echo "rung1c: that module is isolated so nothing schedules beside it -- its single test peaks at 4.5-5.6 GiB RSS, and two of them under --test-threads=3 do not fit this box. Move the new test to frontend.rs." >&2
   exit 1
 fi
@@ -528,8 +528,8 @@ run_chunk array             array:: --skip typed_array::
 # process at all -- see below.) Every runner-level knob was tried and measured:
 #
 #   * per-tier cache limits at 256/64/64 MiB -- NO EFFECT, same trajectory. They
-#     bound bytes on disk (`lila-engine/src/cache.rs`), not RSS.
-#   * `LILA_CPU_PERCENT` -- overridden by `run_chunk` above, and a CPU share
+#     bound bytes on disk (`scriptw-engine/src/cache.rs`), not RSS.
+#   * `SCRIPTW_CPU_PERCENT` -- overridden by `run_chunk` above, and a CPU share
 #     is not a memory lever anyway.
 #   * `--test-threads` below 3 -- formerly prohibited; the current resource
 #     policy instead requires one test thread and the kernel budget.
@@ -537,7 +537,7 @@ run_chunk array             array:: --skip typed_array::
 # That list is three ENVIRONMENT knobs, and an earlier version of this comment
 # called the split "the only remaining lever" on the strength of it. It is not:
 # the list never examined in-process retention, and there is a named CANDIDATE
-# mechanism there. `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`lila-engine/src/lib.rs:74`)
+# mechanism there. `WASM_MODULE_MEMORY_CACHE_ENTRIES` (`scriptw-engine/src/lib.rs:74`)
 # bounds an LRU of fully compiled Wasmtime modules BY ENTRY COUNT AND BY NOTHING
 # ELSE -- 64 entries, no byte ceiling -- and the in-process path these tests take
 # retains into it, i.e. one native module per distinct fixture. That is why the
@@ -566,8 +566,8 @@ run_chunk array             array:: --skip typed_array::
 # (`frontend_test262_subset.rs:123`), a real child, so the 5.55 GiB plateau is
 # the child's RSS across hundreds of test262 cases.
 #
-# `LILA_MODULE_MEMORY_CACHE_ENTRIES` now overrides the bound; bounding it by
-# bytes is the standing follow-up, and `LILA_MODULE_MEMORY_CACHE_ENTRIES=8`
+# `SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES` now overrides the bound; bounding it by
+# bytes is the standing follow-up, and `SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=8`
 # on one `language*` chunk is the cheap experiment that would settle the
 # paragraph above. Until it runs, do not justify a sizing decision by it.
 #

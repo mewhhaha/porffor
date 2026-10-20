@@ -53,7 +53,7 @@ class CalendarPreferenceAdmission(unittest.TestCase):
         proof=json.loads(outputs[generator.DEST/'provenance.json'])
         self.assertTrue(any(row['path'].endswith('common/bcp47/calendar.xml') for row in proof['inputs']))
         sources={row['path'] for row in proof['kernel_input']['sources']}
-        self.assertIn('crates/lila-intl/src/provider/datetime.rs',sources)
-        self.assertIn('crates/lila-intl/src/provider/datetime/generated/profile.json',sources)
+        self.assertIn('crates/scriptw-intl/src/provider/datetime.rs',sources)
+        self.assertIn('crates/scriptw-intl/src/provider/datetime/generated/profile.json',sources)
         self.assertNotIn((generator.NATIVE/'tests.rs').as_posix(),sources)
 if __name__=='__main__':unittest.main()

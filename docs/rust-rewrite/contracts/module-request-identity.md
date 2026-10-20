@@ -74,7 +74,7 @@ analyzer, `ModuleRequests` operation and export-entry operation all traverse or
 clone the full request through the typed owner. There is no parallel
 bare-specifier or raw-`ModuleRequest` re-export representation.
 
-Lila converts that request through the same `module_request` boundary in both
+Scriptw converts that request through the same `module_request` boundary in both
 the source-ordered requested-module pass and the export-entry pass. Star,
 namespace and named re-exports therefore retain the exact phase and attributes
 in every record table. Canonical attribute ordering still occurs once at the
@@ -89,7 +89,7 @@ These public surfaces now carry `ModuleRequestKeyIr`:
 - `ModuleGraphIr::resolutions`; and
 - `HostModuleLoader::resolve`.
 
-Both `lila-ir` and the public `lila-engine` loader face re-export the key type.
+Both `scriptw-ir` and the public `scriptw-engine` loader face re-export the key type.
 
 An embedder that previously constructed a `ModuleRequestIr` resolution row or
 implemented the loader trait with `&ModuleRequestIr` gets a type error and must
@@ -129,7 +129,7 @@ attributed import and re-export with opposite attribute orders to share one
 canonical request. An in-memory graph test supplies an attributed host
 resolution row independently of the retained parse and requires the named
 re-export to resolve through that exact key. The structural boundary in
-`crates/lila-ir/tests/attributed_reexport_request_structure.rs` pins the typed
+`crates/scriptw-ir/tests/attributed_reexport_request_structure.rs` pins the typed
 Boa AST owner and sole constructor, shared attribute parser, exhaustive
 consumer migration and these behavior witnesses.
 
@@ -142,13 +142,13 @@ evaluation dependencies to remain in their phaseful source order.
 
 ## Verification
 
-At 2026-09-01, the product-path `cargo check -p lila-ir --lib` is green. A
+At 2026-09-01, the product-path `cargo check -p scriptw-ir --lib` is green. A
 disposable external crate also compiles the vendored `boa_ast` path with its
 `serde` and `arbitrary` features enabled. Running `cargo check -p boa_ast` at
 the repository root is not a valid equivalent because the vendored crate is
 not a workspace member.
 
-The full `lila-front` suite passes `152/152`, including the focused duplicate-
+The full `scriptw-front` suite passes `152/152`, including the focused duplicate-
 attribute set at `3/3`. The attributed record and graph witnesses pass `2/2`;
 their surrounding record and graph groups pass `31/31` and `56/56`. The new
 typed-request structure target passes `4/4`, and its six adjacent structure
@@ -165,5 +165,5 @@ loader continues to reject every attributed request until it implements the
 requested module type. Direct record and in-memory graph tests establish this
 retention seam; no positive attributed-module execution or broad attribute-
 directory result is claimed. Boa's pre-existing attribute-order-sensitive
-`ModuleRequest` equality inside `ModuleItemList` is also unchanged; Lila's
+`ModuleRequest` equality inside `ModuleItemList` is also unchanged; Scriptw's
 canonical IR boundary remains the ordering authority for this slice.

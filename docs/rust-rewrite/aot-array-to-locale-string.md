@@ -57,14 +57,14 @@ that each test has a fresh process, a timeout, and a retained result:
 ```sh
 cargo fmt --all -- --check
 cargo check --locked --workspace
-cargo test --locked -p lila-aot-wasm --test array_to_locale_string_observable_structure
-LILA_MODULE_MEMORY_CACHE_ENTRIES=2 python3 scripts/run_engine_regression_inventory.py \
+cargo test --locked -p scriptw-aot-wasm --test array_to_locale_string_observable_structure
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=2 python3 scripts/run_engine_regression_inventory.py \
   aot_builtins --module aot_array_to_locale_string_observable --output-dir /tmp/locale-engine --timeout 120
-cargo build --locked -p lila-cli
-./target/debug/lila test262 run built-ins/Array/prototype/toLocaleString/ \
+cargo build --locked -p scriptw-cli
+./target/debug/scriptw test262 run built-ins/Array/prototype/toLocaleString/ \
   --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 \
   --snapshot-dir /tmp/locale-test262 --snapshot-name array-toLocaleString
-./target/debug/lila test262 run built-ins/TypedArray/prototype/toLocaleString/ \
+./target/debug/scriptw test262 run built-ins/TypedArray/prototype/toLocaleString/ \
   --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 \
   --snapshot-dir /tmp/locale-test262 --snapshot-name typed-array-toLocaleString
 ```

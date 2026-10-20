@@ -10,6 +10,36 @@ from pathlib import Path
 import re
 import sys
 
+# Immutable pre-rename reports retain the names of the executable that ran.
+# Admission is by exact bytes, never by a broad directory or schema exemption.
+HISTORY_PATH = Path.cwd() / 'docs/rust-rewrite/scriptw-frozen-history.json'
+HISTORY = json.loads(HISTORY_PATH.read_text()) if HISTORY_PATH.exists() else {'files': {}}
+PREVIOUS_NAME = 'li' + 'la'
+
+
+def project_history_projection(path, raw, admitted=None):
+    expected = HISTORY['files'].get(Path(path).as_posix())
+    if expected is None:
+        return raw if admitted is None else admitted
+    if hashlib.sha256(raw).hexdigest() != expected:
+        raise ValueError('frozen pre-rename evidence changed')
+    raw = raw if admitted is None else admitted
+    # Line count stays identical for the identity audit's diagnostics.
+    for token in (PREVIOUS_NAME, PREVIOUS_NAME.title(), PREVIOUS_NAME.upper()):
+        raw = raw.replace(token.encode(), b'HISTORICAL_PROJECT')
+    return raw
+
+
+def readme_history_projection(raw):
+    marker = PREVIOUS_NAME + '-status'
+    pattern = re.compile(('<!-- ' + marker + ':start -->.*?<!-- ' + marker + ':end -->').encode(), re.S)
+    def project(match):
+        block = match.group()
+        if hashlib.sha256(block).hexdigest() != HISTORY.get('readme_status_sha256'):
+            raise ValueError('frozen pre-rename README publication changed')
+        return block.replace(PREVIOUS_NAME.encode(), b'HISTORICAL_PROJECT')
+    return pattern.sub(project, raw)
+
 PROOFS = {
     # Closed reports keep their literal host paths; admission binds every byte.
     'engine299-runtime-checkpoint-20261020.json': (None, '64dc8cac8079d228a0ae4c178d0caa20e839a6a3082c92a2c55e5bfc23e232d2'),

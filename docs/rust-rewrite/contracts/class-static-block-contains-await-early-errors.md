@@ -17,7 +17,7 @@ lowering or static-block execution.
 Pinned `boa_parser-0.21.1` has one producer in
 `parser/statement/declaration/hoistable/class_decl/mod.rs`. It constructs the
 exact message `invalid await usage`; Boa's `Error::General` display renders
-that as `invalid await usage at line L, col C` before Lila classifies it.
+that as `invalid await usage at line L, col C` before Scriptw classifies it.
 
 The adjacent fragment `invalid await usage at line` is deliberately the
 classifier key. Boa also has a distinct producer whose rendered message is
@@ -48,7 +48,7 @@ under the generic malformed-parse bucket; the repaired contract is the typed
 condition and retained-module projection, not a claim of newly visible runtime
 behavior or broad T07 closure.
 
-At `2026-08-23`, the capped serial `lila-front` gate passes `49/49`, the
-focused `lila-ir` early-error gate passes `3/3`, and the exact pinned witness
+At `2026-08-23`, the capped serial `scriptw-front` gate passes `49/49`, the
+focused `scriptw-ir` early-error gate passes `3/3`, and the exact pinned witness
 passes `2/2` Wasm-AOT executions. Every parser, early-error, lowering, runtime,
 backend, harness, unsupported, crash and bug bucket is zero for that witness.

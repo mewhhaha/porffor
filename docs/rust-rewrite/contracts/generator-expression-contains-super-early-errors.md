@@ -72,7 +72,7 @@ The closed front domain and parse table grow from 68 to 69 entries. One
 `StartsWith` row maps the complete fixed prefix to
 `GeneratorExpressionContainsSuper`. An evaluated parse-owner witness, exact
 single-owner assertion, table-wide disjointness and wire-name proofs, and
-`lila-ir`'s no-catch-all rejection-kind match make the addition structural.
+`scriptw-ir`'s no-catch-all rejection-kind match make the addition structural.
 
 Classifier checks keep the prefix distinct from the remaining raw and method-owned
 messages and from the separately typed function-expression prefixes. A
@@ -158,9 +158,9 @@ cohort.
 The coordinated batch verifier ran:
 
 ```sh
-cargo test -p lila-front --lib -- --test-threads=1
-cargo test -p lila-ir modules::early -- --test-threads=1
-cargo test -p lila-ir modules::graph -- --test-threads=1
+cargo test -p scriptw-front --lib -- --test-threads=1
+cargo test -p scriptw-ir modules::early -- --test-threads=1
+cargo test -p scriptw-ir modules::graph -- --test-threads=1
 ```
 
 The complete front library passes `142/142`; the relevant IR module-early and

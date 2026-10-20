@@ -14,5 +14,5 @@ intrinsic allocation. Those remain separate T06 work.
 
 ## Evidence
 
-- `crates/lila-runtime/tests/realm_id_allocation_structure.rs`
-- `lila_runtime::tests::realm_builder_assigns_unique_realm_ids_in_one_agent`
+- `crates/scriptw-runtime/tests/realm_id_allocation_structure.rs`
+- `scriptw_runtime::tests::realm_builder_assigns_unique_realm_ids_in_one_agent`

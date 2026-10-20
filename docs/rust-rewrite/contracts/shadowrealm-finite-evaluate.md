@@ -64,7 +64,7 @@ is restored. The native boundary consumes the flag to preserve source
 SyntaxErrors while applying wrapped-value and target-error rules to execution.
 All Realm, environment and completion values use existing rooted GC locals.
 
-Authored controls in `lila-ir/src/tests/prepared_eval.rs` cover distinct units,
+Authored controls in `scriptw-ir/src/tests/prepared_eval.rs` cover distinct units,
 aliases, nested candidates, strict variable ownership and deferred early errors.
 `aot_shadow_realm_prepared_evaluate` covers repeated lexical declarations,
 retained lexical closures, strict/sloppy variable lifetimes, explicit receiver

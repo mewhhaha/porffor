@@ -63,7 +63,7 @@ Verify the entire Intl library, all299 Engine Intl IDs, actual frame/identity
 parity and the original worker budgets before accepting the change. No native
 verification or timeout repair is established for this candidate yet.
 
-Engine `aot_intl` test setup honors the runner's bounded `LILA_JOBS`, capped
+Engine `aot_intl` test setup honors the runner's bounded `SCRIPTW_JOBS`, capped
 to actual available CPUs. An absent setting selects one job; invalid settings
 fail. This repairs55 hardcoded serial setup calls while keeping the whole299
 inventory and all fixture/assertion/deadline checks. The complete299 IDs pass
@@ -76,7 +76,7 @@ a controlled product-speedup claim. Full-suite and timeout acceptance remain ope
 The workspace runner normally pins each native executable to one CPU. An outer
 `--cloud-cpus auto` does not change that child policy. To let an exact complete
 target use the inherited quota for Wasmtime and code generation, add
-`--native-target-cpus auto --native-cpu-target lila-engine:lila_engine` to
+`--native-target-cpus auto --native-cpu-target scriptw-engine:scriptw_engine` to
 `scripts/run_workspace_tests.py`, launched under
 `scripts/limited_verification.py --cloud --cloud-cpus auto`. Repeat
 `--native-cpu-target PACKAGE:TARGET` for additional complete scopes and include
@@ -88,8 +88,8 @@ deadlines, cache limits and watcher allowance. The child resource receipt binds
 actual affinity, native/Rayon jobs, Cargo jobs and libtest threads. The opt-in
 rejects filtered targets, documentation, timing/campaign barriers and
 partitioned targets; the separate differential CPU option retains its policy.
-The exact whole `lila-cli:fake_suite_publication` test is also eligible: add
-`--native-target-cpus auto --native-cpu-target lila-cli:fake_suite_publication`.
+The exact whole `scriptw-cli:fake_suite_publication` test is also eligible: add
+`--native-target-cpus auto --native-cpu-target scriptw-cli:fake_suite_publication`.
 It remains one idle-exclusive libtest scope. Its two existing case workers
 share the inherited CPU budget; explicit CLI `--jobs 1`, worker count and
 900-second deadline stay unchanged. This opt-in has focused scheduler coverage;
@@ -126,7 +126,7 @@ retention only. Keep CONTINUE and tasks until all literal acceptance gates pass.
 
 ## Diagnose native source compilation — 2026-10-18
 
-`LILA_NATIVE_SOURCE_TRACE=1` enables the existing execution-local timing trace,
+`SCRIPTW_NATIVE_SOURCE_TRACE=1` enables the existing execution-local timing trace,
 bounded to 256 callbacks. Each traced module lookup now also reports the
 in-memory module-cache result and Cranelift function-cache hit/miss deltas. The default path does
 not obtain the cache or read those counters. A missing function cache is reported
@@ -143,9 +143,9 @@ bypass module lookup entirely. Diagnostic output does not establish acceptance.
 
 ## Opt-in Intl incremental scratch — 2026-10-18
 
-Set `CARGO_INCREMENTAL=1 LILA_TEST_KEEP_INTL_INCREMENTAL=1` alongside
+Set `CARGO_INCREMENTAL=1 SCRIPTW_TEST_KEEP_INTL_INCREMENTAL=1` alongside
 `--no-test-incremental` to retain Cargo's existing incremental argument for the
-normal `lila_intl` library. The cloud activation script defaults Cargo incremental
+normal `scriptw_intl` library. The cloud activation script defaults Cargo incremental
 compilation to zero, so both environment variables are required there.
 The wrapper still removes incremental scratch from every libtest and other
 normal crate. It adds no incremental argument to release builds or queries.
@@ -170,7 +170,7 @@ against clean source112a765c1 after restoring the private edit. See the
 
 ## Opt-in bounded Rustc code generation — 2026-10-18
 
-Set `LILA_TEST_CODEGEN_JOBS=auto` when launching the cloud verification runner
+Set `SCRIPTW_TEST_CODEGEN_JOBS=auto` when launching the cloud verification runner
 with its shared runtime linker. The existing compiler wrapper then gives each
 serial Cargo compilation a private LLVM jobserver: one implicit slot plus one
 pipe token for each additional admitted CPU. It validates the inherited finite
@@ -180,21 +180,21 @@ default mode retain the original environment. Native tests keep their original
 worker counts, deadlines and cache limits.
 
 For the bounded workspace command below, prefix its invocation with
-`LILA_TEST_CODEGEN_JOBS=auto`; keep `--cloud-worker-cpus auto` so the coordinator
+`SCRIPTW_TEST_CODEGEN_JOBS=auto`; keep `--cloud-worker-cpus auto` so the coordinator
 can assign the available CPUs. This is an explicit scheduling option and adds
 no optimization flags or Cargo artifact profile.
 
 All 11 controls pass. Two fresh 1,024-function Cargo fixture builds match an
 independent Python checksum. Switching the option in either direction reuses the
 same Cargo artifacts with unchanged output bytes, inodes and timestamps. The
-fixture ran alongside product compilation; its timings do not establish a Lila
+fixture ran alongside product compilation; its timings do not establish a Scriptw
 rebuild speedup. See the [lossless fixture](bounded-rustc-codegen-20261018.json).
 
 ### Choose LLVM capacity before compilation — 2026-10-19
 
 For expensive uncached compilation, add `--idle-builds` to
 `scripts/run_workspace_tests.py`, together with `--no-test-incremental` and
-`LILA_TEST_CODEGEN_JOBS=auto`. The runner drains its owned native tests before
+`SCRIPTW_TEST_CODEGEN_JOBS=auto`. The runner drains its owned native tests before
 an uncached Cargo build, then uses the existing bounded idle compilation
 command. Already built scopes may still execute concurrently. Receipts record
 the option and each drain; continuation requires the same policy.
@@ -207,7 +207,7 @@ with four CPUs took5.58/8.81s at about two average CPUs. An initial single-unit
 fixture is retained as a negative control. All99 workspace and37 cloud-budget
 controls pass, including actual scheduling-flow checks for uncached opt-in,
 cached opt-in and the default overlap. A real plan-only invocation retains its
-selected scope. This is a small compiler probe, not a measured full Lila build
+selected scope. This is a small compiler probe, not a measured full Scriptw build
 speedup. [Exact source, commands, outcomes and controls](idle-codegen-startup-capacity-20261019.json).
 
 Current native-cost observations — 2026-10-19: the complete four-scope cohort
@@ -251,13 +251,13 @@ its required-feature binary. A selected core run does not cover this inventory.
 On machines that cannot retain all integration ELFs, run:
 
 ```sh
-. /workspace/.lila-tools/activate.sh
+. /workspace/.scriptw-tools/activate.sh
 python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
   python3 -B scripts/run_workspace_cohorts.py \
   --output target/workspace-default-fresh --cohort-size 8 --test-processes 4 \
-  --isolate-test-package lila-intl \
-  --partition-native-target lila-engine:lila_engine \
-  --partition-native-target lila-engine:aot_realm_modules
+  --isolate-test-package scriptw-intl \
+  --partition-native-target scriptw-engine:scriptw_engine \
+  --partition-native-target scriptw-engine:aot_realm_modules
 ```
 
 The outer runner seals the complete inventory before executing any cohort.
@@ -286,7 +286,7 @@ later retirement without rewriting the earlier evidence.
 A failed or deferred cohort leaves acceptance false and all missing targets
 open. Complete acceptance requires every original qualified target exactly
 once, with the separately identified zero-test auxiliary omitted from totals.
-Planning and fixture controls never count as Lila native acceptance. The outer
+Planning and fixture controls never count as Scriptw native acceptance. The outer
 coordinator does not yet offer interruption resume; its child receipts retain
 their existing exact-source continuation contract.
 
@@ -351,7 +351,7 @@ fixture bytes; actual native staging has a separate executable-bound owner.
 Run from the repository root after writing the whole batch:
 
 ```sh
-. /workspace/.lila-tools/activate.sh
+. /workspace/.scriptw-tools/activate.sh
 python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
   python3 -B scripts/run_workspace_tests.py --output target/workspace-fresh \
   --all-features --include-ignored --test-processes 4 --partition-cli \
@@ -362,7 +362,7 @@ python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
 Use the available Rust toolchain activation path on other hosts. Omit
 `--all-features` for the independent default-feature suite and its oracle-refusal
 controls. By default, every Cargo selector uses the selected workspace package
-graph. `--isolate-test-package lila-intl` explicitly gives that package its own
+graph. `--isolate-test-package scriptw-intl` explicitly gives that package its own
 test cohort and excludes its test root from the other native cohorts. This
 prevents its test-only ICU `compiled_data` feature from widening those cohorts;
 normal transitive dependencies remain present. It changes neither selected
@@ -374,7 +374,7 @@ Build-time savings require actual Cargo measurements; helper checks alone do
 not establish a gain. For a bounded selection, `--build-selected-together`
 builds the union of its normal native selectors in one Cargo invocation. For
 example, the five-target core selection combines `--lib`, `--test aot_realm_modules`
-and `--test lila_ir_integration` on the same workspace roots. This avoids switching
+and `--test scriptw_ir_integration` on the same workspace roots. This avoids switching
 between separate library and integration dependency graphs. Isolated packages
 and documentation keep their own cohorts. Same-selector unselected siblings
 remain explicitly unexecuted; each selected target retains its original
@@ -413,10 +413,10 @@ Its existing three assertions can run before any workspace build:
 
 ```sh
 mkdir -p target/structure-preflight
-CARGO_MANIFEST_DIR="$PWD/crates/lila-ir" \
+CARGO_MANIFEST_DIR="$PWD/crates/scriptw-ir" \
   python3 -B scripts/limited_verification.py --cloud -- \
   rustc --edition=2021 --test \
-  crates/lila-ir/tests/annex_b_direct_function_collection_structure.rs \
+  crates/scriptw-ir/tests/annex_b_direct_function_collection_structure.rs \
   --crate-name annex_source_structure_preflight -C debuginfo=0 \
   -o target/structure-preflight/annex-source-structure
 python3 -B scripts/limited_verification.py --cloud -- \
@@ -432,7 +432,7 @@ as the complete IR integration target without linking its dependency graph.
 Complete integration and workspace runs remain required for acceptance.
 
 The complete workspace coordinator uses `--cloud-worker-cpus auto`: it needs
-all explicitly selected native worker CPUs even when `LILA_JOBS=1` and
+all explicitly selected native worker CPUs even when `SCRIPTW_JOBS=1` and
 `RAYON_NUM_THREADS=1`. Its nested partition coordinator uses the same mode.
 Using `--cloud-cpus auto` there would shrink the worker set to the native
 compilation job limit. Cargo builds keep their separate compilation policy.
@@ -447,10 +447,10 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   python3 -B scripts/run_workspace_tests.py --all-features --include-ignored \
   --output target/differential-native --test-processes 1 \
   --differential-native-cpus auto \
-  --only-targets lila-test262:differential_generated_campaign
+  --only-targets scriptw-test262:differential_generated_campaign
 ```
 
-Existing `LILA_JOBS` and `RAYON_NUM_THREADS` limits still apply. The coordinator
+Existing `SCRIPTW_JOBS` and `RAYON_NUM_THREADS` limits still apply. The coordinator
 drains independent scopes first and seals actual affinity, native jobs and the
 unchanged serial libtest setting. Performance, publication, documentation and
 other scopes keep their existing CPU policy. Continuations must preserve this
@@ -474,7 +474,7 @@ fresh-cache gate remains three passes/one original5,000ms timeout. Preserve each
 complete result and all preceding red observations; broader gates remain open.
 [Lossless checkpoint](runtime-admission-checkpoint-20261019.json).
 
-The CLI accepts `LILA_JOBS` as the native compilation default; an explicit
+The CLI accepts `SCRIPTW_JOBS` as the native compilation default; an explicit
 `--jobs N` wins. Differential runners also accept that explicit environment
 setting or `new_with_compilation_jobs(path, N)`, otherwise defaulting to one. The selected
 worker receives the positive job count before constructing its Engine. This
@@ -486,9 +486,9 @@ For a conformance command that already specifies its worker count, give the
 workers the inherited CPU set bounded by the tightest visible cgroup CPU quota:
 
 ```sh
-LILA_JOBS=1 RAYON_NUM_THREADS=1 \
+SCRIPTW_JOBS=1 RAYON_NUM_THREADS=1 \
   python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
-  ./target/release/lila --jobs 1 test262 run --execution-backend wasm-aot --threads 3
+  ./target/release/scriptw --jobs 1 test262 run --execution-backend wasm-aot --threads 3
 ```
 
 Keep the command's existing worker count, deadlines and other arguments. This
@@ -496,7 +496,7 @@ option selects CPU affinity independently of native compilation job limits;
 Cargo, libtest and native compilation defaults remain one. It preserves explicit
 CLI arguments and feature flags. It requires `--cloud` and cannot be combined
 with `--cloud-cpus auto`, which continues to bound both native compilation jobs
-and CPU affinity by explicit `LILA_JOBS` / `RAYON_NUM_THREADS` limits. Neither
+and CPU affinity by explicit `SCRIPTW_JOBS` / `RAYON_NUM_THREADS` limits. Neither
 option expands inherited affinity or the machine's visible CPU quota.
 
 ## Opt-in iteration tooling — 2026-10-11
@@ -507,14 +507,14 @@ between native test executables. Prefix PATH with
 `target/debug/deps`. Product links and doctests use the static archive. Cargo
 can reuse an old static test binary because PATH does not change its unit
 fingerprint; remove only that completed test executable and rebuild if it defines
-the runtime-image symbols and `readelf -d` shows no `liblila_runtime_images_*`
+the runtime-image symbols and `readelf -d` shows no `libscriptw_runtime_images_*`
 dependency. A test that uses no runtime image needs no shared dependency. The cache key binds the
 archive, linker, builder and target; symbol bytes are verified before admission.
 Each successful test link records its executable digest and shared-image identity
 in `target/shared-test-runtime-images/test-links.jsonl`. Keep the cache while
 any such test executable is in use.
 
-Set `LILA_TEST_STRIP_DEBUG=1` with that linker to remove DWARF sections from
+Set `SCRIPTW_TEST_STRIP_DEBUG=1` with that linker to remove DWARF sections from
 those native test executables after linking and before the executable digest is
 sealed. Every allocated ELF section must retain its exact bytes, flags, address
 and alignment. Global symbols and compiled panic locations remain; Rust
@@ -525,7 +525,7 @@ completed older test executable before claiming stripping. Never rewrite a
 running executable. The linker event records the original/transformed digests,
 size, tool identity and allocated-section census.
 
-`lila test262 run --reuse-case-workers` opts into at most 64 sequential requests
+`scriptw test262 run --reuse-case-workers` opts into at most 64 sequential requests
 per supervised process, sharing compiler/runtime caches. Every case still
 creates a fresh Engine, Realm, Store, GC state and native agent ownership.
 The parent retains its original absolute attempt budget and exact snapshot,
@@ -769,7 +769,7 @@ complete in a 765-second checkpoint: three pass, two fail and none are ignored.
 Ordinary Await now validates and preserves lexical state/rejection; awaited
 iterator closing passes; the unchanged original mixed array lifecycle passes in
 both strict and sloppy modes. The dedicated Symbol fixture incorrectly called
-an unloaded `$262` harness; its repair uses the actual `__lilaCreateRealm` hook
+an unloaded `$262` harness; its repair uses the actual `__scriptwCreateRealm` hook
 and checks the full symbol catalog in one loop to avoid duplicating native code.
 The Atomics progress control fails earlier at shared typed-array admission; a
 bounded diagnostic retains the actual view and buffer identities. Affected
@@ -792,7 +792,7 @@ Native compilations take 76.31, 89.76 and 114.98 seconds under the same cap.
 The next batch runs the complete IR suite and native JSON, rooted graph,
 selected-worker, generated campaign and URI/prelude/filesystem controls in order.
 Upcoming standalone graph and async-switch fixtures now call the exposed `gc`
-and `__lilaCreateRealm` hooks instead of an unloaded `$262` harness. Existing
+and `__scriptwCreateRealm` hooks instead of an unloaded `$262` harness. Existing
 worker deadlines and generated conformance counts remain unchanged.
 `tasks-ir-native-records1` passes all 2,094 IR unit/integration controls across
 141 targets, with none failed or ignored. Its documentation scope separately
@@ -812,7 +812,7 @@ root and job output survive, but admission reports a duplicate own property key.
 Function allocation publishes `name`, then inferred naming appended a second
 entry. The joined source repair uses ordinary descriptor definition, addresses
 the checked private loop cell directly through its invocation frame, and fixes
-the fixture URL to `lila://`. Existing naming controls also check own-key
+the fixture URL to `scriptw://`. Existing naming controls also check own-key
 uniqueness. The whole repair precedes affected compilation and native controls;
 worker/campaign deadlines and graph admission remain unchanged.
 
@@ -929,7 +929,7 @@ Each native test has a fresh process, one retained module and a 64 MiB image
 cache, inside the unchanged one-CPU/4096-MiB/no-swap scope. This includes both
 publication modes after the earlier OOM. Read-only inspection of the actual
 cached publication artifact attributes its 1,520,883-byte largest body to
-`lila::main`; the prior scheduling-fixture body limits are unchanged. The two
+`scriptw::main`; the prior scheduling-fixture body limits are unchanged. The two
 constructor controls retain their earlier successful paired-mode results.
 Remaining native acceptance builds its selected targets together, resolves
 actual libtest names, then runs every selected original test in a fresh process
@@ -964,8 +964,8 @@ returns an unexpected Throw, and its partial-date fixture has the same missing
 helper import. The joined repairs are still unverified natively.
 
 Collection also exposes three test-setup errors. The oracle entry test's
-`lila-test:` URL is rejected by the embedded graph constructor, which requires
-`lila://`. The resource fixture puts `using` directly in switch clauses, where
+`scriptw-test:` URL is rejected by the embedded graph constructor, which requires
+`scriptw://`. The resource fixture puts `using` directly in switch clauses, where
 the existing typed early error is correct. Its correction adds explicit
 Blocks and asserts disposal before fallthrough and labelled exit. A bounded
 search finds the same issue in both mixed resource fixture files and the native
@@ -1542,7 +1542,7 @@ Pick the cheapest rung that can answer the question in front of you.
 | Rung | Command | Cost | Catches | Does not catch |
 |---|---|---|---|---|
 | 0 | `cargo check -p <crate>` / `cargo xc` | 1–5 s / 15–40 s | types, borrows, missing match arms | anything semantic |
-| 1 | `cargo test -p lila-ir`, focused `-p lila-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
+| 1 | `cargo test -p scriptw-ir`, focused `-p scriptw-engine <filter>` | 30 s–3 min | lowering/IR/engine semantics | real-harness shapes (`$262`, `propertyHelper`, async `$DONE`) |
 | 1b | one CLI area module, e.g. `--test cli array::` | 1–3 min | that area's end-to-end CLI behaviour | every other area |
 | 1c | the whole CLI suite, run as resumable area chunks by `scripts/rung1c-chunks.sh` (recount the current partition and tests; see below) | **~26 min** at `--test-threads=8` on 16 CPUs; ~2.5 h at `--test-threads=3` on 4 CPUs | end-to-end CLI behaviour | conformance beyond the fixture corpus |
 | G | golden capture + `diff -r` (see below) | ~10 min each side | **any** change in emitted bytes | nothing, for refactors — this is the refactor gate |
@@ -1561,7 +1561,7 @@ extrapolate one module's cost to the suite.
 
 ### Engine integration tests are grouped by area
 
-Each `crates/lila-engine/tests/<area>/main.rs` is one Cargo test target; the
+Each `crates/scriptw-engine/tests/<area>/main.rs` is one Cargo test target; the
 former per-file targets are modules of it
 (`tests/<area>/<module>.rs`, test path `<module>::<test>`). Every target links
 Wasmtime/Cranelift/ICU, so one binary per area keeps both link time and disk use
@@ -1569,8 +1569,8 @@ bounded while still isolating areas in separate processes. Select a file with a
 module filter, and a single test with `--exact`:
 
 ```sh
-cargo test --locked -p lila-engine --test aot_intl -- aot_intl_collator:: --test-threads=1
-cargo test --locked -p lila-engine --test aot_intl -- aot_intl_collator::<test> --exact
+cargo test --locked -p scriptw-engine --test aot_intl -- aot_intl_collator:: --test-threads=1
+cargo test --locked -p scriptw-engine --test aot_intl -- aot_intl_collator::<test> --exact
 ```
 
 Areas: `aot_async`, `aot_builtins`, `aot_gc_entries`, `aot_generators`,
@@ -1579,18 +1579,18 @@ Areas: `aot_async`, `aot_builtins`, `aot_gc_entries`, `aot_generators`,
 `runtime_cache` (tests that re-execute their own binary with a private cache).
 New integration tests are new modules of the matching area; keep a test that
 needs a pristine process in `runtime_cache`. Any test that compiles must call
-`lila_engine::configure_compilation_jobs(1)` first, because modules of one area
+`scriptw_engine::configure_compilation_jobs(1)` first, because modules of one area
 share a process and its one compilation pool.
 
 ### Wasm backend integration tests are grouped by area
 
-`crates/lila-aot-wasm/tests/<area>/main.rs` is one Cargo test target per area; each
+`crates/scriptw-aot-wasm/tests/<area>/main.rs` is one Cargo test target per area; each
 former per-file target is a module of it (`tests/<area>/<module>.rs`, test path
 `<module>::<test>`), for the same link-time and disk reasons as the engine
 targets. Select one former file with a module filter:
 
 ```sh
-cargo test --locked -p lila-aot-wasm --test intl_temporal -- temporal_instant_epoch_proof_structure::
+cargo test --locked -p scriptw-aot-wasm --test intl_temporal -- temporal_instant_epoch_proof_structure::
 ```
 
 Areas: `emission` (artifact, body, size and emission tests, `product_artifact`,
@@ -1612,7 +1612,7 @@ exactly like this. No `--skip`:
 ```sh
 ./scripts/run-watched.sh --label b3-cli --stall 900 -- \
   python3 scripts/limited_verification.py -- \
-    cargo test -p lila-cli --test cli -- --test-threads=1
+    cargo test -p scriptw-cli --test cli -- --test-threads=1
 ```
 
 On a container that restarts hourly, that invocation cannot finish, and the
@@ -1628,8 +1628,8 @@ It was not the *only* lever, and the note that said so had checked only
 environment knobs. The predecessor's in-process Wasmtime module LRU was a
 retention candidate bounded only by 64 entries. The 2026-10-03 dry implementation
 now uses a private owner with both that entry cap and a 512 MiB compilation-image
-budget. `LILA_MODULE_MEMORY_CACHE_ENTRIES` and
-`LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES` override the positive limits. Oversized
+budget. `SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES` and
+`SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES` override the positive limits. Oversized
 modules execute without retention. This bounds cache-held code/data/debug images,
 not active instances, compilation or RSS; the historical OOM cause and a fresh
 completed run remain unverified. See the
@@ -1656,7 +1656,7 @@ judge a long run by whether its **log is still growing**, never by elapsed time
 against an estimate.
 
 **Do not compare the result against a document.** The expected non-green
-outcomes are tracked in `crates/lila-cli/tests/known-failures.tsv` and the
+outcomes are tracked in `crates/scriptw-cli/tests/known-failures.tsv` and the
 suite enforces them itself, so a green rung 1c means "exactly the declared
 outcomes, for the declared reasons" and a red one means something moved. Seven
 kinds of drift are failures rather than notes someone has to remember:
@@ -1669,7 +1669,7 @@ kinds of drift are failures rather than notes someone has to remember:
 | declared test renamed or deleted | `cargo xc`: E0425/E0603 on a `const _` line |
 | ledger row with no test, or test with no row | `known_failures::*` hygiene tests |
 | `#[ignore]` added with no owner | `known_failures::every_ignored_test_is_declared` |
-| **hang in an undeclared test** | `lila run exceeded ... in process` after the hang timeout |
+| **hang in an undeclared test** | `scriptw run exceeded ... in process` after the hang timeout |
 
 That last row is the one the table used to be missing, and its absence was not
 cosmetic. `execution_path` routes only *declared* hangs to the guarded
@@ -1725,7 +1725,7 @@ Two naming traps, both of which have cost time:
    accepts only that spelling. A wrapped or `\`-continued attribute fails the
    hygiene tests with a pointed message — and the `\`-continued form is already
    idiomatic in this tree for long `#[ignore = "..."]` reasons
-   (`crates/lila-aot-wasm/src/planning.rs`), so a contributor following local
+   (`crates/scriptw-aot-wasm/src/planning.rs`), so a contributor following local
    convention will trip it. Shorten the substring instead of wrapping the line.
 5. Re-run until green.
 
@@ -1752,7 +1752,7 @@ log goes quiet for `--stall` seconds is killed and reported with exit code 124.
 ```sh
 ./scripts/run-watched.sh --label sweep --stall 900 -- \
   python3 scripts/limited_verification.py -- \
-    ./target/release/lila test262 report-all --resume --threads 1 --jobs 1
+    ./target/release/scriptw test262 report-all --resume --threads 1 --jobs 1
 ```
 
 Judge a long run by whether its **log is still growing**, never by elapsed time
@@ -1771,34 +1771,34 @@ git check-ignore -v <path>   # exit 1 = tracked. exit 0 prints the rule eating i
 This has already cost this repository two files. The historical
 `benchmarks/wasm-aot-20.txt` workload was machine-local for exactly this reason.
 The 2026-10-04 source successor consumes its unchanged twenty-case order through
-the private compiled `crates/lila-cli/tests/perf/chunk_cases.rs` corpus: each name
+the private compiled `crates/scriptw-cli/tests/perf/chunk_cases.rs` corpus: each name
 requires its actual fixture at compile time, and the fixed array enforces twenty.
 The probes retain their exact timing spans, limits and opt-in policy; Rust type/
 hygiene checks passed at ref105; actual timing acceptance remains pending. See the
 [portable corpus contract](contracts/portable-performance-corpus.md). An earlier
-`crates/lila-cli/tests/known-failures.txt` was silently dropped while this
+`crates/scriptw-cli/tests/known-failures.txt` was silently dropped while this
 document and `README.md` went on citing it for three batches — nobody noticed,
 because the suite that would have used it could not be run.
 
 Use `.tsv` for hand-maintained tables; that is already the convention
 (`test262/backlog/ownership-map.tsv`, `test262/backlog/shortcut-allowlist.tsv`,
-`crates/lila-cli/tests/known-failures.tsv`). Do **not** "fix" this with a `!`
+`crates/scriptw-cli/tests/known-failures.tsv`). Do **not** "fix" this with a `!`
 negation in `.gitignore`: `*.txt` has real users, and the next such file walks
 into the same trap. Better still, give the file a consumer that fails without it
 — `known-failures.tsv` is an `include_str!`, so its absence is a compile error.
 
 ### Rung G — the refactor gate
 
-`crates/lila-aot-wasm/tests/emission/emit_golden.rs` runs the real
+`crates/scriptw-aot-wasm/tests/emission/emit_golden.rs` runs the real
 `parse -> lower -> emit` pipeline over every `.js` file in the current CLI
 fixture corpus and records emitted byte length, a content hash, and the backend
-`debug_dump` per fixture. It is inert unless `LILA_GOLDEN_OUT` is set.
+`debug_dump` per fixture. It is inert unless `SCRIPTW_GOLDEN_OUT` is set.
 
 ```sh
 git stash
-LILA_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
+SCRIPTW_GOLDEN_OUT=$PWD/target/golden/before python3 scripts/limited_verification.py -- cargo test -p scriptw-aot-wasm --test emission -- emit_golden:: --test-threads=1
 git stash pop
-LILA_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p lila-aot-wasm --test emission -- emit_golden:: --test-threads=1
+SCRIPTW_GOLDEN_OUT=$PWD/target/golden/after python3 scripts/limited_verification.py -- cargo test -p scriptw-aot-wasm --test emission -- emit_golden:: --test-threads=1
 diff -r target/golden/before target/golden/after
 ```
 
@@ -1811,10 +1811,10 @@ When the refactor is spread across new files, `git stash` alone will not park it
 baseline, then restore:
 
 ```sh
-mv crates/lila-aot-wasm/src/intrinsics target/golden/intrinsics-parked
-git stash push -- crates/lila-aot-wasm/src/builtins/bootstrap.rs crates/lila-aot-wasm/src/lib.rs
+mv crates/scriptw-aot-wasm/src/intrinsics target/golden/intrinsics-parked
+git stash push -- crates/scriptw-aot-wasm/src/builtins/bootstrap.rs crates/scriptw-aot-wasm/src/lib.rs
 # ... capture baseline ...
-git stash pop && mv target/golden/intrinsics-parked crates/lila-aot-wasm/src/intrinsics
+git stash pop && mv target/golden/intrinsics-parked crates/scriptw-aot-wasm/src/intrinsics
 ```
 
 Empty diff means byte identity. This exists because the ordinary suites assert
@@ -1823,7 +1823,7 @@ assignment, or property installation order can leave every CLI test green
 while changing the emitted module. Two independent runs were verified
 byte-identical, so a non-empty diff is signal, not noise.
 
-Use it for **every** pure refactor of `lila-ir` or `lila-aot-wasm`. Do not
+Use it for **every** pure refactor of `scriptw-ir` or `scriptw-aot-wasm`. Do not
 use it for feature work — a feature is *supposed* to change the bytes.
 
 ## Running a batch
@@ -1875,14 +1875,14 @@ Temporal target below with the actual target inventory chosen for the batch:
 ```sh
 python3 scripts/limited_verification.py -- cargo xc --locked
 python3 scripts/limited_verification.py -- \
-  cargo test --locked -p lila-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
+  cargo test --locked -p scriptw-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
 ./scripts/run-watched.sh --label batch-workspace --stall 900 -- \
   python3 scripts/limited_verification.py -- \
     cargo test --locked --workspace --no-fail-fast --quiet -- --test-threads=1
-python3 scripts/limited_verification.py -- cargo build --locked -p lila-cli --bin lila
+python3 scripts/limited_verification.py -- cargo build --locked -p scriptw-cli --bin scriptw
 ./scripts/run-watched.sh --label batch-fake --stall 900 -- \
-  python3 scripts/limited_verification.py -- ./target/debug/lila --jobs 1 test262 run \
-    --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
+  python3 scripts/limited_verification.py -- ./target/debug/scriptw --jobs 1 test262 run \
+    --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 \
     --execution-backend wasm-aot --threads 1 \
     --snapshot-dir target/test262-scratch/batch-fake
 ```
@@ -1897,7 +1897,7 @@ evidence; full pinned conformance still requires its own completed run.
 ### 4. Gate (integrator)
 
 ```sh
-python3 scripts/limited_verification.py -- ./target/release/lila test262 shard 1/25 \
+python3 scripts/limited_verification.py -- ./target/release/scriptw test262 shard 1/25 \
   --snapshot-name gate-$(git rev-parse --short HEAD)-post \
   --snapshot-dir target/test262-scratch/gate \
   --threads 1 --jobs 1 --resume
@@ -1928,8 +1928,8 @@ Keep every non-authoritative snapshot under `target/test262-scratch/` (gitignore
 exists, use the commands that tolerate a partial sweep:
 
 ```sh
-./target/release/lila test262 triage-status   --snapshot-name baseline-wasm-aot-aa55200
-./target/release/lila test262 failure-details 'built-ins/Array/fromAsync' --snapshot-name baseline-wasm-aot-aa55200
+./target/release/scriptw test262 triage-status   --snapshot-name baseline-wasm-aot-aa55200
+./target/release/scriptw test262 failure-details 'built-ins/Array/fromAsync' --snapshot-name baseline-wasm-aot-aa55200
 ```
 
 `failure-details` is already the right shape for handing to an agent: it groups
@@ -1939,7 +1939,7 @@ by `(detail_hash, outcome, kind, origin)` with representative tests, i.e. one
 into `Crash`**, so a crash-ranked list promotes slow-but-correct cases above
 genuine defects until that is separated.
 
-Each fix lane verifies with its own prefix at rung 4. `lila test262 run <prefix>`
+Each fix lane verifies with its own prefix at rung 4. `scriptw test262 run <prefix>`
 exits non-zero unless `passed == total`, which is exactly the "start from a
 failing filter, end with it green" rule.
 
@@ -1947,10 +1947,10 @@ failing filter, end with it green" rule.
 
 ```sh
 setsid env \
-  LILA_FUNCTION_CACHE_LIMIT_BYTES=268435456 \
-  LILA_MODULE_CACHE_LIMIT_BYTES=134217728 \
-  LILA_PROGRAM_CACHE_LIMIT_BYTES=134217728 \
-  python3 scripts/limited_verification.py -- ./target/release/lila test262 report-all \
+  SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES=268435456 \
+  SCRIPTW_MODULE_CACHE_LIMIT_BYTES=134217728 \
+  SCRIPTW_PROGRAM_CACHE_LIMIT_BYTES=134217728 \
+  python3 scripts/limited_verification.py -- ./target/release/scriptw test262 report-all \
     --snapshot-name baseline-wasm-aot-$(git rev-parse --short HEAD:test262/vendor/test262) \
     --threads 1 --jobs 1 --resume \
   > target/test262-scratch/baseline.log 2>&1 < /dev/null &
@@ -1962,7 +1962,7 @@ disown
 - The aggregate is rewritten after every node and cases checkpoint every 10, so
   a kill loses at most 9 cases. Re-running the identical command resumes.
 - Poll from another shell with
-  `lila test262 progress-status --snapshot-name <name>`.
+  `scriptw test262 progress-status --snapshot-name <name>`.
 - Watch for silence: each product Test262 compile and execution shares a
   pre-spawn process deadline, and the parent retires the worker group before
   recording its result. A deadline failure is still unresolved performance or
@@ -1984,7 +1984,7 @@ function, so builtin bodies shared by every case are written once and hit
 thereafter.
 
 Hence the asymmetric settings above: a large function tier, minimal
-program/module tiers. Raising the single `LILA_CACHE_LIMIT_BYTES` knob
+program/module tiers. Raising the single `SCRIPTW_CACHE_LIMIT_BYTES` knob
 instead would be consumed within a few hundred cases.
 
 Re-sweep **per milestone, not per batch** — and mandatorily whenever the
@@ -1996,9 +1996,9 @@ Landed:
 
 - `.cargo/config.toml` unifies build flags between `scripts/dev.sh` and bare
   `cargo`, ending recurring full-workspace rebuilds.
-- Per-tier cache budgets (`LILA_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
+- Per-tier cache budgets (`SCRIPTW_{FUNCTION,MODULE,PROGRAM}_CACHE_LIMIT_BYTES`).
 - The golden capture (rung G).
-- `crates/lila-cli/tests/cli.rs` split into `tests/cli/`, so feature lanes no
+- `crates/scriptw-cli/tests/cli.rs` split into `tests/cli/`, so feature lanes no
   longer all append to one large file. The source, compiled, ignored and chunk
   counts move independently as tests, feature gates and area modules change;
   no count in this document is authoritative. Recount at the integration head.
@@ -2008,9 +2008,9 @@ Landed:
 
   ```sh
   awk '/^[[:space:]]*#\[test\][[:space:]]*$/{n++} END{print n}' \
-    crates/lila-cli/tests/cli/*.rs
-  python3 scripts/limited_verification.py -- cargo test -p lila-cli --test cli -- --list | tail -1
-  python3 scripts/limited_verification.py -- cargo test -p lila-cli --test cli -- --list --ignored | tail -1
+    crates/scriptw-cli/tests/cli/*.rs
+  python3 scripts/limited_verification.py -- cargo test -p scriptw-cli --test cli -- --list | tail -1
+  python3 scripts/limited_verification.py -- cargo test -p scriptw-cli --test cli -- --list --ignored | tail -1
   awk '$1 == "run_chunk" {n++} END{print n+0}' scripts/rung1c-chunks.sh
   ```
 
@@ -2020,7 +2020,7 @@ Landed:
   is a substring match and over-counts prose that names the attribute, so use
   the exact-line `awk` form.
 
-- **`crates/lila-cli/tests/known-failures.tsv`** — the tracked ledger of
+- **`crates/scriptw-cli/tests/known-failures.tsv`** — the tracked ledger of
   expected non-green outcomes for this crate's three test targets, enforced by
   `tests/cli/known_failures.rs` at compile time (file existence via
   `include_str!`, test existence via `const _`) and by libtest at run time
@@ -2035,7 +2035,7 @@ Landed:
 
 Current builtin ownership (T02):
 
-- **Descriptor registry** — `lila-ir/src/builtins/catalog.rs` already owns one
+- **Descriptor registry** — `scriptw-ir/src/builtins/catalog.rs` already owns one
   macro row per builtin. Independent checked function/global ordinals preserve
   Wasm function indices and global enumeration order; declaration order retains
   the derived `Ord` contract. The former parallel-table extraction is complete
@@ -2075,7 +2075,7 @@ clear the twelve workspace packages before the all-target checkpoint. Cargo
 may reuse a relative dependency-info record if an independently prepared
 source tree has older timestamps than the last build from another root. The
 2026-10-01 Segmenter checkpoint observed this as five missing exports from a
-stale lila-intl artifact while the candidate declarations were present.
+stale scriptw-intl artifact while the candidate declarations were present.
 
 Use the candidate’s actual workspace package names with cargo clean --offline
 --locked -p for each package, keeping CARGO_TARGET_DIR on the isolated batch
@@ -2095,7 +2095,7 @@ named-zone -> country-membership -> DateTime -> locale-query dependency order
 and checks all 13 recipes again after writing. Failed producers stop dependent
 writers. Semantic CLDR/IANA rows are still generated by their existing producers.
 
-The workspace runners automatically isolate `lila-intl` when it belongs to the
+The workspace runners automatically isolate `scriptw-intl` when it belongs to the
 selected workspace. An omitted caller flag therefore cannot merge its
 `compiled_data` dev feature into the normal dependency graph. Explicit isolation
 for other packages remains available. The bounded coordinator uses the effective
@@ -2114,7 +2114,7 @@ it does not establish compiler, performance or full conformance acceptance.
 Use `--selected-feature-roots --build-selected-together` with the workspace
 runner's ordinary `--only-targets` selections to avoid linking unrelated
 libtest harnesses. Each selected package is built with the empty
-`lila-verification-feature-roots` test root. Before a build, the runner uses
+`scriptw-verification-feature-roots` test root. Before a build, the runner uses
 Cargo's inspection-only unit graph API to compare each selected root against
 the ordinary workspace library graph. Features, profiles, target identities
 and every transitive dependency edge must match exactly. Cargo inspection uses
@@ -2127,7 +2127,7 @@ before compilation. Ordinary full-feature/custom-graph verification remains
 available without this opt-in.
 
 To protect the 41 MB immutable runtime from program-module cache eviction,
-build callers may set `LILA_BUILD_MODULE_CACHE_DIR` to a dedicated directory.
+build callers may set `SCRIPTW_BUILD_MODULE_CACHE_DIR` to a dedicated directory.
 It uses the same module-cache budget and Wasmtime's exact cache key; it does not
 change execution caches, skip fresh runtime emission/admission, or reuse a
 previous source's package/manifest. Cross-target builds retain precompilation.

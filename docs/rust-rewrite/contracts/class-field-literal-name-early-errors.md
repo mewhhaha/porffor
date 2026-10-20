@@ -28,7 +28,7 @@ from eight branches in
 `vendor/boa_parser-0.21.1/src/parser/statement/declaration/hoistable/class_decl/mod.rs`.
 Four branches per condition cover ordinary public fields and public
 auto-accessors, each with and without an initializer. Two exact classifier rows
-own those producers. The exhaustive `lila-ir` projection requires both codes
+own those producers. The exhaustive `scriptw-ir` projection requires both codes
 to choose their rejection kind.
 
 The pinned parser previously dispatched every non-static identifier token
@@ -59,7 +59,7 @@ one brittle condition.
 
 Computed `prototype` remains valid syntax, but class definition then attempts
 to define a public static element on the constructor's existing `prototype`
-property. Lila installs that property with the class-specific
+property. Scriptw installs that property with the class-specific
 `writable: false`, `enumerable: false`, `configurable: false` descriptor. A
 single Wasm guard rejects the conflicting property key before every public
 static field, method/accessor and auto-accessor definition. Private elements,

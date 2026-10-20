@@ -10,7 +10,7 @@ condition:
 `EarlyErrorCode::GeneratorDeclarationContainsSuper`
 
 Its wire spelling is `E_GENERATOR_DECLARATION_CONTAINS_SUPER`. The exhaustive
-`lila-ir` rejection projection derives phase `Early` and native error type
+`scriptw-ir` rejection projection derives phase `Early` and native error type
 `SyntaxError`.
 
 The condition is true when the declaration's `FormalParameters` or
@@ -74,7 +74,7 @@ maps the complete prefix to `GeneratorDeclarationContainsSuper`; the table
 population is exactly `54/18/1` `ContainsAll` / `StartsWith` / `Exact`. An
 evaluated witness, exact single-owner assertion, prefix-injection proof and
 exhaustive wire-name round trip close the front mapping. The exhaustive
-`EarlyErrorCode` match in `lila-ir` owns the variant explicitly.
+`EarlyErrorCode` match in `scriptw-ir` owns the variant explicitly.
 
 Direct front tests cover named declarations under Script and Module goals,
 parameters and body, both super forms, ordinary and async-arrow traversal, the
@@ -131,7 +131,7 @@ At 2026-09-01, the full front library passes `158/158` and the parse-pattern
 structure target passes `4/4`. The focused IR filter passes `7/7`, including
 the three new Module and graph witnesses, with 1,101 unrelated tests filtered;
 the four exact graph/source structure targets pass `13/13`. The product-path
-`cargo check -p lila-aot-wasm` also compiles the live parser, front and IR
+`cargo check -p scriptw-aot-wasm` also compiles the live parser, front and IR
 layers. The implementation-time standalone parse/graph checks remain green at
 `17/17`. No broad IR or Test262 suite was rerun, and no broader green result is
 claimed here.

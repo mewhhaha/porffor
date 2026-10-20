@@ -70,7 +70,7 @@ class DateTimeProfileGenerationTests(unittest.TestCase):
             expand_profile(unused)
 
     def test_pinned_profile_regenerates_all_selected_locales_and_numeric_systems(self):
-        expected = SCRIPTS.parent / "crates/lila-intl/src/provider/datetime/generated/profile.json"
+        expected = SCRIPTS.parent / "crates/scriptw-intl/src/provider/datetime/generated/profile.json"
         self.assertEqual(expected.read_text(), self.encoded)
         self.assertEqual([row["locale"] for row in self.profile["locales"]], EXPANDED_LOCALES)
         digits = {row["identifier"]: row["digits"] for row in self.profile["numbering_systems"]}

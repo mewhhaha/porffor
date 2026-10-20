@@ -6,7 +6,7 @@ conformance_owners="$(python3 -B scripts/conformance_owners.py --ids)"
 mode="report"
 ledger="test262/backlog/shortcut-allowlist.tsv"
 inventory="test262/backlog/shortcut-inventory.md"
-target="crates/lila-test262/src/lib.rs"
+target="crates/scriptw-test262/src/lib.rs"
 scanner_source="scripts/audit-test262-shortcuts.rs"
 
 while [ "$#" -gt 0 ]; do

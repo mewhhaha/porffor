@@ -24,7 +24,7 @@ the full task code/types/controls/docs phase, under the confirmed aggregate
 4096 MiB cap and serial workers. The earlier evidence below remains historical.
 
 
-The selected product runtime has one shared `WasmWeakReachabilityCapability` authority in `lila-ir`: `PRODUCT_WASM_WEAK_REACHABILITY` is `Unavailable`. Both the Wasmtime policy and the actual Wasm builtin dispatch consume it exhaustively. Enabling strong Wasm GC does not provide JavaScript weak references or ephemerons. This correction does not implement a weak facility or complete the semantic GC cutover.
+The selected product runtime has one shared `WasmWeakReachabilityCapability` authority in `scriptw-ir`: `PRODUCT_WASM_WEAK_REACHABILITY` is `Unavailable`. Both the Wasmtime policy and the actual Wasm builtin dispatch consume it exhaustively. Enabling strong Wasm GC does not provide JavaScript weak references or ephemerons. This correction does not implement a weak facility or complete the semantic GC cutover.
 
 All sixteen WeakMap, WeakSet, WeakRef and FinalizationRegistry constructor/method routes enter the closed `WeakBuiltin` emitter. That emitter owns ordinary preflight and the selected capability rejection together. Its unavailable arm emits `RuntimeSemanticRejection::UnavailableCapability(RuntimeUnavailableCapability::WeakReachability)` through the existing mandatory out-of-band rejection import, followed by `unreachable`. Wire codes 0–8 retain their meanings; code 9 is the new closed reason. A JavaScript catch cannot intercept this host failure.
 

@@ -22,9 +22,9 @@ when their URL is loaded separately as a Module.
 Focused refresh commands for this batch are:
 
 ```sh
-cargo test -p lila-ir --lib modules::dynamic::tests -- --test-threads=1
-cargo test -p lila-ir --lib modules::admission::tests -- --test-threads=1
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::import_phase_structure:: --test-threads=1
+cargo test -p scriptw-ir --lib modules::dynamic::tests -- --test-threads=1
+cargo test -p scriptw-ir --lib modules::admission::tests -- --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::import_phase_structure:: --test-threads=1
 ```
 
 The phase-aware Script rewrite regression uses a retained Script parse product.

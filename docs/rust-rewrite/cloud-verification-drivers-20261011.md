@@ -11,10 +11,10 @@ After activating the environment and building the selected feature-enabled
 CLI and worker, use fresh output directories:
 
 ```sh
-bash scripts/run-differential-campaign-tier.sh --cloud ./target/debug/lila target/differential-fresh pr-fast
+bash scripts/run-differential-campaign-tier.sh --cloud ./target/debug/scriptw target/differential-fresh pr-fast
 python3 -B scripts/limited_verification.py --cloud -- \
-  python3 -B scripts/run-robustness-campaign-tier.py --cloud ./target/debug/lila target/robustness-fresh pr-fast
-LILA_BIN=./target/release/lila bash scripts/check-test262-closure.sh --cloud
+  python3 -B scripts/run-robustness-campaign-tier.py --cloud ./target/debug/scriptw target/robustness-fresh pr-fast
+SCRIPTW_BIN=./target/release/scriptw bash scripts/check-test262-closure.sh --cloud
 ```
 
 The grammar wrapper keeps all eleven grammars, two cases/sixteen replays for

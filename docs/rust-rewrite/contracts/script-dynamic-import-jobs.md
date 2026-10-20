@@ -56,9 +56,9 @@ rejection rows.
 
 ## Product evidence
 
-`crates/lila-engine/tests/aot_realm_modules/aot_script_import_jobs.rs` contains thirteen tests and
+`crates/scriptw-engine/tests/aot_realm_modules/aot_script_import_jobs.rs` contains thirteen tests and
 eighteen Wasm-AOT graph executions. Twenty-six standalone JS fixtures live below
-`crates/lila-engine/tests/fixtures/script_import_jobs/`; they do not modify the
+`crates/scriptw-engine/tests/fixtures/script_import_jobs/`; they do not modify the
 CLI semantic-golden corpus. The engine tests cover:
 
 - the unchanged pinned `update-to-dynamic-import.js` and both original fixture
@@ -81,7 +81,7 @@ CLI semantic-golden corpus. The engine tests cover:
 The primary engine command is:
 
 ```sh
-cargo test -p lila-engine --test aot_realm_modules -- aot_script_import_jobs:: --test-threads=2
+cargo test -p scriptw-engine --test aot_realm_modules -- aot_script_import_jobs:: --test-threads=2
 ```
 
 The minimum pinned real-suite cohort has seven physical cases and fourteen

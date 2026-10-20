@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check scratch headroom before starting a verification command.
 
-Example: python3 scripts/check-scratch-space.py --scratch /tmp --minimum-free-mib 512 -- python3 scripts/limited_verification.py --cloud -- cargo test -p lila-engine
+Example: python3 scripts/check-scratch-space.py --scratch /tmp --minimum-free-mib 512 -- python3 scripts/limited_verification.py --cloud -- cargo test -p scriptw-engine
 
 This checks available space at launch; it does not reserve it against other
 processes. Set the requirement for the command's peak outputs and caches.

@@ -2,7 +2,7 @@
 
 A missing pattern-compiler capability is a T19 failure, not a JavaScript
 exception. `RuntimeSemanticGap::RegExpRuntimePatternCompilation` owns ABI code 7
-in the existing mandatory `lila_host.reject_runtime_semantics` import. Dynamic
+in the existing mandatory `scriptw_host.reject_runtime_semantics` import. Dynamic
 source codes 0–5 and Temporal code 6 remain unchanged. The generic host binding
 retains this typed gap; Test262 reports Unsupported/NotImplemented before testing
 runtime-negative expectations. Message text does not determine that classification.
@@ -54,12 +54,12 @@ checks are not executable evidence. No pinned aggregate, broad pass or T19
 closure is claimed. The later combined checkpoint includes these focused controls:
 
 ```sh
-cargo test -p lila-ir --lib runtime_semantics::tests
-cargo test -p lila-aot-wasm --test runtime_link -- runtime_regexp_entry_kind_structure::
-cargo test -p lila-engine --lib invalid_runtime_semantic_host_codes_remain_abi_errors
-cargo test -p lila-engine --test aot_regexp -- aot_regexp_runtime_gap:: --test-threads=1
-cargo test -p lila-test262 --lib computed_finite_regexp_matching_passes_positive_and_rejects_runtime_negative
-cargo test -p lila-engine --lib runtime_regexp_compiler_tests -- --test-threads=1
+cargo test -p scriptw-ir --lib runtime_semantics::tests
+cargo test -p scriptw-aot-wasm --test runtime_link -- runtime_regexp_entry_kind_structure::
+cargo test -p scriptw-engine --lib invalid_runtime_semantic_host_codes_remain_abi_errors
+cargo test -p scriptw-engine --test aot_regexp -- aot_regexp_runtime_gap:: --test-threads=1
+cargo test -p scriptw-test262 --lib computed_finite_regexp_matching_passes_positive_and_rejects_runtime_negative
+cargo test -p scriptw-engine --lib runtime_regexp_compiler_tests -- --test-threads=1
 ```
 
 The primary semantics are [RegExpInitialize](https://tc39.es/ecma262/multipage/text-processing.html#sec-regexpinitialize)

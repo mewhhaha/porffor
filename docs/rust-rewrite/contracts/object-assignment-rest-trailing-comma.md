@@ -27,7 +27,7 @@ package versions, manifests, lockfile, licenses, registry sources and workspace
 patch configuration remain unchanged. This is a source correction to the
 already vendored packages.
 
-`crates/lila-front/tests/object_rest_trailing_comma.rs` includes the actual
+`crates/scriptw-front/tests/object_rest_trailing_comma.rs` includes the actual
 pinned assignment fixture and covers bare, computed, default, access, nested
 and iterable-loop assignment patterns. Positive controls retain ordinary
 property trailing commas, final rest without a comma, object spread expressions

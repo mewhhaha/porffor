@@ -71,7 +71,7 @@ preserve historical seconds; formatting minute rounding is a separate compiled
 policy.
 
 This contract is staged for the complete named-zone consumer batch. Source and
-patch checks and Node reference controls are separate from Lila execution.
+patch checks and Node reference controls are separate from Scriptw execution.
 The existing production named-zone semantic gap stays until atomic integration
 and required compiler, focused, pinned and broad verification complete. Source
 identity generation runs only after the final actual owner graph is integrated.

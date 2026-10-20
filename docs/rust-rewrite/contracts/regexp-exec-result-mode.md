@@ -1,6 +1,6 @@
 # RegExp execution result mode
 
-Status: normative for Lila's internal RegExp execution emitters.
+Status: normative for Scriptw's internal RegExp execution emitters.
 
 ## Current GC boundary — 2026-10-10
 
@@ -104,11 +104,11 @@ labels remain fixture labels; they no longer describe a product dispatch path.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_builtins -- regexp_exec_result_mode_structure::
-cargo test -p lila-aot-wasm --test runtime_link -- runtime_regexp_entry_kind_structure::
-cargo test -p lila-cli --test cli regexp::run_wasm_backend_preserves_regexp_exec_result_modes -- --exact --test-threads=1
-cargo test -p lila-cli --test cli throw_propagation::regexp_exec_exceptional_to_length_routes_cover_the_compiled_matcher -- --exact
-cargo test -p lila-cli --test cli throw_propagation::run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_builtins -- regexp_exec_result_mode_structure::
+cargo test -p scriptw-aot-wasm --test runtime_link -- runtime_regexp_entry_kind_structure::
+cargo test -p scriptw-cli --test cli regexp::run_wasm_backend_preserves_regexp_exec_result_modes -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli throw_propagation::regexp_exec_exceptional_to_length_routes_cover_the_compiled_matcher -- --exact
+cargo test -p scriptw-cli --test cli throw_propagation::run_wasm_backend_routes_exceptional_to_length_throws_to_their_owners -- --exact --test-threads=1
 ./scripts/check-module-boundaries.sh
 cargo fmt --all -- --check
 git diff --check

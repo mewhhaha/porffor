@@ -80,8 +80,8 @@ Counts used throughout, all exact:
 | `is_tdz_binding_storage_name` call sites | **4** (`:7693`, `:14692`, `:17111`, `:37235`) | + 1 definition (`:10746`) |
 | `tdz_binding_storage_name` call sites | **10** — 1 in `lowering.rs` (`:10738`) + 9 in `analysis.rs` | + 1 definition (`lowering_helpers.rs:1541`) |
 | `TDZ_BINDING_STORAGE_PREFIX` uses | **4** | `names.rs:18` def; `lowering.rs:10747`; `lowering_helpers.rs:1542`; `lib.rs:127` (re-export) + `lib.rs:8376` (`#[cfg(test)]`) |
-| `ExprIr::Identifier(` construction sites | **80** in `lila-ir`, **30** in `lila-aot-wasm` | used to price open obligation **O1** (§5) |
-| `StatementIr::Lexical {` construction sites in `lila-ir` | **113** | used to refuse a "single exit" claim (§2.5) |
+| `ExprIr::Identifier(` construction sites | **80** in `scriptw-ir`, **30** in `scriptw-aot-wasm` | used to price open obligation **O1** (§5) |
+| `StatementIr::Lexical {` construction sites in `scriptw-ir` | **113** | used to refuse a "single exit" claim (§2.5) |
 | `boa_ast::Declaration` variants | **6** | `vendor/boa_ast-0.21.1/src/declaration/mod.rs:41` |
 | `boa_ast::LexicalDeclaration` variants | **4** | already matched exhaustively at `lowering.rs:13758-13765` |
 
@@ -115,8 +115,8 @@ which lexical declarations never are.
 
 `mutable` and `initialized` are **orthogonal**. `const x = 1;` is immutable and,
 between BlockDeclarationInstantiation and its LexicalBinding evaluation,
-uninitialized. Lila conflates neither today — `BindingMode` carries the first —
-but Lila also does not carry the second on the binding, which is the whole of
+uninitialized. Scriptw conflates neither today — `BindingMode` carries the first —
+but Scriptw also does not carry the second on the binding, which is the whole of
 this area.
 
 ### 1.2 The two consumers, and why they are two obligations
@@ -142,7 +142,7 @@ Two facts follow that the current tree does not honour:
 - **Step 3 precedes step 6/7.** The uninitialized test comes *before* the
   immutability test. `const x = 1; { x = 2; const x = 3; }` throws
   **ReferenceError**, not TypeError, and `S` is irrelevant to step 3 — an
-  uninitialized write throws in sloppy mode too. Lila's write sites test
+  uninitialized write throws in sloppy mode too. Scriptw's write sites test
   `mode == BindingMode::Const` and never test initialization (§0.6), so they
   reach step 6/7 with step 3 unevaluated.
 - **The write obligation is not derivable from the read obligation.** A single
@@ -183,13 +183,13 @@ unforgeable.
 
 ### 1.4 Where the spec leaves latitude, and what this contract chooses
 
-**C1 — one state or two encodings.** The spec has one bit. Lila has two
+**C1 — one state or two encodings.** The spec has one bit. Scriptw has two
 encodings (`tdz_scopes` membership; the `$tdz.` storage-name prefix) OR-ed at one
 consumer (`lowering.rs:17111-17113`). *Choice: one field on `BindingInfo`.* The
 prefix survives, demoted to what it actually is — a reserved storage spelling —
 and is never read as a lifecycle state again (§2.3).
 
-**C2 — where the state lives.** The spec puts it on the binding record. Lila
+**C2 — where the state lives.** The spec puts it on the binding record. Scriptw
 could put it on the scope (a set) or on the binding (`BindingInfo`). *Choice:
 on `BindingInfo`.* This is not a preference: `lookup_binding` (`:37518`) already
 resolves a name by walking `self.scopes.iter().rev()` and returns a **clone** of
@@ -203,7 +203,7 @@ existing binding (absent is `Option::None` from `lookup_binding`). *Choice: two
 variants, `Uninitialized(..)` and `Initialized`.* No `Default`, no `Unknown`, no
 `#[non_exhaustive]`.
 
-**C4 — the sub-state on `Uninitialized`.** Lila needs one distinction the spec
+**C4 — the sub-state on `Uninitialized`.** Scriptw needs one distinction the spec
 does not have: whether the uninitialized scope entry has already claimed its real
 storage name, or is a placeholder whose `storage_name` is the unspellable `$tdz.`
 form. `lexical_storage_name` (`:7689-7703`) reads exactly this today, via
@@ -213,7 +213,7 @@ string test.* The domain stays two-state at the level the spec cares about,
 `Initialized` gains no payload nobody reads, and the one site that needs the
 distinction gets an exhaustive match instead of a prefix test.
 
-**C5 — synthetic bindings.** Lila declares bindings the spec never mentions:
+**C5 — synthetic bindings.** Scriptw declares bindings the spec never mentions:
 compiler temporaries (`alloc_temp_binding_name`), the `$arguments` lexical, the
 `$derived.*` activation cells, captured aliases of an outer binding, `var`
 mirrors. *Choice: they spell `Initialized`.* Each is created and stored in one
@@ -235,7 +235,7 @@ uninitialized check at all.
 
 ## §2. Type mapping
 
-New module: **`crates/lila-ir/src/binding_lifecycle.rs`** (exclusive to this
+New module: **`crates/scriptw-ir/src/binding_lifecycle.rs`** (exclusive to this
 area). One `mod binding_lifecycle;` line in `lib.rs` immediately after
 `mod binding_names;` (`lib.rs:57`), and `pub(crate) use binding_lifecycle::*;`
 alongside the existing `pub(crate) use` block. Record the hub edit in the lane
@@ -299,7 +299,7 @@ at the 26 `lookup_binding` clone sites.
 /// Which storage an uninitialized binding has already claimed.
 ///
 /// Not a spec distinction: 9.1.1.1.2 gives the binding its slot at creation.
-/// It is Lila's *name-allocation* question, and it exists here so that
+/// It is Scriptw's *name-allocation* question, and it exists here so that
 /// `lexical_storage_name` (lowering.rs:7689) can ask it as an exhaustive match
 /// on the binding's own state instead of testing its storage name for a `$tdz.`
 /// prefix. A third storage disposition is `error[E0004]` at **both** of its
@@ -344,7 +344,7 @@ slot.
 ### 2.3 `TdzPlaceholderName` — the prefix, demoted to a name domain
 
 The `$tdz.` prefix is a **wire name**, not a state. It reaches
-`lila-aot-wasm` as `EnvironmentPlan::binding_storage_names` for
+`scriptw-aot-wasm` as `EnvironmentPlan::binding_storage_names` for
 `EnvironmentKind::ForInOfTdzHead`, as `ForInOfEnvironmentIr::tdz_binding_names`
 (`lowering.rs:10422-10431`), and as `CaptureBindingPlan::name` for a closure
 created inside a for-in/for-of head. Nine `analysis.rs` sites mint it; three
@@ -578,7 +578,7 @@ initialized** at instantiation), so a reader sees a decision rather than a hole.
 **Refused: a "single exit" claim over `StatementIr::Lexical`.** Making the token
 the sole producer of the lexical-declaration IR node would give an `E0308` for
 "initialized without the token", but there are **113** `StatementIr::Lexical {`
-construction sites in `lila-ir` and the overwhelming majority are compiler
+construction sites in `scriptw-ir` and the overwhelming majority are compiler
 temporaries with no source-level binding at all. Routing 113 sites through a
 lifecycle type to constrain the ~6 that are lexical declarations is the
 decoration AGENTS.md warns about. The claim this contract makes is the narrower
@@ -697,7 +697,7 @@ check the reasoning.
 | **M5** | A statement-list scope with no predeclaration. `lower_root_statement_items_with_function_bindings` (`:9458`) calls neither predeclare wrapper, and is the entry for the script top level **and every function body** (§0.4). `x; let x;` reads slot `x` where 9.1.1.1.6 step 2 requires a ReferenceError. | Verified live. Corroborated by the team's own workaround at `namespace.rs:466-478`. | Both statement-list entries take a `LexicalScopeInstantiation` by value; the only constructor performs the sweep. | `error[E0061] this function takes 3 arguments but 2 were supplied` at any new or un-updated statement-list entry. |
 | **M6** | Read-side check without a write-side check. 9.1.1.1.5 step 3 makes an assignment to an uninitialized binding throw, *before* the immutability test of step 6/7. | Seven sites hold a resolved `BindingInfo`; **one** tests TDZ, and it tests it as a string-OR-set disjunction. The other six test `mode == Const` and nothing else. | All seven route through `resolve_binding_reference` and match `BindingResolution` exhaustively. `TdzViolation`'s only *method* is `into_throw`. | `error[E0004] non-exhaustive patterns: 'Uninitialized(_)' not covered` — the **arm must exist**, which is what this row discharges. It does **not** discharge the arm's *content*: `#[must_use]` on a struct does not fire for a value bound (or `_`-bound) in a `match` pattern, so `Uninitialized(_) => {}` compiles with no warning, and `lowering.rs:32402` legitimately writes that shape. The `error[E0599]` this row used to claim never fires. The seven arms' contents are ledger **L8**. |
 | **M6b** | Compound assignment and update skip the *read* check too: the three compound arms and `lower_update` build `ExprIr::Identifier(storage_name)` directly (`:30646`, `:32953`, and the corresponding lines in `:30833`/`:30934`), never passing through `lower_identifier_name_inner`. Not in the brief (§0.7). | `x += 1`, `x &&= 1`, `x \|= 1`, `x++` on an uninitialized binding all read undefined. | Same mechanism as M6; these are four of the seven sites. | As M6. |
-| **M7** | Storage-class dependence. Nothing relates `Initialization` in `lila-ir` to `allocate_binding`'s `BindingStorage` choice in `lila-aot-wasm/src/environments.rs:900`. `EnvSlot` gets the runtime uninitialized check (`:876-895`); `Fixed` and `Dynamic` get none, and a `Dynamic` tag local starts at 0 = `ValueKind::Undefined.tag()`. | The same program's answer depends on an unrelated capture-analysis decision. | **Not a compile error this round.** `BindingStorage` is in a crate this area does not edit. Named premise **P2** + integration note (§5). | none — by design, and stated as such. |
+| **M7** | Storage-class dependence. Nothing relates `Initialization` in `scriptw-ir` to `allocate_binding`'s `BindingStorage` choice in `scriptw-aot-wasm/src/environments.rs:900`. `EnvSlot` gets the runtime uninitialized check (`:876-895`); `Fixed` and `Dynamic` get none, and a `Dynamic` tag local starts at 0 = `ValueKind::Undefined.tag()`. | The same program's answer depends on an unrelated capture-analysis decision. | **Not a compile error this round.** `BindingStorage` is in a crate this area does not edit. Named premise **P2** + integration note (§5). | none — by design, and stated as such. |
 | **M8** | A new `boa_ast::Declaration` variant that binds a name lexically is silently not predeclared. Not in the brief; the `_ => {}` at `:13806` covers 4 of 6 variants. | Silent. | `LexicalScopeInstantiation::instantiate`'s match is exhaustive over all 6. | `error[E0004] non-exhaustive patterns`. |
 
 ---
@@ -710,7 +710,7 @@ alone.
 
 ### Stage 0 — the module, no behaviour change
 
-1. Create `crates/lila-ir/src/binding_lifecycle.rs` with §2.1, §2.2, §2.3,
+1. Create `crates/scriptw-ir/src/binding_lifecycle.rs` with §2.1, §2.2, §2.3,
    §2.4, §2.5, §2.6.
 2. `lib.rs:57`: add `mod binding_lifecycle;` after `mod binding_names;`. Add
    `pub(crate) use binding_lifecycle::*;` to the existing `pub(crate) use` block
@@ -936,7 +936,7 @@ not leave the four sites spelling `Initialized` with no comment.
 
 ### What stays untouched
 
-- `crates/lila-aot-wasm/**` — nothing. `environments.rs` and `heap.rs` are
+- `crates/scriptw-aot-wasm/**` — nothing. `environments.rs` and `heap.rs` are
   read-only integration-note targets. Batch 2's held files are not in this area's
   path at all.
 - `modules/namespace.rs:466-478` and `:560-573` — **annotate only**. Add the
@@ -969,12 +969,12 @@ load-bearing. Each says why a type cannot carry it.
 | **L3** | An *eighth* Reference-shaped site, newly written, that builds `ExprIr::Identifier(name)` from a `&str` without calling `resolve_binding_reference`. | See obligation **O1**. | The seven converted sites are exhaustive over today's tree; a new one is a review item. |
 | **L4 (source repair closed; verification pending)** | Eager arithmetic consumes the already-located `BindingResolution` before lowering its RHS. A definite uninitialized GetValue becomes an immediate ReferenceError; initialized const/captured bindings retain Get/RHS/coercion/Put ordering. | The typed initialization witness is consumed before the RHS producer is called. | `eager_arithmetic_tdz_reads_reject_before_rhs_evaluation` and the extended saved-compound native cohort; execution pending. |
 | **P1** | `report_shadowed_namespace_globals` (`namespace.rs:471`) and the namespace-alias arm (`:561`) refuse to compile a module that shadows `Object`/`Symbol`, on the ground that such a binding is in TDZ for the whole merged scope. | The premise is *the spec behaviour*, which Stage 2 makes real for the first time. Removing the bail-out additionally requires **P2**, because a merged-scope `Object` whose storage is `Dynamic` gets no runtime check. | Annotated comment referencing this contract. Removal is a later lane, gated on P2. |
-| **P2-read** | Nothing in `lila-ir` relates `Initialization::Uninitialized` to `allocate_binding`'s `BindingStorage` choice (`lila-aot-wasm/src/environments.rs:900-945`). `read_binding_to_locals` (`:850`) emits the `ENV_SLOT_UNINITIALIZED_TAG` comparison (`:876-895`) **only** for `BindingStorage::EnvSlot`. `Fixed` and `Dynamic` have no check, and a `Dynamic` tag local is zero-initialized — and `ValueKind::Undefined.tag()` returns `0` (`lila-ir/src/ir.rs:225`). | `BindingStorage` is defined in a crate this round does not edit; batch 2 holds files in it. | Integration note (see below), plus the fact that the compile-time throw this contract installs at the seven IR sites covers every *statically resolved* read. P2-read governs only the reads that reach a runtime slot: closures over a binding whose storage the capture analysis did not promote to `EnvSlot`. |
+| **P2-read** | Nothing in `scriptw-ir` relates `Initialization::Uninitialized` to `allocate_binding`'s `BindingStorage` choice (`scriptw-aot-wasm/src/environments.rs:900-945`). `read_binding_to_locals` (`:850`) emits the `ENV_SLOT_UNINITIALIZED_TAG` comparison (`:876-895`) **only** for `BindingStorage::EnvSlot`. `Fixed` and `Dynamic` have no check, and a `Dynamic` tag local is zero-initialized — and `ValueKind::Undefined.tag()` returns `0` (`scriptw-ir/src/ir.rs:225`). | `BindingStorage` is defined in a crate this round does not edit; batch 2 holds files in it. | Integration note (see below), plus the fact that the compile-time throw this contract installs at the seven IR sites covers every *statically resolved* read. P2-read governs only the reads that reach a runtime slot: closures over a binding whose storage the capture analysis did not promote to `EnvSlot`. |
 | **P2-write** | `write_binding_from_locals` (`environments.rs:320-348`) emits **no** `ENV_SLOT_UNINITIALIZED_TAG` comparison in *any* arm, `EnvSlot` included — unlike `read_binding_to_locals`. So 9.1.1.1.5 step 3 has no runtime backstop at all for a **closure write** to an uninitialized binding, at every storage class. Nor does the compile-time layer reach it: a captured name enters the inner function as a capture alias declared `Initialization::Initialized` (`lowering.rs:14890-14901`, `:20051`, `:20070`), so `lower_identifier_assign_value` (`:31353`) takes the `Initialized` arm. This is where §7 corpus entry 7 actually lands, and it is **not** covered by P2-read, which scopes itself to reads. | Same crate boundary. | Integration note. The fix is the same `ENV_SLOT_UNINITIALIZED_TAG` comparison-and-throw in `write_binding_from_locals`'s `EnvSlot` arm, with the *initializing* write exempt — 9.1.1.1.4 must be able to write the slot while it is still tagged `-1`. The IR already separates the two: an InitializeBinding is `StatementIr::Lexical` and a SetMutableBinding is `ExprIr::AssignIdentifier`, so the exemption costs nothing to express at the aot-wasm boundary. |
-| **O1** | The obligation "every Environment Record read/write goes through the state" is not total, because `ExprIr::Identifier(String)` and `ExprIr::AssignIdentifier { name: String, .. }` accept a bare `String`. | `ir.rs` is not owned by this area, and the payload change ripples into `lila-aot-wasm`. **Measured price**: `ExprIr::Identifier(` has **80** construction sites in `lila-ir` and **30** in `lila-aot-wasm`; `ExprIr::AssignIdentifier` has **17** and **10**. 137 sites across two crates. | Named here as an open proof obligation with its price, in the round-2 style. Not attempted this round. |
+| **O1** | The obligation "every Environment Record read/write goes through the state" is not total, because `ExprIr::Identifier(String)` and `ExprIr::AssignIdentifier { name: String, .. }` accept a bare `String`. | `ir.rs` is not owned by this area, and the payload change ripples into `scriptw-aot-wasm`. **Measured price**: `ExprIr::Identifier(` has **80** construction sites in `scriptw-ir` and **30** in `scriptw-aot-wasm`; `ExprIr::AssignIdentifier` has **17** and **10**. 137 sites across two crates. | Named here as an open proof obligation with its price, in the round-2 style. Not attempted this round. |
 
 **Integration note (goes in `target/lane-notes/environment-record-tdz-theory-integration.md`).**
-For a later batch that owns `lila-aot-wasm`: `allocate_binding`
+For a later batch that owns `scriptw-aot-wasm`: `allocate_binding`
 (`environments.rs:900`) picks `EnvSlot` only when `owned_env_slot(&name)` is
 `Some` — i.e. only when the capture analysis decided the binding is captured. The
 uninitialized tag is therefore a property of *capture*, not of *lexicality*. The
@@ -993,7 +993,7 @@ rather than leaving it zero, and emitting the comparison in the `Dynamic` arm of
 ## §5b. ENCODER RECORD — what was built, and what moved to the ledger
 
 Written blind (no `cargo`/`rustc` was run; the integrator owns the compile gate).
-Files touched: `crates/lila-ir/src/binding_lifecycle.rs` (new),
+Files touched: `crates/scriptw-ir/src/binding_lifecycle.rs` (new),
 `lowering.rs`, `analysis.rs`, `names.rs`, `lowering_helpers.rs`, `lib.rs`,
 `modules/namespace.rs`.
 
@@ -1041,8 +1041,8 @@ Files touched: `crates/lila-ir/src/binding_lifecycle.rs` (new),
 ## §5c. DISCREPANCY-FIXER RECORD — what the dry run moved
 
 Written blind (no `cargo`/`rustc`; the integrator owns the compile gate). Files
-touched: `crates/lila-ir/src/binding_lifecycle.rs`,
-`crates/lila-ir/src/lowering.rs`.
+touched: `crates/scriptw-ir/src/binding_lifecycle.rs`,
+`crates/scriptw-ir/src/lowering.rs`.
 
 ### Closed by a type this pass
 
@@ -1135,7 +1135,7 @@ Two further checks the dry-runner must perform that are not programs:
     `BindingInfo::initialized`, `create_lexical_binding`,
     `PendingInitialization::initialize`, and the two the sweep absorbed). The
     measured invariant is
-    `grep -c 'initialization:' crates/lila-ir/src/lowering.rs` == **36**
+    `grep -c 'initialization:' crates/scriptw-ir/src/lowering.rs` == **36**
     (35 literals + the struct-field declaration) and == **3** in
     `binding_lifecycle.rs`; 35 + 6 = 41.
   - `grep -rn 'tdz_binding_storage_name'` **cannot** be zero: it collides by
@@ -1144,7 +1144,7 @@ Two further checks the dry-runner must perform that are not programs:
     `:4303`), which §4 item 19 explicitly preserves. The correct form is
 
     ```sh
-    grep -rnE '\btdz_scopes\b|\bmark_tdz_binding\b|\bclear_tdz_binding\b|\bis_tdz_binding\b|\bis_tdz_binding_storage_name\b|(^|[^_])\btdz_binding_storage_name\b' crates/lila-ir/src/
+    grep -rnE '\btdz_scopes\b|\bmark_tdz_binding\b|\bclear_tdz_binding\b|\bis_tdz_binding\b|\bis_tdz_binding_storage_name\b|(^|[^_])\btdz_binding_storage_name\b' crates/scriptw-ir/src/
     ```
 
     which must return only comment lines (the two tombstone comments that name

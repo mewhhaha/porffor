@@ -90,7 +90,7 @@ The closed front domain and parse table grow from 66 to 67 entries. One
 `StartsWith` row maps the complete fixed prefix to
 `FunctionDeclarationContainsSuper`. An evaluated parse-owner witness, exact
 single-owner assertion, disjoint table witnesses, exhaustive wire-name checks
-and `lila-ir`'s no-catch-all rejection-kind match make the addition structural.
+and `scriptw-ir`'s no-catch-all rejection-kind match make the addition structural.
 
 Classifier checks keep the new prefix distinct from the separately typed
 FunctionExpression prefix, adjacent typed declarations/expressions and
@@ -170,12 +170,12 @@ producer boundaries and are excluded.
 The coordinated batch ran the focused filters below before the broad groups:
 
 ```sh
-cargo test -p lila-front function_declaration_super -- --test-threads=1
-cargo test -p lila-front tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-front tests::pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-ir modules::early::tests::function_declaration_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::rejected_function_declaration_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::retained_function_declaration_without_super_builds_a_real_module_graph -- --exact --test-threads=1
+cargo test -p scriptw-front function_declaration_super -- --test-threads=1
+cargo test -p scriptw-front tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-front tests::pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::early::tests::function_declaration_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::rejected_function_declaration_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::retained_function_declaration_without_super_builds_a_real_module_graph -- --exact --test-threads=1
 ```
 
 Formatting, `cargo xc` and diff hygiene are green. The complete front library

@@ -57,7 +57,7 @@ early `SyntaxError`.
 - Add exactly four parse-failure rows. Each row uses its complete Boa literal
   as both fragment and witness, so the four adjacent conditions cannot shadow
   one another or the existing generator condition.
-- Map all four variants through `lila-ir`'s exhaustive `rejection_kind` match
+- Map all four variants through `scriptw-ir`'s exhaustive `rejection_kind` match
   to `IrDiagnosticKind::EarlyError`. Phase and error type remain derived as
   `Early` and `SyntaxError` at both front-end and retained-module boundaries.
 - Preserve `ParseClassified` as the only parse-stage gate and retain the

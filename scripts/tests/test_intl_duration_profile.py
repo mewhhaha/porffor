@@ -37,7 +37,7 @@ class DurationSourceTests(unittest.TestCase):
    with self.assertRaisesRegex(ValueError,'checksum mismatch'):module.CldrProfile(directory)
  def test_unit_choice_tamper_breaks_the_primary_shared_source_contract(self):
   import gzip
-  nf=json.loads(gzip.decompress((ROOT/'crates/lila-intl/data/number-cldr-47/profiles.json.gz').read_bytes()))
+  nf=json.loads(gzip.decompress((ROOT/'crates/scriptw-intl/data/number-cldr-47/profiles.json.gz').read_bytes()))
   actual=module.number_patterns(nf,'en','second','long')
   unit=nf['tables']['unit_sets'][nf['tables']['profiles'][nf['locales']['en']['profile']]['units'][2]]['simple'][nf['sanctioned_units'].index('second')]
   nf['tables']['choices'][unit['choices']]['values'][1]=0

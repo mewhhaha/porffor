@@ -22,7 +22,7 @@ trailing partial element does not contribute a key.
 
 The sole owner in this lane is
 `FunctionBuilder::compile_object_get_own_property_names_builtin` in
-`crates/lila-aot-wasm/src/builtins/object.rs`. Its direct TypedArray branch
+`crates/scriptw-aot-wasm/src/builtins/object.rs`. Its direct TypedArray branch
 previously loaded the viewed buffer, byte offset, stored byte length and bytes
 per element itself, called `emit_typed_array_current_byte_length`, and divided
 the returned bytes locally.
@@ -63,7 +63,7 @@ view changes only that numeric prefix; it does not hide ordinary String keys.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/object_get_own_property_names_typed_array_witness_structure.rs`
+`crates/scriptw-aot-wasm/tests/object_get_own_property_names_typed_array_witness_structure.rs`
 bounds the owner at the following `Object.getOwnPropertySymbols` compiler. It
 requires the unique standard-builtin dispatch edge, one private-state load, one
 immutable view and one `ArrayLikeLengthSnapshot` witness, fixes brand-check and
@@ -72,7 +72,7 @@ observations, local byte division and throwing witness policy. It also pins
 reverse-order release of the new view locals and the focused CLI test/fixture
 connection.
 
-`crates/lila-cli/tests/fixtures/wasm_object_get_own_property_names_typed_array_witness.js`,
+`crates/scriptw-cli/tests/fixtures/wasm_object_get_own_property_names_typed_array_witness.js`,
 owned by
 `typed_array::run_wasm_backend_get_own_property_names_uses_typedarray_buffer_witness`,
 checks:

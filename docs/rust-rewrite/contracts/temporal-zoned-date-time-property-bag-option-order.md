@@ -73,13 +73,13 @@ existing CLI test requires that marker in the Wasm-AOT output.
 ## Verification
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_zoned_date_time_property_bag_option_order_structure
-cargo test -p lila-cli --test cli run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test temporal_zoned_date_time_property_bag_option_order_structure
+cargo test -p scriptw-cli --test cli run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture -- --test-threads=1
 ```
 
 The structure target passes `3/3` and the CLI fixture passes `1/1` through the
 Wasm-AOT backend. `node --check` accepts the fixture, `cargo fmt --all --
---check` is clean and `cargo check -p lila-aot-wasm` is green with only the
+--check` is clean and `cargo check -p scriptw-aot-wasm` is green with only the
 pre-existing vendored parser warning.
 
 ## Nonclaims

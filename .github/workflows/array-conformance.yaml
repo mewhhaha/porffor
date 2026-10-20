@@ -27,7 +27,7 @@ jobs:
       - name: Check formatting and semantic ownership guards
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
+          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
 
       - name: Execute the complete nonempty engine regression inventory
         run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_flat_map --output-dir /tmp/flatmap-engine
@@ -36,17 +36,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-cli --test cli -- array_flat_map --test-threads=2 | tee /tmp/flatmap-cli.txt
+          cargo test --locked -p scriptw-cli --test cli -- array_flat_map --test-threads=2 | tee /tmp/flatmap-cli.txt
           grep -Eq '^test result: ok\. [1-9][0-9]* passed; 0 failed; 0 ignored;' /tmp/flatmap-cli.txt
 
       - name: Build the product CLI
-        run: cargo build --locked -p lila-cli
+        run: cargo build --locked -p scriptw-cli
 
       - name: Execute the entire pinned real flatMap subtree
         shell: bash
         run: |
           set -euo pipefail
-          ./target/debug/lila test262 run built-ins/Array/prototype/flatMap/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/flatmap-test262 --snapshot-name flatmap-ci 2>&1 | tee /tmp/flatmap-test262.txt
+          ./target/debug/scriptw test262 run built-ins/Array/prototype/flatMap/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/flatmap-test262 --snapshot-name flatmap-ci 2>&1 | tee /tmp/flatmap-test262.txt
           grep -Eq '^total: [1-9][0-9]*$' /tmp/flatmap-test262.txt
 
       - uses: actions/upload-artifact@v4
@@ -65,7 +65,7 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_BUILD_JOBS: 2
-      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES: 2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,22 +73,22 @@ jobs:
       - name: Check formatting and direct/generic ownership
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
+          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
       - name: Execute the complete new engine regression inventory
         run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
       - name: Retain the existing CLI fixture
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-cli --test cli -- array::run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture --exact --test-threads=1 | tee /tmp/locale-length-cli.txt
+          cargo test --locked -p scriptw-cli --test cli -- array::run_wasm_backend_succeeds_for_supported_array_to_locale_string_fixture --exact --test-threads=1 | tee /tmp/locale-length-cli.txt
           grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' /tmp/locale-length-cli.txt
       - name: Execute the complete pinned real toLocaleString subtree
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked -p lila-cli
+          cargo build --locked -p scriptw-cli
           git rev-parse HEAD > /tmp/locale-length-source-sha.txt
-          ./target/debug/lila test262 run built-ins/Array/prototype/toLocaleString/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/locale-length-test262 --snapshot-name locale-length-ci 2>&1 | tee /tmp/locale-length-test262.txt
+          ./target/debug/scriptw test262 run built-ins/Array/prototype/toLocaleString/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/locale-length-test262 --snapshot-name locale-length-ci 2>&1 | tee /tmp/locale-length-test262.txt
           grep -Eq '^total: [1-9][0-9]*$' /tmp/locale-length-test262.txt
       - uses: actions/upload-artifact@v4
         if: always()

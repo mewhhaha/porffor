@@ -142,7 +142,7 @@ from leaking back into the five-value activation field.
 
 ## Durable source witness
 
-`crates/lila-aot-wasm/tests/async_generator_resume_kind_structure.rs` pins:
+`crates/scriptw-aot-wasm/tests/async_generator_resume_kind_structure.rs` pins:
 
 - exactly five variants, one complete `ALL` list and an exhaustive stable word
   projection;
@@ -171,11 +171,11 @@ The coordinated batch ran:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test async_generator_resume_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_body_status_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_resume_kind_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_body_status_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
 ```
 
 Formatting, `cargo xc` and diff hygiene are green. The resume-kind structure

@@ -100,7 +100,7 @@ to complete elements before publishing the bound.
 
 ## Durable structural guard
 
-`crates/lila-aot-wasm/tests/atomics_typed_array_witness_structure.rs` bounds
+`crates/scriptw-aot-wasm/tests/atomics_typed_array_witness_structure.rs` bounds
 only the four owner bodies above. For each it requires one private-state load,
 one immutable view, one `ValidatedMethodEntry` witness, one retained data
 pointer snapshot and one separate element-kind load. It rejects the legacy
@@ -113,7 +113,7 @@ overwrite the witness result, and the focused CLI test/fixture connection.
 
 ## Focused runtime witnesses
 
-`crates/lila-cli/tests/fixtures/wasm_atomics_typed_array_buffer_witness.js`,
+`crates/scriptw-cli/tests/fixtures/wasm_atomics_typed_array_buffer_witness.js`,
 owned by
 `binary_data::run_wasm_backend_validates_atomics_access_through_typed_array_witness`,
 covers all four owners. It proves that detached receivers and ordinary-buffer
@@ -144,8 +144,8 @@ The coordinated batch ran:
 
 1. `cargo fmt --all -- --check`;
 2. `cargo xc`;
-3. `cargo test -p lila-aot-wasm --test atomics_typed_array_witness_structure -- --test-threads=1`;
-4. `cargo test -p lila-cli --test cli binary_data::run_wasm_backend_validates_atomics_access_through_typed_array_witness -- --exact --test-threads=1`; and
+3. `cargo test -p scriptw-aot-wasm --test atomics_typed_array_witness_structure -- --test-threads=1`;
+4. `cargo test -p scriptw-cli --test cli binary_data::run_wasm_backend_validates_atomics_access_through_typed_array_witness -- --exact --test-threads=1`; and
 5. each exact Test262 path above through `--execution-backend wasm-aot` with
    `--jobs 1 --threads 1`.
 

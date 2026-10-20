@@ -10,7 +10,7 @@ product authority; those retained bytes do not establish corrected-corpus
 acceptance. Corrected `743c810c7` controls and all twenty seven-sample profiles
 now pass; see the [retained checkpoint](../default-optimized-performance-20261013.json).
 
-Native Rust dev/test builds optimize `lila-intl`, `lila-ir` and `lila-aot-wasm` at level 2
+Native Rust dev/test builds optimize `scriptw-intl`, `scriptw-ir` and `scriptw-aot-wasm` at level 2
 to reduce cold data-admission and emission work within existing case budgets.
 Frontend builds retain level 0. This changes Rust compilation settings;
 product Wasmtime profiles, validation, case budgets and measurements retain
@@ -21,7 +21,7 @@ failed and oversized slots are not retained. Active artifacts survive eviction.
 Native-mode and parsed Intl-kernel caches retain two hot profiles. These bounds
 describe cache ownership, independently of process RSS and active callers.
 
-`lila performance compile --output-dir PATH --samples 3..100 --machine-label LABEL
+`scriptw performance compile --output-dir PATH --samples 3..100 --machine-label LABEL
 --idle-machine` measures the existing twenty-source performance corpus serially.
 Each source gets one full warmup, followed by the requested measured compiles.
 The original whole-CLI timing gates remain a separate `performance report`.

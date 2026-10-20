@@ -1,6 +1,6 @@
 # Explicit budgets over admitted measurements
 
-`lila performance check --mode compiler|runtime --baseline PATH --candidate PATH
+`scriptw performance check --mode compiler|runtime --baseline PATH --candidate PATH
 --policy PATH --output-dir PATH` checks existing reports. It does not run a
 benchmark. Each report first passes its original raw-sample, retained workload,
 Wasm validation/footprint and (for runtime) completion/output admission.

@@ -62,15 +62,15 @@ class SegmenterIdentityTests(unittest.TestCase):
     def test_consumed_shared_and_host_sources_exclude_tests_and_self_identity(self):
         paths = {p.as_posix() for p in MODULE.kernel_sources(ROOT)}
         for owner in ["lib.rs", "provider.rs", "protocol.rs", "supported_values.rs"]:
-            self.assertIn("crates/lila-intl/src/" + owner, paths)
-        self.assertIn("crates/lila-engine/src/intl_segmenter_host.rs", paths)
+            self.assertIn("crates/scriptw-intl/src/" + owner, paths)
+        self.assertIn("crates/scriptw-engine/src/intl_segmenter_host.rs", paths)
         for owner in [
-            "crates/lila-engine/src/wasm_gc_intl_host.rs",
-            "crates/lila-engine/src/intl_data_images.rs",
-            "crates/lila-intl/src/segmenter_image.rs",
-            "crates/lila-intl/src/image_build/segmenter.rs",
-            "crates/lila-intl/src/locale_image.rs",
-            "crates/lila-intl/build.rs",
+            "crates/scriptw-engine/src/wasm_gc_intl_host.rs",
+            "crates/scriptw-engine/src/intl_data_images.rs",
+            "crates/scriptw-intl/src/segmenter_image.rs",
+            "crates/scriptw-intl/src/image_build/segmenter.rs",
+            "crates/scriptw-intl/src/locale_image.rs",
+            "crates/scriptw-intl/build.rs",
         ]:
             self.assertIn(owner, paths)
         self.assertFalse(any(p.endswith("/kernel_identity.rs") or p.endswith("/tests.rs") or "/tests/" in p for p in paths))

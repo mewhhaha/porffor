@@ -5,7 +5,7 @@ Status: normative for the Rust RegExp parser's ordinary character-class seam.
 ## Semantic boundary
 
 An ordinary character class has the same ECMAScript grammar regardless of the
-instruction representation selected for its members. Lila may encode an
+instruction representation selected for its members. Scriptw may encode an
 ASCII-only class as two bitmap words and a wider class as code-point ranges,
 but that optimization cannot change whether the Pattern is valid or the value
 of an accepted escape.
@@ -109,7 +109,7 @@ A failed Unicode pair lookahead restores the entire following escape, including
 its backslash and `u`, so a reversed second-atom range cannot disappear. Capture
 names use Unicode identifier grammar even in a legacy pattern.
 
-`lila-front/tests/regexp_legacy_astral_ranges.rs` covers accepted and rejected
+`scriptw-front/tests/regexp_legacy_astral_ranges.rs` covers accepted and rejected
 raw/escaped ranges in Script and Module goals, both Unicode flags, unpaired
 surrogate lookahead, and astral capture names. The pooled-class native target
 covers raw/escaped membership and retained `.source`. Its IR membership oracle

@@ -29,8 +29,8 @@ selection and global root registration include the new constructor/prototype.
 The ordinary TypedArray view lifecycle still governs resize, detachment,
 shared buffers, iteration, copy operations and species results.
 
-Verification targets are `lila-ir --test lila_ir_integration -- ir_cases::float16_array::`, the backend element-kind
-and heap layout units, `lila-engine --test aot_builtins -- aot_float16_array::`, and the existing
+Verification targets are `scriptw-ir --test scriptw_ir_integration -- ir_cases::float16_array::`, the backend element-kind
+and heap layout units, `scriptw-engine --test aot_builtins -- aot_float16_array::`, and the existing
 `aot_typed_array_fill` target. Native regressions exercise every binary16 bit
 encoding, direct rounding at adjacent midpoints and overflow, shared/resizable
 views, constructor forms, inherited methods, species, realm ownership and

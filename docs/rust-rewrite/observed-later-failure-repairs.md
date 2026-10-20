@@ -131,10 +131,10 @@ throws the appropriate runtime SyntaxError instead.
 Build the product CLI, then replay every exact execution:
 
 ```sh
-cargo build --release --locked -j 2 -p lila-cli
+cargo build --release --locked -j 2 -p scriptw-cli
 cat test262/replays/observed-later-20260908.executions \
   test262/replays/observed-20260908.executions > target/observed-combined.executions
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 python3 scripts/replay-test262-executions.py \
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 python3 scripts/replay-test262-executions.py \
   target/observed-combined.executions \
   --output-dir target/observed-combined-replay --workers 2
 ```
@@ -144,7 +144,7 @@ execution identities, hashes, native transcripts and reports. Every non-passing
 execution remains red. After interruption, resume with the retained inputs:
 
 ```sh
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 python3 scripts/replay-test262-executions.py \
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 python3 scripts/replay-test262-executions.py \
   target/observed-combined-replay/executions \
   --binary target/observed-combined-replay/compiler \
   --output-dir target/observed-combined-replay --workers 2 --resume
@@ -303,11 +303,11 @@ At the earlier `37cb9c33...` checkpoint, foreign `AggregateError` calls without
 `.call` and `.apply` had the same result:
 
 ```js
-var other = __lilaCreateRealm().global;
+var other = __scriptwCreateRealm().global;
 Object.getPrototypeOf(other.AggregateError([])) === other.AggregateError.prototype;
 ```
 
-The owner is `crates/lila-aot-wasm/src/builtins/errors.rs`, specifically
+The owner is `crates/scriptw-aot-wasm/src/builtins/errors.rs`, specifically
 `emit_aggregate_error_new_target_prototype_to_local` and the undefined-NewTarget
 branch of `emit_new_target_prototype_to_locals`. That branch must use the active
 callee before looking up its prototype. The behavior predates this batch and

@@ -74,7 +74,7 @@ Reproduce the focused checks:
 cargo fmt --all -- --check
 python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_callback_iteration \
   --output-dir /tmp/array-callback-engine
-cargo test --locked -p lila-aot-wasm \
+cargo test --locked -p scriptw-aot-wasm \
   --test array_callback_iteration_structure \
   --test array_map_algorithm_owner_structure \
   --test array_filter_algorithm_owner_structure \
@@ -82,14 +82,14 @@ cargo test --locked -p lila-aot-wasm \
   --test array_some_algorithm_owner_structure --test structure_builtins \
   --test typed_array_quantifier_family_witness_structure -- \
   array_species_create_operation_evidence_structure::
-cargo test --locked -p lila-cli --test cli -- array:: --test-threads=2
+cargo test --locked -p scriptw-cli --test cli -- array:: --test-threads=2
 ```
 
 For each of `map`, `filter`, `every` and `some`, run its entire pinned real subtree
 with the same execution modes and unchanged sources on baseline and head:
 
 ```sh
-./target/debug/lila test262 run built-ins/Array/prototype/map/ \
+./target/debug/scriptw test262 run built-ins/Array/prototype/map/ \
   --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 \
   --snapshot-dir /tmp/array-callback-test262 --snapshot-name map
 ```

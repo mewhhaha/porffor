@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PRIMARY = Path(os.environ.get('LILA_LOCALE_NUMBERING_SYSTEMS_PRIMARY_ROOT', str(ROOT)))
+PRIMARY = Path(os.environ.get('SCRIPTW_LOCALE_NUMBERING_SYSTEMS_PRIMARY_ROOT', str(ROOT)))
 SPEC = importlib.util.spec_from_file_location('nu_identity', ROOT / 'scripts/generate-intl-locale-numbering-systems-identity.py')
 GEN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GEN)
@@ -26,8 +26,8 @@ class IdentityAdmission(unittest.TestCase):
         self.assertEqual(len(rows), len(GEN.NUMBER_PRODUCTION) + len(GEN.HELPERS) + 1)
         names = {r['path'] for r in rows}
         self.assertTrue(set(GEN.NUMBER_PRODUCTION) <= names)
-        self.assertIn('crates/lila-intl/src/provider.rs', names)
-        self.assertIn('crates/lila-intl/src/provider/region_preference.rs', names)
+        self.assertIn('crates/scriptw-intl/src/provider.rs', names)
+        self.assertIn('crates/scriptw-intl/src/provider/region_preference.rs', names)
 
     def test_unknown_native_production_module_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -52,7 +52,7 @@ class IdentityAdmission(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             shutil.copytree(ROOT / 'crates', root / 'crates')
-            p = root / 'crates/lila-intl/src/number_format/configuration.rs'
+            p = root / 'crates/scriptw-intl/src/number_format/configuration.rs'
             p.write_text(p.read_text() + '\n// changed production owner witness\n')
             after = GEN.outputs(PRIMARY, root)
             self.assertNotEqual(before[GEN.IDENTITY], after[GEN.IDENTITY])
@@ -65,9 +65,9 @@ class IdentityAdmission(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             shutil.copytree(ROOT / 'crates', root / 'crates')
-            p = root / 'crates/lila-intl/src/provider/region_preference.rs'
+            p = root / 'crates/scriptw-intl/src/provider/region_preference.rs'
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes((PRIMARY / 'crates/lila-intl/src/provider/region_preference.rs').read_bytes() + b'\n// changed keyword owner witness\n')
+            p.write_bytes((PRIMARY / 'crates/scriptw-intl/src/provider/region_preference.rs').read_bytes() + b'\n// changed keyword owner witness\n')
             after = GEN.kernel_sources(PRIMARY, root)
             self.assertNotEqual(before, after)
 

@@ -3,7 +3,7 @@
 Authority: ECMA-262 `5345883164f463e87f8b40aca4956157ecba8783`,
 FunctionDeclarationInstantiation's normative-optional web-compat insertion and
 alternative function declaration evaluation, and Declarative Environment Record
-SetMutableBinding. Lila implements Annex B web-legacy block functions.
+SetMutableBinding. Scriptw implements Annex B web-legacy block functions.
 
 The algorithm excludes `arguments` from new var binding creation at entry;
 it does not exclude an eligible block function's evaluation-time assignment.

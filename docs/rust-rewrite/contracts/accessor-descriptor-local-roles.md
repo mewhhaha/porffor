@@ -44,10 +44,10 @@ in the [repair checkpoint](../workspace-inventory-repairs-20261011.md). The
 historical checkpoint below retains its earlier source scope.
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_language -- accessor_descriptor_local_roles_structure::
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_object_form_fixture -- --exact --test-threads=1
-cargo test -p lila-cli --test cli functions::run_wasm_class_auto_accessor_fixture -- --exact --test-threads=1
-cargo test -p lila-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_accessors_fixture -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_language -- accessor_descriptor_local_roles_structure::
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_supported_object_form_fixture -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli functions::run_wasm_class_auto_accessor_fixture -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_accessors_fixture -- --exact --test-threads=1
 ```
 
 ## Historical verification

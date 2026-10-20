@@ -24,7 +24,7 @@ not the temporary wrapper.
 
 ## Observable witness
 
-`crates/lila-cli/tests/fixtures/wasm_for_of_string_iterator_protocol.js`
+`crates/scriptw-cli/tests/fixtures/wasm_for_of_string_iterator_protocol.js`
 contains two independent mutations:
 
 - a temporary strict `String.prototype[Symbol.iterator]` accessor records its
@@ -49,10 +49,10 @@ shortcut or call path.
 
 ## Verification boundary
 
-At the direct-path checkpoint, `cargo check -p lila-aot-wasm` passed. The
+At the direct-path checkpoint, `cargo check -p scriptw-aot-wasm` passed. The
 bounded String structure target passed `3/3`; the affected Array,
 synchronous-using, plain-async-using, and String-range companion targets passed
-`19/19`; the `lila-ir` `for_of` target passed `17/17`; and the exact CLI witness
+`19/19`; the `scriptw-ir` `for_of` target passed `17/17`; and the exact CLI witness
 passed `1/1`. The fixture also passed `node --check`.
 
 The pinned `string-bmp.js`, `string-astral.js`, and

@@ -2,7 +2,7 @@
 
 ## Current lifecycle — 2026-10-08
 
-`crates/lila-aot-wasm/src/module/compiled_module_package.rs` owns the transition
+`crates/scriptw-aot-wasm/src/module/compiled_module_package.rs` owns the transition
 from open type/global construction to the completed module. The parent
 `module.rs` re-exports only `ModuleTypeRegistry`, `ModuleGlobalSectionBuilder`
 and `ModuleAssemblySections`. The intermediate `FinalizedModuleSections` and
@@ -155,7 +155,7 @@ The method bodies and section order moved without semantic changes; the only
 caller edit removes an intra-doc link to the intentionally un-re-exported
 intermediate type. Focused source checks and their results are recorded in T02.
 
-At the coordinated mandatory-table checkpoint, `cargo check -p lila-aot-wasm`
+At the coordinated mandatory-table checkpoint, `cargo check -p scriptw-aot-wasm`
 is green. The package structure target passes `4/4`, the obsolete-planning
 target passes `3/3`, and the exact module-assembly, emitted-module-validation,
 and String memory/data controls are green.

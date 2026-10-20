@@ -181,7 +181,7 @@ Semantic goldens were not rerun for this source-equivalent extraction.
 ## Focused runtime evidence
 
 The durable CLI fixture
-`crates/lila-cli/tests/fixtures/wasm_aggregateerror_constructor_properties.js`
+`crates/scriptw-cli/tests/fixtures/wasm_aggregateerror_constructor_properties.js`
 must additionally observe:
 
 - `message` conversion before cause access before `errors[Symbol.iterator]`;
@@ -197,20 +197,20 @@ The existing iterable fixture remains the focused iterator-protocol control.
 After the full write batch and independent review, the capped serial ladder is:
 
 ```sh
-cargo test -p lila-aot-wasm \
+cargo test -p scriptw-aot-wasm \
   --test aggregate_error_construction_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --lib \
+cargo test -p scriptw-aot-wasm --lib \
   tests::error_prototype_to_string_has_typed_ordered_observable_phases -- \
   --exact --test-threads=1
-cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_error_constructor_properties_fixture
-cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_constructor_properties_fixture
-cargo test -p lila-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_iterable_to_list_fixture
-./target/debug/lila --jobs 1 test262 run built-ins/AggregateError/cause-property.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/AggregateError/message-undefined-no-prop.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/AggregateError/message-tostring-abrupt.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/AggregateError/order-of-args-evaluation.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/Promise/any/iter-arg-is-empty-iterable-reject.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/Promise/any/reject-deferred.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo test -p scriptw-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_error_constructor_properties_fixture
+cargo test -p scriptw-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_constructor_properties_fixture
+cargo test -p scriptw-cli --test cli -- --exact language_errors::run_wasm_backend_succeeds_for_aggregateerror_iterable_to_list_fixture
+./target/debug/scriptw --jobs 1 test262 run built-ins/AggregateError/cause-property.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/AggregateError/message-undefined-no-prop.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/AggregateError/message-tostring-abrupt.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/AggregateError/order-of-args-evaluation.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/Promise/any/iter-arg-is-empty-iterable-reject.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/Promise/any/reject-deferred.js --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 The checkpoint is green as of 2026-08-23 under the repository's shared

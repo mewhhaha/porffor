@@ -47,7 +47,7 @@ domain is exactly Normal, Return and Throw.
 
 ## Inventoried representation hazard
 
-Lila persists the request's completion kind at
+Scriptw persists the request's completion kind at
 `HEAP_ASYNC_GENERATOR_REQUEST_COMPLETION_KIND_OFFSET`. The current writer
 stores one of the generic `COMPLETION_KIND_*` integer constants, and both
 readers load the word into an untyped `u32` Wasm-local index.
@@ -256,7 +256,7 @@ cache across emitted calls.
 ## Durable structural witness
 
 Add
-`crates/lila-aot-wasm/tests/async_generator_request_completion_kind_structure.rs`
+`crates/scriptw-aot-wasm/tests/async_generator_request_completion_kind_structure.rs`
 as a bounded source guard over `heap.rs`, `standard.rs` and `promise.rs`. It
 should require:
 
@@ -378,12 +378,12 @@ Verification ran once and serially after the coordinated batch compile:
    readers; run `git diff --check` and `cargo fmt --all -- --check`;
 2. run one capped `cargo xc` workspace compile checkpoint;
 3. run
-   `cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1`
+   `cargo test -p scriptw-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1`
    and require `5/5`;
 4. run the five exact CLI tests above one at a time with `--exact` and
    `--test-threads=1`, expecting aggregate `5/5`;
 5. run the five exact Test262 paths above one at a time through
-   `./target/debug/lila --jobs 1 test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1`,
+   `./target/debug/scriptw --jobs 1 test262 run <path> --suite-root test262/vendor/test262 --execution-backend wasm --timeout-ms 180000 --threads 1`,
    expecting aggregate `10/10` and zero non-success buckets; and
 6. finish with `git diff --check` and the central batch's single broad
    checkpoint. Do not run a second broad suite solely for this representation

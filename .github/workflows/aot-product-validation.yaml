@@ -3,13 +3,13 @@ name: AOT product artifact validation
 on:
   pull_request:
     paths:
-      - 'crates/lila-aot-wasm/**'
-      - 'crates/lila-front/**'
-      - 'crates/lila-ir/**'
-      - 'crates/lila-runtime/**'
-      - 'crates/lila-intl/**'
-      - 'crates/lila-engine/**'
-      - 'crates/lila-cli/**'
+      - 'crates/scriptw-aot-wasm/**'
+      - 'crates/scriptw-front/**'
+      - 'crates/scriptw-ir/**'
+      - 'crates/scriptw-runtime/**'
+      - 'crates/scriptw-intl/**'
+      - 'crates/scriptw-engine/**'
+      - 'crates/scriptw-cli/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
@@ -18,13 +18,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'crates/lila-aot-wasm/**'
-      - 'crates/lila-front/**'
-      - 'crates/lila-ir/**'
-      - 'crates/lila-runtime/**'
-      - 'crates/lila-intl/**'
-      - 'crates/lila-engine/**'
-      - 'crates/lila-cli/**'
+      - 'crates/scriptw-aot-wasm/**'
+      - 'crates/scriptw-front/**'
+      - 'crates/scriptw-ir/**'
+      - 'crates/scriptw-runtime/**'
+      - 'crates/scriptw-intl/**'
+      - 'crates/scriptw-engine/**'
+      - 'crates/scriptw-cli/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
@@ -55,13 +55,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-aot-wasm --test emission -- product_artifact:: --list | tee /tmp/artifact-tests.txt
+          cargo test --locked -p scriptw-aot-wasm --test emission -- product_artifact:: --list | tee /tmp/artifact-tests.txt
           grep -Fxq 'product_artifact::validator_rejects_a_parseable_function_result_type_mismatch: test' /tmp/artifact-tests.txt
           grep -Fxq 'product_artifact::representative_language_families_produce_valid_aot_artifacts: test' /tmp/artifact-tests.txt
-          cargo test --locked -p lila-cli --test product_artifact_execution -- --list | tee /tmp/execution-tests.txt
+          cargo test --locked -p scriptw-cli --test product_artifact_execution -- --list | tee /tmp/execution-tests.txt
           grep -Fxq 'representative_artifacts_execute_with_the_expected_transcripts: test' /tmp/execution-tests.txt
           grep -Fxq 'execution_gate_rejects_wrong_results_extra_output_and_oracle_fallback: test' /tmp/execution-tests.txt
       - name: Validate emitted product artifacts
-        run: "cargo test --locked -p lila-aot-wasm --test emission -- product_artifact::"
+        run: "cargo test --locked -p scriptw-aot-wasm --test emission -- product_artifact::"
       - name: Execute the shared fixtures through the real Wasm-AOT CLI
-        run: cargo test --locked -p lila-cli --test product_artifact_execution -- --test-threads=1
+        run: cargo test --locked -p scriptw-cli --test product_artifact_execution -- --test-threads=1

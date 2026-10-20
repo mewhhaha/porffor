@@ -4,9 +4,9 @@
 catalogue consumed by RelativeTimeFormat. The payload is the existing
 259,890-byte `relative_time_format/generated/profile.json`, SHA-256
 `cf19084cea53a4ae2714e1062bf15b014f6460e24f53c6df50f2944f7690419d`.
-The native inventory is `lila/relative-time/profiles/v1`, and the artifact
-section is `lila.intl-relative-time.v1`. No ICU marker or exporter is claimed
-for these Lila-native records.
+The native inventory is `scriptw/relative-time/profiles/v1`, and the artifact
+section is `scriptw.intl-relative-time.v1`. No ICU marker or exporter is claimed
+for these Scriptw-native records.
 
 ## Admission and ownership
 
@@ -65,7 +65,7 @@ representation does not depend on serde_json's optional insertion-order feature.
 No shared text pool or positional table needs remapping. The native marker and
 primitive request/response wire schema remain unchanged.
 
-The projected payload starts with `LILARTP1`, a little-endian u32 descriptor
+The projected payload starts with `SCRIPTWRTP1`, a little-endian u32 descriptor
 length and u64 JSON length, then the descriptor and selected JSON. The descriptor
 is bounded to 16 KiB and the JSON to the original pinned extent; all additions,
 length conversion and total component extent are checked. The schema-one

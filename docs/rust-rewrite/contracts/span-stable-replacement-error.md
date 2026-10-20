@@ -28,8 +28,8 @@ order, the exact exhaustive error projections, and the existing focused unit
 that rejects a generated line terminator. Run:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::span_stable_replacement_error_structure::
-cargo test -p lila-ir modules::source::tests::a_generated_replacement_cannot_add_a_line_terminator -- --exact
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::span_stable_replacement_error_structure::
+cargo test -p scriptw-ir modules::source::tests::a_generated_replacement_cannot_add_a_line_terminator -- --exact
 cargo fmt --all -- --check
 ```
 

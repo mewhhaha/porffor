@@ -40,7 +40,7 @@ The builtin catalog declares the Intl host dependency on each provider caller:
 `Intl.Locale` and `Intl.getCanonicalLocales`. Import planning reads the final
 compiled builtin set, including bodies promoted by the emission dependency
 fixpoint. Standalone Locale constructors, options and created-Realm Locale calls
-therefore receive `lila_host.intl_call` without depending on a source reference
+therefore receive `scriptw_host.intl_call` without depending on a source reference
 to another Intl method. Slot getters do not invoke the provider.
 
 Locale identifiers have no 255-byte syntactic limit. A pure zero-capacity
@@ -76,12 +76,12 @@ complex territory entry, including distinct base and transform languages.
 Existing core-options and neighboring authority tests remain required.
 
 ```sh
-cargo test -p lila-intl -- --test-threads=1
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::intl_locale_getters:: --test-threads=1
-cargo test -p lila-aot-wasm --test intl_temporal -- intl_canonical_locale_tag_invocation_structure:: intl_namespace_plan_structure:: --test-threads=1
-cargo test -p lila-aot-wasm --test intl_temporal -- intl_host_imports:: --test-threads=1
-cargo test -p lila-engine --test aot_intl -- aot_intl_locale_host_import:: --test-threads=1
-cargo test -p lila-engine --test aot_intl -- aot_intl_locale_options:: aot_intl_locale_constructor:: --test-threads=1
+cargo test -p scriptw-intl -- --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::intl_locale_getters:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_temporal -- intl_canonical_locale_tag_invocation_structure:: intl_namespace_plan_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_temporal -- intl_host_imports:: --test-threads=1
+cargo test -p scriptw-engine --test aot_intl -- aot_intl_locale_host_import:: --test-threads=1
+cargo test -p scriptw-engine --test aot_intl -- aot_intl_locale_options:: aot_intl_locale_constructor:: --test-threads=1
 ```
 
 Compilation, runtime regressions and exact Test262 replays are pending at
@@ -115,7 +115,7 @@ seven generator failure controls. At staging handoff, generator checks pass;
 compilation and provider/native/Test262 execution remain pending. Locale
 maximize/minimize, locale information services, complete matching and broader
 Intl services remain open. See the [data provenance and regeneration
-contract](../../crates/lila-intl/data/cldr-47-bcp47/README.md).
+contract](../../crates/scriptw-intl/data/cldr-47-bcp47/README.md).
 
 References: [ECMA-402 Locale construction](https://tc39.es/ecma402/#sec-intl.locale),
 [UTS35 canonicalization](https://unicode.org/reports/tr35/#Annex_C_LocaleId_Canonicalization),

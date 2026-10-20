@@ -38,7 +38,7 @@ crash and cleanup failure remain worker failures.
 
 The observation contract compares Test262 harness outcomes, not arbitrary
 post-execution values or whole-program equivalence. Both negative paths retain
-Lila compiler preflight; parse/early negatives may pass from the same original
+Scriptw compiler preflight; parse/early negatives may pass from the same original
 front-end diagnostic before the spec-exec oracle runs. These seeds therefore do
 not establish independent parser agreement. The separate `negative-source-v1`
 protocol owns independent front-end observations. Matching owned failures stays
@@ -46,10 +46,10 @@ red, including unsupported data or host operations; only two actual harness
 passes make this replay green.
 
 ```
-lila differential seed-test262 --base before --candidate after \
+scriptw differential seed-test262 --base before --candidate after \
   --selection newly-green --max-seeds 16 --output-dir seeds
-lila differential replay-test262 --seed seeds/0000.test262-seed.json \
-  --output-report replay.json --oracle spec-exec --worker-bin ./lila
+scriptw differential replay-test262 --seed seeds/0000.test262-seed.json \
+  --output-report replay.json --oracle spec-exec --worker-bin ./scriptw
 ```
 
 Seed output starts incomplete, retains each exact per-case input, then publishes

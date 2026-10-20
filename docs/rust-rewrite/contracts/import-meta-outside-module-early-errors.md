@@ -30,7 +30,7 @@ requires a `SyntaxError` when the syntactic goal symbol is not Module. Clause
 17 makes the listed condition an early error. Strictness is irrelevant; the
 property belongs to the parse goal.
 
-Lila's static product parser exposes exactly the closed `Script | Module` goal
+Scriptw's static product parser exposes exactly the closed `Script | Module` goal
 choice. Under Script, every source occurrence of `import.meta` is therefore an
 early error, including occurrences lexically nested in ordinary, generator,
 async, arrow, method, field, and static-block bodies. Under Module, the same
@@ -81,14 +81,14 @@ phrase later inside another diagnostic. It must be a
 `ParseFailurePattern::StartsWith` row, not a `ContainsAll` row.
 
 The source path is statically closed and currently reachable. A fresh Boa lexer
-cursor starts with `module: false`; Lila's exhaustive `ParseGoal::Script` arm
-calls `parse_script`, which does not change it. Lila's `ParseGoal::Module` arm
+cursor starts with `module: false`; Scriptw's exhaustive `ParseGoal::Script` arm
+calls `parse_script`, which does not change it. Scriptw's `ParseGoal::Module` arm
 calls `parse_module`; `ModuleParser` sets module mode before parsing the
 `ModuleItemList`. Pinned Boa has one `set_module()` call and no nested-parser
 reset, so Module mode remains true through nested source constructs.
 
 No vendor repair is required. Before this extension, the message matches no
-row in `lila-front`'s one parse-failure table. The reachable Script rejection
+row in `scriptw-front`'s one parse-failure table. The reachable Script rejection
 therefore has `ParseCode::Malformed`, wire spelling `P_PARSE_MALFORMED`, phase
 `Parse`, and native `SyntaxError`. The extension changes that result to
 `ParseCode::Early(ImportMetaOutsideModule)`, phase `Early`, and native
@@ -124,7 +124,7 @@ The row must be accompanied by:
   reviewed prefix and requires the sole owner to use `StartsWith`;
 - the existing table-wide witness-disjointness and interpolation-safety
   assertions; and
-- an explicit arm in `lila-ir`'s exhaustive `EarlyErrorCode` mapping to
+- an explicit arm in `scriptw-ir`'s exhaustive `EarlyErrorCode` mapping to
   `IrDiagnosticKind::EarlyError`, with no catch-all.
 
 The new prefix does not overlap an existing classifier witness. Anchoring is
@@ -193,12 +193,12 @@ owner, that owner must remain unchanged.
 
 ## IR and retained-graph projection
 
-The enum extension must make `lila-ir`'s rejection-kind match exhaustive and
+The enum extension must make `scriptw-ir`'s rejection-kind match exhaustive and
 map the new code to `EarlyError`. The existing classifier-to-IR projection
 matrix should include the complete rendered witness and derive phase `Early`
 and native `SyntaxError` from the code.
 
-This condition is honestly Script-only on Lila's static product path. Loaded
+This condition is honestly Script-only on Scriptw's static product path. Loaded
 dependencies are always parsed as Module, so a real rejected
 `ModuleSourceIr` carrying `ImportMetaOutsideModule` cannot exist. Tests must not
 construct one and present it as retained-path evidence.
@@ -272,8 +272,8 @@ belong to different parser conditions and are excluded.
 
 ## Focused verification — 2026-08-23
 
-The focused `lila-front` `import_meta_` group passed `5/5`, followed by the
-complete `lila-front --lib` gate at `108/108`. The exact `lila-ir` classifier
+The focused `scriptw-front` `import_meta_` group passed `5/5`, followed by the
+complete `scriptw-front --lib` gate at `108/108`. The exact `scriptw-ir` classifier
 projection passed `1/1`, and the exact retained positive Module graph witness
 passed `1/1`. `cargo xc`, `cargo fmt --all -- --check`, and
 `git diff --check` were green.

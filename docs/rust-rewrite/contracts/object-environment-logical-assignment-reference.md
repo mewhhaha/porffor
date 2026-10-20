@@ -133,10 +133,10 @@ After batch integration:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir lowering::object_environment_logical::tests --quiet
-cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+cargo test -p scriptw-ir lowering::object_environment_logical::tests --quiet
+cargo test -p scriptw-aot-wasm --test structure_language --quiet -- \
   object_environment_logical_assignment_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-cli --test cli \
   language::run_wasm_backend_succeeds_for_object_environment_logical_assignment_fixture \
   -- --exact --test-threads=1
 for case_file in \
@@ -144,7 +144,7 @@ for case_file in \
   language/expressions/logical-assignment/lgcl-or-assignment-operator-unresolved-lhs.js \
   language/expressions/logical-assignment/lgcl-nullish-assignment-operator-unresolved-lhs.js
 do
-  ./target/debug/lila --jobs 1 test262 run "$case_file" \
+  ./target/debug/scriptw --jobs 1 test262 run "$case_file" \
     --suite-root test262/vendor/test262 --execution-backend wasm-aot \
     --timeout-ms 180000 --threads 1
 done

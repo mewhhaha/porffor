@@ -137,7 +137,7 @@ source-structure mutation guards, not runtime evidence.
 ## Focused evidence
 
 The existing exact CLI fixture is
-`crates/lila-cli/tests/fixtures/wasm_typedarray_find.js`, registered by
+`crates/scriptw-cli/tests/fixtures/wasm_typedarray_find.js`, registered by
 `run_wasm_backend_succeeds_for_typedarray_find_fixture`. It already exercises
 all four methods, forward and reverse order, value and index results, numeric
 and BigInt element kinds, callable Proxies, exact callback arguments and

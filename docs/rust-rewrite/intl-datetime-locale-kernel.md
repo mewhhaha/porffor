@@ -137,7 +137,7 @@ Each endpoint resolves its own transition. Plain inputs bypass zone conversion.
 
 ## Plans and observable order
 
-The opaque plan is `LILADTF1`, the 32-byte component identity, and the canonical
+The opaque plan is `SCRIPTWDTF1`, the 32-byte component identity, and the canonical
 DateTimePlanRequest encoding. Each format call validates that envelope, decodes
 the primitive recipe and constructs the private selected plan. No host address,
 cache index or JavaScript value crosses the boundary. The identity includes the
@@ -173,7 +173,7 @@ inputs retain caller order, as required by the pinned current range algorithms.
 Regenerate the profile with:
 
 ```
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json
+python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json
 python3 scripts/generate-intl-datetime-identity.py
 ```
 
@@ -182,11 +182,11 @@ identity generation after final formatting because it hashes source bytes.
 Normal CI checks the generated files without changing them:
 
 ```
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --check
+python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json --check
 python3 scripts/generate-intl-datetime-identity.py --check
 python3 -m unittest discover -s scripts/tests -p test_intl_cldr_profile.py
 python3 -m unittest discover -s scripts/tests -p test_generate_intl_datetime_profile.py
-cargo test -p lila-intl --lib provider::datetime
+cargo test -p scriptw-intl --lib provider::datetime
 ```
 
 The private provider tests cover exact localized parts, modern independent

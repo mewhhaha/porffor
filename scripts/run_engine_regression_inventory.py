@@ -18,7 +18,7 @@ from run_aot_unit_shard import parse_inventory, passed_exactly_one
 
 def build_test_binary(target: str) -> Path:
     result = subprocess.run(
-        ["cargo", "test", "--locked", "-p", "lila-engine", "--test", target,
+        ["cargo", "test", "--locked", "-p", "scriptw-engine", "--test", target,
          "--no-run", "--message-format=json-render-diagnostics"],
         stdout=subprocess.PIPE, text=True, check=True,
     )
@@ -86,7 +86,7 @@ def run_inventory(binary: Path, output_dir: Path, timeout: int,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("target", help="lila-engine integration test target (area)")
+    parser.add_argument("target", help="scriptw-engine integration test target (area)")
     parser.add_argument("--module", help="run only this test file (module) of the target")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=600, help="seconds per test")

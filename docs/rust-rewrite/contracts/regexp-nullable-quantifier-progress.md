@@ -123,15 +123,15 @@ Cheap producer checks:
 
 ```sh
 cargo fmt --all -- --check
-cargo test -p lila-ir nullable_quantifier_progress
+cargo test -p scriptw-ir nullable_quantifier_progress
 git diff --check
 ```
 
 Integrated focused verification:
 
 ```sh
-cargo test -p lila-cli --test cli regexp -- --nocapture
-./target/debug/lila test262 run built-ins/RegExp/nullable-quantifier.js \
+cargo test -p scriptw-cli --test cli regexp -- --nocapture
+./target/debug/scriptw test262 run built-ins/RegExp/nullable-quantifier.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name regexp-nullable-quantifier --timeout-ms 180000 --threads 1
 ```

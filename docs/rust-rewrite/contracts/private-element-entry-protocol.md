@@ -9,7 +9,7 @@ receiver and value tuples.
 
 ECMA-262 6.2.10 gives a PrivateElement the closed `field`, `method`, or
 `accessor` kind. The algorithms in 7.3.26-7.3.31 then find, add, read, and write
-those records. Lila preserves those semantics while sharing each private
+those records. Scriptw preserves those semantics while sharing each private
 method or accessor function across all instances of one class evaluation. That
 sharing gives the backend five storage rows:
 

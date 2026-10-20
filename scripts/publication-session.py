@@ -25,16 +25,16 @@ import tempfile
 from collections.abc import Iterator, Mapping
 
 SCHEMA_VERSION = 4
-COMPILER_FINGERPRINT_SCHEME = "lila-program-cache-compiler-v3"
+COMPILER_FINGERPRINT_SCHEME = "scriptw-program-cache-compiler-v3"
 MAX_MATRIX_COUNT = 10**18 - 1
 SOURCE_FILES = ("Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml")
 SOURCE_DIRECTORIES = (".cargo", "crates", "vendor", "scripts")
 IGNORED_DIRECTORIES = frozenset({".git", "target", "__pycache__"})
 RUNTIME_ENVIRONMENT = (
     "TZ", "LANG", "LC_ALL", "LC_TIME", "RUST_MIN_STACK",
-    "LILA_MODULE_MEMORY_CACHE_ENTRIES", "LILA_CACHE_LIMIT_BYTES",
-    "LILA_FUNCTION_CACHE_LIMIT_BYTES", "LILA_MODULE_CACHE_LIMIT_BYTES",
-    "LILA_PROGRAM_CACHE_LIMIT_BYTES",
+    "SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES", "SCRIPTW_CACHE_LIMIT_BYTES",
+    "SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES", "SCRIPTW_MODULE_CACHE_LIMIT_BYTES",
+    "SCRIPTW_PROGRAM_CACHE_LIMIT_BYTES",
 )
 IDENTITY_KEYS = frozenset({
     "repository", "checkout_commit", "checkout_tree", "source_inputs_sha256",
@@ -182,7 +182,7 @@ def _file_digest(path: Path) -> str:
 def _tree_digest(root: Path, paths: list[Path]) -> tuple[str, int]:
     # Length framing distinguishes both paths and contents without depending on
     # directory enumeration order, filesystem times or Git index cleanliness.
-    digest = hashlib.sha256(b"lila-publication-inputs-v1\0")
+    digest = hashlib.sha256(b"scriptw-publication-inputs-v1\0")
     files = sorted({file for path in paths for file in _regular_files(path)})
     if not files:
         raise ProvenanceError(f"refusing an empty input inventory: {root}")
@@ -209,7 +209,7 @@ def capture_identity(environment: Mapping[str, str]) -> dict:
     if reuse not in ("0", "1"):
         raise ProvenanceError("REUSE_CASE_WORKERS must be 0 or 1")
     root = Path(environment["REPO_ROOT"]).resolve(strict=True)
-    binary = Path(environment["LILA_BIN"]).resolve(strict=True)
+    binary = Path(environment["SCRIPTW_BIN"]).resolve(strict=True)
     suite = Path(environment["SUITE_ROOT"]).resolve(strict=True)
     snapshots = Path(environment["SNAPSHOT_DIR"]).resolve()
     name = environment["SNAPSHOT_NAME"]
@@ -433,7 +433,7 @@ def run_session(environment: dict[str, str]) -> int:
         print(f"suite_sha256: {identity['suite_sha256']}", flush=True)
         command = ["bash", str(Path(identity["repository"]) / "scripts/lib/publish-real-status-driver.sh"),
                    "wasm-aot", identity["snapshot_name"]]
-        child_env = {**environment, "LILA_PUBLICATION_MANIFEST": str(manifest)}
+        child_env = {**environment, "SCRIPTW_PUBLICATION_MANIFEST": str(manifest)}
         with subprocess.Popen(command, env=child_env, start_new_session=True, pass_fds=(descriptor,)) as child:
             def forward(signum, _frame):
                 try:

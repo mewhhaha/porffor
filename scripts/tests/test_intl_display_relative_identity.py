@@ -35,19 +35,19 @@ class ConsumedKernelIdentity(unittest.TestCase):
                                      ('RelativeTimeFormat', 'relative_time_format', 'intl_relative_time_host')]:
             recipe = self.recipes[service]
             paths = {row['path'] for row in recipe['files']}
-            self.assertIn(f'crates/lila-intl/src/{owner}.rs', paths)
-            self.assertIn(f'crates/lila-engine/src/{host}.rs', paths)
+            self.assertIn(f'crates/scriptw-intl/src/{owner}.rs', paths)
+            self.assertIn(f'crates/scriptw-engine/src/{host}.rs', paths)
             image = 'display_names_image' if service == 'DisplayNames' else 'relative_time_image'
-            self.assertIn(f'crates/lila-intl/src/{image}.rs', paths)
-            self.assertIn('crates/lila-intl/src/locale_image.rs', paths)
-            self.assertIn('crates/lila-engine/src/intl_data_images.rs', paths)
-            self.assertIn('crates/lila-engine/src/wasm_gc_intl_host.rs', paths)
-            self.assertIn('crates/lila-intl/src/supported_values.rs', paths)
+            self.assertIn(f'crates/scriptw-intl/src/{image}.rs', paths)
+            self.assertIn('crates/scriptw-intl/src/locale_image.rs', paths)
+            self.assertIn('crates/scriptw-engine/src/intl_data_images.rs', paths)
+            self.assertIn('crates/scriptw-engine/src/wasm_gc_intl_host.rs', paths)
+            self.assertIn('crates/scriptw-intl/src/supported_values.rs', paths)
             self.assertIn('scripts/intl_calendar_eras.py', paths)
             self.assertTrue(any('calendar-eras-cldr-48/common/main' in path for path in paths))
             self.assertTrue(any('numbering-tols-cldr-48' in path for path in paths))
             self.assertFalse(any('/tests/' in path or path.endswith('/tests.rs') or path.endswith('/kernel_identity.rs') for path in paths))
-        self.assertIn('crates/lila-intl/src/number_format/numeric/round.rs',
+        self.assertIn('crates/scriptw-intl/src/number_format/numeric/round.rs',
                       {row['path'] for row in self.recipes['RelativeTimeFormat']['files']})
         self.assertNotIn('ryu-js', {row['name'] for row in self.recipes['DisplayNames']['packages']})
         formatter = next(row for row in self.recipes['RelativeTimeFormat']['packages'] if row['name'] == 'ryu-js')
@@ -63,8 +63,8 @@ class ConsumedKernelIdentity(unittest.TestCase):
         self.assertEqual(original.count(checksum), 1)
         lock.write_text(original.replace(checksum, '0' * 64))
         changed = IDENTITY.generate(root)
-        dn = 'crates/lila-intl/src/display_names/kernel_identity.rs'
-        rtf = 'crates/lila-intl/src/relative_time_format/kernel_identity.rs'
+        dn = 'crates/scriptw-intl/src/display_names/kernel_identity.rs'
+        rtf = 'crates/scriptw-intl/src/relative_time_format/kernel_identity.rs'
         self.assertEqual(changed[dn], self.actual[dn])
         self.assertNotEqual(changed[rtf], self.actual[rtf])
         lock.write_text(original.replace('name = "ryu-js"', 'name = "missing-relative-formatter"'))
@@ -73,27 +73,27 @@ class ConsumedKernelIdentity(unittest.TestCase):
 
     def test_relative_rounding_owner_change_invalidates_only_relative_component(self):
         root = self.copy_inputs()
-        target = root / 'crates/lila-intl/src/number_format/numeric/round.rs'
+        target = root / 'crates/scriptw-intl/src/number_format/numeric/round.rs'
         target.write_bytes(target.read_bytes() + b'\n// deliberate source-identity tamper\n')
         changed = IDENTITY.generate(root)
-        dn = 'crates/lila-intl/src/display_names/kernel_identity.rs'
-        rtf = 'crates/lila-intl/src/relative_time_format/kernel_identity.rs'
+        dn = 'crates/scriptw-intl/src/display_names/kernel_identity.rs'
+        rtf = 'crates/scriptw-intl/src/relative_time_format/kernel_identity.rs'
         self.assertEqual(changed[dn], self.actual[dn])
         self.assertNotEqual(changed[rtf], self.actual[rtf])
 
     def test_shared_cardinal_algorithm_change_invalidates_relative_component(self):
         root = self.copy_inputs()
-        target = root / 'crates/lila-intl/src/plural_rules/rules.rs'
+        target = root / 'crates/scriptw-intl/src/plural_rules/rules.rs'
         target.write_bytes(target.read_bytes() + b'\n// deliberate cardinal-owner tamper\n')
         changed = IDENTITY.generate(root)
-        rtf = 'crates/lila-intl/src/relative_time_format/kernel_identity.rs'
+        rtf = 'crates/scriptw-intl/src/relative_time_format/kernel_identity.rs'
         self.assertNotEqual(changed[rtf], self.actual[rtf])
 
     def test_ignored_test_files_and_self_outputs_do_not_enter_identity(self):
         root = self.copy_inputs()
-        for relative in ['crates/lila-intl/src/display_names/tests.rs',
-                         'crates/lila-intl/src/relative_time_format/tests.rs',
-                         'crates/lila-intl/src/display_names/kernel_identity.rs']:
+        for relative in ['crates/scriptw-intl/src/display_names/tests.rs',
+                         'crates/scriptw-intl/src/relative_time_format/tests.rs',
+                         'crates/scriptw-intl/src/display_names/kernel_identity.rs']:
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text('deliberately unrelated test or generated self bytes\n')
@@ -101,14 +101,14 @@ class ConsumedKernelIdentity(unittest.TestCase):
 
     def test_tampered_real_captured_input_is_rejected_before_identity_generation(self):
         root = self.copy_inputs()
-        target = root / 'crates/lila-intl/data/datetime-cldr-47/common/main/en.xml'
+        target = root / 'crates/scriptw-intl/data/datetime-cldr-47/common/main/en.xml'
         target.write_bytes(target.read_bytes() + b'\n')
         with self.assertRaisesRegex(ValueError, 'captured input changed'):
             IDENTITY.generate(root)
 
     def test_missing_actual_host_consumer_is_rejected(self):
         root = self.copy_inputs()
-        (root / 'crates/lila-engine/src/intl_relative_time_host.rs').unlink()
+        (root / 'crates/scriptw-engine/src/intl_relative_time_host.rs').unlink()
         with self.assertRaises(FileNotFoundError):
             IDENTITY.generate(root)
 

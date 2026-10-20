@@ -73,17 +73,17 @@ The contract's focused command set is:
 ```sh
 cargo fmt --all -- --check
 git diff --check
-cargo test -p lila-aot-wasm --test proxy_reflect_set_handler_protocol_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test structure_builtins -- proxy_revocation_route_ownership_structure:: --test-threads=1
-cargo test -p lila-aot-wasm --test modules_realms -- object_write_proxy_realm_structure:: --test-threads=1
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_reflect_set_handler_protocol -- --exact --test-threads=1
-cargo test -p lila-cli --test cli object::proxy_set_errors_use_the_borrowed_builtin_realm -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test proxy_reflect_set_handler_protocol_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_builtins -- proxy_revocation_route_ownership_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test modules_realms -- object_write_proxy_realm_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_proxy_reflect_set_handler_protocol -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli object::proxy_set_errors_use_the_borrowed_builtin_realm -- --exact --test-threads=1
 ./scripts/check-module-boundaries.sh
 ```
 
 The direct handler-protocol structure target passes `4/4`, the revocation-route
 target passes `4/4`, and the object-write Realm target passes `5/5`. The exact
-CLI commands in this block and `cargo check -p lila-aot-wasm` have no
+CLI commands in this block and `cargo check -p scriptw-aot-wasm` have no
 individually attributed result here; T11 owns the collective seven-CLI and
 shared-gate results. No broad compile, Test262 or published conformance result
 is claimed.

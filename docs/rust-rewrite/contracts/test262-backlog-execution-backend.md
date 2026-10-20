@@ -19,7 +19,7 @@ legacy string field; this contract governs generated backlog artifacts only.
 Focused verification:
 
 ```console
-cargo test -p lila-test262 --test backlog_execution_backend_structure -- --test-threads=1
-cargo test -p lila-test262 --lib tests::generate_backlog_writes_deterministic_failure_inventory -- --exact --test-threads=1
-cargo check -p lila-test262 --quiet
+cargo test -p scriptw-test262 --test backlog_execution_backend_structure -- --test-threads=1
+cargo test -p scriptw-test262 --lib tests::generate_backlog_writes_deterministic_failure_inventory -- --exact --test-threads=1
+cargo check -p scriptw-test262 --quiet
 ```

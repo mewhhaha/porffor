@@ -278,7 +278,7 @@ Each code requires:
   `invalid super call usage` message;
 - injection witnesses in which a user-controlled Module export name contains
   each complete new prefix but remains `ModuleDuplicateExport`; and
-- explicit arms in `lila-ir`'s exhaustive `EarlyErrorCode` mapping to
+- explicit arms in `scriptw-ir`'s exhaustive `EarlyErrorCode` mapping to
   `IrDiagnosticKind::EarlyError`, with no catch-all.
 
 The types must keep the two conditions separate. A union variant such as
@@ -378,7 +378,7 @@ Classifier-only precedence witnesses additionally require:
 
 ## IR and retained-module boundary
 
-The public front-end result remains the sole parse owner. `lila-ir` must only
+The public front-end result remains the sole parse owner. `scriptw-ir` must only
 project the retained structured rejection; it must not inspect Boa messages or
 reparse source.
 
@@ -396,8 +396,8 @@ For each code, focused IR witnesses must establish:
 4. positive dependency modules containing a valid derived constructor or
    `SuperProperty` static block remain parsed graph nodes.
 
-An exhaustive `match` in `crates/lila-ir/src/early_error_code.rs` owns the two
-new variants. No string table may be added to `lila-ir`, and no test may mint a
+An exhaustive `match` in `crates/scriptw-ir/src/early_error_code.rs` owns the two
+new variants. No string table may be added to `scriptw-ir`, and no test may mint a
 diagnostic without exercising a real front-end producer.
 
 ## Durable structural guards
@@ -491,17 +491,17 @@ witnesses and task status were written:
    disjointness;
 2. `cargo fmt --all -- --check` and `git diff --check`;
 3. one capped `cargo xc` compile checkpoint;
-4. focused `lila-front` exact tests for the two source matrices, classifier
+4. focused `scriptw-front` exact tests for the two source matrices, classifier
    ownership/injection assertions and vendored-source guard;
-5. the complete capped `lila-front --lib` gate;
+5. the complete capped `scriptw-front --lib` gate;
 6. focused real-Module diagnostic witnesses, then the complete relevant
-   `lila-ir` `modules::early::tests` group;
+   `scriptw-ir` `modules::early::tests` group;
 7. focused retained rejected/positive dependency witnesses, then the complete
-   relevant `lila-ir` `modules::graph::tests` group; and
+   relevant `scriptw-ir` `modules::graph::tests` group; and
 8. the three exact Test262 paths with `--jobs 1`, `--threads 1` and an explicit
    timeout, requiring exactly six completed passing variants.
 
-If a broader `lila-ir` or workspace suite is attempted afterward, report its
+If a broader `scriptw-ir` or workspace suite is attempted afterward, report its
 result separately from the green affected groups. Unrelated failures cannot be
 hidden, but they also do not erase exact evidence for these parser/graph paths.
 No full language tree or aggregate Test262 refresh is required for this bounded

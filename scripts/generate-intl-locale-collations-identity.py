@@ -7,49 +7,49 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NATIVE = Path('crates/lila-intl/src/provider/locale_collations.rs')
+NATIVE = Path('crates/scriptw-intl/src/provider/locale_collations.rs')
 IDENTITY = NATIVE.with_suffix('') / 'kernel_identity.rs'
-DATA = Path('crates/lila-intl/data/locale-collations/kernel-source-manifest.json')
-COLLATOR = Path('crates/lila-intl/data/collator-icu-2')
-NUMBER = Path('crates/lila-intl/data/number-cldr-47')
+DATA = Path('crates/scriptw-intl/data/locale-collations/kernel-source-manifest.json')
+COLLATOR = Path('crates/scriptw-intl/data/collator-icu-2')
+NUMBER = Path('crates/scriptw-intl/data/number-cldr-47')
 COLLATOR_PRODUCTION = [
-    'crates/lila-intl/src/collator.rs', 'crates/lila-intl/src/collator/profiles.rs',
-    'crates/lila-intl/src/collator/identity.rs', 'crates/lila-intl/src/collator_protocol.rs',
-    'crates/lila-intl/src/collator/profiles/preferences.rs',
-    'crates/lila-intl-collator-data/src/lib.rs', 'crates/lila-intl-collator-data/src/baked.rs',
+    'crates/scriptw-intl/src/collator.rs', 'crates/scriptw-intl/src/collator/profiles.rs',
+    'crates/scriptw-intl/src/collator/identity.rs', 'crates/scriptw-intl/src/collator_protocol.rs',
+    'crates/scriptw-intl/src/collator/profiles/preferences.rs',
+    'crates/scriptw-intl-collator-data/src/lib.rs', 'crates/scriptw-intl-collator-data/src/baked.rs',
 ]
 HELPERS = [
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs', 'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/protocol.rs',
-    'crates/lila-intl/src/service_selection.rs',
-    'crates/lila-intl/src/selection/manifest.rs',
-    'crates/lila-intl/src/selection/export.rs',
-    'crates/lila-intl/src/locale_information_wire.rs', 'crates/lila-intl/src/provider/region_preference.rs',
-    'crates/lila-intl/src/identifiers.rs', 'Cargo.lock', 'Cargo.toml', 'crates/lila-intl/Cargo.toml',
-    'crates/lila-intl-collator-data/Cargo.toml',
+    'crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/provider/conformance.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs', 'crates/scriptw-intl/src/lib.rs', 'crates/scriptw-intl/src/protocol.rs',
+    'crates/scriptw-intl/src/service_selection.rs',
+    'crates/scriptw-intl/src/selection/manifest.rs',
+    'crates/scriptw-intl/src/selection/export.rs',
+    'crates/scriptw-intl/src/locale_information_wire.rs', 'crates/scriptw-intl/src/provider/region_preference.rs',
+    'crates/scriptw-intl/src/identifiers.rs', 'Cargo.lock', 'Cargo.toml', 'crates/scriptw-intl/Cargo.toml',
+    'crates/scriptw-intl-collator-data/Cargo.toml',
 ]
 
 # Capture the actual selected image, keyword authority and artifact boundary.
 # This service's own generated kernel outputs are excluded.
 HELPERS.extend([
-    'crates/lila-intl/build.rs',
-    'crates/lila-intl/src/image.rs',
-    'crates/lila-intl/src/locale_image.rs',
-    'crates/lila-intl/src/image_build/locale.rs',
-    'crates/lila-intl/src/image_build/keyword.rs',
-    'crates/lila-intl/src/provider/language_domain.rs',
-    'crates/lila-intl/src/provider/keyword_aliases.rs',
-    'crates/lila-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/build.rs',
+    'crates/scriptw-intl/src/image.rs',
+    'crates/scriptw-intl/src/locale_image.rs',
+    'crates/scriptw-intl/src/image_build/locale.rs',
+    'crates/scriptw-intl/src/image_build/keyword.rs',
+    'crates/scriptw-intl/src/provider/language_domain.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
     'scripts/generate-intl-keyword-aliases.py',
-    'crates/lila-engine/src/intl_data_images.rs',
-    'crates/lila-engine/src/wasm_gc_intl_host.rs',
-    'crates/lila-aot-wasm/src/emit.rs',
-    'crates/lila-aot-wasm/src/emit/module_assembly.rs',
-    'crates/lila-intl/src/collator_image.rs',
-    'crates/lila-intl/src/collator_image/projection.rs',
-    'crates/lila-intl/src/collator_image/projection/rows.rs',
-    'crates/lila-intl/src/image_build/collator.rs',
-    'crates/lila-intl/data/collator-icu-2/locale-inventory.json',
-    'crates/lila-intl/src/number_image.rs',
+    'crates/scriptw-engine/src/intl_data_images.rs',
+    'crates/scriptw-engine/src/wasm_gc_intl_host.rs',
+    'crates/scriptw-aot-wasm/src/emit.rs',
+    'crates/scriptw-aot-wasm/src/emit/module_assembly.rs',
+    'crates/scriptw-intl/src/collator_image.rs',
+    'crates/scriptw-intl/src/collator_image/projection.rs',
+    'crates/scriptw-intl/src/collator_image/projection/rows.rs',
+    'crates/scriptw-intl/src/image_build/collator.rs',
+    'crates/scriptw-intl/data/collator-icu-2/locale-inventory.json',
+    'crates/scriptw-intl/src/number_image.rs',
     'scripts/generate-intl-locale-collations-identity.py',
 ])
 
@@ -68,7 +68,7 @@ def row(name, raw):
 
 def number_production(root):
     paths = []
-    for path in (root / 'crates/lila-intl/src/number_format').rglob('*.rs'):
+    for path in (root / 'crates/scriptw-intl/src/number_format').rglob('*.rs'):
         if 'tests' not in path.parts and path.name != 'tests.rs':
             paths.append(path.relative_to(root).as_posix())
     # Reuse the existing closed production authority, not a fresh permissive census.
@@ -85,17 +85,17 @@ def kernel_sources(root):
     native = root / NATIVE.with_suffix('')
     if any(path.name not in {'tests.rs', 'kernel_identity.rs'} for path in native.rglob('*.rs')):
         raise ValueError('unreviewed Locale collation production module')
-    collator_dir = root / 'crates/lila-intl/src/collator'
+    collator_dir = root / 'crates/scriptw-intl/src/collator'
     actual = {path.relative_to(root).as_posix() for path in collator_dir.rglob('*.rs')
               if 'tests' not in path.parts and path.name != 'tests.rs'}
-    if actual != {'crates/lila-intl/src/collator/profiles.rs', 'crates/lila-intl/src/collator/identity.rs',
-                  'crates/lila-intl/src/collator/profiles/preferences.rs'}:
+    if actual != {'crates/scriptw-intl/src/collator/profiles.rs', 'crates/scriptw-intl/src/collator/identity.rs',
+                  'crates/scriptw-intl/src/collator/profiles/preferences.rs'}:
         raise ValueError('missing or unreviewed Collator production module')
-    projection = root / 'crates/lila-intl/src/collator_image'
+    projection = root / 'crates/scriptw-intl/src/collator_image'
     actual_projection = {path.relative_to(root).as_posix() for path in projection.rglob('*.rs')
                          if 'tests' not in path.parts and path.name != 'tests.rs'}
-    if actual_projection != {'crates/lila-intl/src/collator_image/projection.rs',
-                             'crates/lila-intl/src/collator_image/projection/rows.rs'}:
+    if actual_projection != {'crates/scriptw-intl/src/collator_image/projection.rs',
+                             'crates/scriptw-intl/src/collator_image/projection/rows.rs'}:
         raise ValueError('missing or unreviewed Collator projection production module')
     names = sorted(COLLATOR_PRODUCTION + HELPERS + number_production(root) + [str(NATIVE)])
     return [row(name, (root / name).read_bytes()) for name in names]
@@ -187,7 +187,7 @@ def admitted_data(root, with_root_evidence=False):
 
 def outputs(root):
     data, root_evidence = admitted_data(root, with_root_evidence=True)
-    recipe = {'schema': 1, 'domain': 'lila-locale-collations-native-v1',
+    recipe = {'schema': 1, 'domain': 'scriptw-locale-collations-native-v1',
               'selection': 'NoCo checked request; actual CollatorProfiles matching(Lookup) per-locale admitted sort map; unmatched checked locale-independent und emoji/eor profile owner',
               'global_union_selection': False, 'formatting_DefaultLocale_selection': False,
               'producer_checks': 'read-only historical genuine export/constructor ancestry; no new Cargo reexport or runtime admission',

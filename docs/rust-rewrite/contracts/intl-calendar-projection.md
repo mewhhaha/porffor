@@ -20,7 +20,7 @@ The independent numbering-system selection can additionally prune localized
 symbol maps while retaining actual defaults and those global kernels; see the
 [numbering contract](intl-numbering-projection.md).
 
-The schema-two `LILADTP1` descriptor binds requested calendar types, selected
+The schema-two `SCRIPTWDTP1` descriptor binds requested calendar types, selected
 locales, source pool IDs, Custom ID, pinned native source and both actual foundation
 digests. Admission rederives the whole canonical payload and requires byte equality
 before minting its private catalogue. The decoder's recipe consumes that catalogue

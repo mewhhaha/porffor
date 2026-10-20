@@ -52,8 +52,8 @@ Buddhist to succeed. These controls pass in the integrated predecessor.
 Source generation/check commands:
 
 ```sh
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --report target/buddhist-consumed-leaves.json
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --report crates/lila-intl/src/provider/datetime/generated/report.json --check
+python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json --report target/buddhist-consumed-leaves.json
+python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json --report crates/scriptw-intl/src/provider/datetime/generated/report.json --check
 python3 -m unittest discover -s scripts/tests -p test_generate_intl_datetime_profile.py
 python3 scripts/generate-intl-datetime-identity.py
 python3 scripts/generate-intl-datetime-identity.py --check
@@ -63,10 +63,10 @@ Refresh the focused controls with:
 
 ```sh
 cargo xc
-cargo test --locked -p lila-intl --lib provider::datetime -- --test-threads=2
-cargo test --locked -p lila-intl --lib datetime_protocol -- --test-threads=2
-cargo test --locked -p lila-intl --lib supported_values -- --test-threads=2
-cargo test --locked -p lila-engine --test aot_intl --test aot_temporal -- aot_intl_datetime_buddhist:: aot_temporal_zoned_locale:: aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_intl_supported_values:: --test-threads=2
+cargo test --locked -p scriptw-intl --lib provider::datetime -- --test-threads=2
+cargo test --locked -p scriptw-intl --lib datetime_protocol -- --test-threads=2
+cargo test --locked -p scriptw-intl --lib supported_values -- --test-threads=2
+cargo test --locked -p scriptw-engine --test aot_intl --test aot_temporal -- aot_intl_datetime_buddhist:: aot_temporal_zoned_locale:: aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_intl_supported_values:: --test-threads=2
 ```
 
 The completed 2026-10-01 Buddhist predecessor checkpoint records 518/558

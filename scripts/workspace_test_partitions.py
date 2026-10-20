@@ -49,7 +49,7 @@ parser.add_argument('--output', required=True, type=Path)
 parser.add_argument('--cpus', required=True, nargs='+', type=int)
 parser.add_argument('--include-ignored', action='store_true', required=True)
 parser.add_argument('--inventory-only', action='store_true')
-parser.add_argument('--qualified-target', default='lila-cli:cli')
+parser.add_argument('--qualified-target', default='scriptw-cli:cli')
 parser.add_argument('--stall-seconds', type=int, choices=(900, 3600))
 args = parser.parse_args()
 package, separator, target = args.qualified_target.partition(':')
@@ -149,8 +149,8 @@ receipt = {
     'driver_sha256': digest(Path(__file__)),
     'qualified_target': args.qualified_target, 'stall_seconds': args.stall_seconds,
     'inherited_retained_modules': {
-        'entries_per_process': os.environ.get('LILA_MODULE_MEMORY_CACHE_ENTRIES'),
-        'image_bytes_per_process': os.environ.get('LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES'),
+        'entries_per_process': os.environ.get('SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES'),
+        'image_bytes_per_process': os.environ.get('SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES'),
         'policy': 'Inherited environment; each child retains the existing limited_verification cloud ceiling. No cache or memory limit changed.'},
     'executable': str(args.executable), 'executable_sha256': executable_sha,
     'original_inventory': str(args.inventory), 'original_inventory_sha256': digest(args.inventory),

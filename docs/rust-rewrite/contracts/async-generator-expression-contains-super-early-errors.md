@@ -11,7 +11,7 @@ condition:
 
 Its wire spelling is `E_ASYNC_GENERATOR_EXPRESSION_CONTAINS_SUPER`. It derives
 phase `Early` and native error type `SyntaxError` through the exhaustive
-`lila-ir` rejection projection.
+`scriptw-ir` rejection projection.
 
 The condition is true when the expression's `FormalParameters` or
 `AsyncGeneratorBody` `Contains SuperProperty` or `Contains SuperCall`.
@@ -73,7 +73,7 @@ lanes bring the current table to 73 rows with the exact `54/18/1`
 population. An evaluated
 parse-owner witness, exact single-owner assertion, table-wide disjointness and
 wire-name proofs make the classification structural. The exhaustive
-`EarlyErrorCode` projection in `lila-ir` must also assign each new variant a
+`EarlyErrorCode` projection in `scriptw-ir` must also assign each new variant a
 rejection kind before the workspace builds.
 
 Classifier checks keep the prefix distinct from the synchronous generator,
@@ -151,15 +151,15 @@ belong to other producers and are excluded.
 The focused checkpoint ran:
 
 ```sh
-cargo check -p lila-front
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm
-cargo test -p lila-front --lib async_generator_expression_super -- --test-threads=1
-cargo test -p lila-front --lib tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-front --test parse_failure_pattern_structure -- --test-threads=1
-cargo test -p lila-ir modules::early::tests::async_generator_expression_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::rejected_async_generator_expression_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::retained_async_generator_expression_without_super_builds_a_real_module_graph -- --exact --test-threads=1
+cargo check -p scriptw-front
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm
+cargo test -p scriptw-front --lib async_generator_expression_super -- --test-threads=1
+cargo test -p scriptw-front --lib tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-front --test parse_failure_pattern_structure -- --test-threads=1
+cargo test -p scriptw-ir modules::early::tests::async_generator_expression_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::rejected_async_generator_expression_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::retained_async_generator_expression_without_super_builds_a_real_module_graph -- --exact --test-threads=1
 ```
 
 The package checks are green. The direct front filter passes `4/4`, the shared

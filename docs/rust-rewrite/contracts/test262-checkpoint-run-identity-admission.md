@@ -37,8 +37,8 @@ fallible parser, named producers, typed forwarding seams, and absence of a
 derived or repeated validation escape hatch:
 
 ```console
-cargo test -p lila-test262 --test checkpoint_run_identity_admission_structure
-cargo test -p lila-test262 tests::direct_terminal_and_checkpoint_identity_are_exactly_bound -- --exact
+cargo test -p scriptw-test262 --test checkpoint_run_identity_admission_structure
+cargo test -p scriptw-test262 tests::direct_terminal_and_checkpoint_identity_are_exactly_bound -- --exact
 ```
 
 This invariant changes neither snapshot JSON shape, selected cases, result

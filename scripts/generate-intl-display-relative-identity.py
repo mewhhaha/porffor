@@ -9,22 +9,22 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = {
-    'Cargo.toml', 'crates/lila-intl/Cargo.toml',
-    'crates/lila-intl/src/lib.rs', 'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
-    'crates/lila-intl/src/service_selection.rs',
-    'crates/lila-intl/src/selection/manifest.rs',
-    'crates/lila-intl/src/selection/export.rs',
-    'crates/lila-intl/src/protocol.rs', 'crates/lila-intl/src/identifiers.rs',
-    'crates/lila-intl/src/supported_values.rs',
-    'crates/lila-intl/src/number_protocol.rs',
-    'crates/lila-intl/src/image.rs', 'crates/lila-intl/src/locale_image.rs',
-    'crates/lila-intl/src/image_build/locale.rs', 'crates/lila-intl/build.rs',
-    'crates/lila-engine/src/intl_data_images.rs',
-    'crates/lila-engine/src/wasm_gc_intl_host.rs',
+    'Cargo.toml', 'crates/scriptw-intl/Cargo.toml',
+    'crates/scriptw-intl/src/lib.rs', 'crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/provider/conformance.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs',
+    'crates/scriptw-intl/src/service_selection.rs',
+    'crates/scriptw-intl/src/selection/manifest.rs',
+    'crates/scriptw-intl/src/selection/export.rs',
+    'crates/scriptw-intl/src/protocol.rs', 'crates/scriptw-intl/src/identifiers.rs',
+    'crates/scriptw-intl/src/supported_values.rs',
+    'crates/scriptw-intl/src/number_protocol.rs',
+    'crates/scriptw-intl/src/image.rs', 'crates/scriptw-intl/src/locale_image.rs',
+    'crates/scriptw-intl/src/image_build/locale.rs', 'crates/scriptw-intl/build.rs',
+    'crates/scriptw-engine/src/intl_data_images.rs',
+    'crates/scriptw-engine/src/wasm_gc_intl_host.rs',
     'scripts/generate-intl-display-relative-identity.py',
 }
-SHARED.update(['crates/lila-intl/src/image_build/keyword.rs', 'crates/lila-intl/src/provider/keyword_aliases.rs', 'crates/lila-intl/src/provider/keyword_aliases/generated.rs', 'crates/lila-intl/data/cldr-47-bcp47/manifest.json', 'crates/lila-intl/src/provider/language_domain.rs'])
-SHARED.update(['crates/lila-aot-wasm/src/emit.rs', 'crates/lila-aot-wasm/src/emit/module_assembly.rs'])
+SHARED.update(['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
+SHARED.update(['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs'])
 PACKAGES = {
     'icu_locale': '2.0.0', 'icu_locale_core': '2.0.1',
     'icu_locale_data': '2.0.0', 'icu_provider': '2.0.0',
@@ -85,44 +85,44 @@ def packages(repository, required):
 
 def generate(repository):
     repository = repository.resolve()
-    common = SHARED | production_sources(repository, 'crates/lila-intl/src/provider/language_domain')
-    common |= production_sources(repository, 'crates/lila-intl/src/provider/keyword_aliases')
-    common |= {'crates/lila-intl/src/provider/language_domain.rs',
-               'crates/lila-intl/src/provider/keyword_aliases.rs'}
-    common |= production_sources(repository, 'crates/lila-intl/src/number_protocol')
+    common = SHARED | production_sources(repository, 'crates/scriptw-intl/src/provider/language_domain')
+    common |= production_sources(repository, 'crates/scriptw-intl/src/provider/keyword_aliases')
+    common |= {'crates/scriptw-intl/src/provider/language_domain.rs',
+               'crates/scriptw-intl/src/provider/keyword_aliases.rs'}
+    common |= production_sources(repository, 'crates/scriptw-intl/src/number_protocol')
     common |= production_sources(repository, 'scripts/intl_cldr_profile', '*.py')
     common |= {'scripts/intl_cldr_profile.py', 'scripts/intl_ldml_schema.py',
                'scripts/intl_positional_numbering.py', 'scripts/intl_calendar_eras.py'}
-    dn = common | production_sources(repository, 'crates/lila-intl/src/display_names')
-    dn |= production_sources(repository, 'crates/lila-intl/src/display_names_image')
-    dn |= {'crates/lila-intl/src/display_names.rs', 'crates/lila-intl/src/display_names_protocol.rs',
-           'crates/lila-intl/src/display_names_image.rs',
-           'crates/lila-intl/src/display_names/profile.json',
-           'crates/lila-intl/src/display_names/provenance.json',
+    dn = common | production_sources(repository, 'crates/scriptw-intl/src/display_names')
+    dn |= production_sources(repository, 'crates/scriptw-intl/src/display_names_image')
+    dn |= {'crates/scriptw-intl/src/display_names.rs', 'crates/scriptw-intl/src/display_names_protocol.rs',
+           'crates/scriptw-intl/src/display_names_image.rs',
+           'crates/scriptw-intl/src/display_names/profile.json',
+           'crates/scriptw-intl/src/display_names/provenance.json',
            'scripts/generate-intl-displaynames-profile.py',
-           'crates/lila-engine/src/intl_display_names_host.rs'}
-    dn |= check_manifest(repository, 'crates/lila-intl/data/datetime-cldr-47/manifest.json')
-    dn |= check_manifest(repository, 'crates/lila-intl/data/cldr-47-bcp47/manifest.json')
-    dn |= check_manifest(repository, 'crates/lila-intl/data/calendar-eras-cldr-48/manifest.json')
-    dn |= check_manifest(repository, 'crates/lila-intl/data/numbering-tols-cldr-48/source-manifest.json')
-    rtf = common | production_sources(repository, 'crates/lila-intl/src/relative_time_format')
-    rtf |= production_sources(repository, 'crates/lila-intl/src/relative_time_protocol')
-    rtf |= production_sources(repository, 'crates/lila-intl/src/relative_time_image')
-    rtf |= production_sources(repository, 'crates/lila-intl/src/number_image')
-    rtf |= production_sources(repository, 'crates/lila-intl/src/number_format')
-    rtf |= production_sources(repository, 'crates/lila-intl/src/plural_rules')
-    rtf |= {'crates/lila-intl/src/relative_time_format.rs', 'crates/lila-intl/src/relative_time_protocol.rs',
-            'crates/lila-intl/src/number_operation.rs', 'crates/lila-intl/src/plural_protocol.rs',
-            'crates/lila-intl/src/relative_time_image.rs', 'crates/lila-intl/src/number_image.rs',
-            'crates/lila-intl/data/number-cldr-47/payload-manifest.json',
-            'crates/lila-intl/src/number_format/profiles/fingerprint.rs',
-            'crates/lila-intl/src/relative_time_format/generated/profile.json',
-            'crates/lila-intl/data/number-cldr-47/profiles.bin',
-            'crates/lila-intl/data/relative-time-cldr-47/report.json',
+           'crates/scriptw-engine/src/intl_display_names_host.rs'}
+    dn |= check_manifest(repository, 'crates/scriptw-intl/data/datetime-cldr-47/manifest.json')
+    dn |= check_manifest(repository, 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json')
+    dn |= check_manifest(repository, 'crates/scriptw-intl/data/calendar-eras-cldr-48/manifest.json')
+    dn |= check_manifest(repository, 'crates/scriptw-intl/data/numbering-tols-cldr-48/source-manifest.json')
+    rtf = common | production_sources(repository, 'crates/scriptw-intl/src/relative_time_format')
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/relative_time_protocol')
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/relative_time_image')
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/number_image')
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/number_format')
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/plural_rules')
+    rtf |= {'crates/scriptw-intl/src/relative_time_format.rs', 'crates/scriptw-intl/src/relative_time_protocol.rs',
+            'crates/scriptw-intl/src/number_operation.rs', 'crates/scriptw-intl/src/plural_protocol.rs',
+            'crates/scriptw-intl/src/relative_time_image.rs', 'crates/scriptw-intl/src/number_image.rs',
+            'crates/scriptw-intl/data/number-cldr-47/payload-manifest.json',
+            'crates/scriptw-intl/src/number_format/profiles/fingerprint.rs',
+            'crates/scriptw-intl/src/relative_time_format/generated/profile.json',
+            'crates/scriptw-intl/data/number-cldr-47/profiles.bin',
+            'crates/scriptw-intl/data/relative-time-cldr-47/report.json',
             'scripts/generate-intl-relative-time-profile.py',
-            'crates/lila-engine/src/intl_relative_time_host.rs'}
-    rtf |= production_sources(repository, 'crates/lila-intl/src/plural_protocol')
-    rtf |= check_manifest(repository, 'crates/lila-intl/data/relative-time-cldr-47/source-inputs.json', root_relative=True)
+            'crates/scriptw-engine/src/intl_relative_time_host.rs'}
+    rtf |= production_sources(repository, 'crates/scriptw-intl/src/plural_protocol')
+    rtf |= check_manifest(repository, 'crates/scriptw-intl/data/relative-time-cldr-47/source-inputs.json', root_relative=True)
     outputs = {}
     for service, paths, constant, data_dir, source_dir, required in (
         ('DisplayNames', dn, 'DISPLAY_NAMES_KERNEL_SHA256', 'displaynames-cldr-47', 'display_names', PACKAGES),
@@ -133,7 +133,7 @@ def generate(repository):
         for path in sorted(paths):
             raw = (repository / path).read_bytes()
             records.append({'path': path, 'bytes': len(raw), 'sha256': sha(raw)})
-        recipe = {'schema_version': 1, 'service': service, 'host_call_abi': int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (repository / 'crates/lila-intl/src/lib.rs').read_text(), re.S).group(1)),
+        recipe = {'schema_version': 1, 'service': service, 'host_call_abi': int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (repository / 'crates/scriptw-intl/src/lib.rs').read_text(), re.S).group(1)),
                   'wire_version': 1, 'files': records, 'packages': locked,
                   'scope': 'actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending'}
         digest = hashlib.sha256(json.dumps(recipe, sort_keys=True, separators=(',', ':')).encode()).digest()
@@ -142,8 +142,8 @@ def generate(repository):
         for start in range(0, 32, 16):
             rust += '    ' + ', '.join(f'0x{b:02x}' for b in digest[start:start + 16]) + ',\n'
         rust += '];\n'
-        outputs[f'crates/lila-intl/src/{source_dir}/kernel_identity.rs'] = rust
-        outputs[f'crates/lila-intl/data/{data_dir}/kernel-manifest.json'] = json.dumps(
+        outputs[f'crates/scriptw-intl/src/{source_dir}/kernel_identity.rs'] = rust
+        outputs[f'crates/scriptw-intl/data/{data_dir}/kernel-manifest.json'] = json.dumps(
             dict(recipe, provider_data_sha256=digest.hex()), sort_keys=True, indent=2) + '\n'
     return outputs
 

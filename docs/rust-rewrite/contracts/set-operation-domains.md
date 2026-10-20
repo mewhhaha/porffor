@@ -45,8 +45,8 @@ subset and superset with successful and failing predicate results, so every
 restricted helper variant has an observable witness.
 
 ```sh
-cargo test -p lila-aot-wasm --test set_operation_domains_structure --quiet
-cargo test -p lila-cli --test cli iterator::run_wasm_backend_preserves_set_operation_domains -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test set_operation_domains_structure --quiet
+cargo test -p scriptw-cli --test cli iterator::run_wasm_backend_preserves_set_operation_domains -- --exact --test-threads=1
 ```
 
 The shared semantic golden passes `2/2` in 722.99 seconds with 678 dumps. It

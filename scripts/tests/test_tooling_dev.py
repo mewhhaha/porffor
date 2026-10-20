@@ -27,13 +27,13 @@ with open("calls.jsonl", "a") as stream:
 sys.exit(int(os.environ.get("CARGO_STATUS", "0")))
 ''')
         cargo.chmod(0o755)
-        stale = self.root / "target/debug/lila"
+        stale = self.root / "target/debug/scriptw"
         stale.parent.mkdir(parents=True)
         stale.write_text("#!/bin/sh\nprintf 'stale binary executed\\n' >&2\nexit 99\n")
         stale.chmod(0o755)
 
     def run_dev(self, *args, **settings):
-        env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", LILA_JOBS="")
+        env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}", SCRIPTW_JOBS="")
         env.update(settings)
         return subprocess.run(["sh", str(SCRIPT), *args], cwd=self.root, env=env,
                               capture_output=True, text=True, timeout=10)
@@ -46,7 +46,7 @@ sys.exit(int(os.environ.get("CARGO_STATUS", "0")))
         result = self.run_dev("test262", "run", "a filter", "--suite-root", "suite with spaces",
                               CARGO_TARGET_DIR=directory)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls(), [{"args": ["run", "-p", "lila-cli", "--", "test262", "run",
+        self.assertEqual(self.calls(), [{"args": ["run", "-p", "scriptw-cli", "--", "test262", "run",
                                                    "a filter", "--suite-root", "suite with spaces"],
                                         "target_dir": directory, "target": os.environ.get("CARGO_BUILD_TARGET")}])
         self.assertNotIn("stale binary", result.stderr)
@@ -57,11 +57,11 @@ sys.exit(int(os.environ.get("CARGO_STATUS", "0")))
         self.assertEqual(self.calls()[0]["args"][0], "run")
         self.assertEqual(self.calls()[0]["target"], "aarch64-unknown-linux-gnu")
 
-    def test_jobs_are_cargo_arguments_not_lila_arguments(self):
-        result = self.run_dev("test262", "run", "--threads", "1", LILA_JOBS="2")
+    def test_jobs_are_cargo_arguments_not_scriptw_arguments(self):
+        result = self.run_dev("test262", "run", "--threads", "1", SCRIPTW_JOBS="2")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls()[0]["args"],
-                         ["run", "--jobs", "2", "-p", "lila-cli", "--", "test262", "run", "--threads", "1"])
+                         ["run", "--jobs", "2", "-p", "scriptw-cli", "--", "test262", "run", "--threads", "1"])
 
     def test_failure_status_propagates_without_running_stale_binary(self):
         result = self.run_dev("test262", "run", CARGO_STATUS="23")
@@ -70,15 +70,15 @@ sys.exit(int(os.environ.get("CARGO_STATUS", "0")))
         self.assertNotIn("stale binary", result.stderr)
 
     def test_other_developer_commands_keep_their_defaults(self):
-        for command, expected in (("build", ["build", "-p", "lila-cli"]),
+        for command, expected in (("build", ["build", "-p", "scriptw-cli"]),
                                   ("check", ["check", "--workspace"]),
-                                  ("timings", ["build", "--timings", "-p", "lila-ir", "-p", "lila-aot-wasm"])):
+                                  ("timings", ["build", "--timings", "-p", "scriptw-ir", "-p", "scriptw-aot-wasm"])):
             with self.subTest(command=command):
                 self.assertEqual(self.run_dev(command).returncode, 0)
                 self.assertEqual(self.calls()[-1]["args"], expected)
 
     def test_invalid_job_count_never_invokes_cargo(self):
-        result = self.run_dev("test262", LILA_JOBS="invalid")
+        result = self.run_dev("test262", SCRIPTW_JOBS="invalid")
         self.assertEqual(result.returncode, 2)
         self.assertFalse((self.root / "calls.jsonl").exists())
 

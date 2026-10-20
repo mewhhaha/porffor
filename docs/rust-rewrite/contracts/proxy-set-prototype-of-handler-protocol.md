@@ -104,14 +104,14 @@ The contract's focused command set is:
 ```sh
 cargo fmt --all -- --check
 git diff --check
-cargo test -p lila-aot-wasm --test structure_builtins -- proxy_set_prototype_of_handler_protocol_structure:: --test-threads=1
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_prototype_of_handler_protocol -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_builtins -- proxy_set_prototype_of_handler_protocol_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_prototype_of_handler_protocol -- --exact --test-threads=1
 ./scripts/check-module-boundaries.sh
 ```
 
 The structure target passes `4/4`, and the shared revocation-route structure
 target also passes `4/4`. The exact CLI command in this block has no
-individually attributed result here, nor does `cargo check -p lila-aot-wasm`;
+individually attributed result here, nor does `cargo check -p scriptw-aot-wasm`;
 T11 owns the collective seven-CLI and shared-gate results. No broad compile,
 Test262 or published conformance result is claimed.
 

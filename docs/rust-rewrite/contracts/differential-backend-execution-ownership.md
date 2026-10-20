@@ -73,11 +73,11 @@ guards without granting another authority or projection capability.
 Run:
 
 ```sh
-cargo test -p lila-test262 --test backend_execution_ownership_structure -- --test-threads=1
-cargo test -p lila-test262 differential::tests::v1_disposition_mismatch_keeps_its_pinned_machine_signature -- --exact --test-threads=1
-cargo test -p lila-test262 differential::tests::either_backend_output_makes_a_no_output_case_red -- --exact --test-threads=1
-cargo test -p lila-test262 differential::tests::v3_matches_primitive_completion_and_exact_ordered_print_transcript -- --exact --test-threads=1
-cargo test -p lila-test262 differential::tests::v3_backend_failures_are_always_red -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test backend_execution_ownership_structure -- --test-threads=1
+cargo test -p scriptw-test262 differential::tests::v1_disposition_mismatch_keeps_its_pinned_machine_signature -- --exact --test-threads=1
+cargo test -p scriptw-test262 differential::tests::either_backend_output_makes_a_no_output_case_red -- --exact --test-threads=1
+cargo test -p scriptw-test262 differential::tests::v3_matches_primitive_completion_and_exact_ordered_print_transcript -- --exact --test-threads=1
+cargo test -p scriptw-test262 differential::tests::v3_backend_failures_are_always_red -- --exact --test-threads=1
 ```
 
 At the earlier ownership checkpoint, the structure target passed `6/6`, the

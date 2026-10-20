@@ -23,7 +23,7 @@ class EvidenceTests(unittest.TestCase):
                        "source": {"commit": "fixture-commit", "cargo_lock_sha256": "fixture-lock"},
                        "host": {"system": system, "machine": "fixture"},
                        "commands": [], "native": {}, "profiles": {}}
-            receipt["executable"] = {"file": "lila", "bytes": 1, "sha256": system + "-image"}
+            receipt["executable"] = {"file": "scriptw", "bytes": 1, "sha256": system + "-image"}
             receipt["compiler_identity"] = {
                 "source_revision": {"kind": "git-commit", "commit": "fixture-commit"},
                 "executable_sha256": system + "-image",

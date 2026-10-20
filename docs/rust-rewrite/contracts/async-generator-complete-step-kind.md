@@ -9,7 +9,7 @@ The edition-pinned ECMA-262
 [`AsyncGeneratorCompleteStep`](https://tc39.es/ecma262/2026/multipage/control-abstraction-objects.html#sec-asyncgeneratorcompletestep)
 operation resolves the active async-generator request with an iterator-result
 object whose `done` field is supplied by its semantic caller. The two states
-used by Lila are closed:
+used by Scriptw are closed:
 
 - [`AsyncGeneratorYield`](https://tc39.es/ecma262/2026/multipage/control-abstraction-objects.html#sec-asyncgeneratoryield)
   completes a live yield request with `done = false`; and
@@ -94,7 +94,7 @@ inherit an arbitrary Boolean from those callers.
 
 ## Durable structural witness
 
-`crates/lila-aot-wasm/tests/structure_async/async_generator_complete_step_kind_structure.rs`
+`crates/scriptw-aot-wasm/tests/structure_async/async_generator_complete_step_kind_structure.rs`
 should require:
 
 - exactly the two enum variants and one exhaustive Boolean projection;
@@ -115,7 +115,7 @@ not snapshot complete Promise, function or standard-builtin emitters.
 
 The initially selected broad CLI candidate was
 `async_generator::wasm_backend_resumes_async_generator_loops_for_zero_one_and_many_iterations`,
-using `crates/lila-cli/tests/fixtures/wasm_async_generator_resumable_loop.js`.
+using `crates/scriptw-cli/tests/fixtures/wasm_async_generator_resumable_loop.js`.
 It is not a valid green gate for this invariant: both unchanged `HEAD` and the
 typed-state implementation produce the same failing output. Their yielded and
 terminal `done` values are correct, but resumable classic loops lose later

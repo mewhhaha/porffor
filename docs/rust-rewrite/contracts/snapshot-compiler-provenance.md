@@ -21,7 +21,7 @@ cannot be read fails the build instead of inventing archive provenance.
 
 HEAD, its resolved ref, packed refs, a worktree's `.git` indirection and linked
 worktree `commondir` routing participate in build invalidation. The fingerprint
-scheme remains `lila-program-cache-compiler-v3`; its existing framed source hash
+scheme remains `scriptw-program-cache-compiler-v3`; its existing framed source hash
 does not change. A source fingerprint is distinct from a plain file SHA-256.
 
 `CompilerDigest` admits exactly 64 lowercase hexadecimal digits. Commit identity
@@ -34,7 +34,7 @@ or changing image bytes reject evidence. There is no empty-image fallback.
 
 Program, graph and raw runtime caches share this verified loaded-image digest
 instead of independently reading the executable's public pathname. Their
-domain-separated `lila-program-cache-compiler-v4` fingerprint binds the embedded
+domain-separated `scriptw-program-cache-compiler-v4` fingerprint binds the embedded
 source digest and standard executable SHA-256; the source fingerprint scheme
 above stays unchanged. The new cache domain invalidates older entries. If
 current compiler identity is unavailable, those caches skip reads and writes
@@ -69,7 +69,7 @@ own internally consistent producer and complete case evidence.
 
 ## Publication consumers
 
-`lila compiler-identity` emits the mandatory native JSON contract without
+`scriptw compiler-identity` emits the mandatory native JSON contract without
 constructing an ECMAScript Realm or compiling JavaScript. Extra arguments reject.
 Publication JSON and text retain the verified real-suite producer. Future
 generated README output includes its build fingerprint and executing-image hash;

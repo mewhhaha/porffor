@@ -1,4 +1,7 @@
-# Lila Rust Rewrite
+# Scriptw Rust Rewrite
+
+[Project rename](scriptw-identity-migration.md) ·
+[Wasmtime/V8 benchmark methodology](v8-baseline.md).
 
 [Current implementation, verified builds and remaining work](current-inventory.md)
 is the project status entry point. Historical notes below retain their source/date.
@@ -7,7 +10,7 @@ is the project status entry point. Historical notes below retain their source/da
 synchronous React 19.3.1 render and the failed public browser entry, with exact
 Node comparisons and emitted artifact hashes.
 
-Big rule first: Lila compiles JavaScript directly to Wasm. Lila does not sneak
+Big rule first: Scriptw compiles JavaScript directly to Wasm. Scriptw does not sneak
 an interpreter into Wasm and call that victory.
 
 ## Project Ground
@@ -16,15 +19,15 @@ an interpreter into Wasm and call that victory.
 - The retired JavaScript implementation exists only in Git history; it is not a development surface or product oracle.
 
 ## Workspace Map
-- `lila-front`: parse and source-unit plumbing.
-- `lila-ir`: spec-shaped lowering stages and IR metadata.
-- `lila-runtime`: realm plus typed host clock, randomness, and output capabilities.
-- `lila-aot-wasm`: sole product backend, compiling JavaScript directly to Wasm.
-- `lila-backend-c` / `lila-backend-native`: obsolete scaffolds outside product scope.
+- `scriptw-front`: parse and source-unit plumbing.
+- `scriptw-ir`: spec-shaped lowering stages and IR metadata.
+- `scriptw-runtime`: realm plus typed host clock, randomness, and output capabilities.
+- `scriptw-aot-wasm`: sole product backend, compiling JavaScript directly to Wasm.
+- `scriptw-backend-c` / `scriptw-backend-native`: obsolete scaffolds outside product scope.
   C/native output and a REPL are excluded goals and do not block completion.
-- `lila-engine`: public Rust library API.
-- `lila-cli`: clean-break `lila` CLI.
-- `lila-test262`: conformance taxonomy and harness rewrite support.
+- `scriptw-engine`: public Rust library API.
+- `scriptw-cli`: clean-break `scriptw` CLI.
+- `scriptw-test262`: conformance taxonomy and harness rewrite support.
 
 ## Array Find Follow-up
 

@@ -641,7 +641,7 @@ stale path rewrite across `every`, `some`, `find`, `reduce`, `map`, `take`,
 dispatcher arms, source guards and fingerprint tests, and then the emptied
 shared dispatcher itself. The enabling compiler fix routes the
 `every`/`some`/`find`/`reduce` close-on-noncallable sites through the shared
-GetMethod close helper. All 98 affected T15 paths pass exact `lila test262
+GetMethod close helper. All 98 affected T15 paths pass exact `scriptw test262
 run` replay under suite pin
 `a124fd191443a4e2c7ae2ecad71fee7c9375973e` with every non-success bucket at
 zero, and the token-aware inventory now assigns 0 observations to T15. General
@@ -660,7 +660,7 @@ lookup uses the current function Realm's String wrapper prototype but keeps the
 primitive receiver for the observable `@@iterator` accessor and method call.
 The focused fixture replaces both `String.prototype[Symbol.iterator]` and
 `%StringIteratorPrototype%.next`, and its first iterator yields a Number before
-break drives `IteratorClose`. `cargo check -p lila-aot-wasm` passes; the String
+break drives `IteratorClose`. `cargo check -p scriptw-aot-wasm` passes; the String
 structure target passes `3/3`, the affected companion structures pass `19/19`,
 the IR `for_of` target passes `17/17`, and the CLI witness passes `1/1`. The BMP,
 astral, and truncated astral leaves pass `6/6` Wasm-AOT executions with every
@@ -987,7 +987,7 @@ two Script executions:
 
 At pre-batch source commit `a5606a73cbbb2a8ffd81c0c2e2dee945bb2b9a4b`,
 both executions reported `Runtime/NotImplemented` with the exact diagnostic
-`unsupported in lila wasm-aot first slice: using declaration in an async
+`unsupported in scriptw wasm-aot first slice: using declaration in an async
 generator`; the path has no Wasm-AOT rewrite, mask or known-failure entry. The
 durable CLI fixture covers no disposal before start, while yielded or while
 awaiting; normal completion; external `return()` and `throw()`; awaited
@@ -1040,7 +1040,7 @@ sloppy/strict Script executions:
 
 At pre-batch source commit `7a89e27ec79fe6210fff04a58b6bb3eace535e09`,
 both files reported `0/2`; all four executions were
-`Runtime/NotImplemented` with the exact diagnostic `unsupported in lila
+`Runtime/NotImplemented` with the exact diagnostic `unsupported in scriptw
 wasm-aot first slice: await using declaration`. Neither path has a Wasm-AOT
 rewrite, mask or known-failure entry. The durable CLI fixture covers direct
 async acquisition, synchronous fallback and ignored thenable return, receiver
@@ -1048,7 +1048,7 @@ identity, registration/binding TDZ order, later acquisition failure, evaluated
 versus unreachable empty-resource scheduling, sequential reverse awaits,
 normal/return/body-throw/disposer-rejection completion, nested scopes, LIFO,
 `SuppressedError` order and exactly-once disposal. Central verification is green
-for `cargo check --workspace --all-targets`, `cargo xc`, the focused `lila-ir`
+for `cargo check --workspace --all-targets`, `cargo xc`, the focused `scriptw-ir`
 `await_using` tests (`2/2`, including capture ownership), and the bounded IR/AOT
 source executable (`6/6`). The complete CLI lifecycle fixture is `1/1` in 13.10
 seconds, while the retained synchronous-using CLI family filter is `6/6` in
@@ -1087,10 +1087,10 @@ At pre-batch source commit `5ad393f3d0`, these exact unmasked files reported
 - `language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js`.
 
 All four sloppy/strict Script executions were `Runtime/NotImplemented` with the
-diagnostic `unsupported in lila wasm-aot first slice: await using declaration
+diagnostic `unsupported in scriptw wasm-aot first slice: await using declaration
 in an async generator`; neither path has a rewrite, mask or known-failure
 entry. Central verification is green for `cargo check --workspace --all-targets`
-and `cargo xc`; the focused `lila-ir` `async_generator_await_using` tests pass
+and `cargo xc`; the focused `scriptw-ir` `async_generator_await_using` tests pass
 `2/2` in 12.34s, including the exact state-collision invariant; the new bounded
 structure executable passes `5/5`; and the retained plain-async structure
 executable passes `6/6`. The async-generator lifecycle fixture passes `1/1` in
@@ -1134,7 +1134,7 @@ At clean pre-batch commit `bca90f2ff9`, these exact raw files reported `0/8`:
 - `language/statements/await-using/initializer-Symbol.dispose-called-if-subsequent-initializer-throws-in-forstatement-head.js`.
 
 All eight sloppy/strict Script executions were `Runtime/NotImplemented` with
-the exact diagnostic `unsupported in lila wasm-aot first slice: await using
+the exact diagnostic `unsupported in scriptw wasm-aot first slice: await using
 declaration`; none has a Wasm-AOT rewrite or known-failure entry. Central
 verification is green for `cargo check --workspace --all-targets`, `cargo xc`,
 the focused IR test (`1/1` in 12.11s), and the bounded structure executable
@@ -1177,7 +1177,7 @@ At clean pre-batch commit `009219b28`, these exact raw files reported `0/10`:
 - `language/statements/await-using/syntax/await-using-valid-for-await-using-of-of.js`.
 
 All ten sloppy/strict Script executions were `Runtime/NotImplemented` with the
-exact diagnostic `unsupported in lila wasm-aot first slice: await using
+exact diagnostic `unsupported in scriptw wasm-aot first slice: await using
 declaration in for-of`; none has an exact Wasm-AOT rewrite or known-failure
 entry. Central verification is green for `cargo check --workspace
 --all-targets`, `cargo xc`, the focused IR test (`1/1` in 12.17s), and the
@@ -1376,7 +1376,7 @@ per leaf on 2026-07-20; they predate this implementation and are historical
 baselines only. At the current pin each leaf has only `flags: [generated]` and
 materializes through the normal harness as two ordinary sloppy/strict
 executions. The 2026-08-24 central checkpoint is green: the batch `cargo check`
-and `cargo xc` gates pass, the focused exact lila-ir test passes `1/1`, the
+and `cargo xc` gates pass, the focused exact scriptw-ir test passes `1/1`, the
 exact CLI suspension fixture passes `1/1`, and the two generated leaves pass
 all four materialized executions `4/4` with every failure bucket at zero. This
 is bounded suspension-ownership closure, not broader generator, iterator,
@@ -1393,8 +1393,8 @@ The per-pattern `ArrayPatternProtocol` remains orthogonal and unchanged.
 Assignment evaluation still returns the original RHS payload and tag; binding
 initialization still returns `undefined`. The module-boundary guard now closes
 the exact five-producer/six-consumer product inventory and rejects inactive CLI
-registrations. On 2026-08-24, `cargo check -p lila-aot-wasm` and `cargo xc`
-passed, the six exact `lila-ir` scenarios passed `6/6`, and the exact array
+registrations. On 2026-08-24, `cargo check -p scriptw-aot-wasm` and `cargo xc`
+passed, the six exact `scriptw-ir` scenarios passed `6/6`, and the exact array
 destructuring CLI fixture passed `1/1`. No emitted-Wasm byte comparison or
 focused Test262 cohort was run; `ArrayPatternProtocol`, IteratorClose, object
 destructuring and broader generator/resource behavior remain open.
@@ -1589,7 +1589,7 @@ record exactly `prototype,return`; bound getters returning `undefined` also pin
 fallback through their target's function Realm. The product source required no
 change. On 2026-08-24, the structural guard and CLI fixture passed `1/1` each,
 while the direct pinned leaf passed both Wasm-AOT variants (`2/2`) with every
-failure bucket at zero. `cargo check -p lila-aot-wasm`, `cargo xc`, fixture
+failure bucket at zero. `cargo check -p scriptw-aot-wasm`, `cargo xc`, fixture
 `node --check` and `git diff --check` are also green. The pinned leaf covers
 only entry-realm undefined/self rejection, so this remains direct
 specification/source closure rather than a measured baseline gain. It does not
@@ -1692,7 +1692,7 @@ fallback for entry code. At this close-only checkpoint, ordinary direct
 15-check boundary now routes all three direct synchronous `for-of` owners
 through `SyncIteratorConsumer::ForOf`; its focused and affected structure targets pass
 `37/37`, its CLI cohort passes `5/5`, and its four pinned leaves pass `8/8`.
-`cargo check -p lila-aot-wasm` passes; the focused structure target passes
+`cargo check -p scriptw-aot-wasm` passes; the focused structure target passes
 `4/4`; the exact
 created-Realm CLI test passes `1/1`; and the affected `iterator_close` CLI sweep
 passes `6/6`. The two direct `for-of` Test262 leaves pass all `4/4` Wasm-AOT
@@ -1742,7 +1742,7 @@ replaceable `@@iterator` can yield a value unrelated to the source Array's
 inferred element shape. The focused runtime witness covers length growth, an
 inherited indexed getter, and a prototype `@@iterator` that yields a String and
 receives one `return` call after `break`. At the direct-path checkpoint,
-`cargo check -p lila-aot-wasm` passed; the two focused structure targets passed
+`cargo check -p scriptw-aot-wasm` passed; the two focused structure targets passed
 `3/3` and `4/4`, the IR `for_of` target passed `16/16`, the planner and two CLI
 targets each passed `1/1`, and four pinned Array length-mutation leaves passed
 `8/8` Wasm-AOT executions with every failure bucket at zero. No
@@ -1764,8 +1764,8 @@ This deletes `AsyncForOfArrayWalkForm`,
 `ARRAY_INDEX_WALK_RESUMABLE`, and the old index synthesis. Focused Array and
 String protocol fixtures, close/error fixtures, the six-capture environment
 oracle, and a bounded structure target cover the replacement. `cargo check -p
-lila-aot-wasm` passes. The five focused structure targets pass `19/19`, the
-`lila-ir` `for_of` target passes `18/18`, and the four exact CLI oracles pass
+scriptw-aot-wasm` passes. The five focused structure targets pass `19/19`, the
+`scriptw-ir` `for_of` target passes `18/18`, and the four exact CLI oracles pass
 `4/4`. All four fixtures pass `node --check`, and the two pinned
 `Array.fromAsync` leaves pass `4/4` Wasm-AOT executions with every failure and
 non-success bucket at zero. The complete 95-file `Array.fromAsync` leaf,
@@ -1789,8 +1789,8 @@ IteratorClose counts, and Throw precedence. Declaration and assignment
 patterns, resource heads, `super`, suspending member operands, direct
 `break`/`continue`, nonlinear body suspension, captured head TDZ, suspending
 iterables, async generators, and `for await` remain nonclaims. Focused
-verification passes: `cargo fmt --all -- --check` and `cargo check -p lila-ir
--p lila-aot-wasm -p lila-cli --all-targets`; `21/21` IR `for_of` tests plus
+verification passes: `cargo fmt --all -- --check` and `cargo check -p scriptw-ir
+-p scriptw-aot-wasm -p scriptw-cli --all-targets`; `21/21` IR `for_of` tests plus
 the `1/1` rejection matrix; `25/25` focused and affected structure tests; and
 `2/2` exact member-head and retained capture CLI tests. The fixture passes
 `node --check`. No matching pinned Test262 cohort, semantic golden, or
@@ -1968,10 +1968,10 @@ Coordinate syntax/early errors with T07 and error objects with T24.
 ## Required tests
 
 ```sh
-cargo test -p lila-ir generator_ --quiet
-cargo test -p lila-aot-wasm iterator_ --quiet
-cargo test -p lila-cli wasm_iterator --quiet
-./target/debug/lila test262 run built-ins/Iterator --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p scriptw-ir generator_ --quiet
+cargo test -p scriptw-aot-wasm iterator_ --quiet
+cargo test -p scriptw-cli wasm_iterator --quiet
+./target/debug/scriptw test262 run built-ins/Iterator --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Also run language generator/`yield`, `for-of`, spread/destructuring, AsyncIterator, DisposableStack, AsyncDisposableStack and explicit-resource-management filters.

@@ -2,7 +2,7 @@
 
 DateTimeFormat selection performs locale/calendar admission, builds pattern and
 fraction variants, combines date/time candidate families, and selects seven
-input-kind formats. The serialized `LILADTF2` plan remains the existing recipe
+input-kind formats. The serialized `SCRIPTWDTF2` plan remains the existing recipe
 plus exact DateTime, Locale, and named-zone image digests. Formatting may reuse
 the immutable result of that selection under one admitted DateTimeProvider.
 

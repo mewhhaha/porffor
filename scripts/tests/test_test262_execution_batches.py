@@ -81,7 +81,7 @@ class ExecutionBatchTests(unittest.TestCase):
             f"#!{sys.executable}\n"
             "import hashlib,json,sys\nfrom pathlib import Path\n"
             f"calls=Path({str(root / 'calls')!r})\n"
-            "identity={'source_fingerprint_scheme':'lila-program-cache-compiler-v3','source_fingerprint':'2'*64,"
+            "identity={'source_fingerprint_scheme':'scriptw-program-cache-compiler-v3','source_fingerprint':'2'*64,"
             "'source_revision':{'kind':'git-commit','commit':'3'*40},"
             "'executable_sha256':hashlib.sha256(Path(sys.argv[0]).read_bytes()).hexdigest()}\n"
             "if sys.argv[-1]=='compiler-identity':\n print(json.dumps(identity));sys.exit(0)\n"

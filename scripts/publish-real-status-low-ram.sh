@@ -3,7 +3,7 @@ set -euo pipefail
 
 BACKEND="${1:-wasm-aot}"
 SNAPSHOT_NAME="${2:-codex-published-real}"
-LILA_BIN="${LILA_BIN:-./target/release/lila}"
+SCRIPTW_BIN="${SCRIPTW_BIN:-./target/release/scriptw}"
 SUITE_ROOT="${SUITE_ROOT:-test262/vendor/test262}"
 SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
@@ -23,7 +23,7 @@ fail() {
 
 if [[ "$BACKEND" != "wasm" && "$BACKEND" != "wasm-aot" ]]; then
   echo "publish-real-status-low-ram only publishes the wasm-aot product backend" >&2
-  echo "run oracle matrices with: lila test262 report-all --execution-backend spec-exec" >&2
+  echo "run oracle matrices with: scriptw test262 report-all --execution-backend spec-exec" >&2
   exit 2
 fi
 BACKEND=wasm-aot
@@ -40,14 +40,14 @@ done
 [[ "$REUSE_CASE_WORKERS" == 0 || "$REUSE_CASE_WORKERS" == 1 ]] || fail "REUSE_CASE_WORKERS must be 0 or 1"
 
 # These historical toggles no longer select compiler execution policy.
-unset LILA_TEST262_FORCE_CASE_RUNNER LILA_TEST262_DISABLE_CASE_RUNNER
+unset SCRIPTW_TEST262_FORCE_CASE_RUNNER SCRIPTW_TEST262_DISABLE_CASE_RUNNER
 
-if [[ ! -x "$LILA_BIN" ]]; then
-  echo "missing executable: $LILA_BIN" >&2
-  echo "build first: cargo build --release -p lila-cli" >&2
+if [[ ! -x "$SCRIPTW_BIN" ]]; then
+  echo "missing executable: $SCRIPTW_BIN" >&2
+  echo "build first: cargo build --release -p scriptw-cli" >&2
   exit 1
 fi
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-export REPO_ROOT LILA_BIN SUITE_ROOT SNAPSHOT_DIR SNAPSHOT_NAME THREADS JOBS ISOLATE_CASES REUSE_CASE_WORKERS MAX_MATRIX_NODES README_PATH
+export REPO_ROOT SCRIPTW_BIN SUITE_ROOT SNAPSHOT_DIR SNAPSHOT_NAME THREADS JOBS ISOLATE_CASES REUSE_CASE_WORKERS MAX_MATRIX_NODES README_PATH
 exec python3 "$REPO_ROOT/scripts/publication-session.py" run

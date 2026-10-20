@@ -9,7 +9,7 @@ Kind, original bytes, metadata URL and exact resolution rows participate in
 compilation identity. Aliases resolving to one canonical host key share one
 record, default value and namespace.
 
-`lila_front::parse_json` owns the strict JSON grammar and its retained result.
+`scriptw_front::parse_json` owns the strict JSON grammar and its retained result.
 It preserves UTF-16 code units, binary64 number bits, ordered duplicate object
 entries and original source. Source-sized explicit frames handle parsing and
 destruction; shared graph clones retain the admitted tree through `Arc`.

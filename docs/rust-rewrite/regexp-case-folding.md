@@ -30,8 +30,8 @@ parser decides whether legacy octal grammar applies.
 
 The focused regressions are `regexp_case_folding`, `aot_regexp_case_folding`
 and `aot_regexp_backreference`. The next checkpoint adds
-[case-insensitive backreference comparison](../../crates/lila-aot-wasm/docs/regexp-backreference-folding.md)
-and [word-boundary assertions](../../crates/lila-aot-wasm/docs/regexp-word-boundary.md).
+[case-insensitive backreference comparison](../../crates/scriptw-aot-wasm/docs/regexp-backreference-folding.md)
+and [word-boundary assertions](../../crates/scriptw-aot-wasm/docs/regexp-word-boundary.md).
 UnicodeSets string folding remains unfinished.
 Focused native verification and the pinned-suite replay are required before
 reporting repaired execution counts.

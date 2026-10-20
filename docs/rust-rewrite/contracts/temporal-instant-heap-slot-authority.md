@@ -46,9 +46,9 @@ It does not migrate semantic values to Wasm GC, execute tracing, reclaim an
 object, collect a cycle or provide weak reachability.
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_instant_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::temporal_instant_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_temporal_instant_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/lib.rs crates/lila-aot-wasm/tests/temporal_instant_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test temporal_instant_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::temporal_instant_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_temporal_instant_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/src/lib.rs crates/scriptw-aot-wasm/tests/temporal_instant_heap_slot_structure.rs
 git diff --check
 ```
 

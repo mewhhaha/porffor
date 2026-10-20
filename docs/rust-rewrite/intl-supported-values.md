@@ -10,7 +10,7 @@ before entering the builtin. Public constructor replacement cannot change those 
 choices. Argument conversion, JavaScript exceptions and allocation execute in
 the compiled user program.
 
-The compiler accepts only a checked native catalogue from `lila-intl`.
+The compiler accepts only a checked native catalogue from `scriptw-intl`.
 Its private list fields are initialized once after validating the actual
 embedded provider, reachable number profiles and closed calendar/unit domains.
 The compiler pools the resulting primitive strings and binds the catalogue's
@@ -81,7 +81,7 @@ Runtime Bugs retain T22/T23 ownership, without exclusions. Its separate smoke
 suite passes 191/191. Those results do not admit this future joined source.
 
 Refresh the complete API cohort with
-`./target/debug/lila test262 run intl402/Intl/supportedValuesOf --execution-backend wasm-aot --threads 2 --jobs 1`.
+`./target/debug/scriptw test262 run intl402/Intl/supportedValuesOf --execution-backend wasm-aot --threads 2 --jobs 1`.
 Exact snapshots, selected execution IDs, actual command exits and failure reasons
 remain in the local `target/continuation-intl-supported-values-pinned-verification`
 checkpoint artifacts. Fake-suite and full

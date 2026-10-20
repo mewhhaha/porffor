@@ -14,7 +14,7 @@ a false descriptor-definition result through
 `emit_throw_runtime_type_error_without_message`, preserving the existing
 non-extensible `Array.fromAsync` error-shape control. Its actual execution Realm
 owns the TypeError prototype; constructors and Proxy traps still propagate their
-original abrupt values. This restores Lila's documented no-own-message shape
+original abrupt values. This restores Scriptw's documented no-own-message shape
 after the GC migration. The five index/length definitions in the existing CLI
 fixture remain the executable acceptance controls. No retired raw-offset source
 guard is reintroduced. The successor repair awaits the joined native checkpoint.
@@ -82,9 +82,9 @@ passes `1/1`. The six directly relevant pinned Test262 files pass all twelve
 sloppy/strict Wasm-AOT executions (`12/12`), with every failure bucket at zero.
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- object_write_proxy_realm_structure::
-cargo test -p lila-aot-wasm --test array_from_async_result_definition_error_realm_structure --quiet
-cargo test -p lila-cli --test cli array_from_async_result_definition_errors_use_the_method_realm --quiet
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- object_write_proxy_realm_structure::
+cargo test -p scriptw-aot-wasm --test array_from_async_result_definition_error_realm_structure --quiet
+cargo test -p scriptw-cli --test cli array_from_async_result_definition_errors_use_the_method_realm --quiet
 ```
 
 The pinned controls are `this-constructor-with-unsettable-element.js`, both

@@ -14,9 +14,9 @@ dated census counts below describe their historical checkpoints.
 Start at §1.2–§1.4 (spec basis) and §4 (type mapping, Part B) for the iterator
 half. §9 holds the dry-run corpus and the three corrections to the area brief.
 
-As built: `crates/lila-ir/src/iterator_obligations.rs`, with the
+As built: `crates/scriptw-ir/src/iterator_obligations.rs`, with the
 `EmissionSite` → real-function join in
-`crates/lila-aot-wasm/src/emission_sites.rs`. §12 (encoder addendum) records
+`crates/scriptw-aot-wasm/src/emission_sites.rs`. §12 (encoder addendum) records
 the deviations; D3 and D4 are the two that touch this half.
 
 **§13 is the dry-run discrepancy pass and supersedes §§1–12 where they

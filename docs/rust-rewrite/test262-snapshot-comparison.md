@@ -24,7 +24,7 @@ resolved name. This change is deliberately limited to the comparison consumer.
 Use names of two real compatible runs already on disk:
 
 ```sh
-./target/release/lila test262 compare-snapshots baseline \
+./target/release/scriptw test262 compare-snapshots baseline \
   --snapshot-name candidate \
   --execution-backend wasm-aot \
   --suite-root test262/vendor/test262 \
@@ -46,8 +46,8 @@ still needs its separately designed Rust snapshot-schema migration.
 ## Regression validation
 
 ```sh
-cargo test --locked -p lila-test262 --lib snapshot_comparison_identity_tests::
-cargo test --locked -p lila-test262 \
+cargo test --locked -p scriptw-test262 --lib snapshot_comparison_identity_tests::
+cargo test --locked -p scriptw-test262 \
   --test snapshot_use_structure \
   --test aggregate_evidence_requirement_structure \
   --test execution_identity_structure

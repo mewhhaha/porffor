@@ -2,8 +2,8 @@
 
 `TimeZoneNamesDataImage` admits the complete checked CLDR47 English timezone-name
 catalogue, independently of the IANA transition image. Its native marker is
-`lila/time-zone/names/cldr47/v1`; its inert Wasm custom section is
-`lila.intl-time-zone-names-data.v1`. The selected provider retains both actual
+`scriptw/time-zone/names/cldr47/v1`; its inert Wasm custom section is
+`scriptw.intl-time-zone-names-data.v1`. The selected provider retains both actual
 owners and checks their profile, IANA image digest and exact IANA `Arc` pairing
 before publication.
 

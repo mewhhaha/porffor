@@ -46,10 +46,10 @@ change BigInt allocation, emitted Wasm, sign decoding, limb storage,
 arbitrary-precision readiness or collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test bigint_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::bigint_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_bigint_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/bigint_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test bigint_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::bigint_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_bigint_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/bigint_heap_slot_structure.rs
 git diff --check
 ```
 

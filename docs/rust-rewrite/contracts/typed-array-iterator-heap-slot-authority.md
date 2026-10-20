@@ -45,10 +45,10 @@ change TypedArray iterator allocation, emitted Wasm, iterator stepping,
 detachment or resizable-buffer semantics, or collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test typed_array_iterator_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::typed_array_iterator_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_typed_array_iterator_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/typed_array_iterator_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test typed_array_iterator_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::typed_array_iterator_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_typed_array_iterator_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/typed_array_iterator_heap_slot_structure.rs
 git diff --check
 ```
 

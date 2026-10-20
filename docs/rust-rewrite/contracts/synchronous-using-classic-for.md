@@ -93,16 +93,16 @@ selected vendored files report 10/10 sloppy/strict Wasm-AOT executions.
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir synchronous_using_classic_for --quiet
-cargo test -p lila-aot-wasm --test structure_async --quiet -- synchronous_using_classic_for_structure::
-cargo test -p lila-cli --test cli resource_management::wasm_using_classic_for_lifecycle -- --exact
-./target/debug/lila test262 run language/statements/using/syntax/using-for-statement.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/using/syntax/using-invalid-assignment-next-expression-for.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/using/syntax/using-outer-inner-using-bindings.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/using/initializer-disposed-at-end-of-forstatement.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/using/initializer-disposed-if-subsequent-initializer-throws-in-forstatement-head.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir synchronous_using_classic_for --quiet
+cargo test -p scriptw-aot-wasm --test structure_async --quiet -- synchronous_using_classic_for_structure::
+cargo test -p scriptw-cli --test cli resource_management::wasm_using_classic_for_lifecycle -- --exact
+./target/debug/scriptw test262 run language/statements/using/syntax/using-for-statement.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/using/syntax/using-invalid-assignment-next-expression-for.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/using/syntax/using-outer-inner-using-bindings.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/using/initializer-disposed-at-end-of-forstatement.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/using/initializer-disposed-if-subsequent-initializer-throws-in-forstatement-head.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The batch does not claim the complete 78-file `language/statements/using`

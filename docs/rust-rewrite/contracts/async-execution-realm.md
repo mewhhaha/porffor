@@ -79,8 +79,8 @@ async-generator request Realm contract, which supplies the distinct catalog and
 method-ownership structure guard.
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- async_execution_realm_structure::
-cargo test -p lila-cli --test cli run_wasm_backend_uses_async_function_realms_for_promises_and_reactions --quiet
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- async_execution_realm_structure::
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_async_function_realms_for_promises_and_reactions --quiet
 ./scripts/check-module-boundaries.sh
 ```
 

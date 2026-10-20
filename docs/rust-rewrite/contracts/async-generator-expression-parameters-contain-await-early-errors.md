@@ -43,7 +43,7 @@ FormalParameters is rejected. A bare `await` binding name is not a witness
 because Boa rejects it earlier during parameter parsing.
 
 Pinned Boa eval parsing can also reach the same primary-expression parser.
-Lila has no product dynamic-eval parser path, so that structural fact does not
+Scriptw has no product dynamic-eval parser path, so that structural fact does not
 justify a T07 eval integration surface.
 
 ## Verification boundary
@@ -61,7 +61,7 @@ declarations, methods, direct eval, T07, or aggregate parser closure.
 ## Evidence
 
 At `2026-08-23`, all verification ran under the repository's eight-CPU cap and
-serial test/harness settings. The complete `lila-front` gate passes `69/69`,
-the focused `lila-ir` early-error filter passes `3/3`, and `cargo xc` passes.
+serial test/harness settings. The complete `scriptw-front` gate passes `69/69`,
+the focused `scriptw-ir` early-error filter passes `3/3`, and `cargo xc` passes.
 The exact pinned file above passes `2/2` sloppy/strict Wasm-AOT executions, with
 every failure and non-success bucket at zero.

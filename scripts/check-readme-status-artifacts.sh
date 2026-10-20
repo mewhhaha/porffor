@@ -41,7 +41,10 @@ extract_status_block() {
   local end_marker
 
   readme="$(git show "$ref:README.md")"
-  if grep -Fq '<!-- lila-status:start -->' <<<"$readme"; then
+  if grep -Fq '<!-- scriptw-status:start -->' <<<"$readme"; then
+    start_marker='<!-- scriptw-status:start -->'
+    end_marker='<!-- scriptw-status:end -->'
+  elif grep -Fq '<!-- lila-status:start -->' <<<"$readme"; then
     start_marker='<!-- lila-status:start -->'
     end_marker='<!-- lila-status:end -->'
   elif grep -Fq '<!-- porffor-status:start -->' <<<"$readme"; then
@@ -66,7 +69,7 @@ fi
 if grep -Eq '^test262/snapshots/published-status-spec-exec\.(json|txt)$' <<<"$changed_files"; then
   cat >&2 <<'EOF'
 check-readme-status-artifacts: spec-exec is oracle-only and cannot authorize the generated README status block.
-Use `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh` with the wasm-aot product backend.
+Use `scriptw test262 publish-status` or `scripts/publish-real-status-low-ram.sh` with the wasm-aot product backend.
 EOF
   exit 1
 fi
@@ -76,17 +79,17 @@ fi
 # tokens and fake-suite path; every status/count/content byte remains compared.
 normalize_t27_t29_status() {
   sed \
-    -e 's/<!-- porffor-status:start -->/<!-- lila-status:start -->/' \
-    -e 's/<!-- porffor-status:end -->/<!-- lila-status:end -->/' \
-    -e 's/-p porffor-engine/-p lila-engine/' \
-    -e 's/-p porffor-cli/-p lila-cli/' \
-    -e 's#\./target/debug/porf #./target/debug/lila #g' \
-    -e 's#crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262#crates/lila-test262/tests/fixtures/fake_test262/vendor/test262#g' \
+    -e 's/<!-- porffor-status:start -->/<!-- scriptw-status:start -->/' \
+    -e 's/<!-- porffor-status:end -->/<!-- scriptw-status:end -->/' \
+    -e 's/-p porffor-engine/-p scriptw-engine/' \
+    -e 's/-p porffor-cli/-p scriptw-cli/' \
+    -e 's#\./target/debug/porf #./target/debug/scriptw #g' \
+    -e 's#crates/porffor-test262/tests/fixtures/fake_test262/vendor/test262#crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262#g' \
     -e 's#`\./scripts/publish-real-status-low-ram\.sh spec-exec codex-published-real`#`./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real`#'
 }
 
 if grep -Fqx -- '<!-- porffor-status:start -->' <<<"$base_status" \
-  && grep -Fqx -- '<!-- lila-status:start -->' <<<"$head_status" \
+  && grep -Fqx -- '<!-- scriptw-status:start -->' <<<"$head_status" \
   && grep -Fqx -- '- `./scripts/publish-real-status-low-ram.sh spec-exec codex-published-real`' <<<"$base_status" \
   && grep -Fqx -- '- `./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real`' <<<"$head_status" \
   && ! grep -Fq './scripts/publish-real-status-low-ram.sh spec-exec' <<<"$head_status" \
@@ -108,6 +111,6 @@ check-readme-status-artifacts: README generated status block changed without bot
   $canonical_status_json
   $canonical_status_txt
 Matrix nodes, aggregate snapshots, focused/fake snapshots, oracle artifacts, either artifact alone, and non-regular/symlink outputs do not authorize this block.
-Use \`lila test262 publish-status\` or \`scripts/publish-real-status-low-ram.sh\`, or keep documentation-only edits outside the generated block.
+Use \`scriptw test262 publish-status\` or \`scripts/publish-real-status-low-ram.sh\`, or keep documentation-only edits outside the generated block.
 EOF
 exit 1

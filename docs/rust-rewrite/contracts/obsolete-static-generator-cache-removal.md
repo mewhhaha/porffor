@@ -48,20 +48,20 @@ reachable lowered IR: every removed decision was guarded by a map that could
 only be empty. It adds no Test262 materialization, capability claim or
 published count.
 
-At the Batch BY checkpoint, `cargo check -p lila-ir` is green without new
+At the Batch BY checkpoint, `cargo check -p scriptw-ir` is green without new
 project warnings, the focused absence target passes `3/3`, and the retained
 iterator-fallback and generator-suspension units pass `3/3`.
 
 ## Backend closure
 
 The cache deletion also removed the only ordinary IR producer for the private
-`$LilaStaticGenerator.values` call shape. The remaining Wasm backend protocol
+`$ScriptwStaticGenerator.values` call shape. The remaining Wasm backend protocol
 is therefore deleted in full: its two IR names, unconditional string-table
 entries, special array-iterator method variant, marker writer, marker reader
 and all three iterator-close consumers.
 
 This follow-on is a correctness closure rather than a behavior-neutral state
-cleanup. The marker reader treated `$LilaStaticGeneratorIterator` as an
+cleanup. The marker reader treated `$ScriptwStaticGeneratorIterator` as an
 ordinary own data property on every iterator-close path. Source JavaScript
 could forge that property on an Array iterator and make an empty destructuring
 close set the private `$ArrayIterator.done` slot. Both retired spellings now
@@ -72,7 +72,7 @@ consumer file. The Wasm CLI regression forges the old marker, performs an empty
 destructuring close, and proves that the iterator is not exhausted; it also
 calls an ordinary source method whose key is the old synthetic method spelling.
 
-At the Batch BZ checkpoint, `cargo check -p lila-aot-wasm` is green with only
+At the Batch BZ checkpoint, `cargo check -p scriptw-aot-wasm` is green with only
 the pre-existing vendored parser warning. The iterator-kind and backend-absence
 structure targets pass `6/6`; the new source-property regression plus the
 ordinary Array iterator-policy and Iterator.zip controls pass `3/3`. Formatting,

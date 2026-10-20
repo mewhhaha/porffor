@@ -379,7 +379,7 @@ and post-`Set` publication use the same projection, so a string property such as
 `"Symbol.iterator"` cannot supply or overwrite the `Symbol.iterator` shape
 fact. The computed-key preservation, Symbol/string kind separation, false
 function-target, setter-observation and non-writable-intrinsic controls each
-pass `1/1`; the complete `lila-ir` unit suite passes `892/892`. The shape table
+pass `1/1`; the complete `scriptw-ir` unit suite passes `892/892`. The shape table
 still uses its encoded key representation; this does not claim full
 `Reflect.ownKeys`, Proxy or user-Symbol closure.
 
@@ -603,13 +603,13 @@ Test support may repeat collection/job checkpoints, but it must not special-case
 ## Required tests
 
 ```sh
-cargo test -p lila-aot-wasm symbol_ --quiet
-cargo test -p lila-aot-wasm collection_ --quiet
-cargo test -p lila-aot-wasm weak_ --quiet
-cargo test -p lila-cli wasm_collection --quiet
-./target/debug/lila test262 run built-ins/Symbol --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Map --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Set --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p scriptw-aot-wasm symbol_ --quiet
+cargo test -p scriptw-aot-wasm collection_ --quiet
+cargo test -p scriptw-aot-wasm weak_ --quiet
+cargo test -p scriptw-cli wasm_collection --quiet
+./target/debug/scriptw test262 run built-ins/Symbol --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Map --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Set --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Run weak-collection, WeakRef and FinalizationRegistry filters repeatedly with GC stress enabled, then rerun Object/Reflect/Proxy own-key tests.

@@ -22,7 +22,7 @@ with statement not allowed in strict mode
 from one branch in
 `vendor/boa_parser-0.21.1/src/parser/statement/with/mod.rs`. One exact
 classifier row owns that producer. The front-end code domain and parse-failure
-row count remain type-level invariants, and the exhaustive `lila-ir`
+row count remain type-level invariants, and the exhaustive `scriptw-ir`
 projection maps the new variant to `IrDiagnosticKind::EarlyError`.
 
 ## Strictness boundaries

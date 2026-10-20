@@ -110,7 +110,7 @@ def index_rows(rows, label):
 
 def audit_snapshot(path, execution, outcome, suite):
     snapshot = read_json(path)
-    require(snapshot.get("producer") == "lila" and snapshot.get("execution_backend") == "wasm-aot"
+    require(snapshot.get("producer") == "scriptw" and snapshot.get("execution_backend") == "wasm-aot"
             and snapshot.get("run_kind") == "full", f"{path}: not a native full-run snapshot")
     suite.verify_pin(snapshot["pinned_revisions"]["test262"])
     manifest = snapshot.get("manifest_hash")

@@ -1,7 +1,7 @@
 # Test262 verdict command authority
 
-Status: implemented and structure-verified for direct `lila test262 run` and
-`lila test262 shard` completion, 2026-08-27. Focused CLI results are recorded
+Status: implemented and structure-verified for direct `scriptw test262 run` and
+`scriptw test262 shard` completion, 2026-08-27. Focused CLI results are recorded
 below.
 
 ## Boundary
@@ -29,7 +29,7 @@ summary has been printed.
 
 ## Durable evidence
 
-`crates/lila-cli/tests/test262_verdict_command_structure.rs` recursively pins
+`crates/scriptw-cli/tests/test262_verdict_command_structure.rs` recursively pins
 the exact six source mentions, private two-row domain, absent capabilities,
 exhaustive spelling table, typed verdict consumer and messages, the two public
 command-arm producers and the internal worker producer, and

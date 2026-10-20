@@ -4,8 +4,8 @@ from pathlib import Path
 import re
 import sys
 
-A = "crates/lila-aot-wasm/src/"
-E = "crates/lila-engine/tests/aot_module_sources.rs"
+A = "crates/scriptw-aot-wasm/src/"
+E = "crates/scriptw-engine/tests/aot_module_sources.rs"
 
 
 def check(root: Path, overrides=None):
@@ -85,8 +85,8 @@ def check(root: Path, overrides=None):
                  "tag.call(sourcePrototype) === undefined", "host prototype crossed Realms",
                  '#[path = "aot_module_sources/prototype_chain.rs"]', "mod prototype_chain;"]:
         need(text in controls, "actual identity/brand/Realm regression control: " + text)
-    pinned = source("crates/lila-engine/tests/aot_module_sources/prototype_chain.rs")
-    for text in ["module-source-prototype-chain.js", "EmbeddedModuleGoal::Script", "__lilaGetAbstractModuleSource()",
+    pinned = source("crates/scriptw-engine/tests/aot_module_sources/prototype_chain.rs")
+    for text in ["module-source-prototype-chain.js", "EmbeddedModuleGoal::Script", "__scriptwGetAbstractModuleSource()",
                  'for directive in ["",', "use strict", "observed.output_events", "source-prototype:ok", "asyncHelpers.js"]:
         need(text in pinned, "pinned original fixture runs through both real Script modes: " + text)
     return failures

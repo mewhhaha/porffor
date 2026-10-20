@@ -124,21 +124,21 @@ encoder and discrepancy-fixer stages.
 
 Three files, one new field, and the field is read.
 
-1. `lila-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
+1. `scriptw-ir/src/ir.rs` — `DestructuringTargetIr::AssignmentProperty` gains
    `strictness: Strictness`. Its one construction site is
    `lowering.rs`'s `lower_array_assignment_property_target`, so omitting it is
    `E0063`; a `bool` there is `E0308` for the reasons in `Strictness`'s doc.
    `AssignmentIdentifier` and `AssignmentPrivate` still carry none, and the
    field comment says why (branch 4.c and PrivateSet respectively).
-2. `lila-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
+2. `scriptw-ir/src/lowering.rs` — filled from `self.reference_strictness()`,
    the crate's single producer. The `grep -c 'self\.reference_strictness()'`
    gate in ledger L1 moves from **21** to **22**.
-3. `lila-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
+3. `scriptw-aot-wasm/src/control_flow.rs` — `PreparedDestructuringTarget::Property`
    carries it from `prepare_destructuring_target` to `put_destructuring_target`,
    which wraps `compile_property_write_to_locals` in
    `with_reference_strictness` (promoted to `pub(crate)` for this call).
    Analysis arms in `data.rs` and `planning.rs` took `..` / `strictness: _`.
-4. `lila-aot-wasm/src/planning.rs` — the array-pattern
+4. `scriptw-aot-wasm/src/planning.rs` — the array-pattern
    `AssignmentProperty` temp-local budget gains
    `REFERENCE_STRICTNESS_FLAG_LOCALS`, because `with_reference_strictness`
    reserves one and `reserve_temp_local` **asserts** rather than diagnosing.
@@ -159,7 +159,7 @@ encoder's §4 describes, now closed for destructuring as well.
 
 ### Compile-gate outcome
 
-`cargo check -p lila-ir` clean; `cargo check -p lila-aot-wasm` clean;
+`cargo check -p scriptw-ir` clean; `cargo check -p scriptw-aot-wasm` clean;
 `cargo xc` (`check --workspace --all-targets`) exit 0, **0 errors**, and the
 warning set is identical to the pre-integration baseline after normalising line
 numbers. `cargo fmt --all -- --check` exit 0.
@@ -189,8 +189,8 @@ This is a deliberately narrow seam, not completion of T08's general Reference
 model. `ReferenceRecord` is still recovered from a lowered property read rather
 than constructed directly from the AST, `super` still lacks an explicit
 `[[ThisValue]]` receiver in this contract's ledger. The integration checkpoint
-passed `cargo check -p lila-ir -p
-lila-aot-wasm`, the focused immutable-target IR contract, and a Wasm execution
+passed `cargo check -p scriptw-ir -p
+scriptw-aot-wasm`, the focused immutable-target IR contract, and a Wasm execution
 covering TDZ/default order, strict and sloppy unresolved writes, and immutable
 assignment.
 

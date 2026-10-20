@@ -51,9 +51,9 @@ objects to Wasm GC or implement reclamation, cyclic collection or weak
 reachability.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_side_storage_element_structure
-cargo test -p lila-aot-wasm --test heap_value_encoding_structure
-cargo test -p lila-aot-wasm --lib heap::tests::linear_side_storage_identities_own_metadata_and_element_semantics -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test heap_side_storage_element_structure
+cargo test -p scriptw-aot-wasm --test heap_value_encoding_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::linear_side_storage_identities_own_metadata_and_element_semantics -- --exact --test-threads=1
 git diff --check
 ```
 

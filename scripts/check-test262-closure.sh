@@ -47,7 +47,7 @@ fi
 # validates both full fresh families; this driver only enforces the resource cap.
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"
-closure_binary="${LILA_BIN:-$repo_root/target/release/lila}"
+closure_binary="${SCRIPTW_BIN:-$repo_root/target/release/scriptw}"
 closure_evidence="${CLOSURE_EVIDENCE_DIR:-$repo_root/target/test262-closure}"
 if [[ ! -x "$closure_binary" ]]; then
   echo "missing closure executable: $closure_binary" >&2

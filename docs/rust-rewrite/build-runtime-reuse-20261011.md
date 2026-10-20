@@ -23,7 +23,7 @@ CPUs, with serial Cargo/libtest and serial build-time native compilation. Its
 function-cache disk budget is now 512 MiB: the measured core working set is
 about 313 MiB, so the earlier 256 MiB setting evicted entries during every scan.
 Stricter explicit settings continue to be honored. Local cache defaults remain
-unchanged. Set `LILA_FUNCTION_CACHE_LIMIT_BYTES=536870912` when reproducing this
+unchanged. Set `SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES=536870912` when reproducing this
 cloud checkpoint, then use the normal limited-verification launcher.
 
 | Actual producer | Native precompile | Hits | Misses |

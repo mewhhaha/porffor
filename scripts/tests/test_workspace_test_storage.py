@@ -30,7 +30,7 @@ class StorageAdmissionTests(unittest.TestCase):
         for directory in (self.target, self.output, self.cache):
             directory.mkdir()
         self.environment = {'TMPDIR': str(self.temp),
-                            'LILA_CACHE_DIR': str(self.cache)}
+                            'SCRIPTW_CACHE_DIR': str(self.cache)}
 
     def snapshot(self, *, workspace_free=10 * GIB, temporary_free=10 * GIB,
                  processes=1, building=False):
@@ -97,10 +97,10 @@ class StorageAdmissionTests(unittest.TestCase):
                 'TMPDIR': '/rust-temp', 'XDG_CACHE_HOME': '/xdg'}))
         self.assertEqual(paths['python-temporary'], Path('/python-temp'))
         self.assertEqual(paths['rust-temporary'], Path('/rust-temp'))
-        self.assertEqual(paths['cache-program-wasm-v1'], Path('/xdg/lila/program-wasm-v1'))
+        self.assertEqual(paths['cache-program-wasm-v1'], Path('/xdg/scriptw/program-wasm-v1'))
         defaults = dict(storage.writable_paths('/target', '/output', {}))
         self.assertEqual(defaults['rust-temporary'], Path('/tmp'))
-        self.assertEqual(defaults['cache-program-wasm-v1'], Path('/tmp/lila/program-wasm-v1'))
+        self.assertEqual(defaults['cache-program-wasm-v1'], Path('/tmp/scriptw/program-wasm-v1'))
 
     def test_dangling_cache_symlinks_probe_their_physical_destination(self):
         tier = self.cache / 'wasmtime-modules-v1'

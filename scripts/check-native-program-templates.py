@@ -3,8 +3,8 @@
 from pathlib import Path
 import re
 import sys
-A = 'crates/lila-aot-wasm/src/'
-E = 'crates/lila-engine/src/'
+A = 'crates/scriptw-aot-wasm/src/'
+E = 'crates/scriptw-engine/src/'
 T = A + 'native_program_template'
 N = E + 'wasm_native_program_template'
 M = E + 'memory_module_cache/native_templates'
@@ -12,24 +12,24 @@ CAPS = {
     A + 'module/compiled_module_package.rs': 430,
     A + 'objects/regexp_literal.rs': 120,
     A + 'objects/regexp_literal/native.rs': 140,
-    'crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs': 100,
-    'crates/lila-ir/src/runtime_direct_eval/tests/regexp_literal.rs': 120,
+    'crates/scriptw-ir/src/runtime_direct_eval/regexp_literal.rs': 100,
+    'crates/scriptw-ir/src/runtime_direct_eval/tests/regexp_literal.rs': 120,
     E + 'wasm_native_direct_eval_compiler/regexp_literal.rs': 150,
-    'crates/lila-engine/tests/aot_native_program_templates/regexp_literals.rs': 110,
+    'crates/scriptw-engine/tests/aot_native_program_templates/regexp_literals.rs': 110,
     T + '/empty_direct_eval.rs': 110,
     T + '/primitive_direct_eval.rs': 100,
-    'crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs': 100,
-    'crates/lila-ir/src/runtime_direct_eval/tests/primitive_literal.rs': 140,
+    'crates/scriptw-ir/src/runtime_direct_eval/primitive_literal.rs': 100,
+    'crates/scriptw-ir/src/runtime_direct_eval/tests/primitive_literal.rs': 140,
     E + 'wasm_native_direct_eval_compiler/primitive.rs': 110,
-    'crates/lila-ir/src/runtime_direct_eval/empty.rs': 100,
-    'crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs': 90,
+    'crates/scriptw-ir/src/runtime_direct_eval/empty.rs': 100,
+    'crates/scriptw-ir/src/runtime_direct_eval/empty/metadata.rs': 90,
     E + 'wasm_native_direct_eval_compiler/empty.rs': 100,
-    'crates/lila-engine/tests/aot_native_program_templates/function_names.rs': 90,
-    'crates/lila-engine/tests/aot_native_program_templates/empty_eval.rs': 90,
+    'crates/scriptw-engine/tests/aot_native_program_templates/function_names.rs': 90,
+    'crates/scriptw-engine/tests/aot_native_program_templates/empty_eval.rs': 90,
     T + '/share_bodies.rs': 130, T + '/share_bodies/mapping.rs': 140,
     T + '/share_bodies/names.rs': 80, T + '/share_bodies/tests.rs': 180,
     T + '/tests/shared_emitted_bodies.rs': 100,
-    'crates/lila-engine/tests/aot_native_program_templates/shared_function_bodies.rs': 100,
+    'crates/scriptw-engine/tests/aot_native_program_templates/shared_function_bodies.rs': 100,
     A + 'program_literal_operands.rs': 180,
     T + '/literal_operands.rs': 50, T + '/plan/literal_operands.rs': 80,
     T + '/tests/literal_operands.rs': 260,
@@ -49,16 +49,16 @@ CAPS = {
     N + '/bindings/allocation/tests/bulk_reads.rs': 150,
     N + '/bindings/allocation/tests/payload_tests.rs': 120,
     M + '/instances.rs': 110, M + '/instances/tests.rs': 90,
-    'crates/lila-engine/tests/aot_native_program_templates/program_owned_payload.rs': 130,
+    'crates/scriptw-engine/tests/aot_native_program_templates/program_owned_payload.rs': 130,
     N + '.rs': 90, N + '/cache.rs': 50, N + '/bindings.rs': 180,
     N + '/bindings/allocation.rs': 100, N + '/bindings/allocation/tests.rs': 160,
     M + '.rs': 70, M + '/tests.rs': 70,
-    'crates/lila-engine/tests/aot_native_program_templates.rs': 110,
-    'crates/lila-engine/tests/aot_native_program_templates/catalog_overlays.rs': 60,
+    'crates/scriptw-engine/tests/aot_native_program_templates.rs': 110,
+    'crates/scriptw-engine/tests/aot_native_program_templates/catalog_overlays.rs': 60,
 }
 KINDS = ('function', 'global_script', 'direct_eval')
 FILES = tuple(CAPS) + (A + 'lib.rs', E + 'lib.rs', E + 'wasm_native_source_compiler.rs',
-    E + 'memory_module_cache.rs', 'crates/lila-ir/src/runtime_direct_eval.rs') + tuple(E + 'wasm_native_' + k + '_compiler/factory.rs' for k in KINDS)
+    E + 'memory_module_cache.rs', 'crates/scriptw-ir/src/runtime_direct_eval.rs') + tuple(E + 'wasm_native_' + k + '_compiler/factory.rs' for k in KINDS)
 def compact(text):
     return re.sub(r'\s+', '', re.sub(r'//[^\n]*', '', text))
 def check(sources):
@@ -212,8 +212,8 @@ def check(sources):
          'image.copy_i8_range_to_slice(&mut*store,start,&mutbytes)?' in allocation and
          'length.checked_mul(width.bytes())' in allocation,
          'fresh_source_arrays_use_only_the_received_P_payload_image_bounds')
-    ir = c['crates/lila-ir/src/runtime_direct_eval.rs']
-    proof = c['crates/lila-ir/src/runtime_direct_eval/empty.rs']
+    ir = c['crates/scriptw-ir/src/runtime_direct_eval.rs']
+    proof = c['crates/scriptw-ir/src/runtime_direct_eval/empty.rs']
     need('prepare_eval_source_utf16(' in ir and
          all(fragment in ir for fragment in (
              'ast.statements().statements().iter().all(|item|matchitem',
@@ -228,7 +228,7 @@ def check(sources):
              '!unit.function_ids.is_empty()', '!script.functions.is_empty()',
              '!script.prepared_dynamic_functions.is_empty()', 'let[root]=script.prepared_scripts.as_slice()')),
          'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof')
-    metadata = c['crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs']
+    metadata = c['crates/scriptw-ir/src/runtime_direct_eval/empty/metadata.rs']
     need('binding.name==DIRECT_EVAL_EXECUTION_CONTEXT_NAME' in metadata and
          'binding.slot==0' in metadata and 'EnvironmentBindingMutabilityIr::Immutable{strict:true}' in metadata and
          '!binding.declarations.is_declared()' in metadata and 'bindings.is_empty()' in metadata and
@@ -239,7 +239,7 @@ def check(sources):
     entry = c[E + 'wasm_native_direct_eval_compiler/empty.rs']
     need("_proof:&EmptyRuntimeDirectEval<'_>" in kernel and
          'crate::module::empty_direct_eval_module(_proof,EXPORT)' in kernel and
-         "_proof:&lila_ir::EmptyRuntimeDirectEval<'_>" in assembly and
+         "_proof:&scriptw_ir::EmptyRuntimeDirectEval<'_>" in assembly and
          'WasmRuntimeValueTag::Undefined.tag()' in assembly and 'Instruction::RefNull(RefType::EQREF.heap_type)' in assembly and
          'CompletionKindIr::Normal.abi_code()' in assembly and 'entry:TemplateEntry::EmptyDirectEval' in kernel and
          'TemplateEntry::EmptyDirectEval|TemplateEntry::PrimitiveDirectEval=>true' in kernel and
@@ -248,7 +248,7 @@ def check(sources):
          'factory.call(&mut*store,&[],&mutoutput)?' in entry and
          'zip(&signature.completion)' in entry and entry.count('context.check_budget()?') >= 2,
          'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline')
-    primitive = c['crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs']
+    primitive = c['crates/scriptw-ir/src/runtime_direct_eval/primitive_literal.rs']
     primitive_kernel = c[T + '/primitive_direct_eval.rs']
     primitive_host = c[E + 'wasm_native_direct_eval_compiler/primitive.rs']
     need('letunit=self.inert_preparation()?' in primitive and
@@ -258,9 +258,9 @@ def check(sources):
          '_=>returnNone' in primitive and '_program:&' in primitive and
          'pubvalue:' not in primitive and 'pub_program:' not in primitive,
          'primitive_eval_requires_exact_scalar_IR_and_inert_preparation')
-    need("proof:&lila_ir::PrimitiveRuntimeDirectEval<'_>" in primitive_kernel and
+    need("proof:&scriptw_ir::PrimitiveRuntimeDirectEval<'_>" in primitive_kernel and
          'crate::module::primitive_direct_eval_module(proof,EXPORT)' in primitive_kernel and
-         "_proof:&lila_ir::PrimitiveRuntimeDirectEval<'_>" in assembly and
+         "_proof:&scriptw_ir::PrimitiveRuntimeDirectEval<'_>" in assembly and
          'stateless_direct_eval_module(export,DirectEvalCompletionOperands::Primitive)' in assembly and
          'DirectEvalCompletionOperands::Primitive=>&[ValType::I32,ValType::I64]' in assembly and
          'Instruction::LocalGet(0)' in assembly and 'Instruction::LocalGet(1)' in assembly and
@@ -269,7 +269,7 @@ def check(sources):
          'factory.call(&mut*store,&arguments,&mutoutput)?' in primitive_host and
          'zip(&signature.completion)' in primitive_host and primitive_host.count('context.check_budget()?') >= 2,
          'primitive_eval_executes_real_stateless_wasm_with_current_operands_and_budget')
-    regexp = c['crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs']
+    regexp = c['crates/scriptw-ir/src/runtime_direct_eval/regexp_literal.rs']
     need('letunit=self.inert_preparation()?' in regexp and
          'let[StatementIr::Expression(expression)]=unit.body.statements.as_slice()' in regexp and
          'static_compilation:Some(StaticRegExpCompilation::Program(program))' in regexp and
@@ -283,7 +283,7 @@ def check(sources):
          'ObjectDefineData' not in allocate,
          'regexp_literal_installs_exact_lastindex_on_only_its_fresh_header')
     regexp_host = c[E + 'wasm_native_direct_eval_compiler/regexp_literal.rs']
-    need('proof:&lila_ir::StaticRegExpRuntimeDirectEval' in regexp_host and
+    need('proof:&scriptw_ir::StaticRegExpRuntimeDirectEval' in regexp_host and
          'ArrayRef::new_fixed' in regexp_host and 'proof.compiled_bytes()' in regexp_host and
          'factory.call(&mut*store,&operands,&mutoutput)?' in regexp_host and
          regexp_host.count('context.check_budget()?') >= 3,

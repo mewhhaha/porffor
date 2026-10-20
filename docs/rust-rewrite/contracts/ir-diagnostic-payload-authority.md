@@ -28,10 +28,10 @@ feature, or message text.
 Focused verification:
 
 ```console
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::ir_diagnostic_payload_structure:: --test-threads=1
-cargo test -p lila-ir modules::early::tests:: --lib -- --test-threads=1
-cargo test -p lila-ir modules::graph_tests:: --lib -- --test-threads=1
-cargo check -p lila-ir --quiet
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::ir_diagnostic_payload_structure:: --test-threads=1
+cargo test -p scriptw-ir modules::early::tests:: --lib -- --test-threads=1
+cargo test -p scriptw-ir modules::graph_tests:: --lib -- --test-threads=1
+cargo check -p scriptw-ir --quiet
 ```
 
 Prepared source candidates may discard an ordinary capability gap when the

@@ -46,7 +46,7 @@ and CLDR47 versions. It implies no Unicode17 capability for unrelated services.
 The data README records the sole dangling synthetic default-content entry.
 
 Primary source pins and archive hashes are in
-crates/lila-intl/data/number-cldr-47/source-manifest.json. The package contains
+crates/scriptw-intl/data/number-cldr-47/source-manifest.json. The package contains
 CLDR47 commit `2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`, Unicode 16.0.0, and
 a narrowly selected CLDR48/UCD17 `tols` contribution (its alphabet, six declared
 number-pattern aliases and ten decimal-number spacing points), and

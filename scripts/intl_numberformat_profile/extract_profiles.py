@@ -15,7 +15,7 @@ from unicode_sets import properties as unicode_properties, parse as parse_unicod
 from plural_grammar import CATEGORIES, parse_rule, check_samples, category, sample_operands
 
 STAGE = Path(__file__).resolve().parents[1]
-NUMERIC = STAGE / "work/crates/lila-intl/src/number_format"
+NUMERIC = STAGE / "work/crates/scriptw-intl/src/number_format"
 
 
 def stable(value):
@@ -447,7 +447,7 @@ def main():
     complete = args.locales is None
     if args.locales is not None:
         candidates = set(args.locales.split(","))
-    output = STAGE / "work/crates/lila-intl/data/number-cldr-47" if complete else STAGE / "evidence/diagnostic-profile"
+    output = STAGE / "work/crates/scriptw-intl/data/number-cldr-47" if complete else STAGE / "evidence/diagnostic-profile"
     output.mkdir(parents=True, exist_ok=True)
     locales = {}
     provenance_leaves = Pool()

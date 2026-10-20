@@ -63,8 +63,8 @@ class Seed:
 
 
 def inventory(repository, tier):
-    corpus = repository / "crates/lila-test262/tests/differential"
-    snapshot = repository / "crates/lila-test262/tests/fixtures/fake_test262/snapshots/-case-1027921027793165688-15918031624465637722.json"
+    corpus = repository / "crates/scriptw-test262/tests/differential"
+    snapshot = repository / "crates/scriptw-test262/tests/fixtures/fake_test262/snapshots/-case-1027921027793165688-15918031624465637722.json"
     # The legacy snapshot is an explicit decoder seed, never current conformance.
     entries = [
         Seed("script", b"let total = 0; for (let i = 0; i < 3; i++) total += i; total;\n", False),

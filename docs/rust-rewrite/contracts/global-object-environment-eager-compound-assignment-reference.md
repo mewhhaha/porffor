@@ -112,15 +112,15 @@ The focused ladder after batch integration is:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir script_global_compound_assignments --quiet
-cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+cargo test -p scriptw-ir script_global_compound_assignments --quiet
+cargo test -p scriptw-aot-wasm --test structure_language --quiet -- \
   global_object_environment_compound_assignment_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-cli --test cli \
   language::run_wasm_backend_succeeds_for_global_object_environment_compound_assignment_fixture \
   -- --exact --test-threads=1
 for suffix in 1 3 5 7 9 11 13 15 17 19 21; do
   case_file="language/expressions/compound-assignment/compound-assignment-operator-calls-putvalue-lref--v--${suffix}.js"
-  ./target/debug/lila --jobs 1 test262 run "$case_file" \
+  ./target/debug/scriptw --jobs 1 test262 run "$case_file" \
     --suite-root test262/vendor/test262 --execution-backend wasm-aot \
     --timeout-ms 180000 --threads 1
 done

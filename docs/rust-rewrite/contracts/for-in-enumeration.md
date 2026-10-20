@@ -44,7 +44,7 @@ The obsolete primitive refusal and three compiler shortcuts were removed:
 `for_in_builtin_non_enumerable_assert_only`. Constructor names, known builtin
 property attributes, and assertion-shaped bodies cannot suppress execution.
 These were IR-lowering shortcuts, outside the canonical Test262 runner audit
-whose source input is `crates/lila-test262/src/lib.rs`. Their removal changes
+whose source input is `crates/scriptw-test262/src/lib.rs`. Their removal changes
 zero canonical shortcut ledger rows or counts.
 
 Regression coverage is in `aot_for_in_enumeration.rs`, the corresponding IR

@@ -124,7 +124,7 @@ def generate(source_dir):
     archive_hash = bytes.fromhex(manifest["icu_locale_data"]["archive_sha256"])
     if len(archive_hash) != 32 or manifest["icu_locale_data"]["version"] != "2.0.0":
         raise ValueError("invalid pinned ICU locale archive identity")
-    composite = hashlib.sha256(b"lila-intl-locale-provider-v2\0" + archive_hash
+    composite = hashlib.sha256(b"scriptw-intl-locale-provider-v2\0" + archive_hash
                                + source_hash + alias_hash).digest()
     lines.extend(["// Composite identity covers the ICU archive, source manifest and alias rows.",
                   "pub(super) const PROVIDER_DATA_SHA256: [u8; 32] = ["])
@@ -146,9 +146,9 @@ def generate(source_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-dir", type=Path,
-                        default=REPOSITORY / "crates/lila-intl/data/cldr-47-bcp47")
+                        default=REPOSITORY / "crates/scriptw-intl/data/cldr-47-bcp47")
     parser.add_argument("--output", type=Path,
-                        default=REPOSITORY / "crates/lila-intl/src/provider/keyword_aliases/generated.rs")
+                        default=REPOSITORY / "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--check", action="store_true")
     options = parser.parse_args()

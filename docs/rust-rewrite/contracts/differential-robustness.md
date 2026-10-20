@@ -210,12 +210,12 @@ checkpoint helpers are shared with semantic campaigns. Every failed/rejected inp
 is retained; no input is promoted into the semantic executable corpus.
 
 ```sh
-lila differential robustness --input repro.js --target script --seed 1 --cases 32 \
+scriptw differential robustness --input repro.js --target script --seed 1 --cases 32 \
   --timeout-ms 300000 --output-dir fresh-robustness --oracle spec-exec
-lila differential replay-robustness fresh-robustness/case-000.input.json --oracle spec-exec
-lila differential minimize-robustness fresh-robustness/case-000.input.json \
+scriptw differential replay-robustness fresh-robustness/case-000.input.json --oracle spec-exec
+scriptw differential minimize-robustness fresh-robustness/case-000.input.json \
   --replays 128 --output-dir fresh-reduction --oracle spec-exec
-lila differential replay-robustness fresh-reduction/minimized.input.json --oracle spec-exec
+scriptw differential replay-robustness fresh-reduction/minimized.input.json --oracle spec-exec
 ```
 
 `scripts/run-robustness-campaign-tier.py` now consumes the existing CLI through
@@ -238,7 +238,7 @@ does not interpret a normal parser rejection as source acceptance or conformance
 
 ```sh
 python3 scripts/limited_verification.py --memory-mib 4096 -- \
-  python3 scripts/run-robustness-campaign-tier.py ./target/debug/lila fresh-tier pr-fast
+  python3 scripts/run-robustness-campaign-tier.py ./target/debug/scriptw fresh-tier pr-fast
 ```
 
 The differential CI workflow connects these controls and both debug/optimized
@@ -251,7 +251,7 @@ After the combined type checkpoint, the focused new controls run serially:
 ```sh
 python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_limited_verification.py'
 python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_robustness_campaign_tier.py'
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::robustness::tests::every_native_target_rejects_foreign_fields_without_changing_its_existing_wire -- --exact
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --lib differential::robustness::tests::every_native_target_rejects_foreign_fields_without_changing_its_existing_wire -- --exact
 ```
 
 The driver fixtures test original-byte retention, matching tier seeds, failed or

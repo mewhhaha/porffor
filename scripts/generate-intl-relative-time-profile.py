@@ -14,10 +14,10 @@ from intl_cldr_profile import (
 from intl_relative_time_sources import CAPTURE_PATH, load_polish_sources, load_profile
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SOURCE_PATH = "crates/lila-intl/data/datetime-cldr-47"
-PROFILE_PATH = "crates/lila-intl/src/relative_time_format/generated/profile.json"
-REPORT_PATH = "crates/lila-intl/data/relative-time-cldr-47/report.json"
-INPUTS_PATH = "crates/lila-intl/data/relative-time-cldr-47/source-inputs.json"
+SOURCE_PATH = "crates/scriptw-intl/data/datetime-cldr-47"
+PROFILE_PATH = "crates/scriptw-intl/src/relative_time_format/generated/profile.json"
+REPORT_PATH = "crates/scriptw-intl/data/relative-time-cldr-47/report.json"
+INPUTS_PATH = "crates/scriptw-intl/data/relative-time-cldr-47/source-inputs.json"
 BASE_LOCALES = ("en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN",
            "de", "fr", "it", "ja", "ko", "hi")
 LOCALES = (*BASE_LOCALES, "pl")
@@ -150,11 +150,11 @@ def source_inputs(repository, profile):
     names.add(f"{SOURCE_PATH}/manifest.json")
     capture, _ = load_polish_sources(repository)
     names.update(["scripts/intl_relative_time_sources.py", CAPTURE_PATH, capture["source_manifest"]["path"], capture["archive"]["path"]])
-    names.update("crates/lila-intl/data/relative-time-cldr-47/" + row["path"] for row in capture["files"])
+    names.update("crates/scriptw-intl/data/relative-time-cldr-47/" + row["path"] for row in capture["files"])
     names.update(f"{SOURCE_PATH}/{name}" for name in profile.sources)
     for directory, manifest_name in [("numbering-tols-cldr-48", "source-manifest.json"),
                                       ("calendar-eras-cldr-48", "manifest.json")]:
-        base = f"crates/lila-intl/data/{directory}"
+        base = f"crates/scriptw-intl/data/{directory}"
         manifest_path = repository / base / manifest_name
         manifest = json.loads(manifest_path.read_bytes())
         names.add(f"{base}/{manifest_name}")

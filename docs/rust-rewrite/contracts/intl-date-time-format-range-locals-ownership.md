@@ -36,8 +36,8 @@ manual capabilities or an alternate release route from reopening the
 lifecycle.
 
 ```sh
-cargo test -p lila-aot-wasm --test intl_dtf_range_locals_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test intl_dtf_range_mode_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_dtf_range_locals_ownership_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_dtf_range_mode_structure -- --test-threads=1
 ```
 
 The emitted range formatter now selects the two CLDR `en` textual

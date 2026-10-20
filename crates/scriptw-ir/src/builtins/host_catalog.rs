@@ -1,0 +1,221 @@
+// This registry is the sole source for HostBuiltinId and its host-visible
+// surface. Row order is declaration order and therefore the derived `Ord`
+// contract. Every row must classify its exposure, which determines realm scope.
+use super::*;
+use crate::{
+    DYNAMIC_ASYNC_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+    DYNAMIC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+};
+
+const ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID: &str =
+    "scriptw:async-disposable-stack:sync-dispose";
+const GET_ABSTRACT_MODULE_SOURCE_FUNCTION_ID: &str = "scriptw:host:get-abstract-module-source";
+
+host_builtin_catalog! {
+    Print {
+        name: PRINT_NAME,
+        function: HOST_PRINT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::ProductExtension),
+    }
+    Gc {
+        name: GC_NAME,
+        function: HOST_GC_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::ProductExtension),
+    }
+    AssertThrows {
+        name: ASSERT_THROWS_NAME,
+        function: HOST_ASSERT_THROWS_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    IsConstructor {
+        name: IS_CONSTRUCTOR_NAME,
+        function: HOST_IS_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    CreateRealm {
+        name: CREATE_REALM_NAME,
+        function: HOST_CREATE_REALM_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    RealmEvalScript {
+        name: REALM_EVAL_SCRIPT_NAME,
+        function: DYNAMIC_REALM_EVAL_SCRIPT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    CreateHTMLDDA {
+        name: CREATE_HTMLDDA_NAME,
+        function: HOST_CREATE_HTMLDDA_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    GetAbstractModuleSource {
+        name: "__scriptwGetAbstractModuleSource",
+        function: GET_ABSTRACT_MODULE_SOURCE_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    GeneratorFunctionConstructor {
+        name: "GeneratorFunction",
+        function: DYNAMIC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncFunctionConstructor {
+        name: "AsyncFunction",
+        function: DYNAMIC_ASYNC_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncGeneratorFunctionConstructor {
+        name: "AsyncGeneratorFunction",
+        function: DYNAMIC_ASYNC_GENERATOR_FUNCTION_CONSTRUCTOR_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    AsyncDisposableStackSyncDispose {
+        name: "",
+        function: ASYNC_DISPOSABLE_STACK_SYNC_DISPOSE_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    HTMLDDA {
+        name: "IsHTMLDDA",
+        function: HOST_HTMLDDA_FUNCTION_ID,
+        surface: HostBuiltinSurface::InternalCallable,
+    }
+    ParseInt {
+        name: PARSE_INT_NAME,
+        function: HOST_PARSE_INT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::EcmaGlobal),
+    }
+    ParseFloat {
+        name: PARSE_FLOAT_NAME,
+        function: HOST_PARSE_FLOAT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::EcmaGlobal),
+    }
+    DetachArrayBuffer {
+        name: DETACH_ARRAY_BUFFER_NAME,
+        function: HOST_DETACH_ARRAY_BUFFER_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentStart {
+        name: AGENT_START_NAME,
+        function: HOST_AGENT_START_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentBroadcast {
+        name: AGENT_BROADCAST_NAME,
+        function: HOST_AGENT_BROADCAST_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentReceiveBroadcast {
+        name: AGENT_RECEIVE_BROADCAST_NAME,
+        function: HOST_AGENT_RECEIVE_BROADCAST_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentReport {
+        name: AGENT_REPORT_NAME,
+        function: HOST_AGENT_REPORT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentGetReport {
+        name: AGENT_GET_REPORT_NAME,
+        function: HOST_AGENT_GET_REPORT_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentSleep {
+        name: AGENT_SLEEP_NAME,
+        function: HOST_AGENT_SLEEP_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentMonotonicNow {
+        name: AGENT_MONOTONIC_NOW_NAME,
+        function: HOST_AGENT_MONOTONIC_NOW_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+    AgentLeaving {
+        name: AGENT_LEAVING_NAME,
+        function: HOST_AGENT_LEAVING_FUNCTION_ID,
+        surface: HostBuiltinSurface::global(HostBuiltinExposure::Test262Capability),
+    }
+}
+
+impl HostBuiltinId {
+    pub(crate) const fn may_invalidate_caller_flow(self) -> bool {
+        match self {
+            Self::CreateRealm => false,
+            Self::Print
+            | Self::Gc
+            | Self::AssertThrows
+            | Self::IsConstructor
+            | Self::RealmEvalScript
+            | Self::GeneratorFunctionConstructor
+            | Self::AsyncFunctionConstructor
+            | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose
+            | Self::CreateHTMLDDA
+            | Self::GetAbstractModuleSource
+            | Self::HTMLDDA
+            | Self::ParseInt
+            | Self::ParseFloat
+            | Self::DetachArrayBuffer
+            | Self::AgentStart
+            | Self::AgentBroadcast
+            | Self::AgentReceiveBroadcast
+            | Self::AgentReport
+            | Self::AgentGetReport
+            | Self::AgentSleep
+            | Self::AgentMonotonicNow
+            | Self::AgentLeaving => true,
+        }
+    }
+
+    pub const fn may_run_user_code_synchronously(self) -> bool {
+        match self {
+            // These bodies perform observable coercion or invoke a callback.
+            // Classify the native body here; the receiveBroadcast callback is
+            // owned by its ordinary JavaScript harness wrapper instead.
+            Self::Print
+            | Self::AssertThrows
+            | Self::RealmEvalScript
+            | Self::AgentStart
+            | Self::AgentBroadcast
+            | Self::AgentReport
+            | Self::AgentSleep
+            | Self::ParseInt
+            | Self::ParseFloat
+            | Self::GeneratorFunctionConstructor
+            | Self::AsyncFunctionConstructor
+            | Self::AsyncGeneratorFunctionConstructor
+            | Self::AsyncDisposableStackSyncDispose => true,
+            Self::Gc
+            | Self::IsConstructor
+            | Self::CreateRealm
+            | Self::CreateHTMLDDA
+            | Self::GetAbstractModuleSource
+            | Self::HTMLDDA
+            | Self::DetachArrayBuffer
+            | Self::AgentReceiveBroadcast
+            | Self::AgentGetReport
+            | Self::AgentMonotonicNow
+            | Self::AgentLeaving => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_realm_is_the_only_host_builtin_that_preserves_caller_flow() {
+        for builtin in HostBuiltinId::ALL.iter().copied() {
+            assert_eq!(
+                builtin.may_invalidate_caller_flow(),
+                builtin != HostBuiltinId::CreateRealm,
+                "{builtin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn host_caller_flow_classification_is_distinct_from_synchronous_user_code() {
+        assert!(!HostBuiltinId::DetachArrayBuffer.may_run_user_code_synchronously());
+        assert!(HostBuiltinId::DetachArrayBuffer.may_invalidate_caller_flow());
+    }
+}

@@ -123,7 +123,7 @@ for the async-generator capability.
 
 ## Focused invariants and verification
 
-Durable `lila-ir` coverage pins that:
+Durable `scriptw-ir` coverage pins that:
 
 - an async-generator scope has the `AsyncGenerator` owner;
 - both `GeneratorYield` and `AsyncAwait` remain inside the live scope body;
@@ -136,10 +136,10 @@ Central integration owns compilation and runtime execution:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir async_generator_synchronous_using --quiet
-./target/debug/lila test262 run \
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir async_generator_synchronous_using --quiet
+./target/debug/scriptw test262 run \
   language/statements/using/initializer-disposed-at-end-of-asyncgeneratorbody.js \
   --suite-root test262/vendor/test262 \
   --execution-backend wasm-aot --timeout-ms 60000 --threads 1

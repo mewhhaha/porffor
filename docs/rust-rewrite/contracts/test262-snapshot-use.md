@@ -68,8 +68,8 @@ thirteen production mentions, seven producers, both forwarding boundaries and
 the exhaustive validation projection:
 
 ```console
-cargo test -p lila-test262 --test snapshot_use_structure
-cargo test -p lila-test262 --features spec-exec-oracle tests::complete_consumers_reject_legacy_aggregates_and_mixed_legacy_nodes -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test snapshot_use_structure
+cargo test -p scriptw-test262 --features spec-exec-oracle tests::complete_consumers_reject_legacy_aggregates_and_mixed_legacy_nodes -- --exact --test-threads=1
 ```
 
 The structure target passes `4/4`, and the exact legacy/current aggregate unit

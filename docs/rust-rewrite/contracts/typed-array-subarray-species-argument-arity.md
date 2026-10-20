@@ -62,7 +62,7 @@ leaving the other at three.
 
 The sole semantic owner is the
 `StandardBuiltinId::TypedArrayPrototypeSubarray` arm in
-`crates/lila-aot-wasm/src/builtins/standard.rs`. It now selects between two
+`crates/scriptw-aot-wasm/src/builtins/standard.rs`. It now selects between two
 complete vector constructions before one shared species construct:
 
 ```text
@@ -86,7 +86,7 @@ protocol.
 ## Durable focused evidence
 
 The existing
-`crates/lila-aot-wasm/tests/typed_array_subarray_witness_structure.rs` guard is
+`crates/scriptw-aot-wasm/tests/typed_array_subarray_witness_structure.rs` guard is
 the bounded source owner. It requires:
 
 - one two-entry and one three-entry `emit_pre_evaluated_arg_vector` call in the
@@ -97,7 +97,7 @@ the bounded source owner. It requires:
 - no raw `LocalSet(argc_local)` arity patch in the bounded arm.
 
 The existing
-`crates/lila-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js`
+`crates/scriptw-cli/tests/fixtures/wasm_typedarray_subarray_buffer_witness.js`
 fixture, owned by
 `typed_array::run_wasm_backend_subarray_uses_non_throwing_typed_array_buffer_witness`,
 inspects the saved species `arguments` object after `subarray` returns. It

@@ -51,7 +51,7 @@ instruction order.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/function_realm_outcome_structure.rs` uses a
+`crates/scriptw-aot-wasm/tests/function_realm_outcome_structure.rs` uses a
 Rust-lexical recursive census to pin the private no-capability declaration, the
 exhaustive 0/1/2 projection, all five projection sites, the three writers, the
 Revoked-before-Invalid router and the seven Get/route pairs with their exact
@@ -65,12 +65,12 @@ The 278-line child has SHA-256
 Focused verification:
 
 ```sh
-cargo test -p lila-aot-wasm --test function_realm_outcome_structure --quiet
+cargo test -p scriptw-aot-wasm --test function_realm_outcome_structure --quiet
 bash scripts/check-module-boundaries.sh
 ./scripts/conformance_owners.py
 rustfmt --edition 2024 --check \
-  crates/lila-aot-wasm/src/functions/function_realm.rs \
-  crates/lila-aot-wasm/tests/function_realm_outcome_structure.rs
+  crates/scriptw-aot-wasm/src/functions/function_realm.rs \
+  crates/scriptw-aot-wasm/tests/function_realm_outcome_structure.rs
 git diff --check
 ```
 

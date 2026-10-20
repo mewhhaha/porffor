@@ -14,14 +14,14 @@ parent = Path('/proc') / str(os.getppid())
 parent_args = (parent / 'cmdline').read_bytes().split(b'\0')
 assert (parent / 'comm').read_text().strip() == 'rustc'
 assert b'--test' not in parent_args
-assert parent_args[parent_args.index(b'--crate-name') + 1] == b'lila'
-profile = os.environ['LILA_VERIFICATION_WORKER_PROFILE']
+assert parent_args[parent_args.index(b'--crate-name') + 1] == b'scriptw'
+profile = os.environ['SCRIPTW_VERIFICATION_WORKER_PROFILE']
 assert profile in ('debug', 'release')
 args = sys.argv[1:]
-assert args.count('-llila_runtime_images') == 1
+assert args.count('-lscriptw_runtime_images') == 1
 output = Path(args[args.index('-o') + 1]).resolve()
 assert output.parent == root / 'target' / profile / 'deps'
-assert output.name.startswith('lila-')
+assert output.name.startswith('scriptw-')
 directories = []
 for index, arg in enumerate(args):
     if arg == '-L':
@@ -29,12 +29,12 @@ for index, arg in enumerate(args):
     elif arg.startswith('-L'):
         directories.append(Path(arg[2:]))
 archives = {p.resolve() for directory in directories
-            if (p := directory / 'liblila_runtime_images.a').is_file()}
+            if (p := directory / 'libscriptw_runtime_images.a').is_file()}
 assert len(archives) == 1
 image, receipt = shared_image(archives.pop(), root / 'target/shared-test-runtime-images')
 changed = []
 for arg in args:
-    if arg == '-llila_runtime_images':
+    if arg == '-lscriptw_runtime_images':
         changed += ['-Wl,-Bdynamic', str(image), '-Wl,-Bstatic',
                     '-Wl,-rpath,' + str(image.parent)]
     else:
@@ -44,7 +44,7 @@ if status:
     sys.exit(status if status > 0 else 128 - status)
 with output.open('rb') as stream:
     executable_sha256 = hashlib.file_digest(stream, 'sha256').hexdigest()
-log = Path(os.environ['LILA_VERIFICATION_WORKER_LINK_RECEIPT'])
+log = Path(os.environ['SCRIPTW_VERIFICATION_WORKER_LINK_RECEIPT'])
 record = {'output': str(output), 'executable_sha256': executable_sha256,
                'shared_image': str(image), 'shared_image_sha256': receipt['shared_sha256'],
                'shared_receipt': str(image.with_suffix('.json')), 'identity': receipt['identity'],

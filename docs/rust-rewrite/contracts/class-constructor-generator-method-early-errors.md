@@ -47,7 +47,7 @@ and must not be selected by this row.
 - Add exactly one parse-failure row whose fragment and witness are the complete
   Boa literal. The shared wording deliberately unifies the generator and
   async-generator producers without matching any adjacent constructor message.
-- Map the new variant through `lila-ir`'s exhaustive `rejection_kind` match to
+- Map the new variant through `scriptw-ir`'s exhaustive `rejection_kind` match to
   `IrDiagnosticKind::EarlyError`. Phase and error type remain derived as
   `Early` and `SyntaxError` at both front-end and retained-module boundaries.
 - Preserve `ParseClassified` as the only parse-stage gate and retain the

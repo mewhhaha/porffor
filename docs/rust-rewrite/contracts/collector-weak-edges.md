@@ -60,7 +60,7 @@ strong-retaining weak substitute is introduced. Product integration acceptance
 is recorded separately from the verified collector foundation.
 
 The native collector controls in
-[`weak_gc_facility/main.rs`](../../../crates/lila-engine/tests/weak_gc_facility/main.rs)
+[`weak_gc_facility/main.rs`](../../../crates/scriptw-engine/tests/weak_gc_facility/main.rs)
 force actual collections and cover increment-boundary scans, dead targets, moving identity, reverse
 ephemeron chains, dead owners with live keys, value/key cycles, stale and foreign
 handles, explicit kept roots, ExternRef sweeping and null conditional values.

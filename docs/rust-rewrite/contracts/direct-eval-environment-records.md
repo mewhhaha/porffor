@@ -65,8 +65,8 @@ parameter-expression and function-body environments must remain distinct when
 required by FunctionDeclarationInstantiation.
 
 ```sh
-cargo test --release -p lila-engine --test aot_realm_modules -- aot_direct_eval_environment:: --test-threads=1
-cargo test -p lila-aot-wasm --test environment_heap_slot_structure
+cargo test --release -p scriptw-engine --test aot_realm_modules -- aot_direct_eval_environment:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test environment_heap_slot_structure
 ```
 
 ## Shared object-environment writes
@@ -149,5 +149,5 @@ path already performs its own held-object presence check.
 The source regression remains in the native engine suite:
 
 ```sh
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine --test aot_realm_modules -- aot_direct_eval_call_identity::comma_eval_candidates_preserve_callee_identity_and_argument_effects --exact --test-threads=1
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p scriptw-engine --test aot_realm_modules -- aot_direct_eval_call_identity::comma_eval_candidates_preserve_callee_identity_and_argument_effects --exact --test-threads=1
 ```

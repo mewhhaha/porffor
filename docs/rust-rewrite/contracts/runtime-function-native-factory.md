@@ -27,7 +27,7 @@ engine/configuration admission remains owned by the existing host integration.
 
 ## Dedicated P bootstrap
 
-Every linked heap P receives a separately typed `lila.program_init` export:
+Every linked heap P receives a separately typed `scriptw.program_init` export:
 `[] -> (ref ProgramInstance)` with a non-null result. Runtime R and heap-free
 Standalone keep their previous function layouts. FunctionIndexLayout alone mints
 ProgramInitializeIndex, places it immediately after main, shifts P source/helper

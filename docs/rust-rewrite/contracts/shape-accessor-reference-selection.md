@@ -1,6 +1,6 @@
 # Shape accessor reference selection
 
-Status: normative for Lila's static heap-shape function reachability planner.
+Status: normative for Scriptw's static heap-shape function reachability planner.
 
 ## Boundary
 
@@ -77,7 +77,7 @@ also writes through a shared prototype. Both alternatives of every joined
 shape must retain the required standard accessors, and every possible receiver
 or inheriting descendant must lose stale shape facts after a write.
 
-The `lila-ir` joined-conditional invariant pins both size getters directly in
+The `scriptw-ir` joined-conditional invariant pins both size getters directly in
 the logical-assignment IR, before Wasm reachability planning. Four mutation
 regressions pin nested conditional, logical, unrelated-intrinsic and
 prototype-descendant invalidation independently.
@@ -85,17 +85,17 @@ prototype-descendant invalidation independently.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_language -- shape_accessor_reference_selection_structure::
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::builtin_getter_receiver_provenance_structure::
-cargo test -p lila-aot-wasm planning::tests::dynamic_property_keys_root_every_possible_shape_accessor -- --exact
-cargo test -p lila-aot-wasm planning::tests::joined_ -- --test-threads=1
-cargo test -p lila-aot-wasm planning::tests::proven_non_proxy_proto_getter_does_not_root_unrelated_builtin_accessors -- --exact
-cargo test -p lila-ir nested_conditional_property_write_invalidates_every_receiver_shape
-cargo test -p lila-ir conditional_logical_write_invalidates_both_receiver_shapes
-cargo test -p lila-ir conditional_ordinary_object_write_preserves_number_prototype_fact
-cargo test -p lila-ir conditional_prototype_write_invalidates_both_inheriting_shapes
-cargo test -p lila-cli --test cli object::run_wasm_backend_preserves_shape_accessor_reference_selection -- --exact --test-threads=1
-rustfmt --edition 2021 --check crates/lila-ir/src/lowering.rs crates/lila-ir/src/lowering/ordinary_property_compound.rs crates/lila-ir/tests/builtin_getter_receiver_provenance_structure.rs
+cargo test -p scriptw-aot-wasm --test structure_language -- shape_accessor_reference_selection_structure::
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::builtin_getter_receiver_provenance_structure::
+cargo test -p scriptw-aot-wasm planning::tests::dynamic_property_keys_root_every_possible_shape_accessor -- --exact
+cargo test -p scriptw-aot-wasm planning::tests::joined_ -- --test-threads=1
+cargo test -p scriptw-aot-wasm planning::tests::proven_non_proxy_proto_getter_does_not_root_unrelated_builtin_accessors -- --exact
+cargo test -p scriptw-ir nested_conditional_property_write_invalidates_every_receiver_shape
+cargo test -p scriptw-ir conditional_logical_write_invalidates_both_receiver_shapes
+cargo test -p scriptw-ir conditional_ordinary_object_write_preserves_number_prototype_fact
+cargo test -p scriptw-ir conditional_prototype_write_invalidates_both_inheriting_shapes
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_preserves_shape_accessor_reference_selection -- --exact --test-threads=1
+rustfmt --edition 2021 --check crates/scriptw-ir/src/lowering.rs crates/scriptw-ir/src/lowering/ordinary_property_compound.rs crates/scriptw-ir/tests/builtin_getter_receiver_provenance_structure.rs
 git diff --check
 ```
 

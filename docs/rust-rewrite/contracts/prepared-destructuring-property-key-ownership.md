@@ -24,7 +24,7 @@ debug capability. It is not exported and has no fallback projection.
 
 ## Durable evidence
 
-`crates/lila-aot-wasm/tests/structure_language/prepared_destructuring_property_key_ownership_structure.rs`
+`crates/scriptw-aot-wasm/tests/structure_language/prepared_destructuring_property_key_ownership_structure.rs`
 Rust-lexically pins the private two-variant declaration, the nine production
 mentions, computed-key construction after both locals are populated, the
 computed-only scope binding, both exhaustive projections and tag-before-payload
@@ -35,9 +35,9 @@ prepared-property-target path and its static-key row, including target
 preparation before the iterator protocol fails. Focused verification commands:
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_language -- prepared_destructuring_property_key_ownership_structure:: --test-threads=1
-cargo test -p lila-cli --test cli array::run_wasm_backend_preserves_array_destructuring_iterator_abrupt_completions -- --exact --test-threads=1
-cargo check -p lila-aot-wasm --lib
+cargo test -p scriptw-aot-wasm --test structure_language -- prepared_destructuring_property_key_ownership_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli array::run_wasm_backend_preserves_array_destructuring_iterator_abrupt_completions -- --exact --test-threads=1
+cargo check -p scriptw-aot-wasm --lib
 ```
 
 ## Nonclaims

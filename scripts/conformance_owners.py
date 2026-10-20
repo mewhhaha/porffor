@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-REGISTRY = Path("crates/lila-ir/src/ownership.rs")
+REGISTRY = Path("crates/scriptw-ir/src/ownership.rs")
 DOCUMENT = Path("docs/rust-rewrite/conformance-ownership.md")
 ACCEPTANCE = Path("docs/rust-rewrite/conformance-acceptance.md")
 

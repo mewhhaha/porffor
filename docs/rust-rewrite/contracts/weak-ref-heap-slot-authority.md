@@ -57,10 +57,10 @@ does not execute tracing, clear a weak target, reclaim an object, collect a
 cycle, schedule cleanup or implement `gc()`.
 
 ```sh
-cargo test -p lila-aot-wasm --test weak_ref_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::weak_ref_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::weak_ref_target_is_not_a_strong_heap_edge -- --exact --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_weak_ref_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/lib.rs crates/lila-aot-wasm/tests/weak_ref_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test weak_ref_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::weak_ref_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::weak_ref_target_is_not_a_strong_heap_edge -- --exact --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_weak_ref_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/src/lib.rs crates/scriptw-aot-wasm/tests/weak_ref_heap_slot_structure.rs
 git diff --check
 ```
 

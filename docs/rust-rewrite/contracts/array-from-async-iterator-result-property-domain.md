@@ -40,9 +40,9 @@ The coordinated workspace checkpoint passes `cargo fmt --all -- --check`,
 check; the compile retains the repository's existing warnings.
 
 ```sh
-cargo test -p lila-aot-wasm --test array_from_async_iterator_result_property_domain_structure --quiet
-cargo test -p lila-cli --test cli array::run_wasm_backend_awaits_array_from_async_array_like_values_and_mapper_results -- --exact --test-threads=1
-cargo test -p lila-cli --test cli array::run_wasm_backend_closes_array_from_async_iterators_and_preserves_original_errors -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test array_from_async_iterator_result_property_domain_structure --quiet
+cargo test -p scriptw-cli --test cli array::run_wasm_backend_awaits_array_from_async_array_like_values_and_mapper_results -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli array::run_wasm_backend_closes_array_from_async_iterators_and_preserves_original_errors -- --exact --test-threads=1
 ```
 
 This source-only capability closure changes no property access order, abrupt

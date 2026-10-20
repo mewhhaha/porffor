@@ -21,9 +21,9 @@ The exact current-pin positive witnesses are:
 None uses dynamic source. With no `flags` entry, each has the ordinary sloppy
 and strict Script variants: three files and six executions.
 
-At commit `681ca415ba1e74c220fa8a5982cba1e7adedc151`, a focused `lila
+At commit `681ca415ba1e74c220fa8a5982cba1e7adedc151`, a focused `scriptw
 inspect` of each file reaches `unsupported-features-recorded` with
-`unsupported in lila wasm-aot first slice: for-of initializer`. This is current
+`unsupported in scriptw wasm-aot first slice: for-of initializer`. This is current
 source evidence, not an inference from an older published snapshot: the
 rejection is the unmatched `IterableLoopInitializer::Using` arm in
 `ScriptLowerer::lower_for_of_head`. Adjacent invalid-head files are already
@@ -151,14 +151,14 @@ Wasm execution and pinned Test262. The intended focused ladder is:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir synchronous_using_for_of --quiet
-cargo test -p lila-aot-wasm --test structure_async --quiet -- synchronous_using_for_of_structure::
-cargo test -p lila-cli --test cli resource_management::wasm_using_for_of_lifecycle -- --exact
-./target/debug/lila test262 run language/statements/for-of/head-using-bound-names-fordecl-tdz.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/for-of/head-using-fresh-binding-per-iteration.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/using/syntax/using-invalid-assignment-statement-body-for-of.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir synchronous_using_for_of --quiet
+cargo test -p scriptw-aot-wasm --test structure_async --quiet -- synchronous_using_for_of_structure::
+cargo test -p scriptw-cli --test cli resource_management::wasm_using_for_of_lifecycle -- --exact
+./target/debug/scriptw test262 run language/statements/for-of/head-using-bound-names-fordecl-tdz.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/for-of/head-using-fresh-binding-per-iteration.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/using/syntax/using-invalid-assignment-statement-body-for-of.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The integrated current-SHA checkpoint is green: `cargo xc`, 3/3 focused IR

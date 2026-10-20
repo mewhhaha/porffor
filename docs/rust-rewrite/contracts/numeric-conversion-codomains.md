@@ -15,10 +15,10 @@ their compilation and execution are deferred to the joined verification batch.
 Current source status (2026-10-05): the T05 semantic Wasm-GC cutover is source-authored and unverified. Earlier source recipes, caller counts, and dated verification below describe their recorded checkpoints; they do not verify this cutover. ECMAScript requirements and retained fixtures remain acceptance criteria. Semantic values and Realm ownership now use the typed GC/compiler path described in [the GC value contract](../value-heap-gc.md). The retired representation assertions add no Test262 skips or new passing results.
 
 The contract for the area *Numeric conversion codomains: ToIntegerOrInfinity /
-ToUint32 / ToUint16 as closed types in `lila-ir`, with one const reference
+ToUint32 / ToUint16 as closed types in `scriptw-ir`, with one const reference
 algorithm for the five divergent backend hand-rolls* lives at:
 
-`docs/rust-rewrite/contracts/Numeric conversion codomains - ToIntegerOrInfinity, ToUint32, ToUint16 as closed types in lila-ir, with one const reference algorithm for the five divergent backend hand-rolls.md`
+`docs/rust-rewrite/contracts/Numeric conversion codomains - ToIntegerOrInfinity, ToUint32, ToUint16 as closed types in scriptw-ir, with one const reference algorithm for the five divergent backend hand-rolls.md`
 
 This file exists for two reasons. First, the area brief names
 `numeric-conversion-codomains.md` in its `files_owned` list while the campaign's
@@ -48,7 +48,7 @@ followed verbatim:
   the lone-surrogate one must stay: five CLI fixtures depend on it.
 - **§5.5** — `static_to_integer_or_zero_expr` has three defects, not one. The
   `value.trunc() as i32` saturation is the same mechanism as the backend's N1,
-  inside `lila-ir`.
+  inside `scriptw-ir`.
 - **§5.6** — the "latent, not shipped" claim is confirmed, and the three
   independent accidents that make it latent are enumerated so the claim is not
   taken on trust.
@@ -64,7 +64,7 @@ Structural summary of what lands:
 | `residue_pow2_i64`, `reference_to_{int32,uint32,uint16,length,index}` + `const _: () = assert!` tables | the normative algorithm the five backend emitters must match | build time, plus `residue_of_number` at run time |
 
 `ToInt32`, `ToLength` and `ToIndex` deliberately get **no** newtype (§1.8 C4):
-there is no construction site for them in `lila-ir`, and round 1 deleted two
+there is no construction site for them in `scriptw-ir`, and round 1 deleted two
 type pairs for exactly that.
 
 ## Integrator amendment: one exact runtime residue boundary
@@ -117,10 +117,10 @@ results, boxed operands, single coercion and abrupt completion. Focused
 verification is:
 
 ```console
-cargo test -p lila-aot-wasm --test structure_language -- unary_numeric_ir_structure::
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_bigint_bitwise_fixture -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/S11.4.8_A3_T1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
-./target/debug/lila --jobs 1 test262 run language/expressions/bitwise-not/bigint.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+cargo test -p scriptw-aot-wasm --test structure_language -- unary_numeric_ir_structure::
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_bigint_bitwise_fixture -- --exact --test-threads=1
+./target/debug/scriptw --jobs 1 test262 run language/expressions/bitwise-not/S11.4.8_A3_T1.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+./target/debug/scriptw --jobs 1 test262 run language/expressions/bitwise-not/bigint.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
 ```
 
 The structure target passes `7/7`, the exact CLI witness passes `1/1`, and the
@@ -164,11 +164,11 @@ what the types are, and none was discovered by a test.
 4. **§7.10 is false as written, in our favour.**
    `"Number.prototype.toPrecision precision out of range"` is **not** a new
    string: it is already what the runtime path throws
-   (`lila-aot-wasm/src/data.rs:1470`, `src/operations.rs:9236`, `:9251`,
+   (`scriptw-aot-wasm/src/data.rs:1470`, `src/operations.rs:9236`, `:9251`,
    `:9274`). The grep returns 5 source sites. The fold and the runtime now
    throw textually identical messages, which is strictly better than the
    criterion assumed. Read §7.10 as "matches the runtime message exactly".
-5. **§7.7 needs a qualifier.** `grep -rn "rem_euclid" crates/lila-ir/src/`
+5. **§7.7 needs a qualifier.** `grep -rn "rem_euclid" crates/scriptw-ir/src/`
    returns 7 lines; exactly **one** is code (`numeric_conversions.rs`, inside
    `residue_of_number`). The rest name the operation in doc comments.
 6. **The LN1 test also pins `IntegerOrInfinity::of_number`'s five arms.** §3's

@@ -47,7 +47,7 @@ continues; default, release, conformance and cleanup remain pending.
 
 All 55 Intl fixture setup calls explicitly selected one compiler thread,
 despite the runner allocating four CPUs. A separate test-only candidate honors
-positive inherited LILA_JOBS, capped by available parallelism, and stays serial
+positive inherited SCRIPTW_JOBS, capped by available parallelism, and stays serial
 when unset. All 299 IDs, assertions, fixtures and deadlines remain. Product
 sources and runtime fingerprint inputs are unchanged. The candidate is saved
 locally, uncompiled and unpushed; its speed benefit is not measured.
@@ -119,7 +119,7 @@ within256MiB; successor results still require ordinary Cargo and fresh tests.
 Full AF/default, the original cold timeout, conformance and cleanup remain open.
 [Exact native outcomes, cfg sources, prepared fixes and continuation](../docs/rust-rewrite/all-feature-library-discovery-20261019.json).
 
-# Lila Rust AOT + Test262 execution plan
+# Scriptw Rust AOT + Test262 execution plan
 
 Verified repair checkpoint — 2026-10-19: source71bced27c is pushed to main.
 All14 source audits and eight whole ordinary scopes pass3148/0/0. Both original
@@ -710,7 +710,7 @@ Refresh the unchanged campaign through the same resource boundary:
 
 ```sh
 python3 scripts/limited_verification.py --memory-mib 4096 -- \
-  cargo test --locked --offline -p lila-test262 --features spec-exec-oracle \
+  cargo test --locked --offline -p scriptw-test262 --features spec-exec-oracle \
   --test differential_generated_campaign \
   realm_and_temporal_campaigns_retain_all_eight_actions_and_actual_paired_observations \
   -- --exact --test-threads=1 --nocapture
@@ -783,7 +783,7 @@ in the rebuilt final worker (`task-closure-final-20261008`), during emission aft
 and Temporal remain unrun. The native disk cache had been exercised by the
 preceding tests, but the raw runtime module is regenerated in every new worker.
 The retained request and reports are under
-`target/verification-tmp/lila-generated-campaign-302393-1791478300025590477-0`.
+`target/verification-tmp/scriptw-generated-campaign-302393-1791478300025590477-0`.
 Profiling the preceding source measured 6.452 seconds of cold emission and a
 41.2-MB runtime, including Unicode, zone certification and Chinese/Dangi catalog
 construction. The Unicode repair preserves semantics but does not close this
@@ -823,7 +823,7 @@ parsing and 148.87 ms lowering. Worker stderr is now 118 bytes, with no missing
 Collator metadata flood. SpecExec completes all eight actions; transformed
 CrossRealm and Temporal remain unrun. The test is red, with semantic equivalence
 unestablished. Exact requests and reports remain under
-`target/verification-tmp/lila-generated-campaign-4136252-1791474858413422907-0`.
+`target/verification-tmp/scriptw-generated-campaign-4136252-1791474858413422907-0`.
 
 Next, profile the remaining emission cost using this retained request, then
 rerun the same bounded campaign after a focused repair. The native queue's
@@ -1361,7 +1361,7 @@ their dated current-state sections are authoritative only until the next
 current-pin aggregate or material repository change; generated Test262
 artifacts remain the authority for conformance counts.
 
-The north star is the repository contract in `AGENTS.md`: Lila compiles
+The north star is the repository contract in `AGENTS.md`: Scriptw compiles
 JavaScript directly to Wasm, does not ship an interpreter/VM inside the
 artifact, and drives the pinned real Test262 suite to zero unowned failures.
 Fake-suite results are smoke tests only. An `Unsupported` result is visible
@@ -1369,9 +1369,9 @@ debt, never a passing result, and must not be hidden in a skip list or status
 denominator.
 
 Backend policy: `wasm-aot` is the product. It is the execution path every task
-targets, the only backend whose results may be published as Lila conformance,
+targets, the only backend whose results may be published as Scriptw conformance,
 and the only backend the T26 release gate accepts. `spec-exec` (the Boa-based
-engine in `crates/lila-spec-exec`) is an internal differential-testing and
+engine in `crates/scriptw-spec-exec`) is an internal differential-testing and
 debug oracle only, used by T25 and quarantined by T27 — never the CLI default,
 never a silent fallback, never part of an emitted artifact, and never a source
 of published conformance numbers. Wherever a task mentions running spec-exec,
@@ -1402,7 +1402,7 @@ release gate; published conformance numbers remain unchanged.
 
 | State | Tasks | Repository evidence |
 |---|---|---|
-| Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Lila identity cutover is verified |
+| Complete | T00, T27-T29 | Repository contracts are enforced, the interpreter is quarantined from the product, the legacy JavaScript product is retired, and the Scriptw identity cutover is verified |
 | In progress | T01-T12, T14-T25 | Substantial implementation exists; T23's deterministic Intl architecture is live, but each task retains unmet acceptance criteria described in its current-state section |
 | Finite prepared sources implemented; unmatched runtime source remains open | T13 | Prepared direct/indirect eval, realm Scripts and all four Function-family bodies compile through the real compiler; runtime conversions and exact source matching remain observable, while unprepared source stays explicit typed Wasm-AOT debt |
 | Blocked final gate | T26 | The retained historical Wasm-AOT aggregate is not green; a fresh complete compiler aggregate and canonical publication remain outstanding |
@@ -1578,7 +1578,7 @@ non-callable callbacks close the iterator before the `TypeError`; and
 builtin-sourced global entries degrade when the script observably writes that
 global, so clobbered intrinsics inside closures throw `TypeError` instead of
 using stale bindings. All 98 affected iterator-helper paths pass exact
-`lila test262 run` replay, all 73 Array filter/flatMap paths pass, and the
+`scriptw test262 run` replay, all 73 Array filter/flatMap paths pass, and the
 final two T24 rewrites (`undefined/S15.1.1.3_A1.js`,
 `Boolean/proto-from-ctor-realm.js`) pass `2/2`, all under suite pin
 `aa55200d1310384c5cf69ea95b2a2ecba457007b` with every non-success bucket at
@@ -1600,7 +1600,7 @@ On 2026-09-28 the T17 typed-array literal/split-helper plan was deleted in
 full: the 319-case contract table, the nine-method selector, the split
 dispatcher, the intrinsic fragment and the compareArray omission, with two
 plan-only invariant tests and the plan branches of every cohort test
-collapsed to full-helper expectations. Exact `lila test262 run` replay of
+collapsed to full-helper expectations. Exact `scriptw test262 run` replay of
 all nine method directories is unchanged versus the plan baseline, and the
 same session fixed the only failures those directories had: a backend bug
 where `new TypedArray(array)` ran a spurious `ToNumber` over Array
@@ -2056,7 +2056,7 @@ the remaining apply and construct rewrites stay open.
 2. Do not add source-path, test-name, or assertion-text branches that manufacture Test262 results. Existing focused materializations must be catalogued and retired as general semantics replace them.
 3. Every change starts with a reproducible failing real Test262 filter or exact case and ends with the same command green. Add a small CLI/engine regression fixture when it isolates the behavior better than the upstream case.
 4. Preserve evaluation order, abrupt completion, realm ownership, property attributes, observable coercions, and proxy traps. Passing the happy path is not enough.
-5. Do not hand-edit published conformance totals. Use `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh` after a complete verified matrix.
+5. Do not hand-edit published conformance totals. Use `scriptw test262 publish-status` or `scripts/publish-real-status-low-ram.sh` after a complete verified matrix.
 6. Keep `unsafe_code = "forbid"`. New dependencies require a reason, license review, deterministic behavior, and a clear Wasm/runtime story.
 7. Feature PRs should not combine unrelated refactors. When a prerequisite interface is missing, land the interface first under its foundation task.
 8. The interpreter stays quarantined. No CLI or library product path may execute user programs through `spec-exec` by default or as a silent fallback, and emitted Wasm never embeds an interpreter/VM or feeds user source to one. T27 enforces this in code; every other task must not reintroduce it.
@@ -2154,7 +2154,7 @@ not forbid focused work when its required interface already exists.
 | ID | Task | Depends on |
 |---|---|---|
 | [T28](28-retire-legacy-js.md) | Retire the legacy JavaScript product and enforce the Rust-only boundary | T00; complete |
-| [T29](29-lila-identifier-migration.md) | Coordinated Rust identifier migration to Lila; product cutover, version-6 Lila producer, and read-only version-4/version-5 decoder verified | T28; complete |
+| [T29](29-lila-identifier-migration.md) | Coordinated Rust identifier migration to Scriptw; product cutover, version-6 Scriptw producer, and read-only version-4/version-5 decoder verified | T28; complete |
 
 ## Merge-conflict policy
 

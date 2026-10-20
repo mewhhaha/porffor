@@ -17,7 +17,7 @@ and [actual aliases](https://github.com/unicode-org/cldr/blob/acd6d88ae493633240
 defines U+11DE0–U+11DE9 as decimal numbers with values zero through nine.
 The complete four primary files have fixed SHA-256 pins; the shared generator
 constructor checks every source and the closed one-system/six-alias recipe.
-Unicode data retains its [Unicode licence](../../../crates/lila-intl/data/datetime-cldr-47/LICENSE).
+Unicode data retains its [Unicode licence](../../../crates/scriptw-intl/data/datetime-cldr-47/LICENSE).
 
 NumberFormat appends only those ten genuine `Nd` points to its baseline Unicode16
 spacing properties before evaluating the existing CLDR UnicodeSet rules.
@@ -54,13 +54,13 @@ Chinese Temporal debts stay open.
 
 ```sh
 python3 scripts/generate-intl-numberformat-profile.py --check
-python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --report crates/lila-intl/src/provider/datetime/generated/report.json --check
+python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json --report crates/scriptw-intl/src/provider/datetime/generated/report.json --check
 python3 scripts/generate-intl-datetime-identity.py --check
 python3 -m unittest discover -s scripts/tests -p 'test_intl_positional_numbering.py'
 python3 -m unittest discover -s scripts/tests -p 'test_generate_intl_datetime_profile.py'
-cargo test --locked -p lila-intl tols -- --test-threads=1
-cargo test --locked -p lila-intl tests::formatting_identity_discloses_only_its_checked_numbering_supplement -- --exact --test-threads=1
-cargo test --locked -p lila-engine --test aot_intl -- aot_intl_numbering_tols:: --test-threads=1
+cargo test --locked -p scriptw-intl tols -- --test-threads=1
+cargo test --locked -p scriptw-intl tests::formatting_identity_discloses_only_its_checked_numbering_supplement -- --exact --test-threads=1
+cargo test --locked -p scriptw-engine --test aot_intl -- aot_intl_numbering_tols:: --test-threads=1
 ./scripts/publish-real-status-low-ram.sh wasm-aot <fresh-snapshot-name>
 ```
 

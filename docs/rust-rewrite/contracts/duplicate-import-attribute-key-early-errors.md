@@ -44,7 +44,7 @@ is not re-proved by this lane. Script parsing does not gain a special
 classification: static import/export syntax is itself unavailable under that
 goal.
 
-`lila-ir::modules::record::ModuleRequestAttributesIr::try_new` independently
+`scriptw-ir::modules::record::ModuleRequestAttributesIr::try_new` independently
 protects the canonical IR module-request representation and returns
 `DuplicateImportAttributeKeyIr`. Its display text is
 `duplicate import attribute key: <key>`. That constructor also protects
@@ -64,7 +64,7 @@ delete or duplicate it through the parse classifier.
 - Evaluate a const adversarial assertion proving the forged local-export
   message remains unclassified and the overlapping duplicate-export message
   retains `ModuleDuplicateExport` ownership.
-- Include the new variant in `lila-ir`'s exhaustive rejection-kind mapping.
+- Include the new variant in `scriptw-ir`'s exhaustive rejection-kind mapping.
 - Exercise a real failed Module parse through
   `module_parse_failure_diagnostic`; a hand-built message alone would not prove
   the front-to-IR projection.

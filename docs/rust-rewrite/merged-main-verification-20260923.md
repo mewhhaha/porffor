@@ -25,10 +25,10 @@ Every workspace test executable was run in release mode, which CI does not do
 
 | Area | Failing | Cause |
 | --- | --- | --- |
-| Source-structure tests (`lila-ir`, `lila-aot-wasm`, `lila-test262`) | 88 tests in 58 binaries | Census counts, markers and exact records not updated when their subjects moved |
-| `lila-engine` library tests | 21 of 765 | 17 already failed at `2abe45211` (before PR #52) |
-| `lila-cli` `cli` suite | 23 of 796 | 21 already failed at `2abe45211` |
-| `lila-engine` integration binaries (156) | 0 | — |
+| Source-structure tests (`scriptw-ir`, `scriptw-aot-wasm`, `scriptw-test262`) | 88 tests in 58 binaries | Census counts, markers and exact records not updated when their subjects moved |
+| `scriptw-engine` library tests | 21 of 765 | 17 already failed at `2abe45211` (before PR #52) |
+| `scriptw-cli` `cli` suite | 23 of 796 | 21 already failed at `2abe45211` |
+| `scriptw-engine` integration binaries (156) | 0 | — |
 
 Each structure failure was traced to the commit that moved its subject and
 updated to the same strength, except three that were real invariant breaks and
@@ -62,7 +62,7 @@ specified results of features that landed.
 | Builtin constructors with self-allocating bodies | Extra observable `Get(newTarget, "prototype")` |
 | `%Iterator.prototype%` `constructor`/`@@toStringTag` setters | SetterThatIgnoresPrototypeProperties missing |
 | String concatenation across surrogate halves | Non-canonical payloads (`"\uD83D" + "\uDCA9" !== "💩"`) |
-| `lila::main` size | Native error objects and the bootstrap-only `%Array.prototype%` append arm inlined at every site (one fixture exceeded Wasmtime's function size limit at 5.5 MB) |
+| `scriptw::main` size | Native error objects and the bootstrap-only `%Array.prototype%` append arm inlined at every site (one fixture exceeded Wasmtime's function size limit at 5.5 MB) |
 
 Built-in method resolution now goes through one proof type
 (`lowering/intrinsic_method.rs`). Methods whose prototype cannot be proven

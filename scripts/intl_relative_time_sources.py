@@ -7,8 +7,8 @@ import xml.etree.ElementTree as ET
 
 from intl_cldr_profile import CLDR_COMMIT, CldrProfile, DRAFT_RANK, LocaleTree
 
-CAPTURE_PATH = "crates/lila-intl/data/relative-time-cldr-47/source-capture.json"
-SOURCE_PATH = "crates/lila-intl/data/datetime-cldr-47"
+CAPTURE_PATH = "crates/scriptw-intl/data/relative-time-cldr-47/source-capture.json"
+SOURCE_PATH = "crates/scriptw-intl/data/datetime-cldr-47"
 
 
 def load_polish_sources(repository):
@@ -17,14 +17,14 @@ def load_polish_sources(repository):
             1, "47.0.0", CLDR_COMMIT, ["pl"]):
         raise ValueError("review the exact Polish CLDR47 source capture")
     binding = capture["source_manifest"]
-    if binding["path"] != "crates/lila-intl/data/number-cldr-47/source-manifest.json":
+    if binding["path"] != "crates/scriptw-intl/data/number-cldr-47/source-manifest.json":
         raise ValueError("unreviewed Polish source manifest")
     raw = (repository / binding["path"]).read_bytes()
     if hashlib.sha256(raw).hexdigest() != binding["sha256"]:
         raise ValueError("Polish source manifest checksum mismatch")
     manifest = json.loads(raw)
     binding = capture["archive"]
-    if binding["path"] != "crates/lila-intl/data/number-cldr-47/sources.tar.gz":
+    if binding["path"] != "crates/scriptw-intl/data/number-cldr-47/sources.tar.gz":
         raise ValueError("unreviewed Polish source archive")
     archive_path = repository / binding["path"]
     raw = archive_path.read_bytes()
@@ -47,7 +47,7 @@ def load_polish_sources(repository):
                 raise ValueError("unreviewed Polish source provenance")
             if any(row[key] != authority[key] for key in ("bytes", "sha256", "git_blob_sha1")):
                 raise ValueError("Polish source row differs from primary manifest")
-            payload = (repository / "crates/lila-intl/data/relative-time-cldr-47" / row["path"]).read_bytes()
+            payload = (repository / "crates/scriptw-intl/data/relative-time-cldr-47" / row["path"]).read_bytes()
             blob = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
             if (payload != archive.extractfile(member).read() or len(payload) != row["bytes"] or
                     hashlib.sha256(payload).hexdigest() != row["sha256"] or blob != row["git_blob_sha1"]):

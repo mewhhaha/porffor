@@ -16,9 +16,9 @@ class NativeTemplateSourceControls(unittest.TestCase):
         proof = 'primitive_eval_requires_exact_scalar_IR_and_inert_preparation'
         execution = 'primitive_eval_executes_real_stateless_wasm_with_current_operands_and_budget'
         mutations = [
-            ('crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval/primitive_literal.rs',
              'self.inert_preparation()?', 'None?', proof),
-            ('crates/lila-ir/src/runtime_direct_eval/primitive_literal.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval/primitive_literal.rs',
              'expression.value_info() != ValueInfo::new(kind)', 'false', proof),
             (controls.A + 'module/compiled_module_package.rs',
              'Instruction::LocalGet(1)', 'Instruction::I64Const(0)', execution),
@@ -56,7 +56,7 @@ class NativeTemplateSourceControls(unittest.TestCase):
             (controls.A + 'objects/regexp_literal/native.rs',
              'Instruction::RefEq', 'Instruction::Nop',
              'regexp_eval_checks_actual_realm_and_copies_raw_units_before_string_publication'),
-            ('crates/lila-ir/src/runtime_direct_eval/regexp_literal.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval/regexp_literal.rs',
              'ValidatedRegExpProgram::from_program(program).ok()?', 'None?',
              'regexp_eval_requires_single_lowered_literal_and_validated_program'),
             (controls.A + 'objects/regexp_literal.rs',
@@ -101,15 +101,15 @@ class NativeTemplateSourceControls(unittest.TestCase):
         proof = 'empty_eval_requires_actual_syntax_and_lowered_no_effects_proof'
         execution = 'empty_eval_executes_typed_stateless_wasm_with_original_authority_and_deadline'
         mutations = [
-            ('crates/lila-ir/src/runtime_direct_eval.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval.rs',
              'block.statement_list().statements().is_empty()', 'true', proof),
-            ('crates/lila-ir/src/runtime_direct_eval.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval.rs',
              'StatementListItem::Declaration(_) => false',
              'StatementListItem::Declaration(_) => true', proof),
-            ('crates/lila-ir/src/runtime_direct_eval/empty/metadata.rs', 'binding.slot == 0', 'true',
+            ('crates/scriptw-ir/src/runtime_direct_eval/empty/metadata.rs', 'binding.slot == 0', 'true',
              'empty_eval_metadata_has_only_dead_intrinsics_and_exact_hidden_caller_capture'),
-            ('crates/lila-ir/src/runtime_direct_eval/empty.rs', '!self.empty_syntax', 'false', proof),
-            ('crates/lila-ir/src/runtime_direct_eval/empty.rs',
+            ('crates/scriptw-ir/src/runtime_direct_eval/empty.rs', '!self.empty_syntax', 'false', proof),
+            ('crates/scriptw-ir/src/runtime_direct_eval/empty.rs',
              'unit.declarations != RuntimeGlobalDeclarationPlan::default()', 'false', proof),
             (controls.E + 'wasm_native_direct_eval_compiler/empty.rs',
              'factory.call(&mut *store, &[], &mut output)?;', '', execution),

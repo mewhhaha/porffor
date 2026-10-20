@@ -12,55 +12,55 @@ COMMIT = '2ef784e3a4168bc2a43cd1b5b9839b6636f5899c'
 SCHEMA = 1
 ALGORITHM = 'locale-week-cldr47-v1'
 DAYS = dict(zip(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], range(1, 8)))
-PRIMARY = Path('crates/lila-intl/data/datetime-cldr-47')
-DEST = Path('crates/lila-intl/data/locale-week-cldr-47')
-IDENTITY = Path('crates/lila-intl/src/provider/locale_week/profile_identity.rs')
-NATIVE = Path('crates/lila-intl/src/provider/locale_week')
+PRIMARY = Path('crates/scriptw-intl/data/datetime-cldr-47')
+DEST = Path('crates/scriptw-intl/data/locale-week-cldr-47')
+IDENTITY = Path('crates/scriptw-intl/src/provider/locale_week/profile_identity.rs')
+NATIVE = Path('crates/scriptw-intl/src/provider/locale_week')
 NATIVE_PRODUCTION = [NATIVE.with_suffix('.rs'), NATIVE / 'record.rs',
                      NATIVE / 'profile.rs']
 LOCALE_HELPERS = [Path(p) for p in [
-    'crates/lila-intl/src/provider/language_domain.rs',
-    'crates/lila-intl/src/provider/region_preference.rs',
-    'crates/lila-intl/src/provider/keyword_aliases.rs',
-    'crates/lila-intl/src/provider/keyword_aliases/generated.rs',
-    'crates/lila-intl/src/identifiers.rs', 'Cargo.lock', 'Cargo.toml',
-    'crates/lila-intl/Cargo.toml',
+    'crates/scriptw-intl/src/provider/language_domain.rs',
+    'crates/scriptw-intl/src/provider/region_preference.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/src/identifiers.rs', 'Cargo.lock', 'Cargo.toml',
+    'crates/scriptw-intl/Cargo.toml',
 ]]
 
 # Selected image admission and real keyword/data owners. Only upstream
 # DateTime metadata enters; this service's generated kernel outputs are excluded.
 LOCALE_HELPERS.extend(Path(path) for path in [
-    'crates/lila-intl/build.rs',
-    'crates/lila-intl/src/lib.rs',
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs',
-    'crates/lila-intl/src/protocol.rs',
-    'crates/lila-intl/src/image.rs',
-    'crates/lila-intl/src/locale_image.rs',
-    'crates/lila-intl/src/image_build/locale.rs',
-    'crates/lila-intl/src/image_build/keyword.rs',
+    'crates/scriptw-intl/build.rs',
+    'crates/scriptw-intl/src/lib.rs',
+    'crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs',
+    'crates/scriptw-intl/src/protocol.rs',
+    'crates/scriptw-intl/src/image.rs',
+    'crates/scriptw-intl/src/locale_image.rs',
+    'crates/scriptw-intl/src/image_build/locale.rs',
+    'crates/scriptw-intl/src/image_build/keyword.rs',
     'scripts/generate-intl-keyword-aliases.py',
-    'crates/lila-engine/src/intl_data_images.rs',
-    'crates/lila-engine/src/wasm_gc_intl_host.rs',
-    'crates/lila-aot-wasm/src/emit.rs',
-    'crates/lila-aot-wasm/src/emit/module_assembly.rs',
-    'crates/lila-intl/src/native_locale_information_image.rs',
-    'crates/lila-intl/src/datetime_image.rs',
-    'crates/lila-intl/src/image_build/calendar.rs',
-    'crates/lila-intl/src/provider/datetime/identity.rs',
-    'crates/lila-intl/data/datetime-cldr-47/kernel-identity.json',
-    'crates/lila-intl/src/provider/locale_calendars.rs',
-    'crates/lila-intl/src/provider/locale_calendars/record.rs',
-    'crates/lila-intl/src/provider/locale_calendars/profile.rs',
-    'crates/lila-intl/data/locale-calendars-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_hour_cycles.rs',
-    'crates/lila-intl/src/provider/locale_hour_cycles/record.rs',
-    'crates/lila-intl/src/provider/locale_hour_cycles/profile.rs',
-    'crates/lila-intl/data/locale-hour-cycles-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_text.rs',
-    'crates/lila-intl/src/provider/locale_text/record.rs',
-    'crates/lila-intl/src/provider/locale_text/profile.rs',
-    'crates/lila-intl/data/locale-text-cldr-47/profile.json',
-    'crates/lila-intl/src/provider/locale_text/script.rs',
+    'crates/scriptw-engine/src/intl_data_images.rs',
+    'crates/scriptw-engine/src/wasm_gc_intl_host.rs',
+    'crates/scriptw-aot-wasm/src/emit.rs',
+    'crates/scriptw-aot-wasm/src/emit/module_assembly.rs',
+    'crates/scriptw-intl/src/native_locale_information_image.rs',
+    'crates/scriptw-intl/src/datetime_image.rs',
+    'crates/scriptw-intl/src/image_build/calendar.rs',
+    'crates/scriptw-intl/src/provider/datetime/identity.rs',
+    'crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json',
+    'crates/scriptw-intl/src/provider/locale_calendars.rs',
+    'crates/scriptw-intl/src/provider/locale_calendars/record.rs',
+    'crates/scriptw-intl/src/provider/locale_calendars/profile.rs',
+    'crates/scriptw-intl/data/locale-calendars-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles.rs',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles/record.rs',
+    'crates/scriptw-intl/src/provider/locale_hour_cycles/profile.rs',
+    'crates/scriptw-intl/data/locale-hour-cycles-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_text.rs',
+    'crates/scriptw-intl/src/provider/locale_text/record.rs',
+    'crates/scriptw-intl/src/provider/locale_text/profile.rs',
+    'crates/scriptw-intl/data/locale-text-cldr-47/profile.json',
+    'crates/scriptw-intl/src/provider/locale_text/script.rs',
     'scripts/generate-intl-locale-week-profile.py',
 ])
 sha = lambda b: hashlib.sha256(b).hexdigest()
@@ -178,7 +178,7 @@ def outputs(primary_root, native_root=None):
     profile_bytes = encode(profile)
     digest = sha(profile_bytes)
     sources = kernel_sources(primary_root, native_root)
-    kernel_input = {'domain': 'lila-locale-week-native-kernel-v1',
+    kernel_input = {'domain': 'scriptw-locale-week-native-kernel-v1',
                     'profile_sha256': digest, 'sources': sources}
     kernel_digest = sha(encode(kernel_input))
     def constant(name, value):

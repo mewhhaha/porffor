@@ -118,7 +118,7 @@ and an incorrect unanchored-match expectation; both are corrected in the next
 source batch. Candidate replay remains in progress. This checkpoint adds word boundaries, shared whitespace cursor advancement,
 case-insensitive forward/reverse backreferences, bounded Number-only bitwise
 emission and dedicated TypedArray.fill semantics. See the
-[backreference contract](../../crates/lila-aot-wasm/docs/regexp-backreference-folding.md) and
+[backreference contract](../../crates/scriptw-aot-wasm/docs/regexp-backreference-folding.md) and
 [fill contract](contracts/typed-array-fill-buffer-witness.md).
 
 The fourth frozen checkpoint is
@@ -780,7 +780,7 @@ Refresh the same selection with the retained
 recorded execution list, immutable compiler and a fresh output directory, then
 `scripts/audit-test262-replay.py` with its recorded main-reference audit. Native
 refresh commands include `cargo check --release --locked --workspace --all-targets`
-and `cargo test --release --locked -p lila-engine --test aot_language --test
+and `cargo test --release --locked -p scriptw-engine --test aot_language --test
 aot_builtins -- aot_arguments_index_descriptors:: aot_array_arguments_primitive::
 aot_arguments_iteration:: aot_arguments_concat:: --test-threads=2`.
 
@@ -996,10 +996,10 @@ remain under `target/failure-review/completed-baseline-20260914`, including
 `batch21-test-verdicts.json`, `batch21-new-runtime-verdicts.json`,
 `batch21-diagnostic-results` and `batch21-throw-isolation-results`.
 They are local evidence, not files committed to the PR. Focused runtime results
-can be refreshed with `cargo test --release --locked -j2 -p lila-engine --test
+can be refreshed with `cargo test --release --locked -j2 -p scriptw-engine --test
 <area> -- <module>:: --test-threads=2`, using the test-file (module) names above
-with their area target (`crates/lila-engine/tests/<area>/<module>.rs`) and
-`LILA_MODULE_MEMORY_CACHE_ENTRIES=1`. Published full-suite status is unchanged.
+with their area target (`crates/scriptw-engine/tests/<area>/<module>.rs`) and
+`SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1`. Published full-suite status is unchanged.
 
 ## Historical-failure replay and checkpoint repairs, 2026-09-22
 
@@ -1116,13 +1116,13 @@ transcript hashes, and the completed-run audit remain under
 `batch22r2-checkpoint-result.json`, `batch22r2-test-verdicts.json` and
 `batch22r2-typeof-before`. To refresh the changed paths, run
 `cargo check --release --workspace --all-targets --locked -j2`, then
-`LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p
-lila-engine --test aot_intl --test aot_realm_modules --test aot_async --test
+`SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p
+scriptw-engine --test aot_intl --test aot_realm_modules --test aot_async --test
 aot_language -- aot_intl_numberformat:: aot_intl_datetime_provider::
 aot_throw_type_error_realm:: aot_async_resource_loops::
 aot_arguments_index_descriptors:: --test-threads=2`. The two failing targets
-are refreshed with `cargo test --release --locked -j2 -p lila-aot-wasm --test
-intl_host_imports` and `cargo test --release --locked -j2 -p lila-cli --test cli
+are refreshed with `cargo test --release --locked -j2 -p scriptw-aot-wasm --test
+intl_host_imports` and `cargo test --release --locked -j2 -p scriptw-cli --test cli
 language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct
 -- --exact`.
 
@@ -1141,7 +1141,7 @@ check pass. The focused boundary completes 26 of 217 planned groups with 196
 passing tests, one failure and no ignored tests. The other 191 groups did not
 run. Its sole failure is a new artifact assertion demanding an internal helper
 for exponentiation. The corrected assertion checks the actual
-`lila_host.number_pow` dependency and retains the value regression. The original
+`scriptw_host.number_pow` dependency and retains the value regression. The original
 scalar import-absence and captured-Symbol CLI assertions remain intact and pass.
 All 19 separate Symbol-update and `typeof` CLI probes pass without timeouts.
 
@@ -1183,18 +1183,18 @@ all passed in the frozen run. The corrected assertion passes its exact release
 test locally; the full 221-group checkpoint remains unverified.
 
 Refresh the changed paths with `cargo check --release --workspace --all-targets
---locked -j2`, then `LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release
---locked -j2 -p lila-engine --test aot_realm_modules --test aot_builtins --test
+--locked -j2`, then `SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release
+--locked -j2 -p scriptw-engine --test aot_realm_modules --test aot_builtins --test
 aot_temporal --test aot_intl -- aot_runtime_import_reachability::
 aot_bigint_numeric_updates:: aot_temporal_instant_methods::
 aot_intl_datetime_provider:: aot_date_locale:: --test-threads=2`.
-Run `cargo test --release --locked -j2 -p lila-aot-wasm --test
+Run `cargo test --release --locked -j2 -p scriptw-aot-wasm --test
 runtime_link --test intl_temporal --test
 typed_array_to_locale_string_witness_structure --
 runtime_import_reachability:: intl_host_imports::` and `cargo test --release
---locked -j2 -p lila-ir --test temporal_instant_methods` for the artifact,
+--locked -j2 -p scriptw-ir --test temporal_instant_methods` for the artifact,
 source and IR boundaries. The exact typed-array CLI regression is
-`cargo test --release --locked -j2 -p lila-cli --test cli
+`cargo test --release --locked -j2 -p scriptw-cli --test cli
 typed_array::run_wasm_backend_succeeds_for_typedarray_from_nan_conversion_fixture
 -- --exact`. Published full-suite counts remain unchanged.
 

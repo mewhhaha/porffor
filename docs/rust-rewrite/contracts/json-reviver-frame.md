@@ -96,7 +96,7 @@ JavaScript abrupt completion into a parser error or a default result.
 
 ## Durable evidence owner
 
-`crates/lila-aot-wasm/tests/structure_builtins/json_reviver_frame_structure.rs` is the bounded
+`crates/scriptw-aot-wasm/tests/structure_builtins/json_reviver_frame_structure.rs` is the bounded
 source owner for this protocol. Its six maintained tests pin:
 
 - the sole runtime parser/iterative owner and removal of static IR/modules;
@@ -144,22 +144,22 @@ and do not verify the 2026-10-03 static retirement or canonical corrections.
 The coordinated checkpoint ran this focused ladder on 2026-08-25:
 
 ```sh
-cargo check -p lila-aot-wasm
+cargo check -p scriptw-aot-wasm
 cargo xc
-cargo test -p lila-aot-wasm --test structure_builtins -- json_reviver_frame_structure::
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture -- --exact --test-threads=1
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture -- --exact --test-threads=1
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_forward_modification_fixture -- --exact --test-threads=1
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_nonconfigurable_fixture -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-call-order.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-call-args-after-forward-modification.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-array-length-get-err.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-forward-modifies-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-context-source-primitive-literal.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run built-ins/JSON/parse/reviver-wrapper.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm --test structure_builtins -- json_reviver_frame_structure::
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_dynamic_reviver_frame_fixture -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_array_getter_throw_fixture -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_forward_modification_fixture -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_json_parse_reviver_nonconfigurable_fixture -- --exact --test-threads=1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-call-order.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-call-args-after-forward-modification.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-array-length-get-err.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-forward-modifies-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-context-source-primitive-literal.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run built-ins/JSON/parse/reviver-wrapper.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
-`cargo check -p lila-aot-wasm` and `cargo xc` are green. The structure target
+`cargo check -p scriptw-aot-wasm` and `cargo xc` are green. The structure target
 passes `4/4`, and the four exact CLI fixtures pass `4/4`. None of the six
 direct Test262 leaves declares `onlyStrict`, `noStrict` or `raw`, so they
 discover twelve ordinary sloppy-and-strict executions. All `12/12` pass under

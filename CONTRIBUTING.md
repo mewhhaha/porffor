@@ -1,6 +1,6 @@
-# Contributing to Lila
+# Contributing to Scriptw
 
-Lila is a Rust JavaScript-to-Wasm AOT compiler, library, CLI, and conformance
+Scriptw is a Rust JavaScript-to-Wasm AOT compiler, library, CLI, and conformance
 harness. It is a research project with an uncompromising goal: compile
 JavaScript directly through spec-shaped compiler stages to Wasm and reach full
 pinned Test262 conformance without hiding unsupported or failing cases.
@@ -20,28 +20,28 @@ Install a current stable Rust toolchain with Cargo, clone the canonical
 repository, and build the CLI:
 
 ```sh
-git clone https://github.com/mewhhaha/porffor.git
-cd lila
+git clone https://github.com/mewhhaha/porffor.git scriptw
+cd scriptw
 ./scripts/dev.sh build
 ```
 
 The development wrapper shares Cargo's normal `target/` directory, uses `lld`
 when available, and bounds parallelism for this large workspace. Set
-`LILA_JOBS` to request a lower job count.
+`SCRIPTW_JOBS` to request a lower job count.
 
 Run the compiler from the built binary:
 
 ```sh
-./target/debug/lila --help
-./target/debug/lila inspect crates/lila-cli/tests/fixtures/hello.js
-./target/debug/lila run crates/lila-cli/tests/fixtures/hello.js
-./target/debug/lila build wasm crates/lila-cli/tests/fixtures/hello.js
+./target/debug/scriptw --help
+./target/debug/scriptw inspect crates/scriptw-cli/tests/fixtures/hello.js
+./target/debug/scriptw run crates/scriptw-cli/tests/fixtures/hello.js
+./target/debug/scriptw build wasm crates/scriptw-cli/tests/fixtures/hello.js
 ```
 
 You can also invoke it through Cargo:
 
 ```sh
-cargo run -p lila-cli -- inspect crates/lila-cli/tests/fixtures/hello.js
+cargo run -p scriptw-cli -- inspect crates/scriptw-cli/tests/fixtures/hello.js
 ```
 
 ## Workspace architecture
@@ -54,14 +54,14 @@ JavaScript source -> parse and early errors -> spec IR -> lowering IR -> Wasm
 
 The primary crates are:
 
-- `lila-front`: parsing and source units.
-- `lila-ir`: spec-shaped IR, diagnostics, and lowering metadata.
-- `lila-runtime`: realms and host hooks.
-- `lila-aot-wasm`: direct Wasm code generation.
-- `lila-engine`: public Rust library API.
-- `lila-cli`: the `lila` command.
-- `lila-test262`: Test262 discovery, execution, snapshots, and reporting.
-- `lila-spec-exec`: feature-gated differential/debug oracle.
+- `scriptw-front`: parsing and source units.
+- `scriptw-ir`: spec-shaped IR, diagnostics, and lowering metadata.
+- `scriptw-runtime`: realms and host hooks.
+- `scriptw-aot-wasm`: direct Wasm code generation.
+- `scriptw-engine`: public Rust library API.
+- `scriptw-cli`: the `scriptw` command.
+- `scriptw-test262`: Test262 discovery, execution, snapshots, and reporting.
+- `scriptw-spec-exec`: feature-gated differential/debug oracle.
 
 The C and native backends are scaffolds. Wasm-AOT is the product backend.
 `spec-exec` must never become the product default, a silent fallback, or part of
@@ -100,8 +100,8 @@ Useful commands include:
 ```sh
 ./scripts/dev.sh check
 cargo fmt --all -- --check
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli --quiet
 ./scripts/conformance_owners.py
 ./scripts/check-no-interpreter-in-product-graph.sh
 ```
@@ -112,7 +112,7 @@ commands should use the repository stall guard:
 
 ```sh
 ./scripts/run-watched.sh --label cli --stall 900 -- \
-  cargo test -p lila-cli --test cli -- --test-threads=2
+  cargo test -p scriptw-cli --test cli -- --test-threads=2
 ```
 
 See [docs/rust-rewrite/batch-workflow.md](docs/rust-rewrite/batch-workflow.md)
@@ -133,12 +133,12 @@ counts; use the status publisher only after a complete verified matrix.
 Representative smoke commands are:
 
 ```sh
-./target/debug/lila test262 run language/wasm/pass \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
+./target/debug/scriptw test262 run language/wasm/pass \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
 
-./target/debug/lila test262 run \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/scriptw test262 run \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
 Use `./scripts/publish-real-status-low-ram.sh wasm-aot <snapshot-name>` only for

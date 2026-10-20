@@ -16,8 +16,8 @@
 
 ## Evidence boundary
 
-At committed Lila head `bca90f2ff9`, the existing Wasm-AOT binary reports
-`Runtime/NotImplemented: unsupported in lila wasm-aot first slice: await using
+At committed Scriptw head `bca90f2ff9`, the existing Wasm-AOT binary reports
+`Runtime/NotImplemented: unsupported in scriptw wasm-aot first slice: await using
 declaration` for both strictness executions of each of these Test262 files at
 revision `aa55200d1310384c5cf69ea95b2a2ecba457007b`:
 
@@ -96,7 +96,7 @@ explicit diagnostics rather than entering this capability domain.
 
 ## Focused verification
 
-- `cargo test -p lila-ir plain_async_classic_for_await_using_owns_closed_initializer_capability`
+- `cargo test -p scriptw-ir plain_async_classic_for_await_using_owns_closed_initializer_capability`
 - the four exact Test262 paths above with the Wasm-AOT execution backend
 - `cargo fmt --all -- --check`
 - `git diff --check`

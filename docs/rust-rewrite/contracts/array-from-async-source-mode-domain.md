@@ -49,12 +49,12 @@ exact CLI controls pass `2/2`, and the three pinned Test262 leaves pass all
 `6/6` Wasm-AOT variants with every failure bucket at zero:
 
 ```sh
-cargo test -p lila-aot-wasm --test array_from_async_source_mode_structure --quiet
-cargo test -p lila-cli --test cli array::run_wasm_backend_awaits_array_from_async_array_like_values_and_mapper_results -- --exact --test-threads=1
-cargo test -p lila-cli --test cli array::run_wasm_backend_closes_array_from_async_iterators_and_preserves_original_errors -- --exact --test-threads=1
-./target/debug/lila test262 run built-ins/Array/fromAsync/non-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/Array/fromAsync/sync-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/Array/fromAsync/async-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm --test array_from_async_source_mode_structure --quiet
+cargo test -p scriptw-cli --test cli array::run_wasm_backend_awaits_array_from_async_array_like_values_and_mapper_results -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli array::run_wasm_backend_closes_array_from_async_iterators_and_preserves_original_errors -- --exact --test-threads=1
+./target/debug/scriptw test262 run built-ins/Array/fromAsync/non-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/Array/fromAsync/sync-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/Array/fromAsync/async-iterable-input.js --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 No semantic golden, broad Array.fromAsync tree, rewrite retirement or

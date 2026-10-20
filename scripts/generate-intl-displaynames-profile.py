@@ -14,11 +14,11 @@ import xml.etree.ElementTree as ET
 from intl_cldr_profile import CldrProfile, CLDR_COMMIT, path_text, segment
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-SOURCE = Path("crates/lila-intl/data/datetime-cldr-47")
-BCP47 = Path("crates/lila-intl/data/cldr-47-bcp47")
-OUTPUT = Path("crates/lila-intl/src/display_names/profile.json")
-REPORT = Path("crates/lila-intl/src/display_names/provenance.json")
-IDENTITY = Path("crates/lila-intl/src/display_names/profile_identity.rs")
+SOURCE = Path("crates/scriptw-intl/data/datetime-cldr-47")
+BCP47 = Path("crates/scriptw-intl/data/cldr-47-bcp47")
+OUTPUT = Path("crates/scriptw-intl/src/display_names/profile.json")
+REPORT = Path("crates/scriptw-intl/src/display_names/provenance.json")
+IDENTITY = Path("crates/scriptw-intl/src/display_names/profile_identity.rs")
 LOCALES = sorted(["en", "en-US", "ar", "ar-EG", "zh", "zh-Hans", "zh-Hans-CN",
                   "de", "fr", "it", "ja", "ko", "hi"])
 STYLES = ("long", "short", "narrow")

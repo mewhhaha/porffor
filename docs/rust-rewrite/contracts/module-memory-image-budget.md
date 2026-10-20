@@ -8,8 +8,8 @@ mode; Wasmtime compilation stays outside the cache mutex. The current-thread,
 agent and native-compiler fallback bypass policies are unchanged.
 
 The default limits are 64 entries and 512 MiB of retained compilation images.
-`LILA_MODULE_MEMORY_CACHE_ENTRIES` keeps its existing positive entry override;
-`LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES` supplies the positive byte override.
+`SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES` keeps its existing positive entry override;
+`SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES` supplies the positive byte override.
 Both accept decimal `usize` values after trimming whitespace. Unset, invalid,
 blank, zero, negative or overflowing values use their respective defaults.
 The process snapshots the limits when this cache is first initialized. Positive

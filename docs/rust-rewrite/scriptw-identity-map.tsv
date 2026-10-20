@@ -1,0 +1,90 @@
+order	match_kind	old	canonical	policy	surface
+001	literal	lila-front	scriptw-front	clean-break	Cargo package and directory
+002	literal	lila-ir	scriptw-ir	clean-break	Cargo package and directory
+003	literal	lila-runtime	scriptw-runtime	clean-break	Cargo package and directory
+004	literal	lila-spec-exec	scriptw-spec-exec	clean-break	Cargo package and directory
+005	literal	lila-aot-wasm	scriptw-aot-wasm	clean-break	Cargo package and directory
+006	literal	lila-backend-c	scriptw-backend-c	clean-break	Cargo package and directory
+007	literal	lila-backend-native	scriptw-backend-native	clean-break	Cargo package and directory
+008	literal	lila-engine	scriptw-engine	clean-break	Cargo package and directory
+009	literal	lila-test262	scriptw-test262	clean-break	Cargo package and directory
+010	literal	lila-cli	scriptw-cli	clean-break	Cargo package and directory
+011	literal	lila_front	scriptw_front	clean-break	Rust crate import
+012	literal	lila_ir	scriptw_ir	clean-break	Rust crate import
+013	literal	lila_runtime	scriptw_runtime	clean-break	Rust crate import
+014	literal	lila_spec_exec	scriptw_spec_exec	clean-break	Rust crate import
+015	literal	lila_aot_wasm	scriptw_aot_wasm	clean-break	Rust crate import
+016	literal	lila_backend_c	scriptw_backend_c	clean-break	Rust crate import
+017	literal	lila_backend_native	scriptw_backend_native	clean-break	Rust crate import
+018	literal	lila_engine	scriptw_engine	clean-break	Rust crate import
+019	literal	lila_test262	scriptw_test262	clean-break	Rust crate import
+020	literal	lila_cli	scriptw_cli	clean-break	Rust crate import
+021	literal	lila	scriptw	clean-break	Executable and current command prose
+022	literal	lila.rs	scriptw.rs	clean-break	Binary source filename
+023	literal	CARGO_BIN_EXE_lila	CARGO_BIN_EXE_scriptw	clean-break	Cargo integration-test variable
+024	literal	LILA	SCRIPTW	clean-break	Python executable-path constant
+025	literal	LILA_BIN	SCRIPTW_BIN	clean-break	Shell executable-path variable
+026	prefix	lila-	scriptw-	clean-break	Release artifact name
+027	literal	lila.jsonc	scriptw.jsonc	clean-break	Default config discovery
+028	literal	lila.json	scriptw.json	clean-break	Default config discovery
+029	literal	lila.toml	scriptw.toml	clean-break	Default config discovery
+030	literal	LILA_CACHE_DIR	SCRIPTW_CACHE_DIR	clean-break	Environment variable
+031	literal	LILA_CACHE_LIMIT_BYTES	SCRIPTW_CACHE_LIMIT_BYTES	clean-break	Environment variable
+032	literal	LILA_COMPILER_FINGERPRINT	SCRIPTW_COMPILER_FINGERPRINT	clean-break	Build-script rustc environment
+033	literal	LILA_CPU_PERCENT	SCRIPTW_CPU_PERCENT	clean-break	Environment variable
+034	literal	LILA_EMIT_FUNCTION_BODY_BUDGET_BYTES	SCRIPTW_EMIT_FUNCTION_BODY_BUDGET_BYTES	clean-break	Environment variable
+035	literal	LILA_EMIT_SIZE_REPORT	SCRIPTW_EMIT_SIZE_REPORT	clean-break	Environment variable
+036	literal	LILA_EMIT_SIZE_REPORT_PATH	SCRIPTW_EMIT_SIZE_REPORT_PATH	clean-break	Environment variable
+037	literal	LILA_FUNCTION_CACHE_LIMIT_BYTES	SCRIPTW_FUNCTION_CACHE_LIMIT_BYTES	clean-break	Environment variable
+038	literal	LILA_GOLDEN_OUT	SCRIPTW_GOLDEN_OUT	clean-break	Environment variable
+039	literal	LILA_JOBS	SCRIPTW_JOBS	clean-break	Environment variable
+040	literal	LILA_LOWER_TRACE	SCRIPTW_LOWER_TRACE	clean-break	Environment variable
+041	literal	LILA_MODULE_CACHE_LIMIT_BYTES	SCRIPTW_MODULE_CACHE_LIMIT_BYTES	clean-break	Environment variable
+042	literal	LILA_MODULE_MEMORY_CACHE_ENTRIES	SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES	clean-break	Environment variable
+043	literal	LILA_PROGRAM_CACHE_LIMIT_BYTES	SCRIPTW_PROGRAM_CACHE_LIMIT_BYTES	clean-break	Environment variable
+044	literal	LILA_TEST262_DISABLE_CASE_RUNNER	SCRIPTW_TEST262_DISABLE_CASE_RUNNER	clean-break	Environment variable
+045	literal	LILA_TEST262_FORCE_CASE_RUNNER	SCRIPTW_TEST262_FORCE_CASE_RUNNER	clean-break	Environment variable
+046	literal	LILA_VERIFY_FUNCTION_CACHE	SCRIPTW_VERIFY_FUNCTION_CACHE	clean-break	Environment variable
+047	literal	LILA_WASM_DUMP	SCRIPTW_WASM_DUMP	clean-break	Environment variable
+048	literal	LILA_WASM_TRACE	SCRIPTW_WASM_TRACE	clean-break	Environment variable
+049	literal	LILA_WASM_TRACE_DUMP	SCRIPTW_WASM_TRACE_DUMP	clean-break	Environment variable
+050	literal	LILA_GENERATOR_THROW_SLOT	SCRIPTW_GENERATOR_THROW_SLOT	clean-break	Rust IR constant
+051	literal	LILA_ITERATOR_FROM_WRAPPER_SLOT	SCRIPTW_ITERATOR_FROM_WRAPPER_SLOT	clean-break	Rust IR constant
+052	literal	LILA_STATIC_GENERATOR_ITERATOR_SLOT	SCRIPTW_STATIC_GENERATOR_ITERATOR_SLOT	clean-break	Rust IR constant
+053	literal	LILA_STATIC_GENERATOR_VALUES_METHOD	SCRIPTW_STATIC_GENERATOR_VALUES_METHOD	clean-break	Rust IR constant
+054	literal	LILA_YIELD_STAR_GENERATOR_SLOT	SCRIPTW_YIELD_STAR_GENERATOR_SLOT	clean-break	Rust IR constant
+055	literal	LILA_YIELD_STAR_RETURN_NON_OBJECT_SLOT	SCRIPTW_YIELD_STAR_RETURN_NON_OBJECT_SLOT	clean-break	Rust IR constant
+056	literal	LILA_YIELD_STAR_THROW_NON_OBJECT_SLOT	SCRIPTW_YIELD_STAR_THROW_NON_OBJECT_SLOT	clean-break	Rust IR constant
+057	prefix	__lila	__scriptw	clean-break	First-party JavaScript fixture namespace; apply before 058
+058	prefix	__lila	__scriptw	clean-break	Compiler and harness JavaScript helper namespace
+059	prefix	$Lila	$Scriptw	clean-break	IR-only JavaScript property namespace
+060	prefix	$lila$module$	$scriptw$module$	clean-break	Module-linker generated name namespace
+061	literal	lila_host	scriptw_host	clean-break	Emitted Wasm host import module ABI
+062	literal	lila::main	scriptw::main	clean-break	Wasm name-section display name
+063	context	lila	scriptw	clean-break	Wasm name-section module and default platform cache directory
+064	literal	lila-program-cache-compiler-v2	scriptw-program-cache-compiler-v2	clean-break	Build input fingerprint salt
+065	literal	lila-program-cache-compiler-v3	scriptw-program-cache-compiler-v3	clean-break	Program cache fingerprint salt
+066	literal	lila_cache_root	scriptw_cache_root	clean-break	Rust cache function
+067	literal	lila_bytes_removed	scriptw_bytes_removed	clean-break	Rust cache report field
+068	literal	lila_files_removed	scriptw_files_removed	clean-break	Rust cache report field
+069	literal	lila-cache-total-bytes	scriptw-cache-total-bytes	clean-break	CLI cache status label
+070	literal	lila-cache-total-limit-bytes	scriptw-cache-total-limit-bytes	clean-break	CLI cache status label
+071	literal	lila-bytes-removed	scriptw-bytes-removed	clean-break	CLI cache prune label
+072	literal	lila-files-removed	scriptw-files-removed	clean-break	CLI cache prune label
+073	literal	lila-status:start	scriptw-status:start	clean-break	README generated status marker
+074	literal	lila-status:end	scriptw-status:end	clean-break	README generated status marker
+075	phrase	unsupported in lila wasm-aot	unsupported in scriptw wasm-aot	clean-break	Compiler diagnostic
+076	phrase	not supported in lila-spec-exec	not supported in scriptw-spec-exec	clean-break	Spec-exec diagnostic
+077	phrase	not supported in lila	not supported in scriptw	clean-break	Compiler diagnostic
+078	phrase	lila wasm trace:	scriptw wasm trace:	clean-break	Trace output prefix
+079	prefix	lila-	scriptw-	clean-break	Owned thread temp journal diagnostic and artifact namespaces; specific rows win
+080	prefix	lila_	scriptw_	clean-break	Remaining first-party Rust identifiers; specific rows win
+081	prefix	LILA_	SCRIPTW_	clean-break	Remaining first-party uppercase identifiers; specific rows win
+082	word	Lila	Scriptw	clean-break	Current product prose diagnostics and generated names only
+083	schema	snapshot_version=6;producer=lila	snapshot_version=6;producer=scriptw	read-only-legacy	Test262 snapshot matrix cache and backlog artifacts
+084	schema	attempt_journal_version=2;producer=lila	attempt_journal_version=2;producer=scriptw	fresh-on-mismatch	Test262 attempt journal
+085	schema	producer=lila	producer=scriptw	clean-break	Published Test262 status JSON
+086	path	test262/snapshots/**	test262/snapshots/**	read-only-legacy	Immutable version 4 and 5 evidence payloads
+087	literal	https://github.com/mewhhaha/porffor	https://github.com/mewhhaha/porffor	retained-external	Actual Git repository locator until external move
+088	literal	porffor.dev	porffor.dev	retained-external	Actual DNS CNAME until external move
+089	literal	2107dfe9ad58c730e3d19b0cc1c73ed4390602f8	2107dfe9ad58c730e3d19b0cc1c73ed4390602f8	retained-history	Legacy recovery commit

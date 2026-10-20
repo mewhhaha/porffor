@@ -10,7 +10,7 @@ surrounding function code is strict, or when the grammar requires
 `UniqueFormalParameters`. A sloppy Script ordinary function with a simple list
 is the intentional exception: `function duplicate(a, a) {}` remains valid.
 
-The rejection is decided before evaluation and is a `SyntaxError`. Lila therefore
+The rejection is decided before evaluation and is a `SyntaxError`. Scriptw therefore
 needs one closed condition, `DuplicateFormalParameter`, but must not add an
 AST-wide duplicate-name check: such a check would also reject the valid sloppy
 simple-list case.
@@ -54,7 +54,7 @@ early `SyntaxError` rejection entirely.
   literal. Do not use a shared fragment such as `uplicate parameter name`: Boa
   has nearby formal-parameter diagnostics for different spec conditions, and a
   broad fragment would turn future wording into an unearned spec claim.
-- Map the new variant through `lila-ir`'s exhaustive `rejection_kind` match to
+- Map the new variant through `scriptw-ir`'s exhaustive `rejection_kind` match to
   `IrDiagnosticKind::EarlyError`. Phase and error type then remain derived as
   `Early` and `SyntaxError` for both entry and retained dependency failures.
 - Keep `ParseClassified` as the only parse-stage witness. The table rows make
@@ -79,7 +79,7 @@ Test262 path or source-text special case:
   and rejects under strict Module goal with
   `E_DUPLICATE_FORMAL_PARAMETER`.
 
-The dependency regression must parse real Module source through `lila-front`
+The dependency regression must parse real Module source through `scriptw-front`
 and then pass the retained `ParseError` through
 `module_parse_failure_diagnostic`. Hand-constructing only the diagnostic would
 not prove that Boa's current wording reaches the closed table.

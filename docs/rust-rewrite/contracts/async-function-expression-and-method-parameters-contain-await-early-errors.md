@@ -81,10 +81,10 @@ direct eval, all async grammar, T07, or aggregate parser closure.
 At `2026-08-23`, the shared checkpoint ran under the repository's eight-CPU
 cap with serial test and harness settings:
 
-- `cargo test -p lila-front --lib -- --test-threads=1`: `81/81`;
-- `cargo test -p lila-ir --lib 'modules::early::tests::' -- --test-threads=1`:
+- `cargo test -p scriptw-front --lib -- --test-threads=1`: `81/81`;
+- `cargo test -p scriptw-ir --lib 'modules::early::tests::' -- --test-threads=1`:
   `37/37`;
-- `cargo test -p lila-ir early_error -- --test-threads=1`: `3/3`; and
+- `cargo test -p scriptw-ir early_error -- --test-threads=1`: `3/3`; and
 - `cargo xc`: green.
 
 The shared exact arrow cohort passed `4/4` sloppy/strict Wasm-AOT executions

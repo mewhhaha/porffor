@@ -66,7 +66,7 @@ observable coercion order, raw and rounded differences, PrimaryIdentifier and
 calendar guards, skipped-day correction asymmetry and exact epoch bounds.
 Their sixteen sloppy/strict observations pass in the independently downloaded
 Node26.10.0 reference engine. That is differential evidence only; it is neither
-Lila execution nor Test262 conformance. The archive checksum and reference
+Scriptw execution nor Test262 conformance. The archive checksum and reference
 observations are saved separately under `target`.
 
 Known upstream issue3310 leaves legal skipped-day contextual rounding windows

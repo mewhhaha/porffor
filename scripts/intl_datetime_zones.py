@@ -10,7 +10,7 @@ from intl_cldr_profile import parse_path
 
 def canonical_zone_geography(repository):
     path = Path(__file__).with_name("generate-intl-time-zone-names.py")
-    spec = importlib.util.spec_from_file_location("lila_pinned_zone_names", path)
+    spec = importlib.util.spec_from_file_location("scriptw_pinned_zone_names", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     manifest, sources, source = module.extract(repository / module.SOURCE_PATH)

@@ -12,7 +12,7 @@ passed. Its own large Rust initializer still consumed substantial metadata and
 incremental cache space. Native/default links hit disk exhaustion before tests;
 the failed receipts remain separate from executed test results.
 
-`lila-runtime-image` now owns the three immutable Cargo-produced images as linked
+`scriptw-runtime-image` now owns the three immutable Cargo-produced images as linked
 data and exposes non-inline slice accessors. Its build script invokes the existing checked
 raw-runtime producer with the same target, configuration, modes and bounded
 Cranelift function cache. It performs fresh Wasmtime precompilation of the

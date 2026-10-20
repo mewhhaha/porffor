@@ -16,7 +16,7 @@ REASONS = {
 }
 LEDGER = Path('test262/backlog/shortcut-allowlist.tsv')
 INVENTORY = Path('test262/backlog/shortcut-inventory.md')
-SOURCE = Path('crates/lila-test262/src/lib.rs')
+SOURCE = Path('crates/scriptw-test262/src/lib.rs')
 OUTPUT = Path('test262/backlog/current-shortcut-status.md')
 KEY = re.compile(r'(path-rewrite-entrypoint|direct-path-predicate|source-text-predicate|harness-helper-reduction)/[A-Za-z0-9_]+/[0-9]{3}')
 

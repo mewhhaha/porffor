@@ -107,10 +107,10 @@ git diff --check
 Central focused verification after batch integration:
 
 ```sh
-cargo test -p lila-ir with_environment_identifier_call
-cargo test -p lila-aot-wasm --test structure_language -- with_environment_identifier_call_structure::
-cargo test -p lila-cli --test cli with_environment_identifier_call_fixture
-./target/debug/lila test262 run language/expressions/call/with-base-obj.js \
+cargo test -p scriptw-ir with_environment_identifier_call
+cargo test -p scriptw-aot-wasm --test structure_language -- with_environment_identifier_call_structure::
+cargo test -p scriptw-cli --test cli with_environment_identifier_call_fixture
+./target/debug/scriptw test262 run language/expressions/call/with-base-obj.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 180000 --threads 1
 ```

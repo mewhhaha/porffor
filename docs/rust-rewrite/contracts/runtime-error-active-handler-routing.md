@@ -71,7 +71,7 @@ routing APIs. They do not call this active-handler wrapper.
 ## Scope and nonclaims
 
 The product change is limited to
-`crates/lila-aot-wasm/src/builtins/errors.rs`. The array assignment path in
+`crates/scriptw-aot-wasm/src/builtins/errors.rs`. The array assignment path in
 `builtins/array.rs` and the strict ordinary-object write guards in `objects.rs`
 remain consumers of the corrected wrapper; they do not need a second repair.
 
@@ -97,15 +97,15 @@ assembled:
 
 ```sh
 cargo check --workspace --all-targets
-cargo test -p lila-aot-wasm --test runtime_link -- runtime_error_active_handler_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-aot-wasm --test runtime_link -- runtime_error_active_handler_structure::
+cargo test -p scriptw-cli --test cli \
   run_wasm_backend_succeeds_for_object_prevent_extensions_missing_writes_fixture
 
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   built-ins/Object/preventExtensions/15.2.3.10-3-4.js \
   --execution-backend wasm --timeout-ms 120000 --threads 1
 
-./target/debug/lila test262 run built-ins/Object/preventExtensions \
+./target/debug/scriptw test262 run built-ins/Object/preventExtensions \
   --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 

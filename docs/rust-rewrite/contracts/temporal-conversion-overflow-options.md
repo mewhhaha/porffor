@@ -46,8 +46,8 @@ internal conversions omit that read while still returning their known result.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test intl_temporal -- temporal_conversion_overflow_options_structure::
-cargo test -p lila-cli --test cli date::run_wasm_backend_preserves_temporal_conversion_overflow_options -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_temporal -- temporal_conversion_overflow_options_structure::
+cargo test -p scriptw-cli --test cli date::run_wasm_backend_preserves_temporal_conversion_overflow_options -- --exact --test-threads=1
 ```
 
 The bounded structure target checks the data-bearing variants, actual typed

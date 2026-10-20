@@ -44,9 +44,9 @@ does not migrate collection values to Wasm GC, execute tracing, reclaim an
 object, collect a cycle or implement `gc()`.
 
 ```sh
-cargo test -p lila-aot-wasm --test set_entry_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::set_entry_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-rustfmt --check --config skip_children=true crates/lila-aot-wasm/src/heap_set_entry_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/src/lib.rs crates/lila-aot-wasm/tests/set_entry_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test set_entry_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::set_entry_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+rustfmt --check --config skip_children=true crates/scriptw-aot-wasm/src/heap_set_entry_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/src/lib.rs crates/scriptw-aot-wasm/tests/set_entry_heap_slot_structure.rs
 git diff --check
 ```
 

@@ -95,12 +95,12 @@ run:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-aot-wasm bound_this_capture --quiet
-cargo test -p lila-aot-wasm proxy_revocation_function_metadata_module_validates --quiet
-cargo test -p lila-cli --test cli -- --exact functions::run_wasm_backend_succeeds_for_supported_bind_builtin_fixture
-./target/debug/lila test262 run staging/sm/strict/15.3.4.5.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run staging/sm/Function/function-bind.js --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-aot-wasm bound_this_capture --quiet
+cargo test -p scriptw-aot-wasm proxy_revocation_function_metadata_module_validates --quiet
+cargo test -p scriptw-cli --test cli -- --exact functions::run_wasm_backend_succeeds_for_supported_bind_builtin_fixture
+./target/debug/scriptw test262 run staging/sm/strict/15.3.4.5.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run staging/sm/Function/function-bind.js --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 ## Nonclaims

@@ -38,7 +38,7 @@ are raw-red in both applicable async executions (0/10 total):
 - `language/statements/for-of/head-await-using-bound-names-fordecl-tdz.js`
 
 Every execution reports the same current product diagnostic:
-`unsupported in lila wasm-aot first slice: await using declaration in for-of`.
+`unsupported in scriptw wasm-aot first slice: await using declaration in for-of`.
 These are raw source results, not rewrites, masks, interpreter results, or a
 focused synthetic-suite projection.
 
@@ -139,7 +139,7 @@ After the full producer/backend/evidence batch is assembled:
 1. `cargo fmt --all -- --check`
 2. `git diff --check`
 3. `bash scripts/check-module-boundaries.sh`
-4. focused `lila-ir` invariant test for the async-disposable for-of head
+4. focused `scriptw-ir` invariant test for the async-disposable for-of head
 5. focused CLI lifecycle fixture
 6. exact five-file Test262 filter in Wasm-AOT mode (expect 10/10)
 7. retained resource-management and iterator-close regressions

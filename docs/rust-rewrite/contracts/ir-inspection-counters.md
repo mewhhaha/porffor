@@ -1,6 +1,6 @@
 # IR inspection counters
 
-`lila inspect` describes the emitted IR. Parameter and function counts include
+`scriptw inspect` describes the emitted IR. Parameter and function counts include
 materialized exact-context clones when lowering proves an exact call target;
 source spelling alone does not authorize a clone. Executable parameter default
 initializers participate in the expression census alongside function bodies.

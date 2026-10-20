@@ -82,7 +82,7 @@ the lexical environment retain that record's own slots.
 
 ## Observable witness
 
-`crates/lila-cli/tests/fixtures/wasm_async_for_of_closure_capture.js` retains
+`crates/scriptw-cli/tests/fixtures/wasm_async_for_of_closure_capture.js` retains
 six closures and invokes them only after the loop. The required values are
 `1,2,3,4,5,6`; one shared activation cell would produce
 `6,6,6,6,6,6`.

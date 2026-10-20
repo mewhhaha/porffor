@@ -131,15 +131,15 @@ registries. No runtime layout or behavior changed.
 The remaining broad verification gates include:
 
 ```sh
-cargo test -p lila-aot-wasm error_message_constructors_are_realm_typed_direct_and_tagged --quiet
-cargo test -p lila-cli run_wasm_backend_uses_new_target_realms_for_native_error_prototypes --quiet
-./target/debug/lila test262 run built-ins/NativeErrors/EvalError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors/RangeError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors/TypeError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors/URIError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/NativeErrors --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm error_message_constructors_are_realm_typed_direct_and_tagged --quiet
+cargo test -p scriptw-cli run_wasm_backend_uses_new_target_realms_for_native_error_prototypes --quiet
+./target/debug/scriptw test262 run built-ins/NativeErrors/EvalError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors/RangeError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors/ReferenceError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors/SyntaxError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors/TypeError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors/URIError/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/NativeErrors --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 The complete T24 ladder and full low-RAM Wasm-AOT publication run remain

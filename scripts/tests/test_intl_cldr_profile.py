@@ -11,7 +11,7 @@ from intl_datetime_patterns import compile_interval, compile_pattern
 from intl_ldml_schema import AttributeRole, LdmlSchema
 
 
-SOURCES = SCRIPTS.parent / "crates/lila-intl/data/datetime-cldr-47"
+SOURCES = SCRIPTS.parent / "crates/scriptw-intl/data/datetime-cldr-47"
 CHINESE_FULL = "dates/calendars/calendar[@type='chinese']/dateFormats/dateFormatLength[@type='full']/dateFormat/pattern"
 
 

@@ -10,7 +10,7 @@ import struct
 import subprocess
 from pathlib import Path
 
-SYMBOLS = {"LILA_RUNTIME_PACKAGE", "LILA_RUNTIME_NATIVE", "LILA_RUNTIME_MANIFEST"}
+SYMBOLS = {"SCRIPTW_RUNTIME_PACKAGE", "SCRIPTW_RUNTIME_NATIVE", "SCRIPTW_RUNTIME_MANIFEST"}
 
 
 def digest(path):
@@ -60,7 +60,7 @@ def shared_image(archive, cache):
     identity = {"archive_sha256": digest(archive), "linker_sha256": digest(linker), "builder_sha256": digest(Path(__file__)), "target": "x86_64-unknown-linux-gnu", "schema": 2}
     key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     cache.mkdir(parents=True, exist_ok=True)
-    output = cache / ("liblila_runtime_images_" + key + ".so")
+    output = cache / ("libscriptw_runtime_images_" + key + ".so")
     receipt_path = output.with_suffix(".json")
     with (cache / (key + ".lock")).open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

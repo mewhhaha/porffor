@@ -45,9 +45,9 @@ CLI process selects its own pool before compilation and gives the test a real
 kill-and-wait boundary.
 
 ```sh
-cargo test -p lila-cli --lib fake_suite_publication::tests -- --test-threads=2
-cargo test -p lila-cli --test fake_suite_publication -- --test-threads=2
-cargo test -p lila-cli --test cli known_failures:: -- --test-threads=8
+cargo test -p scriptw-cli --lib fake_suite_publication::tests -- --test-threads=2
+cargo test -p scriptw-cli --test fake_suite_publication -- --test-threads=2
+cargo test -p scriptw-cli --test cli known_failures:: -- --test-threads=8
 ```
 
 The relocated witness and affected hygiene checks still require verification.

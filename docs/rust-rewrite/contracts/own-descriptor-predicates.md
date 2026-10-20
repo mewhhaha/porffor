@@ -113,8 +113,8 @@ passed, the isolated planner invariant passed `1/1`, and the exact CLI fixture
 passed `1/1`:
 
 ```sh
-cargo test -p lila-aot-wasm planning::tests::descriptor_entry_points_root_generic_descriptor_lookup -- --exact --test-threads=1
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_object_own_descriptor_predicates -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm planning::tests::descriptor_entry_points_root_generic_descriptor_lookup -- --exact --test-threads=1
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_object_own_descriptor_predicates -- --exact --test-threads=1
 ```
 
 The direct current-pin Test262 cohort is the two conversion-order files named

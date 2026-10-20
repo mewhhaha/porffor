@@ -1,6 +1,6 @@
 # Test262 Shortcut Inventory
 
-Source: `crates/lila-test262/src/lib.rs`
+Source: `crates/scriptw-test262/src/lib.rs`
 
 Ledger: `test262/backlog/shortcut-allowlist.tsv`
 

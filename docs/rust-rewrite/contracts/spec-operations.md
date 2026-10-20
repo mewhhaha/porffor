@@ -8,7 +8,7 @@ values and the two would drift if split:
 
 Start at §3 (type mapping, Part A) for the catalog half.
 
-As built: `crates/lila-ir/src/operations.rs`. §12 (encoder addendum) records
+As built: `crates/scriptw-ir/src/operations.rs`. §12 (encoder addendum) records
 the four deviations, the three added mistake classes, and ledger entries L6–L8.
 
 **§13 is the dry-run discrepancy pass and supersedes §§1–12 where they
@@ -107,7 +107,7 @@ arms now bind `..` and call `compile_for_of_array` unconditionally.
 `AsyncForOfIteratorPlanIr` is a different type and is genuinely constructed —
 which is *why* the `ForOfArray` path was dead.
 
-`cargo check -p lila-ir`, `cargo check -p lila-aot-wasm` and `cargo xc`
+`cargo check -p scriptw-ir`, `cargo check -p scriptw-aot-wasm` and `cargo xc`
 are all clean after the deletion, and no warning appeared or disappeared, so
 nothing else depended on it. Rung G is expected to diff empty and has not been
 run here.

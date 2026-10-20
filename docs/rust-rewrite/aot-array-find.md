@@ -59,7 +59,7 @@ indices, and resizable buffers. Each program explicitly selects WasmAot.
 
 ```sh
 cargo fmt --all -- --check
-cargo test --locked -p lila-aot-wasm --test structure_builtins \
+cargo test --locked -p scriptw-aot-wasm --test structure_builtins \
   --test array_find_algorithm_owner_structure \
   --test array_find_index_algorithm_owner_structure \
   --test array_find_last_algorithm_owner_structure \
@@ -75,7 +75,7 @@ per-test logs and summary as a revision-specific artifact. Formatting, ownership
 checks and every execution must pass; an empty selection is not success.
 
 During preparation, all 24 test programs returned true in Node v22.16.0. That
-validates reference expectations only, not Lila compilation or execution. Rust
+validates reference expectations only, not Scriptw compilation or execution. Rust
 and Wasmtime were unavailable in the editing environment; their verification
 status must be read from the PR checks, not inferred from the reference result.
 

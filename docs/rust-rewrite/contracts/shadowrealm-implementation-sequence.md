@@ -60,13 +60,13 @@ Paths below are under `crates/`.
 
 | Stage | Consumed owner |
 | --- | --- |
-| Realm-origin loading | `lila-engine/src/module_loader.rs` retains distinct Realm request resolutions and deferred failures; explicit embedded catalogs carry `EmbeddedModuleReferrer::Realm`. |
-| Prepared-source closure | `lila-ir/src/prepared_source_cache.rs` retains exact grammar/context parse products; `lila-engine/src/prepared_source_catalog.rs` closes host requests before artifact identity and retains final IR. |
-| Selected-Realm initialization | `lila-ir/src/modules/synchronous_definition.rs` owns the private initializer; `lila-aot-wasm/src/modules/initialization.rs` invokes it against the selected global environment. Root startup and ShadowRealm share this entry. |
-| Native publication | `lila-ir/src/builtins/catalog.rs`, shared names and shape/effect facts drive `lila-aot-wasm/src/intrinsics/shadow_realm.rs`, Realm bootstrap, planning and exhaustive native dispatch. |
-| Callable boundary | `lila-aot-wasm/src/gc_types/{layouts,value}.rs` owns closed captures; `builtins/shadow_realm/wrapping.rs` consumes the target, actual native Call and destination Realm. |
-| Evaluation | `lila-ir/src/lowering/prepared_script.rs` and `lila-aot-wasm/src/prepared_script.rs` retain the distinct finite evaluation kind and separate syntax/execution outcomes. |
-| Import jobs | `lila-ir/src/modules/realm_request.rs` emits the private async dispatcher; `lila-aot-wasm/src/modules/realm_import.rs` consumes canonical namespace and evaluation owners. Trusted module awaits bypass public Promise properties, and native continuations attach through shared intrinsic reactions. |
+| Realm-origin loading | `scriptw-engine/src/module_loader.rs` retains distinct Realm request resolutions and deferred failures; explicit embedded catalogs carry `EmbeddedModuleReferrer::Realm`. |
+| Prepared-source closure | `scriptw-ir/src/prepared_source_cache.rs` retains exact grammar/context parse products; `scriptw-engine/src/prepared_source_catalog.rs` closes host requests before artifact identity and retains final IR. |
+| Selected-Realm initialization | `scriptw-ir/src/modules/synchronous_definition.rs` owns the private initializer; `scriptw-aot-wasm/src/modules/initialization.rs` invokes it against the selected global environment. Root startup and ShadowRealm share this entry. |
+| Native publication | `scriptw-ir/src/builtins/catalog.rs`, shared names and shape/effect facts drive `scriptw-aot-wasm/src/intrinsics/shadow_realm.rs`, Realm bootstrap, planning and exhaustive native dispatch. |
+| Callable boundary | `scriptw-aot-wasm/src/gc_types/{layouts,value}.rs` owns closed captures; `builtins/shadow_realm/wrapping.rs` consumes the target, actual native Call and destination Realm. |
+| Evaluation | `scriptw-ir/src/lowering/prepared_script.rs` and `scriptw-aot-wasm/src/prepared_script.rs` retain the distinct finite evaluation kind and separate syntax/execution outcomes. |
+| Import jobs | `scriptw-ir/src/modules/realm_request.rs` emits the private async dispatcher; `scriptw-aot-wasm/src/modules/realm_import.rs` consumes canonical namespace and evaluation owners. Trusted module awaits bypass public Promise properties, and native continuations attach through shared intrinsic reactions. |
 
 The [module initialization contract](shadowrealm-module-initialization.md)
 records graph, closure and cache ownership. The branded ShadowRealm object

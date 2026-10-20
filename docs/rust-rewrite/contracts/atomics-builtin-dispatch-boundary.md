@@ -48,7 +48,7 @@ catalog metadata lookups.
 ## Verification
 
 - `cargo xc` passes; existing workspace warnings remain.
-- `cargo test -p lila-aot-wasm --test created_realm_atomics_publication_structure -- --test-threads=1` passes `5/5`.
+- `cargo test -p scriptw-aot-wasm --test created_realm_atomics_publication_structure -- --test-threads=1` passes `5/5`.
 - The seven neighboring Atomics structure targets pass `27/27`.
 - The exact entry-Realm `atomics_add_surface`, created-Realm borrowed-method,
   and created-Realm `waitAsync` CLI controls each pass `1/1`.

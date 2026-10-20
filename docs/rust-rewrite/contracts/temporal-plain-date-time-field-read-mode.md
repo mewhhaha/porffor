@@ -41,12 +41,12 @@ propagate.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_date_time_field_read_mode_structure::
-cargo test -p lila-cli --test cli date::run_wasm_backend_preserves_plain_date_time_field_read_modes -- --exact --test-threads=1
-node --check crates/lila-cli/tests/fixtures/wasm_temporal_plain_date_time_field_read_mode.js
-./target/debug/lila --jobs 1 test262 run built-ins/Temporal/PlainDateTime/from/order-of-operations.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
-./target/debug/lila --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/with/order-of-operations.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
-./target/debug/lila --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/with/calendar-throws.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+cargo test -p scriptw-aot-wasm --test intl_temporal -- temporal_plain_date_time_field_read_mode_structure::
+cargo test -p scriptw-cli --test cli date::run_wasm_backend_preserves_plain_date_time_field_read_modes -- --exact --test-threads=1
+node --check crates/scriptw-cli/tests/fixtures/wasm_temporal_plain_date_time_field_read_mode.js
+./target/debug/scriptw --jobs 1 test262 run built-ins/Temporal/PlainDateTime/from/order-of-operations.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/with/order-of-operations.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Temporal/PlainDateTime/prototype/with/calendar-throws.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 180000
 cargo fmt --all -- --check
 git diff --check
 ```

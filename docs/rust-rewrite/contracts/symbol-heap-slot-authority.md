@@ -46,10 +46,10 @@ change Symbol allocation, emitted Wasm, description or registry semantics, or
 collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test symbol_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::symbol_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_symbol_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/symbol_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test symbol_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::symbol_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_symbol_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/symbol_heap_slot_structure.rs
 git diff --check
 ```
 

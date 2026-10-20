@@ -61,9 +61,9 @@ the entry Promise constructor. It observes entry-Realm returned Promises and
 created-Realm Arrays for `all`, `allSettled`, nonempty `any` and empty `any`.
 
 ```sh
-cargo test -p lila-aot-wasm --lib iterator_to_array_allocation_uses_the_active_function_realm --quiet
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
-cargo test -p lila-cli --test cli run_wasm_backend_uses_callback_realms_for_promise_created_allocations --quiet
+cargo test -p scriptw-aot-wasm --lib iterator_to_array_allocation_uses_the_active_function_realm --quiet
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_callback_realms_for_promise_created_allocations --quiet
 ```
 
 The following workspace semantic golden passes `2/2` in 707.16 seconds with

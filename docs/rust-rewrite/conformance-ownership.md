@@ -6,7 +6,7 @@ of temporary work plans or completion status. `T26-unclassified` is a separate
 failure-classification bucket and is never a valid area code.
 
 The closed `ConformanceOwner` domain in
-[`ownership.rs`](../../crates/lila-ir/src/ownership.rs) is the registry authority.
+[`ownership.rs`](../../crates/scriptw-ir/src/ownership.rs) is the registry authority.
 Its parser, formatter, complete set and descriptive area names come from one
 macro table. Unknown codes are rejected at admission. Existing serialized
 codes retain their meaning across fresh runs and historical evidence.
@@ -50,7 +50,7 @@ Technical contracts:
 
 Technical contracts:
 
-- [lila-ir-module-budget-owner-splits](contracts/lila-ir-module-budget-owner-splits.md)
+- [scriptw-ir-module-budget-owner-splits](contracts/scriptw-ir-module-budget-owner-splits.md)
 - [native-host-gc-values](contracts/native-host-gc-values.md)
 - [data-view-access-owner](contracts/data-view-access-owner.md)
 - [json-reviver-frame](contracts/json-reviver-frame.md)

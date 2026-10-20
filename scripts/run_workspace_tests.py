@@ -12,7 +12,7 @@ and the whole fake-suite publication target into the same idle-exclusive
 compiler CPU policy, keeping libtest serial.
 --partition-cli inventories and executes every qualified CLI
 test exactly once across disjoint processes. --partition-native-target names an
-opt-in complete native scope, such as lila-engine:aot_intl; original native
+opt-in complete native scope, such as scriptw-engine:aot_intl; original native
 watcher allowances and existing timing/campaign barriers remain intact.
 """
 import argparse,hashlib,json,os,re,shutil,subprocess,sys,time,gzip
@@ -29,11 +29,11 @@ parser.add_argument('--native-cpu-target', action='append', default=[], metavar=
 args=parser.parse_args()
 assert bool(args.native_target_cpus) == bool(args.native_cpu_target), 'Native compiler CPUs require both --native-target-cpus auto and exact --native-cpu-target scopes'
 if args.selected_feature_roots:
-    assert not (args.all_features or args.packages or (set(args.isolate_test_package)-{'lila-intl'}) or args.retry_from or args.reuse_library_build_from or args.restored_library_provenance), 'Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt'
+    assert not (args.all_features or args.packages or (set(args.isolate_test_package)-{'scriptw-intl'}) or args.retry_from or args.reuse_library_build_from or args.restored_library_provenance), 'Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt'
 native_filters=dict(row.split('=',1) for row in args.native_filter)
 if args.partition_cli:
     assert args.include_ignored, 'Complete CLI partitions require --include-ignored'
-    assert 'lila-cli:cli' not in native_filters, 'Complete CLI partitions cannot use a native filter'
+    assert 'scriptw-cli:cli' not in native_filters, 'Complete CLI partitions cannot use a native filter'
 out=root/args.output;out.mkdir(parents=True,exist_ok=False)
 def source_map():
     # HEAD names the entire committed tree, while a binary patch binds every
@@ -54,7 +54,7 @@ def evidence_path(path):
     except ValueError:return str(path)
 package_ids={p['name']:p['id'] for p in metadata['packages']}
 members=set(metadata['workspace_members']);packages=[p for p in metadata['packages'] if p['id'] in members]
-priority=['lila-front','lila-ir','lila-aot-wasm','lila-engine','lila-cli']
+priority=['scriptw-front','scriptw-ir','scriptw-aot-wasm','scriptw-engine','scriptw-cli']
 packages.sort(key=lambda p: (priority.index(p['name']) if p['name'] in priority else len(priority),p['name']))
 if args.packages:
     assert set(args.packages)<={p['name'] for p in packages}
@@ -84,11 +84,11 @@ for p in packages:
     if any(t.get('doctest') and 'lib' in t['kind'] for t in p['targets']):cases.append({'package':p['name'],'target':'doc','kind':'doc','selector':['--doc']})
 # Front-load the repaired cache and original-budget regressions before the
 # remaining inventory. This changes scheduling, never native case selection.
-first=[('lila-aot-wasm','lila_aot_wasm','lib'),
-       ('lila-test262','differential_worker_execution','test'),
-       ('lila-test262','differential_generated_campaign','test'),
-       ('lila-test262','lila_test262','lib'),
-       ('lila-test262','differential_corpus','test')]
+first=[('scriptw-aot-wasm','scriptw_aot_wasm','lib'),
+       ('scriptw-test262','differential_worker_execution','test'),
+       ('scriptw-test262','differential_generated_campaign','test'),
+       ('scriptw-test262','scriptw_test262','lib'),
+       ('scriptw-test262','differential_corpus','test')]
 def order(case):
     key=(case['package'],case['target'],case['kind'])
     return first.index(key) if key in first else len(first)
@@ -96,7 +96,7 @@ cases.sort(key=order)
 full_inventory=list(cases)
 partition_native_targets=validate_partition_native_targets(full_inventory,args.partition_native_target,native_filters,args.include_ignored)
 native_cpu_targets=validate_native_cpu_targets(full_inventory,args.native_cpu_target,native_filters,args.include_ignored,
-    [*partition_native_targets,*(['lila-cli:cli'] if args.partition_cli else [])])
+    [*partition_native_targets,*(['scriptw-cli:cli'] if args.partition_cli else [])])
 assert set(native_filters) <= {c['package']+':'+c['target'] for c in full_inventory}
 if args.only_targets:
     requested=set(args.only_targets)
@@ -153,13 +153,13 @@ if args.retry_from:
     result['continuation_phase']=args.continuation_phase
     result['retry_input']={'path':str(args.retry_from),'sha256':hashlib.sha256(args.retry_from.read_bytes()).hexdigest(),'policy':'exact previously unstarted, explicitly interrupted or storage-deferred whole targets from immutable same-source input; parallel excludes docs/timing; barriers externally idle; original outcomes preserved'}
 build_env=os.environ.copy()
-assert not args.idle_builds or (args.no_test_incremental and build_env.get('LILA_TEST_CODEGEN_JOBS')=='auto'), 'Idle builds require --no-test-incremental and LILA_TEST_CODEGEN_JOBS=auto'
-if args.no_test_incremental:build_env['LILA_TEST_NO_INCREMENTAL']='1'
+assert not args.idle_builds or (args.no_test_incremental and build_env.get('SCRIPTW_TEST_CODEGEN_JOBS')=='auto'), 'Idle builds require --no-test-incremental and SCRIPTW_TEST_CODEGEN_JOBS=auto'
+if args.no_test_incremental:build_env['SCRIPTW_TEST_NO_INCREMENTAL']='1'
 if args.shared_runtime_linker:
     linker=args.shared_runtime_linker.resolve()
     assert linker.name=='cc' and linker.is_file()
     build_env['PATH']=str(linker.parent)+os.pathsep+build_env['PATH']
-    if args.strip_test_debug:build_env['LILA_TEST_STRIP_DEBUG']='1'
+    if args.strip_test_debug:build_env['SCRIPTW_TEST_STRIP_DEBUG']='1'
     if args.shared_runtime_linker_contract:
         contract_path=args.shared_runtime_linker_contract.resolve()
         contract=json.loads(contract_path.read_text())
@@ -185,7 +185,7 @@ if args.no_test_incremental:
     wrapper=(root/'scripts/test-shared-runtime-images/test-rustc').resolve()
     assert not build_env.get('RUSTC_WRAPPER'), 'Cannot replace an existing compiler wrapper'
     build_env['RUSTC_WRAPPER']=str(wrapper)
-    result['test_incremental_policy']={'wrapper':evidence_path(wrapper),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'retained_normal_incremental_crates':['lila_intl'] if build_env.get('LILA_TEST_KEEP_INTL_INCREMENTAL')=='1' else [],'policy':'Verification compiler units omit incremental scratch except explicitly retained normal Intl units; libtest scratch is always omitted, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
+    result['test_incremental_policy']={'wrapper':evidence_path(wrapper),'sha256':hashlib.sha256(wrapper.read_bytes()).hexdigest(),'retained_normal_incremental_crates':['scriptw_intl'] if build_env.get('SCRIPTW_TEST_KEEP_INTL_INCREMENTAL')=='1' else [],'policy':'Verification compiler units omit incremental scratch except explicitly retained normal Intl units; libtest scratch is always omitted, queries stay literal and compiler semantics, profiles and verdicts remain intact.'}
 
 def release_incremental(case):
     prefix=case['target'].replace('-','_')+'-'
@@ -687,9 +687,9 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets,
             # A fresh static ELF must be explicitly relinked before claiming
             # data sharing. Targets with no embedded image need no DSO.
             dynamic=subprocess.check_output(['readelf','-d',str(executable)],text=True)
-            if 'liblila_runtime_images_' not in dynamic:
+            if 'libscriptw_runtime_images_' not in dynamic:
                 symbols=subprocess.check_output(['nm','-g','--defined-only',str(executable)],text=True)
-                if re.search(r'\bLILA_RUNTIME_(PACKAGE|NATIVE|MANIFEST)$',symbols,re.M):
+                if re.search(r'\bSCRIPTW_RUNTIME_(PACKAGE|NATIVE|MANIFEST)$',symbols,re.M):
                     if not admit_build_space(case,label+'-shared-relink'):
                         seal_build_logs(case,[buildlog,errlog])
                         continue
@@ -699,14 +699,14 @@ for i,case in execution_order(cases,args.partition_cli,partition_native_targets,
                         rebuilt=build_with_completed_cache_retirement(command_build,stdout,stderr,case)
                     assert rebuilt==0,(case,errlog.read_text()[-4000:])
                     dynamic=subprocess.check_output(['readelf','-d',str(executable)],text=True)
-                    assert 'liblila_runtime_images_' in dynamic,case
+                    assert 'libscriptw_runtime_images_' in dynamic,case
         case['executable_sha256']=hashlib.sha256(executable.read_bytes()).hexdigest()
         case['executable_bytes']=executable.stat().st_size
         if args.shared_runtime_linker:
             dynamic=subprocess.check_output(['readelf','-d',str(executable)],text=True)
             needed=re.findall(r'\(NEEDED\).*\[([^]]+)\]',dynamic)
             case['needed_libraries']=needed
-            shared=[name for name in needed if name.startswith('liblila_runtime_images_')]
+            shared=[name for name in needed if name.startswith('libscriptw_runtime_images_')]
             assert len(shared)<=1
             if shared:
                 image=cargo_target_dir/'shared-test-runtime-images'/shared[0]

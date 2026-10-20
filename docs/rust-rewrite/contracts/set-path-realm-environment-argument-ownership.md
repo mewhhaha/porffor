@@ -40,8 +40,8 @@ completion behavior.
 Focused verification:
 
 ```sh
-cargo test -p lila-aot-wasm --test set_path_realm_environment_argument_ownership_structure -- --test-threads=1
-cargo test -p lila-aot-wasm object_mutation_realm_projection_excludes_ordinary_lexical_environments -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test set_path_realm_environment_argument_ownership_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm object_mutation_realm_projection_excludes_ordinary_lexical_environments -- --exact --test-threads=1
 ```
 
 Runtime CLI verification is deferred, and Test262 remains deferred to the

@@ -119,7 +119,7 @@ Every other Rust product source must remain zero for all nine operations.
 
 ## Durable witness
 
-`crates/lila-aot-wasm/tests/generator_resume_kind_structure.rs` pins:
+`crates/scriptw-aot-wasm/tests/generator_resume_kind_structure.rs` pins:
 
 - the exact three variants, ordered `ALL` list and exhaustive stable words;
 - absence of the retired integer tokens and integer conversions;
@@ -141,8 +141,8 @@ The coordinated verifier ran:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test generator_resume_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test generator_state_word_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test generator_resume_kind_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test generator_state_word_structure -- --test-threads=1
 ```
 
 Formatting, workspace compilation and diff hygiene are green. The new

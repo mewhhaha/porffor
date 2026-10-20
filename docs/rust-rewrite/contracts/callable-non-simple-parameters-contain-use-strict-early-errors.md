@@ -57,7 +57,7 @@ binding-identifier arrow path no longer carries an impossible non-simple-list
 check. Sixteen parser literals remain, each on an executable, spec-conforming
 production path. A source inventory test embeds the ten reviewed files and pins
 their per-file counts and the dead direct-arrow count of zero. The identical
-literal in `boa_engine`'s dynamic `Function` constructor is not a `lila-front`
+literal in `boa_engine`'s dynamic `Function` constructor is not a `scriptw-front`
 parser producer and remains outside this AOT classifier.
 
 ## Typed encoding
@@ -68,7 +68,7 @@ parser producer and remains outside this AOT classifier.
   count is 52 rather than encoding Boa's sixteen source locations as sixteen
   semantic variants. A const ownership witness makes deleting this row while
   retaining the variant a compile failure.
-- `lila-ir`'s exhaustive `rejection_kind` match maps the variant to
+- `scriptw-ir`'s exhaustive `rejection_kind` match maps the variant to
   `IrDiagnosticKind::EarlyError`. `ParseClassified` remains the only parse-stage
   carrier, so entry and retained-dependency parsing derive the same
   `Early`/`SyntaxError` pair.
@@ -132,11 +132,11 @@ with this code.
 Landed and focused-verified on `2026-08-23` under the repository's capped,
 serial verification policy:
 
-- `cargo check -p lila-front -p lila-ir --all-targets` passes.
-- `cargo test -p lila-front --lib -- --test-threads=1` passes `85/85`.
-- `cargo test -p lila-ir modules::early::tests -- --test-threads=1` passes
+- `cargo check -p scriptw-front -p scriptw-ir --all-targets` passes.
+- `cargo test -p scriptw-front --lib -- --test-threads=1` passes `85/85`.
+- `cargo test -p scriptw-ir modules::early::tests -- --test-threads=1` passes
   `38/38`, including a real retained exported-function rejection.
-- `cargo test -p lila-ir early_error -- --test-threads=1` passes `3/3`.
+- `cargo test -p scriptw-ir early_error -- --test-threads=1` passes `3/3`.
 - `cargo xc` is green, and the independently reviewed taxonomy, producer
   inventory and grammar repairs have no outstanding findings.
 - The isolated 110-file cohort passes all `220/220` sloppy/strict Wasm-AOT

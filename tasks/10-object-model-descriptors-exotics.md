@@ -24,7 +24,7 @@ The focused product fixture covers direct and nested Proxy-wrapped Arrays and
 revoked Proxies; the unchanged pinned Array fallback case passes both ordinary
 Wasm-AOT variants with its full harness.
 
-`lila-ir` now owns one closed ECMA-262 6.2.6 descriptor lattice: six typed
+`scriptw-ir` now owns one closed ECMA-262 6.2.6 descriptor lattice: six typed
 fields, three presence states, validation before classification, the
 data/accessor/generic partition and two complete stored kinds. The ordinary
 object `ValidateAndApplyPropertyDescriptor` emitter consumes that lattice, and
@@ -335,7 +335,7 @@ step-9 check before constructing their closed descriptor roles, and the
 shortcut audit still finds path/source-dependent materializations. The new
 Array-index structural regression has received only rustfmt/diff/static checks;
 its focused Rust and Test262 execution remains deferred. The workspace check
-for `lila-ir` and `lila-aot-wasm` and the focused array descriptor CLI fixture
+for `scriptw-ir` and `scriptw-aot-wasm` and the focused array descriptor CLI fixture
 were green at the earlier descriptor checkpoint;
 the HasProperty and Proxy-Set batches have not rerun them. The new Arguments
 indexed checkpoint passed its structural tests 4/4, focused CLI fixture 1/1,
@@ -681,11 +681,11 @@ Static shapes and direct offsets are allowed only when guards prove that prototy
 ## Required tests
 
 ```sh
-cargo test -p lila-ir object_ --quiet
-cargo test -p lila-aot-wasm object_ --quiet
-cargo test -p lila-cli wasm_object --quiet
-./target/debug/lila test262 run built-ins/Object --execution-backend wasm
-./target/debug/lila test262 run built-ins/Reflect --execution-backend wasm
+cargo test -p scriptw-ir object_ --quiet
+cargo test -p scriptw-aot-wasm object_ --quiet
+cargo test -p scriptw-cli wasm_object --quiet
+./target/debug/scriptw test262 run built-ins/Object --execution-backend wasm
+./target/debug/scriptw test262 run built-ins/Reflect --execution-backend wasm
 ```
 
 Include tests with accessors, symbols, proxies, inherited properties, non-extensible targets and cross-realm descriptor functions.

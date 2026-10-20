@@ -114,7 +114,7 @@ serial verification ladder requires the confirmed 4096 MiB aggregate cgroup
 cap. Weak/ephemeron support
 remains a reported runtime capability gap without a strong substitute or a
 passing skip. See the [Temporal GC contract](../docs/rust-rewrite/contracts/temporal-gc-values.md)
-and [heap record architecture](../crates/lila-aot-wasm/docs/heap-layout.md).
+and [heap record architecture](../crates/scriptw-aot-wasm/docs/heap-layout.md).
 
 ## NativeHost atomic source — 2026-10-05
 
@@ -364,14 +364,14 @@ semantic Wasm-GC switch remains required. See the
 
 ## Current repository state
 
-The current [product runtime policy](../crates/lila-engine/src/wasmtime_policy.rs)
+The current [product runtime policy](../crates/scriptw-engine/src/wasmtime_policy.rs)
 requires Wasmtime's copying collector for the strong semantic Wasm-GC
-graph. The [typed GC schema](../crates/lila-aot-wasm/src/gc_types.rs) and
+graph. The [typed GC schema](../crates/scriptw-aot-wasm/src/gc_types.rs) and
 rooted host boundary implement that graph; it is no longer only an
 anchor beside the earlier linear object model. Cyclic allocation/rooting
 stress acceptance remains separate.
 
-[Weak reachability](../crates/lila-ir/src/runtime_semantics.rs) remains
+[Weak reachability](../crates/scriptw-ir/src/runtime_semantics.rs) remains
 explicitly unavailable. Strong cycle collection does not supply the
 weak/ephemeron/finalization facility required by T21.
 
@@ -463,8 +463,8 @@ this decoder-only invariant.
 The following retained checkpoint describes the earlier 38/DRC runtime; it
 is historical evidence and does not verify the proposed 47 prerequisite.
 
-The central feature-enabled CLI compile covers both `lila-aot-wasm` and
-`lila-engine`. The complete resource-bounded engine inventory and the complete
+The central feature-enabled CLI compile covers both `scriptw-aot-wasm` and
+`scriptw-engine`. The complete resource-bounded engine inventory and the complete
 620-test default CLI inventory instantiate and execute product modules through
 the shared main prologue under the explicit DRC policy, so the typed
 strong-edge/ABI probe is runtime-verified. The new global-root lifecycle still
@@ -1683,9 +1683,9 @@ Expose ephemeron/weak-edge support required by WeakMap, WeakSet, WeakRef and Fin
 ## Required tests
 
 ```sh
-cargo test -p lila-aot-wasm heap_ --quiet
-cargo test -p lila-engine wasm_ --quiet
-cargo test -p lila-cli wasm_ --quiet
+cargo test -p scriptw-aot-wasm heap_ --quiet
+cargo test -p scriptw-engine wasm_ --quiet
+cargo test -p scriptw-cli wasm_ --quiet
 ```
 
 Add long-running stress tests behind an ignored or dedicated CI profile, plus focused real tests under `built-ins/WeakRef`, `built-ins/FinalizationRegistry`, weak collections and allocation-heavy Array/Object subtrees.

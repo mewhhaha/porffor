@@ -150,14 +150,14 @@ The 2026-09-10 batch requires focused native regressions followed by the
 coordinated broad checkpoint. Relevant retained checks include:
 
 ```sh
-cargo test -p lila-aot-wasm --test intl_temporal -- temporal_zoned_date_time_difference_defaults_structure::
-cargo test -p lila-cli --test cli date::run_wasm_backend_uses_zoned_date_time_hour_difference_default -- --exact
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/until/defaults-to-returning-hours.js --execution-backend wasm --timeout-ms 240000 --threads 1
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/since/defaults-to-returning-hours.js --execution-backend wasm --timeout-ms 240000 --threads 1
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/until/largestunit-undefined.js --execution-backend wasm --timeout-ms 240000 --threads 1
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/since/largestunit-undefined.js --execution-backend wasm --timeout-ms 240000 --threads 1
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/until/largestunit-default.js --execution-backend wasm --timeout-ms 240000 --threads 1
-./target/debug/lila test262 run built-ins/Temporal/ZonedDateTime/prototype/since/largestunit-default.js --execution-backend wasm --timeout-ms 240000 --threads 1
+cargo test -p scriptw-aot-wasm --test intl_temporal -- temporal_zoned_date_time_difference_defaults_structure::
+cargo test -p scriptw-cli --test cli date::run_wasm_backend_uses_zoned_date_time_hour_difference_default -- --exact
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/until/defaults-to-returning-hours.js --execution-backend wasm --timeout-ms 240000 --threads 1
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/since/defaults-to-returning-hours.js --execution-backend wasm --timeout-ms 240000 --threads 1
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/until/largestunit-undefined.js --execution-backend wasm --timeout-ms 240000 --threads 1
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/since/largestunit-undefined.js --execution-backend wasm --timeout-ms 240000 --threads 1
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/until/largestunit-default.js --execution-backend wasm --timeout-ms 240000 --threads 1
+./target/debug/scriptw test262 run built-ins/Temporal/ZonedDateTime/prototype/since/largestunit-default.js --execution-backend wasm --timeout-ms 240000 --threads 1
 ```
 
 The final current-SHA closure remains the complete T22 Date/Temporal ladder and

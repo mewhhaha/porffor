@@ -99,8 +99,8 @@ class ExecutionReplayTests(unittest.TestCase):
             program = (
                 f"#!{sys.executable}\n"
                 "import os\nfrom pathlib import Path\n"
-                "assert os.environ['LILA_TEST262_FORCE_CASE_RUNNER'] == '1'\n"
-                "assert 'LILA_TEST262_DISABLE_CASE_RUNNER' not in os.environ\n"
+                "assert os.environ['SCRIPTW_TEST262_FORCE_CASE_RUNNER'] == '1'\n"
+                "assert 'SCRIPTW_TEST262_DISABLE_CASE_RUNNER' not in os.environ\n"
                 f"Path({str(binary)!r}).write_text('replacement compiler')\n"
                 f"Path({str(executions)!r}).write_text('replacement executions')\n"
                 f"print({report()!r})\n"
@@ -109,7 +109,7 @@ class ExecutionReplayTests(unittest.TestCase):
             binary.chmod(0o755)
             evidence = root / "evidence"
             environment = os.environ.copy()
-            environment["LILA_TEST262_DISABLE_CASE_RUNNER"] = "1"
+            environment["SCRIPTW_TEST262_DISABLE_CASE_RUNNER"] = "1"
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), str(executions), "--binary", str(binary),
                  "--suite-root", str(root), "--output-dir", str(evidence), "--workers", "1"],

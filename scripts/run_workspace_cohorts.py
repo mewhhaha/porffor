@@ -116,7 +116,7 @@ def main():
     parser.add_argument('--plan-only', action='store_true')
     parser.add_argument('--partition-native-target', action='append', default=[])
     parser.add_argument('--isolate-test-package', action='append', default=[])
-    parser.add_argument('--anchor', default='lila-backend-native:lila_backend_native')
+    parser.add_argument('--anchor', default='scriptw-backend-native:scriptw_backend_native')
     args = parser.parse_args()
     root = Path.cwd()
     out = args.output.resolve()
@@ -160,7 +160,7 @@ def main():
     anchor = next(c for c in plan['cases'] if qualified(c) == args.anchor and c['kind'] == 'lib')
     if anchor['package'] in isolated:
         raise ValueError('auxiliary library anchor must belong to the normal graph')
-    result = {'schema': 'lila-bounded-workspace-cohorts-v1', 'source': source,
+    result = {'schema': 'scriptw-bounded-workspace-cohorts-v1', 'source': source,
               'inventory_receipt': str(plan_path), 'inventory_sha256': sha(plan_path),
               'targets': plan['selected_target_members'], 'cohorts': [],
               'all_features': args.all_features, 'native_accepted': False,

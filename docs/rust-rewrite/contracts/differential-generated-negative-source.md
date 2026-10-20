@@ -41,13 +41,13 @@ source/report remains in the journal, including rejected reductions.
 Run a campaign with the feature-enabled CLI:
 
 ```sh
-lila differential campaign --output-dir fresh-negative --grammar negative-source-v1 \
+scriptw differential campaign --output-dir fresh-negative --grammar negative-source-v1 \
   --seed 0 --cases 32 --steps 8 --depth 4 --max-replays 64 --oracle spec-exec
 ```
 
 Final negative requests stay in `evidence/case-NNN.negative.json`, with their
 typed expectation and unmodified report in `evidence/case-NNN.json`; they do
-not enter the green executable corpus. `lila differential replay` on that
+not enter the green executable corpus. `scriptw differential replay` on that
 request reproduces the actual backend failures. The negative campaign applies
 the expected-phase assertion explicitly. The existing serial CI campaign
 tiers include this grammar.

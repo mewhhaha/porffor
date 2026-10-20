@@ -10,7 +10,7 @@ def production(root,owner):
  return {p.relative_to(root).as_posix() for p in (root/owner).rglob('*.rs')
   if p.name not in ('tests.rs','profile_identity.rs','kernel_identity.rs') and 'tests' not in p.relative_to(root/owner).parts and not p.name.endswith('_tests.rs')}
 def generate(root):
- root=root.resolve();source='crates/lila-intl/data/duration-cldr-47/source-inputs.json'
+ root=root.resolve();source='crates/scriptw-intl/data/duration-cldr-47/source-inputs.json'
  inputs=json.loads((root/source).read_bytes());paths={source}
  for row in inputs['files']:
   name=Path(row['path'])
@@ -18,31 +18,31 @@ def generate(root):
   raw=(root/name).read_bytes()
   if sha(raw)!=row['sha256'] or len(raw)!=row['bytes']:raise ValueError('captured Duration input changed: '+str(name))
   paths.add(name.as_posix())
- paths|={'Cargo.toml','Cargo.lock','crates/lila-intl/Cargo.toml','scripts/generate-intl-duration-identity.py',
-  'crates/lila-intl/src/lib.rs','crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs','crates/lila-intl/src/protocol.rs',
-  'crates/lila-intl/src/service_selection.rs','crates/lila-intl/src/selection/manifest.rs','crates/lila-intl/src/selection/export.rs',
-  'crates/lila-intl/src/supported_values.rs','crates/lila-intl/src/duration_wire.rs',
-  'crates/lila-intl/src/number_protocol.rs','crates/lila-engine/src/intl_duration_host.rs',
-  'crates/lila-engine/src/wasm_gc_intl_host.rs','crates/lila-engine/src/intl_data_images.rs',
-  'crates/lila-intl/src/image.rs','crates/lila-intl/src/duration_image.rs',
-  'crates/lila-intl/src/locale_image.rs','crates/lila-intl/src/number_image.rs',
-  'crates/lila-intl/src/list_image.rs','crates/lila-intl/src/image_build/list.rs',
-  'crates/lila-intl/src/image_build/locale.rs','crates/lila-intl/build.rs',
-  'crates/lila-intl/data/number-cldr-47/payload-manifest.json',
-  'crates/lila-intl/src/duration_format.rs','crates/lila-intl/src/duration_protocol.rs',
-  'crates/lila-intl/src/duration_format/generated/profile.json','crates/lila-intl/data/duration-cldr-47/report.json',
-  'crates/lila-intl/src/number_format/profiles/fingerprint.rs','crates/lila-intl/src/list_format.rs',
-  'crates/lila-intl/src/list_format/identity.rs','crates/lila-intl/src/number_operation.rs','crates/lila-intl/src/plural_protocol.rs',
-  'crates/lila-intl/data/list-icu-2/manifest.json',
-  'crates/lila-intl/src/identifiers.rs'}
- paths.update(['crates/lila-intl/src/image_build/keyword.rs', 'crates/lila-intl/src/provider/keyword_aliases.rs', 'crates/lila-intl/src/provider/keyword_aliases/generated.rs', 'crates/lila-intl/data/cldr-47-bcp47/manifest.json', 'crates/lila-intl/src/provider/language_domain.rs'])
- paths.update(['crates/lila-aot-wasm/src/emit.rs', 'crates/lila-aot-wasm/src/emit/module_assembly.rs'])
- paths.update(['crates/lila-intl/src/list_image/projection.rs',
-               'crates/lila-intl/src/list_image/projection/export.rs'])
+ paths|={'Cargo.toml','Cargo.lock','crates/scriptw-intl/Cargo.toml','scripts/generate-intl-duration-identity.py',
+  'crates/scriptw-intl/src/lib.rs','crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/provider/conformance.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs','crates/scriptw-intl/src/protocol.rs',
+  'crates/scriptw-intl/src/service_selection.rs','crates/scriptw-intl/src/selection/manifest.rs','crates/scriptw-intl/src/selection/export.rs',
+  'crates/scriptw-intl/src/supported_values.rs','crates/scriptw-intl/src/duration_wire.rs',
+  'crates/scriptw-intl/src/number_protocol.rs','crates/scriptw-engine/src/intl_duration_host.rs',
+  'crates/scriptw-engine/src/wasm_gc_intl_host.rs','crates/scriptw-engine/src/intl_data_images.rs',
+  'crates/scriptw-intl/src/image.rs','crates/scriptw-intl/src/duration_image.rs',
+  'crates/scriptw-intl/src/locale_image.rs','crates/scriptw-intl/src/number_image.rs',
+  'crates/scriptw-intl/src/list_image.rs','crates/scriptw-intl/src/image_build/list.rs',
+  'crates/scriptw-intl/src/image_build/locale.rs','crates/scriptw-intl/build.rs',
+  'crates/scriptw-intl/data/number-cldr-47/payload-manifest.json',
+  'crates/scriptw-intl/src/duration_format.rs','crates/scriptw-intl/src/duration_protocol.rs',
+  'crates/scriptw-intl/src/duration_format/generated/profile.json','crates/scriptw-intl/data/duration-cldr-47/report.json',
+  'crates/scriptw-intl/src/number_format/profiles/fingerprint.rs','crates/scriptw-intl/src/list_format.rs',
+  'crates/scriptw-intl/src/list_format/identity.rs','crates/scriptw-intl/src/number_operation.rs','crates/scriptw-intl/src/plural_protocol.rs',
+  'crates/scriptw-intl/data/list-icu-2/manifest.json',
+  'crates/scriptw-intl/src/identifiers.rs'}
+ paths.update(['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
+ paths.update(['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs'])
+ paths.update(['crates/scriptw-intl/src/list_image/projection.rs',
+               'crates/scriptw-intl/src/list_image/projection/export.rs'])
  for owner in ('duration_format','duration_wire','number_format','number_protocol','plural_rules','list_format'):
-  paths|=production(root,'crates/lila-intl/src/'+owner)
- paths|=production(root,'crates/lila-intl/src/duration_image')
- paths|=production(root,'crates/lila-intl/src/number_image')
+  paths|=production(root,'crates/scriptw-intl/src/'+owner)
+ paths|=production(root,'crates/scriptw-intl/src/duration_image')
+ paths|=production(root,'crates/scriptw-intl/src/number_image')
  # The native/shared/host source is now complete. Its runtime and AOT caller
  # admission remain separate mandatory Root checkpoints.
  lock=tomllib.loads((root/'Cargo.lock').read_text());by_name={}
@@ -69,16 +69,16 @@ def generate(root):
  rows=[]
  for name in sorted(paths):
   raw=(root/name).read_bytes();rows.append({'path':name,'bytes':len(raw),'sha256':sha(raw)})
- recipe={'schema_version':1,'service':'DurationFormat','foundation_only':False,'host_call_abi':int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (root / 'crates/lila-intl/src/lib.rs').read_text(), re.S).group(1)),'global_operations':[36,37,38],
+ recipe={'schema_version':1,'service':'DurationFormat','foundation_only':False,'host_call_abi':int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (root / 'crates/scriptw-intl/src/lib.rs').read_text(), re.S).group(1)),'global_operations':[36,37,38],
   'files':rows,'packages':[packages[k] for k in sorted(packages)],'scope':'actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending'}
- digest=sha(canonical(recipe));profile=sha((root/'crates/lila-intl/src/duration_format/generated/profile.json').read_bytes())
+ digest=sha(canonical(recipe));profile=sha((root/'crates/scriptw-intl/src/duration_format/generated/profile.json').read_bytes())
  rust='// Generated by scripts/generate-intl-duration-identity.py; do not edit.\n'
  for constant,value in [('DURATION_FORMAT_DATA_SHA256',digest),('DURATION_PROFILE_SHA256',profile)]:
   rust+='pub(crate) const '+constant+': [u8; 32] = [\n'
   for start in (0,32):rust+='    '+', '.join('0x'+value[i:i+2] for i in range(start,start+32,2))+',\n'
   rust+='];\n'
- return {'crates/lila-intl/src/duration_format/profile_identity.rs':rust.encode(),
-  'crates/lila-intl/data/duration-cldr-47/kernel-manifest.json':(json.dumps(dict(recipe,provider_data_sha256=digest),indent=2,sort_keys=True)+'\n').encode()}
+ return {'crates/scriptw-intl/src/duration_format/profile_identity.rs':rust.encode(),
+  'crates/scriptw-intl/data/duration-cldr-47/kernel-manifest.json':(json.dumps(dict(recipe,provider_data_sha256=digest),indent=2,sort_keys=True)+'\n').encode()}
 def main():
  p=argparse.ArgumentParser();p.add_argument('--repository',type=Path,default=ROOT);p.add_argument('--check',action='store_true');a=p.parse_args()
  outputs=generate(a.repository)

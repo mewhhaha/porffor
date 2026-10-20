@@ -28,17 +28,17 @@ produced each count is given so the dry-runner can re-derive it.
 
 Owned area files:
 
-- `crates/lila-ir/src/operations.rs`
-- `crates/lila-ir/src/iterator_obligations.rs` (new)
+- `crates/scriptw-ir/src/operations.rs`
+- `crates/scriptw-ir/src/iterator_obligations.rs` (new)
 - `docs/rust-rewrite/contracts/spec-operations.md` (new; redirect to this file)
 - `docs/rust-rewrite/contracts/iterator-protocol.md` (new; redirect to this file)
 
 Files this contract also requires touching, and which are **not** batch-2 files
 (`intl_datetimeformat.rs`, `temporal*.rs`, `emitted_function.rs`,
 `runtime_helpers.rs` are untouched throughout):
-`crates/lila-ir/src/ir.rs`, `crates/lila-ir/src/lib.rs`,
-`crates/lila-ir/src/lowering.rs`, `crates/lila-aot-wasm/src/control_flow.rs`,
-`crates/lila-aot-wasm/src/emit.rs`, `crates/lila-aot-wasm/src/emission_sites.rs` (new).
+`crates/scriptw-ir/src/ir.rs`, `crates/scriptw-ir/src/lib.rs`,
+`crates/scriptw-ir/src/lowering.rs`, `crates/scriptw-aot-wasm/src/control_flow.rs`,
+`crates/scriptw-aot-wasm/src/emit.rs`, `crates/scriptw-aot-wasm/src/emission_sites.rs` (new).
 
 ---
 
@@ -239,7 +239,7 @@ Every number below was counted, not estimated.
 | Rows with `SharedRustModel` | **17** | Type, IntegerIndexedConversion, IsLessThan, CreateDataProperty, DefinePropertyOrThrow, ToPropertyDescriptor, FromPropertyDescriptor, OrdinaryCreateFromConstructor, SpeciesConstructor, ArraySpeciesCreate, GetIterator, IteratorStep, IteratorValue, IteratorClose, AsyncIteratorClose, Completion, UpdateEmpty |
 | Rows with `CatalogOnly` | **0** — and the test at `operations.rs:1323` *panics* if one ever appears | `operations.rs:1323-1328` |
 | Catalog/enum join today | one `&'static str` compare at runtime | `find_spec_operation`, `operations.rs:1217-1221` |
-| Product call sites of `SPEC_OPERATION_CATALOG`, `spec_operation_catalog`, `find_spec_operation` | **0** outside `lila-ir/src/operations.rs`; the only mention is the `pub use` at `lib.rs:85,93` | workspace-wide grep |
+| Product call sites of `SPEC_OPERATION_CATALOG`, `spec_operation_catalog`, `find_spec_operation` | **0** outside `scriptw-ir/src/operations.rs`; the only mention is the `pub use` at `lib.rs:85,93` | workspace-wide grep |
 | Spec-record types with **zero** call sites outside `operations.rs` (their sole mention being the `pub use` at `lib.rs:86-93`) | **9** | `PropertyDescriptorIr`, `PropertyDescriptorKind`, `IteratorRecordIr`, `CreateDataPropertyIr`, `DefinePropertyIr`, `OrdinaryCreateFromConstructorIr`, `SpeciesConstructorIr`, `ArraySpeciesCreateIr` (the brief's seven) **plus** `IntegerIndexedConversionIr`/`IntegerIndexedElementType` and `AbstractRelationalComparisonResult` |
 | `ValueKind::known_ecmascript_type` (the "Type" model) product call sites | **0** — its 8 call sites are all inside `#[cfg(test)] mod tests`, which starts at `ir.rs:3280` | grep + module boundary |
 | `StatementIr::abrupt_completion_record` product call sites | **0** — called only by `is_abrupt_completion_statement` (`ir.rs:2026`), which is itself called only from tests | grep + module boundary |
@@ -252,7 +252,7 @@ Every number below was counted, not estimated.
 | Total `ForOf*` mention sites workspace-wide | **83** (`control_flow.rs` 10, `data.rs` 3, `emit.rs` 11, `planning.rs` 24, `early_errors.rs` 3, `ir.rs` 6, `lib.rs` 19, `lowering.rs` 7) | grep, excluding `AsyncForOf*PlanIr` lines |
 | Of those, patterns that list **every** field with no `..` (so adding a field breaks them) | **6**, all in `control_flow.rs`: `:3022`, `:3053`, `:3068`, `:3368`, `:3399`, `:3414` | inspection |
 | `AsyncForOfPlanIr` construction sites | **0**. The type is defined (`ir.rs:1754`), used as `ForOfArray.async_plan: Option<AsyncForOfPlanIr>` (`ir.rs:1930`), imported (`control_flow.rs:5`) and consumed by `compile_async_for_of_array` (`control_flow.rs:5283-5731`, ~449 lines) — which is therefore **unreachable from the product path**. The only `ForOfArray` construction sets `async_plan: None` (`lowering.rs:13424`). | grep |
-| `AsyncForOfIteratorPlanIr` binding-name field reads in the backend | **3** (`control_flow.rs:6268`, `:6273`, `:6283`), plus **1** for the dead array plan (`:5371`), plus **6** in `lila-ir/src/lib.rs` tests | grep |
+| `AsyncForOfIteratorPlanIr` binding-name field reads in the backend | **3** (`control_flow.rs:6268`, `:6273`, `:6283`), plus **1** for the dead array plan (`:5371`), plus **6** in `scriptw-ir/src/lib.rs` tests | grep |
 | Tests in `operations.rs` | **21** | `grep -c '#\[test\]'` |
 | `for-of` files in the pinned corpus | **183** | `ls test262/vendor/test262/test/language/statements/for-of/` |
 
@@ -273,8 +273,8 @@ Two derived facts that matter more than any single number:
 
 ## 3. Type mapping, Part A — the catalog becomes evidence
 
-The task domain lives in `crates/lila-ir/src/ownership.rs`; the catalog types and
-rows live in `crates/lila-ir/src/operations.rs`.
+The task domain lives in `crates/scriptw-ir/src/ownership.rs`; the catalog types and
+rows live in `crates/scriptw-ir/src/operations.rs`.
 
 ### A1. `OperationLoweringStatus` — closed, evidence-carrying, no free variants
 
@@ -282,7 +282,7 @@ rows live in `crates/lila-ir/src/operations.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationLoweringStatus {
     /// Emitted by the shared `SpecOperationIr` emitter arm in
-    /// `lila-aot-wasm/src/operations.rs`. The evidence names the variant.
+    /// `scriptw-aot-wasm/src/operations.rs`. The evidence names the variant.
     SharedWasmEmitter(EmitterEvidence),
     /// Emitted, but by a statement-shaped emitter arm rather than a
     /// `SpecOperationIr` arm. The evidence names which arm.
@@ -323,7 +323,7 @@ impl EmitterEvidence {
 pub enum TrackedGapReason {
     /// No `SpecOperationIr` variant and no emitter arm implements it.
     NoImplementation,
-    /// A Rust model type exists in `lila-ir` but nothing on the product path
+    /// A Rust model type exists in `scriptw-ir` but nothing on the product path
     /// constructs it.
     ModelWithoutCallSite,
 }
@@ -559,7 +559,7 @@ close at `control_flow.rs:6813-6900+`.
 
 ## 4. Type mapping, Part B — the iterator-protocol obligation witness
 
-New file: `crates/lila-ir/src/iterator_obligations.rs`, re-exported from
+New file: `crates/scriptw-ir/src/iterator_obligations.rs`, re-exported from
 `lib.rs`.
 
 ### B1. The obligation and its discharge
@@ -823,7 +823,7 @@ what cannot be a type and why.
 | id | Invariant | Why no type can carry it | The check that replaces it |
 |---|---|---|---|
 | **L1** | Every `SpecOperationIr` variant appears in `SpecOperationIr::ALL`. | Stable Rust has no `variant_count`. A variant absent from every list is invisible to every const expression. (Harm is bounded: rows are *derived* from `catalog_entry`, so a variant missing from `ALL` yields an incomplete enumeration, never a false claim.) | One test in `operations.rs`: `SPEC_OPERATION_CATALOG.len() == SPEC_OPERATION_ROW_COUNT` **and** each `ALL` entry round-trips `catalog_index`. Its failure message must name `ALL`. This is the only surviving catalog test, and it is not vacuous because it checks the assembly, not the table's own contents. |
-| **L2** | A row's `abrupt` set matches what the emitter arm actually emits. | `lila-ir` cannot see `lila-aot-wasm`; the dependency runs the other way, and the emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm emits a throw path". | **Not checked in this area.** Recorded as an open defect of the same class as `ca09433c1`. Proposed follow-up lane: change the emitter arm's success type to a `Emitted::{MayThrow, NoAbrupt}` that the caller must match, and const-assert it against `SpecOperationIr::abrupt()`. Out of scope here because it lives in `lila-aot-wasm/src/operations.rs` and would touch the emitted-code path. |
+| **L2** | A row's `abrupt` set matches what the emitter arm actually emits. | `scriptw-ir` cannot see `scriptw-aot-wasm`; the dependency runs the other way, and the emitter arm's type is `(&mut Function) -> Result<(), EmitError>`, which has no channel for "this arm emits a throw path". | **Not checked in this area.** Recorded as an open defect of the same class as `ca09433c1`. Proposed follow-up lane: change the emitter arm's success type to a `Emitted::{MayThrow, NoAbrupt}` that the caller must match, and const-assert it against `SpecOperationIr::abrupt()`. Out of scope here because it lives in `scriptw-aot-wasm/src/operations.rs` and would touch the emitted-code path. |
 | **L3** | An `IntactnessPremise` is *true* of the program being compiled. | The premise is a statement about the user's source, not about our code. No type can prove it; only a lowering-time guard can, and building that guard is a separate lane by scope. | **Nothing.** Deliberately. The witness makes the premise *nameable and greppable*; it does not make it true. §9's adversarial traces record the exact programs for which `ArrayIteratorIntact` is false today. |
 | **L4** | `static_object_iterator_iife_source_values` (`lowering.rs:35919-35944`) picks a specialization on a **substring of whitespace-stripped source text** (`"[Symbol.iterator]:null"`, `"[Symbol.iterator]:undefined"`, `"=>{name}.next()"`). Reformatting the program changes which specialization fires. | It is a source-text oracle, not a semantic one; typing it would mean rewriting it. Out of scope by the area definition. | **Named unsound guard.** Recorded here so it is not rediscovered as a mystery. Must be cited by any future lane that touches for-of specialization. |
 | **L5** | `KindSet::EMPTY.is_subset_of(KindSet::from_kind(ValueKind::Array))` is `true` (`ir.rs:339`). A value with an *empty* `possible_kinds` therefore selects `ForOfArray` in `lowering/for_of.rs::lower_for_of_head`. | The subset test is correct set theory; the *use* of it as "is definitely an Array" is the bug. Fixing it changes which specialization fires, i.e. changes emitted bytes — out of scope. | **Recorded, not fixed.** The `ARRAY_INDEX_WALK` witness's premises are stated as holding "for a value whose inferred kind set is exactly `{Array}`"; whether the guard actually establishes that is L5's business. Flagged for the lane that closes L3. |
@@ -846,7 +846,7 @@ what cannot be a type and why.
 | 9 | Over-claim in the witness: mark a specialization as closing on *every* abrupt exit, when `continue` targeting this loop must not close. | Nothing represents the close predicate at all. | Partly. The witness records *whether* close is emitted, not the predicate. The predicate lives in `emit_iterator_close_condition_i32` (`control_flow.rs:9018`) and was **verified correct** by dry run (§9.1): it excludes exactly `continue` whose aux equals this loop's continue frame. The contract's job here is to have read it and recorded it, so a future edit to that function has a stated spec obligation to violate. |
 | 10 | Add a 34th `StatementIr` variant that is an abrupt completion and forget to say so. | `_ => None` at `ir.rs:2021` silently answers "not abrupt". | **`E0004`** — the catch-all is gone. |
 | 11 | Reformat a program and change which for-of specialization fires. | Real, live (`lowering.rs:35919-35944`). | **Not fixed.** Ledger **L4**. Named so the next reader does not have to rediscover it. |
-| 12 | Rename or delete an emitter function that an `EmissionSite` claims to name. | `EmissionSite` does not exist. | **`E0599`** — R7 puts a `let _ = FunctionBuilder::compile_for_of_iterator;`-style path reference behind an exhaustive `match site` in `lila-aot-wasm`. (Guarantee: the *name* resolves. Not the signature.) |
+| 12 | Rename or delete an emitter function that an `EmissionSite` claims to name. | `EmissionSite` does not exist. | **`E0599`** — R7 puts a `let _ = FunctionBuilder::compile_for_of_iterator;`-style path reference behind an exhaustive `match site` in `scriptw-aot-wasm`. (Guarantee: the *name* resolves. Not the signature.) |
 | 13 | Vacuous green: a test asserting the table's own contents, or a status label nothing backs. | Two live instances (`operations.rs:1285`, `:1307`), one of which asserts `rust_modeled.contains("IteratorClose")` while no Rust model has a call site. | **Deleted** (§8). Their non-vacuous content moves into const asserts J1/J3 and the derived-row design. One test survives, L1, and it checks assembly rather than contents. |
 
 ---
@@ -856,8 +856,8 @@ what cannot be a type and why.
 Ordered. Each step must leave the tree `cargo check`-clean before the next
 begins; this is the whole verification strategy for the area.
 
-**R0 — `crates/lila-ir/src/iterator_obligations.rs` (new, self-contained).**
-All of §4 B1–B3. Depends on nothing. `cargo check -p lila-ir` after adding
+**R0 — `crates/scriptw-ir/src/iterator_obligations.rs` (new, self-contained).**
+All of §4 B1–B3. Depends on nothing. `cargo check -p scriptw-ir` after adding
 `mod iterator_obligations;` and the `pub use`.
 
 **R1 — `ownership.rs` plus `operations.rs`, Part A types.** The single-source
@@ -895,7 +895,7 @@ compile — that is the point (mistake class 6).
 `ir.rs:1765-1775`, `lowering.rs:13471-13501` (construction),
 `control_flow.rs:6268`, `:6273`, `:6283` (reads — mechanical
 `plan.iterator_binding` → `plan.record.iterator().as_str()`), and six assertions
-in `lila-ir/src/lib.rs` tests (`:7508`, `:7512`, `:7516`, `:7556`, and the
+in `scriptw-ir/src/lib.rs` tests (`:7508`, `:7512`, `:7516`, `:7556`, and the
 `async_plan: Some(...)` destructurings at `:6734`, `:6788`, `:7493`, `:7541`,
 `:7597` — these keep working, only the field reads change).
 
@@ -912,11 +912,11 @@ which AGENTS.md says should fail to build. Delete: the `async_plan` field on
 if the batch is running long, drop it and record it as an open item rather than
 half-doing it.
 
-**R7 — `crates/lila-aot-wasm/src/emission_sites.rs` (new).** Close the
+**R7 — `crates/scriptw-aot-wasm/src/emission_sites.rs` (new).** Close the
 `EmissionSite` → real-function join:
 
 ```rust
-use lila_ir::EmissionSite;
+use scriptw_ir::EmissionSite;
 use crate::control_flow::FunctionBuilder;   // or wherever it is re-exported
 
 /// Not called. Exists so that renaming or deleting an emitter arm that an
@@ -933,7 +933,7 @@ fn emission_sites_are_backed(site: EmissionSite) {
 ```
 
 `FunctionBuilder` is `pub(crate)` (`emit.rs:137`), so this file must live inside
-`lila-aot-wasm`. Guarantee is name resolution, not signature — stated so
+`scriptw-aot-wasm`. Guarantee is name resolution, not signature — stated so
 nobody over-reads it.
 
 **R8 — the two redirect docs.** `docs/rust-rewrite/contracts/spec-operations.md`
@@ -943,7 +943,7 @@ one document because Part A's `StatementEmission` rows are witnessed by Part B's
 
 ### Untouched, deliberately
 
-- `crates/lila-aot-wasm/src/abi.rs` — the completion ABI. Its real join is
+- `crates/scriptw-aot-wasm/src/abi.rs` — the completion ABI. Its real join is
   already a compile-time `const` (`CompletionKindIr::abi_code()`); out of scope.
 - Every emitted byte. No emitter reads `protocol`; `EmissionSite` is only
   referenced by a function that is never called; `IteratorRecordIr` changes field
@@ -953,7 +953,7 @@ one document because Part A's `StatementEmission` rows are witnessed by Part B's
   what the decision assumed; it does not change the decision. The
   `Array.prototype[@@iterator]` hole is still open after this area lands.
 - `lowering.rs:35919-35944`, the source-text oracle. Ledger L4.
-- `crates/lila-aot-wasm/src/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs`
+- `crates/scriptw-aot-wasm/src/{intl_datetimeformat,temporal*,emitted_function,runtime_helpers}.rs`
   — batch 2's files. Not referenced by any step above.
 
 ---
@@ -1128,7 +1128,7 @@ The `ForOfIterator` control case. Establishes the reference trace against which
 The area is done when all of these hold. Each is checkable at rung 0 or rung G;
 none needs the real suite.
 
-1. `cargo check -p lila-ir` and `cargo check -p lila-aot-wasm` are clean.
+1. `cargo check -p scriptw-ir` and `cargo check -p scriptw-aot-wasm` are clean.
 2. `SPEC_OPERATION_CATALOG` has **46** rows: 29 `SharedWasmEmitter`, 5
    `StatementEmission`, 12 `TrackedGap`. **Zero** rows claim an implementation
    that does not exist.
@@ -1183,7 +1183,7 @@ integrator runs the gate.
 
 ### 12.1 Landed in the owned files
 
-- `crates/lila-ir/src/ownership.rs` and `operations.rs` — Part A in full:
+- `crates/scriptw-ir/src/ownership.rs` and `operations.rs` — Part A in full:
   the closed `ConformanceOwner` registry, `NormalResult`, `TrackedGapReason`,
   `EmitterEvidence`, the three-variant
   `OperationLoweringStatus`, `StatementEmissionRow`, `TrackedGapRow`, `str_eq`,
@@ -1192,7 +1192,7 @@ integrator runs the gate.
   `catalog_entry`, `build_catalog`, `SPEC_OPERATION_CATALOG`, const asserts
   J1/J3/J4/J5. Plus B5's `IteratorRecordIr` retrofit. Eight types and thirteen
   tests deleted; three tests remain plus L1 and the record test.
-- `crates/lila-ir/src/iterator_obligations.rs` — Part B in full.
+- `crates/scriptw-ir/src/iterator_obligations.rs` — Part B in full.
 
 ### 12.2 Deviations, each strictly stricter or a correction
 
@@ -1241,7 +1241,7 @@ the tree. Where §§1–12 and this section disagree, this section is correct.
 ## 13.1 The integration steps were not applied; they now are
 
 §12.1 and §7 said Part A and Part B had "landed", and §10 item 1 said
-`cargo check -p lila-ir` was clean. Neither was true: `lib.rs` had no
+`cargo check -p scriptw-ir` was clean. Neither was true: `lib.rs` had no
 `mod iterator_obligations;` (so `operations.rs`'s
 `use crate::iterator_obligations::EmissionSite;` was `E0433`) and still exported
 eleven types the rewrite had deleted (`E0432` ×11). Measured across
@@ -1251,14 +1251,14 @@ outside their own two files — the stale `pub use` line. Part B had zero
 construction sites, i.e. it was the "survival by `pub`" defect this area exists
 to delete.
 
-Applied, in `lila-ir` unless stated: `mod iterator_obligations;`; the export
+Applied, in `scriptw-ir` unless stated: `mod iterator_obligations;`; the export
 block replaced (eleven dead names dropped, `iterator_obligations`'s surface
 added); `ir.rs` retrofitted (`AsyncForOfIteratorPlanIr::record`, `protocol` on
 the three `ForOf*` variants, `abrupt_completion_record` exhaustive over all 33
 variants with no catch-all); `lowering.rs` construction sites; the six
-full-field `ForOf*` patterns in `lila-aot-wasm/src/control_flow.rs` gained
+full-field `ForOf*` patterns in `scriptw-aot-wasm/src/control_flow.rs` gained
 `..`; `compile_array_destructure_from_value_locals` widened to `pub(crate)`; and
-`lila-aot-wasm/src/emission_sites.rs` created and declared. **I7 (deleting
+`scriptw-aot-wasm/src/emission_sites.rs` created and declared. **I7 (deleting
 the dead `ForOfArray` async path) was not applied** and remains an open item —
 `AsyncForOfPlanIr` still has zero construction sites.
 
@@ -1416,7 +1416,7 @@ owns no prefix. The twelve gap rows keep `ConformanceOwner::T04` and it is corre
 
 ## 13.11 What `EmitterEvidence` proves, and how L2 must be scoped
 
-Verified good news: both `lila-aot-wasm` matches on `SpecOperationIr` are
+Verified good news: both `scriptw-aot-wasm` matches on `SpecOperationIr` are
 exhaustive with no top-level catch-all (the three `_ =>` arms in that range are
 nested operand matches), so "add a variant, forget an arm" really is `E0004`.
 But `emitter_evidence` is total on the variant, so the evidence proves only that
@@ -1480,7 +1480,7 @@ four newtypes, so the constants are built per-obligation and swapping two is
 ## 14. Integration record — the compile gate, and what it caught
 
 This section is the integrator's, written after actually running the gate that
-§10 item 1 and §13.1 could only assert. Commands run: `cargo check -p lila-ir
+§10 item 1 and §13.1 could only assert. Commands run: `cargo check -p scriptw-ir
 --all-targets`, `cargo xc` (`check --workspace --all-targets`), `cargo fmt --all
 -- --check`. No tests, no golden capture, no Test262.
 
@@ -1523,20 +1523,20 @@ reader is a `const fn`:
   code: a plausible mistake did not become a compile error, so it was
   decoration.
 
-Result: `lila-ir` goes from 12 warnings to 6, and the 6 that remain are all
+Result: `scriptw-ir` goes from 12 warnings to 6, and the 6 that remain are all
 in files this campaign never opened (`analysis.rs`, `lowering_helpers.rs`, and
 four pre-existing clusters in `lowering.rs`, the largest being 27 callerless
 generated-iterator and static-generator-folding helpers). Measured, not assumed:
 the campaign's diff mentions none of those names.
 
 §13.12 stands, strengthened — the readers still cannot be called from
-`lila-aot-wasm`, and now they are not dead either.
+`scriptw-aot-wasm`, and now they are not dead either.
 
 ### 14.3 I7 was deliberately not applied
 
 `AsyncForOfPlanIr` still has zero construction sites. I7 was left undone for two
 reasons that are about this batch, not about the merit of the deletion: it is a
-449-line deletion in `lila-aot-wasm`, the crate batch 2 is verifying in
+449-line deletion in `scriptw-aot-wasm`, the crate batch 2 is verifying in
 concurrently, and a deletion claimed to be behaviour-neutral wants the rung-G
 golden diff that this pass is not permitted to spend. It stays open exactly as
 13.15 states it, and it is still the right change.
@@ -1553,7 +1553,7 @@ resolve. Recorded here so the allow is a decision rather than a leftover.
 The assembled catalog is the API; its hand-written inputs are not.
 `AbruptDiscipline`, `StatementEmissionRow`, `TrackedGapRow`,
 `STATEMENT_EMISSION_ROWS` and `TRACKED_GAP_ROWS` are now crate-private and are
-absent from `lila-ir`'s public re-export block. The public
+absent from `scriptw-ir`'s public re-export block. The public
 `SPEC_OPERATION_CATALOG`, `SpecOperationCatalogEntry`, `RowSource`,
 `OperationLoweringStatus`, `TrackedGapReason`, and the catalog lookup functions
 remain unchanged.
@@ -1562,7 +1562,7 @@ The durable boundary is Rust visibility: another crate attempting to import a
 raw row or table gets `E0603`, while `operations.rs` remains the sole assembly
 site. This closes the callerless-public-surface residue without changing the 46
 catalog rows, any lowering decision or emitted Wasm. No Cargo or Test262 command
-ran in this follow-up; the central verifier owns `cargo check -p lila-ir` and
+ran in this follow-up; the central verifier owns `cargo check -p scriptw-ir` and
 the rustdoc gate.
 
 ## 16. `ArraySpeciesCreate` backend-evidence checkpoint (2026-08-29)
@@ -1634,7 +1634,7 @@ that emitted-Wasm cleanup from the prior behavior.
 
 ### 16.3 Verification status
 
-At the central checkpoint, `cargo check -p lila-aot-wasm` is green with only
+At the central checkpoint, `cargo check -p scriptw-aot-wasm` is green with only
 the pre-existing vendored parser warning. The catalog-evidence and neighboring
 splice structure targets pass `10/10`, the filtered IR operation units pass
 `53/53`, and the Array slice core/species/Proxy CLI controls pass `3/3`.
@@ -1726,7 +1726,7 @@ not evidence for this catalog row or for `FromPropertyDescriptor`.
 
 At the 2026-08-29 checkpoint, the bounded evidence target passes `7/7`, the
 existing Object descriptor fixture passes `1/1`, the filtered IR operation
-units pass `53/53`, and `cargo check -p lila-aot-wasm` is green with only the
+units pass `53/53`, and `cargo check -p scriptw-aot-wasm` is green with only the
 pre-existing vendored parser warning. This section claims no broad Reflect or
 Proxy migration, no `FromPropertyDescriptor` promotion, no Test262 result, no
 published-status change, and no conformance gain.
@@ -1755,7 +1755,7 @@ than by an intactness guard. The four iterator-operation catalog rows keep their
 existing `StatementEmission(SyncForOfIterator)` evidence, and the 46-row catalog
 census does not change.
 
-`cargo check -p lila-aot-wasm` passes. The two focused structure targets pass
+`cargo check -p scriptw-aot-wasm` passes. The two focused structure targets pass
 `3/3` and `4/4`, the IR `for_of` target passes `16/16`, the planner and two CLI
 targets each pass `1/1`, and the four pinned Array length-mutation leaves pass
 `8/8` Wasm-AOT executions with every failure bucket at zero. This checkpoint
@@ -1796,7 +1796,7 @@ intactness guard. The four iterator-operation catalog rows retain their
 existing `StatementEmission(SyncForOfIterator)` evidence, and the 46-row
 catalog census does not change.
 
-`cargo check -p lila-aot-wasm` passes. The String structure target passes `3/3`,
+`cargo check -p scriptw-aot-wasm` passes. The String structure target passes `3/3`,
 affected companion structures pass `19/19`, the IR `for_of` target passes
 `17/17`, and the CLI witness passes `1/1`. The three pinned native String
 controls pass `6/6` Wasm-AOT executions with every failure bucket at zero. This
@@ -1852,8 +1852,8 @@ iterable values on both sides of the body await.
 The existing six-closure oracle keeps each captured lexical binding distinct
 after all iterations finish.
 
-`cargo check -p lila-aot-wasm` passes. The five focused structure targets pass
-`19/19`, the `lila-ir` `for_of` target passes `18/18`, and the four exact CLI
+`cargo check -p scriptw-aot-wasm` passes. The five focused structure targets pass
+`19/19`, the `scriptw-ir` `for_of` target passes `18/18`, and the four exact CLI
 oracles pass `4/4`. All four fixtures pass `node --check`, and the two pinned
 `Array.fromAsync` leaves pass `4/4` Wasm-AOT executions with every failure and
 non-success bucket at zero. The complete 95-file `Array.fromAsync` leaf,
@@ -1906,7 +1906,7 @@ so five checks map through four error variants. Primitive property lookup in
 both inline owners, including the async-disposable path, also boxes through the
 current function Realm.
 
-`crates/lila-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` exercises
+`crates/scriptw-cli/tests/fixtures/wasm_for_of_protocol_type_errors.js` exercises
 all five errors and a valid control through an entry-Realm user function. That
 fixture pins observable diagnostics, but it cannot distinguish the current
 function Realm from the main Realm. A Realm-distinguishing witness would

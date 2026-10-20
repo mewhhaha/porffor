@@ -99,5 +99,5 @@ verification cohort includes the feature-enabled selected-worker tests and
 protocol/worker controls. The CLI entry is the existing command:
 
 ```sh
-lila differential replay crates/lila-test262/tests/differential/v5/t25-object-graph-descriptors-and-realm.json --oracle spec-exec
+scriptw differential replay crates/scriptw-test262/tests/differential/v5/t25-object-graph-descriptors-and-realm.json --oracle spec-exec
 ```

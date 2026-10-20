@@ -6,4 +6,4 @@ vendor/wasmtime-internal-cache-47.0.0/LICENSE whitespace=-blank-at-eof
 test262/vendor/test262/** -text whitespace=-blank-at-eof,-blank-at-eol
 
 # The final embedded resource helper retains upstream trailing blank lines.
-crates/lila-test262/assets/local-harness/spec-exec.js whitespace=-blank-at-eof
+crates/scriptw-test262/assets/local-harness/spec-exec.js whitespace=-blank-at-eof

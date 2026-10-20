@@ -29,7 +29,7 @@ rejects top-level `await using` earlier as an ordinary expression-statement
 parse error. The latter remains an honest parse-phase `SyntaxError`, not a
 fabricated typed classification. The row is deliberately narrower than Boa's
 distinct statement-list and for-in-head messages. The adjacent direct-eval
-branch is unreachable from Lila's ordinary Script parser entry and belongs to
+branch is unreachable from Scriptw's ordinary Script parser entry and belongs to
 T13 dynamic-source evaluation.
 
 ## Goal and nesting boundary
@@ -63,7 +63,7 @@ disposal execution, direct eval, T07 or aggregate closure.
 ## Evidence
 
 At `2026-08-23`, all verification ran under the repository's eight-CPU cap and
-serial test/harness settings. The complete `lila-front` gate passes `57/57`,
-the focused `lila-ir` early-error filter passes `3/3`, and `cargo xc` passes.
+serial test/harness settings. The complete `scriptw-front` gate passes `57/57`,
+the focused `scriptw-ir` early-error filter passes `3/3`, and `cargo xc` passes.
 The two exact pinned files above each pass `2/2` sloppy/strict Wasm-AOT
 executions, for `4/4` total, with every failure and non-success bucket at zero.

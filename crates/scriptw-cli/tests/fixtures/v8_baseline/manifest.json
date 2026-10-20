@@ -1,0 +1,19 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "integer.js",
+      "stdout": "730532261\n",
+      "work": "10000 integer recurrence steps"
+    },
+    {
+      "file": "objects.js",
+      "stdout": "149600\n",
+      "work": "500 object allocations and property traversal"
+    }
+  ]
+}

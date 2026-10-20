@@ -27,7 +27,7 @@ static/instance conflicts. One exact classifier row owns all five producers;
 source spelling and element kind do not create separate diagnostic conditions.
 
 The front-end code domain and parse-failure row count remain type-level
-invariants. The exhaustive `lila-ir` projection maps the new variant to
+invariants. The exhaustive `scriptw-ir` projection maps the new variant to
 `IrDiagnosticKind::EarlyError`, so adding a new code without choosing its
 rejection phase fails to compile.
 
@@ -52,8 +52,8 @@ and source span.
 
 At `2026-08-23`, the capped serial verification passes:
 
-- `lila-front`: `42/42`;
-- focused `lila-ir` early-error tests: `3/3`; and
+- `scriptw-front`: `42/42`;
+- focused `scriptw-ir` early-error tests: `3/3`; and
 - the exact pinned declaration/expression duplicate-private-name cohort: 32
   physical files and `64/64` sloppy/strict Wasm-AOT executions, with every
   failure and non-success bucket at zero.

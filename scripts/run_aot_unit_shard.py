@@ -38,7 +38,7 @@ def passed_exactly_one(output: str, total: int) -> bool:
 
 def build_test_binary() -> Path:
     result = subprocess.run(
-        ["cargo", "test", "--locked", "-p", "lila-aot-wasm", "--lib", "--no-run",
+        ["cargo", "test", "--locked", "-p", "scriptw-aot-wasm", "--lib", "--no-run",
          "--message-format=json-render-diagnostics"],
         stdout=subprocess.PIPE, text=True,
     )
@@ -48,7 +48,7 @@ def build_test_binary() -> Path:
         if message.get("reason") == "compiler-message":
             print(message["message"].get("rendered", ""), end="", flush=True)
         if (message.get("reason") == "compiler-artifact"
-                and message["target"]["name"] == "lila_aot_wasm"
+                and message["target"]["name"] == "scriptw_aot_wasm"
                 and message["profile"]["test"] and message.get("executable")):
             executables.add(message["executable"])
     result.check_returncode()

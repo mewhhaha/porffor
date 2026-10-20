@@ -314,9 +314,9 @@ top-level await complete through that lifecycle before ordinary import
 fulfillment. Splitting a graph into several linked Wasm modules later remains
 a backend change with no source-loading fallback.
 
-`lila-ir` performs no IO. The host resolves and reads the finite transitive
-closure up front (`lila_engine::load_module_graph`) and hands it to
-`lila_ir::lower_module_graph` or `lila_ir::lower_script_graph` as
+`scriptw-ir` performs no IO. The host resolves and reads the finite transitive
+closure up front (`scriptw_engine::load_module_graph`) and hands it to
+`scriptw_ir::lower_module_graph` or `scriptw_ir::lower_script_graph` as
 `ModuleGraphSources`. Dynamic-only malformed loads and dependency/link failures
 are partitioned into phase-owned rejection rows, so valid shared closures
 remain usable and the failures become observable only when their imports run.
@@ -436,12 +436,12 @@ invariant and focused evidence live in
 `docs/rust-rewrite/contracts/module-entry-source-authority.md`.
 At 2026-08-27, the dedicated structure target passes `4/4`, the exact host and
 in-memory behavior witnesses pass `1/1` each, the focused module-loader set
-passes `14/14`, and `cargo check -p lila-engine` passes with the repository's
+passes `14/14`, and `cargo check -p scriptw-engine` passes with the repository's
 existing warnings. Scoped Rust formatting and diff checks are green; the wider
 Test262 module suite was not rerun for this source-authority-only boundary.
 
 Attributed re-export requests retain their full typed request from the Boa AST
-through both Lila module-record passes. The public AST variant carries the
+through both Scriptw module-record passes. The public AST variant carries the
 private-field `ReExportRequest`, whose sole constructor accepts only a
 specifier and attributes and constructs an evaluation-phase `ModuleRequest`;
 custom deserialization rejects other phases. Imports and re-exports share one
@@ -452,12 +452,12 @@ deduplicate by one request key, and an in-memory graph witness makes the
 host-resolution row's attributes load-bearing. The structural and semantic
 evidence lives in `docs/rust-rewrite/contracts/module-request-identity.md`.
 Boa's pre-existing attribute-order-sensitive `ModuleRequest` equality remains
-unchanged; Lila's canonical IR boundary is the ordering authority. The
+unchanged; Scriptw's canonical IR boundary is the ordering authority. The
 implementation and cheap static checks were completed on 2026-09-01. Product-path
-`cargo check -p lila-ir --lib` is green, as is a disposable external crate
+`cargo check -p scriptw-ir --lib` is green, as is a disposable external crate
 compiling the vendored `boa_ast` path with `serde` and `arbitrary` enabled; the
 repository-root `cargo check -p boa_ast` form is invalid because that vendored
-crate is not a workspace member. The full `lila-front` suite passes `152/152`,
+crate is not a workspace member. The full `scriptw-front` suite passes `152/152`,
 its duplicate-attribute focus passes `3/3`, the attributed record and graph
 witnesses pass `2/2`, and the surrounding record and graph groups pass `31/31`
 and `56/56`. The new structure target passes `4/4`; its six adjacent targets
@@ -480,10 +480,10 @@ claimed.
 ## Required tests
 
 ```sh
-cargo test -p lila-ir module_ --quiet
-cargo test -p lila-engine module_ --quiet
-cargo test -p lila-cli module_ --quiet
-./target/debug/lila test262 run language/module-code --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p scriptw-ir module_ --quiet
+cargo test -p scriptw-engine module_ --quiet
+cargo test -p scriptw-cli module_ --quiet
+./target/debug/scriptw test262 run language/module-code --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Add filesystem-loader tests for cycles, missing modules, traversal rejection, duplicate normalized specifiers and import attributes.
@@ -491,7 +491,7 @@ Add filesystem-loader tests for cycles, missing modules, traversal rejection, du
 ## Dry implementation: complete lexer-backed namespace name spelling
 
 Module export readers and namespace aliases consume
-the same Unicode character authority as the real lexer through `lila-front`.
+the same Unicode character authority as the real lexer through `scriptw-front`.
 The former alphabetic/alphanumeric approximation and separately listed
 exceptions are removed, so legal combining marks, spacing marks, connector
 punctuation and the lexer's Unicode 17 additions are no longer classified as

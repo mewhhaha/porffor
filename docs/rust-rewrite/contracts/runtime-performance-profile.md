@@ -20,7 +20,7 @@ After the coherent source batch is verified, the opt-in command is:
 
 ```sh
 python3 scripts/limited_verification.py -- \
-  ./target/release/lila performance runtime \
+  ./target/release/scriptw performance runtime \
   --output-dir target/performance/runtime-candidate --samples 7 \
   --machine-label dedicated-benchmark-host --idle-machine
 ```
@@ -225,7 +225,7 @@ native R loading 0.341 seconds. Its fresh P does not finish compiling before
 five seconds. Temporal's transformed program remains unrun, and the campaign
 is still red. Deadlines, cache budgets and verification resource limits remain
 unchanged. Retained failure evidence is
-`target/verification-tmp/lila-generated-campaign-759906-1791488252109251786-1`.
+`target/verification-tmp/scriptw-generated-campaign-759906-1791488252109251786-1`.
 
 The pending normalization startup change moves the original complete ICU scalar
 walk into the compiler build. Its versioned little-endian image contains the same

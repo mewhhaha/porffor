@@ -17,16 +17,16 @@ obligations are first split apart, which is what
 
 | Item | File |
 |---|---|
-| `DescriptorField`, `DescriptorSide`, `TO_PROPERTY_DESCRIPTOR_ORDER` | `crates/lila-ir/src/property_descriptor.rs` |
+| `DescriptorField`, `DescriptorSide`, `TO_PROPERTY_DESCRIPTOR_ORDER` | `crates/scriptw-ir/src/property_descriptor.rs` |
 | `Presence<T, R>`, `KnownPresence` | same |
 | `DescriptorCarrier`, `SourceText` | same |
 | `PartialDescriptor<C>`, `ValidatedDescriptor<C>`, `ValidateError`, `BothDataAndAccessor` | same |
 | `PropertyDescriptorKind`, `DescriptorClassification<C>`, `KindTerms<C>`, `classify` | same |
 | `CompleteDescriptor<C>`, `CompletionDefaults<C>`, `complete_property_descriptor` | same |
 | `DescriptorSourceText<DataSide \| AccessorSide>` | same |
-| `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` | `crates/lila-aot-wasm/src/heap.rs` |
-| `TaggedLocals`, `WasmLocals`, `StoredDescriptorKind`, `AttributeBit`, `DescriptorKindLocal<K>`, `DescriptorKindWord` | `crates/lila-aot-wasm/src/objects.rs` |
-| `DescriptorObjectFields`, `DescriptorFlag`, `DescriptorObjectPrototype`, `emit_from_property_descriptor` (6.2.6.4) | `crates/lila-aot-wasm/src/objects/descriptor_object.rs` |
+| `DescriptorBit`, `DescriptorWord`, `DescriptorMask`, `DescriptorFlags`, `MappedSlot` | `crates/scriptw-aot-wasm/src/heap.rs` |
+| `TaggedLocals`, `WasmLocals`, `StoredDescriptorKind`, `AttributeBit`, `DescriptorKindLocal<K>`, `DescriptorKindWord` | `crates/scriptw-aot-wasm/src/objects.rs` |
+| `DescriptorObjectFields`, `DescriptorFlag`, `DescriptorObjectPrototype`, `emit_from_property_descriptor` (6.2.6.4) | `crates/scriptw-aot-wasm/src/objects/descriptor_object.rs` |
 
 ## The seven rules a later change must not break
 

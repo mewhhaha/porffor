@@ -4,12 +4,12 @@
 # The generated Test262 publication is a required tracked JSON/text pair.
 !test262/snapshots/published-status-wasm-aot.txt
 # Pinned Unicode vectors are compile-time inputs for Segmenter tests.
-!crates/lila-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt
-!crates/lila-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt
-!crates/lila-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt
+!crates/scriptw-intl/data/segmenter-icu-2/corpora/GraphemeBreakTest.txt
+!crates/scriptw-intl/data/segmenter-icu-2/corpora/WordBreakTest.txt
+!crates/scriptw-intl/data/segmenter-icu-2/corpora/SentenceBreakTest.txt
 # Pinned Intl generator inputs must survive fresh checkouts.
-!crates/lila-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt
-!crates/lila-intl/data/locale-text-cldr-47/source/scriptMetadata.txt
+!crates/scriptw-intl/data/numbering-tols-cldr-48/ucd/UnicodeData.txt
+!crates/scriptw-intl/data/locale-text-cldr-47/source/scriptMetadata.txt
 __pycache__/
 *.py[cod]
 *.exe
@@ -19,7 +19,7 @@ node_modules/
 pnpm-lock.yaml
 target/
 # Local source-recovery snapshots and verification logs are not product inputs.
-/.lila-task-work/
+/.scriptw-task-work/
 
 # Preserve the complete official Test262 tree, including text and binary fixtures.
 !/test262/vendor/test262/**

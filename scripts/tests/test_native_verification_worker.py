@@ -12,7 +12,7 @@ import native_verification_worker as staging
 
 class NativeWorkerAdmissionTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="lila-native-worker-admission-")
+        self.temp = tempfile.TemporaryDirectory(prefix="scriptw-native-worker-admission-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / ".gitignore").write_text("target/\n")
@@ -23,7 +23,7 @@ class NativeWorkerAdmissionTests(unittest.TestCase):
         self.target = self.root / "target"
         build = self.target / "owned-build"
         build.mkdir(parents=True)
-        self.image = build / "lila-worker"
+        self.image = build / "scriptw-worker"
         self.image.write_bytes(b"fixture, never executed")
         self.shared = self.target / "shared-test-runtime-images" / "fixture.so"
         self.shared.parent.mkdir()
@@ -33,7 +33,7 @@ class NativeWorkerAdmissionTests(unittest.TestCase):
                      "source_before": bound, "source_after": bound,
                      "native_cli_worker": {"path": str(self.image), "bytes": self.image.stat().st_size,
                          "sha256": staging.sha(self.image), "graph": "fixture graph",
-                         "cargo_artifact": {"target": {"name": "lila", "kind": ["bin"]},
+                         "cargo_artifact": {"target": {"name": "scriptw", "kind": ["bin"]},
                              "profile": {"test": False, "opt_level": "3"}, "features": []},
                          "link": {"shared_image": str(self.shared), "shared_image_sha256": staging.sha(self.shared)},
                          "identity": {"source_revision": {"kind": "git-commit", "commit": bound["head"]}}}}

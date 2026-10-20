@@ -34,11 +34,11 @@ jobs:
   corpus:
     # The delegated Linux host must provide a cgroup-v2 systemd user manager.
     # limited_verification.py verifies the actual kernel cap before each payload.
-    runs-on: [self-hosted, linux, lila-conformance]
+    runs-on: [self-hosted, linux, scriptw-conformance]
     timeout-minutes: 360
     env:
       CARGO_BUILD_JOBS: '1'
-      LILA_JOBS: '1'
+      SCRIPTW_JOBS: '1'
       RUST_TEST_THREADS: '1'
       RAYON_NUM_THREADS: '1'
       CAMPAIGN_TIER: ${{ (github.event_name == 'schedule' || inputs.exhaustive == true) && 'nightly' || 'pr-fast' }}
@@ -49,79 +49,79 @@ jobs:
       - name: Default CLI refuses the unlinked oracle
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          cargo test --locked -p lila-cli --test differential_corpus
+          cargo test --locked -p scriptw-cli --test differential_corpus
           unlinked_oracle_refuses_whole_corpus_before_output_or_worker_lookup -- --exact
       - name: Build the actual feature-enabled CLI and named library worker
         id: oracle_build
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          cargo build --locked -p lila-cli -p lila-test262
-          --features lila-cli/spec-exec-oracle,lila-test262/spec-exec-oracle --bins
+          cargo build --locked -p scriptw-cli -p scriptw-test262
+          --features scriptw-cli/spec-exec-oracle,scriptw-test262/spec-exec-oracle --bins
       - name: Run AsyncDisposableStack fixtures through both backends
         if: always() && steps.oracle_build.outcome == 'success'
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          cargo test --locked -p lila-engine --features spec-exec-oracle
+          cargo test --locked -p scriptw-engine --features spec-exec-oracle
           --test aot_async
           -- aot_async_disposable_stack_realm:: --test-threads=1
       - name: Replay every compiled corpus entry and retain red evidence
         if: always() && steps.oracle_build.outcome == 'success'
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          ./target/debug/lila --jobs 1 differential replay-corpus
+          ./target/debug/scriptw --jobs 1 differential replay-corpus
           --output-dir "${{ runner.temp }}/differential-corpus"
           --oracle spec-exec
       - name: Run whole-corpus library and CLI controls
         if: always() && steps.oracle_build.outcome == 'success'
         run: |
           set -euo pipefail
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --test differential_corpus
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --test differential_corpus
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --lib differential_corpus::tests
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --test differential_corpus
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-cli --features spec-exec-oracle --test differential_corpus
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-cli --features spec-exec-oracle --lib differential_corpus::tests
       - name: Run the generated grammar and campaign controls
         if: always() && steps.oracle_build.outcome == 'success'
         run: |
           set -euo pipefail
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::generated
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --test differential_generated_campaign
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-cli --features spec-exec-oracle --lib differential_campaign::tests
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --lib differential::generated
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --test differential_generated_campaign
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-cli --features spec-exec-oracle --lib differential_campaign::tests
       - name: Run all eleven grammar campaigns serially
         if: always() && steps.oracle_build.outcome == 'success'
-        run: bash scripts/run-differential-campaign-tier.sh ./target/debug/lila "${{ runner.temp }}/differential-campaigns" "$CAMPAIGN_TIER"
+        run: bash scripts/run-differential-campaign-tier.sh ./target/debug/scriptw "${{ runner.temp }}/differential-campaigns" "$CAMPAIGN_TIER"
       - name: Run robustness driver and native wire controls
         if: always() && steps.oracle_build.outcome == 'success'
         run: |
           set -euo pipefail
           python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_robustness_campaign_tier.py'
           python3 scripts/limited_verification.py --memory-mib 4096 -- python3 -m unittest discover -s scripts/tests -p 'test_limited_verification.py'
-          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::robustness
+          python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --lib differential::robustness
       - name: Run the serial native robustness seed tier
         if: always() && steps.oracle_build.outcome == 'success'
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          python3 scripts/run-robustness-campaign-tier.py ./target/debug/lila
+          python3 scripts/run-robustness-campaign-tier.py ./target/debug/scriptw
           "${{ runner.temp }}/robustness-campaigns" "$CAMPAIGN_TIER"
       - name: Build the optimized developer oracle for nightly and release validation
         id: optimized_build
         if: always() && steps.oracle_build.outcome == 'success' && (github.event_name == 'schedule' || inputs.exhaustive == true)
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          cargo build --locked --release -p lila-cli -p lila-test262
-          --features lila-cli/spec-exec-oracle,lila-test262/spec-exec-oracle --bins
+          cargo build --locked --release -p scriptw-cli -p scriptw-test262
+          --features scriptw-cli/spec-exec-oracle,scriptw-test262/spec-exec-oracle --bins
       - name: Replay the complete optimized corpus
         if: always() && steps.optimized_build.outcome == 'success'
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          ./target/release/lila --jobs 1 differential replay-corpus
+          ./target/release/scriptw --jobs 1 differential replay-corpus
           --output-dir "${{ runner.temp }}/differential-corpus-optimized" --oracle spec-exec
       - name: Run all optimized grammar campaigns serially
         if: always() && steps.optimized_build.outcome == 'success'
-        run: bash scripts/run-differential-campaign-tier.sh ./target/release/lila "${{ runner.temp }}/differential-campaigns-optimized" nightly
+        run: bash scripts/run-differential-campaign-tier.sh ./target/release/scriptw "${{ runner.temp }}/differential-campaigns-optimized" nightly
       - name: Run the complete optimized native robustness seed tier
         if: always() && steps.optimized_build.outcome == 'success'
         run: >-
           python3 scripts/limited_verification.py --memory-mib 4096 --
-          python3 scripts/run-robustness-campaign-tier.py ./target/release/lila
+          python3 scripts/run-robustness-campaign-tier.py ./target/release/scriptw
           "${{ runner.temp }}/robustness-campaigns-optimized" nightly
       - name: Retain aggregate, every input and every complete or red case report
         if: always()

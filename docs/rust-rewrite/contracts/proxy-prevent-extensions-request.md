@@ -143,11 +143,11 @@ edges still target the cataloged helper function.
 
 Product ownership is limited to:
 
-- `crates/lila-aot-wasm/src/runtime_helpers.rs`;
-- `crates/lila-aot-wasm/src/emit.rs`;
-- `crates/lila-aot-wasm/src/objects.rs`;
-- `crates/lila-aot-wasm/src/builtins/object.rs`;
-- `crates/lila-aot-wasm/src/builtins/reflect.rs` only if the typed call boundary
+- `crates/scriptw-aot-wasm/src/runtime_helpers.rs`;
+- `crates/scriptw-aot-wasm/src/emit.rs`;
+- `crates/scriptw-aot-wasm/src/objects.rs`;
+- `crates/scriptw-aot-wasm/src/builtins/object.rs`;
+- `crates/scriptw-aot-wasm/src/builtins/reflect.rs` only if the typed call boundary
   requires a mechanical consumer update.
 
 The product batch deletes the fixed-depth emitter and the unreachable duplicate
@@ -173,17 +173,17 @@ git diff --check
 ./scripts/check-module-boundaries.sh
 cargo check --workspace --all-targets
 
-cargo test -p lila-aot-wasm proxy_prevent_extensions -- --nocapture
-cargo test -p lila-cli run_wasm_backend_succeeds_for_object_prevent_extensions_proxy_fixture -- --nocapture
+cargo test -p scriptw-aot-wasm proxy_prevent_extensions -- --nocapture
+cargo test -p scriptw-cli run_wasm_backend_succeeds_for_object_prevent_extensions_proxy_fixture -- --nocapture
 
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   built-ins/Proxy/preventExtensions/trap-is-undefined-target-is-proxy.js \
   --execution-backend wasm --timeout-ms 120000 --threads 1
 
-./target/debug/lila test262 run built-ins/Proxy/preventExtensions \
+./target/debug/scriptw test262 run built-ins/Proxy/preventExtensions \
   --execution-backend wasm --timeout-ms 120000 --threads 4
 
-./target/debug/lila test262 run built-ins/Proxy/isExtensible \
+./target/debug/scriptw test262 run built-ins/Proxy/isExtensible \
   --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 

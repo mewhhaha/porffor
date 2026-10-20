@@ -52,7 +52,7 @@ catch/finally and GC around call throws; argument bits, freshness, retained GC
 roots and source caller identity; Proxy/bound dispatch across an effectful
 argument boundary; and entry/prepared Realm Script completion.
 
-The motivating captured program contained a 1,711,700-byte `lila::main` body.
+The motivating captured program contained a 1,711,700-byte `scriptw::main` body.
 Its separately captured cold runtime module phase took 123.729535488 seconds;
 JavaScript execution took 45.496840831 seconds under the original 60,000 ms
 deadline. Those are observations from the unmodified baseline, not a measured

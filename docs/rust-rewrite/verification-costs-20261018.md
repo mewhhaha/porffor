@@ -22,11 +22,11 @@ The release build spends almost all its time inside Rust compiler units:
 
 | Crate | Observed unit times |
 | --- | ---: |
-| `lila-aot-wasm` | 196.27 s + 134.93 s |
-| `lila-ir` | 184.14 s + 178.40 s |
-| `lila-intl` | 91.03 s + 89.21 s |
-| `lila-test262` | 87.70 s |
-| `lila-engine` | 55.95 s |
+| `scriptw-aot-wasm` | 196.27 s + 134.93 s |
+| `scriptw-ir` | 184.14 s + 178.40 s |
+| `scriptw-intl` | 91.03 s + 89.21 s |
+| `scriptw-test262` | 87.70 s |
+| `scriptw-engine` | 55.95 s |
 
 The timing rows alone do not identify the profiles of duplicate units. Assigning
 one of those times to a host or product profile requires the corresponding Cargo

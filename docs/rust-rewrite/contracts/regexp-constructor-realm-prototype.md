@@ -128,10 +128,10 @@ verification owns Cargo and Test262 resources. Later verification must include:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-aot-wasm regexp_constructor_realm_ --quiet
-cargo test -p lila-cli --test cli run_wasm_backend_uses_active_regexp_constructor_and_new_target_realm --quiet
-./target/debug/lila test262 run built-ins/RegExp/proto-from-ctor-realm --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-aot-wasm regexp_constructor_realm_ --quiet
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_active_regexp_constructor_and_new_target_realm --quiet
+./target/debug/scriptw test262 run built-ins/RegExp/proto-from-ctor-realm --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The complete T06/T19 ladders and current-SHA low-RAM publication path remain

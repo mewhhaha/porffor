@@ -2,6 +2,7 @@
 """Batch the identity audit without changing its GNU grep expressions."""
 
 import fnmatch
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -9,23 +10,28 @@ import subprocess
 import sys
 import tempfile
 
-from identity_provenance import audit_source
+from identity_provenance import audit_source, project_history_projection, readme_history_projection, HISTORY
+
+PREVIOUS = 'li' + 'la'
 
 
 EXCLUDED = (
     "vendor/*", "test262/vendor/*", "test262/snapshots/*",
-    "crates/lila-test262/tests/fixtures/*/snapshots/*",
-    "docs/rust-rewrite/lila-identity-map.tsv",
-    "docs/rust-rewrite/lila-identity-migration.md",
-    "scripts/check-lila-identity.sh", "scripts/check-no-legacy-js.sh",
+    "crates/scriptw-test262/tests/fixtures/*/snapshots/*",
+    "docs/rust-rewrite/scriptw-identity-map.tsv",
+    "docs/rust-rewrite/scriptw-identity-migration.md",
+    "docs/rust-rewrite/scriptw-frozen-history.json",
+    f"docs/rust-rewrite/{PREVIOUS}-identity-map.tsv",
+    f"docs/rust-rewrite/{PREVIOUS}-identity-migration.md",
+    "scripts/check-scriptw-identity.sh", "scripts/check-no-legacy-js.sh",
     "scripts/check-readme-status-artifacts.sh",
     "scripts/tests/check-readme-status-artifacts.sh",
-    "tasks/28-retire-legacy-js.md", "tasks/29-lila-identifier-migration.md",
+    "tasks/28-retire-legacy-js.md", f"tasks/29-{PREVIOUS}-identifier-migration.md",
 )
 RETIRED = "por" + "ffor"
 DOCTEST = (
     '^[0-9]+:[[:space:]]*"/workspace/' + RETIRED
-    + '/crates/lila-[^"]+[.]rs - [^"]+ [(]line [0-9]+[)]"[,]?[[:space:]]*$'
+    + '/crates/scriptw-[^"]+[.]rs - [^"]+ [(]line [0-9]+[)]"[,]?[[:space:]]*$'
 )
 
 
@@ -78,10 +84,18 @@ def main(path_pattern, token_pattern, word_pattern):
 
     def fail(message):
         nonlocal failures
-        sys.stderr.buffer.write(os.fsencode("check-lila-identity: " + message) + b"\n")
+        sys.stderr.buffer.write(os.fsencode("check-scriptw-identity: " + message) + b"\n")
         failures += 1
 
-    with tempfile.TemporaryDirectory(prefix="lila-identity-") as temporary:
+    # Excluded historical maps/notes are immutable too, not blanket exemptions.
+    for historical, expected in HISTORY['files'].items():
+        file = Path(historical)
+        if file.is_file():
+            with file.open('rb') as stream:
+                if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                    fail('frozen pre-rename evidence changed: ' + historical)
+
+    with tempfile.TemporaryDirectory(prefix="scriptw-identity-") as temporary:
         files = []
         for raw_path in paths:
             if not raw_path:
@@ -98,10 +112,17 @@ def main(path_pattern, token_pattern, word_pattern):
             # Gitlinks are directories: grep previously found no file content.
             if os.path.isdir(path):
                 continue
-            if (fnmatch.fnmatchcase(path, "docs/rust-rewrite/*.json")
+            if (path in HISTORY['files'] or path.endswith('.md') or fnmatch.fnmatchcase(path, "docs/rust-rewrite/*.json")
                     or fnmatch.fnmatchcase(path, "docs/rust-rewrite/verify-*.py")):
                 try:
-                    normalized = audit_source(Path(path), Path(path).read_bytes())
+                    raw = Path(path).read_bytes()
+                    normalized = audit_source(Path(path), raw)
+                    normalized = project_history_projection(path, raw, normalized) if path != 'README.md' else readme_history_projection(normalized)
+                    for historical in HISTORY['files']:
+                        if PREVIOUS in historical:
+                            normalized = normalized.replace(historical.encode(), b'HISTORICAL_DOCUMENT')
+                            if path.endswith('.md'):
+                                normalized = normalized.replace(Path(historical).name.encode(), b'HISTORICAL_DOCUMENT')
                 except (OSError, UnicodeError, ValueError) as error:
                     record["errors"].append("identity-provenance: " + str(error))
                     record["errors"].append(path + " has invalid historical provenance context")
@@ -140,5 +161,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main(*sys.argv[1:]))
     except (OSError, subprocess.SubprocessError, ValueError) as error:
-        print("check-lila-identity: " + str(error), file=sys.stderr)
+        print("check-scriptw-identity: " + str(error), file=sys.stderr)
         raise SystemExit(1)

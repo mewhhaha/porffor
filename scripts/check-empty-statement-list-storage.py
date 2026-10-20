@@ -3,8 +3,8 @@
 import re,sys
 from pathlib import Path
 sys.dont_write_bytecode=True
-IR='crates/lila-ir/'
-ENGINE='crates/lila-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs'
+IR='crates/scriptw-ir/'
+ENGINE='crates/scriptw-engine/src/native_direct_eval_compiler_tests/empty_blocks.rs'
 FILES=[IR+'src/lowering.rs',IR+'src/lowering/async_disposable.rs',IR+'src/lowering/statement.rs',IR+'tests/direct_eval_environment.rs',IR+'tests/module_instantiation.rs',ENGINE]
 def check(root,overrides=None):
  overrides=overrides or {}

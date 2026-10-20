@@ -205,13 +205,13 @@ red outcomes owned by T13.
 
 ## Reproduce
 
-Build the branch with `cargo build --release --locked -j2 -p lila-cli`.
+Build the branch with `cargo build --release --locked -j2 -p scriptw-cli`.
 Replay an exact list through the native runner with:
 
 ```sh
 python3 scripts/replay-test262-executions.py \
   test262/replays/observed-latest-20260910.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/latest-baseline-replay --workers 4
 ```
 

@@ -69,8 +69,8 @@ The structure target passes `5/5` and the finite CLI target passes `1/1` on
 2026-08-26.
 
 ```sh
-cargo test -p lila-aot-wasm --test array_from_async_internal_callback_realm_context_structure --quiet
-cargo test -p lila-cli --test cli run_wasm_backend_preserves_array_from_async_internal_callback_realms --quiet
+cargo test -p scriptw-aot-wasm --test array_from_async_internal_callback_realm_context_structure --quiet
+cargo test -p scriptw-cli --test cli run_wasm_backend_preserves_array_from_async_internal_callback_realms --quiet
 ```
 
 The shared semantic golden passes `2/2` in 722.99 seconds with 678 dumps. It

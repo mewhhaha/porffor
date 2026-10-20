@@ -92,10 +92,10 @@ published full-suite status.
 Refresh the focused real-suite evidence with:
 
 ```sh
-cargo build --release --locked -j2 -p lila-cli
+cargo build --release --locked -j2 -p scriptw-cli
 python3 scripts/replay-test262-executions.py \
   test262/replays/uint8array-codecs-20260912.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/test262-scratch/uint8array-codecs-20260912 \
   --workers 6
 python3 scripts/audit-test262-replay.py \

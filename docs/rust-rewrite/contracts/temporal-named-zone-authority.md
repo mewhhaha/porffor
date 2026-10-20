@@ -36,7 +36,7 @@ rendered proposal is not the authority for this replacement.
 
 These source changes are staged only. Rustfmt and isolated patch/source checks
 are preparation evidence. The stable Node26.10.0 reference passes all thirty
-rewritten authority observations; those observations are not Lila execution or
+rewritten authority observations; those observations are not Scriptw execution or
 Test262 conformance. The complete compiler graph, focused actual Wasm controls,
 pinned cohort, broad verification and generated identity refresh remain required
 before named admission or published status changes. No full T22 acceptance is
@@ -52,7 +52,7 @@ update records actual new-batch results after verification.
 
 ### Historical runtime boundary
 
-The shared `lila-intl` provider already contains the pinned IANA 2026a Zone/Link
+The shared `scriptw-intl` provider already contains the pinned IANA 2026a Zone/Link
 catalogue, normalized Identifier/PrimaryIdentifier pairs, and TZif transitions
 for offset-at-instant lookup. Temporal inverse civil-time resolution, gap/overlap
 selection, and the named-zone consumer wiring remain compiler work owned by
@@ -73,7 +73,7 @@ string conversions, retain that behavior. They do not manufacture a named-zone
 object and therefore do not take this semantic-gap boundary.
 
 `RuntimeSemanticRejection::{DynamicSource, Gap}` owns the mandatory
-`lila_host.reject_runtime_semantics(i64) -> ()` import's sole wire domain. Dynamic
+`scriptw_host.reject_runtime_semantics(i64) -> ()` import's sole wire domain. Dynamic
 operations retain codes 0–5; the Temporal gap is code 6. The import's unary ABI
 and function index remain unchanged. Decode rejects every unassigned code.
 Wasmtime returns the typed reason before generic trap formatting. Engine
@@ -100,12 +100,12 @@ reference; Node exposes no Temporal here. Pinned replay and broad verification
 remain pending. No Test262 aggregate or T22 completion is claimed.
 
 ```sh
-cargo test -p lila-ir --lib runtime_semantics::tests
-cargo test -p lila-ir --lib builtins::catalog::tests::intl_provider_callers_declare_the_host_import
-cargo test -p lila-aot-wasm --test runtime_link -- host_import_function_indices_structure::
-cargo test -p lila-engine --lib execution_failure::tests
-cargo test -p lila-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
-cargo test -p lila-test262 --lib temporal_named_zone_semantic_gap_cannot_pass_runtime_negative_or_catch
+cargo test -p scriptw-ir --lib runtime_semantics::tests
+cargo test -p scriptw-ir --lib builtins::catalog::tests::intl_provider_callers_declare_the_host_import
+cargo test -p scriptw-aot-wasm --test runtime_link -- host_import_function_indices_structure::
+cargo test -p scriptw-engine --lib execution_failure::tests
+cargo test -p scriptw-engine --test aot_temporal -- aot_temporal_zone_authority:: --test-threads=1
+cargo test -p scriptw-test262 --lib temporal_named_zone_semantic_gap_cannot_pass_runtime_negative_or_catch
 ```
 
 ### Historical remaining acceptance and primary controls

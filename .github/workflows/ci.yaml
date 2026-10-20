@@ -45,8 +45,11 @@ jobs:
       - name: Check retired JavaScript boundaries
         run: ./scripts/check-no-legacy-js.sh
 
-      - name: Check canonical Lila identities
-        run: ./scripts/check-lila-identity.sh
+      - name: Check canonical Scriptw identities
+        run: ./scripts/check-scriptw-identity.sh
+
+      - name: Check generated README test diagrams
+        run: python3 -B scripts/generate-test-graph.py --check
 
       - name: Check pinned Intl source identities
         run: |
@@ -80,12 +83,12 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo xc 2>&1 | tee "$RUNNER_TEMP/lila-workspace-check.log"
+          cargo xc 2>&1 | tee "$RUNNER_TEMP/scriptw-workspace-check.log"
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             {
               printf '### Workspace check failed\n\n```text\n'
-              tail -n 200 "$RUNNER_TEMP/lila-workspace-check.log" | cut -c1-1500
+              tail -n 200 "$RUNNER_TEMP/scriptw-workspace-check.log" | cut -c1-1500
               printf '\n```\n\n'
               df -h / "$RUNNER_TEMP"
             } >> "$GITHUB_STEP_SUMMARY"
@@ -93,119 +96,119 @@ jobs:
           exit "$status"
 
       - name: Test AOT compiler library and discovered test targets
-        run: cargo test --release --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
+        run: cargo test --release --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
 
       - name: Test Test262 harness loading
         run: |
-          cargo test -p lila-test262 --lib -- harness
-          cargo test -p lila-test262 --lib -- load_preludes
+          cargo test -p scriptw-test262 --lib -- harness
+          cargo test -p scriptw-test262 --lib -- load_preludes
 
       - name: Test completed-baseline compiler and runtime regressions
         run: |
-          cargo test --release --locked -p lila-front --test regexp_legacy_astral_ranges
-          cargo test --release --locked -p lila-intl --lib
-          cargo test --release --locked -p lila-intl --test calendar_domain -- --test-threads=1
-          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::compound_addition_flow:: ir_cases::compound_assignment_saved_value:: ir_cases::regexp_legacy_pooled_class:: ir_cases::intl_locale_getters:: ir_cases::float16_array:: ir_cases::catch_pattern_owners::
-          cargo test --release --locked -p lila-test262 --test wasm_aot_callable_harness -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_language --test aot_builtins --test aot_intl --test aot_realm_modules --test aot_regexp -- aot_compound_addition_flow:: aot_compound_assignment_saved_value:: aot_constant_number_condition:: aot_set_algebra_copy_phases:: aot_intl_created_realm:: aot_intl_bound_format_realm:: aot_intl_keyword_aliases:: aot_intl_locale_host_import:: aot_intl_locale_constructor:: aot_intl_locale_options:: aot_intl_locale_likely_subtags:: aot_float16_array:: aot_typed_array_byte_copy:: aot_typed_array_constructor_error_realm:: aot_regexp_legacy_pooled_class:: aot_number_to_bigint:: aot_bigint_number_conversion:: aot_catch_pattern_owners:: aot_equality_operand_effects:: aot_intrinsic_receiver_observation:: --test-threads=2
+          cargo test --release --locked -p scriptw-front --test regexp_legacy_astral_ranges
+          cargo test --release --locked -p scriptw-intl --lib
+          cargo test --release --locked -p scriptw-intl --test calendar_domain -- --test-threads=1
+          cargo test --release --locked -p scriptw-ir --test scriptw_ir_integration -- ir_cases::compound_addition_flow:: ir_cases::compound_assignment_saved_value:: ir_cases::regexp_legacy_pooled_class:: ir_cases::intl_locale_getters:: ir_cases::float16_array:: ir_cases::catch_pattern_owners::
+          cargo test --release --locked -p scriptw-test262 --test wasm_aot_callable_harness -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_language --test aot_builtins --test aot_intl --test aot_realm_modules --test aot_regexp -- aot_compound_addition_flow:: aot_compound_assignment_saved_value:: aot_constant_number_condition:: aot_set_algebra_copy_phases:: aot_intl_created_realm:: aot_intl_bound_format_realm:: aot_intl_keyword_aliases:: aot_intl_locale_host_import:: aot_intl_locale_constructor:: aot_intl_locale_options:: aot_intl_locale_likely_subtags:: aot_float16_array:: aot_typed_array_byte_copy:: aot_typed_array_constructor_error_realm:: aot_regexp_legacy_pooled_class:: aot_number_to_bigint:: aot_bigint_number_conversion:: aot_catch_pattern_owners:: aot_equality_operand_effects:: aot_intrinsic_receiver_observation:: --test-threads=2
 
       - name: Test module instantiation and suspension environments
         run: |
-          cargo test --release --locked -p lila-ir --lib async_for_of_body
-          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::async_if_continuations:: ir_cases::async_for_of_continuations:: ir_cases::synchronous_resource_loops:: ir_cases::module_instantiation:: ir_cases::array_arguments_primitive:: ir_cases::module_default_export_names:: ir_cases::prepared_script_host_globals:: ir_cases::module_import_jobs:: ir_cases::graph_build_structure:: ir_cases::link_error_structure::
-          cargo test --release --locked -p lila-engine --lib module_prelude
-          cargo test --release --locked -p lila-engine --lib module_async_runtime_tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_realm_modules -- aot_module_async_lifecycle:: --test-threads=2
-          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::module_entry_completion::
-          cargo test --release --locked -p lila-engine --test aot_realm_modules --test aot_builtins -- aot_module_entry_completion:: aot_promise_rejection_policy:: --test-threads=2
-          cargo test --release --locked -p lila-engine --lib execution_failure::tests -- --test-threads=2
-          cargo test --release --locked -p lila-test262 --lib module_entry_completion -- --test-threads=2
-          cargo test --release --locked -p lila-test262 --lib module_materialization
-          cargo test --release --locked -p lila-test262 --lib module_runner
-          cargo test --release --locked -p lila-engine --test aot_async --test aot_generators --test aot_realm_modules --test aot_language --test aot_builtins -- aot_async_if:: aot_async_property_assignment:: aot_generator_catch_environment:: aot_module_instantiation:: aot_module_scope_isolation:: aot_public_class_fields:: aot_array_arguments_primitive:: aot_catch_pattern_owners:: aot_control_flow:: aot_prepared_script_hosts:: aot_module_import_jobs:: --test-threads=2
+          cargo test --release --locked -p scriptw-ir --lib async_for_of_body
+          cargo test --release --locked -p scriptw-ir --test scriptw_ir_integration -- ir_cases::async_if_continuations:: ir_cases::async_for_of_continuations:: ir_cases::synchronous_resource_loops:: ir_cases::module_instantiation:: ir_cases::array_arguments_primitive:: ir_cases::module_default_export_names:: ir_cases::prepared_script_host_globals:: ir_cases::module_import_jobs:: ir_cases::graph_build_structure:: ir_cases::link_error_structure::
+          cargo test --release --locked -p scriptw-engine --lib module_prelude
+          cargo test --release --locked -p scriptw-engine --lib module_async_runtime_tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_realm_modules -- aot_module_async_lifecycle:: --test-threads=2
+          cargo test --release --locked -p scriptw-ir --test scriptw_ir_integration -- ir_cases::module_entry_completion::
+          cargo test --release --locked -p scriptw-engine --test aot_realm_modules --test aot_builtins -- aot_module_entry_completion:: aot_promise_rejection_policy:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib execution_failure::tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-test262 --lib module_entry_completion -- --test-threads=2
+          cargo test --release --locked -p scriptw-test262 --lib module_materialization
+          cargo test --release --locked -p scriptw-test262 --lib module_runner
+          cargo test --release --locked -p scriptw-engine --test aot_async --test aot_generators --test aot_realm_modules --test aot_language --test aot_builtins -- aot_async_if:: aot_async_property_assignment:: aot_generator_catch_environment:: aot_module_instantiation:: aot_module_scope_isolation:: aot_public_class_fields:: aot_array_arguments_primitive:: aot_catch_pattern_owners:: aot_control_flow:: aot_prepared_script_hosts:: aot_module_import_jobs:: --test-threads=2
 
       - name: Test Intl date/time provider, locale methods and RegExp compilation
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_datetime_profile.py scripts/tests/test_intl_cldr_profile.py
-          python3 scripts/generate-intl-datetime-profile.py --output crates/lila-intl/src/provider/datetime/generated/profile.json --check
+          python3 scripts/generate-intl-datetime-profile.py --output crates/scriptw-intl/src/provider/datetime/generated/profile.json --check
           python3 scripts/generate-intl-datetime-identity.py --check
-          cargo test --release --locked -p lila-engine --lib intl_datetime_host::tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_intl --test aot_regexp -- aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_date_locale:: aot_regexp_recompile:: --test-threads=2
-          cargo test --release --locked -p lila-engine --lib regexp_program_boundary_tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --lib runtime_regexp_compiler_tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --lib array_present_index_tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_builtins -- aot_array_index_storage:: --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_builtins -- aot_string_match_call:: aot_string_constructor:: --test-threads=2
-          cargo test --release --locked -p lila-ir --test lila_ir_integration -- ir_cases::throw_type_error_realm::
-          cargo test --release --locked -p lila-engine --test aot_realm_modules -- aot_throw_type_error_realm:: --test-threads=2
-          cargo test --release --locked -p lila-ir --lib regexp::program::tests
+          cargo test --release --locked -p scriptw-engine --lib intl_datetime_host::tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_intl --test aot_regexp -- aot_intl_datetime_provider:: aot_intl_datetime_numbering:: aot_date_locale:: aot_regexp_recompile:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib regexp_program_boundary_tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib runtime_regexp_compiler_tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib array_present_index_tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_builtins -- aot_array_index_storage:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_builtins -- aot_string_match_call:: aot_string_constructor:: --test-threads=2
+          cargo test --release --locked -p scriptw-ir --test scriptw_ir_integration -- ir_cases::throw_type_error_realm::
+          cargo test --release --locked -p scriptw-engine --test aot_realm_modules -- aot_throw_type_error_realm:: --test-threads=2
+          cargo test --release --locked -p scriptw-ir --lib regexp::program::tests
 
       - name: Test pinned number formatting and primitive locale methods
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate-intl-numberformat-profile.py --verify-sources
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate-intl-numberformat-profile.py --check
-          cargo test --release --locked -p lila-engine --lib intl_number_host::tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_intl --test aot_builtins -- aot_intl_numberformat:: aot_array_to_locale_string_observable:: --test-threads=2
-          cargo test --release --locked -p lila-cli --test cli language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct -- --exact --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib intl_number_host::tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_intl --test aot_builtins -- aot_intl_numberformat:: aot_array_to_locale_string_observable:: --test-threads=2
+          cargo test --release --locked -p scriptw-cli --test cli language_numerics::run_wasm_backend_keeps_bigint_prototype_result_policies_distinct -- --exact --test-threads=2
 
       - name: Test pinned named time-zone data and formatting
         run: |
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest scripts/tests/test_generate_intl_named_time_zones.py scripts/tests/test_generate_intl_time_zone_names.py
           python3 scripts/generate-intl-named-time-zones.py --check
           python3 scripts/generate-intl-time-zone-names.py --native-image --check
-          cargo test --release --locked -p lila-engine --lib intl_time_zone_host::tests -- --test-threads=2
-          cargo test --release --locked -p lila-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib intl_time_zone_host::tests -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=2
 
       - name: Test JSON reviver property definitions
         run: |
-          cargo test --release --locked -p lila-engine --test aot_builtins -- aot_json_reviver_definitions:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_builtins -- aot_json_reviver_definitions:: --test-threads=2
 
       - name: Test property definition Realm ownership
         run: |
-          cargo test --release --locked -p lila-engine --test aot_realm_modules --test aot_builtins -- aot_define_property_realm:: aot_legacy_accessor_definers:: reflect_descriptor_object_realm:: aot_reflect_completed_descriptors:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_realm_modules --test aot_builtins -- aot_define_property_realm:: aot_legacy_accessor_definers:: reflect_descriptor_object_realm:: aot_reflect_completed_descriptors:: --test-threads=2
 
       - name: Test Promise host completion policy
         run: |
-          cargo test --release --locked -p lila-engine --test aot_builtins -- aot_promise_rejection_policy:: --test-threads=2
-          cargo test --release --locked -p lila-engine --lib program_cache_key_tracks_source_goal_and_configuration
-          cargo test --release --locked -p lila-engine --lib wasm_agent_compile_policy_preserves_root_module_authority
-          cargo test --release --locked -p lila-test262 --lib wasm_aot_host_tracker_preserves_sync_completion_and_async_failures -- --test-threads=2
-          cargo test --release --locked -p lila-test262 --lib wasm_aot_module_evaluation_rejection_remains_a_failure -- --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_builtins -- aot_promise_rejection_policy:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --lib program_cache_key_tracks_source_goal_and_configuration
+          cargo test --release --locked -p scriptw-engine --lib wasm_agent_compile_policy_preserves_root_module_authority
+          cargo test --release --locked -p scriptw-test262 --lib wasm_aot_host_tracker_preserves_sync_completion_and_async_failures -- --test-threads=2
+          cargo test --release --locked -p scriptw-test262 --lib wasm_aot_module_evaluation_rejection_remains_a_failure -- --test-threads=2
 
       - name: Test Arguments indexed descriptor presence
         run: |
-          cargo test --release --locked -p lila-engine --test aot_language -- aot_arguments_index_descriptors:: --test-threads=2
+          cargo test --release --locked -p scriptw-engine --test aot_language -- aot_arguments_index_descriptors:: --test-threads=2
 
       - name: Execute the pinned Test262 agent regression (non-vacuous)
         shell: bash
         run: |
           set -euo pipefail
           test_name=tests::wasm_agents_run_pinned_test262_case_with_exact_host_order
-          cargo test --locked -p lila-test262 --lib "$test_name" -- --exact --list | tee /tmp/agent-inventory.txt
+          cargo test --locked -p scriptw-test262 --lib "$test_name" -- --exact --list | tee /tmp/agent-inventory.txt
           grep -Fxq "$test_name: test" /tmp/agent-inventory.txt
-          cargo test --locked -p lila-test262 --lib "$test_name" -- --exact --nocapture | tee /tmp/agent-result.txt
+          cargo test --locked -p scriptw-test262 --lib "$test_name" -- --exact --nocapture | tee /tmp/agent-result.txt
           grep -Eq '^test result: ok\. 1 passed; 0 failed; 0 ignored;' /tmp/agent-result.txt
 
       - name: Audit emitted product artifact
-        run: "cargo test -p lila-aot-wasm --test emission -- product_artifact::"
+        run: "cargo test -p scriptw-aot-wasm --test emission -- product_artifact::"
 
       - name: Check known-failure ledger
         run: >-
-          cargo test -p lila-cli --test cli -- known_failures:: --test-threads=2
+          cargo test -p scriptw-cli --test cli -- known_failures:: --test-threads=2
 
       - name: Build CLI
-        run: cargo build -p lila-cli
+        run: cargo build -p scriptw-cli
 
       - name: Run fake wasm-safe Test262 suite
         run: >-
-          ./target/debug/lila test262 run language/wasm/pass
-          --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+          ./target/debug/scriptw test262 run language/wasm/pass
+          --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262
           --execution-backend wasm
 
       - name: Run full fake Test262 suite
         run: >-
-          ./target/debug/lila test262 run
-          --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+          ./target/debug/scriptw test262 run
+          --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262
 
       - name: Audit product dependency graph
         run: ./scripts/check-no-interpreter-in-product-graph.sh
@@ -225,17 +228,17 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: lila-linux-x86_64
-            path: target/release/lila
+            artifact: scriptw-linux-x86_64
+            path: target/release/scriptw
           - os: macos-latest
-            artifact: lila-macos
-            path: target/release/lila
+            artifact: scriptw-macos
+            path: target/release/scriptw
           - os: windows-latest
-            artifact: lila-windows-x86_64
-            path: target/release/lila.exe
+            artifact: scriptw-windows-x86_64
+            path: target/release/scriptw.exe
     steps:
       - uses: actions/checkout@v4
-      - run: cargo build --release -p lila-cli
+      - run: cargo build --release -p scriptw-cli
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

@@ -11,10 +11,10 @@
 # are confined to the listed CPUs regardless of how many threads they create.
 #
 # usage:
-#   ./scripts/capped.sh cargo test -p lila-engine --lib
-#   ./scripts/capped.sh ./target/release/lila run --execution-backend wasm x.js
+#   ./scripts/capped.sh cargo test -p scriptw-engine --lib
+#   ./scripts/capped.sh ./target/release/scriptw run --execution-backend wasm x.js
 #
-# LILA_CPU_PERCENT overrides the share (default 50). Cargo defaults to one
+# SCRIPTW_CPU_PERCENT overrides the share (default 50). Cargo defaults to one
 # job; a requested CARGO_BUILD_JOBS may only narrow the CPU-derived ceiling.
 
 set -eu
@@ -27,10 +27,10 @@ logical_cpus() {
   fi
 }
 
-percent=${LILA_CPU_PERCENT:-50}
+percent=${SCRIPTW_CPU_PERCENT:-50}
 case "$percent" in
   [1-9]|[1-9][0-9]|100) ;;
-  *) echo "LILA_CPU_PERCENT must be a decimal integer from 1 to 100" >&2; exit 2 ;;
+  *) echo "SCRIPTW_CPU_PERCENT must be a decimal integer from 1 to 100" >&2; exit 2 ;;
 esac
 
 requested_jobs=${CARGO_BUILD_JOBS:-1}

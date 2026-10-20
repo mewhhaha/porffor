@@ -24,7 +24,7 @@ String during the right side of `+=`, then read by `value + 1`; the correct
 result is `4`. This stage builds on the frozen callable-harness assignment
 repair, which already rejects false String admission for unknown operands.
 
-Verification targets are `compound_assignment_saved_value` in lila-ir and
-`aot_compound_assignment_saved_value` in lila-engine. Native controls include
+Verification targets are `compound_assignment_saved_value` in scriptw-ir and
+`aot_compound_assignment_saved_value` in scriptw-engine. Native controls include
 Number, String, BigInt, later arithmetic, direct conversion-hook mutations,
 replacement of the original binding, and abrupt completion ordering.

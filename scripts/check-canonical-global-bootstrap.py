@@ -3,7 +3,7 @@
 import re,sys
 from pathlib import Path
 
-PREFIX='crates/lila-ir/src/'
+PREFIX='crates/scriptw-ir/src/'
 FILES=[PREFIX+'lowering.rs',PREFIX+'lowering/builtin_catalog.rs',PREFIX+'lowering/global_script_prelude.rs',PREFIX+'lowering/prepared_function.rs']
 
 def check(root,overrides=None):

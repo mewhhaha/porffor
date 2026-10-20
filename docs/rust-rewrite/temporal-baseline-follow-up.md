@@ -91,17 +91,17 @@ separate from the 346-execution pinned real Test262 replay.
 Broader verification commands:
 
 ```sh
-cargo test --release --locked -j2 -p lila-ir --lib -- --test-threads=2
-cargo test --release --locked -j2 -p lila-aot-wasm --lib -- --test-threads=2
+cargo test --release --locked -j2 -p scriptw-ir --lib -- --test-threads=2
+cargo test --release --locked -j2 -p scriptw-aot-wasm --lib -- --test-threads=2
 cargo check --release --locked -j2 --workspace --all-targets
 ```
 
-The structural check runs every `crates/lila-aot-wasm/tests/intl_temporal/temporal_*.rs`
+The structural check runs every `crates/scriptw-aot-wasm/tests/intl_temporal/temporal_*.rs`
 module through the `intl_temporal` target with
-`cargo test --release --locked -j2 --no-fail-fast -p lila-aot-wasm --test intl_temporal`,
+`cargo test --release --locked -j2 --no-fail-fast -p scriptw-aot-wasm --test intl_temporal`,
 one `<stem>::` filter per module after `--` and `--test-threads=1`. The fake suite runs
-`lila --jobs 1 test262 run` against
-`crates/lila-test262/tests/fixtures/fake_test262/vendor/test262` with
+`scriptw --jobs 1 test262 run` against
+`crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262` with
 `--execution-backend wasm-aot --threads 2 --timeout-ms 60000` and a fresh
 snapshot directory. Collector tests pass 20/20; formatting, module boundaries,
 identity and the generated README artifact check also pass.
@@ -109,10 +109,10 @@ identity and the generated README artifact check also pass.
 Reproduce the candidate replay after building the CLI:
 
 ```sh
-cargo build --release --locked -j2 -p lila-cli
+cargo build --release --locked -j2 -p scriptw-cli
 python3 scripts/replay-test262-executions.py \
   test262/replays/temporal-follow-up-20260910.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/failure-review/temporal-follow-up-replay --workers 6
 ```
 

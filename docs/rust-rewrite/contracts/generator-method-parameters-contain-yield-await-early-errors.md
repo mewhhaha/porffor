@@ -58,7 +58,7 @@ and a default initializer may contain the same expression inside a nested
 generator or async function. Only the expression contained by the method's own
 FormalParameters is rejected.
 
-Pinned Boa eval parsing can also reach these method parsers. Lila has no
+Pinned Boa eval parsing can also reach these method parsers. Scriptw has no
 product dynamic-eval parser path, so that structural fact does not justify a
 T07 eval integration surface.
 
@@ -87,8 +87,8 @@ eval, all generator grammar, T07, or aggregate parser closure.
 ## Evidence
 
 At `2026-08-23`, all verification ran under the repository's eight-CPU cap and
-serial test/harness settings. The complete `lila-front` gate passes `75/75`,
-the retained-module early suite passes `35/35`, the focused `lila-ir` early-
+serial test/harness settings. The complete `scriptw-front` gate passes `75/75`,
+the retained-module early suite passes `35/35`, the focused `scriptw-ir` early-
 error gate passes `3/3`, and `cargo xc` passes. The exact five-file ordinary
 generator-method cohort passes `9/9` Wasm-AOT executions, with every failure
 and non-success bucket at zero. As recorded above, the pinned suite has no

@@ -12,7 +12,7 @@ source and pending execution gates. No DisplayNames product or pinned-suite
 pass is claimed.
 
 The input is the already captured CLDR47 source tree at
-`crates/lila-intl/data/datetime-cldr-47`, commit
+`crates/scriptw-intl/data/datetime-cldr-47`, commit
 `2ef784e3a4168bc2a43cd1b5b9839b6636f5899c`. The profile selects exactly `ar`,
 `ar-EG`, `de`, `en`, `en-US`, `fr`, `hi`, `it`, `ja`, `ko`, `zh`, `zh-Hans` and
 `zh-Hans-CN`; its default is `en-US`. These are proposed native data associations,
@@ -95,7 +95,7 @@ Refresh the source artifacts with
 the same command plus `--check`. Run the eight source controls using
 `python3 -B -m unittest discover -s scripts/tests -p test_generate_intl_displaynames_profile.py -v`.
 The owner-run isolated native foundation must register both new modules and run
-`cargo test --offline --locked -p lila-intl --lib display_names::tests:: -- --test-threads=2`
+`cargo test --offline --locked -p scriptw-intl --lib display_names::tests:: -- --test-threads=2`
 before claiming native admission. The final whole product batch must complete
 its compiler/Engine/AOT gates and all pinned DisplayNames modes, including the
 calendar and currency enumeration consumers.

@@ -126,7 +126,7 @@ the shown outer launcher and its own `--cloud` admission flag.
   source ID remain nonpasses. Architectural permission is no denominator waiver.
   These are not failures repaired by rerunning native selectors or proof tooling.
 - **T26 fresh gate:** once its entry requirements are genuinely ready:
-  `LILA_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" bash scripts/check-test262-closure.sh --cloud`.
+  `SCRIPTW_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" bash scripts/check-test262-closure.sh --cloud`.
   The native owner runs `closure-first` and `closure-second`, validates exact
   full manifests/results, writes a truthful red/green verdict and never publishes.
   This is distinct from active `actual-history-fullpin-2`, which supplies T01's

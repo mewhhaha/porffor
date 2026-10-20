@@ -133,10 +133,10 @@ The existing runtime fixture independently checks that a Promise-job Realm
 cannot replace an entry-defined method Realm.
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- async_generator_request_promise_realm_structure::
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- created_realm_promise_publication_structure::
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- async_execution_realm_structure::
-cargo test -p lila-cli --test cli run_wasm_backend_uses_async_function_realms_for_promises_and_reactions --quiet
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- async_generator_request_promise_realm_structure::
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- created_realm_promise_publication_structure::
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- async_execution_realm_structure::
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_async_function_realms_for_promises_and_reactions --quiet
 ```
 
 The consolidated semantic golden passes `2/2` in 707.34 seconds and contains

@@ -31,7 +31,7 @@ IR tests separately pin `PropertyWrite`, `PrivateWrite`, the activation value
 binding, and captured computed-reference operands.
 
 `cargo fmt --all -- --check` and
-`cargo check -p lila-ir -p lila-aot-wasm -p lila-cli --all-targets` pass. The
+`cargo check -p scriptw-ir -p scriptw-aot-wasm -p scriptw-cli --all-targets` pass. The
 IR `for_of` filter passes `21/21`, and the explicit rejection matrix passes
 `1/1`. The main structure target plus five affected companion targets pass
 `25/25`. The exact member-head CLI test and retained async iteration-capture

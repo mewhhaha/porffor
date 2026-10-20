@@ -125,7 +125,7 @@ publication from the wrong role has no accepted type/API.
 
 ## Focused producer invariant
 
-The durable `lila-ir` witness lowers all four computed ordinary-property update
+The durable `scriptw-ir` witness lowers all four computed ordinary-property update
 modes. It proves each becomes one fused carrier with the source-order base and
 raw-key operands, captured strictness, exact update operation, exact return
 mode, and conservative numeric result kind. It also pins that ordinary updates
@@ -154,7 +154,7 @@ Producer/static stage:
 
 ```sh
 cargo fmt --all -- --check
-cargo test -p lila-ir ordinary_property_numeric_update
+cargo test -p scriptw-ir ordinary_property_numeric_update
 git diff --check
 ./scripts/check-module-boundaries.sh
 ```
@@ -162,7 +162,7 @@ git diff --check
 Integrated exact stage:
 
 ```sh
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/postfix-decrement/S11.3.2_A6_T1.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name ordinary-property-numeric-update \

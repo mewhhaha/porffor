@@ -127,7 +127,7 @@ is no optional capability, boolean resumability flag, or default match arm.
 
 ## Producer obligations
 
-The lila-ir producer must:
+The scriptw-ir producer must:
 
 - select the exhaustive owner before lowering any initializer;
 - reject initializer suspension before allocating a capability or finalizer
@@ -155,14 +155,14 @@ Central integration owns compilation and runtime execution:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir async_generator_await_using --quiet
-./target/debug/lila test262 run \
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir async_generator_await_using --quiet
+./target/debug/scriptw test262 run \
   language/statements/await-using/initializer-Symbol.asyncDispose-called-at-end-of-asyncgeneratorbody.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 60000 --threads 1
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/statements/await-using/initializer-Symbol.dispose-called-at-end-of-asyncgeneratorbody.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 60000 --threads 1

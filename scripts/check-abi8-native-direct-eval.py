@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 
-AOT = 'crates/lila-aot-wasm/src/'
+AOT = 'crates/scriptw-aot-wasm/src/'
 FILES = tuple(AOT + name for name in (
     'lib.rs', 'runtime_artifact.rs', 'runtime_direct_eval.rs',
     'runtime_direct_eval/witness.rs', 'runtime_direct_eval/tests.rs',
@@ -15,7 +15,7 @@ FILES = tuple(AOT + name for name in (
     'emit/module_assembly/native_program.rs',
     'runtime_artifact/cache/tests.rs', 'runtime_artifact/build_package/tests.rs',
     'runtime_artifact/validated_profile.rs',
-)) + ('crates/lila-ir/src/runtime_semantics.rs',)
+)) + ('crates/scriptw-ir/src/runtime_semantics.rs',)
 
 def compact(text):
     text = re.sub(r'//[^\n]*', '', text)
@@ -49,7 +49,7 @@ def check(sources):
     require('Self::NativeDirectEvalFactory=>HelperOwner::Program,' in helper,
             'factory body belongs to actual P')
     native_program = a('emit/module_assembly/native_program.rs')
-    require('DirectEval(&\'alila_ir::RuntimeDirectEvalProgram)' in native_program and
+    require('DirectEval(&\'ascriptw_ir::RuntimeDirectEvalProgram)' in native_program and
             'crate::runtime_direct_eval::require_factory_plan(program,functions)?;' in native_program and
             'RuntimeHelperId::NativeDirectEvalFactory,' in native_program and
             'Some(NativeProgramFactory::DirectEval(program))' in native_program,
@@ -105,7 +105,7 @@ def check(sources):
                   'PreparedScriptKind::DirectEval(program.caller().context().clone())',
                   'ifunit.kind!=expected_kind||unit.id!=program.script_id()',
                   'PreparedScriptOutcome::Executable(unit)',
-                  'lila_front::decode_js_string_utf16(&root(program)?.source)',
+                  'scriptw_front::decode_js_string_utf16(&root(program)?.source,)',
                   'letunit=require_root_source_row(program,actual)?;'):
         require(token in witness, 'exact root role/source/script witness: '+token)
     for field, schema in (
@@ -135,20 +135,20 @@ def check(sources):
             'storage:GcHostStorage::FunctionReference{nullable:N::NULLABLE,}' in host and
             'index:field.ordinal().raw(),' in host,
             'nullable initializer fixture field has typed schema-derived projection')
-    rejection = c['crates/lila-ir/src/runtime_semantics.rs']
+    rejection = c['crates/scriptw-ir/src/runtime_semantics.rs']
     require('Self::UnavailableCapability(RuntimeUnavailableCapability::ExternalCallerImport)=>11,' in rejection and
             '11=>Some(Self::UnavailableCapability(RuntimeUnavailableCapability::ExternalCallerImport,))' in rejection,
             'external caller import owns distinct roundtripping capability11')
     module = a('modules.rs')
-    require('referrer:lila_ir::ImportCallSourceOriginIr,' in module and
-            'lila_ir::ImportCallSourceOriginIr::Local(referrer)=>referrer,' in module,
+    require('referrer:scriptw_ir::ImportCallSourceOriginIr,' in module and
+            'scriptw_ir::ImportCallSourceOriginIr::Local(referrer)=>referrer,' in module,
             'local and external import origins stay typed and exhaustive')
-    external = module.split('lila_ir::ImportCallSourceOriginIr::ExternalCaller(_origin)=>{',1)[1].split('letdispatcher=',1)[0]
+    external = module.split('scriptw_ir::ImportCallSourceOriginIr::ExternalCaller(_origin)=>{',1)[1].split('letdispatcher=',1)[0]
     steps = ['self.compile_expr_to_value(specifier,&argument,function)?;',
              'self.emit_propagate_current_throw_if_needed(function);',
              'self.compile_expr_to_value(options,&import_options,function)?;',
              'self.emit_reject_runtime_semantics(',
-             'lila_ir::RuntimeUnavailableCapability::ExternalCallerImport']
+             'scriptw_ir::RuntimeUnavailableCapability::ExternalCallerImport']
     positions = [external.find(token) for token in steps]
     require(all(i >= 0 for i in positions) and positions == sorted(positions) and
             external.count('self.emit_propagate_current_throw_if_needed(function);') == 2 and

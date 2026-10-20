@@ -18,7 +18,7 @@ class CollectFailuresTests(unittest.TestCase):
         outcomes = {"Success": 1, "NotImplemented": 1, "Bug": 1, "Crash": 0}
         self.aggregate = {
             "run_kind": "aggregate-matrix",
-            "producer": "lila",
+            "producer": "scriptw",
             "execution_backend": "wasm-aot",
             "pinned_revisions": {"test262": "pinned-revision"},
             "completed_nodes": ["first"],
@@ -32,7 +32,7 @@ class CollectFailuresTests(unittest.TestCase):
             ],
         }
         self.checkpoint = {
-            "producer": "lila",
+            "producer": "scriptw",
             "execution_backend": "wasm-aot",
             "manifest_hash": "first-hash",
             "run_kind": "matrix-filter-leaf",

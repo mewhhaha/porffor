@@ -36,6 +36,6 @@ outlining would instead change shared call, allocation, newTarget, Realm and
 abrupt-completion machinery; it is a separate optimization.
 
 Verification targets are the `constant_number_condition` unit tests in
-lila-aot-wasm, `constant_number_condition_emission`, and
-`aot_constant_number_condition` in lila-engine. Native verification and the
+scriptw-aot-wasm, `constant_number_condition_emission`, and
+`aot_constant_number_condition` in scriptw-engine. Native verification and the
 24-case stress replay remain necessary before claiming the baseline fixed.

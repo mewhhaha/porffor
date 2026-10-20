@@ -36,7 +36,7 @@ After the full dry batch, refresh it with the existing generator and inspect the
 result before committing it:
 
 ```sh
-./scripts/audit-test262-shortcuts.sh --target crates/lila-test262/src/lib.rs > target/shortcut-inventory.next.md
+./scripts/audit-test262-shortcuts.sh --target crates/scriptw-test262/src/lib.rs > target/shortcut-inventory.next.md
 ```
 
 Only a successful generator result may replace
@@ -48,8 +48,8 @@ suite executions remain required before acceptance.
 The authored source-routing controls run after the combined type checkpoint:
 
 ```sh
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib source_execution_routing_tests
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-test262 --features spec-exec-oracle --lib differential::test262_seeds::tests::feature_annotations_and_async_agent_hosts_keep_the_original_runner_owners -- --exact
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --lib source_execution_routing_tests
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-test262 --features spec-exec-oracle --lib differential::test262_seeds::tests::feature_annotations_and_async_agent_hosts_keep_the_original_runner_owners -- --exact
 ```
 
 The existing `tests::default_execution_refuses_a_missing_supervisor_before_admission`,

@@ -22,7 +22,7 @@ spec.loader.exec_module(tier)
 
 class RobustnessTierTests(unittest.TestCase):
     def setUp(self):
-        directory = tempfile.TemporaryDirectory(prefix="lila robustness tier ")
+        directory = tempfile.TemporaryDirectory(prefix="scriptw robustness tier ")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.output = self.root / "evidence"

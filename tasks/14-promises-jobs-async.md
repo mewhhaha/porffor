@@ -1093,10 +1093,10 @@ variants.
 ## Required tests
 
 ```sh
-cargo test -p lila-runtime job_ --quiet
-cargo test -p lila-aot-wasm promise_ --quiet
-cargo test -p lila-cli wasm_async --quiet
-./target/debug/lila test262 run built-ins/Promise --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+cargo test -p scriptw-runtime job_ --quiet
+cargo test -p scriptw-aot-wasm promise_ --quiet
+cargo test -p scriptw-cli wasm_async --quiet
+./target/debug/scriptw test262 run built-ins/Promise --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 Also run async function, `await`, `for-await-of`, async iterator and top-level-await filters, plus intentionally hanging/duplicate `$DONE` harness tests.

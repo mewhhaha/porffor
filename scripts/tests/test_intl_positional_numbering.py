@@ -9,7 +9,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 from intl_positional_numbering import TolsSupplement
 
-DATA = SCRIPTS.parent / "crates/lila-intl/data"
+DATA = SCRIPTS.parent / "crates/scriptw-intl/data"
 
 
 class TolsSourceTests(unittest.TestCase):

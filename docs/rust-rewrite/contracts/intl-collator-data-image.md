@@ -21,7 +21,7 @@ different profile cannot supply its fallback foundation. The admitted owner
 retains that actual Locale image digest for the provider's component join.
 
 The 2026-10-06 closure supplement also carries the real candidate-locale
-inventory under the native marker `lila/collator/locale-inventory/v1`. Its
+inventory under the native marker `scriptw/collator/locale-inventory/v1`. Its
 14,542-byte schema-1 descriptor contains the same 1,082 ordered CLDR locale names
 previously read from the default native Number owner. The names are copied from
 the existing canonical extract whose SHA-256 is

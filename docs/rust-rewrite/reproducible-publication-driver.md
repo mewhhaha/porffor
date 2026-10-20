@@ -50,7 +50,7 @@ Concurrent writers to the same snapshot namespace are not supported by this
 wrapper; use one owner for the complete run.
 
 The dry schema-8 snapshot migration now makes native compiler provenance
-mandatory. The schema-4 publication session queries `lila compiler-identity`,
+mandatory. The schema-4 publication session queries `scriptw compiler-identity`,
 checks its executing-image digest against before/after observed binary bytes,
 and retains the embedded build fingerprint/revision separately from observed
 checkout inputs. Every accepted progress response must carry the same native
@@ -89,12 +89,12 @@ For an actual publication, build the CLI in the checkout to be measured, retain
 that build log, and capture the complete publication transcript:
 
 ```sh
-python3 scripts/limited_verification.py -- cargo build --release --locked -p lila-cli
+python3 scripts/limited_verification.py -- cargo build --release --locked -p scriptw-cli
 set -o pipefail
-LILA_BIN=./target/release/lila \
+SCRIPTW_BIN=./target/release/scriptw \
   python3 scripts/limited_verification.py -- \
   ./scripts/publish-real-status-low-ram.sh wasm-aot current-pin-baseline \
-  2>&1 | tee /tmp/lila-current-pin-publication.log
+  2>&1 | tee /tmp/scriptw-current-pin-publication.log
 ```
 
 The wrapper requires Bash, Git, Awk and `sha256sum` in addition to the built CLI.

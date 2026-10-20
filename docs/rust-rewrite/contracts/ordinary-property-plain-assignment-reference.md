@@ -15,7 +15,7 @@ None has an explicit flags list, so the three physical files produce six
 sloppy/strict executions. The selected current-head baseline is 1/6:
 
 - both null-base files are 0/2 `Runtime:NotImplemented`, with exact diagnostic
-  `unsupported in lila wasm-aot first slice: property access on non-object target`;
+  `unsupported in scriptw wasm-aot first slice: property access on non-object target`;
 - the undefined-base identifier file passes in strict mode but is
   `Runtime:Bug` in sloppy mode because the assignment fails to throw the
   required `TypeError`.
@@ -105,7 +105,7 @@ expression.
 
 ## Focused producer invariant
 
-The durable `lila-ir` witness lowers computed and static-name ordinary-property
+The durable `scriptw-ir` witness lowers computed and static-name ordinary-property
 assignments with effectful base, key, and RHS expressions in strict and sloppy functions.
 It proves that each source assignment becomes exactly one
 `OrdinaryPropertyAssignmentIr`, preserves the base/key/RHS source roles and
@@ -127,7 +127,7 @@ Producer/static stage:
 
 ```sh
 cargo fmt --all -- --check
-cargo test -p lila-ir ordinary_property_plain_assignment
+cargo test -p scriptw-ir ordinary_property_plain_assignment
 git diff --check
 ./scripts/check-module-boundaries.sh
 ```
@@ -137,17 +137,17 @@ Integrated exact stage:
 Run each exact path separately:
 
 ```sh
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/assignment/target-member-computed-reference-null.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name ordinary-property-plain-assignment-computed-null \
   --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/assignment/target-member-identifier-reference-null.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name ordinary-property-plain-assignment-identifier-null \
   --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run \
+./target/debug/scriptw test262 run \
   language/expressions/assignment/target-member-identifier-reference-undefined.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name ordinary-property-plain-assignment-identifier-undefined \

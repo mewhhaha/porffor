@@ -138,7 +138,7 @@ into `TryFinally`.
 
 ## Verification boundary
 
-Durable `lila-ir` tests pin the structural contract without executing Wasm:
+Durable `scriptw-ir` tests pin the structural contract without executing Wasm:
 
 - one declaration produces one dedicated node and no generic `TryFinally`;
 - multiple declarators retain source order;
@@ -151,9 +151,9 @@ The focused ladder is:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir synchronous_using --quiet
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir synchronous_using --quiet
 ```
 
 The integrated current-SHA checkpoint is green: `cargo xc`, all three focused

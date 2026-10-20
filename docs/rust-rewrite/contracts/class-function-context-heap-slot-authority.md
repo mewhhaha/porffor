@@ -50,10 +50,10 @@ resolution, private-name lookup, emitted Wasm, root scanning or collector
 execution. The runtime offset consumers remain unchanged.
 
 ```sh
-cargo test -p lila-aot-wasm --test class_function_context_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::class_function_context_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_class_function_context_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/class_function_context_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test class_function_context_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::class_function_context_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_class_function_context_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/class_function_context_heap_slot_structure.rs
 git diff --check
 ```
 

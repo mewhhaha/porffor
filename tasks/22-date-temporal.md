@@ -361,7 +361,7 @@ The current integration algorithms retain the assertions that the Apia case
 violates; no accepted replacement behavior was found. Production and the six
 owned Apia controls are unchanged. This audit closes no conformance debt and
 runs no compilation or execution; the dated evidence is retained under
-`.lila-task-work/recovery-20261005/t22-window`.
+`.scriptw-task-work/recovery-20261005/t22-window`.
 
 **Status:** In progress — complete named-zone consumer batch integrated; product verification, full APIs/data and conformance remain open
 
@@ -483,7 +483,7 @@ month/week count is zero; `relativeTo` strings with only key/value annotations
 such as `[u-ca=iso8601]` take the plain-date parser rather than requiring a
 time-zone annotation. The ISO parser still owns annotation validation.
 
-The new `lila-engine` target `aot_temporal_duration_relative` exercises the
+The new `scriptw-engine` target `aot_temporal_duration_relative` exercises the
 product Wasm-AOT path with four independent fixtures. They cover positive and
 negative retained calendar fields, leap/end-of-month arithmetic, calendar-only
 and critical annotations, plain-date-time slot conversion, fixed-offset
@@ -504,7 +504,7 @@ calendar coverage and full pinned Date/Temporal trees remain open.
 Refresh the focused Duration evidence with:
 
 ```sh
-cargo test -p lila-engine --test aot_temporal -- aot_temporal_duration_relative:: --test-threads=2
+cargo test -p scriptw-engine --test aot_temporal -- aot_temporal_duration_relative:: --test-threads=2
 ```
 
 The general Date parsing follow-up replaces the two epoch-only display string
@@ -816,7 +816,7 @@ cases observe neither the later `year` getter nor any option getter. See the
 [`property-bag option-order contract`](../docs/rust-rewrite/contracts/temporal-zoned-date-time-property-bag-option-order.md).
 The structure target passes `3/3` and the existing ZonedDateTime era fixture
 passes its focused Wasm-AOT CLI test `1/1`; fixture syntax, formatting and
-`cargo check -p lila-aot-wasm` are green. This change does not reorder the
+`cargo check -p scriptw-aot-wasm` are green. This change does not reorder the
 earlier property-bag field reads, add custom calendar or time-zone protocols,
 broaden the string or branded-object paths, close T22, or change a published
 conformance count.
@@ -1058,7 +1058,7 @@ remaining API work still keep T22 in progress.
 
 ## Objective
 
-Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Lila's own runtime/compiler layers.
+Implement exact Date semantics and the complete Temporal API for the pinned revisions using deterministic clock, calendar and time-zone interfaces. Reuse vendored `temporal_rs` where appropriate, but preserve JavaScript-observable coercion, property access, branding, realm and descriptor behavior in Scriptw's own runtime/compiler layers.
 
 ## Host time contract
 
@@ -1091,7 +1091,7 @@ Do not use Rust/OS date parsers for ECMAScript ISO parsing unless wrapped by exh
 Compile JavaScript-observable Temporal algorithms to Wasm. Vendored Rust calendar/time-zone code may supply deterministic data and pure algorithms; the emitted adapter must own:
 
 - ordered option/property access and conversion through T04;
-- Lila object branding/internal slots and prototype dispatch;
+- Scriptw object branding/internal slots and prototype dispatch;
 - realm-specific constructors/prototypes/errors;
 - conversion to/from ECMAScript strings, Numbers, BigInts and objects;
 - current Stage4 calendar/time-zone identifier conversion, available-name validation and branded Temporal slot recovery where the algorithm permits it;
@@ -1142,14 +1142,14 @@ from the batch workflow before the canonical release build and pinned refreshes.
 Keep that source/binary identity fixed through publication.
 
 ```sh
-cargo test -p lila-runtime time_ --quiet
-cargo test -p lila-aot-wasm date_ --quiet
-cargo test -p lila-aot-wasm temporal_ --quiet
-cargo test -p lila-cli wasm_date --quiet
-cargo build --release --locked -j 2 -p lila-cli
-./target/release/lila --jobs 1 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-date
-./target/release/lila --jobs 1 test262 run built-ins/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-temporal
-./target/release/lila --jobs 1 test262 run intl402/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-intl-consumers
+cargo test -p scriptw-runtime time_ --quiet
+cargo test -p scriptw-aot-wasm date_ --quiet
+cargo test -p scriptw-aot-wasm temporal_ --quiet
+cargo test -p scriptw-cli wasm_date --quiet
+cargo build --release --locked -j 2 -p scriptw-cli
+./target/release/scriptw --jobs 1 test262 run built-ins/Date --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-date
+./target/release/scriptw --jobs 1 test262 run built-ins/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-temporal
+./target/release/scriptw --jobs 1 test262 run intl402/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 240000 --threads 2 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-intl-consumers
 ```
 
 After complete integration, follow the [batch verification ladder](../docs/rust-rewrite/batch-workflow.md), the focused consumer commands and guarded publication command in the [batch contract](../docs/rust-rewrite/temporal-named-zone-consumer-batch.md). These refresh commands are not verification results. Use deterministic injected clocks and explicit UTC, numeric and IANA zone arguments, including DST gaps/folds. The authored configurable default-zone service requires its own combined verification. Spec-exec/reference comparisons are diagnostics only; Wasm-AOT executions provide product evidence.

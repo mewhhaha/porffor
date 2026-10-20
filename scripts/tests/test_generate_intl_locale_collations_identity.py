@@ -80,15 +80,15 @@ class CollationIdentity(unittest.TestCase):
     def test_actual_historical_collator_exports_and_number_payload_are_checked(self):
         rows = GEN.admitted_data(ROOT)
         names = {item['path'] for item in rows}
-        self.assertIn('crates/lila-intl/data/collator-icu-2/sources.tar.gz', names)
-        self.assertIn('crates/lila-intl-collator-data/src/generated/collation_tailoring_v1.rs.data', names)
-        self.assertIn('crates/lila-intl/data/number-cldr-47/profiles.bin', names)
+        self.assertIn('crates/scriptw-intl/data/collator-icu-2/sources.tar.gz', names)
+        self.assertIn('crates/scriptw-intl-collator-data/src/generated/collation_tailoring_v1.rs.data', names)
+        self.assertIn('crates/scriptw-intl/data/number-cldr-47/profiles.bin', names)
 
     def test_actual_profile_query_keyword_owner_and_codec_are_bound(self):
         names = {item['path'] for item in GEN.kernel_sources(ROOT)}
-        for name in ['crates/lila-intl/src/collator/profiles.rs',
-                     'crates/lila-intl/src/provider/region_preference.rs',
-                     'crates/lila-intl/src/locale_information_wire.rs', str(GEN.NATIVE)]:
+        for name in ['crates/scriptw-intl/src/collator/profiles.rs',
+                     'crates/scriptw-intl/src/provider/region_preference.rs',
+                     'crates/scriptw-intl/src/locale_information_wire.rs', str(GEN.NATIVE)]:
             self.assertIn(name, names)
         # The closed NumberFormat inventory also binds domains and the
         # projection, projection/closure and projection/encode owners.
@@ -108,7 +108,7 @@ class CollationIdentity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             source_fixture(root)
-            path = root / 'crates/lila-intl/src/collator/unchecked.rs'
+            path = root / 'crates/scriptw-intl/src/collator/unchecked.rs'
             path.write_text('pub fn bypass() {}\n')
             with self.assertRaisesRegex(ValueError, 'Collator production'):
                 GEN.kernel_sources(root)
@@ -118,19 +118,19 @@ class CollationIdentity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             source_fixture(root)
-            path = root / 'crates/lila-intl/src/collator/profiles.rs'
+            path = root / 'crates/scriptw-intl/src/collator/profiles.rs'
             path.write_bytes(path.read_bytes() + b'\n// changed actual per-locale selector\n')
             after = GEN.kernel_sources(root)
             self.assertNotEqual(before, after)
             changed = [left['path'] for left, right in zip(before, after) if left != right]
-            self.assertEqual(changed, ['crates/lila-intl/src/collator/profiles.rs'])
+            self.assertEqual(changed, ['crates/scriptw-intl/src/collator/profiles.rs'])
 
     def test_wire_contract_change_changes_identity_rows(self):
         before = GEN.kernel_sources(ROOT)
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)
             source_fixture(root)
-            path = root / 'crates/lila-intl/src/locale_information_wire.rs'
+            path = root / 'crates/scriptw-intl/src/locale_information_wire.rs'
             path.write_bytes(path.read_bytes() + b'\n// changed framed response contract\n')
             after = GEN.kernel_sources(root)
             self.assertNotEqual(before, after)

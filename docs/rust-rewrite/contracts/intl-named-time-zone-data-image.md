@@ -3,8 +3,8 @@
 `NamedTimeZoneDataImage` carries the complete existing IANA2026a authority:
 598 normalized catalogue rows and their actual slim rearguard TZif records,
 the original 418-row `zone.tab`, and the checked 247-country projection.
-Its native inventory is `lila/time-zone/iana/v1`; its artifact section is
-`lila.intl-named-time-zone-data.v1`.
+Its native inventory is `scriptw/time-zone/iana/v1`; its artifact section is
+`scriptw.intl-named-time-zone-data.v1`.
 
 The source-owned build exporter reads the exact locked `jiff-tzdb` 0.1.6
 archive and pinned native catalogue/membership inputs. It emits one closed

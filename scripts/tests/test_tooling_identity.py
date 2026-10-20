@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parents[2]
-SCRIPT = REPO / "scripts/check-lila-identity.sh"
+SCRIPT = REPO / "scripts/check-scriptw-identity.sh"
 RETIRED_NAME = "por" + "ffor"
 
 spec = importlib.util.spec_from_file_location(
@@ -23,6 +23,26 @@ spec.loader.exec_module(provenance)
 
 
 class FrozenProofTests(unittest.TestCase):
+    def test_pre_rename_proof_requires_every_original_byte(self):
+        old = 'li' + 'la'
+        raw = ('{"executable":"' + old + '","count":7}\n').encode()
+        path = 'docs/rust-rewrite/closed-rename-proof.json'
+        with patch.dict(provenance.HISTORY, files={path: hashlib.sha256(raw).hexdigest()}):
+            projected = provenance.project_history_projection(path, raw)
+            self.assertNotIn(old.encode(), projected)
+            self.assertEqual(projected.count(b'\n'), raw.count(b'\n'))
+            with self.assertRaisesRegex(ValueError, 'frozen pre-rename evidence changed'):
+                provenance.project_history_projection(path, raw.replace(b'7', b'8'))
+            self.assertEqual(provenance.project_history_projection('unregistered.json', raw), raw)
+
+    def test_historical_readme_counts_cannot_be_projected_after_drift(self):
+        old = 'li' + 'la'
+        raw = f'<!-- {old}-status:start -->\n7 passes\n<!-- {old}-status:end -->'.encode()
+        with patch.dict(provenance.HISTORY, readme_status_sha256=hashlib.sha256(raw).hexdigest()):
+            self.assertNotIn(old.encode(), provenance.readme_history_projection(raw))
+            with self.assertRaisesRegex(ValueError, 'frozen pre-rename README publication changed'):
+                provenance.readme_history_projection(raw.replace(b'7 passes', b'8 passes'))
+
     def test_current_closed_checkpoints_are_byte_bound(self):
         for name in ('engine299-runtime-checkpoint-20261020.json',
                      'native-progress-checkpoint-20261020.json',
@@ -70,7 +90,7 @@ class FrozenProofTests(unittest.TestCase):
             schema_raw = json.dumps(dict(fields, schema='closed-test')).encode()
             self.assertEqual(provenance.audit_source(path, schema_raw), schema_raw)
         self.assertEqual(provenance.audit_source(path, raw), raw)
-        self.assertEqual(provenance.audit_source(Path('crates/lila-cli') / name, raw), raw)
+        self.assertEqual(provenance.audit_source(Path('crates/scriptw-cli') / name, raw), raw)
 
     def test_frozen_admission_changes_only_host_paths_and_preserves_product_tokens(self):
         raw = (
@@ -86,7 +106,7 @@ class FrozenProofTests(unittest.TestCase):
             )
             self.assertEqual(actual, expected)
             self.assertIn((RETIRED_NAME + "-cli").encode(), actual)
-            self.assertEqual(provenance.audit_source(Path("crates/lila-cli") / name, raw), raw)
+            self.assertEqual(provenance.audit_source(Path("crates/scriptw-cli") / name, raw), raw)
             self.assertEqual(provenance.audit_source(Path("docs/rust-rewrite/unknown.json"), raw), raw)
 
     def test_any_changed_frozen_proof_byte_is_rejected(self):
@@ -106,15 +126,16 @@ class IdentityTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.git("init", "-q")
         shutil.copyfile(REPO / ".gitignore", self.root / ".gitignore")
-        mapping = self.root / "docs/rust-rewrite/lila-identity-map.tsv"
+        mapping = self.root / "docs/rust-rewrite/scriptw-identity-map.tsv"
         mapping.parent.mkdir(parents=True)
         shutil.copyfile(REPO / mapping.relative_to(self.root), mapping)
         for package in (
             "front", "ir", "runtime", "spec-exec", "aot-wasm", "backend-c",
-            "backend-native", "engine", "test262", "cli",
+            "backend-native", "engine", "test262", "cli", "runtime-image",
+            "intl", "intl-collator-data", "verification-feature-roots",
         ):
-            (self.root / f"crates/lila-{package}").mkdir(parents=True)
-        entry = self.root / "crates/lila-cli/src/bin/lila.rs"
+            (self.root / f"crates/scriptw-{package}").mkdir(parents=True)
+        entry = self.root / "crates/scriptw-cli/src/bin/scriptw.rs"
         entry.parent.mkdir(parents=True)
         entry.write_text("fn main() {}\n", encoding="utf-8")
 
@@ -138,16 +159,26 @@ class IdentityTests(unittest.TestCase):
         )
 
     def test_local_recovery_is_ignored_and_preserved(self):
-        path, contents = self.old_identity_file(".lila-task-work/recovery/SOURCE.json")
+        path, contents = self.old_identity_file(".scriptw-task-work/recovery/SOURCE.json")
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("check-lila-identity: ok", result.stdout)
+        self.assertIn("check-scriptw-identity: ok", result.stdout)
         self.assertEqual(path.read_text(encoding="utf-8"), contents)
         listed = self.git("ls-files", "--others", "--exclude-standard").stdout
-        self.assertNotIn(".lila-task-work/", listed)
+        self.assertNotIn(".scriptw-task-work/", listed)
+
+    def test_previous_private_helpers_and_pascal_case_state_are_rejected(self):
+        old = ('li' + 'la').title()
+        path = self.root / 'crates/scriptw-ir/live.rs'
+        for token in ('$' + old + 'GeneratorThrow', 'Current' + old + 'V8'):
+            with self.subTest(token=token):
+                path.write_text('const TOKEN: &str = "' + token + '";\n')
+                self.assertNotEqual(self.audit().returncode, 0)
+        path.write_text('const CURRENCY: &str = "Swazi Lilangeni";\n')
+        self.assertEqual(self.audit().returncode, 0)
 
     def test_forced_tracked_recovery_still_gets_audited(self):
-        relative = ".lila-task-work/recovery/SOURCE.json"
+        relative = ".scriptw-task-work/recovery/SOURCE.json"
         self.old_identity_file(relative)
         self.git("add", "-f", "--", relative)
         result = self.audit()
@@ -156,8 +187,8 @@ class IdentityTests(unittest.TestCase):
 
     def test_untracked_product_and_nested_recovery_still_get_audited(self):
         for relative in (
-            "crates/lila-cli/src/new_product.json",
-            "crates/lila-cli/.lila-task-work/SOURCE.json",
+            "crates/scriptw-cli/src/new_product.json",
+            "crates/scriptw-cli/.scriptw-task-work/SOURCE.json",
         ):
             with self.subTest(path=relative):
                 path, _ = self.old_identity_file(relative)
@@ -170,7 +201,7 @@ class IdentityTests(unittest.TestCase):
         path = self.root / "docs/rust-rewrite/native-comparison.json"
         path.write_text(
             '{"eliminated": [\n'
-            f'  "/workspace/{RETIRED_NAME}/crates/lila-intl-data/src/generated/mod.rs - baked::provider (line 5)"\n'
+            f'  "/workspace/{RETIRED_NAME}/crates/scriptw-intl-data/src/generated/mod.rs - baked::provider (line 5)"\n'
             ']}\n', encoding="utf-8",
         )
         result = self.audit()
@@ -180,7 +211,7 @@ class IdentityTests(unittest.TestCase):
         for relative, contents in (
             ("docs/rust-rewrite/native-comparison.json", f'{{"message": "{RETIRED_NAME} runtime"}}\n'),
             ("docs/rust-rewrite/native-comparison.json", f'  "/workspace/{RETIRED_NAME}/crates/{RETIRED_NAME}-cli/src/main.rs - main (line 5)"\n'),
-            ("crates/lila-cli/src/receipt.json", f'  "/workspace/{RETIRED_NAME}/crates/lila-cli/src/main.rs - main (line 5)"\n'),
+            ("crates/scriptw-cli/src/receipt.json", f'  "/workspace/{RETIRED_NAME}/crates/scriptw-cli/src/main.rs - main (line 5)"\n'),
         ):
             with self.subTest(path=relative, contents=contents):
                 path = self.root / relative
@@ -202,8 +233,8 @@ class IdentityTests(unittest.TestCase):
 
     def test_captured_proof_roots_and_worktree_paths_keep_literal_bytes(self):
         roots = [f"/workspace/{RETIRED_NAME}{suffix}" for suffix in ("", "-next", "-repairs")]
-        value = self.proof(cwd=roots[1], argv=[root + "/crates/lila-engine/src/lib.rs" for root in roots],
-            cargo_package="path+file://" + roots[1] + "/crates/lila-engine#0.1.0",
+        value = self.proof(cwd=roots[1], argv=[root + "/crates/scriptw-engine/src/lib.rs" for root in roots],
+            cargo_package="path+file://" + roots[1] + "/crates/scriptw-engine#0.1.0",
             index=roots[0] + f"/.git/worktrees/{RETIRED_NAME}-next/index",
             diagnostic="actual checkout " + roots[1] + "; source retained",
             dependency_output="left\n\n" + roots[0] + "/target/native.rmeta: input.rs\n")
@@ -225,7 +256,7 @@ class IdentityTests(unittest.TestCase):
         for relative, value in (
                 ("docs/rust-rewrite/unregistered-proof.json", self.proof(cwd=f"/workspace/{RETIRED_NAME}-next")),
                 ("docs/rust-rewrite/default-workspace-eb1ca63c9-native-checkpoint-20261015.json", {"schema": "wrong", "cwd": f"/workspace/{RETIRED_NAME}-next"}),
-                ("crates/lila-cli/src/proof.json", self.proof(cwd=f"/workspace/{RETIRED_NAME}-next"))):
+                ("crates/scriptw-cli/src/proof.json", self.proof(cwd=f"/workspace/{RETIRED_NAME}-next"))):
             with self.subTest(path=relative):
                 import json
                 path = self.root / relative
@@ -272,7 +303,7 @@ class IdentityTests(unittest.TestCase):
                 self.assertNotEqual(self.audit().returncode, 0)
 
     def test_binary_content_and_case_sensitivity_keep_grep_semantics(self):
-        path = self.root / "crates/lila-cli/src/sample.dat"
+        path = self.root / "crates/scriptw-cli/src/sample.dat"
         path.parent.mkdir(parents=True, exist_ok=True)
         for contents in ((RETIRED_NAME + "-cli\0").encode(), b"PORFFOR runtime\n"):
             with self.subTest(contents=contents):
@@ -324,7 +355,7 @@ class IdentityTests(unittest.TestCase):
 
     def test_near_miss_doctest_and_non_newline_whitespace_are_not_lost(self):
         path = self.root / "docs/rust-rewrite/native-comparison.json"
-        exact = f'  "/workspace/{RETIRED_NAME}/crates/lila-cli/src/main.rs - main (line 5)"'
+        exact = f'  "/workspace/{RETIRED_NAME}/crates/scriptw-cli/src/main.rs - main (line 5)"'
         path.write_text(exact + "\n", encoding="utf-8")
         self.assertEqual(self.audit().returncode, 0)
         for suffix in (" extra", "\v" + RETIRED_NAME + " runtime"):
@@ -348,7 +379,7 @@ class IdentityTests(unittest.TestCase):
         result = self.audit()
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines(), [
-            f"check-lila-identity: batch/{ordinal:03}.json:1:{RETIRED_NAME} runtime"
+            f"check-scriptw-identity: batch/{ordinal:03}.json:1:{RETIRED_NAME} runtime"
             for ordinal in (0, 127, 128, 269)
         ])
 
@@ -365,7 +396,7 @@ class IdentityTests(unittest.TestCase):
         result = self.audit()
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr.splitlines(), [
-            f"check-lila-identity: {relative}:1:{RETIRED_NAME} runtime"
+            f"check-scriptw-identity: {relative}:1:{RETIRED_NAME} runtime"
         ] * 3)
 
 

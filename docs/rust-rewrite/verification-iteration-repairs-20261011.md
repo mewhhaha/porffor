@@ -67,7 +67,7 @@ Its complete three-node graph matches in the private actual-backend diagnostic.
 V5 still traverses every reached object and compares every captured field;
 no anchor opacity or observation normalization was added. The corpus retains
 the same case IDs and deadlines. Reproduce the original diagnostic with
-`lila differential replay docs/rust-rewrite/diagnostics/v5-intrinsic-bootstrap-variation.json --oracle spec-exec`.
+`scriptw differential replay docs/rust-rewrite/diagnostics/v5-intrinsic-bootstrap-variation.json --oracle spec-exec`.
 Native batch verification, default/release/campaign and full pinned closure,
 including two fresh zero-failure publications, remain pending. Task files and
 CONTINUE.md remain until their acceptance is actually complete.

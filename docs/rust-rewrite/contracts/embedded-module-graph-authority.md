@@ -10,7 +10,7 @@ Realm caches remain owned by their existing compiler/runtime paths.
 Identities are normalized relative virtual paths containing lowercase ASCII
 letters, digits, `-`, `_`, `.`, and `/`. Empty, absolute, backslash, empty-component,
 `.`-component and `..`-component paths are rejected. Metadata URLs are separately
-declared `lila://` URLs whose remainder satisfies the same virtual-path grammar.
+declared `scriptw://` URLs whose remainder satisfies the same virtual-path grammar.
 They are observations, never resolution bases. Source strings may be empty and
 are retained exactly; parsing and ECMAScript early errors belong to the actual
 backend parser rather than this host source constructor.
@@ -38,7 +38,7 @@ specifier, attribute presence or attribute value has no match. An absent row is
 a denied request and must never regain a filesystem or network loader.
 
 The graph computes one SHA-256 fingerprint after canonical source-row and
-resolution-row sorting. The fixed `lila-embedded-module-graph-v1` domain frames
+resolution-row sorting. The fixed `scriptw-embedded-module-graph-v1` domain frames
 entry goal, referrer roles, collection counts and every UTF-8 field with fixed
 one-byte discriminators and little-endian `u64` byte lengths. Entry and dependency
 source bytes, every independently declared metadata URL, every request attribute,
@@ -58,5 +58,5 @@ Finite source controls cover exact referrer roles, no URL-derived lookup,
 UTF-16 attribute canonicalization, input row reordering, immutable policy sharing,
 full fingerprint changes and ambiguous/unowned row rejection. Compilation,
 focused execution and whole-batch verification remain required before completion.
-The already-pinned `sha2` dependency is added to lila-runtime; Cargo lockfile
+The already-pinned `sha2` dependency is added to scriptw-runtime; Cargo lockfile
 resolution remains pending until the authorized compilation checkpoint.

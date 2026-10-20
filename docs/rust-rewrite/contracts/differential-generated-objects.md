@@ -1,7 +1,7 @@
 # Generated selected object probes
 
 `object-probe-v1` is an actual bounded source algebra consumed by
-`lila differential campaign --grammar object-probe-v1 --nodes N --properties N`.
+`scriptw differential campaign --grammar object-probe-v1 --nodes N --properties N`.
 Each budget is in 1–16. The constructor owns node and Symbol indices, unique
 descriptor keys, selected roots and prototype links. Prototype edges point to
 earlier nodes; property payloads can form arbitrary sharing and cycles. Arrays

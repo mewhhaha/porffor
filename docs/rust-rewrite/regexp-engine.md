@@ -31,7 +31,7 @@ This document is the source of truth for T19's engine choice. It selects the
 target architecture; it does not claim that the current RegExp grammar or
 object protocol is complete.
 
-Lila will use one Rust-owned ECMAScript RegExp grammar and one dedicated,
+Scriptw will use one Rust-owned ECMAScript RegExp grammar and one dedicated,
 ordered-backtracking bytecode model. Static patterns are compiled while the
 JavaScript program is compiled. Patterns constructed from runtime strings are
 compiled by a RegExp-only compiler in the emitted Wasm and execute in the same
@@ -44,15 +44,15 @@ cannot parse or execute JavaScript source.
 
 ## Current ground truth
 
-`crates/lila-ir/src/regexp.rs` already parses a useful subset into
+`crates/scriptw-ir/src/regexp.rs` already parses a useful subset into
 `RegExpProgram`, a fixed-width instruction stream plus range and named-group
-metadata. `crates/lila-aot-wasm/src/builtins/regexp.rs` emits an iterative Wasm
+metadata. `crates/scriptw-aot-wasm/src/builtins/regexp.rs` emits an iterative Wasm
 matcher with ordered choice frames, UTF-16-visible cursors and capture
 restoration. Literal and statically resolved constructor calls can attach an
 immutable program to a RegExp object.
 
 The static serialization boundary is now `ValidatedRegExpProgram` in
-`crates/lila-ir/src/regexp/program.rs`. It rejects invalid instructions, pool
+`crates/scriptw-ir/src/regexp/program.rs`. It rejects invalid instructions, pool
 references, named-capture maps and non-consuming cycles before exposing owned
 bytes. A versioned relative descriptor owns its instruction, range, candidate
 and UTF-8 name sections. One packed allocation handle replaces the six
@@ -85,7 +85,7 @@ This is a foundation, not the complete design:
   however, there is still no deterministic execution-step budget; and
 - the former third-party generator membership fold has been removed. The
   remaining vendored `regress` dependency supplies pinned Unicode property,
-  string-sequence and fold data; product parsing and matching consume Lila's
+  string-sequence and fold data; product parsing and matching consume Scriptw's
   own program representation. Third-party matching cannot decide product
   RegExp semantics.
 
@@ -151,7 +151,7 @@ The selected engine is an extension of the current dedicated bytecode path.
 | Fork the current Rust dependency | Rejected as the product engine | It would still need a second implementation or a host dependency for runtime pattern compilation and would not remove the JavaScript object/wrapper work. Reviewed algorithms may be reused, but its API and data are not the contract. |
 | Thompson NFA/DFA only | Rejected as the complete engine | Backreferences and ECMAScript's ordered captures/lookarounds are not a regular-language problem. A pure NFA cannot be the semantic fallback for all patterns. |
 | Feature-selected hybrid engines | Deferred | A proven linear-time fast path may be added later, but introducing two semantic matchers before the reference bytecode engine is complete multiplies capture and Unicode drift. |
-| Lila parser + ordered bytecode VM | Selected | It matches ECMAScript's leftmost, depth-first choice order, supports non-regular features, works for static and dynamic patterns, and can run without native recursion inside emitted Wasm. |
+| Scriptw parser + ordered bytecode VM | Selected | It matches ECMAScript's leftmost, depth-first choice order, supports non-regular features, works for static and dynamic patterns, and can run without native recursion inside emitted Wasm. |
 
 ## Semantic layering
 

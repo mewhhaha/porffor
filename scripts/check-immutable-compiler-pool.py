@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 
-A = 'crates/lila-aot-wasm/src/'
+A = 'crates/scriptw-aot-wasm/src/'
 FILES = tuple(A + path for path in (
     'data.rs', 'data/shared_pool_storage.rs', 'data/compiler_owned_pool.rs',
     'data/compiler_owned_pool/tests.rs', 'runtime_artifact.rs',

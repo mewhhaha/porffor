@@ -8,53 +8,53 @@ import json
 from pathlib import Path
 import sys
 
-DEST = Path('crates/lila-intl/data/locale-numbering-systems/kernel-source-manifest.json')
-IDENTITY = Path('crates/lila-intl/src/provider/locale_numbering_systems/kernel_identity.rs')
-NATIVE = Path('crates/lila-intl/src/provider/locale_numbering_systems.rs')
-NUMBER_ROOT = Path('crates/lila-intl/src/number_format')
-NUMBER_PRODUCTION = ['crates/lila-intl/src/number_format/configuration.rs', 'crates/lila-intl/src/number_format/mod.rs', 'crates/lila-intl/src/number_format/numeric/digits.rs', 'crates/lila-intl/src/number_format/numeric/mod.rs', 'crates/lila-intl/src/number_format/numeric/notation.rs', 'crates/lila-intl/src/number_format/numeric/parse/thresholds.rs', 'crates/lila-intl/src/number_format/numeric/parse.rs', 'crates/lila-intl/src/number_format/numeric/plural.rs', 'crates/lila-intl/src/number_format/numeric/resource.rs', 'crates/lila-intl/src/number_format/numeric/round.rs', 'crates/lila-intl/src/number_format/options.rs', 'crates/lila-intl/src/number_format/partition/buffer.rs', 'crates/lila-intl/src/number_format/partition/mod.rs', 'crates/lila-intl/src/number_format/partition/range.rs', 'crates/lila-intl/src/number_format/partition/render.rs', 'crates/lila-intl/src/number_format/partition_resource.rs', 'crates/lila-intl/src/number_format/parts.rs', 'crates/lila-intl/src/number_format/plural_rules.rs', 'crates/lila-intl/src/number_format/profiles/fingerprint.rs', 'crates/lila-intl/src/number_format/profiles/mod.rs', 'crates/lila-intl/src/number_format/profiles/read.rs', 'crates/lila-intl/src/number_format/profiles/validate.rs']
+DEST = Path('crates/scriptw-intl/data/locale-numbering-systems/kernel-source-manifest.json')
+IDENTITY = Path('crates/scriptw-intl/src/provider/locale_numbering_systems/kernel_identity.rs')
+NATIVE = Path('crates/scriptw-intl/src/provider/locale_numbering_systems.rs')
+NUMBER_ROOT = Path('crates/scriptw-intl/src/number_format')
+NUMBER_PRODUCTION = ['crates/scriptw-intl/src/number_format/configuration.rs', 'crates/scriptw-intl/src/number_format/mod.rs', 'crates/scriptw-intl/src/number_format/numeric/digits.rs', 'crates/scriptw-intl/src/number_format/numeric/mod.rs', 'crates/scriptw-intl/src/number_format/numeric/notation.rs', 'crates/scriptw-intl/src/number_format/numeric/parse/thresholds.rs', 'crates/scriptw-intl/src/number_format/numeric/parse.rs', 'crates/scriptw-intl/src/number_format/numeric/plural.rs', 'crates/scriptw-intl/src/number_format/numeric/resource.rs', 'crates/scriptw-intl/src/number_format/numeric/round.rs', 'crates/scriptw-intl/src/number_format/options.rs', 'crates/scriptw-intl/src/number_format/partition/buffer.rs', 'crates/scriptw-intl/src/number_format/partition/mod.rs', 'crates/scriptw-intl/src/number_format/partition/range.rs', 'crates/scriptw-intl/src/number_format/partition/render.rs', 'crates/scriptw-intl/src/number_format/partition_resource.rs', 'crates/scriptw-intl/src/number_format/parts.rs', 'crates/scriptw-intl/src/number_format/plural_rules.rs', 'crates/scriptw-intl/src/number_format/profiles/fingerprint.rs', 'crates/scriptw-intl/src/number_format/profiles/mod.rs', 'crates/scriptw-intl/src/number_format/profiles/read.rs', 'crates/scriptw-intl/src/number_format/profiles/validate.rs']
 HELPERS = [
-    'crates/lila-intl/src/provider.rs', 'crates/lila-intl/src/provider/conformance.rs', 'crates/lila-intl/src/selection.rs', 'crates/lila-intl/src/selection/minimal_admission.rs', 'crates/lila-intl/src/lib.rs',
-    'crates/lila-intl/src/service_selection.rs',
-    'crates/lila-intl/src/selection/manifest.rs',
-    'crates/lila-intl/src/selection/export.rs',
-    'crates/lila-intl/src/protocol.rs',
-    'crates/lila-intl/src/provider/region_preference.rs',
-    'crates/lila-intl/src/identifiers.rs',
-    'Cargo.lock', 'Cargo.toml', 'crates/lila-intl/Cargo.toml',
+    'crates/scriptw-intl/src/provider.rs', 'crates/scriptw-intl/src/provider/conformance.rs', 'crates/scriptw-intl/src/selection.rs', 'crates/scriptw-intl/src/selection/minimal_admission.rs', 'crates/scriptw-intl/src/lib.rs',
+    'crates/scriptw-intl/src/service_selection.rs',
+    'crates/scriptw-intl/src/selection/manifest.rs',
+    'crates/scriptw-intl/src/selection/export.rs',
+    'crates/scriptw-intl/src/protocol.rs',
+    'crates/scriptw-intl/src/provider/region_preference.rs',
+    'crates/scriptw-intl/src/identifiers.rs',
+    'Cargo.lock', 'Cargo.toml', 'crates/scriptw-intl/Cargo.toml',
 ]
 
 NUMBER_PRODUCTION.extend([
-    'crates/lila-intl/src/number_format/profiles/domains.rs',
-    'crates/lila-intl/src/number_format/profiles/projection.rs',
-    'crates/lila-intl/src/number_format/profiles/projection/closure.rs',
-    'crates/lila-intl/src/number_format/profiles/projection/encode.rs',
+    'crates/scriptw-intl/src/number_format/profiles/domains.rs',
+    'crates/scriptw-intl/src/number_format/profiles/projection.rs',
+    'crates/scriptw-intl/src/number_format/profiles/projection/closure.rs',
+    'crates/scriptw-intl/src/number_format/profiles/projection/encode.rs',
 ])
 
 # Capture the actual selected image, keyword authority and artifact boundary.
 # This service's own generated kernel outputs are excluded.
 HELPERS.extend([
-    'crates/lila-intl/build.rs',
-    'crates/lila-intl/src/image.rs',
-    'crates/lila-intl/src/locale_image.rs',
-    'crates/lila-intl/src/image_build/locale.rs',
-    'crates/lila-intl/src/image_build/keyword.rs',
-    'crates/lila-intl/src/provider/language_domain.rs',
-    'crates/lila-intl/src/provider/keyword_aliases.rs',
-    'crates/lila-intl/src/provider/keyword_aliases/generated.rs',
+    'crates/scriptw-intl/build.rs',
+    'crates/scriptw-intl/src/image.rs',
+    'crates/scriptw-intl/src/locale_image.rs',
+    'crates/scriptw-intl/src/image_build/locale.rs',
+    'crates/scriptw-intl/src/image_build/keyword.rs',
+    'crates/scriptw-intl/src/provider/language_domain.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases.rs',
+    'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs',
     'scripts/generate-intl-keyword-aliases.py',
-    'crates/lila-engine/src/intl_data_images.rs',
-    'crates/lila-engine/src/wasm_gc_intl_host.rs',
-    'crates/lila-aot-wasm/src/emit.rs',
-    'crates/lila-aot-wasm/src/emit/module_assembly.rs',
-    'crates/lila-intl/src/number_image.rs',
-    'crates/lila-intl/src/number_image/projection.rs',
+    'crates/scriptw-engine/src/intl_data_images.rs',
+    'crates/scriptw-engine/src/wasm_gc_intl_host.rs',
+    'crates/scriptw-aot-wasm/src/emit.rs',
+    'crates/scriptw-aot-wasm/src/emit/module_assembly.rs',
+    'crates/scriptw-intl/src/number_image.rs',
+    'crates/scriptw-intl/src/number_image/projection.rs',
     'scripts/generate-intl-locale-numbering-systems-identity.py',
     'scripts/intl_numberformat_profile/generate_payload.py',
     'scripts/intl_numberformat_profile/profile_schema.py',
     'scripts/intl_positional_numbering.py',
 ])
-DATA = Path('crates/lila-intl/data/number-cldr-47')
+DATA = Path('crates/scriptw-intl/data/number-cldr-47')
 DATA_FILES = ['profiles.bin', 'profiles.json.gz', 'payload-manifest.json', 'source-manifest.json']
 sha = lambda data: hashlib.sha256(data).hexdigest()
 pretty = lambda value: (json.dumps(value, indent=2, sort_keys=True) + '\n').encode()
@@ -118,7 +118,7 @@ def admitted_data(primary_root, native_root):
 def outputs(primary_root, native_root=None):
     native_root = native_root or Path(__file__).resolve().parents[1]
     data, data_digest = admitted_data(primary_root, native_root)
-    recipe = {'schema':1, 'domain':'lila-locale-numbering-systems-native-v1',
+    recipe = {'schema':1, 'domain':'scriptw-locale-numbering-systems-native-v1',
         'selection':'NoNu checked request; NumberFormat prefix/default-index; unmatched latn',
         'number_locales':1082, 'decimal_numbering_systems':78,
         'NumberFormat_payload_sha256':data_digest, 'data':data,

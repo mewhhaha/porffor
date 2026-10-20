@@ -43,12 +43,12 @@ Its nine generated markers comprise seven collation markers and two NFD
 normalization markers; the generated source and actual dependency locks are
 hash-bound to the successful export and native admission receipts.
 
-The exact ten generated files live in `lila-intl-collator-data`. Its private
+The exact ten generated files live in `scriptw-intl-collator-data`. Its private
 baked module invokes the same nine data-marker macros and exposes the immutable
 `PinnedCollatorProvider` to the checked native service. ICU's generated static
 constructors use unsafe internally, so this data-only crate defaults to deny
 and allows unsafe only for that private generated expansion. Its handwritten
-code contains no unsafe operations; `lila-intl` and the other handwritten
+code contains no unsafe operations; `scriptw-intl` and the other handwritten
 product crates retain the workspace forbid lint. The exporter bytes, data
 representation, pins and admission evidence are unchanged by this boundary.
 The original coherent compile failure is retained; the relocated source still

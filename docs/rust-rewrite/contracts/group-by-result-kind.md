@@ -37,8 +37,8 @@ checks the Object result's null prototype, safe `__proto__` property, Symbol
 key and string-converted numeric key.
 
 ```sh
-cargo test -p lila-aot-wasm --test group_by_result_structure --quiet
-cargo test -p lila-cli --test cli iterator::run_wasm_backend_distinguishes_map_and_object_group_by_results -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test group_by_result_structure --quiet
+cargo test -p scriptw-cli --test cli iterator::run_wasm_backend_distinguishes_map_and_object_group_by_results -- --exact --test-threads=1
 ```
 
 The shared semantic golden passes `2/2` in 717.58 seconds with 674 dumps. It

@@ -89,11 +89,11 @@ identities, including strict/sloppy modes. Its original outcomes were 518
 NotImplemented, 68 Bug and 6 Crash. The list is an input cohort, not an expected
 failure list: every execution is run and every non-passing result remains red.
 
-After building `target/release/lila`, run the cohort with two case workers and
+After building `target/release/scriptw`, run the cohort with two case workers and
 one compiler worker per case:
 
 ```sh
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 \
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 \
   ./scripts/run-watched.sh --label observed-replay --stall 900 -- \
   python3 scripts/replay-test262-executions.py \
   test262/replays/observed-20260908.executions \
@@ -118,7 +118,7 @@ The watcher limits stalls and CPU use. On the Linux development host, the build
 and replay services additionally use `MemoryHigh=10G`, `MemoryMax=12G`,
 `MemorySwapMax=0` and `OOMPolicy=stop`. These are cgroup limits; lowering Cargo's
 job count or the module cache alone is not a hard RAM limit. Builds use explicit
-`cargo build --release --locked -j 2 -p lila-cli`.
+`cargo build --release --locked -j 2 -p scriptw-cli`.
 
 To rerun only the failures from a completed replay, generate another exact list
 from its summary and use a new output directory:

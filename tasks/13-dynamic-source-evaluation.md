@@ -143,7 +143,7 @@ On 2026-09-28 the `resizableArrayBufferUtils.js` static-subclass
 substitution was deleted: the prepared Function-source machinery already
 compiles the helper's finite `new Function('return class My' + type + ...)`
 candidates, so all 188 vendored consumers now materialize the exact helper
-bytes. Exact `lila test262 run` replay of all 188 cases is unchanged versus
+bytes. Exact `scriptw test262 run` replay of all 188 cases is unchanged versus
 the substituted baseline: 185 pass `2/2` sloppy/strict executions and the
 same 3 staging cases report typed `Unsupported`. The token-aware inventory
 now assigns 0 observations to T13.
@@ -305,7 +305,7 @@ cannot manufacture intrinsic authority. The former compile-time
 calls now retain the evaluated Reference and callable across argument effects.
 
 When an actual runtime intrinsic has no matching compiled source/context, it
-rejects through `lila_host.reject_dynamic_source(i64)`. The separate
+rejects through `scriptw_host.reject_dynamic_source(i64)`. The separate
 `DynamicSourceRuntimeOperation` survives Wasmtime, engine and Test262
 boundaries, including agent execution. It is not a JavaScript throw and cannot
 satisfy `catch` or a runtime-negative exception expectation. Actual JavaScript
@@ -402,13 +402,13 @@ Cover `Function`, `GeneratorFunction`, `AsyncFunction` and `AsyncGeneratorFuncti
 ## Required tests
 
 ```sh
-cargo test -p lila-front eval_ --quiet
-cargo test -p lila-ir eval_ --quiet
-cargo test -p lila-engine eval_ --quiet
-cargo test -p lila-cli eval_ --quiet
-cargo test --release --locked -j2 -p lila-ir \
+cargo test -p scriptw-front eval_ --quiet
+cargo test -p scriptw-ir eval_ --quiet
+cargo test -p scriptw-engine eval_ --quiet
+cargo test -p scriptw-cli eval_ --quiet
+cargo test --release --locked -j2 -p scriptw-ir \
   --test prepared_dynamic_function --test prepared_script --test direct_eval_environment
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine \
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p scriptw-engine \
   --test aot_realm_modules \
   -- aot_prepared_dynamic_function:: aot_prepared_script:: aot_direct_eval:: aot_direct_eval_call_identity:: aot_direct_eval_environment:: aot_direct_eval_escaped_arrows:: aot_dynamic_source_capability:: --test-threads=2
 ```

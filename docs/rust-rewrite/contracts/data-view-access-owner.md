@@ -56,7 +56,7 @@ publication and Atomics owners are unchanged. This change establishes no broad
 shared-agent, Wasm-GC or T17 conformance claim.
 
 The maintained `data_view_positive_bounds_realm_structure` assertions now follow
-the shared preparation owner. Existing `lila-cli --test cli data_view::` targets
+the shared preparation owner. Existing `scriptw-cli --test cli data_view::` targets
 already cover all element kinds, offset/value ordering, custom thrown errors,
 wrong receivers, immutable setters, detached/resizable views, SAB byte access,
 endianness, Float16 and borrowed-Realm errors. No new mirror test or fixture was

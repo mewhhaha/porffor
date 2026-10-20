@@ -14,7 +14,7 @@ have already shared and truncated the same temporary file.
 Run the consumed-path regressions with:
 
 ```sh
-cargo test --locked -p lila-engine --lib cache::
+cargo test --locked -p scriptw-engine --lib cache::
 ```
 
 Coverage includes distinct instances writing the same key, deterministic stale

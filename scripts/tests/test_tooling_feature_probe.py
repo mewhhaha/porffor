@@ -23,9 +23,9 @@ class FeatureProbeTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.out = self.root / "out"
         self.out.mkdir()
-        self.lila = self.root / "lila"
-        self.lila.touch()
-        for name, value in (("OUT", self.out), ("LILA", self.lila)):
+        self.scriptw = self.root / "scriptw"
+        self.scriptw.touch()
+        for name, value in (("OUT", self.out), ("SCRIPTW", self.scriptw)):
             patcher = mock.patch.object(probe, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -62,7 +62,7 @@ class FeatureProbeTests(unittest.TestCase):
                 self.assertIn("42", result[3])
 
     def test_timeouts_and_launch_errors_are_visible_failures(self):
-        for error, detail in ((subprocess.TimeoutExpired("lila", 120), "TIMEOUT"),
+        for error, detail in ((subprocess.TimeoutExpired("scriptw", 120), "TIMEOUT"),
                               (PermissionError("not executable"), "launch error")):
             with self.subTest(error=error), mock.patch.object(probe.subprocess, "run", side_effect=error):
                 result = probe.run(CASE)
@@ -102,8 +102,8 @@ class FeatureProbeTests(unittest.TestCase):
         self.assertIn("not Test262 conformance counts", text)
 
     def test_real_stderr_only_executable_cannot_pass(self):
-        self.lila.write_text(f"#!{sys.executable} -S\nimport sys\nprint('42', file=sys.stderr)\n")
-        self.lila.chmod(0o755)
+        self.scriptw.write_text(f"#!{sys.executable} -S\nimport sys\nprint('42', file=sys.stderr)\n")
+        self.scriptw.chmod(0o755)
         self.assertFalse(probe.run(CASE)[2])
 
 

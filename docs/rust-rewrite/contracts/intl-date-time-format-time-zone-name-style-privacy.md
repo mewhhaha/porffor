@@ -1,6 +1,6 @@
 # Intl.DateTimeFormat time-zone-name style authority
 
-`lila-intl::TimeZoneNameStyle` owns the six accepted `timeZoneName` styles,
+`scriptw-intl::TimeZoneNameStyle` owns the six accepted `timeZoneName` styles,
 their option spellings and their wire and heap codes. Its derived `OPTIONS`
 table supplies the AOT constructor and `resolvedOptions`; the provider matches
 the same enum exhaustively when selecting localized names. Invalid external

@@ -27,7 +27,7 @@ dynamic source generation are not claims of this batch.
 
 At pre-batch HEAD `f6b6af6a1779840eaf5d7c88cff2b9ff33db9381`, the exact
 prefix-increment global witness reported `0/1` as Runtime/NotImplemented with
-`unsupported in lila wasm-aot first slice: unbound identifier \`x\``. The
+`unsupported in scriptw wasm-aot first slice: unbound identifier \`x\``. The
 adjacent plain-assignment witness reported `1/1`. These are focused current-SHA
 measurements against pinned Test262 `aa55200`; they are not a full subtree or
 pinned-matrix publication.
@@ -105,10 +105,10 @@ The focused ladder after batch integration is:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir lowers_script_global_update_from_class_constructor --quiet
-cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+cargo test -p scriptw-ir lowers_script_global_update_from_class_constructor --quiet
+cargo test -p scriptw-aot-wasm --test structure_language --quiet -- \
   global_object_environment_numeric_update_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-cli --test cli \
   language::run_wasm_backend_succeeds_for_global_object_environment_numeric_update_fixture \
   -- --exact --test-threads=1
 for case_file in \
@@ -117,7 +117,7 @@ for case_file in \
   language/expressions/postfix-increment/operator-x-postfix-increment-calls-putvalue-lhs-newvalue--1.js \
   language/expressions/postfix-decrement/operator-x-postfix-decrement-calls-putvalue-lhs-newvalue--1.js
 do
-  ./target/debug/lila --jobs 1 test262 run "$case_file" \
+  ./target/debug/scriptw --jobs 1 test262 run "$case_file" \
     --suite-root test262/vendor/test262 --execution-backend wasm-aot \
     --timeout-ms 180000 --threads 1
 done

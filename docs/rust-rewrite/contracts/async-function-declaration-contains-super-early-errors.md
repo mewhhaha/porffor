@@ -10,7 +10,7 @@ condition:
 `EarlyErrorCode::AsyncFunctionDeclarationContainsSuper`
 
 Its wire spelling is `E_ASYNC_FUNCTION_DECLARATION_CONTAINS_SUPER`. The
-exhaustive `lila-ir` rejection projection derives phase `Early` and native
+exhaustive `scriptw-ir` rejection projection derives phase `Early` and native
 error type `SyntaxError`.
 
 The condition is true when the declaration's `FormalParameters` or
@@ -86,7 +86,7 @@ the exact `54/18/1`
 `ContainsAll` / `StartsWith` / `Exact` population. An evaluated table witness,
 an exact single-owner assertion, disjointness proofs and exhaustive wire-name
 round trips close the front mapping. The exhaustive `EarlyErrorCode` match in
-`lila-ir` must include the new variant before the workspace builds.
+`scriptw-ir` must include the new variant before the workspace builds.
 
 Classifier proofs keep this prefix distinct from ordinary declarations,
 async-function expressions, typed declarations and method-owned diagnostics.
@@ -158,12 +158,12 @@ method and dynamic-eval files belong to other producer boundaries.
 The focused checkpoint ran:
 
 ```sh
-cargo test -p lila-front --lib async_function_declaration_super -- --test-threads=1
-cargo test -p lila-front --lib tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-front --test parse_failure_pattern_structure -- --test-threads=1
-cargo test -p lila-ir modules::early::tests::async_function_declaration_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::rejected_async_function_declaration_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::retained_async_function_declaration_without_super_builds_a_real_module_graph -- --exact --test-threads=1
+cargo test -p scriptw-front --lib async_function_declaration_super -- --test-threads=1
+cargo test -p scriptw-front --lib tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-front --test parse_failure_pattern_structure -- --test-threads=1
+cargo test -p scriptw-ir modules::early::tests::async_function_declaration_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::rejected_async_function_declaration_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::retained_async_function_declaration_without_super_builds_a_real_module_graph -- --exact --test-threads=1
 ```
 
 The direct front filter passes `6/6`, the shared producer guard passes `1/1`,

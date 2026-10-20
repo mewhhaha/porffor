@@ -27,7 +27,7 @@ which change what gets built:
 The original work was split into three groups; all three are now encoded:
 
 - **Group A (§3)** — everything that leaves `cargo xc` green with no edit
-  outside `crates/lila-ir`: the `emission_sites!` row list,
+  outside `crates/scriptw-ir`: the `emission_sites!` row list,
   `ARRAY_DESTRUCTURING_PROTOCOL` and the site↔witness↔catalog triangle
   (K1/J10/J11), the `protocol` field on `ArrayDestructuringPatternIr` (two
   `E0063`s, both in `lowering.rs`), and two `const`-evaluated readers for the
@@ -46,7 +46,7 @@ The original work was split into three groups; all three are now encoded:
   acquisition/step/value discharge mandatory.
 
 §10's prohibitions are the load-bearing part for anyone extending this: P1 (no
-`lila-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
+`scriptw-aot-wasm` edit), P2 (round 1's `pub(crate)` narrowing at
 `iterator_obligations.rs:45-51` is not re-opened — the emitter-side close token
 is a sibling type in the backend crate, never a witness reader), P5 (`lowering.rs`
 gets exactly two lines).
@@ -60,8 +60,8 @@ iterator — and the scope-shaped design that replaces it.
 
 ## As built (encoder stage, Group A)
 
-Five files changed, all under `crates/lila-ir/src/`, plus this document and
-the lane note. Acceptance item §11.7 is "no hunk in `crates/lila-aot-wasm/` is
+Five files changed, all under `crates/scriptw-ir/src/`, plus this document and
+the lane note. Acceptance item §11.7 is "no hunk in `crates/scriptw-aot-wasm/` is
 attributable to this contract" — **not** "`git status` is empty there". The
 checkout is shared with concurrent lanes, and a bare `git status` reads as a
 false negative.
@@ -183,7 +183,7 @@ historical baselines, not verification of the current seam. At the current pin,
 each leaf has only `flags: [generated]` and therefore materializes through the
 normal harness as ordinary sloppy and strict executions. The 2026-08-24 central
 checkpoint is green: the batch `cargo check` and `cargo xc` gates pass, the
-focused exact lila-ir test passes `1/1`, the exact CLI suspension fixture passes
+focused exact scriptw-ir test passes `1/1`, the exact CLI suspension fixture passes
 `1/1`, and the two generated leaves pass all four materialized executions
 `4/4` with every failure bucket at zero. These bounded results do not change the
 exact-`u64` backend bound or no-IteratorClose boundary, and do not claim broader

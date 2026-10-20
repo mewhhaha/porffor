@@ -69,13 +69,13 @@ cleanup or executable `gc()`. The host builtin continues to emit its explicit
 unsupported throw.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_collector_policy_structure
-cargo test -p lila-aot-wasm --test heap_collector_phase_structure
-cargo test -p lila-aot-wasm --test weak_edge_retention_structure
-cargo test -p lila-aot-wasm --test heap_named_slot_storage_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib tests::supports_host_gc_builtin_as_explicit_unsupported_throw -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test heap_collector_policy_structure
+cargo test -p scriptw-aot-wasm --test heap_collector_phase_structure
+cargo test -p scriptw-aot-wasm --test weak_edge_retention_structure
+cargo test -p scriptw-aot-wasm --test heap_named_slot_storage_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib tests::supports_host_gc_builtin_as_explicit_unsupported_throw -- --exact --test-threads=1
 git diff --check
 ```
 

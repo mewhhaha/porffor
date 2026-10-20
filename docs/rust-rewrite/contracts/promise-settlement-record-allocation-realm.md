@@ -49,7 +49,7 @@ checkpoint is green. Module boundaries, task-plan policy, workspace formatting
 and diff hygiene are green.
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- promise_callback_created_allocation_realm_structure::
 bash scripts/check-module-boundaries.sh
 ./scripts/conformance_owners.py
 ```

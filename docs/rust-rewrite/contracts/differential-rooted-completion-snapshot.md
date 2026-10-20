@@ -4,7 +4,7 @@ Status: 2026-10-07 source batch. The shared graph domain, Engine and Boa adapter
 v7 replay joins and controls are authored and typechecked. Pure protocol controls
 pass. The first actual worker checkpoint rejects an incorrect fixture URL and
 times out cold native compilation at the original 120-second deadline. The URL
-now uses the admitted `lila://` scheme. `tasks-scope-native5` passes both original
+now uses the admitted `scriptw://` scheme. `tasks-scope-native5` passes both original
 Module and Script v7 worker controls under their unchanged 120-second deadlines.
 The Script control retains post-job cycles, Symbols, Array holes and noninvoked
 accessors through both actual backends. This selected run does not establish
@@ -64,7 +64,7 @@ explicit budget owner.
 
 ## Graph contract
 
-The shared `lila-runtime::rooted_snapshot` driver assigns canonical breadth-first
+The shared `scriptw-runtime::rooted_snapshot` driver assigns canonical breadth-first
 encounter identities. It records primitive values, original UTF-16 strings,
 canonical numeric bits/BigInt values and Symbol description plus local,
 registry or well-known origin. Object/Symbol aliases and cycles refer only to
@@ -139,6 +139,6 @@ top-level-await Module whose original completion and output are retained. These
 new inputs explicitly use 120,000 ms deadlines. The first script worker exceeds
 that deadline before native output, while Boa completes its graph. The Module
 fixture initially failed admission because it used `file://`; the written
-repair uses `lila://`. Both await affected execution verification. Existing
+repair uses `scriptw://`. Both await affected execution verification. Existing
 five-second inputs and scenario deadlines are unchanged. No synthetic comparison
 control claims native execution.

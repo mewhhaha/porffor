@@ -9,7 +9,7 @@ def isolated_test_packages(packages, requested=()):
     requested = set(requested)
     if not requested <= known:
         raise ValueError('Isolated test packages must belong to the selected workspace')
-    return sorted(requested | ({'lila-intl'} & known))
+    return sorted(requested | ({'scriptw-intl'} & known))
 
 
 def package_selection(packages=None, excluded=()):

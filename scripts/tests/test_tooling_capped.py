@@ -45,7 +45,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
         path.chmod(0o755)
 
     def run_cap(self, *args, **settings):
-        env = dict(os.environ, PATH=str(self.bin), LILA_CPU_PERCENT="50", CARGO_BUILD_JOBS="")
+        env = dict(os.environ, PATH=str(self.bin), SCRIPTW_CPU_PERCENT="50", CARGO_BUILD_JOBS="")
         env.update(settings)
         return subprocess.run(["/bin/sh", str(SCRIPT), "probe", *args], cwd=self.root,
                               env=env, capture_output=True, text=True, timeout=10)
@@ -63,7 +63,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
         for affinity, percent, wanted, jobs in (("7", "1", "7", "1"),
                                                 ("4,7-8", "100", "4,7-8", "1")):
             with self.subTest(affinity=affinity, percent=percent):
-                result = self.run_cap(AFFINITY=affinity, LILA_CPU_PERCENT=percent)
+                result = self.run_cap(AFFINITY=affinity, SCRIPTW_CPU_PERCENT=percent)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.selection()[1], wanted)
                 self.assertEqual(json.loads(result.stdout)["jobs"], jobs)
@@ -85,7 +85,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
     def test_invalid_percentages_fail_before_execution(self):
         for percent in ("0", "00", "08", "101", "-1", "1+1", "9x", "99999999999999999999999"):
             with self.subTest(percent=percent):
-                self.assertEqual(self.run_cap(LILA_CPU_PERCENT=percent).returncode, 2)
+                self.assertEqual(self.run_cap(SCRIPTW_CPU_PERCENT=percent).returncode, 2)
                 self.assertFalse((self.root / "selection.json").exists())
 
     def test_affinity_query_failure_never_executes_command(self):
@@ -120,7 +120,7 @@ sys.exit(int(os.environ.get("PROBE_STATUS", "0")))
         result = subprocess.run([shutil.which("taskset"), "-c", inherited, "/bin/sh", str(SCRIPT),
                                  sys.executable, "-S", "-c",
                                  "import os; print(','.join(map(str, sorted(os.sched_getaffinity(0)))))"],
-                                env=dict(os.environ, LILA_CPU_PERCENT="50"),
+                                env=dict(os.environ, SCRIPTW_CPU_PERCENT="50"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), str(available[0]))

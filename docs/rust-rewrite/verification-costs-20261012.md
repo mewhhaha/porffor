@@ -206,8 +206,8 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   python3 -B scripts/stage-verification-worker.py \
   --oracle --share-runtime-images --output target/verification-worker-FRESH
 python3 -B scripts/limited_verification.py --cloud -- \
-  target/debug/lila --jobs 1 differential replay-corpus --oracle spec-exec \
-  --worker-bin target/verification-worker-FRESH/lila-worker \
+  target/debug/scriptw --jobs 1 differential replay-corpus --oracle spec-exec \
+  --worker-bin target/verification-worker-FRESH/scriptw-worker \
   --output-dir target/corpus-FRESH
 ```
 

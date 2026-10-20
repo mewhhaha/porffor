@@ -3,7 +3,7 @@ set -euo pipefail
 
 BACKEND="${1:-wasm-aot}"
 SNAPSHOT_NAME="${2:-codex-published-real}"
-LILA_BIN="${LILA_BIN:-./target/release/lila}"
+SCRIPTW_BIN="${SCRIPTW_BIN:-./target/release/scriptw}"
 SUITE_ROOT="${SUITE_ROOT:-test262/vendor/test262}"
 SNAPSHOT_DIR="${SNAPSHOT_DIR:-test262/snapshots}"
 THREADS="${THREADS:-1}"
@@ -23,7 +23,7 @@ fail() {
 
 if [[ "$BACKEND" != "wasm" && "$BACKEND" != "wasm-aot" ]]; then
   echo "publish-real-status-low-ram only publishes the wasm-aot product backend" >&2
-  echo "run oracle matrices with: lila test262 report-all --execution-backend spec-exec" >&2
+  echo "run oracle matrices with: scriptw test262 report-all --execution-backend spec-exec" >&2
   exit 2
 fi
 BACKEND=wasm-aot
@@ -40,20 +40,20 @@ done
 [[ "$REUSE_CASE_WORKERS" == 0 || "$REUSE_CASE_WORKERS" == 1 ]] || fail "REUSE_CASE_WORKERS must be 0 or 1"
 
 # These historical toggles no longer select compiler execution policy.
-unset LILA_TEST262_FORCE_CASE_RUNNER LILA_TEST262_DISABLE_CASE_RUNNER
+unset SCRIPTW_TEST262_FORCE_CASE_RUNNER SCRIPTW_TEST262_DISABLE_CASE_RUNNER
 
-if [[ ! -x "$LILA_BIN" ]]; then
-  echo "missing executable: $LILA_BIN" >&2
-  echo "build first: cargo build --release -p lila-cli" >&2
+if [[ ! -x "$SCRIPTW_BIN" ]]; then
+  echo "missing executable: $SCRIPTW_BIN" >&2
+  echo "build first: cargo build --release -p scriptw-cli" >&2
   exit 1
 fi
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-: "${LILA_PUBLICATION_MANIFEST:?publication session manifest is required}"
+: "${SCRIPTW_PUBLICATION_MANIFEST:?publication session manifest is required}"
 SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse --verify HEAD)"
 compiler_digest() {
   local digest
-  digest="$(sha256sum < "$LILA_BIN")" || fail "cannot hash executable: $LILA_BIN"
+  digest="$(sha256sum < "$SCRIPTW_BIN")" || fail "cannot hash executable: $SCRIPTW_BIN"
   printf '%s\n' "${digest%% *}"
 }
 COMPILER_SHA256="$(compiler_digest)"
@@ -65,10 +65,10 @@ printf 'execution_backend: %s\nsnapshot_name: %s\n' "$BACKEND" "$SNAPSHOT_NAME"
 printf 'suite_root: %s\nsnapshot_dir: %s\n' "$SUITE_ROOT" "$SNAPSHOT_DIR"
 
 verify_compiler() {
-  [[ -x "$LILA_BIN" ]] || fail "executable disappeared or is no longer executable: $LILA_BIN"
+  [[ -x "$SCRIPTW_BIN" ]] || fail "executable disappeared or is no longer executable: $SCRIPTW_BIN"
   [[ "$(compiler_digest)" == "$COMPILER_SHA256" ]] || fail "compiler changed during publication; retain the log and checkpoints for triage"
   [[ "$(git -C "$REPO_ROOT" rev-parse --verify HEAD)" == "$SOURCE_COMMIT" ]] || fail "source commit changed during publication; retain the log and checkpoints for triage"
-  python3 "$REPO_ROOT/scripts/publication-session.py" verify "$LILA_PUBLICATION_MANIFEST"
+  python3 "$REPO_ROOT/scripts/publication-session.py" verify "$SCRIPTW_PUBLICATION_MANIFEST"
 }
 
 matrix_progress() {
@@ -76,7 +76,7 @@ matrix_progress() {
   local -a progress_command
   verify_compiler
   if progress="$(
-    "$LILA_BIN" test262 progress-status \
+    "$SCRIPTW_BIN" test262 progress-status \
       --execution-backend "$BACKEND" \
       --suite-root "$SUITE_ROOT" \
       --snapshot-dir "$SNAPSHOT_DIR" \
@@ -88,7 +88,7 @@ matrix_progress() {
     # A fresh run may not have a checkpoint yet. Bootstrap only once; after a
     # successful report-all, losing progress is an error, never an empty matrix.
     [[ "$REPORT_RAN" == 0 ]] || fail "progress-status failed after report-all (exit $status)"
-    python3 "$REPO_ROOT/scripts/publication-session.py" require-fresh "$LILA_PUBLICATION_MANIFEST"
+    python3 "$REPO_ROOT/scripts/publication-session.py" require-fresh "$SCRIPTW_PUBLICATION_MANIFEST"
     echo "progress-status unavailable before first report-all (exit $status); attempting initial checkpoint" >&2
     MATRIX_COMPLETED=0
     MATRIX_TOTAL=""
@@ -96,7 +96,7 @@ matrix_progress() {
   fi
 
   progress_command=(python3 "$REPO_ROOT/scripts/publication-session.py"
-    record-progress "$LILA_PUBLICATION_MANIFEST")
+    record-progress "$SCRIPTW_PUBLICATION_MANIFEST")
   if [[ "$REPORT_RAN" == 1 ]]; then
     progress_command+=(--after-report)
   fi
@@ -117,7 +117,7 @@ while true; do
 
   if [[ -n "$total" && "$completed" == "$total" ]]; then
     cmd=(
-      "$LILA_BIN" test262 publish-status
+      "$SCRIPTW_BIN" test262 publish-status
       --jobs "$JOBS"
       --execution-backend "$BACKEND"
       --suite-root "$SUITE_ROOT"
@@ -133,7 +133,7 @@ while true; do
 
   verify_compiler
   report_command=(
-    "$LILA_BIN" test262 report-all
+    "$SCRIPTW_BIN" test262 report-all
     --jobs "$JOBS"
     --execution-backend "$BACKEND"
     --suite-root "$SUITE_ROOT"

@@ -9,7 +9,7 @@
 
 ## Current repository state
 
-Wasm-AOT is now the engine and CLI default, `lila-spec-exec`/`boa_engine` is
+Wasm-AOT is now the engine and CLI default, `scriptw-spec-exec`/`boa_engine` is
 behind the off-by-default `spec-exec-oracle` feature, and
 `./scripts/check-no-interpreter-in-product-graph.sh` passes. There is no silent
 fallback in the default product path. Publication now accepts only the closed
@@ -41,7 +41,7 @@ two-variant behavior is unchanged.
 
 Keep the Wasm-AOT compiler as the product execution path in code, not only in
 documentation. Before this task's core implementation landed,
-`lila-spec-exec` wrapped the Boa JavaScript interpreter as the engine-wide
+`scriptw-spec-exec` wrapped the Boa JavaScript interpreter as the engine-wide
 default, a first-class CLI backend and a co-equal published conformance target.
 Under `AGENTS.md` an interpreter may exist only as a hidden
 debug/differential oracle: never the CLI runtime path, never the default, never
@@ -52,26 +52,26 @@ never the source of published conformance numbers.
 
 ### 1. Flip the default backend
 
-- Change the `lila-engine` `ExecutionBackend` default and every CLI entry point (`lila run`, `lila build`, `lila test262 ...`) to Wasm-AOT.
+- Change the `scriptw-engine` `ExecutionBackend` default and every CLI entry point (`scriptw run`, `scriptw build`, `scriptw test262 ...`) to Wasm-AOT.
 - Selecting spec-exec requires an explicit developer-only flag (for example `--execution-backend spec-exec` marked internal/debug in help text); document it as the differential oracle, not a runtime.
 - A Wasm-AOT compilation or execution failure must surface as a failure. Audit for and remove any path that silently retries or falls back to spec-exec.
 
 ### 2. Quarantine the interpreter dependency
 
-- Gate `lila-spec-exec` (and its `boa_engine` dependency) behind a cargo feature that is off for product/release builds of `lila-engine` and `lila-cli`, or split oracle functionality into a separate developer binary, so product binaries link no JavaScript interpreter/VM engine.
+- Gate `scriptw-spec-exec` (and its `boa_engine` dependency) behind a cargo feature that is off for product/release builds of `scriptw-engine` and `scriptw-cli`, or split oracle functionality into a separate developer binary, so product binaries link no JavaScript interpreter/VM engine.
 - Add an automated dependency check (a CI `cargo tree` assertion or a test) proving the product build graph contains no interpreter engine crate.
-- The vendored Boa *parser/AST* crates used by `lila-front` are compile-time tools and remain allowed; the quarantine boundary is the interpreter/engine, not the parser.
+- The vendored Boa *parser/AST* crates used by `scriptw-front` are compile-time tools and remain allowed; the quarantine boundary is the interpreter/engine, not the parser.
 
 ### 3. Artifact audit
 
-- Add a test that `lila build wasm` output for representative programs contains compiled user semantics: no interpreter loop and no embedded user source text that a runtime evaluator consumes (module records and diagnostics may retain source metadata; it must not be an execution input).
+- Add a test that `scriptw build wasm` output for representative programs contains compiled user semantics: no interpreter loop and no embedded user source text that a runtime evaluator consumes (module records and diagnostics may retain source metadata; it must not be an execution input).
 - Wire this audit into the T26 integrity audit so closure re-verifies it.
 
 ### 4. Status and reporting policy
 
-- Published README/status artifacts report Wasm-AOT as the only Lila conformance number.
+- Published README/status artifacts report Wasm-AOT as the only Scriptw conformance number.
 - `spec-exec` matrices/snapshots remain producible for oracle triage but are labeled oracle-diagnostic, stored separately and excluded from product status blocks.
-- Update `lila test262 publish-status` / `scripts/publish-real-status-low-ram.sh` so a spec-exec snapshot cannot be published as the product conformance block.
+- Update `scriptw test262 publish-status` / `scripts/publish-real-status-low-ram.sh` so a spec-exec snapshot cannot be published as the product conformance block.
 
 ## Out of scope
 
@@ -90,14 +90,14 @@ never the source of published conformance numbers.
 ## Required tests
 
 ```sh
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli --quiet
 # Dependency quarantine: expect no interpreter engine crate in the product graph
 # (exact feature flags per the implemented gating; the check must be wired into CI).
-cargo tree -p lila-cli | grep -c boa_engine   # expect 0 in the product configuration
+cargo tree -p scriptw-cli | grep -c boa_engine   # expect 0 in the product configuration
 # Prove the default backend is Wasm-AOT by running the fake suite with no backend flag:
-./target/debug/lila test262 run language/wasm/pass \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/scriptw test262 run language/wasm/pass \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262
 ```
 
 Also run a representative previously green real Test262 filter through the default (flag-free) CLI invocation and confirm the reported backend in its output/snapshot metadata is `wasm-aot`.

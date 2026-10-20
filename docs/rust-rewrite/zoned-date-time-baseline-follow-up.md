@@ -77,10 +77,10 @@ the frozen observation.
 Reproduce the replay with a newly built candidate and an unused output directory:
 
 ```sh
-cargo build --release --locked -j2 -p lila-cli
+cargo build --release --locked -j2 -p scriptw-cli
 python3 scripts/replay-test262-executions.py \
   test262/replays/zoned-date-time-follow-up-20260910.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/failure-review/zoned-date-time-follow-up --workers 6
 ```
 

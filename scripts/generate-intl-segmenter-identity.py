@@ -12,8 +12,8 @@ import re
 import tarfile
 import tomllib
 
-DATA = pathlib.Path("crates/lila-intl/data/segmenter-icu-2")
-NATIVE = pathlib.Path("crates/lila-intl/src/segmenter")
+DATA = pathlib.Path("crates/scriptw-intl/data/segmenter-icu-2")
+NATIVE = pathlib.Path("crates/scriptw-intl/src/segmenter")
 LOCALES = ["ar", "ar-EG", "de", "el", "en", "en-US", "fi", "fr", "hi", "it", "ja", "ko", "sr", "sv", "zh", "zh-Hans", "zh-Hans-CN"]
 PINS = {
     "icu_segmenter": ("2.0.1", "38e30e593cf9c3ca2f51aa312eb347cd1ba95715e91a842ec3fc9058eab2af4b"),
@@ -130,26 +130,26 @@ def locked_packages(root):
 
 def kernel_sources(root):
     sources = [pathlib.Path(name) for name in (
-        "Cargo.toml", "Cargo.lock", "crates/lila-intl/Cargo.toml",
-        "crates/lila-intl/src/lib.rs", "crates/lila-intl/src/provider.rs", "crates/lila-intl/src/provider/conformance.rs", "crates/lila-intl/src/selection.rs", "crates/lila-intl/src/selection/minimal_admission.rs",
-        "crates/lila-intl/src/service_selection.rs",
-        "crates/lila-intl/src/selection/manifest.rs",
-        "crates/lila-intl/src/selection/export.rs",
-        "crates/lila-intl/src/protocol.rs", "crates/lila-intl/src/supported_values.rs",
-        "crates/lila-intl/src/identifiers.rs", "crates/lila-intl/src/number_format/options.rs",
-        "crates/lila-intl/src/number_protocol.rs", "scripts/generate-intl-segmenter-identity.py",
-        "crates/lila-intl/src/segmenter.rs", "crates/lila-intl/src/segmenter_protocol.rs",
-        "crates/lila-engine/src/intl_segmenter_host.rs", "crates/lila-engine/src/wasm_gc_intl_host.rs",
-        "crates/lila-engine/src/intl_data_images.rs", "crates/lila-intl/build.rs",
-        "crates/lila-intl/src/image.rs", "crates/lila-intl/src/locale_image.rs",
-        "crates/lila-intl/src/image_build/locale.rs", "crates/lila-intl/src/segmenter_image.rs",
-        "crates/lila-intl/src/image_build/segmenter.rs",
+        "Cargo.toml", "Cargo.lock", "crates/scriptw-intl/Cargo.toml",
+        "crates/scriptw-intl/src/lib.rs", "crates/scriptw-intl/src/provider.rs", "crates/scriptw-intl/src/provider/conformance.rs", "crates/scriptw-intl/src/selection.rs", "crates/scriptw-intl/src/selection/minimal_admission.rs",
+        "crates/scriptw-intl/src/service_selection.rs",
+        "crates/scriptw-intl/src/selection/manifest.rs",
+        "crates/scriptw-intl/src/selection/export.rs",
+        "crates/scriptw-intl/src/protocol.rs", "crates/scriptw-intl/src/supported_values.rs",
+        "crates/scriptw-intl/src/identifiers.rs", "crates/scriptw-intl/src/number_format/options.rs",
+        "crates/scriptw-intl/src/number_protocol.rs", "scripts/generate-intl-segmenter-identity.py",
+        "crates/scriptw-intl/src/segmenter.rs", "crates/scriptw-intl/src/segmenter_protocol.rs",
+        "crates/scriptw-engine/src/intl_segmenter_host.rs", "crates/scriptw-engine/src/wasm_gc_intl_host.rs",
+        "crates/scriptw-engine/src/intl_data_images.rs", "crates/scriptw-intl/build.rs",
+        "crates/scriptw-intl/src/image.rs", "crates/scriptw-intl/src/locale_image.rs",
+        "crates/scriptw-intl/src/image_build/locale.rs", "crates/scriptw-intl/src/segmenter_image.rs",
+        "crates/scriptw-intl/src/image_build/segmenter.rs",
     )]
-    sources += [pathlib.Path(name) for name in ['crates/lila-intl/src/image_build/keyword.rs', 'crates/lila-intl/src/provider/keyword_aliases.rs', 'crates/lila-intl/src/provider/keyword_aliases/generated.rs', 'crates/lila-intl/data/cldr-47-bcp47/manifest.json', 'crates/lila-intl/src/provider/language_domain.rs']]
-    sources += [pathlib.Path(name) for name in ['crates/lila-aot-wasm/src/emit.rs', 'crates/lila-aot-wasm/src/emit/module_assembly.rs']]
-    sources += [p.relative_to(root) for p in sorted((root / "crates/lila-intl/src/segmenter_image").rglob("*.rs"))
-        if p.name != "tests.rs" and "tests" not in p.relative_to(root / "crates/lila-intl/src/segmenter_image").parts]
-    for owner in (NATIVE, pathlib.Path("crates/lila-intl/src/segmenter_protocol"), pathlib.Path("crates/lila-intl/src/number_protocol")):
+    sources += [pathlib.Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs']]
+    sources += [pathlib.Path(name) for name in ['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs']]
+    sources += [p.relative_to(root) for p in sorted((root / "crates/scriptw-intl/src/segmenter_image").rglob("*.rs"))
+        if p.name != "tests.rs" and "tests" not in p.relative_to(root / "crates/scriptw-intl/src/segmenter_image").parts]
+    for owner in (NATIVE, pathlib.Path("crates/scriptw-intl/src/segmenter_protocol"), pathlib.Path("crates/scriptw-intl/src/number_protocol")):
         sources += [p.relative_to(root) for p in sorted((root / owner).rglob("*.rs"))
             if p.name not in ("kernel_identity.rs", "tests.rs") and "tests" not in p.relative_to(root / owner).parts]
     sources += [NATIVE / "profile.json", NATIVE / "profile_identity.rs"]
@@ -164,7 +164,7 @@ def outputs(root):
                  f'pub const SEGMENTER_DATA_SHA256: &str =\n    "{digest(profile_bytes)}";\n'
                  f'pub(super) const SEGMENTER_SOURCE_MANIFEST_SHA256: &str =\n    "{digest(manifest_bytes)}";\n').encode()
     generated = {NATIVE / "profile.json": profile_bytes, NATIVE / "profile_identity.rs": constants}
-    cargo_manifest = tomllib.loads((root / "crates/lila-intl/Cargo.toml").read_text())
+    cargo_manifest = tomllib.loads((root / "crates/scriptw-intl/Cargo.toml").read_text())
     cargo = cargo_manifest["dependencies"]["icu_segmenter"]
     build = cargo_manifest["build-dependencies"]["icu_segmenter"]
     data = cargo_manifest["build-dependencies"]["icu_segmenter_data"]
@@ -179,7 +179,7 @@ def outputs(root):
         if data is None:
             data = (root / path).read_bytes()
         rows.append({"path": path.as_posix(), "bytes": len(data), "sha256": digest(data)})
-    recipe = {"schema": "segmenter-source-kernel/v1", "wire_version": 1, "operations_reserved": [33, 34, 35], "source_rows": rows, "source_manifest_sha256": digest(manifest_bytes), "profile_sha256": digest(profile_bytes), "host_call_abi": int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (root / 'crates/lila-intl/src/lib.rs').read_text(), re.S).group(1)), "packages": packages, "actual_feature_admission": {"runtime": ["serde", "auto"], "build": ["datagen", "auto"]}, "runtime_claim": "source-complete image/shared/native/host adapter; actual compile/native/product verification pending"}
+    recipe = {"schema": "segmenter-source-kernel/v1", "wire_version": 1, "operations_reserved": [33, 34, 35], "source_rows": rows, "source_manifest_sha256": digest(manifest_bytes), "profile_sha256": digest(profile_bytes), "host_call_abi": int(re.fullmatch(r'.*?pub const INTL_HOST_CALL_ABI_VERSION: u16 = (\d+);.*', (root / 'crates/scriptw-intl/src/lib.rs').read_text(), re.S).group(1)), "packages": packages, "actual_feature_admission": {"runtime": ["serde", "auto"], "build": ["datagen", "auto"]}, "runtime_claim": "source-complete image/shared/native/host adapter; actual compile/native/product verification pending"}
     recipe_bytes = packed(recipe)
     generated[DATA / "kernel-source-manifest.json"] = pretty({**recipe, "kernel_sha256": digest(recipe_bytes)})
     generated[NATIVE / "kernel_identity.rs"] = (f'// Generated by scripts/generate-intl-segmenter-identity.py.\npub const SEGMENTER_KERNEL_SHA256: &str =\n    "{digest(recipe_bytes)}";\n').encode()

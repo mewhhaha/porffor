@@ -67,11 +67,11 @@ and
 ## Historical verification
 
 ```sh
-cargo test -p lila-aot-wasm --test global_ascii_class_quantifier_structure
-cargo test -p lila-cli --test cli string::run_wasm_backend_succeeds_for_string_symbol_hooks_fixture -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T3.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
-./target/debug/lila --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T4.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
-./target/debug/lila --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T5.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+cargo test -p scriptw-aot-wasm --test global_ascii_class_quantifier_structure
+cargo test -p scriptw-cli --test cli string::run_wasm_backend_succeeds_for_string_symbol_hooks_fixture -- --exact --test-threads=1
+./target/debug/scriptw --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T3.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+./target/debug/scriptw --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T4.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
+./target/debug/scriptw --jobs 1 test262 run built-ins/String/prototype/match/S15.5.4.10_A2_T5.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 60000
 cargo xc
 cargo fmt --all -- --check
 git diff --check

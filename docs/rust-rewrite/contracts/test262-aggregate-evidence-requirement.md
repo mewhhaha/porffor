@@ -31,8 +31,8 @@ mentions, exact private declaration, absent capabilities, exhaustive candidate
 decision and all three producer contexts:
 
 ```console
-cargo test -p lila-test262 --test aggregate_evidence_requirement_structure
-cargo test -p lila-test262 --features spec-exec-oracle tests::backlog_snapshot_name_resolution_finds_unique_compatible_aggregate -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test aggregate_evidence_requirement_structure
+cargo test -p scriptw-test262 --features spec-exec-oracle tests::backlog_snapshot_name_resolution_finds_unique_compatible_aggregate -- --exact --test-threads=1
 ```
 
 The focused structure target passes `4/4`, and the exact alternate-name product

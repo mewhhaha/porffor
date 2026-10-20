@@ -10,7 +10,7 @@ condition:
 `EarlyErrorCode::AsyncGeneratorDeclarationContainsSuper`
 
 Its wire spelling is
-`E_ASYNC_GENERATOR_DECLARATION_CONTAINS_SUPER`. The exhaustive `lila-ir`
+`E_ASYNC_GENERATOR_DECLARATION_CONTAINS_SUPER`. The exhaustive `scriptw-ir`
 rejection projection derives phase `Early` and native error type `SyntaxError`.
 
 The condition is true when the declaration's `FormalParameters` or
@@ -72,7 +72,7 @@ maps the complete prefix to
 `54/18/1` `ContainsAll` / `StartsWith` / `Exact`. An evaluated witness, exact
 single-owner assertion, eight-observation prefix-injection proof and exhaustive
 wire-name round trip close the front mapping. The exhaustive `EarlyErrorCode`
-match in `lila-ir` owns the variant explicitly.
+match in `scriptw-ir` owns the variant explicitly.
 
 Direct front tests cover named declarations under Script and Module goals,
 parameters and body, both super forms, ordinary and async-arrow traversal, the

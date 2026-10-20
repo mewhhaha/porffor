@@ -1,6 +1,6 @@
 # Exact native Test262 cohorts
 
-`lila test262 run-list <execution-list> [options]` runs a nonempty list of exact
+`scriptw test262 run-list <execution-list> [options]` runs a nonempty list of exact
 `mode:path.js` identities through the normal supervised conformance runner.
 Blank lines and whole-line comments are allowed; duplicates, unknown modes and
 empty lists reject. The private checked `TestExecutionList` cannot contain an

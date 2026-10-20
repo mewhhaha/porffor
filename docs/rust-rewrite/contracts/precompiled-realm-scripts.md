@@ -1,7 +1,7 @@
 # Precompiled realm Script evaluation
 
 This contract defines the only permitted Wasm-AOT implementation shape for
-source text that is known while Lila compiles the containing program. It does
+source text that is known while Scriptw compiles the containing program. It does
 not permit a parser, interpreter or compiler inside the emitted artifact.
 
 The first consumer is Test262's `$262.evalScript`, but the representation is a

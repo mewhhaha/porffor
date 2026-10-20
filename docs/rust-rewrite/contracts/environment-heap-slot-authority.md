@@ -59,9 +59,9 @@ preceding StatementList value. Reusing the result tag as initialization scratch
 would expose the TDZ marker or replace a preceding value's type.
 
 ```sh
-cargo test -p lila-aot-wasm --test environment_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::environment_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_environment_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/environment_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test environment_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::environment_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_environment_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/environment_heap_slot_structure.rs
 git diff --check
 ```

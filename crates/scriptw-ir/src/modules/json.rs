@@ -1,0 +1,46 @@
+//! A native JSON evaluation value minted only from a retained parsed JSON record.
+use super::record::ModuleUnitId;
+pub use scriptw_front::JsonValue;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JsonModuleValueIr {
+    module: ModuleUnitId,
+    source: scriptw_front::ParsedJson,
+}
+
+impl JsonModuleValueIr {
+    pub(super) fn new(module: ModuleUnitId, source: scriptw_front::ParsedJson) -> Self {
+        Self { module, source }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+    pub fn value(&self) -> &scriptw_front::JsonValue {
+        self.source.value()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BytesModuleValueIr {
+    module: ModuleUnitId,
+    bytes: Vec<u8>,
+}
+
+impl BytesModuleValueIr {
+    pub(super) fn new(module: ModuleUnitId, bytes: Vec<u8>) -> Self {
+        Self { module, bytes }
+    }
+    pub const fn module(&self) -> ModuleUnitId {
+        self.module
+    }
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SyntheticModuleValueIr {
+    Json(JsonModuleValueIr),
+    Bytes(BytesModuleValueIr),
+    Text(String),
+}

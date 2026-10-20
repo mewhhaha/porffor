@@ -39,7 +39,7 @@ def stage(root, target, output, owner_path, *, profile, oracle, share_runtime_im
         raise ValueError("native build owner belongs to a different source")
     worker = owned["native_cli_worker"]
     artifact = worker["cargo_artifact"]
-    if artifact["target"]["name"] != "lila" or artifact["target"]["kind"] != ["bin"] or artifact["profile"]["test"] is not False:
+    if artifact["target"]["name"] != "scriptw" or artifact["target"]["kind"] != ["bin"] or artifact["profile"]["test"] is not False:
         raise ValueError("captured artifact is not the runnable native-graph CLI")
     expected_opt = {"debug": "0", "release": "3"}[profile]
     if artifact["profile"]["opt_level"] != expected_opt or ("spec-exec-oracle" in artifact["features"]) != oracle:
@@ -64,7 +64,7 @@ def stage(root, target, output, owner_path, *, profile, oracle, share_runtime_im
         (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     seal()
     started = time.monotonic()
-    image = output / "lila-worker"
+    image = output / "scriptw-worker"
     shutil.copy2(captured, image)
     if sha(image) != worker["sha256"]:
         raise ValueError("staged CLI copy differs from its captured image")

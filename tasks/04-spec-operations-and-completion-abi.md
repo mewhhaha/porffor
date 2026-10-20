@@ -123,8 +123,8 @@ ABI or runtime behavior. Its structure target passes `3/3`, three exact runtime
 witnesses pass `3/3` in aggregate, independent dry review is clean, and
 `cargo xc` plus repository checks are green.
 
-`lila-ir/src/operations.rs` and
-`lila-aot-wasm/src/operations.rs` provide shared operation catalogs and
+`scriptw-ir/src/operations.rs` and
+`scriptw-aot-wasm/src/operations.rs` provide shared operation catalogs and
 emitters, while the backend has explicit ABI and control-flow modules. The 29
 expression-shaped `SpecOperationIr` rows now come from one typed descriptor
 declaration containing the name, family, operand domain, normal result and
@@ -154,7 +154,7 @@ species owner or universal caller migration. `SpeciesConstructor`,
 [spec-operation catalog evidence contract](../docs/rust-rewrite/contracts/Spec-operation%20catalog%20evidence%20and%20the%20iterator-protocol%20obligation%20witness.md).
 At the central checkpoint, the catalog and neighboring structure targets pass
 `10/10`, the filtered IR operation units pass `53/53`, the three Array slice
-CLI controls pass `3/3`, `cargo check -p lila-aot-wasm` is green, and all
+CLI controls pass `3/3`, `cargo check -p scriptw-aot-wasm` is green, and all
 repository gates are green with 240 exact shortcut entries. No Test262 result,
 published status count, or conformance gain is claimed.
 
@@ -183,7 +183,7 @@ catalog census is `29 + 2 + 5 + 10 = 46`; §17 of the catalog evidence contract
 records the carrier lifecycle, caller census, and nonclaims. At the 2026-08-29
 checkpoint, its bounded structure target passes `7/7`, the existing Object
 descriptor fixture passes `1/1`, the filtered IR operation units pass `53/53`,
-and `cargo check -p lila-aot-wasm` is green with only the pre-existing vendored
+and `cargo check -p scriptw-aot-wasm` is green with only the pre-existing vendored
 parser warning.
 
 The 2026-08-29 try-clause checkpoint seeds the backend's four completion locals
@@ -197,7 +197,7 @@ module-boundary check and documented in
 [`try-clause-empty-completion-seed.md`](../docs/rust-rewrite/contracts/try-clause-empty-completion-seed.md).
 At the central checkpoint, the structure target passes `2/2`, four independent
 CLI programs pass through two integration tests, the two neighboring completion
-controls pass `2/2`, `cargo check -p lila-aot-wasm` is green, and all repository
+controls pass `2/2`, `cargo check -p scriptw-aot-wasm` is green, and all repository
 gates are green with 240 exact shortcut entries. This checkpoint does not
 redesign the four-local ABI, add explicit value presence, promote the
 `Completion` or `UpdateEmpty` gaps, establish complete try/catch/finally
@@ -575,7 +575,7 @@ remain distinct and record exactly `prototype,return`; bound wrappers returning
 product source required no change. On 2026-08-24, the structural guard and CLI
 fixture passed `1/1` each, while the direct pinned leaf passed both Wasm-AOT
 variants (`2/2`) with every failure bucket at zero. `cargo check -p
-lila-aot-wasm`, `cargo xc`, `node --check` and `git diff --check` are also
+scriptw-aot-wasm`, `cargo xc`, `node --check` and `git diff --check` are also
 green. That pinned leaf covers only entry-realm undefined/self rejection, so
 this checkpoint claims no measured baseline gain,
 RegExp behavior change, broader Iterator closure, generator suspension,
@@ -715,7 +715,7 @@ contract is recorded in
 [`wasm-top-level-completion-kind.md`](../docs/rust-rewrite/contracts/wasm-top-level-completion-kind.md).
 This source-equivalent closure changes no completion ABI or runtime behavior;
 the dedicated structure target passes `3/3`, both exact public runtime
-witnesses pass `1/1`, and `cargo check -p lila-engine --lib --quiet` is green
+witnesses pass `1/1`, and `cargo check -p scriptw-engine --lib --quiet` is green
 with the repository's existing warnings. No broad suite or Test262 refresh was
 run for this invariant-only change.
 
@@ -811,7 +811,7 @@ is claimed.
 ## Implementation sequence
 
 1. Write a catalog mapping operation name to spec inputs, outputs and possible abrupt completions.
-2. Introduce typed operation nodes/helpers in `lila-ir`.
+2. Introduce typed operation nodes/helpers in `scriptw-ir`.
 3. Introduce shared Wasm helper generation and a registry that emits each helper once per module.
 4. Convert representative property access, builtin argument coercion and tagged `ToPrimitive` paths.
 5. Migrate remaining call sites incrementally, deleting old helpers as coverage moves.
@@ -829,10 +829,10 @@ is claimed.
 ## Required tests
 
 ```sh
-cargo test -p lila-ir operations_ --quiet
-cargo test -p lila-aot-wasm operations_ --quiet
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli wasm_ --quiet
+cargo test -p scriptw-ir operations_ --quiet
+cargo test -p scriptw-aot-wasm operations_ --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli wasm_ --quiet
 ```
 
 Run real Test262 coercion-order cases from several builtins plus `language/statements/try`, `built-ins/Proxy`, and `built-ins/Object` to verify cross-family behavior.

@@ -194,8 +194,8 @@ def replay(options, manifest, executions, results, replay_one, write_checkpoint)
     if options.resume:
         command.append("--resume")
     environment = os.environ.copy()
-    environment["LILA_TEST262_FORCE_CASE_RUNNER"] = "1"
-    environment.pop("LILA_TEST262_DISABLE_CASE_RUNNER", None)
+    environment["SCRIPTW_TEST262_FORCE_CASE_RUNNER"] = "1"
+    environment.pop("SCRIPTW_TEST262_DISABLE_CASE_RUNNER", None)
     started = time.monotonic()
     previous_signal = signal.getsignal(signal.SIGTERM)
     def interrupted(_signum, _frame):

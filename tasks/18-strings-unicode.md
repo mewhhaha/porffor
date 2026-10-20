@@ -305,7 +305,7 @@ the invalid-count and result-too-large `RangeError` paths now use the executing
 repeat function's Realm. The fixture covers negative fractions, enormous
 finite counts on empty and nonempty receivers, and both errors through a
 created Realm's borrowed repeat method. On 2026-08-24,
-`cargo check -p lila-aot-wasm` and `cargo xc` passed, the hardened structural
+`cargo check -p scriptw-aot-wasm` and `cargo xc` passed, the hardened structural
 target passed `4/4`, and the exact CLI fixture passed `1/1`. At current Test262 pin
 `e9d582d6b8b13afc5ba9a676664741592b5c7f69`, all 16 unrewritten repeat files
 materialized as 32 ordinary sloppy/strict Wasm-AOT executions and passed
@@ -512,7 +512,7 @@ constructor call remains the explicit trust boundary. The strengthened bounded
 structure target passes `5/5`, the focused cross-Realm String fixture passes
 `1/1`, the created-Realm materialization inventory passes `1/1`, the retained
 collection receiver target passes `2/2`, and the Map/Set and Array iterator
-controls pass `1/1` each. `cargo check -p lila-aot-wasm` is green. The
+controls pass `1/1` each. `cargo check -p scriptw-aot-wasm` is green. The
 [contract](../docs/rust-rewrite/contracts/created-realm-iterator-next-publication.md)
 records the invariant and evidence. `ArrayIteratorIdentity` remains outside
 the typed `next` lane, and the existing Map/Set receiver fixture is only a
@@ -591,10 +591,10 @@ Implement from shared conversion/string primitives rather than method-local byte
 ## Required tests
 
 ```sh
-cargo test -p lila-ir string_ --quiet
-cargo test -p lila-aot-wasm string_ --quiet
-cargo test -p lila-cli wasm_string --quiet
-./target/debug/lila test262 run built-ins/String --execution-backend wasm --timeout-ms 180000 --threads 8
+cargo test -p scriptw-ir string_ --quiet
+cargo test -p scriptw-aot-wasm string_ --quiet
+cargo test -p scriptw-cli wasm_string --quiet
+./target/debug/scriptw test262 run built-ins/String --execution-backend wasm --timeout-ms 180000 --threads 8
 ```
 
 Add focused representation tests for every surrogate boundary and rerun JSON, RegExp, URI, Date and Intl-adjacent filters that consume strings.
@@ -621,7 +621,7 @@ packet's hashes, inverse and source-only receipts. No status count or T18
 closure changes are claimed. Append these exact bytes after the then-current
 concat note; preserve every preceding Task18 byte.
 
-The [current parseInt emitter](../crates/lila-aot-wasm/src/builtins/host/parse_int.rs)
+The [current parseInt emitter](../crates/scriptw-aot-wasm/src/builtins/host/parse_int.rs)
 now uses the shared binary64-to-uint32 modulo operation followed by
 signed extension for radix ToInt32. The saturation defect above is a
 historical source diagnosis; this correction does not claim a new

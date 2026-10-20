@@ -8,7 +8,7 @@ Wasm validation, native execution or full-suite acceptance was run for it.
 Realm, nullable lexical/variable/private environments, this Value3, new.target
 Value3, required invocation context and calling ProgramInstance (14 machine
 operands). Completion5, status and nullable syntax message are separate results.
-The host-only `lila.runtime_direct_eval_factory` prepends actual P2 (15 operands)
+The host-only `scriptw.runtime_direct_eval_factory` prepends actual P2 (15 operands)
 and returns Completion5/status. A JS throw has Entered status; actual parse/early
 errors belong to the host SyntaxError result. All request roots survive callback
 and all returned roots are bound before their request owners are released.

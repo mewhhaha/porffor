@@ -11,8 +11,8 @@ import tarfile
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = Path('crates/lila-intl/data/list-icu-2')
-OWNER = Path('crates/lila-intl/src/list_format')
+DATA = Path('crates/scriptw-intl/data/list-icu-2')
+OWNER = Path('crates/scriptw-intl/src/list_format')
 PACKAGES = {'icu_list': '2.0.1', 'icu_list_data': '2.0.0', 'writeable': '0.6.3',
             'icu_locale': '2.0.0', 'icu_locale_data': '2.0.0', 'icu_locale_core': '2.0.1',
             'icu_provider': '2.0.0', 'icu_provider_blob': '2.0.0',
@@ -121,23 +121,23 @@ def generate(repository):
             if matched['version'] != row['version'] or matched['checksum'] != row['crate_checksum']:
                 raise ValueError('source archive is not the selected runtime crate')
     paths = {DATA / 'source-inputs.json', Path('scripts/generate-intl-list-identity.py'),
-             Path('crates/lila-intl/Cargo.toml'), Path('crates/lila-intl/src/list_format.rs'),
-             Path('crates/lila-intl/src/list_protocol.rs'), Path('crates/lila-intl/src/lib.rs'),
-             Path('crates/lila-intl/src/protocol.rs'), Path('crates/lila-intl/src/provider.rs'), Path('crates/lila-intl/src/provider/conformance.rs'), Path('crates/lila-intl/src/selection.rs'), Path('crates/lila-intl/src/selection/minimal_admission.rs'),
-             Path('crates/lila-intl/src/service_selection.rs'),
-             Path('crates/lila-intl/src/selection/manifest.rs'),
-             Path('crates/lila-intl/src/selection/export.rs'),
-             Path('crates/lila-intl/src/number_protocol.rs'), Path('crates/lila-intl/src/number_protocol/primitives.rs'),
-             Path('crates/lila-engine/src/intl_list_host.rs')}
-    paths.update(Path(name) for name in ['crates/lila-intl/build.rs', 'crates/lila-intl/src/image.rs', 'crates/lila-intl/src/locale_image.rs', 'crates/lila-intl/src/image_build/locale.rs', 'crates/lila-engine/src/intl_data_images.rs', 'crates/lila-intl/src/list_image.rs', 'crates/lila-intl/src/image_build/list.rs'])
-    paths.update(Path(name) for name in ['crates/lila-intl/src/image_build/keyword.rs', 'crates/lila-intl/src/provider/keyword_aliases.rs', 'crates/lila-intl/src/provider/keyword_aliases/generated.rs', 'crates/lila-intl/data/cldr-47-bcp47/manifest.json', 'crates/lila-intl/src/provider/language_domain.rs'])
-    paths.update(Path(name) for name in ['crates/lila-aot-wasm/src/emit.rs', 'crates/lila-aot-wasm/src/emit/module_assembly.rs'])
+             Path('crates/scriptw-intl/Cargo.toml'), Path('crates/scriptw-intl/src/list_format.rs'),
+             Path('crates/scriptw-intl/src/list_protocol.rs'), Path('crates/scriptw-intl/src/lib.rs'),
+             Path('crates/scriptw-intl/src/protocol.rs'), Path('crates/scriptw-intl/src/provider.rs'), Path('crates/scriptw-intl/src/provider/conformance.rs'), Path('crates/scriptw-intl/src/selection.rs'), Path('crates/scriptw-intl/src/selection/minimal_admission.rs'),
+             Path('crates/scriptw-intl/src/service_selection.rs'),
+             Path('crates/scriptw-intl/src/selection/manifest.rs'),
+             Path('crates/scriptw-intl/src/selection/export.rs'),
+             Path('crates/scriptw-intl/src/number_protocol.rs'), Path('crates/scriptw-intl/src/number_protocol/primitives.rs'),
+             Path('crates/scriptw-engine/src/intl_list_host.rs')}
+    paths.update(Path(name) for name in ['crates/scriptw-intl/build.rs', 'crates/scriptw-intl/src/image.rs', 'crates/scriptw-intl/src/locale_image.rs', 'crates/scriptw-intl/src/image_build/locale.rs', 'crates/scriptw-engine/src/intl_data_images.rs', 'crates/scriptw-intl/src/list_image.rs', 'crates/scriptw-intl/src/image_build/list.rs'])
+    paths.update(Path(name) for name in ['crates/scriptw-intl/src/image_build/keyword.rs', 'crates/scriptw-intl/src/provider/keyword_aliases.rs', 'crates/scriptw-intl/src/provider/keyword_aliases/generated.rs', 'crates/scriptw-intl/data/cldr-47-bcp47/manifest.json', 'crates/scriptw-intl/src/provider/language_domain.rs'])
+    paths.update(Path(name) for name in ['crates/scriptw-aot-wasm/src/emit.rs', 'crates/scriptw-aot-wasm/src/emit/module_assembly.rs'])
     paths.update(Path(name) for name in [
-        'crates/lila-intl/src/list_image/projection.rs',
-        'crates/lila-intl/src/list_image/projection/export.rs',
-        'crates/lila-intl/src/duration_format/profiles.rs',
-        'crates/lila-intl/src/duration_format/raw.rs',
-        'crates/lila-intl/src/duration_format/generated/profile.json'])
+        'crates/scriptw-intl/src/list_image/projection.rs',
+        'crates/scriptw-intl/src/list_image/projection/export.rs',
+        'crates/scriptw-intl/src/duration_format/profiles.rs',
+        'crates/scriptw-intl/src/duration_format/raw.rs',
+        'crates/scriptw-intl/src/duration_format/generated/profile.json'])
     paths.update(p.relative_to(repository) for p in (repository / OWNER).glob('*.rs') if p.name not in ('identity.rs', 'tests.rs'))
     records = []
     for path in sorted(paths):

@@ -51,8 +51,8 @@ The bounded structure target passes `4/4`, and the exact existing CLI fixture
 passes `1/1`:
 
 ```console
-cargo test -p lila-aot-wasm --test typed_array_quantifier_family_witness_structure -- --test-threads=1
-cargo test -p lila-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_every_some_fixture -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test typed_array_quantifier_family_witness_structure -- --test-threads=1
+cargo test -p scriptw-cli --test cli typed_array::run_wasm_backend_succeeds_for_typedarray_every_some_fixture -- --exact --test-threads=1
 ```
 
 Both focused builds retain the working tree's existing warnings.

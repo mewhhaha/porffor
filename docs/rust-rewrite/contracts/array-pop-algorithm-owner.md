@@ -27,7 +27,7 @@ empty object with a non-writable `+0` length throws.
 ## Single compiler owner
 
 `StandardBuiltinId::ArrayPrototypePop` in
-`crates/lila-aot-wasm/src/builtins/standard.rs` is the sole product algorithm
+`crates/scriptw-aot-wasm/src/builtins/standard.rs` is the sole product algorithm
 owner. Its body performs receiver conversion, length observation, last-property
 read, deletion, current-function-realm deletion error, and strict length write
 in specification order.

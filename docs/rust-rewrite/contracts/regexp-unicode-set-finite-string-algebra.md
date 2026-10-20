@@ -185,7 +185,7 @@ source `\q` operand.
 
 Unicode 17 `Emoji_Keycap_Sequence` is the exact twelve-member set
 `[#*0-9] FE0F 20E3`. The pinned `regress` provider already owns those twelve
-complete three-code-point sequences. The Lila property parser borrows that
+complete three-code-point sequences. The Scriptw property parser borrows that
 table and converts it once into the private finite-set product, so a bare
 `\p{Emoji_Keycap_Sequence}` atom and UnicodeSets union, intersection and
 subtraction all consume the canonical finite product above. The property sets
@@ -208,15 +208,15 @@ table module remains private. `UnicodeStringProperty` is the single closed
 seven-variant authority for the exact ECMAScript property names, and the
 provider's sequence accessor projects all seven variants exhaustively.
 
-Lila parses the source spelling into that domain once at the RegExp boundary.
+Scriptw parses the source spelling into that domain once at the RegExp boundary.
 At the historical authority-hardening checkpoint, its catch-all-free match
 had one semantic arm per provider variant:
 `EmojiKeycapSequence` consumes the provider sequences and enters
 `FiniteClassSet`; `BasicEmoji` and each of the five `RGIEmoji*` variants enter
 the explicit `RequiresUnicodePropertyOfStrings` capability. No raw property
-name is matched again inside Lila, and no handwritten keycap table remains.
+name is matched again inside Scriptw, and no handwritten keycap table remains.
 Adding a provider variant therefore makes both the provider table projection
-and the Lila semantic projection fail to compile until the new case is owned.
+and the Scriptw semantic projection fail to compile until the new case is owned.
 At that authority-hardening checkpoint, admitted keycap behavior and the six
 other capability outcomes were unchanged. The current exhaustive projection
 lowers all seven provider variants through the finite property constructor.
@@ -256,7 +256,7 @@ batch.
 
 ## Durable producer invariants
 
-The focused `lila-ir` witness must prove:
+The focused `scriptw-ir` witness must prove:
 
 - singleton `\q` alternatives and ordinary ranges participate in the same
   union/intersection/subtraction component;
@@ -271,7 +271,7 @@ The focused `lila-ir` witness must prove:
   and surviving string positions match their simple-fold equivalence classes;
 - all seven provider tables enter the same finite direct-atom and set algebra
   path; the original keycap table retains its twelve-member witness;
-- the strict provider parser and exhaustive seven-arm provider/Lila
+- the strict provider parser and exhaustive seven-arm provider/Scriptw
   projections are the sole property-name and sequence authorities, with every
   arm using the provider sequence accessor;
 - the source-derived 37-file keycap inventory stays unflagged, contains exactly
@@ -285,7 +285,7 @@ Producer/static stage:
 
 ```sh
 cargo fmt --all -- --check
-cargo test -p lila-ir unicode_sets_finite_string_algebra
+cargo test -p scriptw-ir unicode_sets_finite_string_algebra
 git diff --check
 ./scripts/check-module-boundaries.sh
 ```
@@ -293,7 +293,7 @@ git diff --check
 Integrated focused stage:
 
 ```sh
-./target/debug/lila test262 run built-ins/RegExp/unicodeSets/generated \
+./target/debug/scriptw test262 run built-ins/RegExp/unicodeSets/generated \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --snapshot-name regexp-unicode-set-finite-strings \
   --timeout-ms 180000 --threads 1
@@ -314,7 +314,7 @@ the complete generated directory.
 The 2026-08-27 invariant-only provider refresh passed both focused IR witnesses
 (`1/1` finite algebra and `1/1` strict closed names), the dedicated bounded
 provider-domain structure target `3/3`, and the retained finite-string
-structure target `7/7`. `cargo check -p lila-ir`, formatting and diff checks
+structure target `7/7`. `cargo check -p scriptw-ir`, formatting and diff checks
 were green with only the repository's existing warnings. No Wasm fixture,
 golden or Test262 status was rerun because the admitted behavior did not
 change.

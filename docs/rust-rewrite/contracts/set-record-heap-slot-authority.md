@@ -45,10 +45,10 @@ change a linear-memory offset, allocation, emitted Wasm, Set behavior or
 collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test set_record_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::set_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_set_record_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/set_record_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test set_record_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::set_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_set_record_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/set_record_heap_slot_structure.rs
 git diff --check
 ```
 

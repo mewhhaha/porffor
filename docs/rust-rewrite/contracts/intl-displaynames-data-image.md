@@ -3,8 +3,8 @@
 DisplayNames operations consume the admitted immutable native image through
 `DisplayNamesDataImage::display_name`. The payload is the actual 1,617,788-byte
 schema-one JSON used by the checked native renderer. Its native descriptor is
-`lila/display-names/profiles/v1`; it is not an ICU provider marker. The artifact
-section is `lila.intl-display-names-data.v1`.
+`scriptw/display-names/profiles/v1`; it is not an ICU provider marker. The artifact
+section is `scriptw.intl-display-names-data.v1`.
 
 The exact captured CLDR47 payload contains thirteen locales and 105 typed name
 pools. Every locale has complete long, short and narrow associations for the
@@ -42,7 +42,7 @@ All other name domains retain their original entries. Omitted codes use the
 existing code/none fallback, and provider admission pairs the selected codes
 with Number's actual currency domain. No substitute name data is created.
 
-The inner `LILADNP1` frame has a twenty-byte header, a bounded canonical JSON
+The inner `SCRIPTWDNP1` frame has a twenty-byte header, a bounded canonical JSON
 descriptor and the actual projected native JSON. Its descriptor binds schema,
 Custom ID, en-US default, the full pinned source SHA-256, selected Locale image
 digest, sorted public locales and original source pool indices. The descriptor

@@ -32,7 +32,7 @@ notes below; use its generated accounting rather than those historical counts.
 ## Compiler source identity — 2026-10-07 dry source
 
 The compiler no longer invents `1` for an unbound identifier named `BPE`, nor
-synthetic generator completions for objects containing `$LilaYieldStar*`
+synthetic generator completions for objects containing `$ScriptwYieldStar*`
 properties. Ordinary environment resolution and acquired method calls own those
 programs. The numeric constant recognizer also declines property access, so
 `Number` and `Math` spellings cannot erase shadowed receivers or getter effects
@@ -93,14 +93,14 @@ cover all five execution modes, wrong type/name/message and primitive throws,
 conservative constructor refusal, module phase separation and direct/rethrown
 host failure. The source and controls pass the combined 2026-10-06 workspace
 type check; their execution remains pending. The Test262
-spec-exec path still shares Lila compiler preflight; this does not establish
+spec-exec path still shares Scriptw compiler preflight; this does not establish
 independent parser agreement or full T03 acceptance.
 
 ## Compile-negative phase provenance — 2026-10-06 source
 
 The compile-negative matcher now requires structured compiler phase/type data.
 It no longer accepts an untyped compiler/host error by substring or by an absent
-expected type. If the Lila preflight accepts a parse/early negative, the selected
+expected type. If the Scriptw preflight accepts a parse/early negative, the selected
 oracle can satisfy that expectation only with an actual entry-parser SyntaxError
 provenance from the engine adapter. Runtime-thrown SyntaxErrors and Error messages
 containing that name remain failures. The prior oracle-fallthrough source literal
@@ -250,10 +250,10 @@ After a source or ledger change, regenerate the inventory with
 then run the source check and `python3 scripts/generate-shortcut-status.py`.
 These commands produce source-observation accounting, not Test262 pass counts.
 
-The vendored suite is plain files inside the Lila repository. Its current clean
+The vendored suite is plain files inside the Scriptw repository. Its current clean
 content pin is `aa55200d1310384c5cf69ea95b2a2ecba457007b`, obtained with
 `git rev-parse --verify HEAD:test262/vendor/test262`. Running
-`git -C test262/vendor/test262 rev-parse HEAD` resolves the enclosing Lila
+`git -C test262/vendor/test262 rev-parse HEAD` resolves the enclosing Scriptw
 commit, not an upstream Test262 revision. The native runner already uses the
 suite tree identity and accepts historical commit pins only after verifying
 identical suite trees. Historical replay notes below retain their originally
@@ -1017,7 +1017,7 @@ pinned `Atomics.notify` no-waiter case, pins the host timer before
 `atomicsHelper.js`, calls `run_one_case`, and requires a passing result.
 
 The Wasm `agent_call` transport no longer duplicates raw operation integers
-between the AOT emitter and engine. `lila-runtime::AgentHostOperation` is the
+between the AOT emitter and engine. `scriptw-runtime::AgentHostOperation` is the
 single closed 13-operation wire domain: the emitter writes its explicitly
 pinned `i64` values, the engine rejects an unknown word once at the import
 boundary, and the semantic dispatch is an exhaustive Rust match. This closes
@@ -1137,7 +1137,7 @@ not evidence that T03's remaining semantic materialization debt is complete.
 Make the Test262 runner an honest observer of compiler behavior rather than a second semantic implementation. Replace source-pattern simulations, test-path materializations and permissive host fallbacks with explicit host APIs and general compiler/runtime semantics.
 
 Current areas to audit include the embedded local-harness assets owned by
-`lila-test262`, source materialization, `RunOptions.test_path`, and Wasm
+`scriptw-test262`, source materialization, `RunOptions.test_path`, and Wasm
 backend branches that recognize exact Test262 paths or source shapes.
 
 ## Work items
@@ -1176,7 +1176,7 @@ The Wasm-AOT product runner owns this ABI. The spec-exec oracle runner may imple
 ### 3. Remove fake concurrency behavior
 
 The source-pattern and `new Function` agent simulator has been retired.
-The [Wasm-AOT host asset](../crates/lila-test262/assets/local-harness/wasm-aot-host.js)
+The [Wasm-AOT host asset](../crates/scriptw-test262/assets/local-harness/wasm-aot-host.js)
 routes agent methods to typed native operations under the
 [host ABI contract](../test262/backlog/host-abi.tsv). Complete real-agent
 lifecycle, shared-store and waiter-queue acceptance remains required;
@@ -1207,13 +1207,13 @@ Missing host capability must produce a stable `HostHarness` or explicit `Unsuppo
 ## Required tests
 
 ```sh
-cargo test -p lila-spec-exec --quiet
-cargo test -p lila-test262 --quiet
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli test262_ --quiet
-./target/debug/lila test262 run harness --execution-backend wasm
+cargo test -p scriptw-spec-exec --quiet
+cargo test -p scriptw-test262 --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli test262_ --quiet
+./target/debug/scriptw test262 run harness --execution-backend wasm
 # Oracle runner parity check (diagnostic only):
-./target/debug/lila test262 run harness --execution-backend spec
+./target/debug/scriptw test262 run harness --execution-backend spec
 ```
 
 Add focused fake fixtures for each host method, but validate representative real `harness`, `language/module-code`, `built-ins/Atomics` and cross-realm cases before completion.

@@ -52,7 +52,7 @@ Specification: [HostPromiseRejectionTracker](https://tc39.es/ecma262/multipage/c
 
 ## Closed completion-exit state
 
-`lila-aot-wasm/src/emit/completion_exit.rs` is the sole owner of the closed
+`scriptw-aot-wasm/src/emit/completion_exit.rs` is the sole owner of the closed
 state machine. `emit.rs` re-exports only its crate-visible `CompletionExit`
 wrapper, whose value owns the exit policy of an emitted body:
 
@@ -159,8 +159,8 @@ rejection report or an unhandled-rejection overwrite fails the same focused
 contract.
 
 The CLI fixtures
-`crates/lila-cli/tests/fixtures/wasm_multiple_unhandled_rejections.js` and
-`crates/lila-cli/tests/fixtures/wasm_multiple_unhandled_rejections_with_primary_throw.js`
+`crates/scriptw-cli/tests/fixtures/wasm_multiple_unhandled_rejections.js` and
+`crates/scriptw-cli/tests/fixtures/wasm_multiple_unhandled_rejections_with_primary_throw.js`
 name no host-print global. Together they require handled candidates to remain
 silent, all unhandled values to be reported once in FIFO order, the oldest
 rejection to supply the Throw when the Script completes normally, and an
@@ -173,7 +173,7 @@ rejects the retired first-match loop exit, clearing the fresh reentrant FIFO,
 removing the product checkpoint call or its CLI test registrations, and any
 restoration of source-reference-only print-import authority.
 
-`crates/lila-aot-wasm/tests/structure_language/completion_exit_structure.rs` separately fixes the
+`crates/scriptw-aot-wasm/tests/structure_language/completion_exit_structure.rs` separately fixes the
 private file owner, narrow re-export, exact state/method visibility inventory,
 closed caller census, no-capability declarations, four exhaustive borrowed
 decisions and the checked block-entry/exit and abrupt-return order.

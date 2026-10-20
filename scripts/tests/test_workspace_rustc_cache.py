@@ -29,7 +29,7 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
         capacity.assert_not_called()
 
     def test_codegen_queries_preserve_the_original_environment(self):
-        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_MAKEFLAGS": "original"}
+        environment = {"SCRIPTW_TEST_CODEGEN_JOBS": "auto", "CARGO_MAKEFLAGS": "original"}
         for arguments in [["/rustc", "-vV"],
                           ["/rustc", "--crate-name", "query", "--print=file-names"],
                           ["/rustc", "--crate-name", "query", "--print", "cfg"]]:
@@ -42,16 +42,16 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
         arguments = ["/rustc", "--crate-name", "sample"]
         for value in ("", "0", "3", "unbounded"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                wrapper.compiler_environment(arguments, {"LILA_TEST_CODEGEN_JOBS": value})
+                wrapper.compiler_environment(arguments, {"SCRIPTW_TEST_CODEGEN_JOBS": value})
         for value in (None, "2", "auto"):
-            environment = {"LILA_TEST_CODEGEN_JOBS": "auto"}
+            environment = {"SCRIPTW_TEST_CODEGEN_JOBS": "auto"}
             if value is not None:
                 environment["CARGO_BUILD_JOBS"] = value
             with self.subTest(cargo_jobs=value), self.assertRaises(ValueError):
                 wrapper.compiler_environment(arguments, environment)
 
     def test_one_cpu_keeps_the_existing_jobserver_without_allocating_fds(self):
-        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
+        environment = {"SCRIPTW_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
                        "CARGO_MAKEFLAGS": "original"}
         with mock.patch.object(wrapper, "codegen_capacity", return_value=1), \
                 mock.patch.object(wrapper.os, "pipe") as pipe:
@@ -60,7 +60,7 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
         pipe.assert_not_called()
 
     def test_private_jobserver_has_exactly_one_token_per_additional_cpu(self):
-        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
+        environment = {"SCRIPTW_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1",
                        "CARGO_MAKEFLAGS": "original", "MAKEFLAGS": "old",
                        "MFLAGS": "old", "RUSTFLAGS": "literal"}
         with mock.patch.object(wrapper, "codegen_capacity", return_value=3):
@@ -84,7 +84,7 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
                 os.close(descriptor)
 
     def test_budget_failure_and_invalid_cpu_capacity_never_allocate_tokens(self):
-        environment = {"LILA_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1"}
+        environment = {"SCRIPTW_TEST_CODEGEN_JOBS": "auto", "CARGO_BUILD_JOBS": "1"}
         with mock.patch.object(wrapper, "codegen_capacity", side_effect=ValueError("budget")), \
                 mock.patch.object(wrapper.os, "pipe") as pipe:
             with self.assertRaisesRegex(ValueError, "budget"):
@@ -108,22 +108,22 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
                           "debuginfo=1", "--cfg", "feature=\"kept\"", "-C"])
 
     def test_intl_retention_never_retains_libtest_or_other_crate_scratch(self):
-        environment = {"LILA_TEST_NO_INCREMENTAL": "1", "LILA_TEST_KEEP_INTL_INCREMENTAL": "1"}
-        for crate in ("lila_intl", "lila_intl_collator_data", "lila_ir", "build_script_build"):
+        environment = {"SCRIPTW_TEST_NO_INCREMENTAL": "1", "SCRIPTW_TEST_KEEP_INTL_INCREMENTAL": "1"}
+        for crate in ("scriptw_intl", "scriptw_intl_collator_data", "scriptw_ir", "build_script_build"):
             for test in (False, True):
                 arguments = ["/rustc", "--crate-name", crate, "file.rs", "-C",
                              "incremental=/cache", "-Copt-level=2"] + (["--test"] if test else [])
                 actual = wrapper.command_from_environment(arguments, environment)
-                expected = arguments if crate == "lila_intl" and not test else [
+                expected = arguments if crate == "scriptw_intl" and not test else [
                     word for word in arguments if word not in ("-C", "incremental=/cache")]
                 self.assertEqual(actual, expected, (crate, test))
         for query in (["/rustc", "-vV"], ["/rustc", "--print", "cfg"]):
             self.assertEqual(wrapper.command_from_environment(query, environment), query)
 
     def test_intl_retention_rejects_ambiguous_environment_values(self):
-        for value in ("", "0", "true", "lila_intl", "all"):
+        for value in ("", "0", "true", "scriptw_intl", "all"):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "must be 1"):
-                wrapper.command_from_environment(["/rustc"], {"LILA_TEST_KEEP_INTL_INCREMENTAL": value})
+                wrapper.command_from_environment(["/rustc"], {"SCRIPTW_TEST_KEEP_INTL_INCREMENTAL": value})
 
     def test_executed_intl_retention_preserves_compiler_arguments_and_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -131,11 +131,11 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
             compiler.write_text("#!/usr/bin/env python3\nimport json,sys\n"
                                 "print(json.dumps(sys.argv[1:]))\nsys.exit(37)\n")
             compiler.chmod(0o755)
-            environment = dict(os.environ, LILA_TEST_NO_INCREMENTAL="1",
-                               LILA_TEST_KEEP_INTL_INCREMENTAL="1")
-            environment.pop("LILA_TEST_CODEGEN_JOBS", None)
+            environment = dict(os.environ, SCRIPTW_TEST_NO_INCREMENTAL="1",
+                               SCRIPTW_TEST_KEEP_INTL_INCREMENTAL="1")
+            environment.pop("SCRIPTW_TEST_CODEGEN_JOBS", None)
             for test in (False, True):
-                arguments = ["--crate-name", "lila_intl", "-Cincremental=/cache",
+                arguments = ["--crate-name", "scriptw_intl", "-Cincremental=/cache",
                              "-Copt-level=2"] + (["--test"] if test else [])
                 result = subprocess.run([str(SOURCE), str(compiler), *arguments],
                                         capture_output=True, text=True, env=environment)
@@ -148,10 +148,10 @@ class WorkspaceRustcCacheTests(unittest.TestCase):
             wrapper.compiler_command([])
 
     def test_opt_in_normal_units_omit_only_scratch_and_queries_stay_literal(self):
-        arguments = ["/rustc", "--crate-name", "lila_ir", "file.rs", "--crate-type", "rlib",
+        arguments = ["/rustc", "--crate-name", "scriptw_ir", "file.rs", "--crate-type", "rlib",
                      "-C", "incremental=/cache", "-Copt-level=0", "--cfg", "feature=\"modules\""]
         self.assertEqual(wrapper.compiler_command(arguments, omit_normal_incremental=True),
-                         ["/rustc", "--crate-name", "lila_ir", "file.rs", "--crate-type", "rlib",
+                         ["/rustc", "--crate-name", "scriptw_ir", "file.rs", "--crate-type", "rlib",
                           "-Copt-level=0", "--cfg", "feature=\"modules\""])
         for query in [["/rustc", "-vV"], ["/rustc", "--print", "cfg"]]:
             self.assertEqual(wrapper.compiler_command(query, omit_normal_incremental=True), query)

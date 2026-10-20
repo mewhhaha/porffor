@@ -39,13 +39,13 @@ current-function-Realm TypeErrors. It does not implement weak reachability.
 
 The entry-Realm algorithm owners remain:
 
-- `crates/lila-aot-wasm/src/builtins/weak_ref.rs` for construction, `deref`,
+- `crates/scriptw-aot-wasm/src/builtins/weak_ref.rs` for construction, `deref`,
   branding and errors; and
-- `crates/lila-aot-wasm/src/intrinsics/collections.rs` for the entry-Realm
+- `crates/scriptw-aot-wasm/src/intrinsics/collections.rs` for the entry-Realm
   `deref` and `@@toStringTag` properties.
 
 Created-Realm materialization and publication are owned by the private
-`crates/lila-aot-wasm/src/builtins/host/created_realm_weak_ref_intrinsics.rs`
+`crates/scriptw-aot-wasm/src/builtins/host/created_realm_weak_ref_intrinsics.rs`
 child. The parent host bootstrap retains only the inferred producer/consumer
 call pair.
 
@@ -104,13 +104,13 @@ created Realm's populated WeakRef slot for primitive foreign
 ## Evidence
 
 The bounded source test is
-`crates/lila-aot-wasm/tests/created_realm_weak_ref_publication_structure.rs`.
+`crates/scriptw-aot-wasm/tests/created_realm_weak_ref_publication_structure.rs`.
 It pins the private token lifecycle, the required Realm slot, both self-backed
 callables, constructor-first own-key order, the exact descriptors, the existing
 constructor fallback and the current-function-Realm error routes.
 
 The source-free fixture
-`crates/lila-cli/tests/fixtures/wasm_weak_ref_created_realm.js` covers fresh
+`crates/scriptw-cli/tests/fixtures/wasm_weak_ref_created_realm.js` covers fresh
 identities, prototype parents, exact prototype own keys, construction and
 `deref`, all seven primitive fallback classes after overwriting the created
 Realm's mutable global binding, and the three created-Realm TypeError branches.
@@ -167,10 +167,10 @@ non-success bucket at zero:
 
 At that shared checkpoint, `cargo xc`, formatting, diff hygiene, task-plan,
 README-status, host-ABI and fixture-syntax gates are green. The broad
-`lila-aot-wasm` library target remains at its unchanged `367/374` baseline.
+`scriptw-aot-wasm` library target remains at its unchanged `367/374` baseline.
 The module-boundary gate is red only on the pre-existing raw line caps in
-`lila-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`) and
-`lila-ir/src/builtins.rs` (`1769 > 1760`).
+`scriptw-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`) and
+`scriptw-ir/src/builtins.rs` (`1769 > 1760`).
 
 The authoritative pinned cases are:
 
@@ -189,8 +189,8 @@ green by substitution.
 The focused verification commands are:
 
 ```sh
-cargo test -p lila-aot-wasm --test created_realm_weak_ref_publication_structure
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-aot-wasm --test created_realm_weak_ref_publication_structure
+cargo test -p scriptw-cli --test cli \
   iterator::run_wasm_backend_succeeds_for_created_realm_weak_ref_publication \
   -- --exact
 ```

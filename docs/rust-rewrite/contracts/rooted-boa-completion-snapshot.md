@@ -1,6 +1,6 @@
 # Boa rooted completion snapshots
 
-`lila_spec_exec::observe_script_graph_with_module_loading_policy` and
+`scriptw_spec_exec::observe_script_graph_with_module_loading_policy` and
 `observe_module_graph` execute the original source through the existing host
 materialization and job checkpoint. Their scalar observation counterparts use
 the same retained execution owner. The entry Realm is retained before execution;
@@ -25,7 +25,7 @@ Private brands/fields, HTMLDDA and other unsupported exotic values reject
 explicitly. No graph claims equivalent callable behavior or closure state.
 Normal/Throw is retained even when capture rejects.
 
-Seven control families in `lila-spec-exec/src/rooted_graph/tests.rs` cover exact
+Seven control families in `scriptw-spec-exec/src/rooted_graph/tests.rs` cover exact
 number/UTF-16/BigInt boundaries; cycles, Symbol identity and raw accessors; sparse
 Array length; foreign intrinsic mutation; post-job roots and primary throws;
 unsupported exotics/private brands; and budget/parser failure distinctions.

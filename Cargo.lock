@@ -1458,16 +1458,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-aot-wasm"
+name = "scriptw-aot-wasm"
 version = "0.1.0"
 dependencies = [
  "icu_calendar",
  "icu_normalizer",
  "icu_properties",
- "lila-front",
- "lila-intl",
- "lila-ir",
- "lila-runtime",
+ "scriptw-front",
+ "scriptw-intl",
+ "scriptw-ir",
+ "scriptw-runtime",
  "num-bigint",
  "sha2",
  "wasm-encoder 0.245.1",
@@ -1475,43 +1475,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-backend-c"
+name = "scriptw-backend-c"
 version = "0.1.0"
 dependencies = [
- "lila-ir",
+ "scriptw-ir",
 ]
 
 [[package]]
-name = "lila-backend-native"
+name = "scriptw-backend-native"
 version = "0.1.0"
 dependencies = [
- "lila-ir",
+ "scriptw-ir",
 ]
 
 [[package]]
-name = "lila-cli"
+name = "scriptw-cli"
 version = "0.1.0"
 dependencies = [
- "lila-engine",
- "lila-test262",
+ "scriptw-engine",
+ "scriptw-test262",
  "serde",
  "serde_json",
  "sha2",
 ]
 
 [[package]]
-name = "lila-engine"
+name = "scriptw-engine"
 version = "0.1.0"
 dependencies = [
- "lila-aot-wasm",
- "lila-backend-c",
- "lila-backend-native",
- "lila-front",
- "lila-intl",
- "lila-ir",
- "lila-runtime",
- "lila-runtime-image",
- "lila-spec-exec",
+ "scriptw-aot-wasm",
+ "scriptw-backend-c",
+ "scriptw-backend-native",
+ "scriptw-front",
+ "scriptw-intl",
+ "scriptw-ir",
+ "scriptw-runtime",
+ "scriptw-runtime-image",
+ "scriptw-spec-exec",
  "rayon",
  "sha2",
  "wasmparser 0.245.1",
@@ -1519,7 +1519,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-front"
+name = "scriptw-front"
 version = "0.1.0"
 dependencies = [
  "boa_ast",
@@ -1528,7 +1528,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-intl"
+name = "scriptw-intl"
 version = "0.1.0"
 dependencies = [
  "calendrical_calculations",
@@ -1546,7 +1546,7 @@ dependencies = [
  "icu_segmenter",
  "icu_segmenter_data",
  "jiff-tzdb",
- "lila-intl-collator-data",
+ "scriptw-intl-collator-data",
  "ryu-js",
  "serde",
  "serde_json",
@@ -1559,7 +1559,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-intl-collator-data"
+name = "scriptw-intl-collator-data"
 version = "0.1.0"
 dependencies = [
  "icu_collator",
@@ -1571,14 +1571,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-ir"
+name = "scriptw-ir"
 version = "0.1.0"
 dependencies = [
  "boa_ast",
  "boa_interner",
  "boa_parser",
  "icu_properties",
- "lila-front",
+ "scriptw-front",
  "num-bigint",
  "num-traits",
  "regress",
@@ -1588,67 +1588,67 @@ dependencies = [
 ]
 
 [[package]]
-name = "lila-runtime"
+name = "scriptw-runtime"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
- "lila-intl",
+ "scriptw-intl",
  "serde",
  "serde_json",
  "sha2",
 ]
 
 [[package]]
-name = "lila-runtime-image"
+name = "scriptw-runtime-image"
 version = "0.1.0"
 dependencies = [
  "cc",
- "lila-aot-wasm",
- "lila-intl",
- "lila-ir",
+ "scriptw-aot-wasm",
+ "scriptw-intl",
+ "scriptw-ir",
  "sha2",
  "wasmtime",
 ]
 
 [[package]]
-name = "lila-spec-exec"
+name = "scriptw-spec-exec"
 version = "0.1.0"
 dependencies = [
  "boa_engine",
- "lila-runtime",
+ "scriptw-runtime",
 ]
 
 [[package]]
-name = "lila-test262"
+name = "scriptw-test262"
 version = "0.1.0"
 dependencies = [
  "libc",
- "lila-engine",
- "lila-front",
- "lila-ir",
- "lila-runtime",
+ "scriptw-engine",
+ "scriptw-front",
+ "scriptw-ir",
+ "scriptw-runtime",
  "serde",
  "serde_json",
  "sha2",
 ]
 
 [[package]]
-name = "lila-verification-feature-roots"
+name = "scriptw-verification-feature-roots"
 version = "0.1.0"
 dependencies = [
  "boa_parser",
- "lila-aot-wasm",
- "lila-backend-c",
- "lila-backend-native",
- "lila-cli",
- "lila-engine",
- "lila-front",
- "lila-intl-collator-data",
- "lila-ir",
- "lila-runtime",
- "lila-runtime-image",
- "lila-spec-exec",
- "lila-test262",
+ "scriptw-aot-wasm",
+ "scriptw-backend-c",
+ "scriptw-backend-native",
+ "scriptw-cli",
+ "scriptw-engine",
+ "scriptw-front",
+ "scriptw-intl-collator-data",
+ "scriptw-ir",
+ "scriptw-runtime",
+ "scriptw-runtime-image",
+ "scriptw-spec-exec",
+ "scriptw-test262",
  "serde_json",
 ]
 

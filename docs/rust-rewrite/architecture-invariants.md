@@ -1,7 +1,7 @@
-# Lila Architecture Invariants
+# Scriptw Architecture Invariants
 
 ## Sacred Rule
-Lila ships real JavaScript-to-Wasm compilation. Lila does **not** ship a
+Scriptw ships real JavaScript-to-Wasm compilation. Scriptw does **not** ship a
 JavaScript interpreter or VM compiled to Wasm as the execution strategy.
 
 ## Product Path

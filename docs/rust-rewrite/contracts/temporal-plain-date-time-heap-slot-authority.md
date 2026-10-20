@@ -41,9 +41,9 @@ claims no new Temporal behavior, Test262 pass or published conformance change.
 ## Verification
 
 ```sh
-cargo test -p lila-aot-wasm --test temporal_plain_date_time_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::temporal_plain_date_time_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test temporal_plain_date_time_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::temporal_plain_date_time_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
 cargo fmt --all -- --check
 git diff --check
 ```

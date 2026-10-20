@@ -30,10 +30,10 @@ class WorkspaceScheduleTests(unittest.TestCase):
         assignment = next(node for node in planning.body if isinstance(node, ast.Assign)
                           and any(ast.unparse(target) == "result['command_plan']"
                                   for target in node.targets))
-        inventory = [case('lila-engine', 'aot_intl'),
-                     case('lila-engine', 'runtime_cache')]
+        inventory = [case('scriptw-engine', 'aot_intl'),
+                     case('scriptw-engine', 'runtime_cache')]
         original = [dict(scope, selector=list(scope['selector'])) for scope in inventory]
-        scope = dict(cases=inventory, native_cpu_targets=['lila-engine:aot_intl'],
+        scope = dict(cases=inventory, native_cpu_targets=['scriptw-engine:aot_intl'],
                      partition_native_targets=[],
                      args=SimpleNamespace(partition_cli=False, include_ignored=True),
                      cargo_test_base=lambda _: ['cargo', 'test'],
@@ -52,8 +52,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
     def test_native_compiler_targets_remain_complete_and_exclusive(self):
         inventory = self.inventory()
         validate = schedule.validate_native_cpu_targets
-        selected = validate(inventory, ['lila-engine:aot_intl'] * 2, {}, True)
-        self.assertEqual(selected, ['lila-engine:aot_intl'])
+        selected = validate(inventory, ['scriptw-engine:aot_intl'] * 2, {}, True)
+        self.assertEqual(selected, ['scriptw-engine:aot_intl'])
         ordered = schedule.execution_order(inventory, False, (), selected)
         self.assertEqual([i for i, _ in ordered], [1, 2, 3, 4, 0, 5, 6])
         for index, scope in ordered:
@@ -61,9 +61,9 @@ class WorkspaceScheduleTests(unittest.TestCase):
         for names, filters, ignored, partitions in [
                 (selected, {}, True, selected), (selected, {}, False, []),
                 (selected, {selected[0]: 'partial'}, True, []),
-                (['lila-cli:perf'], {}, True, []),
-                (['lila-front:doc'], {}, True, []),
-                (['lila-engine:aot_*'], {}, True, [])]:
+                (['scriptw-cli:perf'], {}, True, []),
+                (['scriptw-front:doc'], {}, True, []),
+                (['scriptw-engine:aot_*'], {}, True, [])]:
             with self.subTest(names=names, filters=filters, partitions=partitions):
                 with self.assertRaises(ValueError):
                     validate(inventory, names, filters, ignored, partitions)
@@ -82,8 +82,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
                     schedule.validate_native_resources(dict(valid, **change), command, [1, 2, 3])
 
     def test_publication_cpu_budget_keeps_one_complete_idle_scope(self):
-        publication = case('lila-cli', 'fake_suite_publication')
-        name = 'lila-cli:fake_suite_publication'
+        publication = case('scriptw-cli', 'fake_suite_publication')
+        name = 'scriptw-cli:fake_suite_publication'
         inventory = self.inventory() + [publication]
         selected = schedule.validate_native_cpu_targets(
             inventory, [name, name], {}, True)
@@ -99,22 +99,22 @@ class WorkspaceScheduleTests(unittest.TestCase):
                         inventory, [name], filters, ignored, partitions)
         with self.assertRaises(ValueError):
             schedule.validate_partition_native_targets(inventory, [name], {}, True)
-        for invalid in [case('lila-cli', 'fake_suite_publication', 'lib'),
-                        case('lila-cli', 'perf'),
-                        case('lila-cli', 'differential_worker')]:
+        for invalid in [case('scriptw-cli', 'fake_suite_publication', 'lib'),
+                        case('scriptw-cli', 'perf'),
+                        case('scriptw-cli', 'differential_worker')]:
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
                     schedule.validate_native_cpu_targets(
                         [invalid], [invalid['package'] + ':' + invalid['target']], {}, True)
 
     def test_native_cpu_opt_in_excludes_performance_docs_and_independent_scopes(self):
-        for scope in [case('lila-test262','differential_generated_campaign'),
-                      case('lila-cli','differential_worker')]:
+        for scope in [case('scriptw-test262','differential_generated_campaign'),
+                      case('scriptw-cli','differential_worker')]:
             self.assertTrue(schedule.differential_native_compilation(scope,'auto'))
             self.assertFalse(schedule.differential_native_compilation(scope,None))
-        for scope in self.inventory()+[case('lila-engine','differential_corpus'),
-                                      case('lila-cli','perf'),
-                                      case('lila-cli','doc','doc')]:
+        for scope in self.inventory()+[case('scriptw-engine','differential_corpus'),
+                                      case('scriptw-cli','perf'),
+                                      case('scriptw-cli','doc','doc')]:
             self.assertFalse(schedule.differential_native_compilation(scope,'auto'))
 
     def test_resource_prelude_records_actual_policy_and_preserves_exit_status(self):
@@ -122,7 +122,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
             path=Path(directory)/'resource.json'
             command=[sys.executable,'-c','raise SystemExit(7)']
             result=subprocess.run([sys.executable,'-c',schedule.NATIVE_RESOURCE_EXEC,str(path),*command],
-                                  env=dict(os.environ,LILA_JOBS='1',RUST_TEST_THREADS='1',
+                                  env=dict(os.environ,SCRIPTW_JOBS='1',RUST_TEST_THREADS='1',
                                            RAYON_NUM_THREADS='1',CARGO_BUILD_JOBS='1'),
                                   capture_output=True)
             self.assertEqual(result.returncode,7,result.stderr)
@@ -136,13 +136,13 @@ class WorkspaceScheduleTests(unittest.TestCase):
             schedule.validate_native_resources(resource,command,os.sched_getaffinity(0))
 
     def inventory(self):
-        return [case('lila-engine', 'aot_intl'),
-                case('lila-engine', 'aot_regexp'),
-                case('lila-cli', 'cli'),
-                case('lila-runtime', 'embedded_module_graph'),
-                case('lila-intl', 'lila_intl', 'lib'),
-                case('lila-cli', 'perf'),
-                case('lila-front', 'doc', 'doc')]
+        return [case('scriptw-engine', 'aot_intl'),
+                case('scriptw-engine', 'aot_regexp'),
+                case('scriptw-cli', 'cli'),
+                case('scriptw-runtime', 'embedded_module_graph'),
+                case('scriptw-intl', 'scriptw_intl', 'lib'),
+                case('scriptw-cli', 'perf'),
+                case('scriptw-front', 'doc', 'doc')]
 
     def test_later_independent_targets_dispatch_before_the_cli_drain(self):
         inventory = self.inventory()
@@ -161,29 +161,29 @@ class WorkspaceScheduleTests(unittest.TestCase):
         self.assertEqual([i for i, _ in ordered], list(range(7)))
 
     def test_partitioning_requires_the_exact_package_target_and_kind(self):
-        self.assertTrue(schedule.is_partitioned_cli(case('lila-cli', 'cli'), True))
-        for scope in [case('lila-engine', 'cli'), case('lila-cli', 'cache'),
-                      case('lila-cli', 'cli', 'bin'), case('lila-cli', 'cli', 'lib')]:
+        self.assertTrue(schedule.is_partitioned_cli(case('scriptw-cli', 'cli'), True))
+        for scope in [case('scriptw-engine', 'cli'), case('scriptw-cli', 'cache'),
+                      case('scriptw-cli', 'cli', 'bin'), case('scriptw-cli', 'cli', 'lib')]:
             self.assertFalse(schedule.is_partitioned_cli(scope, True))
-        self.assertFalse(schedule.is_partitioned_cli(case('lila-cli', 'cli'), False))
+        self.assertFalse(schedule.is_partitioned_cli(case('scriptw-cli', 'cli'), False))
 
     def test_continuation_membership_keeps_its_existing_barrier_contract(self):
-        cli = case('lila-cli', 'cli')
+        cli = case('scriptw-cli', 'cli')
         self.assertFalse(schedule.is_barrier(cli))
         self.assertTrue(schedule.is_partitioned_cli(cli, True))
-        for scope in [case('lila-cli', 'perf'), case('lila-cli', 'fake_suite_publication'),
-                      case('lila-test262', 'differential_generated_campaign'),
-                      case('lila-intl', 'doc', 'doc')]:
+        for scope in [case('scriptw-cli', 'perf'), case('scriptw-cli', 'fake_suite_publication'),
+                      case('scriptw-test262', 'differential_generated_campaign'),
+                      case('scriptw-intl', 'doc', 'doc')]:
             self.assertTrue(schedule.is_barrier(scope))
-        self.assertFalse(schedule.is_barrier(case('lila-engine', 'differential_corpus')))
+        self.assertFalse(schedule.is_barrier(case('scriptw-engine', 'differential_corpus')))
 
 
     def test_opt_in_intl_runs_after_independent_scopes_as_an_idle_barrier(self):
         inventory = self.inventory()
-        ordered = schedule.execution_order(inventory, True, ['lila-engine:aot_intl'])
+        ordered = schedule.execution_order(inventory, True, ['scriptw-engine:aot_intl'])
         self.assertEqual([i for i, _ in ordered], [1, 3, 4, 0, 2, 5, 6])
         self.assertTrue(schedule.is_partitioned_native(inventory[0], False,
-                                                      ['lila-engine:aot_intl']))
+                                                      ['scriptw-engine:aot_intl']))
         self.assertFalse(schedule.is_barrier(inventory[0]))
         self.assertEqual(len(ordered), len(inventory))
         for index, scope in ordered:
@@ -192,45 +192,45 @@ class WorkspaceScheduleTests(unittest.TestCase):
     def test_exact_metadata_scope_is_required_and_duplicate_options_are_one_scope(self):
         inventory = self.inventory()
         validate = schedule.validate_partition_native_targets
-        self.assertEqual(validate(inventory, ['lila-engine:aot_intl'] * 2, {}, True),
-                         ['lila-engine:aot_intl'])
-        for name in ['aot_intl', 'lila-engine:aot_intl*', 'lila-engine:absent',
-                     'lila-cli:aot_intl']:
+        self.assertEqual(validate(inventory, ['scriptw-engine:aot_intl'] * 2, {}, True),
+                         ['scriptw-engine:aot_intl'])
+        for name in ['aot_intl', 'scriptw-engine:aot_intl*', 'scriptw-engine:absent',
+                     'scriptw-cli:aot_intl']:
             with self.assertRaises(ValueError):
                 validate(inventory, [name], {}, True)
         with self.assertRaises(ValueError):
-            validate(inventory + [dict(inventory[0])], ['lila-engine:aot_intl'], {}, True)
+            validate(inventory + [dict(inventory[0])], ['scriptw-engine:aot_intl'], {}, True)
 
     def test_complete_partitions_reject_filters_and_require_ignored_tests(self):
         validate = schedule.validate_partition_native_targets
-        for include_ignored, filters in [(False, {}), (True, {'lila-engine:aot_intl': 'one'})]:
+        for include_ignored, filters in [(False, {}), (True, {'scriptw-engine:aot_intl': 'one'})]:
             with self.assertRaises(ValueError):
-                validate(self.inventory(), ['lila-engine:aot_intl'], filters, include_ignored)
+                validate(self.inventory(), ['scriptw-engine:aot_intl'], filters, include_ignored)
         self.assertEqual(validate(self.inventory(), [], {}, False), [])
 
     def test_rustdoc_timing_and_campaign_barriers_cannot_be_partitioned(self):
-        inventory = [case('lila-engine', 'doc', 'doc'),
-                     case('lila-cli', 'perf'), case('lila-cli', 'fake_suite_publication'),
-                     case('lila-cli', 'differential_worker'),
-                     case('lila-test262', 'differential_generated_campaign'),
-                     case('lila-test262', 'differential_worker_execution'),
-                     case('lila-test262', 'differential_rooted_snapshot_execution'),
-                     case('lila-test262', 'example', 'example')]
+        inventory = [case('scriptw-engine', 'doc', 'doc'),
+                     case('scriptw-cli', 'perf'), case('scriptw-cli', 'fake_suite_publication'),
+                     case('scriptw-cli', 'differential_worker'),
+                     case('scriptw-test262', 'differential_generated_campaign'),
+                     case('scriptw-test262', 'differential_worker_execution'),
+                     case('scriptw-test262', 'differential_rooted_snapshot_execution'),
+                     case('scriptw-test262', 'example', 'example')]
         for scope in inventory:
             with self.assertRaises(ValueError):
                 schedule.validate_partition_native_targets(inventory,
                     [scope['package'] + ':' + scope['target']], {}, True)
 
     def test_native_watcher_keeps_the_original_cli_and_native_allowances(self):
-        self.assertEqual(schedule.native_stall_seconds('lila-cli'), 3600)
-        for package in ['lila-engine', 'lila-intl', 'lila-test262']:
+        self.assertEqual(schedule.native_stall_seconds('scriptw-cli'), 3600)
+        for package in ['scriptw-engine', 'scriptw-intl', 'scriptw-test262']:
             self.assertEqual(schedule.native_stall_seconds(package), 900)
 
 
 
     def test_actual_runner_drains_before_partition_or_compiler_cpu_admission(self):
-        for partitions, compiler in [(['lila-engine:aot_intl'], []),
-                                     ([], ['lila-engine:aot_intl'])]:
+        for partitions, compiler in [(['scriptw-engine:aot_intl'], []),
+                                     ([], ['scriptw-engine:aot_intl'])]:
             with self.subTest(partitions=partitions, compiler=compiler):
                 self._assert_actual_runner_drains(partitions,compiler)
 
@@ -253,7 +253,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
             calls.append(wait)
             if wait:
                 active.pop(next(iter(active)))
-        scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap, 'case': selected or case('lila-engine', 'aot_intl'),
+        scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap, 'case': selected or case('scriptw-engine', 'aot_intl'),
                  'args': SimpleNamespace(partition_cli=True, continuation_phase='all',
                                          test_processes=4),
                  'partition_native_targets': partitions,
@@ -296,7 +296,7 @@ class WorkspaceScheduleTests(unittest.TestCase):
                 def admit(*arguments, **options):
                     admissions.append((len(active), options['cached_native']))
                     return False  # Stop before any real Cargo or filesystem work.
-                selected = case('lila-front', 'independent')
+                selected = case('scriptw-front', 'independent')
                 scope = {'active': active, 'slots': [0, 1, 2, 3], 'reap': reap,
                          'case': selected, 'artifact_cohorts': {'group': {}} if cached else {},
                          'args': SimpleNamespace(partition_cli=False, continuation_phase='all',

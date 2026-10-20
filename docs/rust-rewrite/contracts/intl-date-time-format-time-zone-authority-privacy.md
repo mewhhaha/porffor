@@ -1,6 +1,6 @@
 # Intl.DateTimeFormat time-zone authority
 
-`lila-intl::FixedTimeZoneOffset` validates minute-aligned offsets strictly
+`scriptw-intl::FixedTimeZoneOffset` validates minute-aligned offsets strictly
 below 24 hours. `NamedTimeZoneIdentity` pairs a normalized identifier with its
 primary identifier, using the complete pinned IANA catalogue. The provider
 selects an offset and localized name for each exact endpoint; a named zone's

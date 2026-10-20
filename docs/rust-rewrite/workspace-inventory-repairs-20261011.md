@@ -22,7 +22,7 @@ The three complete affected AOT targets pass 291 checks; four Engine image and
 characterization checks, one fresh-program runtime check and five CLI supervisor
 checks complete the 301-pass selection.
 
-`LILA_TEST_STRIP_DEBUG=1` opts into removing debug sections through the existing
+`SCRIPTW_TEST_STRIP_DEBUG=1` opts into removing debug sections through the existing
 Linux test linker. Stripping occurs before executable identity is sealed. Every
 allocated ELF section must retain its bytes, flags, address and alignment. The
 current Engine test executable shrinks from 368,369,160 to 186,450,960 bytes.

@@ -3,13 +3,13 @@ name: AOT module load confinement
 on:
   pull_request:
     paths:
-      - 'crates/lila-engine/**'
+      - 'crates/scriptw-engine/**'
       - 'Cargo.lock'
       - '.github/workflows/aot-module-confinement.yaml'
   push:
     branches: [main]
     paths:
-      - 'crates/lila-engine/**'
+      - 'crates/scriptw-engine/**'
       - 'Cargo.lock'
       - '.github/workflows/aot-module-confinement.yaml'
 
@@ -37,8 +37,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked -p lila-engine --lib module_loader::confinement_tests:: -- --list | tee /tmp/module-tests.txt
+          cargo test --locked -p scriptw-engine --lib module_loader::confinement_tests:: -- --list | tee /tmp/module-tests.txt
           grep -Fq 'module_loader::confinement_tests::host_loaded_entry_cannot_bypass_the_root: test' /tmp/module-tests.txt
       - name: Run module loader regressions
         run: >-
-          cargo test --locked -p lila-engine --lib module_loader::
+          cargo test --locked -p scriptw-engine --lib module_loader::

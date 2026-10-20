@@ -1,19 +1,19 @@
 [workspace]
 members = [
-  "crates/lila-verification-feature-roots",
-  "crates/lila-front",
-  "crates/lila-ir",
-  "crates/lila-intl",
-  "crates/lila-intl-collator-data",
-  "crates/lila-runtime",
-  "crates/lila-runtime-image",
-  "crates/lila-spec-exec",
-  "crates/lila-aot-wasm",
-  "crates/lila-backend-c",
-  "crates/lila-backend-native",
-  "crates/lila-engine",
-  "crates/lila-cli",
-  "crates/lila-test262",
+  "crates/scriptw-verification-feature-roots",
+  "crates/scriptw-front",
+  "crates/scriptw-ir",
+  "crates/scriptw-intl",
+  "crates/scriptw-intl-collator-data",
+  "crates/scriptw-runtime",
+  "crates/scriptw-runtime-image",
+  "crates/scriptw-spec-exec",
+  "crates/scriptw-aot-wasm",
+  "crates/scriptw-backend-c",
+  "crates/scriptw-backend-native",
+  "crates/scriptw-engine",
+  "crates/scriptw-cli",
+  "crates/scriptw-test262",
 ]
 resolver = "2"
 
@@ -22,7 +22,7 @@ edition = "2021"
 rust-version = "1.94.0"
 license = "MIT"
 version = "0.1.0"
-authors = ["Lila contributors"]
+authors = ["Scriptw contributors"]
 repository = "https://github.com/mewhhaha/porffor"
 
 [workspace.lints.rust]
@@ -39,7 +39,7 @@ timezone_provider = { path = "vendor/timezone_provider-0.1.2" }
 wasmtime = { path = "vendor/wasmtime-47.0.0" }
 wasmtime-internal-cache = { path = "vendor/wasmtime-internal-cache-47.0.0" }
 
-# Developer builds keep Lila's large IR/backend crates cheap to rebuild,
+# Developer builds keep Scriptw's large IR/backend crates cheap to rebuild,
 # while compiling third-party code (notably Wasmtime/Cranelift) once at a
 # useful optimization level. `line-tables-only` preserves source locations
 # without the much larger full debuginfo footprint.
@@ -75,7 +75,7 @@ incremental = true
 opt-level = 2
 
 # Build the third-party native compiler with its normal release checks/profile
-# once, then reuse it while editing Lila. Wasm input validation and Lila's own
+# once, then reuse it while editing Scriptw. Wasm input validation and Scriptw's own
 # debug assertions remain active. Cranelift's compiled-in SSA/debug traversals
 # otherwise run inside every cold native compilation, even with its separate
 # configurable verifier disabled. Keep dev and test dependency graphs equal.
@@ -132,7 +132,7 @@ debug = 0
 
 # This data crate is reached through both normal and build dependency graphs.
 # Selecting focused test roots must preserve the host graph's debug profile.
-[profile.test.package.lila-intl-collator-data]
+[profile.test.package.scriptw-intl-collator-data]
 debug = 0
 
 # Package overrides win over the wildcard dependency setting above. IR
@@ -140,56 +140,56 @@ debug = 0
 # their cold per-case work dominates fixed execution budgets and large suites.
 # Keep the frontend and embedding layers unoptimized for cheap local edits;
 # release-like dependency optimization preserves all ordinary admission checks.
-[profile.dev.package.lila-front]
+[profile.dev.package.scriptw-front]
 opt-level = 0
-[profile.dev.package.lila-ir]
+[profile.dev.package.scriptw-ir]
 opt-level = 2
-[profile.dev.package.lila-intl]
+[profile.dev.package.scriptw-intl]
 opt-level = 2
-[profile.dev.package.lila-runtime]
+[profile.dev.package.scriptw-runtime]
 opt-level = 0
-[profile.dev.package.lila-runtime-image]
+[profile.dev.package.scriptw-runtime-image]
 opt-level = 0
-[profile.dev.package.lila-spec-exec]
+[profile.dev.package.scriptw-spec-exec]
 opt-level = 0
-[profile.dev.package.lila-aot-wasm]
+[profile.dev.package.scriptw-aot-wasm]
 opt-level = 2
-[profile.dev.package.lila-backend-c]
+[profile.dev.package.scriptw-backend-c]
 opt-level = 0
-[profile.dev.package.lila-backend-native]
+[profile.dev.package.scriptw-backend-native]
 opt-level = 0
-[profile.dev.package.lila-engine]
+[profile.dev.package.scriptw-engine]
 opt-level = 0
-[profile.dev.package.lila-cli]
+[profile.dev.package.scriptw-cli]
 opt-level = 0
 strip = "debuginfo"
-[profile.dev.package.lila-test262]
+[profile.dev.package.scriptw-test262]
 opt-level = 0
 strip = "debuginfo"
 
-[profile.test.package.lila-front]
+[profile.test.package.scriptw-front]
 opt-level = 0
-[profile.test.package.lila-ir]
+[profile.test.package.scriptw-ir]
 opt-level = 2
-[profile.test.package.lila-intl]
+[profile.test.package.scriptw-intl]
 opt-level = 2
-[profile.test.package.lila-runtime]
+[profile.test.package.scriptw-runtime]
 opt-level = 0
-[profile.test.package.lila-runtime-image]
+[profile.test.package.scriptw-runtime-image]
 opt-level = 0
-[profile.test.package.lila-spec-exec]
+[profile.test.package.scriptw-spec-exec]
 opt-level = 0
-[profile.test.package.lila-aot-wasm]
+[profile.test.package.scriptw-aot-wasm]
 opt-level = 2
-[profile.test.package.lila-backend-c]
+[profile.test.package.scriptw-backend-c]
 opt-level = 0
-[profile.test.package.lila-backend-native]
+[profile.test.package.scriptw-backend-native]
 opt-level = 0
-[profile.test.package.lila-engine]
+[profile.test.package.scriptw-engine]
 opt-level = 0
-[profile.test.package.lila-cli]
+[profile.test.package.scriptw-cli]
 opt-level = 0
 strip = "debuginfo"
-[profile.test.package.lila-test262]
+[profile.test.package.scriptw-test262]
 opt-level = 0
 strip = "debuginfo"

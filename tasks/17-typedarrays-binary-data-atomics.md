@@ -866,7 +866,7 @@ and runtime evidence remain deferred to the shared batch checkpoint, and no
 new Atomics semantics, Test262 progress or T17 closure is claimed.
 
 The cross-instance async-waiter transport now shares the closed
-`lila-runtime::AgentHostOperation` wire domain with the rest of the Wasm agent
+`scriptw-runtime::AgentHostOperation` wire domain with the rest of the Wasm agent
 ABI. Registration, polling, notification and cancellation are typed at every
 AOT producer and exhaustively dispatched by the engine; their stable wire
 values remain 10 through 13. This prevents producer/consumer opcode drift but
@@ -1712,7 +1712,7 @@ private offsets. The constructor guard pins the remaining private-offset uses
 to target initialization and the remaining unsigned division to backing-memory
 page sizing. The synthetic static-generator throw-slot probe is confined to the
 non-TypedArray source branch, so constructing from a TypedArray cannot observe
-an own or inherited `$LilaGeneratorThrow` property before its brand/witness
+an own or inherited `$ScriptwGeneratorThrow` property before its brand/witness
 path. The bounded structure target passes `3/3`, the new exact CLI fixture
 passes `1/1`, and the retained no-species constructor
 fixture passes `1/1`. No broad suite, golden capture, Test262 cohort, baseline
@@ -1841,7 +1841,7 @@ unchanged. See the
 - Implement wait queues, `wait`, `notify`, `waitAsync`, timeouts, `isLockFree`, blocking restrictions and monotonic timing.
 - Integrate job completion for `waitAsync` with T14.
 - Eliminate regex/source-pattern agent simulations from the embedded
-  `lila-test262` local harness under T03.
+  `scriptw-test262` local harness under T03.
 
 ### Resolved CLI hang and remaining concurrency debt
 
@@ -1884,13 +1884,13 @@ coverage.
 ## Required tests
 
 ```sh
-cargo test -p lila-aot-wasm typed_array_ --quiet
-cargo test -p lila-spec-exec agent_ --quiet
-cargo test -p lila-test262 agent_ --quiet
-cargo test -p lila-cli wasm_typed_array --quiet
-./target/debug/lila test262 run built-ins/ArrayBuffer --execution-backend wasm --timeout-ms 180000 --threads 4
-./target/debug/lila test262 run built-ins/TypedArray --execution-backend wasm --timeout-ms 180000 --threads 4
-./target/debug/lila test262 run built-ins/Atomics --execution-backend wasm --timeout-ms 180000 --threads 2
+cargo test -p scriptw-aot-wasm typed_array_ --quiet
+cargo test -p scriptw-spec-exec agent_ --quiet
+cargo test -p scriptw-test262 agent_ --quiet
+cargo test -p scriptw-cli wasm_typed_array --quiet
+./target/debug/scriptw test262 run built-ins/ArrayBuffer --execution-backend wasm --timeout-ms 180000 --threads 4
+./target/debug/scriptw test262 run built-ins/TypedArray --execution-backend wasm --timeout-ms 180000 --threads 4
+./target/debug/scriptw test262 run built-ins/Atomics --execution-backend wasm --timeout-ms 180000 --threads 2
 ```
 
 Run DataView and every concrete typed-array subtree separately during implementation, then execute shared-buffer/agent tests under repeated stress.

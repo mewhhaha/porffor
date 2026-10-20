@@ -40,10 +40,10 @@ change allocation, emitted Wasm, async-generator behavior or collector
 execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test async_generator_object_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::async_generator_object_heap_slot_identity_owns_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_async_generator_object_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/async_generator_object_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test async_generator_object_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::async_generator_object_heap_slot_identity_owns_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_async_generator_object_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/async_generator_object_heap_slot_structure.rs
 git diff --check
 ```
 

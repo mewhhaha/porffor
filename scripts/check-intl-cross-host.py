@@ -87,12 +87,12 @@ def capture(root, output):
     for label, selector in zip(NATIVE_SCOPES, (
         ["--lib"], ["--test", "calendar_domain"], ["--test", "datetime_calendar16"]
     )):
-        log = run(label, ["cargo", "test", "--release", "--locked", "-p", "lila-intl",
+        log = run(label, ["cargo", "test", "--release", "--locked", "-p", "scriptw-intl",
                           *selector, "--", "--test-threads=1", "--include-ignored"])
         receipt["native"][label] = native_outcome(log.read_text(errors="replace"))
         save()
-    run("build-cli", ["cargo", "build", "--release", "--locked", "-p", "lila-cli"])
-    binary = root / "target" / "release" / ("lila.exe" if platform.system() == "Windows" else "lila")
+    run("build-cli", ["cargo", "build", "--release", "--locked", "-p", "scriptw-cli"])
+    binary = root / "target" / "release" / ("scriptw.exe" if platform.system() == "Windows" else "scriptw")
     receipt["executable"] = seal(binary)
     compiler_log = run("compiler-identity", [str(binary), "compiler-identity"])
     receipt["compiler_identity"] = json.loads(compiler_log.read_text())

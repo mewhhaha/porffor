@@ -86,7 +86,7 @@ large-count and created-Realm witnesses.
 
 ## Verification and nonclaims
 
-The 2026-08-24 central checkpoint passed `cargo check -p lila-aot-wasm` and
+The 2026-08-24 central checkpoint passed `cargo check -p scriptw-aot-wasm` and
 `cargo xc`, the executable structure target passed `4/4`, and the exact
 `string::run_wasm_backend_succeeds_for_string_repeat_fixture` CLI test passed
 `1/1`.
@@ -98,7 +98,7 @@ harness, so the current runner reports 32 executions. The exact directory run
 passed all `32/32` Wasm-AOT executions with every failure bucket at zero:
 
 ```sh
-./target/debug/lila --jobs 1 test262 run built-ins/String/prototype/repeat \
+./target/debug/scriptw --jobs 1 test262 run built-ins/String/prototype/repeat \
   --suite-root test262/vendor/test262 --execution-backend wasm \
   --timeout-ms 180000 --threads 1 \
   --snapshot-name checkpoint9-string-repeat-current-pin

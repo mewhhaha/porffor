@@ -7,7 +7,7 @@ complete twelve-component source batch is uncompiled and unexecuted.
 
 ## Actual ownership and consumption
 
-`lila-intl/build.rs` exports the exact locked ICU data before execution through
+`scriptw-intl/build.rs` exports the exact locked ICU data before execution through
 `BlobExporter`; fixed marker order, exact sorted identifier enumeration and the
 exporter's final sorted resources avoid hash-map iteration in emitted blobs.
 It writes Locale, List, Collator and Segmenter binary payloads into Cargo's
@@ -49,7 +49,7 @@ admission explicitly fails instead of losing conditional formatting patterns.
 
 The NumberProfiles image carries the genuine 6,091,829-byte LNF47 schema2
 binary and its exact payload descriptor. Its native schema marker is
-`lila/number/profiles/v2`; it is not an ICU marker. Descriptor admission binds the
+`scriptw/number/profiles/v2`; it is not an ICU marker. Descriptor admission binds the
 CLDR47 data plus the separately recorded tols numbering supplement from
 CLDR48/UCD17. NumberFormat and PluralRules consume one retained decoded owner,
 including cardinal/ordinal rules, range matrices and compact exponents. Dynamic
@@ -94,7 +94,7 @@ jiff-tzdb or an OS database; the exact pinned package is a build/test input.
 DateTime carries the actual 9,879,674-byte native profile JSON and four genuine
 calendar singleton markers: Chinese, Dangi, JapaneseModern and the vendored
 Umm al-Qura payload. Its algorithms consume the admitted calendar data and
-retained Locale and IANA owners. Opaque LILADTF2 plans bind all three content
+retained Locale and IANA owners. Opaque SCRIPTWDTF2 plans bind all three content
 identities before scalar/range conversion or rendering. Identical-byte plans
 remain portable across independent admissions; foreign content is refused.
 
@@ -112,18 +112,18 @@ digests alone cannot authorize mixing independent decoded foundations.
 A Wasm module with an actual Intl or system-zone host import carries one complete
 provider identity and the actual twelve component image sections:
 
-- `lila.intl-locale-data.v1`
-- `lila.intl-list-data.v1`
-- `lila.intl-collator-data.v1`
-- `lila.intl-number-profiles.v1`
-- `lila.intl-segmenter-data.v1`
-- `lila.intl-display-names-data.v1`
-- `lila.intl-relative-time.v1`
-- `lila.intl-duration-data.v1`
-- `lila.intl-named-time-zone-data.v1`
-- `lila.intl-datetime-data.v1`
-- `lila.intl-time-zone-names-data.v1`
-- `lila.intl-locale-information.v1`
+- `scriptw.intl-locale-data.v1`
+- `scriptw.intl-list-data.v1`
+- `scriptw.intl-collator-data.v1`
+- `scriptw.intl-number-profiles.v1`
+- `scriptw.intl-segmenter-data.v1`
+- `scriptw.intl-display-names-data.v1`
+- `scriptw.intl-relative-time.v1`
+- `scriptw.intl-duration-data.v1`
+- `scriptw.intl-named-time-zone-data.v1`
+- `scriptw.intl-datetime-data.v1`
+- `scriptw.intl-time-zone-names-data.v1`
+- `scriptw.intl-locale-information.v1`
 
 The provider digest binds their framed digests and all existing host data
 identities. The Engine scans and admits the component group while the artifact

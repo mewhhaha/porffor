@@ -414,7 +414,7 @@ outside-in lookup order, reaches one callable inner trap and requires deletion
 from the ultimate ordinary target. Dedicated current-target locals preserve
 the caller's operands. This remains a bounded migration because the direct
 descriptor fact does not recursively validate a nested Proxy target. Focused
-verification on 2026-09-01 is green: `cargo check -p lila-aot-wasm`, both the
+verification on 2026-09-01 is green: `cargo check -p scriptw-aot-wasm`, both the
 new traversal and adjacent revocation-route structure targets at `4/4`, the
 exact CLI fixture at `1/1` through emitted Wasm, and the missing/null/undefined
 nested-target Test262 cohort at `6/6` with every failure bucket at zero. The
@@ -826,10 +826,10 @@ Reflect methods return booleans where specified rather than throwing on ordinary
 ## Required tests
 
 ```sh
-cargo test -p lila-aot-wasm proxy_ --quiet
-cargo test -p lila-cli proxy_ --quiet
-./target/debug/lila test262 run built-ins/Proxy --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Reflect --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+cargo test -p scriptw-aot-wasm proxy_ --quiet
+cargo test -p scriptw-cli proxy_ --quiet
+./target/debug/scriptw test262 run built-ins/Proxy --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Reflect --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 Re-run adjacent Object, Array, TypedArray and Function filters because proxy invariants are shared across them.

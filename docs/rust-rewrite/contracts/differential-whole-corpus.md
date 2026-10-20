@@ -1,15 +1,15 @@
 # Whole-corpus differential replay
 
-`lila differential replay-corpus --output-dir PATH --oracle spec-exec`
+`scriptw differential replay-corpus --output-dir PATH --oracle spec-exec`
 replays every entry in the compiled fourteen-entry corpus through the existing
 selected worker protocol. The library owner is
-`crates/lila-test262/src/differential/corpus.rs`; the private CLI route consumes
+`crates/scriptw-test262/src/differential/corpus.rs`; the private CLI route consumes
 that owner. Default product builds refuse the unlinked oracle before creating
 output or resolving a worker. Enable `spec-exec-oracle` explicitly for this
 developer-only command. Product JavaScript execution remains Wasm-AOT.
 
 The default inventory includes every committed JSON entry under
-`crates/lila-test262/tests/differential`, across schemas 1 through 5, once in
+`crates/scriptw-test262/tests/differential`, across schemas 1 through 5, once in
 relative-path order. Literal `include_str!` entries require those exact fixtures
 at compilation. A native filesystem inventory control checks that newly added
 JSON fixtures cannot silently remain outside the compiled corpus. Adjacent JS
@@ -58,7 +58,7 @@ actual CLI and named worker, replays the entire compiled inventory, runs the
 library/CLI controls and uploads all retained evidence even after a red replay.
 Every compilation, test and replay payload passes through
 `scripts/limited_verification.py --memory-mib 4096`. Its self-hosted Linux
-`lila-conformance` runner must provide a delegated cgroup-v2 systemd user manager
+`scriptw-conformance` runner must provide a delegated cgroup-v2 systemd user manager
 with memory-controller authority. Before payload admission the launcher verifies
 kernel memory at most 4 GiB, swap zero, whole-group OOM termination, one CPU and
 serial worker defaults. A missing scope/capability fails; there is no uncapped

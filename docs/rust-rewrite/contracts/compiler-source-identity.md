@@ -9,8 +9,8 @@ ResolveBinding. Lexical bindings, global properties, getters, deletion and
 ReferenceError now retain the ordinary environment path.
 
 The former `lower_static_yield_star_generator_method_call` and its three marker
-constants are removed. Ordinary string properties named `$LilaYieldStarGenerator`,
-`$LilaYieldStarReturnNonObject` or `$LilaYieldStarThrowNonObject` cannot prove
+constants are removed. Ordinary string properties named `$ScriptwYieldStarGenerator`,
+`$ScriptwYieldStarReturnNonObject` or `$ScriptwYieldStarThrowNonObject` cannot prove
 generator identity. `next`, `return` and `throw` use their actual acquired callee,
 receiver and arguments. Real generators continue through their existing typed
 generator plans and runtime records.
@@ -23,10 +23,10 @@ numeric-operation path when a property is involved. This also removes the
 incorrect compile-time `Number.MIN_VALUE = f64::MIN_POSITIVE` table entry; the
 runtime intrinsic owner already uses `f64::from_bits(1)`.
 
-The authored IR controls in `crates/lila-ir/src/tests/source_identity.rs` preserve
+The authored IR controls in `crates/scriptw-ir/src/tests/source_identity.rs` preserve
 ordinary unbound-name reads, runtime exponentiation operands and actual method
 calls on objects containing the former marker properties. The native controls
-in `crates/lila-engine/tests/aot_realm_modules/aot_source_identity.rs` cover Script and strict Script:
+in `crates/scriptw-engine/tests/aot_realm_modules/aot_source_identity.rs` cover Script and strict Script:
 
 - Unbound, parameter, lexical, global-accessor and deleted `BPE` bindings.
 - Actual method getters, receiver identity, argument side effects, returned
@@ -38,8 +38,8 @@ Run these after the combined workspace type checkpoint, through the existing
 resource limiter:
 
 ```sh
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib source_identity_
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_realm_modules -- aot_source_identity::
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-ir --lib source_identity_
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-engine --test aot_realm_modules -- aot_source_identity::
 ```
 
 These edits do not establish full compiler source-identity coverage or change
@@ -67,7 +67,7 @@ abrupt descriptor conversion, bound-constructor heritage, `super` methods and
 `newTarget` prototype getter effects. These source controls remain unrun:
 
 ```sh
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib descriptor_fields_without_current_inherited_proof_retain_possible_getter_effects
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-ir --lib define_property_with_unproven_inherited_fields_widens_a_wrapper_dependency
-python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p lila-engine --test aot_builtins -- aot_live_prototype_consumers::
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-ir --lib descriptor_fields_without_current_inherited_proof_retain_possible_getter_effects
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-ir --lib define_property_with_unproven_inherited_fields_widens_a_wrapper_dependency
+python3 scripts/limited_verification.py --memory-mib 4096 -- cargo test --locked -p scriptw-engine --test aot_builtins -- aot_live_prototype_consumers::
 ```

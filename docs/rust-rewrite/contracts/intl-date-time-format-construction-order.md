@@ -75,12 +75,12 @@ fail instead of silently restoring the former two-Get path.
 
 This slice is closed over eight files:
 
-- `crates/lila-aot-wasm/src/builtins/intl_datetimeformat.rs`;
-- `crates/lila-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs`;
-- `crates/lila-aot-wasm/src/functions.rs`;
-- `crates/lila-aot-wasm/tests/intl_date_time_format_construction_order_structure.rs`;
-- `crates/lila-cli/tests/fixtures/wasm_intl_date_time_format_construction_order.js`;
-- `crates/lila-cli/tests/cli/intl.rs`;
+- `crates/scriptw-aot-wasm/src/builtins/intl_datetimeformat.rs`;
+- `crates/scriptw-aot-wasm/src/builtins/intl_datetimeformat/construction_lifecycle.rs`;
+- `crates/scriptw-aot-wasm/src/functions.rs`;
+- `crates/scriptw-aot-wasm/tests/intl_date_time_format_construction_order_structure.rs`;
+- `crates/scriptw-cli/tests/fixtures/wasm_intl_date_time_format_construction_order.js`;
+- `crates/scriptw-cli/tests/cli/intl.rs`;
 - this contract; and
 - [Intl ownership](../conformance-ownership.md#t23).
 

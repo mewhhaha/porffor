@@ -1,11 +1,11 @@
 # Host builtin surface catalog
 
-Lila has host-backed callables in four different semantic groups:
+Scriptw has host-backed callables in four different semantic groups:
 
 - ECMAScript globals implemented by the host path: `parseInt` and
   `parseFloat`;
 - product extensions: `print` and `gc`;
-- Test262 capabilities: the `__lila*` assertion, realm, HTMLDDA, detach and
+- Test262 capabilities: the `__scriptw*` assertion, realm, HTMLDDA, detach and
   agent hooks, including the typed realm-evaluation boundary;
 - the internal `IsHTMLDDA` callable, which is emitted as an implementation
   dependency but is not a global binding.
@@ -18,7 +18,7 @@ while being visible through only some of those paths.
 
 ## Closed row source
 
-`lila_ir::HostBuiltinId` is now generated from one macro-backed catalog. Every
+`scriptw_ir::HostBuiltinId` is now generated from one macro-backed catalog. Every
 row must provide:
 
 1. its Rust identity;
@@ -37,7 +37,7 @@ The current classification is:
 | --- | --- | --- |
 | ECMAScript global | every realm | `parseInt`, `parseFloat` |
 | product extension | entry realm only | `print`, `gc` |
-| Test262 capability | entry realm only | all globally named `__lila*` rows |
+| Test262 capability | entry realm only | all globally named `__scriptw*` rows |
 | internal callable | no global scope | `IsHTMLDDA`, the three derived Function constructors, the synchronous disposal wrapper |
 
 There are 23 catalog rows: 18 globally named callables and five internal
@@ -79,7 +79,7 @@ through script, module and script-with-module-graph lowering, includes it in
 the whole-program cache key, and copies it into every Test262 agent worker
 compilation. The Test262 runner is the explicit `Test262` opt-in. This keeps
 the choice at a typed compilation boundary: it is never inferred from a
-filename, source spelling or the presence of a `__lila*` identifier.
+filename, source spelling or the presence of a `__scriptw*` identifier.
 The CLI likewise defaults to product authority; its explicit
 `--host-surface test262` option exists for conformance fixtures, and the CLI
 integration harness passes it rather than teaching fixture filenames special

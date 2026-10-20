@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import sys
 
-E = 'crates/lila-engine/src/'
+E = 'crates/scriptw-engine/src/'
 C = E + 'wasm_native_source_compiler.rs'
 T = E + 'wasm_native_source_compiler/trace.rs'
 N = E + 'wasm_native_program_template.rs'
@@ -27,8 +27,8 @@ def check(root, overrides=None):
     need('modtrace;' in context and 'trace:Option<TraceState>' in context and
          'trace:TraceState::from_environment()' in context and
          'self.trace.as_ref()?.begin(family)' in context, 'execution owns optional trace and explicit callback handles')
-    need('var_os("LILA_NATIVE_SOURCE_TRACE").map(|_|Self{origin:Instant::now(),' in trace and
-         'LILA_WASM_TRACE' not in trace and trace.count('var_os(') == 1,
+    need('var_os("SCRIPTW_NATIVE_SOURCE_TRACE").map(|_|Self{origin:Instant::now(),' in trace and
+         'SCRIPTW_WASM_TRACE' not in trace and trace.count('var_os(') == 1,
          'dedicated opt-in creates no Instant when disabled')
     need('constCALLBACK_LIMIT:u64=256;' in trace and 'callbacks:AtomicU64' in trace and
          '.fetch_update(Ordering::Relaxed,Ordering::Relaxed,|count|{(count<CALLBACK_LIMIT).then_some(count+1)})' in trace and
@@ -59,9 +59,9 @@ def check(root, overrides=None):
              'actual callback threads its trace across decode/lower/factory: ' + kind)
         need('trace:Option<&CallbackTrace' in factory and
              all('Phase::' + p in factory for p in ('Emit', 'ArtifactChecks', 'TemplateCanonicalize', 'FactoryInvoke')) and
-             factory.find('Phase::Emit') < factory.find('letartifact=lila_aot_wasm::emit_runtime_') < factory.find('drop(emit)') and
+             factory.find('Phase::Emit') < factory.find('letartifact=scriptw_aot_wasm::emit_runtime_') < factory.find('drop(emit)') and
              factory.find('Phase::ArtifactChecks') < factory.find('!Arc::ptr_eq') < factory.find('drop(checks)') and
-             factory.find('Phase::TemplateCanonicalize') < factory.find('lettemplate=lila_aot_wasm::NativeProgramTemplate::for_') < factory.find('drop(canonicalize)') and
+             factory.find('Phase::TemplateCanonicalize') < factory.find('lettemplate=scriptw_aot_wasm::NativeProgramTemplate::for_') < factory.find('drop(canonicalize)') and
              'instantiate(&mut*store,engine,context,&template,trace,)?' in factory and
              factory.find('Phase::FactoryInvoke') < factory.find('initialize.call(') < factory.find('factory.call('),
              'natural artifact/template/invoke boundaries retain actual execution: ' + kind)
@@ -79,7 +79,7 @@ def check(root, overrides=None):
          binder.find('Phase::CompiledModuleLookup') < binder.find('cache::module(') < binder.find('drop(lookup)') and
          binder.find('Phase::BindImports') < binder.find('forimportinmodule.imports()') < binder.find('drop(bind)') and
          binder.find('Phase::Instantiate') < binder.find('Instance::new(') < binder.find('drop(instantiate)') and
-         'lilanativetemplate:cache={}code_bytes={}imports={}images={}factories={}' in binder,
+         'scriptwnativetemplate:cache={}code_bytes={}imports={}images={}factories={}' in binder,
          'typed same-Store binder measures cache/bind/instantiate and retains original template protocol')
     need(len(sources[T].splitlines()) <= 180, 'private trace owner stays bounded')
     return errors

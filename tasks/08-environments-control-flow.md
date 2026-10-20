@@ -218,7 +218,7 @@ exact 16-file `noStrict` Test262 inventory. At pre-batch commit
 `156aeb38b28378e04bb852f8d00679f47b401d34`, the representative prefix-increment
 and postfix-decrement strict-reference witnesses each reported `0/1` as
 `Runtime/NotImplemented`, with the exact diagnostic
-``unsupported in lila wasm-aot first slice: unbound identifier `x```. The
+``unsupported in scriptw wasm-aot first slice: unbound identifier `x```. The
 integrated IR invariant is `1/1`, the source-bounded contract suite is `4/4`,
 the Wasm lifecycle fixture is `1/1`, and the exact current-source cohort is now
 `16/16`; these focused results do not claim the full language subtree or pinned
@@ -398,7 +398,7 @@ replacing root-entry global facts or unknown-effect state, nested body lowerers
 retain prepass identity, and body inspection no longer mutates the parent's
 live facts as though the function had executed. Final lowering and actual
 source-call paths replay live invalidation in source order. The complete
-`lila-ir` unit suite passes `892/892`; the exact and joined `globalThis`
+`scriptw-ir` unit suite passes `892/892`; the exact and joined `globalThis`
 aliases, refined Number-prototype alias, boxed-Boolean alias, nested
 object/array alias and stale-sibling-publication controls each pass `1/1`.
 This is conservative compiler-fact soundness, not an object-identity analysis
@@ -471,12 +471,12 @@ The four corresponding bare-suffix `with` files and the eleven odd-suffix
 global eager-compound files remain explicit regression inventories. At
 pre-batch commit `f6b6af6a1779840eaf5d7c88cff2b9ff33db9381`, an isolated
 current-pin run measured the prefix-increment global witness at `0/1` as
-`Runtime/NotImplemented` with the exact diagnostic ``unsupported in lila
+`Runtime/NotImplemented` with the exact diagnostic ``unsupported in scriptw
 wasm-aot first slice: unbound identifier `x```; the adjacent plain-assignment
 witness was `1/1`. The other three numeric files are source-proven to have
 entered the same closed lowering route and refusal, but were not separately
 measured pre-batch. The current integration checkpoint is green: package checks
-for `lila-ir`, `lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the
+for `scriptw-ir`, `scriptw-aot-wasm` and `scriptw-cli`, plus `cargo xc`, all pass; the
 focused IR lifecycle test is `1/1`, four source-bounded structure executables
 total `17/17`, and the Wasm lifecycle fixture is `1/1` in 45.02 seconds. The
 exact selected global numeric cohort now passes `4/4`, the four bare-suffix
@@ -548,8 +548,8 @@ The exact selected `onlyStrict` Test262 files are:
 - `language/expressions/logical-assignment/lgcl-or-assignment-operator-unresolved-lhs.js`;
 - `language/expressions/logical-assignment/lgcl-nullish-assignment-operator-unresolved-lhs.js`.
 
-The current integration checkpoint is green: package checks for `lila-ir`,
-`lila-aot-wasm` and `lila-cli`, plus `cargo xc`, all pass; the focused IR
+The current integration checkpoint is green: package checks for `scriptw-ir`,
+`scriptw-aot-wasm` and `scriptw-cli`, plus `cargo xc`, all pass; the focused IR
 lifecycle tests are `2/2`, and four final source-bounded structure executables
 are `4/4`. One stale derive marker was corrected during that focused structural
 rerun without changing product code. The exact Wasm lifecycle fixture is `1/1`
@@ -621,7 +621,7 @@ owns the exact eleven odd-suffix `noStrict` Test262 files and retains the whole
 `with` siblings. At pre-batch commit
 `450f67050a270eebb4459b8ebd3cb2b171f5b7ee`, that prefix reported `11/22`: all
 eleven selected global executions were `Runtime/NotImplemented` with the exact
-diagnostic ``unsupported in lila wasm-aot first slice: unbound identifier
+diagnostic ``unsupported in scriptw wasm-aot first slice: unbound identifier
 `x```; all eleven `with` executions passed. The affected-package compile is
 green; the IR lifecycle test is `1/1`, the new source-bounded suite is `4/4`,
 the retained compound/numeric suites are `5/5` and `4/4`, and the Wasm
@@ -750,10 +750,10 @@ Wasm branch depth must be derived from a structured control stack, never patched
 ## Required tests
 
 ```sh
-cargo test -p lila-ir environment_ --quiet
-cargo test -p lila-aot-wasm control_flow_ --quiet
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli wasm_ --quiet
+cargo test -p scriptw-ir environment_ --quiet
+cargo test -p scriptw-aot-wasm control_flow_ --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli wasm_ --quiet
 ```
 
 Run focused real filters for lexical declarations, destructuring, `for-in`, `for-of`, `try`, labels, `with`, global code and closure capture.

@@ -1,7 +1,7 @@
 # Host randomness contract
 
 `Math.random` is an ECMAScript host hook, not a unary numeric function and not
-a compile-time constant. Lila represents that fact at three boundaries.
+a compile-time constant. Scriptw represents that fact at three boundaries.
 
 ## Runtime domain
 
@@ -22,7 +22,7 @@ a JavaScript number outside the closed domain.
 ## Artifact boundary
 
 The standard-builtin catalog marks the sole random reader. Wasm codegen derives
-an optional `lila_host.random_f64: () -> f64` import from that flag and gives
+an optional `scriptw_host.random_f64: () -> f64` import from that flag and gives
 the resulting typed function index only to the Math emitter. The import is
 appended after existing optional host calls, so adding it cannot renumber an
 older ABI row. A module that does not retain `Math.random` has no randomness

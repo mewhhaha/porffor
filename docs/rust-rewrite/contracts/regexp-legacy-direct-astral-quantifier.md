@@ -4,7 +4,7 @@ Status: normative for the Rust RegExp parser's direct-source term seam.
 
 ## Semantic boundary
 
-ECMA-262 parses a RegExp pattern as UTF-16 code units even when Lila receives
+ECMA-262 parses a RegExp pattern as UTF-16 code units even when Scriptw receives
 the static source as a Rust UTF-8 string. In legacy mode, a directly written
 astral scalar therefore contributes two adjacent `PatternCharacter` atoms: its
 lead surrogate and its trail surrogate. A postfix quantifier immediately after
@@ -24,7 +24,7 @@ This follows ECMA-262 `RegExpInitialize` (22.2.3.3): without `u` or `v`, each
 
 ## Closed parsed-term protocol
 
-`lila-ir/src/regexp/legacy_utf16_pair.rs` is the sole owner of
+`scriptw-ir/src/regexp/legacy_utf16_pair.rs` is the sole owner of
 `LegacyUtf16Pair`. It can be constructed only from a validated astral Unicode
 scalar and privately owns its lead and trail surrogate code units.
 `ParsedTerm` then has two exhaustive cases:
@@ -51,7 +51,7 @@ legacy forms. The Wasm CLI fixture fixes observable matching for:
 - greedy versus lazy trail choice with a following literal; and
 - the contrasting whole-code-point quantifier boundary in `u` mode.
 
-`lila-ir/tests/legacy_utf16_pair_structure.rs` owns the private file-module,
+`scriptw-ir/tests/legacy_utf16_pair_structure.rs` owns the private file-module,
 exact type/method inventory and caller census. It also pins parser admission,
 mandatory-lead nullability, and the opposite forward/reverse instruction
 orders while leaving parsed-term and lowering ownership in `regexp.rs`.

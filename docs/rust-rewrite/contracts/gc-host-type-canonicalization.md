@@ -1,6 +1,6 @@
 # Native host signatures and recursive runtime types
 
-Function signatures without concrete Lila GC references are registered as
+Function signatures without concrete Scriptw GC references are registered as
 singleton Wasm types before the runtime's recursion group. Their canonical
 identities then agree with independently constructed Wasmtime host functions.
 Placing an otherwise identical scalar signature inside the entire runtime group

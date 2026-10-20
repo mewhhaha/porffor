@@ -117,7 +117,7 @@ or Clone, the sole acquisition, all three producers, the returned ownership
 transition, and exactly one typed validator consumption per producer.
 
 On 2026-08-27, its seven focused structure tests passed, as did
-`cargo check -p lila-aot-wasm --lib`. The exact `wasm_proxy_own_keys.js` and
+`cargo check -p scriptw-aot-wasm --lib`. The exact `wasm_proxy_own_keys.js` and
 `wasm_proxy_own_keys_handler_protocol.js` CLI witnesses each passed `1/1` on
 the Wasm-AOT backend. Rustfmt's check mode and `git diff --check` also passed
 for the scoped source, test, task, and contract files.

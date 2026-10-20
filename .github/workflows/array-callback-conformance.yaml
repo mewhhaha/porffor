@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 45
     env:
       CARGO_BUILD_JOBS: 2
-      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES: 2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,7 +27,7 @@ jobs:
       - name: Check formatting and semantic owners
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p lila-aot-wasm --lib --tests -- --test-threads=1
+          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
       - name: Verify complete-inventory runner contracts
         run: python3 scripts/tests/test_engine_regression_inventory.py
       - name: Execute every engine regression in a bounded process
@@ -51,7 +51,7 @@ jobs:
         family: [array, typed_array]
     env:
       CARGO_BUILD_JOBS: 2
-      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES: 2
       CLI_FAMILY: ${{ matrix.family }}
     steps:
       - uses: actions/checkout@v4
@@ -68,8 +68,8 @@ jobs:
             typed_array) selection=(typed_array::) ;;
             *) exit 1 ;;
           esac
-          cargo test --locked -p lila-cli --test cli -- array:: --list > /tmp/callback-cli-evidence/complete.txt
-          cargo test --locked -p lila-cli --test cli -- "${selection[@]}" --list > /tmp/callback-cli-evidence/selected.txt
+          cargo test --locked -p scriptw-cli --test cli -- array:: --list > /tmp/callback-cli-evidence/complete.txt
+          cargo test --locked -p scriptw-cli --test cli -- "${selection[@]}" --list > /tmp/callback-cli-evidence/selected.txt
           python3 - <<'PY'
           import json
           import os
@@ -101,7 +101,7 @@ jobs:
           (root / 'inventory.json').write_text(json.dumps(manifest, indent=2) + '\n')
           print(f'Complete selection: {len(complete)}; {family}: {len(selected)}')
           PY
-          cargo test --locked -p lila-cli --test cli -- "${selection[@]}" --test-threads=2 | tee /tmp/callback-cli-evidence/results.txt
+          cargo test --locked -p scriptw-cli --test cli -- "${selection[@]}" --test-threads=2 | tee /tmp/callback-cli-evidence/results.txt
           python3 - <<'PY'
           import json
           import re
@@ -140,10 +140,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked -p lila-cli
+          cargo build --locked -p scriptw-cli
           git rev-parse HEAD > target/debug/callback-source-sha.txt
-          (cd target/debug && sha256sum lila > callback-binary-sha256.txt)
-          tar -czf /tmp/callback-test262-cli.tar.gz -C target/debug lila callback-source-sha.txt callback-binary-sha256.txt
+          (cd target/debug && sha256sum scriptw > callback-binary-sha256.txt)
+          tar -czf /tmp/callback-test262-cli.tar.gz -C target/debug scriptw callback-source-sha.txt callback-binary-sha256.txt
       - uses: actions/upload-artifact@v4
         with:
           name: array-callback-test262-cli
@@ -163,7 +163,7 @@ jobs:
         # not a subset/skip list. A whole subtree exceeded the old job limit.
         shard: [1, 2, 3, 4]
     env:
-      LILA_MODULE_MEMORY_CACHE_ENTRIES: 2
+      SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES: 2
     steps:
       - uses: actions/checkout@v4
         with:
@@ -189,8 +189,8 @@ jobs:
           ARRAY_SHARD: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          ./target/debug/lila test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
-          ./target/debug/lila test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
+          ./target/debug/scriptw test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
+          ./target/debug/scriptw test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
           python3 scripts/check-test262-shard-report.py --inventory /tmp/callback-inventory.txt --report /tmp/callback-test262.txt --shard "$ARRAY_SHARD/4"
       - uses: actions/upload-artifact@v4
         if: always()

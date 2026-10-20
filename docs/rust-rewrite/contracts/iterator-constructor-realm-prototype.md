@@ -6,9 +6,9 @@ fallback seam.
 ## Scope
 
 This contract spans the closed realm-prototype selection and generic construct
-routing in `crates/lila-aot-wasm/src/functions.rs`, the Iterator body in
-`crates/lila-aot-wasm/src/builtins/standard.rs`, the structural guards in
-`crates/lila-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. Existing
+routing in `crates/scriptw-aot-wasm/src/functions.rs`, the Iterator body in
+`crates/scriptw-aot-wasm/src/builtins/standard.rs`, the structural guards in
+`crates/scriptw-aot-wasm/src/lib.rs`, and the focused CLI fixture/test. Existing
 bootstrap and created-realm publication remain verified inputs rather than heap
 layout changes.
 
@@ -117,13 +117,13 @@ host-harness, unsupported, not-implemented, crash and bug buckets were all
 zero. The focused commands were:
 
 ```sh
-cargo test -p lila-aot-wasm --lib \
+cargo test -p scriptw-aot-wasm --lib \
   tests::iterator_constructor_realm_prototype_is_required_tagged_and_published \
   -- --exact --test-threads=1
-cargo test -p lila-cli --test cli -- \
+cargo test -p scriptw-cli --test cli -- \
   --exact iterator::run_wasm_backend_uses_new_target_realm_for_iterator_prototype \
   --test-threads=1
-./target/debug/lila --jobs 1 test262 run \
+./target/debug/scriptw --jobs 1 test262 run \
   built-ins/Iterator/proto-from-ctor-realm.js \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 180000 --threads 1

@@ -115,9 +115,9 @@ compiler exception for a harness identifier or Test262 path.
 
 ## Verification boundary
 
-Focused coverage lives in `lila-ir/tests/module_instantiation.rs`,
-`lila-engine/tests/aot_module_instantiation.rs`, and
-`lila-engine/tests/aot_module_scope_isolation.rs`, with engine parse/cache and
+Focused coverage lives in `scriptw-ir/tests/module_instantiation.rs`,
+`scriptw-engine/tests/aot_module_instantiation.rs`, and
+`scriptw-engine/tests/aot_module_scope_isolation.rs`, with engine parse/cache and
 Test262 materialization/runner controls. The cases cover deferred dependency
 order, cyclic readiness, evaluation reentry, TDZ, live immutable imports, cached
 throw identity, repeated synchronous catches and finally completions, per-iteration

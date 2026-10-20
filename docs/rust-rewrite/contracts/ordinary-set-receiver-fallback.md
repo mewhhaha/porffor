@@ -45,8 +45,8 @@ table, producer order, final helper-body filings, argument order and existing
 CLI registration:
 
 ```console
-cargo test -p lila-aot-wasm --test structure_language -- ordinary_set_receiver_fallback_structure::
-cargo test -p lila-cli --test cli object::run_wasm_backend_preserves_outlined_ordinary_set_receiver_semantics -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_language -- ordinary_set_receiver_fallback_structure::
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_preserves_outlined_ordinary_set_receiver_semantics -- --exact --test-threads=1
 ```
 
 The dedicated structure target passes `4/4`, and the exact CLI witness passes

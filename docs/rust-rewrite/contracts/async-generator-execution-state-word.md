@@ -24,13 +24,13 @@ before the yielded iterator result escapes. Body termination and an early
 
 Await does not add another `[[AsyncGeneratorState]]` value. An async generator
 whose body is awaiting remains executing while its Promise reaction owns the
-continuation. Lila already persists that finer backend phase separately as
+continuation. Scriptw already persists that finer backend phase separately as
 `AsyncGeneratorBodyStatus::Await`; it is not part of the specification's state
 domain.
 
 ## Representation defect closed
 
-Before this migration, Lila exposed six raw `ASYNC_GENERATOR_STATE_*` integer
+Before this migration, Scriptw exposed six raw `ASYNC_GENERATOR_STATE_*` integer
 constants and let generic heap helpers access
 `HEAP_ASYNC_GENERATOR_EXECUTION_STATE_OFFSET`. Five words matched the
 specification:
@@ -175,7 +175,7 @@ fallthrough.
 
 ## Durable source witness
 
-`crates/lila-aot-wasm/tests/async_generator_execution_state_structure.rs`
+`crates/scriptw-aot-wasm/tests/async_generator_execution_state_structure.rs`
 pins:
 
 - exactly five variants, one `ALL` list and one exhaustive stable projection;
@@ -201,9 +201,9 @@ batch verifier then ran:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
 ```
 
 The three structure targets pass `5/5`, `5/5` and `5/5`. The five existing

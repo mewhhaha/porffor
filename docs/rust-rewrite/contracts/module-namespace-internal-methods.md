@@ -62,8 +62,8 @@ abrupt completions require the module environment and scheduler changes tracked
 by the lifecycle cohort. Separate namespace caches do not establish those
 semantics on their own.
 
-Regression coverage lives in `lila-ir/tests/module_namespace_construction.rs`
-and `lila-engine/tests/aot_module_namespace.rs`. The completed baseline's 38
+Regression coverage lives in `scriptw-ir/tests/module_namespace_construction.rs`
+and `scriptw-engine/tests/aot_module_namespace.rs`. The completed baseline's 38
 namespace executions and import-defer cohort remain separate verification
 boundaries; implementation of these internal methods is not a claim that every
 module/linker failure is fixed.

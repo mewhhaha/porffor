@@ -1,5 +1,10 @@
 # Current implementation and remaining work — 2026-10-20
 
+This inventory records the measured **pre-rename** compiler. The project is now
+[scriptw](scriptw-identity-migration.md); commands below use its current spelling,
+while the evidence retains the original executable/package names and hashes.
+The rename does not transfer these outcomes into a new full-suite verification.
+
 Compiler source: `cbf7cc71f`; the verified checkpoint/scheduling batch is on
 main at `5fa2e8432`. This inventory describes observed results, implemented
 interfaces and open acceptance criteria. **Wasm is the sole product output
@@ -30,7 +35,7 @@ are preserved losslessly in encoded assets.
   The separate isolated Intl library suite remains unrun in this saved run.
 - T00, T27, T28 and T29 remain recorded complete: contribution contracts,
   interpreter quarantine/product default, legacy product retirement and the
-  canonical Lila identity. This inventory closes no additional task.
+  canonical Scriptw identity. This inventory closes no additional task.
 
 ## What the current CLI can compile and run
 
@@ -58,7 +63,7 @@ extension. The CLI does not supply `console` or establish Node/browser API compa
 
 A subsequent [React 19.3.1 SSR probe](react-ssr.md) passes three exact HTML
 comparisons with Node using the unmodified synchronous ReactDOM renderer;
-the actual Lila outcome identifies Wasm-AOT. It also emits a program/runtime
+the actual Scriptw outcome identifies Wasm-AOT. It also emits a program/runtime
 Wasm pair. The public `react-dom/server.browser` entry fails with an unbound
 identifier; browser/streaming APIs are not supplied. This separate compatibility
 probe is recorded in [its own evidence](react-ssr-20261020.json), outside the
@@ -67,15 +72,15 @@ six examples/one emission counts above and all suite totals below.
 | Build or interface | Current state |
 | --- | --- |
 | Rust frontend/IR/emitter/engine/runtime libraries | Current ordinary library test targets compile and their populated test scopes pass |
-| Debug `lila run file.js` | Demonstrated on the six examples above; defaults to Wasm-AOT |
-| Debug `lila run file.mjs` or `run --module file.js` | Module loader is implemented; the fresh `.mjs` import/TLA example passes |
-| `lila build wasm file.js` | Implemented Script compilation; emits program bytes and optional linked runtime sidecar when `LILA_WASM_DUMP` is set |
+| Debug `scriptw run file.js` | Demonstrated on the six examples above; defaults to Wasm-AOT |
+| Debug `scriptw run file.mjs` or `run --module file.js` | Module loader is implemented; the fresh `.mjs` import/TLA example passes |
+| `scriptw build wasm file.js` | Implemented Script compilation; emits program bytes and optional linked runtime sidecar when `SCRIPTW_WASM_DUMP` is set |
 | Dedicated CLI module artifact build | Not exposed: `build wasm` currently calls `compile_script`; module execution is available through `run` |
 | Ordinary optimized release CLI | Implemented build recipe; current-source opt3/non-oracle release build and release acceptance have not run |
 | Existing C/native and REPL stubs | Outside project scope; obsolete entries are not planned features or completion gates |
 
 The runtime target is experimental Wasmtime with the required GC, reference,
-exception and related features, matching Lila runtime imports, host adapters
+exception and related features, matching Scriptw runtime imports, host adapters
 and admitted Intl data. An emitted program/runtime pair is not a browser,
 WASI or generic Wasm runtime compatibility claim. Native compilation in
 verification means building the Rust compiler or Wasmtime compiling Wasm
@@ -90,23 +95,23 @@ From the repository root, an ordinary CLI rebuild recipe is:
 
 ```sh
 # On this cloud setup, activate the installed toolchain if needed.
-. ../.lila-tools/activate.sh
+. ../.scriptw-tools/activate.sh
 python3 scripts/limited_verification.py --cloud -- \
-  cargo build --locked --offline -p lila-cli --bin lila --jobs 1
+  cargo build --locked --offline -p scriptw-cli --bin scriptw --jobs 1
 ```
 
 The inventory reused the existing linked debug CLI; it did not execute this
 Cargo rebuild or a release build. To use a source-bound CLI:
 
 ```sh
-LILA_BIN=./target/debug/lila
+SCRIPTW_BIN=./target/debug/scriptw
 cat > hello.js <<'JS'
 function counter(n) { return () => ++n; }
 const next = counter(40);
 print(next() + next());
 JS
-"$LILA_BIN" --jobs 1 run hello.js
-LILA_WASM_DUMP=hello.wasm "$LILA_BIN" --jobs 1 build wasm hello.js
+"$SCRIPTW_BIN" --jobs 1 run hello.js
+SCRIPTW_WASM_DUMP=hello.wasm "$SCRIPTW_BIN" --jobs 1 build wasm hello.js
 # Keep hello.wasm.runtime.wasm too when one is emitted.
 ```
 
@@ -134,7 +139,7 @@ and 11 documentation tests across all 113 scopes; those older outcomes are
 not carried into this source's run.
 
 The one current failure is
-`lila-test262:differential_generated_campaign::builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
+`scriptw-test262:differential_generated_campaign::builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
 The Wasm worker timed out at its original **5,000 ms** deadline in the
 `builtin-stateful-v1` seed-0 array-buffer scenario; the oracle completed.
 The campaign stopped after one of six cases and established no semantic
@@ -189,7 +194,7 @@ and the [ownership index](conformance-ownership.md).
 | T26 release closure | Blocked | Zero non-successes in two fresh complete current-pin families, real shard/resume, required stress/product/host checks and generated publication |
 | T27 interpreter quarantine | Complete | Default Wasm-AOT policy retained; ordinary product must continue to exclude the oracle |
 | T28 legacy retirement | Complete | Rust-only product/development boundary retained |
-| T29 identity | Complete | Canonical Lila names and provenance guards retained |
+| T29 identity | Complete | Canonical Scriptw names and provenance guards retained |
 
 ## Next work, in order
 

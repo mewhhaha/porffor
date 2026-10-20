@@ -23,5 +23,5 @@ being invalidated by Rust callers while its semantic gaps remain explicit.
 The source-structure regression is:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::dynamic_component_authority_structure::
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::dynamic_component_authority_structure::
 ```

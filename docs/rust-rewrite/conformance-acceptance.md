@@ -57,7 +57,7 @@ never turn incomplete or historical evidence into current pass counts.
 - Both giant `lib.rs` files become orchestration/re-export surfaces rather than implementation stores.
 - Feature families have clear files that separate agents can own.
 - There are no cyclic module dependencies or duplicate constant registries.
-- Public APIs used by `lila-engine` remain coherent and documented.
+- Public APIs used by `scriptw-engine` remain coherent and documented.
 - Representative emitted artifacts behave identically before and after extraction. If byte identity is not practical, compare imports, exports, validation, output, completion kind and thrown error class.
 - Workspace compile time and binary size do not regress materially solely because of module movement.
 
@@ -381,7 +381,7 @@ never turn incomplete or historical evidence into current pass counts.
 - A repository check rejects reintroduction of the retired product surfaces
   without flagging Test262, fixtures, reproducers, or vendored JavaScript.
 - README, contribution guidance, task status, Cargo metadata, and the website
-  consistently describe Lila as a Rust-only product.
+  consistently describe Scriptw as a Rust-only product.
 - The generated README Test262 status block is byte-for-byte unchanged.
 
 <a id="t29"></a>

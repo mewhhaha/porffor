@@ -69,7 +69,7 @@ historical 2026-08-29 checkpoint used 68 external routes (16 direct, 49
 current-throw-preserving, and three saved-throw-preserving); the receipts below
 remain evidence for that earlier source.
 
-`cargo check -p lila-aot-wasm` passes. The source-structure target passes
+`cargo check -p scriptw-aot-wasm` passes. The source-structure target passes
 `4/4`; the exact created-Realm CLI test passes `1/1`; and the affected
 `iterator_close` CLI sweep passes `6/6`. The fixture passes `node --check`.
 The two pinned direct `for-of` leaves each pass `2/2`, for `4/4` Wasm-AOT
@@ -78,14 +78,14 @@ executions with every failure and non-success bucket at zero.
 The focused commands were:
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms -- iterator_close_error_realm_structure:: --test-threads=1
-cargo test -p lila-cli --test cli iterator::run_wasm_backend_uses_borrowed_iterator_helper_realm_for_iterator_close_errors -- --exact
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/iterator-close-non-throw-get-method-non-callable.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
-./target/debug/lila --jobs 1 test262 run language/statements/for-of/iterator-close-non-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm --test modules_realms -- iterator_close_error_realm_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli iterator::run_wasm_backend_uses_borrowed_iterator_helper_realm_for_iterator_close_errors -- --exact
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/iterator-close-non-throw-get-method-non-callable.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
+./target/debug/scriptw --jobs 1 test262 run language/statements/for-of/iterator-close-non-object.js --suite-root test262/vendor/test262 --execution-backend wasm-aot --timeout-ms 180000 --threads 1
 ```
 
 The CLI owner runs
-`crates/lila-cli/tests/fixtures/wasm_iterator_close_generated_error_realm.js`.
+`crates/scriptw-cli/tests/fixtures/wasm_iterator_close_generated_error_realm.js`.
 It borrows `Iterator.prototype.some` from a created Realm and observes both
 generated errors plus a valid object-return control.
 

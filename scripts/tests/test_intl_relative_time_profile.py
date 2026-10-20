@@ -166,9 +166,9 @@ class RelativeTimeDataTests(unittest.TestCase):
     def test_polish_primary_capture_tamper_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             repository = Path(temporary)
-            for name in ["crates/lila-intl/data/relative-time-cldr-47", "crates/lila-intl/data/number-cldr-47"]:
+            for name in ["crates/scriptw-intl/data/relative-time-cldr-47", "crates/scriptw-intl/data/number-cldr-47"]:
                 shutil.copytree(SCRIPTS.parent / name, repository / name)
-            leaf = repository / "crates/lila-intl/data/relative-time-cldr-47/common/main/pl.xml"
+            leaf = repository / "crates/scriptw-intl/data/relative-time-cldr-47/common/main/pl.xml"
             leaf.chmod(0o644)
             leaf.write_bytes(leaf.read_bytes().replace(b"za {0} ", b"bad {0} ", 1))
             with self.assertRaisesRegex(ValueError, "captured source checksum"):
@@ -179,13 +179,13 @@ class RelativeTimeDataTests(unittest.TestCase):
         names = {row["path"] for row in inputs["files"]}
         self.assertIn("scripts/generate-intl-relative-time-profile.py", names)
         self.assertIn("scripts/intl_cldr_profile.py", names)
-        self.assertIn("crates/lila-intl/data/datetime-cldr-47/docs/ldml/tr35.md", names)
-        self.assertIn("crates/lila-intl/data/numbering-tols-cldr-48/source-manifest.json", names)
-        self.assertIn("crates/lila-intl/data/calendar-eras-cldr-48/manifest.json", names)
+        self.assertIn("crates/scriptw-intl/data/datetime-cldr-47/docs/ldml/tr35.md", names)
+        self.assertIn("crates/scriptw-intl/data/numbering-tols-cldr-48/source-manifest.json", names)
+        self.assertIn("crates/scriptw-intl/data/calendar-eras-cldr-48/manifest.json", names)
         self.assertIn(producer.CAPTURE_PATH, names)
         self.assertIn("scripts/intl_relative_time_sources.py", names)
-        self.assertIn("crates/lila-intl/data/relative-time-cldr-47/common/main/pl.xml", names)
-        self.assertIn("crates/lila-intl/data/number-cldr-47/sources.tar.gz", names)
+        self.assertIn("crates/scriptw-intl/data/relative-time-cldr-47/common/main/pl.xml", names)
+        self.assertIn("crates/scriptw-intl/data/number-cldr-47/sources.tar.gz", names)
         self.assertEqual(inputs["total_bytes"], sum(row["bytes"] for row in inputs["files"]))
         self.assertFalse(inputs["public_capability_admission"])
 

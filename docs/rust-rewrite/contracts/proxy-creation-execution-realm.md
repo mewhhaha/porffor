@@ -55,7 +55,7 @@ unchanged. Neither Proxy creation body nor its context module may select
 
 ## Runtime witness
 
-`crates/lila-cli/tests/fixtures/wasm_proxy_creation_execution_realm.js` borrows
+`crates/scriptw-cli/tests/fixtures/wasm_proxy_creation_execution_realm.js` borrows
 `Proxy` and `Proxy.revocable` from a created Realm. It checks the exact created
 Realm TypeError prototype for invalid target and invalid handler inputs to both
 builtins. It also checks the revocable record's Object prototype, the revoke
@@ -72,19 +72,19 @@ host-published property belongs to the createRealm boundary and its focused
 The 2026-08-30 implementation checkpoint produced these results:
 
 ```text
-cargo check -p lila-aot-wasm --lib
+cargo check -p scriptw-aot-wasm --lib
 PASS, with only the existing Boa trivial-cast warning
 
-cargo test -p lila-aot-wasm --test modules_realms -- proxy_creation_execution_realm_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test modules_realms -- proxy_creation_execution_realm_structure:: --test-threads=1
 PASS: 3 passed, 0 failed
 
-cargo test -p lila-aot-wasm bound_this_capture_has_closed_producers_and_call_time_adaptation --lib -- --test-threads=1
+cargo test -p scriptw-aot-wasm bound_this_capture_has_closed_producers_and_call_time_adaptation --lib -- --test-threads=1
 PASS: 1 passed, 0 failed
 
-cargo test -p lila-cli --test cli -- --exact object::proxy_creation_uses_the_builtin_execution_realm --test-threads=1
+cargo test -p scriptw-cli --test cli -- --exact object::proxy_creation_uses_the_builtin_execution_realm --test-threads=1
 PASS: 1 passed, 0 failed, 786 filtered
 
-./target/debug/lila --jobs 1 test262 run built-ins/Proxy/revocable --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000
+./target/debug/scriptw --jobs 1 test262 run built-ins/Proxy/revocable --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 1 --timeout-ms 120000
 34 Success of 35 executions; the sole non-success is tco-fn-realm.js as the typed $262.evalScript AOT NotImplemented boundary; every failure, Crash and Bug bucket is zero
 ```
 

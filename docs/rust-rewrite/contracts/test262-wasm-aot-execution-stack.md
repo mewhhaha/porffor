@@ -40,9 +40,9 @@ both exhaustive projections together with the complete ordered engine-call
 region:
 
 ```console
-cargo test -p lila-test262 --test wasm_aot_execution_stack_structure
-cargo test -p lila-test262 tests::execute_cases_runs_wasm_aot_cases_on_persistent_workers -- --exact --test-threads=1
-cargo test -p lila-test262 tests::wasm_aot_enforces_async_done_output_after_jobs_drain -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test wasm_aot_execution_stack_structure
+cargo test -p scriptw-test262 tests::execute_cases_runs_wasm_aot_cases_on_persistent_workers -- --exact --test-threads=1
+cargo test -p scriptw-test262 tests::wasm_aot_enforces_async_done_output_after_jobs_drain -- --exact --test-threads=1
 ```
 
 The persistent-worker witness executes two ordinary Wasm-AOT cases through

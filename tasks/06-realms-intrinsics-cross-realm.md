@@ -166,8 +166,8 @@ realm case remains coupled to unsupported dynamic Function source generation.
 
 This remains metadata foundation rather than full realm bootstrap. Intrinsic
 objects are not yet independently allocated from these templates across the
-complete ECMAScript set, the registry is not yet shared with `lila-ir`, and the
-eleven focused `lila-runtime` contracts are green. `lila-engine` re-exports the
+complete ECMAScript set, the registry is not yet shared with `scriptw-ir`, and the
+eleven focused `scriptw-runtime` contracts are green. `scriptw-engine` re-exports the
 typed link relation with the rest of the public realm vocabulary.
 Dynamic-source-dependent cross-realm cases remain explicit
 unsupported cases, and no current complete Wasm-AOT aggregate proves the full
@@ -583,10 +583,10 @@ Do not encode realm identity as a collection of one-off function header fields. 
 ## Intrinsic bootstrap
 
 The runtime registry is now the single source for its current rows and property
-templates. Expanding it to the complete intrinsic set and making `lila-ir`
+templates. Expanding it to the complete intrinsic set and making `scriptw-ir`
 consume the same registry remain part of this work item.
 
-- Generate intrinsic installation from one declarative registry shared with `lila-ir` builtin metadata.
+- Generate intrinsic installation from one declarative registry shared with `scriptw-ir` builtin metadata.
 - Define constructor/prototype links, method `name`/`length`, writable/enumerable/configurable attributes and well-known-symbol properties in data, not repeated emitter code.
 - Allow feature modules to register their intrinsic families without editing one giant bootstrap match.
 - Validate that all references resolve, property keys are unique and every builtin function has a defining realm.
@@ -605,7 +605,7 @@ Implement and test:
 
 ## Host integration
 
-Extend `lila-runtime::HostHooks` or replace it with typed capability traits. Host hooks must be scoped by realm/agent and may not expose spec-exec engine objects to product Wasm semantics. `createRealm` must produce a truly separate global and intrinsic graph.
+Extend `scriptw-runtime::HostHooks` or replace it with typed capability traits. Host hooks must be scoped by realm/agent and may not expose spec-exec engine objects to product Wasm semantics. `createRealm` must produce a truly separate global and intrinsic graph.
 
 ## Acceptance criteria
 
@@ -619,11 +619,11 @@ Extend `lila-runtime::HostHooks` or replace it with typed capability traits. Hos
 ## Required tests
 
 ```sh
-cargo test -p lila-runtime --quiet
-cargo test -p lila-ir intrinsic_ --quiet
-cargo test -p lila-aot-wasm realm_ --quiet
-cargo test -p lila-spec-exec realm_ --quiet
-cargo test -p lila-engine --quiet
+cargo test -p scriptw-runtime --quiet
+cargo test -p scriptw-ir intrinsic_ --quiet
+cargo test -p scriptw-aot-wasm realm_ --quiet
+cargo test -p scriptw-spec-exec realm_ --quiet
+cargo test -p scriptw-engine --quiet
 ```
 
 Run real Test262 cases containing `createRealm`, `proto-from-ctor-realm`, `newtarget-proto-fallback`, cross-realm error constructors, species and borrowed builtins.

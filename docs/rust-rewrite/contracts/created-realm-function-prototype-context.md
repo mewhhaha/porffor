@@ -113,11 +113,11 @@ Cargo and Test262. After that process releases them, run:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-aot-wasm realm_function_materialization --quiet
-cargo test -p lila-cli --test cli run_wasm_backend_uses_created_realm_builtin_function_prototypes --quiet
-./target/debug/lila test262 run built-ins/Function/prototype/apply/this-not-callable-realm.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run built-ins/Function/prototype/bind/get-fn-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-aot-wasm realm_function_materialization --quiet
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_created_realm_builtin_function_prototypes --quiet
+./target/debug/scriptw test262 run built-ins/Function/prototype/apply/this-not-callable-realm.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run built-ins/Function/prototype/bind/get-fn-realm --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 No pinned Test262 case directly walks this broad created-realm builtin graph;

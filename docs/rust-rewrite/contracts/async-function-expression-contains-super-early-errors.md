@@ -73,7 +73,7 @@ The closed front domain and parse table grow from 67 to 68 entries. One
 `StartsWith` row maps the complete fixed prefix to
 `AsyncFunctionExpressionContainsSuper`. An evaluated parse-owner witness,
 exact single-owner assertion, table-wide disjointness/wire-name proofs and
-`lila-ir`'s no-catch-all rejection-kind match make the addition structural.
+`scriptw-ir`'s no-catch-all rejection-kind match make the addition structural.
 
 Classifier checks keep the prefix distinct from the remaining raw and method-owned
 messages. A duplicate-export diagnostic containing the complete new prefix
@@ -152,9 +152,9 @@ producers and are excluded.
 The coordinated batch verifier ran:
 
 ```sh
-cargo test -p lila-front --lib -- --test-threads=1
-cargo test -p lila-ir modules::early -- --test-threads=1
-cargo test -p lila-ir modules::graph -- --test-threads=1
+cargo test -p scriptw-front --lib -- --test-threads=1
+cargo test -p scriptw-ir modules::early -- --test-threads=1
+cargo test -p scriptw-ir modules::graph -- --test-threads=1
 ```
 
 `cargo fmt --all -- --check`, `cargo xc`, `git diff --check` and the task-plan

@@ -36,12 +36,12 @@ linker rewrite.
 Focused commands:
 
 ```sh
-cargo test -p lila-ir --quiet --test lila_ir_integration -- ir_cases::dynamic_import_slash_meaning_structure::
-cargo test -p lila-front --test module_source_ranges --quiet
-cargo test -p lila-ir --lib modules::dynamic::tests::import_calls_inside_literals_and_comments_are_left_alone -- --exact
-cargo test -p lila-ir --lib modules::dynamic::tests::division_slash_does_not_consume_the_following_import_call_as_a_regexp -- --exact
-cargo test -p lila-ir --lib modules::dynamic::tests::a_call_site_inside_a_template_substitution_is_rewritten -- --exact
-cargo test -p lila-ir --lib modules::link::tests::dynamic_import_is_desugared_into_a_dispatcher_call -- --exact
+cargo test -p scriptw-ir --quiet --test scriptw_ir_integration -- ir_cases::dynamic_import_slash_meaning_structure::
+cargo test -p scriptw-front --test module_source_ranges --quiet
+cargo test -p scriptw-ir --lib modules::dynamic::tests::import_calls_inside_literals_and_comments_are_left_alone -- --exact
+cargo test -p scriptw-ir --lib modules::dynamic::tests::division_slash_does_not_consume_the_following_import_call_as_a_regexp -- --exact
+cargo test -p scriptw-ir --lib modules::dynamic::tests::a_call_site_inside_a_template_substitution_is_rewritten -- --exact
+cargo test -p scriptw-ir --lib modules::link::tests::dynamic_import_is_desugared_into_a_dispatcher_call -- --exact
 ```
 
 Independent review confirmed the complete scanner-body and lexical-state

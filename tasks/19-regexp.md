@@ -46,21 +46,21 @@ describe predecessors.
 
 The closed runtime outcomes are `Compiled`, `SyntaxError`, `ResourceExhausted`
 and `CorruptProgram` in
-[`runtime_helpers.rs`](../crates/lila-aot-wasm/src/runtime_helpers.rs).
-[`compiler/contracts.rs`](../crates/lila-aot-wasm/src/builtins/regexp/compiler/contracts.rs)
+[`runtime_helpers.rs`](../crates/scriptw-aot-wasm/src/runtime_helpers.rs).
+[`compiler/contracts.rs`](../crates/scriptw-aot-wasm/src/builtins/regexp/compiler/contracts.rs)
 admits only `CompileFailure::{Syntax, Resource, Corrupt}`; its resource reasons
 are address space, memory growth, nodes, tasks, instructions and ranges.
-[`program.rs`](../crates/lila-aot-wasm/src/builtins/regexp/program.rs) validates
+[`program.rs`](../crates/scriptw-aot-wasm/src/builtins/regexp/program.rs) validates
 descriptor extents and ownership; its corruption paths do not reject language
 features. The retained source limits are 32,768 instructions and 65,536 pooled
-ranges in [`regexp.rs`](../crates/lila-ir/src/regexp.rs). The emitted workspace
+ranges in [`regexp.rs`](../crates/scriptw-ir/src/regexp.rs). The emitted workspace
 uses source-sized capacities (`units = source bytes + 1`, `nodes = 4 * units + 1`,
 `tasks = 4 * nodes + 8 * instruction limit + 32`) and checks its aligned end
 against the Wasm32 address domain before growth or writes. These remain resource
 bounds, not missing grammar implementations.
 
 Static `UnsupportedFeature` still preserves runtime compilation through
-[`lowering/static_literals.rs`](../crates/lila-ir/src/lowering/static_literals.rs).
+[`lowering/static_literals.rs`](../crates/scriptw-ir/src/lowering/static_literals.rs).
 The audit classified its remaining sites as actual range/instruction/capture
 limits or parser-precondition guards: the lookbehind guard accepts every
 currently constructible atom, group/alternative parsing consumes the remaining
@@ -71,7 +71,7 @@ The audit did find and fix two static class representation defects: `\s` include
 non-ASCII whitespace, and Annex B octal escapes `\200` through `\377` exceed the
 128-bit ASCII bitmap. Both now select the existing full range parser before
 bitmap construction. Two static controls and the paired literal/computed
-[`class_character_domains.js`](../crates/lila-engine/tests/fixtures/regexp_runtime_gap/class_character_domains.js)
+[`class_character_domains.js`](../crates/scriptw-engine/tests/fixtures/regexp_runtime_gap/class_character_domains.js)
 fixture cover whitespace, complements, reverse matching, octal endpoints,
 nonmembers and preserved syntax errors. Only narrow formatting and diff checks
 were run; compilation, focused execution, resource/performance acceptance and
@@ -486,7 +486,7 @@ custom-exec receivers and genuine non-RegExp TypeError. String.match always
 invokes the created RegExp's observed `@@match`, fixing computed `a+` and `(a)+`;
 its exact 301-line fallback closure is deleted. The expanded existing CLI fixture
 checks getter throw/recompile order, proxy calls, primitive-result rejection and
-created-method overrides. Node v24.12.0 passes both modes; Lila verification remains
+created-method overrides. Node v24.12.0 passes both modes; Scriptw verification remains
 pending integration. Separate String.matchAll, `@@search` and other String source
 routes require their own audit.
 
@@ -501,7 +501,7 @@ controls. All ten runtime-pattern compiler tests pass on 2026-09-30, including
 the five failures found in the interrupted workspace run. Broad integration
 verification remains pending.
 
-Lila now has dedicated RegExp IR parsing and Wasm builtin support for a
+Scriptw now has dedicated RegExp IR parsing and Wasm builtin support for a
 growing syntax/behavior subset, plus String symbol-dispatch integration. The
 selected engine, bytecode, Unicode, backtracking and deterministic resource
 contracts are recorded in
@@ -585,14 +585,14 @@ The property-of-strings authority is now closed at the vendored provider
 boundary without changing that behavior. The provider crate root narrowly
 re-exports its strict parser, seven-variant `UnicodeStringProperty` and
 read-only sequence accessor while keeping the generated table module private.
-Lila parses once into that domain and projects every variant in an exhaustive,
+Scriptw parses once into that domain and projects every variant in an exhaustive,
 catch-all-free match. At that checkpoint, only `EmojiKeycapSequence` consumed the
 provider's exact twelve rows into `FiniteClassSet`, and the other six variants
 were typed unsupported capabilities. The current projection consumes all seven. The duplicate handwritten keycap construction
 is deleted. This invariant lane adds no RegExp syntax or conformance claim;
 focused IR witnesses passed `1/1` and `1/1`, the dedicated provider-domain
 structure target passed `3/3`, the retained finite-string structure target
-passed `7/7`, and `cargo check -p lila-ir`, formatting and diff checks were
+passed `7/7`, and `cargo check -p scriptw-ir`, formatting and diff checks were
 green. No Wasm fixture, golden or Test262 status was rerun; the detailed
 boundary remains recorded in the finite-string-algebra contract.
 
@@ -733,7 +733,7 @@ no longer asks the third-party regex dependency to decide that product grammar
 rule. The former shape-limited static generator membership fold has since been
 removed with the obsolete lowering specializations. The remaining vendored
 dependency supplies pinned Unicode property, string-sequence and fold data;
-product matching goes through Lila's emitted program. This source census does
+product matching goes through Scriptw's emitted program. This source census does
 not replace the pending combined executable checkpoint.
 
 Legacy direct astral source now has a typed term boundary. A validated UTF-16
@@ -957,12 +957,12 @@ Implement the ECMAScript regular-expression grammar, matching model and observab
 
 The selected design document evaluates:
 
-- translating ECMAScript patterns into a compatible Rust engine plus Lila-managed semantics;
+- translating ECMAScript patterns into a compatible Rust engine plus Scriptw-managed semantics;
 - extending/forking the current engine for missing features;
 - implementing a dedicated bytecode/NFA/backtracking engine compiled into Wasm;
 - hybrid specialized engines selected by pattern features.
 
-The decision is one Lila-owned ordered-backtracking bytecode model: Rust compiles
+The decision is one Scriptw-owned ordered-backtracking bytecode model: Rust compiles
 static patterns, a RegExp-only compiler in emitted Wasm compiles arbitrary
 runtime patterns, and both feed the same iterative Wasm matcher. A linear-time
 specialization is deferred until the reference engine is complete and its
@@ -1030,10 +1030,10 @@ Coordinate with T18 so String methods first perform well-known-symbol dispatch. 
 ## Required tests
 
 ```sh
-cargo test -p lila-ir regexp_ --quiet
-cargo test -p lila-aot-wasm regexp_ --quiet
-cargo test -p lila-cli wasm_regexp --quiet
-./target/debug/lila test262 run built-ins/RegExp --execution-backend wasm --timeout-ms 180000 --threads 4
+cargo test -p scriptw-ir regexp_ --quiet
+cargo test -p scriptw-aot-wasm regexp_ --quiet
+cargo test -p scriptw-cli wasm_regexp --quiet
+./target/debug/scriptw test262 run built-ins/RegExp --execution-backend wasm --timeout-ms 180000 --threads 4
 ```
 
 Also run RegExp literal grammar tests and the String `match`, `matchAll`, `search`, `replace`, `replaceAll` and `split` subtrees.

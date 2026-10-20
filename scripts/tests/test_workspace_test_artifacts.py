@@ -27,12 +27,12 @@ def producer(package="runtime-id", name="build-script-build", kind="custom-build
 
 class WorkspaceTestArtifactTests(unittest.TestCase):
     def test_intl_dev_roots_are_isolated_without_a_caller_flag(self):
-        packages = [{'name': 'lila-engine'}, {'name': 'lila-intl'}, {'name': 'extra'}]
+        packages = [{'name': 'scriptw-engine'}, {'name': 'scriptw-intl'}, {'name': 'extra'}]
         isolated = artifacts.isolated_test_packages(packages)
         self.assertEqual(artifacts.package_selection(excluded=isolated),
-                         ['--workspace', '--exclude', 'lila-intl'])
+                         ['--workspace', '--exclude', 'scriptw-intl'])
         self.assertEqual(artifacts.isolated_test_packages(packages, ['extra']),
-                         ['extra', 'lila-intl'])
+                         ['extra', 'scriptw-intl'])
         with self.assertRaisesRegex(ValueError, 'selected workspace'):
             artifacts.isolated_test_packages(packages, ['missing'])
 
@@ -177,62 +177,62 @@ class WorkspaceTestArtifactTests(unittest.TestCase):
 
     def test_package_selection_is_stable_for_every_selector(self):
         self.assertEqual(artifacts.package_selection(), ["--workspace"])
-        self.assertEqual(artifacts.package_selection(["lila-cli", "lila-test262"]),
-                         ["-p", "lila-cli", "-p", "lila-test262"])
+        self.assertEqual(artifacts.package_selection(["scriptw-cli", "scriptw-test262"]),
+                         ["-p", "scriptw-cli", "-p", "scriptw-test262"])
 
     def test_library_cohort_and_duplicate_selectors_share_build_keys(self):
-        self.assertEqual(artifacts.selector_key({"kind": "lib", "target": "lila_cli"}),
-                         artifacts.selector_key({"kind": "lib", "target": "lila_test262"}))
-        self.assertNotEqual(artifacts.selector_key({"kind": "bin", "target": "lila"}),
-                            artifacts.selector_key({"kind": "test", "target": "lila"}))
+        self.assertEqual(artifacts.selector_key({"kind": "lib", "target": "scriptw_cli"}),
+                         artifacts.selector_key({"kind": "lib", "target": "scriptw_test262"}))
+        self.assertNotEqual(artifacts.selector_key({"kind": "bin", "target": "scriptw"}),
+                            artifacts.selector_key({"kind": "test", "target": "scriptw"}))
 
 
     def test_excluded_test_roots_are_absent_from_normal_cargo_selection(self):
-        self.assertEqual(artifacts.package_selection(excluded=["lila-intl"]),
-                         ["--workspace", "--exclude", "lila-intl"])
+        self.assertEqual(artifacts.package_selection(excluded=["scriptw-intl"]),
+                         ["--workspace", "--exclude", "scriptw-intl"])
         self.assertEqual(artifacts.package_selection(
-            ["lila-cli", "lila-intl", "lila-test262"], excluded=["lila-intl"]),
-            ["-p", "lila-cli", "-p", "lila-test262"])
+            ["scriptw-cli", "scriptw-intl", "scriptw-test262"], excluded=["scriptw-intl"]),
+            ["-p", "scriptw-cli", "-p", "scriptw-test262"])
 
     def test_exclusion_cannot_implicitly_select_the_default_package(self):
         with self.assertRaisesRegex(ValueError, "nonempty"):
-            artifacts.package_selection(["lila-intl"], excluded=["lila-intl"])
+            artifacts.package_selection(["scriptw-intl"], excluded=["scriptw-intl"])
 
     def test_isolated_library_and_named_targets_cannot_widen_normal_cohorts(self):
         for kind in ["lib", "test"]:
-            normal = {"package": "lila-cli", "kind": kind, "target": "native_contract"}
-            isolated = {"package": "lila-intl", "kind": kind, "target": "native_contract"}
-            sibling = {"package": "lila-test262", "kind": kind, "target": "native_contract"}
-            self.assertNotEqual(artifacts.selector_key(normal, ["lila-intl"]),
-                                artifacts.selector_key(isolated, ["lila-intl"]))
-            self.assertEqual(artifacts.selector_key(normal, ["lila-intl"]),
-                             artifacts.selector_key(sibling, ["lila-intl"]))
+            normal = {"package": "scriptw-cli", "kind": kind, "target": "native_contract"}
+            isolated = {"package": "scriptw-intl", "kind": kind, "target": "native_contract"}
+            sibling = {"package": "scriptw-test262", "kind": kind, "target": "native_contract"}
+            self.assertNotEqual(artifacts.selector_key(normal, ["scriptw-intl"]),
+                                artifacts.selector_key(isolated, ["scriptw-intl"]))
+            self.assertEqual(artifacts.selector_key(normal, ["scriptw-intl"]),
+                             artifacts.selector_key(sibling, ["scriptw-intl"]))
 
     def test_distinct_isolated_packages_keep_distinct_cargo_cohorts(self):
         cases = [{"package": p, "kind": "test", "target": "same"}
-                 for p in ["lila-intl", "lila-cli"]]
-        self.assertNotEqual(*[artifacts.selector_key(c, ["lila-intl", "lila-cli"])
+                 for p in ["scriptw-intl", "scriptw-cli"]]
+        self.assertNotEqual(*[artifacts.selector_key(c, ["scriptw-intl", "scriptw-cli"])
                               for c in cases])
 
     def test_docs_default_to_one_complete_workspace_cohort(self):
-        docs = [{"package": p, "kind": "doc"} for p in ["lila-cli", "lila-intl"]]
+        docs = [{"package": p, "kind": "doc"} for p in ["scriptw-cli", "scriptw-intl"]]
         self.assertEqual(artifacts.doc_cohorts(docs),
-                         [("doc:*", ["--workspace"], {"lila-cli", "lila-intl"})])
+                         [("doc:*", ["--workspace"], {"scriptw-cli", "scriptw-intl"})])
 
     def test_docs_keep_intl_test_data_out_of_normal_roots(self):
-        docs = [{"package": p, "kind": "doc"} for p in ["lila-cli", "lila-intl"]]
-        self.assertEqual(artifacts.doc_cohorts(docs, isolated_packages=["lila-intl"]), [
-            ("doc:*", ["--workspace", "--exclude", "lila-intl"], {"lila-cli"}),
-            ("doc:lila-intl::*", ["-p", "lila-intl"], {"lila-intl"})])
+        docs = [{"package": p, "kind": "doc"} for p in ["scriptw-cli", "scriptw-intl"]]
+        self.assertEqual(artifacts.doc_cohorts(docs, isolated_packages=["scriptw-intl"]), [
+            ("doc:*", ["--workspace", "--exclude", "scriptw-intl"], {"scriptw-cli"}),
+            ("doc:scriptw-intl::*", ["-p", "scriptw-intl"], {"scriptw-intl"})])
 
     def test_docs_subset_and_all_isolated_selection_remain_exact(self):
-        docs = [{"package": p, "kind": "doc"} for p in ["lila-intl", "lila-cli"]]
+        docs = [{"package": p, "kind": "doc"} for p in ["scriptw-intl", "scriptw-cli"]]
         self.assertEqual(artifacts.doc_cohorts(
-            docs, ["lila-intl", "lila-cli"], ["lila-intl", "lila-cli"]), [
-            ("doc:lila-cli::*", ["-p", "lila-cli"], {"lila-cli"}),
-            ("doc:lila-intl::*", ["-p", "lila-intl"], {"lila-intl"})])
-        self.assertEqual(artifacts.doc_cohorts(docs, ["lila-intl", "lila-cli"], ["lila-intl"])[0],
-                         ("doc:*", ["-p", "lila-cli"], {"lila-cli"}))
+            docs, ["scriptw-intl", "scriptw-cli"], ["scriptw-intl", "scriptw-cli"]), [
+            ("doc:scriptw-cli::*", ["-p", "scriptw-cli"], {"scriptw-cli"}),
+            ("doc:scriptw-intl::*", ["-p", "scriptw-intl"], {"scriptw-intl"})])
+        self.assertEqual(artifacts.doc_cohorts(docs, ["scriptw-intl", "scriptw-cli"], ["scriptw-intl"])[0],
+                         ("doc:*", ["-p", "scriptw-cli"], {"scriptw-cli"}))
 
     def test_docs_without_doctests_remain_in_cargo_selection(self):
         inventory = [{"package": "normal", "kind": "doc"},
@@ -243,10 +243,10 @@ class WorkspaceTestArtifactTests(unittest.TestCase):
             [("doc:*", ["-p", "normal", "-p", "no-doc"], {"normal"})])
 
     def test_docs_empty_inventory_never_selects_implicit_default_root(self):
-        self.assertEqual(artifacts.doc_cohorts([], ["lila-intl"], ["lila-intl"]), [])
+        self.assertEqual(artifacts.doc_cohorts([], ["scriptw-intl"], ["scriptw-intl"]), [])
 
     def test_docs_duplicate_package_inventory_fails_closed(self):
-        docs = [{"package": "lila-cli", "kind": "doc"}] * 2
+        docs = [{"package": "scriptw-cli", "kind": "doc"}] * 2
         with self.assertRaisesRegex(ValueError, "duplicate"):
             artifacts.doc_cohorts(docs)
 

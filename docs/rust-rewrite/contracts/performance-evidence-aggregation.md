@@ -1,6 +1,6 @@
 # Actual conformance timings and selected data footprints
 
-This source slice adds `lila performance conformance` and `lila performance data`.
+This source slice adds `scriptw performance conformance` and `scriptw performance data`.
 It does not run a suite, benchmark, data generator or exporter. The code and its
 controls are authored; compilation and execution belong to the combined batch
 checkpoint. Existing generated README status counts are unchanged.

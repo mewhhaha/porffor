@@ -138,20 +138,20 @@ The focused ladder is:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir with_environment_compound_assignment --quiet
-cargo test -p lila-aot-wasm --test structure_language --quiet -- \
+cargo test -p scriptw-ir with_environment_compound_assignment --quiet
+cargo test -p scriptw-aot-wasm --test structure_language --quiet -- \
   with_environment_compound_assignment_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-cli --test cli \
   language::run_wasm_backend_succeeds_for_with_environment_compound_assignment_fixture \
   -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run \
+./target/debug/scriptw --jobs 1 test262 run \
   language/expressions/compound-assignment/S11.13.2_A5. \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 180000 --threads 1
 for suffix in '' 2 4 6 8 10 12 14 16 18 20; do
   case_file="language/expressions/compound-assignment/compound-assignment-operator-calls-putvalue-lref--v-"
   test -z "$suffix" || case_file="${case_file}-${suffix}"
-  ./target/debug/lila --jobs 1 test262 run "${case_file}.js" \
+  ./target/debug/scriptw --jobs 1 test262 run "${case_file}.js" \
     --suite-root test262/vendor/test262 --execution-backend wasm-aot \
     --timeout-ms 180000 --threads 1
 done

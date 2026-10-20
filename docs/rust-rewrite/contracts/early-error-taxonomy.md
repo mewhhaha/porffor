@@ -328,7 +328,7 @@ ordinary functions with a simple duplicate parameter list.
 
 ## 2026-08-12 parse-once amendment
 
-T07 supersedes the contract's old two-parser boundary. `lila-front` now owns
+T07 supersedes the contract's old two-parser boundary. `scriptw-front` now owns
 the only product parse and returns goal-typed parsed syntax; dependency graph
 entries retain that result for both request discovery and module-record
 construction. The former module-reparse prefix and its P6 assertion have been
@@ -348,9 +348,9 @@ the full area title. There is one contract; that file is it.
 **Read §0 of that document first.** It records seven measured corrections to the
 area brief, three of which change the encoding:
 
-- §0.1 — `EarlyErrorCode` cannot live in `lila-ir`; `lila-front` does not
+- §0.1 — `EarlyErrorCode` cannot live in `scriptw-ir`; `scriptw-front` does not
   depend on it and cannot name its types. The enum, the table and the classifier
-  go in a new `crates/lila-front/src/early_error_code.rs`.
+  go in a new `crates/scriptw-front/src/early_error_code.rs`.
 - §0.2 — the original domain had **18** inhabitants, not 20.
   `E_IR_DIAGNOSTIC` names the absence of a code and `E_TEST_EARLY` is a test
   fixture. The duplicate-formal-parameter extension adds the nineteenth real
@@ -373,9 +373,9 @@ index.
 
 | # | Severity | What was wrong | Where it is now recorded |
 |---|---|---|---|
-| 1 | **blocker** | §6.14's one routed cross-lane edit was never applied, so `lila-ir` still called the deleted `IrDiagnostic::early_error` and `cargo check -p lila-ir` failed. Assertions P7-P9 had therefore never been evaluated by rustc. | §6.14 (status: APPLIED), §6.16 (token accounting re-counted) |
+| 1 | **blocker** | §6.14's one routed cross-lane edit was never applied, so `scriptw-ir` still called the deleted `IrDiagnostic::early_error` and `cargo check -p scriptw-ir` failed. Assertions P7-P9 had therefore never been evaluated by rustc. | §6.14 (status: APPLIED), §6.16 (token accounting re-counted) |
 | 2 | bug | The derived `(LinkError, Resolution, SyntaxError)` triple reached nothing: the engine short-circuited only on `kind == EarlyError`, and `resolution` negatives never entered the compile-only path. All 34 `resolution/SyntaxError` cases failed on wasm-aot. | ledger **L10** |
-| 3 | bug | MC4 was discharged for `lila-ir` only. A link-only code could be named at a parse-stage producer in *both* crates. | §2.4.1 `ParseClassified`, MC-table status note |
+| 3 | bug | MC4 was discharged for `scriptw-ir` only. A link-only code could be named at a parse-stage producer in *both* crates. | §2.4.1 `ParseClassified`, MC-table status note |
 | 4 | bug | `ParseCode::error_type` claimed `"SyntaxError"` for the caught-parser-abort case, scoring false test262 passes for `parse/SyntaxError` negatives whose source merely crashed boa. | ledger **L11** |
 | 5 | polish | §0.5's reachability claim for row 6 (W5) is false; the row is dead through both entry points. | §0.5 (rewritten), ledger **L5** (first confirmed instance) |
 | 6 | polish | The string oracle is injectable by user source text; L1 covered only boa *rewording*. | ledger **L1** (extended), `INTERPOLATING_MESSAGE_SHAPES` + assertion **P10** |
@@ -403,13 +403,13 @@ already been applied by the discrepancy-fixer, and the tree confirms it:
 The value of this stage is therefore that the const-assertion set was **actually
 evaluated by rustc for the first time**, which is what the whole encoding is for:
 
-- `cargo check -p lila-front` — clean at that checkpoint. **P1–P6, P5′ and P10
+- `cargo check -p scriptw-front` — clean at that checkpoint. **P1–P6, P5′ and P10
   passed**: no empty
   fragment or fragment string, no `wire_name()` colliding with
   `NO_EARLY_ERROR_CODE`, the then-15-row `PARSE_FAILURE_RULE_TABLE` matched
   `PARSE_FAILURE_RULE_COUNT`, every row's witnesses are matched by that row's own
   fragments, and `INTERPOLATING_MESSAGE_SHAPES` eats no witness.
-- `cargo check -p lila-ir` — clean at that checkpoint. **P7–P9 passed**: every
+- `cargo check -p scriptw-ir` — clean at that checkpoint. **P7–P9 passed**: every
   code `rejection_kind` can name is `is_parse_classified`. The old prefix half
   of this statement was retired by the parse-once amendment.
 - `cargo xc` — 0 errors, no new warnings.

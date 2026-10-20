@@ -80,7 +80,7 @@ rows. Complete try/catch/finally, generator, and async conformance remain out of
 scope. This checkpoint makes no Test262, published-status, or conformance-count
 claim.
 
-At the central checkpoint, `cargo check -p lila-aot-wasm` is green with only
+At the central checkpoint, `cargo check -p scriptw-aot-wasm` is green with only
 the pre-existing vendored parser warning. The exact twelve-entry structure
 target passes `2/2`. Four independently observed CLI programs prove the empty
 and present-value cases for both catch and finally; the two Rust integration

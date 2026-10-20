@@ -173,12 +173,12 @@ The verification commands are:
 ```sh
 cargo fmt --all -- --check
 git diff --check
-cargo check -p lila-aot-wasm
+cargo check -p scriptw-aot-wasm
 
-cargo test -p lila-aot-wasm --test structure_builtins -- proxy_define_property_handler_protocol_structure:: --test-threads=1
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_define_property_handler_protocol -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_builtins -- proxy_define_property_handler_protocol_structure:: --test-threads=1
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_proxy_define_property_handler_protocol -- --exact --test-threads=1
 
-./target/debug/lila --jobs 1 test262 run <exact-path> \
+./target/debug/scriptw --jobs 1 test262 run <exact-path> \
   --suite-root test262/vendor/test262 \
   --execution-backend wasm-aot \
   --timeout-ms 180000 \
@@ -188,7 +188,7 @@ cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_de
 The final command ran once for each of the five exact paths above. The
 2026-08-25 checkpoint passed the structure target at `4/4`, the exact CLI test
 at `1/1`, and the raw Test262 cohort at `10/10`, all with zero non-success
-buckets. `cargo check -p lila-aot-wasm`, formatting and diff hygiene were green
+buckets. `cargo check -p scriptw-aot-wasm`, formatting and diff hygiene were green
 at the same focused checkpoint.
 
 ## Explicit nonclaims

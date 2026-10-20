@@ -23,12 +23,12 @@ catalogues. Its returned bundle has the same opaque fields and frame/catalogue
 methods as a newly selected bundle. Complete Conformance admission still requires
 the full current pinned source closure and does not imply Test262 success.
 
-The CLI `lila intl export --output PATH` consumes the existing global
+The CLI `scriptw intl export --output PATH` consumes the existing global
 `--intl-profile` or `--intl-manifest` input; omission selects Minimal. Selection and
 export finish before an output transaction starts. A synced sibling temporary
 file is published with an atomic hard link that refuses an existing destination,
 then the temporary name is removed and the parent directory is synced on Unix.
-Unsupported filesystem publication rejects clearly. `lila intl inspect --input
+Unsupported filesystem publication rejects clearly. `scriptw intl inspect --input
 PATH` bounds its read and fully re-admits the bundle before printing its actual
 canonical provider identity byte-for-byte, including its canonical trailing
 newline. The 2026-10-10 continuation removes an extra formatting newline and
@@ -43,7 +43,7 @@ refusal, preserve an existing output and reject an unsupported manifest dimensio
 before output creation. These controls are authored and unrun; no cross-host
 measurement or reproducibility result has been claimed.
 
-Version two uses `LILAB002`, the same sixteen-byte header, and a checked nonzero
+Version two uses `SCRIPTWB002`, the same sixteen-byte header, and a checked nonzero
 requested-service bitset at offset 14 in place of the version-one reserved word.
 The component count at offset 12 must equal the exact dependency closure; each
 present component retains its original stable ID, even when earlier IDs are

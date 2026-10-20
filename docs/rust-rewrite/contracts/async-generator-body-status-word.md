@@ -118,7 +118,7 @@ traps in the strict loader before any of those routes can observe it.
 
 ## Durable source witness
 
-`crates/lila-aot-wasm/tests/async_generator_body_status_structure.rs` pins:
+`crates/scriptw-aot-wasm/tests/async_generator_body_status_structure.rs` pins:
 
 - the exact six variants, one complete `ALL` list and exhaustive stable words;
 - absence of the retired raw constants and unchecked conversions;
@@ -141,10 +141,10 @@ The central batch verifier ran:
 ```sh
 cargo fmt --all -- --check
 cargo xc
-cargo test -p lila-aot-wasm --test async_generator_body_status_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_body_status_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_execution_state_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test async_generator_request_completion_kind_structure -- --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_async -- async_generator_await_using_structure:: --test-threads=1
 ```
 
 `cargo fmt --all -- --check`, `cargo xc` and `git diff --check` are green. The

@@ -40,8 +40,8 @@ remain pending until the recorded focused checkpoint completes; the historical
 results below do not certify this repair.
 
 ```sh
-cargo test -p lila-aot-wasm --test structure_language -- spec_operation_object_target_kind_structure::
-cargo test -p lila-cli --test cli language_numerics::run_wasm_backend_succeeds_for_spec_has_property_order_fixture -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test structure_language -- spec_operation_object_target_kind_structure::
+cargo test -p scriptw-cli --test cli language_numerics::run_wasm_backend_succeeds_for_spec_has_property_order_fixture -- --exact --test-threads=1
 ```
 
 The recursive structure target passes `4/4`, the exact HasProperty ordering

@@ -18,7 +18,7 @@ Rust controls typecheck; source guards, emitted Wasm validation and semantic
 execution remain pending under the verification ladder.
 The selected weak/ephemeron facility remains explicitly unavailable, without a
 strong substitute or another object model. See the current
-[record architecture](../../crates/lila-aot-wasm/docs/heap-layout.md) and
+[record architecture](../../crates/scriptw-aot-wasm/docs/heap-layout.md) and
 [batch workflow](batch-workflow.md).
 
 ## Historical architecture and implementation checkpoints
@@ -198,7 +198,7 @@ truthful boundary correction, not a weak facility or semantic GC switch; see
 
 Wasmtime 47.0.0 and Rust 1.94.0 are now covered by an actual complete locked
 dependency admission, verified registry archives and fresh current-tree
-offline metadata. The default CLI closure excludes lila-spec-exec. Both real
+offline metadata. The default CLI closure excludes scriptw-spec-exec. Both real
 Fast and SizeOptimized product engines pass the startup policy witness with
 a 32 MiB maximum Wasm stack and 64 MiB async/worker budgets. The explicit
 Copying collector and required Wasm features remain checked. Both engines
@@ -225,7 +225,7 @@ unexecuted state of the named selected controls described above.
 
 
 This document is the source of truth for T05. It describes the object model
-Lila is moving to; it does not describe the current linear heap as complete.
+Scriptw is moving to; it does not describe the current linear heap as complete.
 The migration must preserve one product object model at every commit.
 
 ## Ground truth
@@ -332,7 +332,7 @@ environment or job record, but it keeps primitive fast paths allocation-free
 inside an expression. Layout-specific records may use narrower typed fields
 when the ECMAScript specification fixes the field's domain.
 
-The schema vocabulary in `crates/lila-aot-wasm/src/gc_types.rs` starts these
+The schema vocabulary in `crates/scriptw-aot-wasm/src/gc_types.rs` starts these
 compile-time distinctions:
 
 - `GcTypeIndex<T>` prevents indices for different layouts from being swapped;

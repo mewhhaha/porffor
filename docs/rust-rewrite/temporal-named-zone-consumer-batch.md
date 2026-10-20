@@ -16,8 +16,8 @@ UTC and numeric fixed-offset paths retain their pure behavior.
 
 | Source owner | Responsibility in the complete batch |
 | --- | --- |
-| `lila-intl` named-time-zone provider, exact query and gap-topology modules; Engine `intl_time_zone_host.rs` | Data-only exact offsets, complete variable candidate lists and transitions from pinned TZif/POSIX data; checked capacity/span protocol and an enforced catalogue gap certificate. |
-| `lila-aot-wasm` `temporal_zone_provider` and its identity/exact/policy/responses/relative children | Brand, epoch, zone and calendar proofs; one-pass property/option conversion; all-candidate Instant checks; offset matching, disambiguation and distinct GetStartOfDay; validated allocation inputs. |
+| `scriptw-intl` named-time-zone provider, exact query and gap-topology modules; Engine `intl_time_zone_host.rs` | Data-only exact offsets, complete variable candidate lists and transitions from pinned TZif/POSIX data; checked capacity/span protocol and an enforced catalogue gap certificate. |
+| `scriptw-aot-wasm` `temporal_zone_provider` and its identity/exact/policy/responses/relative children | Brand, epoch, zone and calendar proofs; one-pass property/option conversion; all-candidate Instant checks; offset matching, disambiguation and distinct GetStartOfDay; validated allocation inputs. |
 | `temporal_zoned_arithmetic.rs`, `rounding.rs` and `difference.rs` | Retained-zone calendar addition, exact elapsed addition, raw date differences, string rounding and correlated day rounding without replacing calendar days with fixed elapsed hours. |
 | `temporal_duration_methods.rs`, `temporal_duration_relative.rs` and arithmetic `relative.rs` | Zoned relativeTo origin/zone/calendar retention, actual calendar-window inverse queries, RoundRelativeDuration/Total/Nudge/Bubble and shared once-rounded exact rational totals. |
 | ZonedDateTime methods/with/day/format leaves and Instant/PlainDate/PlainDateTime conversion leaves | Real projection, getters, transitions, field replacement, day operations, differences, formatting and zone conversion callers; private context guards keep inactive relativeTo branches from exposing proofs. |
@@ -133,11 +133,11 @@ catalogue before the single coordinated compile. Focused native refreshes includ
 ```sh
 python3 scripts/generate-intl-named-time-zones.py --check
 cargo check --workspace --all-targets
-cargo test -p lila-intl provider::named_time_zones -- --test-threads=1
-cargo test -p lila-engine --lib intl_time_zone_host -- --test-threads=1
-cargo test -p lila-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=1
-cargo test -p lila-engine --test aot_temporal -- aot_temporal_named_arithmetic:: aot_temporal_named_zdt_leaves:: --test-threads=1
-cargo test -p lila-engine --test aot_temporal -- aot_temporal_duration_zoned_relative:: aot_temporal_named_conversions:: aot_temporal_relative_bag:: aot_temporal_zoned_locale:: --test-threads=1
+cargo test -p scriptw-intl provider::named_time_zones -- --test-threads=1
+cargo test -p scriptw-engine --lib intl_time_zone_host -- --test-threads=1
+cargo test -p scriptw-engine --test aot_intl -- aot_intl_named_time_zones:: --test-threads=1
+cargo test -p scriptw-engine --test aot_temporal -- aot_temporal_named_arithmetic:: aot_temporal_named_zdt_leaves:: --test-threads=1
+cargo test -p scriptw-engine --test aot_temporal -- aot_temporal_duration_zoned_relative:: aot_temporal_named_conversions:: aot_temporal_relative_bag:: aot_temporal_zoned_locale:: --test-threads=1
 ```
 
 After the focused gates, run the broad checkpoint from the batch workflow,
@@ -147,9 +147,9 @@ source, flags, harness metadata and execution modes. Store scratch results
 outside tracked status artifacts:
 
 ```sh
-cargo build --release --locked -j 2 -p lila-cli
-./target/release/lila --jobs 1 test262 run built-ins/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 240000 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-temporal
-./target/release/lila --jobs 1 test262 run intl402/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 240000 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-intl-consumers
+cargo build --release --locked -j 2 -p scriptw-cli
+./target/release/scriptw --jobs 1 test262 run built-ins/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 240000 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-temporal
+./target/release/scriptw --jobs 1 test262 run intl402/Temporal --suite-root test262/vendor/test262 --execution-backend wasm-aot --threads 2 --timeout-ms 240000 --snapshot-dir target/test262-scratch/t22 --snapshot-name t22-intl-consumers
 ```
 
 Publish a fresh complete real matrix only through the guarded canonical
@@ -158,7 +158,7 @@ block changes only after verified
 matrix completion; do not insert local/native/fake results into it:
 
 ```sh
-LILA_BIN=./target/release/lila THREADS=2 JOBS=1 ISOLATE_CASES=1 ./scripts/publish-real-status-low-ram.sh wasm-aot t22-named-consumers
+SCRIPTW_BIN=./target/release/scriptw THREADS=2 JOBS=1 ISOLATE_CASES=1 ./scripts/publish-real-status-low-ram.sh wasm-aot t22-named-consumers
 ```
 
 The snapshot name is a refresh namespace, not evidence that these commands

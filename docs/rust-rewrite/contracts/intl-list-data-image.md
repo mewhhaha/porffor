@@ -75,7 +75,7 @@ pinned Blob and uses ICU's typed BlobExporter. Binary serialization retains the
 conditional DFA bytes in little-endian form; there is no baked runtime fallback
 or OS data lookup.
 
-The Custom-only `LILALIP1` payload contains a canonical descriptor and the actual
+The Custom-only `SCRIPTWLIP1` payload contains a canonical descriptor and the actual
 subset Blob. The descriptor binds schema, Custom ID, en-US default, full List
 Blob SHA256, selected Locale image digest, unchanged native Duration source pin,
 public locale set, exact fifteen Duration associations and sorted physical rows.

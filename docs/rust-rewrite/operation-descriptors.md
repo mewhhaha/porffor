@@ -6,14 +6,14 @@ iterator witnesses or its explicit gap ledger.
 
 ## One declaration
 
-For every expression-shaped shared abstract operation `o`, Lila records one
+For every expression-shaped shared abstract operation `o`, Scriptw records one
 descriptor
 
 ```text
 D(o) = (name, family, operand domain, normal result, abrupt capability)
 ```
 
-in the `spec_operations!` declaration in `lila-ir/src/operations.rs`. The same
+in the `spec_operations!` declaration in `scriptw-ir/src/operations.rs`. The same
 macro row declares the `SpecOperationIr` variant and its canonical `ALL` entry.
 There is no default for any descriptor column. Adding a variant without
 choosing a domain, result or abrupt capability is therefore rejected by Rust's
@@ -152,7 +152,7 @@ work and continue to use their existing local routing sequences.
 The cheapest meaningful integration checkpoint is:
 
 ```sh
-cargo check -p lila-ir -p lila-aot-wasm
+cargo check -p scriptw-ir -p scriptw-aot-wasm
 ```
 
 That should be followed by the focused `operations_` tests already required by

@@ -32,7 +32,7 @@ for-in using restrictions.
 
 The producer is goal-independent. Ordinary `using` reaches it under Script and
 Module goals; `await using` reaches it in an async-function switch under both.
-Pinned Boa eval parsing can also reach this statement-local producer, but Lila
+Pinned Boa eval parsing can also reach this statement-local producer, but Scriptw
 has no product eval parser path; that remains T13.
 
 The restriction is direct clause containment. A declaration inside a nested
@@ -61,7 +61,7 @@ grammar, T07 or aggregate closure.
 ## Evidence
 
 At `2026-08-23`, all verification ran under the repository's eight-CPU cap and
-serial test/harness settings. The complete `lila-front` gate passes `61/61`,
-the focused `lila-ir` early-error filter passes `3/3`, and `cargo xc` passes.
+serial test/harness settings. The complete `scriptw-front` gate passes `61/61`,
+the focused `scriptw-ir` early-error filter passes `3/3`, and `cargo xc` passes.
 The four exact pinned files above each pass `2/2` sloppy/strict Wasm-AOT
 executions, for `8/8` total, with every failure and non-success bucket at zero.

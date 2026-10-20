@@ -23,10 +23,10 @@ write_base_readme() {
     '# Fixture' \
     'outside=base' \
     '## Current Status' \
-    '<!-- lila-status:start -->' \
+    '<!-- scriptw-status:start -->' \
     'status=base' \
     '- `./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real`' \
-    '<!-- lila-status:end -->' \
+    '<!-- scriptw-status:end -->' \
     'tail=base' > README.md
 }
 
@@ -60,11 +60,11 @@ write_actual_legacy_readme() {
 write_migrated_legacy_readme() {
   write_actual_legacy_readme
   sed \
-    -e 's/porffor-status/lila-status/g' \
-    -e 's/porffor-engine/lila-engine/g' \
-    -e 's/porffor-cli/lila-cli/g' \
-    -e 's#target/debug/porf #target/debug/lila #g' \
-    -e 's#crates/porffor-test262#crates/lila-test262#g' \
+    -e 's/porffor-status/scriptw-status/g' \
+    -e 's/porffor-engine/scriptw-engine/g' \
+    -e 's/porffor-cli/scriptw-cli/g' \
+    -e 's#target/debug/porf #target/debug/scriptw #g' \
+    -e 's#crates/porffor-test262#crates/scriptw-test262#g' \
     -e 's/publish-real-status-low-ram.sh spec-exec/publish-real-status-low-ram.sh wasm-aot/' \
     README.md > README.md.next
   mv README.md.next README.md
@@ -118,7 +118,7 @@ setup_aggregate_snapshot() {
 
 setup_fake_snapshot() {
   change_generated_status
-  add_artifact crates/lila-test262/tests/fixtures/fake_test262/snapshots/fake.json
+  add_artifact crates/scriptw-test262/tests/fixtures/fake_test262/snapshots/fake.json
 }
 
 setup_spec_exec_status() {
@@ -284,8 +284,8 @@ run_legacy_negative() {
   printf 'check-readme-status-artifacts regression: %s ok\n' "$name"
 }
 
-run_legacy_negative partial-t29-identity 's#target/debug/lila #target/debug/porf #g'
-run_legacy_negative wrong-t29-identity 's#crates/lila-test262#crates/lila-test263#g'
+run_legacy_negative partial-t29-identity 's#target/debug/scriptw #target/debug/porf #g'
+run_legacy_negative wrong-t29-identity 's#crates/scriptw-test262#crates/scriptw-test263#g'
 run_legacy_negative wasm-alias-policy 's/publish-real-status-low-ram.sh wasm-aot/publish-real-status-low-ram.sh wasm/'
 
 git checkout -q -B legacy-spec-exec-artifact "$legacy_t27_t29_base"

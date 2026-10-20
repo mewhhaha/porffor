@@ -108,7 +108,7 @@ construct `trap-is-not-callable-realm.js` leaves also pass both executions
 apply and construct directory results recorded earlier do not prove this
 raw-source follow-up.
 
-`crates/lila-cli/tests/fixtures/wasm_proxy_dispatch_execution_realm.js` is the
+`crates/scriptw-cli/tests/fixtures/wasm_proxy_dispatch_execution_realm.js` is the
 bounded runtime witness. It contrasts direct calls with borrowed created-Realm
 `Reflect.apply` and `Reflect.construct`, checks generated TypeError prototypes,
 checks fresh trap argument Arrays and their prototypes, and covers a callable
@@ -125,8 +125,8 @@ its exact Wasm-AOT run passes `1/1`.
 The coordinated checkpoint passed the four focused and neighboring structure
 targets `16/16`, the three matching exhaustive Realm-source projection units
 `3/3`, the raw-source harness unit `1/1`, the exact CLI witness `1/1`, and the
-four raw Test262 leaves `8/8`. The all-target `lila-aot-wasm`, `lila-cli` and
-`lila-test262` compile and the formatting check passed with only the existing
+four raw Test262 leaves `8/8`. The all-target `scriptw-aot-wasm`, `scriptw-cli` and
+`scriptw-test262` compile and the formatting check passed with only the existing
 Boa trivial-cast warning. Module-boundary, task-plan, shortcut-inventory and
 diff checks also passed. At that checkpoint the exact shortcut baseline was
 239 entries: 31

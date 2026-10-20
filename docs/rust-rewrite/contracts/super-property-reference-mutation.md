@@ -83,7 +83,7 @@ lifecycles, but must not decompose an eager Super mutation into independent
 
 ## Closed AOT lifecycle
 
-`lila-aot-wasm/src/expressions/super_property_mutation.rs` is the sole owner of
+`scriptw-aot-wasm/src/expressions/super_property_mutation.rs` is the sole owner of
 the complete AOT mutation lifecycle. The AOT emitter reserves one non-`Copy`
 local carrier:
 

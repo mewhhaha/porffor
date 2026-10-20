@@ -3,7 +3,7 @@
 ## Scope
 
 This contract owns the private state words used by the iterative dynamic JSON
-parser in `crates/lila-aot-wasm/src/builtins/json.rs` and the validated-local
+parser in `crates/scriptw-aot-wasm/src/builtins/json.rs` and the validated-local
 lifecycle in its private `json/parse_frame_state.rs` child. It does not own
 JSON token grammar, value decoding, parse metadata, reviver traversal or
 `JSON.stringify`.
@@ -52,7 +52,7 @@ instead of being reported as malformed user input.
 
 ## Durable evidence owner
 
-`crates/lila-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs` pins:
+`crates/scriptw-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs` pins:
 
 - the exact eight-state wire domain and removal of the raw integer constants;
 - the private child, non-copyable validated-local authority, sole constructor
@@ -92,15 +92,15 @@ The recorded dry checkpoint runs the bounded source targets without compiling
 the workspace:
 
 ```sh
-rustc --test --edition 2021 crates/lila-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs \
+rustc --test --edition 2021 crates/scriptw-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs \
   -o /tmp/json_parse_frame_state_structure
 /tmp/json_parse_frame_state_structure
-rustc --test --edition 2021 crates/lila-aot-wasm/tests/structure_builtins/json_reviver_frame_structure.rs \
+rustc --test --edition 2021 crates/scriptw-aot-wasm/tests/structure_builtins/json_reviver_frame_structure.rs \
   -o /tmp/json_reviver_frame_structure
 /tmp/json_reviver_frame_structure
-rustfmt --edition 2021 --check crates/lila-aot-wasm/src/builtins/json.rs \
-  crates/lila-aot-wasm/src/builtins/json/parse_frame_state.rs \
-  crates/lila-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs
+rustfmt --edition 2021 --check crates/scriptw-aot-wasm/src/builtins/json.rs \
+  crates/scriptw-aot-wasm/src/builtins/json/parse_frame_state.rs \
+  crates/scriptw-aot-wasm/tests/structure_builtins/json_parse_frame_state_structure.rs
 ```
 
 The new frame-state target passes `4/4`, the neighboring reviver target passes

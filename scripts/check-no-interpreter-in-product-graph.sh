@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # T27: product/release builds of the library and CLI must link no JavaScript
-# interpreter/VM engine (AGENTS.md hard ban). lila-spec-exec wraps the Boa
+# interpreter/VM engine (AGENTS.md hard ban). scriptw-spec-exec wraps the Boa
 # interpreter and exists only as a hidden, developer-only differential
 # oracle gated behind the `spec-exec-oracle` cargo feature. This script
 # proves that feature is off by default and that boa_engine does not appear
-# in the default dependency graph of lila-engine or lila-cli.
+# in the default dependency graph of scriptw-engine or scriptw-cli.
 set -euo pipefail
 
 failures=0
@@ -44,19 +44,19 @@ check_graph() {
   esac
 }
 
-check_graph lila-engine absent
-check_graph lila-cli absent
-check_graph lila-engine present --features spec-exec-oracle
-check_graph lila-cli present --features spec-exec-oracle
+check_graph scriptw-engine absent
+check_graph scriptw-cli absent
+check_graph scriptw-engine present --features spec-exec-oracle
+check_graph scriptw-cli present --features spec-exec-oracle
 
-artifact_test="crates/lila-aot-wasm/tests/emission/product_artifact.rs"
+artifact_test="crates/scriptw-aot-wasm/tests/emission/product_artifact.rs"
 if [ ! -f "$artifact_test" ]; then
   fail "missing emitted product artifact audit: $artifact_test"
 elif ! grep -q 'product_wasm_contains_compiled_semantics_without_a_source_evaluator' "$artifact_test"; then
   fail "product artifact audit no longer proves compiled semantics and source-evaluator absence"
 fi
 
-if ! grep -q 'cargo test -p lila-aot-wasm --test emission -- product_artifact::' .github/workflows/ci.yaml; then
+if ! grep -q 'cargo test -p scriptw-aot-wasm --test emission -- product_artifact::' .github/workflows/ci.yaml; then
   fail "CI does not execute the emitted product artifact audit"
 fi
 

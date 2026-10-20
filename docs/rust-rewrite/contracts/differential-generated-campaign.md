@@ -1,6 +1,6 @@
 # Deterministic generated campaigns
 
-`lila differential campaign` consumes a checked nonwrapping sequence of 1–128
+`scriptw differential campaign` consumes a checked nonwrapping sequence of 1–128
 seeds, one of the actual V1/V2/V3 arithmetic grammars, `object-probe-v1`,
 `object-mutations-v2`,
 `module-graph-v1`, `module-graph-v2`, `control-flow-v1`, `negative-source-v1`,
@@ -26,7 +26,7 @@ when an assertion panics and report its path through best-effort stderr output.
 Ordinary successful cleanup still removes it. This changes only failure evidence
 retention; generated inputs, deadlines, assertions and campaign verdicts are unchanged.
 
-With `LILA_WASM_TRACE` set, ordinary differential replay relays each retired
+With `SCRIPTW_WASM_TRACE` set, ordinary differential replay relays each retired
 worker's already bounded stderr to the parent log with backend, case fingerprint
 and evidence-completeness metadata. Writes are best effort and occur after the
 original worker deadline and cleanup; diagnostics do not enter JavaScript print

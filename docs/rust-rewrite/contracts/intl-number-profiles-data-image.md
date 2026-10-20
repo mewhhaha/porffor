@@ -11,7 +11,7 @@ generation remains open, and full Conformance construction remains unavailable.
 
 The component contains the exact existing `number-cldr-47/profiles.bin` and
 `payload-manifest.json`, with native framing and checked extents. Its one closed
-descriptor name is `lila/number/profiles/v2`, which identifies Lila's actual
+descriptor name is `scriptw/number/profiles/v2`, which identifies Scriptw's actual
 `LNF47` schema 2. It is a native schema descriptor, not an ICU marker. The shared
 envelope additionally binds component, versions, default en-US, profile and
 content digest. Minimal and current Custom names admit only the exact pinned

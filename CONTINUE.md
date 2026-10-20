@@ -1,4 +1,4 @@
-# Continue Lila — current inventory, 2026-10-20
+# Continue Scriptw — current inventory, 2026-10-20
 
 Start with [the current project inventory](docs/rust-rewrite/current-inventory.md)
 and its [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json).
@@ -27,7 +27,7 @@ There are 64 uncompleted scopes, including the remaining 2,094 expected native
 bodies and documentation tests. Default, final Cargo checks, ordinary release,
 230 retention, real mechanics and full campaigns remain unstarted at this source.
 
-Failure: `lila-test262:differential_generated_campaign` /
+Failure: `scriptw-test262:differential_generated_campaign` /
 `builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
 The `builtin-stateful-v1` seed-0 array-buffer Wasm worker timed out at the
 original 5,000 ms deadline. The oracle completed. Underlying cause is unresolved;

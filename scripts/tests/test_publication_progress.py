@@ -290,7 +290,7 @@ import sys
 
 root = Path(__file__).resolve().parent
 config = json.loads((root / "scenario.json").read_text())
-compiler = {"source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+compiler = {"source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
             "source_fingerprint": config.get("source_fingerprint", "a" * 64),
             "source_revision": {"kind": "unversioned-archive"},
             "executable_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
@@ -366,7 +366,7 @@ class DriverTests(unittest.TestCase):
         self.suite.mkdir(parents=True)
         (self.suite / "case.js").write_text("// suite identity fixture; not a conformance run\n")
         self.snapshots = self.root / "test262/snapshots"
-        self.binary = self.root / "fake-lila"
+        self.binary = self.root / "fake-scriptw"
         self.binary.write_text(FAKE_CLI)
         self.binary.chmod(0o755)
         self.configure()
@@ -375,12 +375,12 @@ class DriverTests(unittest.TestCase):
         self.git("-c", "user.name=Publication Test", "-c", "user.email=test@example.invalid",
                  "commit", "-qm", "fixture")
         self.name = "resume α with spaces"
-        self.environment = dict(os.environ, REPO_ROOT=str(self.root), LILA_BIN=str(self.binary),
+        self.environment = dict(os.environ, REPO_ROOT=str(self.root), SCRIPTW_BIN=str(self.binary),
                                 SUITE_ROOT=str(self.suite), SNAPSHOT_DIR=str(self.snapshots),
                                 SNAPSHOT_NAME=self.name, THREADS="1", JOBS="1", ISOLATE_CASES="1", REUSE_CASE_WORKERS="0",
                                 MAX_MATRIX_NODES="1", README_PATH=str(self.root / "README fixture.md"))
-        self.environment.pop("LILA_TEST262_FORCE_CASE_RUNNER", None)
-        self.environment.pop("LILA_TEST262_DISABLE_CASE_RUNNER", None)
+        self.environment.pop("SCRIPTW_TEST262_FORCE_CASE_RUNNER", None)
+        self.environment.pop("SCRIPTW_TEST262_DISABLE_CASE_RUNNER", None)
         self.matrix = self.snapshots / (self.name + "-matrix.json")
 
     def git(self, *args):

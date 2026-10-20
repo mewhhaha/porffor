@@ -237,26 +237,26 @@ trap-call sentinels, and an absent lookup that forwards to a Proxy target. The
 focused compile-time and runtime checkpoint is:
 
 ```sh
-cargo test -p lila-aot-wasm tests::operations_emits_has_property_spec_operation -- --exact
-cargo test -p lila-aot-wasm tests::typedarray_has_property_module_validates -- --exact
-cargo test -p lila-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
-cargo test -p lila-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_delete_property_fixture -- --exact
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_get_direct_descriptor_invariants -- --exact
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants -- --exact
-cargo test -p lila-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact
-./target/debug/lila test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/get --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Reflect/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Reflect/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Reflect/get --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Reflect/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+cargo test -p scriptw-aot-wasm tests::operations_emits_has_property_spec_operation -- --exact
+cargo test -p scriptw-aot-wasm tests::typedarray_has_property_module_validates -- --exact
+cargo test -p scriptw-engine tests::wasm_backend_has_property_dispatches_every_live_exotic_branch -- --exact
+cargo test -p scriptw-engine tests::wasm_backend_proxy_descriptor_and_extensibility_preserve_handler_tags -- --exact
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_delete_property_fixture -- --exact
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_proxy_get_direct_descriptor_invariants -- --exact
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_proxy_set_direct_descriptor_invariants -- --exact
+cargo test -p scriptw-cli --test cli object::run_wasm_backend_succeeds_for_supported_proxy_get_prototype_of_fixture -- --exact
+./target/debug/scriptw test262 run built-ins/Proxy/has --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/get --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/getOwnPropertyDescriptor --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Proxy/isExtensible --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Reflect/getPrototypeOf --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Reflect/deleteProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Reflect/get --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Reflect/set --execution-backend wasm-aot --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/TypedArrayConstructors/internals/HasProperty --execution-backend wasm-aot --timeout-ms 120000 --threads 4
 ```
 
 At the current pin, those two exact Test262 filters contain 58 source files and
@@ -265,8 +265,8 @@ integer-indexed HasProperty contributes 32 files/62 variants. The inventory was
 refreshed with:
 
 ```sh
-./target/debug/lila test262 list built-ins/Proxy/has
-./target/debug/lila test262 list built-ins/TypedArrayConstructors/internals/HasProperty
+./target/debug/scriptw test262 list built-ins/Proxy/has
+./target/debug/scriptw test262 list built-ins/TypedArrayConstructors/internals/HasProperty
 ```
 
 On 2026-08-24, the two exact AOT structural controls passed `2/2`, the durable
@@ -318,5 +318,5 @@ evidence, and no emitted-Wasm byte comparison was performed.
 Shared-helper regression command:
 
 ```sh
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine --test aot_builtins -- aot_has_property_helper:: --test-threads=2
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p scriptw-engine --test aot_builtins -- aot_has_property_helper:: --test-threads=2
 ```

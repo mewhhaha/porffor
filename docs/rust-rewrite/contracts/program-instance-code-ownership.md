@@ -30,7 +30,7 @@ The exact owners are:
   SHA256 `5db16fbd6fa5e11a2aabc341fafaf4ba59d36c9232d3598d8761c9f471ce0b1b`.
 - `target/dynamic-aot-transport-eb1ca63c9-20261015-conflict-v5-run/receipt.json`,
   SHA256 `0b24fd1cc5afdadea3dea2748b43be20d4b29608928d6d1b1461d423a7874497`.
-- Diagnostic source `/tmp/lila-dynamic-aot-transport-eb-20261015-v2/probe.rs`,
+- Diagnostic source `/tmp/scriptw-dynamic-aot-transport-eb-20261015-v2/probe.rs`,
   SHA256 `9a7b3a75e7607e9f9f4a89f8e63520e41aac0b25e73d66f275b3a1b84a014a41`.
 
 Those target paths are under `/workspace/porffor`. The scoped scratch host

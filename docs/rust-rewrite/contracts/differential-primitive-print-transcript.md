@@ -118,7 +118,7 @@ contract violations and mismatches remain red.
 
 V3 signatures never embed raw output text or backend diagnostics. Each backend
 observation is reduced to an FNV-1a-64 digest under the
-`lila-diff-v3-backend-observation` domain. Every variable-width component is
+`scriptw-diff-v3-backend-observation` domain. Every variable-width component is
 fed through the shared `fnv_field` operation, which prefixes the component with
 its little-endian `u64` byte length. The typed execution marker, completion
 kind, primitive type, canonical primitive signature, output-availability
@@ -126,7 +126,7 @@ marker, encoded event count and every UTF-8 event string are separate fields.
 Engine failures include only their stable phase, never diagnostic text.
 
 The final mismatch digest uses the
-`lila-diff-v3-primitive-completion-print-transcript` domain and independently
+`scriptw-diff-v3-primitive-completion-print-transcript` domain and independently
 length-prefixes the case ID, case fingerprint, parse goal and both labelled
 backend digests. This makes event boundaries and all enclosing fields
 unambiguous while keeping reports useful for triage through their full

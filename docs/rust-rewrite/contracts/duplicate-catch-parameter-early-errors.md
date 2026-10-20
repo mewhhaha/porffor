@@ -10,7 +10,7 @@ condition: unlike duplicate ordinary-function parameters, it has no sloppy
 simple-list exception. In practice a duplicate requires an object or array
 binding pattern because a bare `BindingIdentifier` contributes only one name.
 
-The rejection is decided before evaluation and is a `SyntaxError`. Lila must
+The rejection is decided before evaluation and is a `SyntaxError`. Scriptw must
 therefore represent it as one closed early-error condition, not as an ordinary
 malformed parse or an unsupported dependency.
 
@@ -40,7 +40,7 @@ to `Unsupported`, losing both the spec rejection code and `SyntaxError` type.
   `E_DUPLICATE_CATCH_PARAMETER`.
 - Add exactly one classifier row whose sole fragment and witness are the full
   case-sensitive Boa literal `duplicate catch parameter identifier`.
-- Map the new variant through `lila-ir`'s exhaustive `rejection_kind` match to
+- Map the new variant through `scriptw-ir`'s exhaustive `rejection_kind` match to
   `IrDiagnosticKind::EarlyError`. Phase and error type remain derived as
   `Early` and `SyntaxError` on both entry and retained dependency paths.
 - Keep `ParseClassified` as the parse-stage witness. The row makes this code
@@ -61,7 +61,7 @@ object-pattern source above. The front-end regression parses it under both
 Script and Module goals and requires the same
 `E_DUPLICATE_CATCH_PARAMETER`, early phase, `SyntaxError`, and source span.
 
-The dependency regression parses real Module source through `lila-front` and
+The dependency regression parses real Module source through `scriptw-front` and
 passes the resulting `ParseError` through
 `module_parse_failure_diagnostic`. A message-only unit witness remains useful
 for the table boundary, but cannot substitute for this source-to-IR route.

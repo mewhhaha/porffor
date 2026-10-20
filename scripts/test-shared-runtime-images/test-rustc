@@ -14,7 +14,7 @@ def compiler_command(arguments, omit_normal_incremental=False, retain_intl_incre
             return list(arguments)
         crate_index = arguments.index("--crate-name") + 1
         if (retain_intl_incremental and crate_index < len(arguments)
-                and arguments[crate_index] == "lila_intl"):
+                and arguments[crate_index] == "scriptw_intl"):
             return list(arguments)
     command = [arguments[0]]
     index = 1
@@ -34,11 +34,11 @@ def compiler_command(arguments, omit_normal_incremental=False, retain_intl_incre
 
 def command_from_environment(arguments, environment):
     """Retain Intl scratch only when explicitly requested; libtests still omit it."""
-    retained = environment.get("LILA_TEST_KEEP_INTL_INCREMENTAL")
+    retained = environment.get("SCRIPTW_TEST_KEEP_INTL_INCREMENTAL")
     if retained not in (None, "1"):
-        raise ValueError("LILA_TEST_KEEP_INTL_INCREMENTAL must be 1")
+        raise ValueError("SCRIPTW_TEST_KEEP_INTL_INCREMENTAL must be 1")
     return compiler_command(arguments,
-                            omit_normal_incremental=environment.get("LILA_TEST_NO_INCREMENTAL") == "1",
+                            omit_normal_incremental=environment.get("SCRIPTW_TEST_NO_INCREMENTAL") == "1",
                             retain_intl_incremental=retained == "1")
 
 
@@ -53,11 +53,11 @@ def codegen_capacity():
 def compiler_environment(arguments, environment):
     """Give one serial Cargo unit a bounded private LLVM jobserver."""
     result = dict(environment)
-    requested = result.get("LILA_TEST_CODEGEN_JOBS")
+    requested = result.get("SCRIPTW_TEST_CODEGEN_JOBS")
     if requested is None:
         return result, ()
     if requested != "auto":
-        raise ValueError("LILA_TEST_CODEGEN_JOBS must be auto")
+        raise ValueError("SCRIPTW_TEST_CODEGEN_JOBS must be auto")
     # Cargo also invokes rustc for target/filename queries. Preserve those.
     if "--crate-name" not in arguments or any(
             word == "--print" or word.startswith("--print=") for word in arguments):

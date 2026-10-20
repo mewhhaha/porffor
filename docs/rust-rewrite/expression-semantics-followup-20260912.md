@@ -110,12 +110,12 @@ structural guards, without counting their failures as passes.
 Refresh the paired execution cohort with a freshly built compiler:
 
 ```sh
-cargo build --release --locked -j2 -p lila-cli
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 ./scripts/run-watched.sh \
+cargo build --release --locked -j2 -p scriptw-cli
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 ./scripts/run-watched.sh \
   --label expression-semantics-replay --stall 900 -- \
   python3 scripts/replay-test262-executions.py \
   test262/replays/expression-semantics-20260912.executions \
-  --binary target/release/lila \
+  --binary target/release/scriptw \
   --output-dir target/failure-review/expression-semantics-refresh --workers 4
 ```
 
@@ -158,10 +158,10 @@ separate follow-up checks, not a rerun of the original replay or broad suites.
 Formatting and diff checks pass.
 
 ```sh
-cargo test --release --locked -j2 --no-fail-fast -p lila-ir \
+cargo test --release --locked -j2 --no-fail-fast -p scriptw-ir \
   --test borrowed_eval_loop_heads --test declaration_completion \
   --test direct_eval_environment --test object_constructor_boxing -- --test-threads=2
-LILA_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p lila-engine \
+SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES=1 cargo test --release --locked -j2 -p scriptw-engine \
   --test aot_language \
   -- aot_declaration_completion::borrowed_eval_loop_heads_write_the_selected_caller_bindings --exact --test-threads=1
 ```

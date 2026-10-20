@@ -2,13 +2,13 @@
 
 
 def is_partitioned_cli(case, enabled):
-    return (enabled and case['package'] == 'lila-cli'
+    return (enabled and case['package'] == 'scriptw-cli'
             and case['target'] == 'cli' and case['kind'] == 'test')
 
 
 def native_stall_seconds(package):
     """Keep the original whole-target watcher allowance in each child."""
-    return 3600 if package == 'lila-cli' else 900
+    return 3600 if package == 'scriptw-cli' else 900
 
 
 def is_partitioned_native(case, partition_cli, native_targets=()):
@@ -55,7 +55,7 @@ def validate_native_cpu_targets(inventory, requested, native_filters,
         # Let them share the inherited CPU budget without changing their CLI
         # jobs/worker counts, assertions or termination bound. Timing gates
         # retain their separate original measurement policy.
-        publication = (scope['package'] == 'lila-cli'
+        publication = (scope['package'] == 'scriptw-cli'
                        and scope['target'] == 'fake_suite_publication'
                        and scope['kind'] == 'test')
         if (scope['kind'] not in ('lib', 'bin', 'test')
@@ -77,11 +77,11 @@ def native_cpu_target(case, targets):
 
 def is_barrier(case):
     return (case['kind'] == 'doc'
-            or (case['package'] == 'lila-cli' and case['target'] in (
+            or (case['package'] == 'scriptw-cli' and case['target'] in (
                 'perf', 'fake_suite_publication', 'differential_corpus',
                 'differential_robustness', 'differential_scenario_pair',
                 'differential_worker'))
-            or (case['package'] == 'lila-test262' and case['target'] in (
+            or (case['package'] == 'scriptw-test262' and case['target'] in (
                 'differential_worker_execution', 'differential_generated_campaign',
                 'differential_corpus', 'differential_robustness',
                 'differential_rooted_snapshot_execution')))
@@ -96,7 +96,7 @@ def differential_native_compilation(case, setting):
 NATIVE_RESOURCE_EXEC = '''import json, os, sys
 from pathlib import Path
 resource = {"cpus": sorted(os.sched_getaffinity(0)),
-            "native_jobs": int(os.environ["LILA_JOBS"]),
+            "native_jobs": int(os.environ["SCRIPTW_JOBS"]),
             "rayon_threads": int(os.environ["RAYON_NUM_THREADS"]),
             "cargo_jobs": int(os.environ["CARGO_BUILD_JOBS"]),
             "libtest_threads": int(os.environ["RUST_TEST_THREADS"]),

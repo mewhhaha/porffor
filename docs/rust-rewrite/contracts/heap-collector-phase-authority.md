@@ -27,11 +27,11 @@ phase, trace a root, clear a weak reference, queue a finalizer, expose `gc()` or
 change emitted Wasm.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_collector_phase_structure
-cargo test -p lila-aot-wasm --test weak_edge_retention_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
-cargo check -p lila-aot-wasm --lib
+cargo test -p scriptw-aot-wasm --test heap_collector_phase_structure
+cargo test -p scriptw-aot-wasm --test weak_edge_retention_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_collector_policy_requires_all_gc_builtin_phases -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_collector_policy_keeps_gc_builtin_unsupported_until_executable -- --exact --test-threads=1
+cargo check -p scriptw-aot-wasm --lib
 git diff --check
 ```
 

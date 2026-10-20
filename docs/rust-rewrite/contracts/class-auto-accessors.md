@@ -8,7 +8,7 @@ An auto-accessor is one class element with two distinct effects:
 2. instance or static initialization adds one fresh hidden private field which
    stores the value.
 
-Lila must preserve both effects explicitly. It must not lower
+Scriptw must preserve both effects explicitly. It must not lower
 `accessor x = value` to a public data field, infer it from source text, or
 represent it as two unrelated ordinary methods plus a field whose relationship
 is only conventional. Public/private and instance/static placement change the
@@ -192,7 +192,7 @@ controls are authored but unrun; no proposal acceptance or suite count is claime
 
 ### Decorator boundary
 
-The vendored AST retains decorator lists, but current Lila lowering and the
+The vendored AST retains decorator lists, but current Scriptw lowering and the
 vendored execution path do not consume them. Supporting base auto-accessors
 must therefore reject any non-empty decorator list at the lowering boundary;
 silently emitting the undecorated pair is wrong.
@@ -244,7 +244,7 @@ the class private-name declaration table, not from backend duplicate rows.
 
 The first prerequisite is AST fidelity. Add private instance/static
 auto-accessor variants to the vendored AST/parser, or an equally typed
-`lila-front` normalization while the parser still knows the token kind. Do not
+`scriptw-front` normalization while the parser still knows the token kind. Do not
 recover private auto-accessors by inspecting source text after parsing.
 
 The class private environment must then distinguish two domains:
@@ -349,22 +349,22 @@ reported separately.
 After implementation, run the focused green gates in this order:
 
 ```sh
-cargo test -p lila-ir auto_accessor --quiet
-cargo test -p lila-aot-wasm auto_accessor --quiet
-cargo test -p lila-cli wasm_class_auto_accessor --quiet
-./target/debug/lila test262 run language/expressions/class/elements/syntax/valid/grammar-field-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/class/elements/syntax/valid/grammar-field-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/expressions/class/elements/field-definition-accessor-no-line-terminator.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run language/statements/class/elements/field-definition-accessor-no-line-terminator.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run staging/decorators/accessor-as-identifier.js --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo test -p scriptw-ir auto_accessor --quiet
+cargo test -p scriptw-aot-wasm auto_accessor --quiet
+cargo test -p scriptw-cli wasm_class_auto_accessor --quiet
+./target/debug/scriptw test262 run language/expressions/class/elements/syntax/valid/grammar-field-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/class/elements/syntax/valid/grammar-field-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/expressions/class/elements/field-definition-accessor-no-line-terminator.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run language/statements/class/elements/field-definition-accessor-no-line-terminator.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run staging/decorators/accessor-as-identifier.js --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 Run the two semantic sources separately. Public is a current green semantic
 gate; private remains a dynamic-source/error-constructor diagnostic:
 
 ```sh
-./target/debug/lila test262 run staging/decorators/public-auto-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
-./target/debug/lila test262 run staging/decorators/private-auto-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run staging/decorators/public-auto-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
+./target/debug/scriptw test262 run staging/decorators/private-auto-accessor.js --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 Then run T09's existing `function_`, `wasm_function`, and `wasm_class` gates and

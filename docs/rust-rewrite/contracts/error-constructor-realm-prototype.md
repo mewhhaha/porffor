@@ -94,9 +94,9 @@ checks while the low-RAM current-pin matrix owns Cargo and Test262 resources.
 After that runner releases them, verification must include:
 
 ```sh
-cargo test -p lila-aot-wasm error_constructor_realm_ --quiet
-cargo test -p lila-cli run_wasm_backend_uses_new_target_realm_for_error_prototype --quiet
-./target/debug/lila test262 run built-ins/Error/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
+cargo test -p scriptw-aot-wasm error_constructor_realm_ --quiet
+cargo test -p scriptw-cli run_wasm_backend_uses_new_target_realm_for_error_prototype --quiet
+./target/debug/scriptw test262 run built-ins/Error/proto-from-ctor-realm --execution-backend wasm --timeout-ms 180000 --threads 1
 ```
 
 The final current-SHA evidence remains the complete T24 native-error ladder

@@ -36,7 +36,7 @@ reachable branches in
 
 Those are the only two occurrences of the literal in the pinned Boa source.
 Boa's own `try_stm/tests.rs:416-418` covers the lexical branch. It has no local
-source regression for the pattern/`var` branch, so Lila keeps both branches as
+source regression for the pattern/`var` branch, so Scriptw keeps both branches as
 explicit source tests.
 
 Before this extension, the one classifier had no row for the literal. Entry
@@ -51,7 +51,7 @@ error type. Neither result represented the specified early `SyntaxError`.
 - Add exactly one parse-failure row. Its one fragment and one witness are the
   complete Boa literal above. Splitting the two source branches into separate
   codes would pretend that the parser reports information it does not carry.
-- Map the new variant through `lila-ir`'s exhaustive `rejection_kind` match to
+- Map the new variant through `scriptw-ir`'s exhaustive `rejection_kind` match to
   `IrDiagnosticKind::EarlyError`. Phase and error type remain derived as
   `Early` and `SyntaxError` for entry and retained-module diagnostics.
 - Keep `ParseClassified` as the parse-stage gate. Existing const assertions

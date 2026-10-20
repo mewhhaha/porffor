@@ -135,12 +135,12 @@ The focused commands are:
 
 ```sh
 cargo fmt --all --check
-cargo test -p lila-ir with_environment_numeric_update --quiet
-cargo test -p lila-aot-wasm --test structure_language --quiet -- with_environment_numeric_update_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-ir with_environment_numeric_update --quiet
+cargo test -p scriptw-aot-wasm --test structure_language --quiet -- with_environment_numeric_update_structure::
+cargo test -p scriptw-cli --test cli \
   language::run_wasm_backend_succeeds_for_with_environment_numeric_update_fixture \
   -- --exact --test-threads=1
-./target/debug/lila --jobs 1 test262 run <exact-file> \
+./target/debug/scriptw --jobs 1 test262 run <exact-file> \
   --suite-root test262/vendor/test262 --execution-backend wasm-aot \
   --timeout-ms 180000 --threads 1
 ```

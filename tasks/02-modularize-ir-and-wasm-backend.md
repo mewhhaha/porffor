@@ -96,7 +96,7 @@ source extraction with no new tests or product behavior; formatting and source
 comparison do not establish executable equivalence. Combined type, focused and
 broad verification remain pending for the coherent successor. Broader lowering
 and emitter ownership and full T02 acceptance remain open. See the
-[ownership contract](../docs/rust-rewrite/contracts/lila-ir-module-budget-owner-splits.md).
+[ownership contract](../docs/rust-rewrite/contracts/scriptw-ir-module-budget-owner-splits.md).
 
 ## NativeHost atomic source — 2026-10-05
 
@@ -184,7 +184,7 @@ still large implementation stores. Treat the landed boundaries as independent
 ownership surfaces, but continue coordinating broad edits to those remaining
 hotspots.
 
-Two `lila-ir` parents now remain below their existing raw-line caps through
+Two `scriptw-ir` parents now remain below their existing raw-line caps through
 domain ownership rather than test relocation. The closed callable source-text
 representation, exhaustive materializer and focused test have one 38-line
 `builtins/callable_to_string.rs` owner with the canonical public re-export;
@@ -201,7 +201,7 @@ invalidating. The standard-builtin catalog marks every modeled Object/Reflect
 operation that can dispatch a proxy trap as synchronous user code, so exact,
 spread and mixed-candidate calls share one conservative effect authority while
 existing proven-safe exact returns bypass that fallback. The
-[`lila-ir` module-budget owner-split contract](../docs/rust-rewrite/contracts/lila-ir-module-budget-owner-splits.md)
+[`scriptw-ir` module-budget owner-split contract](../docs/rust-rewrite/contracts/scriptw-ir-module-budget-owner-splits.md)
 records the type and source-policy invariants.
 
 Source-call caller-flow preservation has one private
@@ -1206,7 +1206,7 @@ has an empty recursive pre/post diff. No behavior or conformance change is
 claimed.
 
 The validated legacy-RegExp surrogate-pair carrier now has one private
-`lila-ir/src/regexp/legacy_utf16_pair.rs` owner. Its private lead/trail fields
+`scriptw-ir/src/regexp/legacy_utf16_pair.rs` owner. Its private lead/trail fields
 and three existing `pub(super)` operations moved as the complete 25-line
 inline-module body; the parsed-term domains, parser admission, nullability and
 forward/reverse lowering remain in `regexp.rs`. The parent keeps one constructor
@@ -1536,7 +1536,7 @@ zero. Batch AF did not rerun the semantic golden. The bounded contract remains
 ### Landed 2026-08-23: static-JSON parse lowering ownership
 
 This ownership seam is deliberately narrower than the complete `JSON.parse`
-lowering family. `lila-ir/src/lowering/static_json_parse.rs` owns the ordered
+lowering family. `scriptw-ir/src/lowering/static_json_parse.rs` owns the ordered
 static-reviver protocol, its prepared parsed-value proof and the private
 `JsonStaticParser`. `prepare_static_json_parse_reviver` snapshots and parses a
 proven static input before argument lowering; `finish_static_json_parse_reviver`
@@ -1590,7 +1590,7 @@ At clean parent `9a3ac9ad5`, the capped pre-move Wasm golden passes `2/2` in
 record 633 fixtures in 635 artifacts and their recursive diff is empty. The
 236 moved source lines have the same normalized SHA-256 before and after the
 move, `edb11f2be0d0376cd042d5541572e08a236ac569a7a81575b322630ae027cd06`.
-Formatting, the all-target `lila-ir` check, `cargo xc`, the strengthened module
+Formatting, the all-target `scriptw-ir` check, `cargo xc`, the strengthened module
 boundary audit and both independent reviews pass. The moved static IR witness
 passes `1/1`, both engine witnesses pass `2/2`, and the three static plus one
 dynamic-control CLI witnesses pass `4/4`. The retained
@@ -1602,7 +1602,7 @@ conformance progress.
 
 ### Landed 2026-08-23: throw-value inference ownership
 
-`lila-ir/src/lowering/throw_inference.rs` now owns the complete recursive
+`scriptw-ir/src/lowering/throw_inference.rs` now owns the complete recursive
 throw-value inference closure: `merge_optional_value_info`, block and statement
 walkers, the expression wrapper and operand walker, and property-key inference.
 The family is one contiguous 891-line parent slice containing exactly six
@@ -1666,7 +1666,7 @@ At clean parent `a77f923b3`, the capped pre-move Wasm golden passes `2/2` in
 312.13 seconds; the post-move capture passes `2/2` in 327.32 seconds. Both
 record 633 fixtures in 635 artifacts and their recursive diff is empty. Exact
 source-equivalence and independent semantic and policy reviews pass. The
-all-target `lila-ir` check and `cargo xc` are green. Serial IR witnesses pass
+all-target `scriptw-ir` check and `cargo xc` are green. Serial IR witnesses pass
 `2/2`, `1/1` and `1/1`; the two exact source-structure witnesses each pass
 `1/1`; and the strict, sloppy and dynamic-global CLI witnesses each pass
 `1/1`. The module-boundary audit passes after all sixteen negative controls.
@@ -1675,7 +1675,7 @@ claimed by this ownership-only extraction.
 
 ### Landed 2026-08-23: for-in lowering ownership
 
-`lila-ir/src/lowering/for_in.rs` now owns the complete for-in lowering family:
+`scriptw-ir/src/lowering/for_in.rs` now owns the complete for-in lowering family:
 the sole statement-facing lowerer and its twelve owner-only helpers for Annex B
 initializer prefixes, closed initializer-name recovery, known-empty and
 non-enumerable Test262 guards, pattern/property body prefixes, target
@@ -1720,7 +1720,7 @@ At clean parent `fcb0a924b`, the fresh capped pre-move Wasm golden passes `2/2`,
 records 633 fixtures in 635 artifacts and is retained under
 `target/golden/for-in-before-fcb0a924b`. The capped post-move golden also passes
 `2/2` over the same 633 fixtures and 635 artifacts, and the recursive artifact
-diff is empty. `cargo check -p lila-ir --all-targets` and `cargo xc` pass; the
+diff is empty. `cargo check -p scriptw-ir --all-targets` and `cargo xc` pass; the
 focused IR witnesses pass `8/8`, `2/2`, `1/1` and `1/1`. The CLI `for_in_`
 filter is unchanged at `4/7` on both the clean parent and moved tree: array
 DefineProperty order, simple-object order and prototype order remain
@@ -1731,7 +1731,7 @@ conformance improvement, broad Test262 run or full-workspace claim.
 
 ### Landed 2026-08-23: for-of lowering ownership
 
-`lila-ir/src/lowering/for_of.rs` now owns the complete for-of lowering family:
+`scriptw-ir/src/lowering/for_of.rs` now owns the complete for-of lowering family:
 the async array-index resumable specialization, the sole statement-facing
 wrapper, the exhaustive head lowering, and the two lowering-only carriers
 `AsyncForOfArrayWalkForm` and `ForOfLoweringIr`. The extraction moves one
@@ -1778,14 +1778,14 @@ The capped pre/post Wasm goldens both pass `2/2`, record 633 fixtures in 635
 artifacts and have an empty recursive diff; the post capture finished in
 388.51 seconds. The focused IR witnesses pass `3/3`, `3/3` and `1/1`; the three
 backend structure targets pass `5/5`, `5/5` and `3/3`; and four exact CLI
-witnesses pass `4/4`. `cargo check -p lila-ir --all-targets`, `cargo xc`,
+witnesses pass `4/4`. `cargo check -p scriptw-ir --all-targets`, `cargo xc`,
 formatting, diff, module-boundary and task-plan checks are green. No broad
 Test262 filter or full workspace test was used as evidence. No for-of behavior
 or conformance improvement is claimed.
 
 ### Landed 2026-08-23: with-statement ownership
 
-`lila-ir/src/lowering/with_statement.rs` now owns the complete Object
+`scriptw-ir/src/lowering/with_statement.rs` now owns the complete Object
 Environment lifecycle for `with`: outer-environment object evaluation,
 analyzed hidden-binding materialization, resumable/capture refusal, ordered
 environment-chain entry and exit, body lowering and nested lexical-block IR
@@ -1809,12 +1809,12 @@ targeted CLI fixtures pass `2/5`; one combined run at untouched parent
 two existing `instanceof`-callability errors and one Wasmtime function-size
 limit. A deliberately broader `with_` IR filter passed `66/67`; its unrelated
 Object.seal result-shape assertion remains red and was not used as evidence for
-this owner. The all-target `lila-ir` and workspace checks are green. No `with`
+this owner. The all-target `scriptw-ir` and workspace checks are green. No `with`
 behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: break/continue ownership
 
-`lila-ir/src/lowering/break_continue.rs` now owns labelled and unlabelled
+`scriptw-ir/src/lowering/break_continue.rs` now owns labelled and unlabelled
 break/continue target validation and final abrupt-control IR assembly. The
 statement dispatcher remains its sole caller. The parent-owned active-label
 stack and `LabelTargetKind` stay shared with labelled-statement lowering, while
@@ -1833,12 +1833,12 @@ The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
 and have an empty recursive diff. Three focused IR loop, switch-label and
 direct-label-target witnesses pass `3/3`; five focused CLI inspect, finally,
 iterator-closing and using-loop lifecycle witnesses pass `5/5`. The all-target
-`lila-ir` and workspace checks are green. No break/continue behavior or
+`scriptw-ir` and workspace checks are green. No break/continue behavior or
 conformance improvement is claimed.
 
 ### Landed 2026-08-23: switch-statement ownership
 
-`lila-ir/src/lowering/switch_statement.rs` now owns discriminant and selector
+`scriptw-ir/src/lowering/switch_statement.rs` now owns discriminant and selector
 evaluation, the one shared CaseBlock lexical environment, hoisted and Annex B
 function selection, case-body lowering, flow-fact joins, breakable-depth
 lifecycle and final `Switch` IR assembly. The statement dispatcher remains its
@@ -1859,12 +1859,12 @@ The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
 and have an empty recursive diff. Six focused IR CaseBlock, TDZ, Annex B,
 capture and label witnesses pass `6/6`; two focused CLI inspect and throwing
 property-read witnesses pass `2/2`; the two affected for-of structural targets
-pass `5/5` each. The all-target `lila-ir` and workspace checks are green. No
+pass `5/5` each. The all-target `scriptw-ir` and workspace checks are green. No
 switch behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: labelled-statement ownership
 
-`lila-ir/src/lowering/labelled_statement.rs` now owns nested-label collection,
+`scriptw-ir/src/lowering/labelled_statement.rs` now owns nested-label collection,
 direct labelled-function routing, loop-versus-breakable target classification,
 active-label stack installation/removal and final `Labelled` IR assembly. The
 statement dispatcher remains its sole caller; the shared `ActiveLabel` and
@@ -1881,12 +1881,12 @@ child is absent.
 The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
 and have an empty recursive diff. Five focused IR label/target/lifecycle filters
 pass `5/5`; three focused CLI inspect, iterator-closing and await-using filters
-pass `3/3`. The all-target `lila-ir` and workspace checks are green. No labelled
+pass `3/3`. The all-target `scriptw-ir` and workspace checks are green. No labelled
 statement behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: while-family ownership
 
-`lila-ir/src/lowering/while_loop.rs` now owns ordinary and resumable `while`
+`scriptw-ir/src/lowering/while_loop.rs` now owns ordinary and resumable `while`
 lowering plus the explicit `do while` suspension refusal. Condition/body order,
 loop flow-fact joins, async/generator resume-state selection and the final
 `While`, `DoWhile` or `GeneratorLoop` choice move together. The statement
@@ -1904,13 +1904,13 @@ and child separately, and fails its negative control when the child is absent.
 The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
 and have an empty recursive diff. Five focused IR loop/resumption/refusal
 filters pass `5/5`; three focused CLI lexical-environment, abrupt-finally and
-iterator flat-map filters pass `3/3`. The all-target `lila-ir` and workspace
+iterator flat-map filters pass `3/3`. The all-target `scriptw-ir` and workspace
 checks are green. No while/do-while behavior or conformance improvement is
 claimed.
 
 ### Landed 2026-08-23: if-statement ownership
 
-`lila-ir/src/lowering/if_statement.rs` now owns the complete conditional
+`scriptw-ir/src/lowering/if_statement.rs` now owns the complete conditional
 lifecycle: condition lowering and static selection, branch-local var/global
 facts, post-branch joins, abrupt-completion result typing and generator
 yield-state splitting/merging. The statement dispatcher remains its sole
@@ -1927,12 +1927,12 @@ when the child is absent.
 The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
 and have an empty recursive diff. Six focused IR branch/flow/resumption filters
 pass `6/6`; four focused CLI inspect, Wasm, async-generator and finally filters
-pass `4/4`. The all-target `lila-ir` and workspace checks are green. No
+pass `4/4`. The all-target `scriptw-ir` and workspace checks are green. No
 if-statement behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: classic-for ownership
 
-`lila-ir/src/lowering/for_loop.rs` now owns the complete classic `for`
+`scriptw-ir/src/lowering/for_loop.rs` now owns the complete classic `for`
 lifecycle: async-disposable head validation, resumable-loop eligibility,
 lexical TDZ setup, initializer and per-iteration Environment Record selection,
 test/update/body lowering, flow-fact merging, suspension-state construction and
@@ -1956,7 +1956,7 @@ improvement is claimed.
 
 ### Landed 2026-08-23: statement-dispatch ownership
 
-`lila-ir/src/lowering/statement.rs` now owns the exhaustive `Statement`
+`scriptw-ir/src/lowering/statement.rs` now owns the exhaustive `Statement`
 dispatcher and its resumable expression-statement specialization. Direct and
 nested async `await`, generator `yield` and assignment resumption, staged
 generator templates/expressions, ordinary expression statements and every
@@ -1978,7 +1978,7 @@ filters pass `7/7`; four focused CLI inspect and Wasm control-flow filters pass
 
 ### Landed 2026-08-23: new-expression ownership
 
-`lila-ir/src/lowering/new_expression.rs` now owns the complete `lower_new`
+`scriptw-ir/src/lowering/new_expression.rs` now owns the complete `lower_new`
 lifecycle: constructor target resolution, spread-aware argument evaluation,
 builtin and user-constructor result typing, Proxy trap-hint observation,
 dynamic-source rejection, instance-prototype inference and static RegExp
@@ -1992,7 +1992,7 @@ requires the sole owner, forbids a second parent body or legacy `include!`
 assembly, and budgets parent and child separately.
 
 The capped pre/post Wasm goldens both pass `2/2`, capture 635 artifacts each
-and have an empty recursive diff. The all-target `lila-ir` and workspace checks
+and have an empty recursive diff. The all-target `scriptw-ir` and workspace checks
 are green. Five focused IR filters pass `2/2`, `1/1`, `1/1`, `1/1` and `1/1`;
 the Map/Set iterable-construction filter fails `0/2` both here and at untouched
 parent `394e8fda7` with the same shape assertions. Five focused CLI filters
@@ -2001,7 +2001,7 @@ conformance improvement is claimed.
 
 ### Landed 2026-08-23: property-access ownership
 
-`lila-ir/src/lowering/property_access.rs` now owns the complete ordinary,
+`scriptw-ir/src/lowering/property_access.rs` now owns the complete ordinary,
 private and super property-access dispatcher. Primitive auto-boxing, array and
 arguments exotic routing, well-known Symbol recognition, property-hook
 observation and unknown-effect invalidation move together; the parent
@@ -2017,7 +2017,7 @@ The source body is otherwise exact after normalizing private-module
 visibility. The extraction reduces `lowering.rs` from 24,663 to 24,446 raw
 lines; the formatted child is 223 lines. The capped pre/post Wasm goldens both
 pass `2/2`, capture 635 artifacts each and have an empty recursive diff. The
-all-target `lila-ir` and workspace checks are green. Serial IR filters pass
+all-target `scriptw-ir` and workspace checks are green. Serial IR filters pass
 `2/2` for `property_access`, `6/6` for `property_read`, `1/1` each for
 `symbol_description` and `dynamic_string_property`, and `34/34` for `call_`;
 the corresponding focused CLI filters pass `3/3`, `1/1` and `6/6`. No
@@ -2025,7 +2025,7 @@ property-access behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: try-statement ownership
 
-`lila-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
+`scriptw-ir/src/lowering/try_statement.rs` now owns the complete `lower_try`
 lifecycle: try/catch/finally block lowering, catch-parameter Environment Record
 construction, consumption of inferred thrown values, generator/async resume
 planning and final `TryCatch`, `TryFinally` or `TryCatchFinally` assembly. The
@@ -2042,14 +2042,14 @@ rejects positional tuple-field access in this owner.
 The extraction reduces `lowering.rs` from 24,910 to 24,663 raw lines; the
 formatted child is 264 lines. The capped pre/post Wasm goldens both pass `2/2`,
 capture 635 artifacts each and have an empty recursive diff. The focused
-all-target `lila-ir` check and the new module boundary are green. Serial IR
+all-target `scriptw-ir` check and the new module boundary are green. Serial IR
 filters pass `12/12` for `try_` and `14/14` for `catch`; the CLI `finally`,
 `catchability` and `top_level_try` filters pass `2/2` each. No try-statement
 behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: delete-expression ownership
 
-`lila-ir/src/lowering/delete_expression.rs` now owns the complete
+`scriptw-ir/src/lowering/delete_expression.rs` now owns the complete
 `lower_delete` target dispatcher across ordinary/private/super property
 References, identifier deletion and non-Reference values. The parent retains
 the sole unary-expression call and the reusable shape, strictness and property
@@ -2069,13 +2069,13 @@ invalidation choices byte-for-byte at the Rust source level. No delete behavior
 or conformance improvement is claimed.
 
 The capped workspace/all-target check is green. Serial delete-focused coverage
-passes `7/7` in `lila-cli`, `2/2` in `lila-aot-wasm` and `4/4` in
-`lila-engine`. Formatting, exact source comparison, module-boundary and
+passes `7/7` in `scriptw-cli`, `2/2` in `scriptw-aot-wasm` and `4/4` in
+`scriptw-engine`. Formatting, exact source comparison, module-boundary and
 task-plan audits are green.
 
 ### Landed 2026-08-23: assignment-expression ownership
 
-`lila-ir/src/lowering/assignment.rs` now owns the complete exhaustive
+`scriptw-ir/src/lowering/assignment.rs` now owns the complete exhaustive
 `lower_assign` dispatcher across identifier, property, private, destructuring,
 logical and eager compound assignment. The parent expression match remains its
 single caller. Specialized ordinary-property and Object Environment Record
@@ -2097,7 +2097,7 @@ behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: ordinary function-definition ownership
 
-`lila-ir/src/lowering/function_definition.rs` now owns the complete ordinary
+`scriptw-ir/src/lowering/function_definition.rs` now owns the complete ordinary
 `lower_function` lifecycle: nested lowerer creation, analysis-state transfer,
 parameter and body lowering, capture/lexical-environment planning, signature
 updates, resumable metadata and final `FunctionIr` construction. The seven
@@ -2120,7 +2120,7 @@ behavior or conformance improvement is claimed.
 
 ### Landed 2026-08-23: builtin call-result analysis ownership
 
-`lila-ir/src/lowering/builtin_call_info.rs` now owns the complete exhaustive
+`scriptw-ir/src/lowering/builtin_call_info.rs` now owns the complete exhaustive
 `StandardBuiltinId` result analysis: return kinds and shapes, boxed-builtin
 accounting, callback parameter observations and the few result-dependent flow
 invalidations. Construct lowering, general resolved calls, RegExp literal
@@ -2142,7 +2142,7 @@ conformance improvement is claimed.
 
 ### Landed 2026-08-23: Atomics backend ownership
 
-`lila-aot-wasm/src/builtins/atomics.rs` now owns all fourteen Atomics builtin
+`scriptw-aot-wasm/src/builtins/atomics.rs` now owns all fourteen Atomics builtin
 bodies, the shared integer-operation machinery, synchronous and asynchronous
 wait/notify state transitions, host-agent calls, and atomic memory access
 helpers. The flat catalog dispatch retains one typed delegate per builtin
@@ -2167,7 +2167,7 @@ reviewed cross-family hooks, exhaustive matches and separate line budgets for
 parent and child.
 
 The capped workspace/all-target check is green. Focused serial Atomics coverage
-passes `2/2` in `lila-aot-wasm` and `5/5` in `lila-engine`; the CLI cohort passes
+passes `2/2` in `scriptw-aot-wasm` and `5/5` in `scriptw-engine`; the CLI cohort passes
 `12/13`. Its remaining `Atomics.isLockFree` core-fixture failure reproduces at
 the untouched parent commit, so this structural extraction neither owns nor
 claims to fix it. Formatting, module-boundary and task-plan audits are green.
@@ -2198,7 +2198,7 @@ conformance claim.
 
 ### Landed 2026-08-23: call-expression lowering ownership
 
-`lila-ir/src/lowering/call_expression.rs` now owns the complete `lower_call`
+`scriptw-ir/src/lowering/call_expression.rs` now owns the complete `lower_call`
 implementation, including direct-call recognition, builtin and method routing,
 argument evaluation, specialization and final indirect-call construction. The
 parent keeps expression dispatch and the reusable call, shape and static-value
@@ -2229,7 +2229,7 @@ Production lowering and emitted semantics are unchanged.
 
 ### Landed 2026-08-23: class-definition lowering ownership
 
-`lila-ir/src/lowering/class_definition.rs` now owns the complete
+`scriptw-ir/src/lowering/class_definition.rs` now owns the complete
 `lower_class_common_in_name_scope` implementation: heritage validation, public
 and private method/field planning, auto-accessor backing and generated-function
 scheduling, instance/static initialization plans, shapes and final typed
@@ -2312,72 +2312,72 @@ improvement is claimed by this extraction.
 
 Fourteen previously coupled builtin stores now have separate owners:
 
-- `lila-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
+- `scriptw-ir/src/lowering/builtin_shapes.rs` owns 98 pure shape/signature
   constructors. At extraction, `lowering.rs` fell from 39,177 to 31,979 lines;
   subsequent work leaves it at 31,998 lines, below the enforced cap. The moved
   methods have only parent-module visibility except the existing crate test
   hook.
-- `lila-ir/src/builtins/catalog.rs` is the single 779-row
+- `scriptw-ir/src/builtins/catalog.rs` is the single 779-row
   `StandardBuiltinId` registry. One row generates the enum, names, flags,
   function-ID mappings and independent function/global order arrays. Typed
   dense ordinals plus const duplicate/hole/ID checks preserve the deliberately
   different declaration, 779-function and 52-global orders.
-- `lila-aot-wasm/src/builtins/object.rs` owns all 34 Object builtin bodies and
+- `scriptw-aot-wasm/src/builtins/object.rs` owns all 34 Object builtin bodies and
   their private helpers. Three grouped choices are closed enums rather than
   generic builtin IDs or booleans.
-- `lila-aot-wasm/src/builtins/proxy.rs` owns the three Proxy lifecycle bodies;
+- `scriptw-aot-wasm/src/builtins/proxy.rs` owns the three Proxy lifecycle bodies;
   `reflect.rs` remains the separate owner of the 13 Reflect bodies and their
   proxy-trap machinery.
-- `lila-aot-wasm/src/builtins/math.rs` owns all 37 Math bodies behind a private
+- `scriptw-aot-wasm/src/builtins/math.rs` owns all 37 Math bodies behind a private
   closed `MathBuiltin` domain. `standard.rs` gives every Math ID its own typed
   one-line delegate, and both Math behavior matches are exhaustive. The
   min/max direction is a two-case private enum rather than a generic builtin
   ID. After the Object, Proxy and Math moves, `standard.rs` has fallen from
   49,179 to 36,807 lines.
-- `lila-aot-wasm/src/builtins/symbol.rs` owns all seven Symbol bodies and the
+- `scriptw-aot-wasm/src/builtins/symbol.rs` owns all seven Symbol bodies and the
   three shared Symbol receiver/description helpers behind a private closed
   `SymbolBuiltin` domain. `String(symbol)` reaches the one helper it shares
   through a parent-private method; the remaining helpers cannot escape the
   family. The catalog dispatch keeps seven typed delegates, and `standard.rs`
   fell from 36,789 to 36,313 lines without changing an emitted instruction.
-- `lila-aot-wasm/src/builtins/bigint.rs` owns all six BigInt intrinsic bodies
+- `scriptw-aot-wasm/src/builtins/bigint.rs` owns all six BigInt intrinsic bodies
   behind a private closed `BigIntBuiltin` domain. The constructor, signed and
   unsigned fixed-width operations, and three prototype methods moved verbatim;
   general BigInt conversion, allocation and stringification helpers remain
   with their existing operation and heap owners. The catalog dispatch keeps
   six typed delegates, and `standard.rs` fell from 36,313 to 35,647 lines.
-- `lila-aot-wasm/src/builtins/boolean.rs` owns all three Boolean intrinsic
+- `scriptw-aot-wasm/src/builtins/boolean.rs` owns all three Boolean intrinsic
   bodies behind a private closed `BooleanBuiltin` domain. The constructor keeps
   the same argument/result-local ordering previously shared with Number and
   String, while the two prototype methods keep their boxed-receiver checks and
   realm-local TypeError route together. After the intervening T20 residue
   consolidation, the extraction reduced `standard.rs` from 35,532 to 35,439
   lines.
-- `lila-aot-wasm/src/builtins/number.rs` owns all eleven Number intrinsic bodies
+- `scriptw-aot-wasm/src/builtins/number.rs` owns all eleven Number intrinsic bodies
   behind a closed `NumberBuiltin` domain. A private closed
   `NumberPrototypeOperation` owns the six methods that share Number receiver
   validation; the constructor and four static predicates complete the family.
   Eleven typed delegates preserve the flat catalog dispatch, and `standard.rs`
   fell from 33,730 to 33,512 lines.
-- `lila-aot-wasm/src/builtins/function.rs` owns the complete five-member
+- `scriptw-aot-wasm/src/builtins/function.rs` owns the complete five-member
   Function intrinsic family and its hidden bound-function call/construct
   invoker behind a private closed `FunctionBuiltin` domain. The catalog
   dispatch keeps six typed delegates, while the moved bodies retain their exact
   instruction and temporary-local order. The original intrinsic extraction
   reduced `standard.rs` from 34,461 to 34,088 lines; moving the remaining
   invoker body reduces it again without changing the public family.
-- `lila-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
+- `scriptw-aot-wasm/src/builtins/uri.rs` owns all six global URI and Annex-B codec
   wrappers behind a private closed `UriBuiltin` domain. The UTF-8/UTF-16 codec
   primitives remain with their existing `string.rs` owner; only the complete
   global wrapper family moved. Six typed delegates preserve the flat catalog
   dispatch, and `standard.rs` fell from 35,439 to 35,394 lines.
-- `lila-aot-wasm/src/builtins/global_numeric.rs` owns both coercing global
+- `scriptw-aot-wasm/src/builtins/global_numeric.rs` owns both coercing global
   numeric predicate bodies behind a private closed `GlobalNumericBuiltin`
   domain. `Number.isFinite` and `Number.isNaN` remain with the distinct
   non-coercing Number family, while `parseInt` and `parseFloat` remain host
   builtin emitters. The catalog dispatch keeps one typed delegate for each of
   `isFinite` and `isNaN`, and `standard.rs` fell from 35,394 to 35,372 lines.
-- `lila-aot-wasm/src/builtins/errors.rs` owns the complete eleven-member Error
+- `scriptw-aot-wasm/src/builtins/errors.rs` owns the complete eleven-member Error
   intrinsic family as well as its pre-existing allocation, realm-prototype,
   cause, iterable and throw helpers. A private closed `ErrorBuiltin` domain
   distinguishes the static predicate, the nine constructors carried by the
@@ -2385,14 +2385,14 @@ Fourteen previously coupled builtin stores now have separate owners:
   `StandardBuiltinId` values cannot reach this family emitter. Eleven typed
   delegates preserve the catalog dispatch without duplicating the error-kind
   registry, and `standard.rs` fell from 35,372 to 34,948 lines.
-- `lila-aot-wasm/src/builtins/json.rs` owns all four JSON namespace bodies
+- `scriptw-aot-wasm/src/builtins/json.rs` owns all four JSON namespace bodies
   alongside the parse, reviver, stringify and raw-JSON machinery they already
   consume. A private closed `JsonBuiltin` domain covers `parse`, `stringify`,
   `rawJSON` and `isRawJSON`; hidden static-JSON lowering and runtime helpers
   remain implementation details rather than pretend namespace members. Four
   typed delegates preserve the flat catalog dispatch, and `standard.rs` fell
   from 34,948 to 34,461 lines.
-- `lila-aot-wasm/src/builtins/atomics.rs` owns all fourteen Atomics bodies,
+- `scriptw-aot-wasm/src/builtins/atomics.rs` owns all fourteen Atomics bodies,
   integer/RMW operation domains, wait queues, host-agent calls and atomic
   memory helpers. Fourteen typed delegates preserve the catalog dispatch;
   three explicitly checked helpers remain visible to the TypedArray,
@@ -2508,8 +2508,8 @@ prototype-accessor Wasm-AOT CLI fixture passes `1/1`. No Test262 leaf or Wasm
 golden was required for this source-equivalent boundary, which claims no new RegExp behavior,
 conformance result or published-count change.
 
-The earlier central feature-enabled CLI compile, which covers `lila-aot-wasm`
-and `lila-intl`, and the focused builtin catalog tests pass for the moves that
+The earlier central feature-enabled CLI compile, which covers `scriptw-aot-wasm`
+and `scriptw-intl`, and the focused builtin catalog tests pass for the moves that
 reached that checkpoint. The source moves were also compared against their
 pre-extraction bodies, and the boundary audit prevents these stores from being
 folded back into their parents. The later
@@ -2557,7 +2557,7 @@ queued behind the same matrix run.
 
 ### Landed 2026-07-31: the `intrinsics/` boundary
 
-`crates/lila-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
+`crates/scriptw-aot-wasm/src/intrinsics/` now holds per-family realm bootstrap
 and property-descriptor installation, extracted from
 `builtins/bootstrap.rs::init_builtin_constructor_object`. That function was a
 single ~4,760-line body and the worst merge point in the backend: two lanes
@@ -2571,7 +2571,7 @@ Every arm moved **verbatim** — installers destructure an `IntrinsicInstall`
 context back into the original identifier names (including `builtin`, which
 multi-variant arms branch on), so no body text was rewritten. The move was
 verified byte-identical across all 527 CLI fixtures with
-`crates/lila-aot-wasm/tests/emission/emit_golden.rs`, which matters because property
+`crates/scriptw-aot-wasm/tests/emission/emit_golden.rs`, which matters because property
 installation order is observable through `Object.keys` and the ordinary suites
 assert on program output rather than emitted bytes.
 
@@ -3428,7 +3428,7 @@ records the exact original SHA-256 witnesses
 `763d09a61590ffcf1b4afeac60d93302e8094d3bab928f822518150cd87a02f1`
 and
 `8abe81e3220990ad0a59d373e364761cc6f47981f226475794efe66ddc9a324c`.
-At the Batch BV checkpoint, `cargo xc` is green with no `lila-aot-wasm`
+At the Batch BV checkpoint, `cargo xc` is green with no `scriptw-aot-wasm`
 warnings, the focused absence target passes `3/3`, and the three retained
 outlined dynamic-property-read module validations pass `3/3`.
 This reachability closure has no new JavaScript behavior or conformance claim.
@@ -3452,8 +3452,8 @@ records the exact original SHA-256 witnesses
 `02a744bb3487bffa56d2fc11df81f51d862a0ee57da8aa56c88af443e5465530`
 and
 `c78546c57688c1d6cbb796baf74584b5c4bc61c448ff6541212aed7efa88d974`.
-At the Batch BW checkpoint, `cargo xc` is green with no `lila-ir` or
-`lila-aot-wasm` warnings, the focused absence target passes `3/3`, and the
+At the Batch BW checkpoint, `cargo xc` is green with no `scriptw-ir` or
+`scriptw-aot-wasm` warnings, the focused absence target passes `3/3`, and the
 retained generator-expression, class-field and regexp-literal units pass
 `3/3`.
 This reachability closure has no new JavaScript behavior or conformance claim.
@@ -3474,7 +3474,7 @@ records the exact original SHA-256 witnesses
 `455ea8b701e57fe6497169d2cfcf94bae1f804a6f21e37c7f47e044ea3eba1bb`
 and
 `8291e01437badcde47d9d2d412b4b68fb4fb6025daa5d26459ab55b70b6dae79`.
-At the Batch BY checkpoint, `cargo check -p lila-ir` is green without new
+At the Batch BY checkpoint, `cargo check -p scriptw-ir` is green without new
 project warnings, the focused absence target passes `3/3`, and the retained
 iterator-fallback and generator-suspension units pass `3/3`.
 This state-invariant closure has no new JavaScript behavior or conformance
@@ -3490,7 +3490,7 @@ own property and force an Array iterator's private done slot during close. The
 now records the backend closure; a source-wide absence target and a Wasm CLI
 property-spoof regression pin it without adding a conformance-count claim. At
 the Batch BZ checkpoint, the focused structure targets pass `6/6`, the new and
-neighboring CLI controls pass `3/3`, `cargo check -p lila-aot-wasm` is green,
+neighboring CLI controls pass `3/3`, `cargo check -p scriptw-aot-wasm` is green,
 and the repository policy gates are green with 240 exact shortcut entries.
 
 The complete activation-backed plain-async synchronous `for-of` emitter now has
@@ -3506,7 +3506,7 @@ Reviewers can refresh the selected-source witness with:
 
 ```sh
 sed -n '4,423p' \
-  crates/lila-aot-wasm/src/control_flow/async_function_for_of_iterator.rs \
+  crates/scriptw-aot-wasm/src/control_flow/async_function_for_of_iterator.rs \
   | sha256sum
 ```
 
@@ -3540,7 +3540,7 @@ make omission of either table half a type error and pin the index-1 JavaScript
 signature plus exact sole-emitter construction. The former literal-true path is
 source-equivalent, so this claims no changed Wasm bytes, JavaScript behavior or
 conformance count. At the coordinated checkpoint, the AOT package check
-(`cargo check -p lila-aot-wasm`) is green; the package structure target passes
+(`cargo check -p scriptw-aot-wasm`) is green; the package structure target passes
 `4/4`, the obsolete-planning target passes `3/3`, and the exact module-assembly,
 emitted-module-validation and String memory/data controls are green. No Wasm-
 golden, broad runtime or
@@ -3584,13 +3584,13 @@ No behavior or conformance change is claimed by this owner move.
 
 ## Objective
 
-Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `lila-ir/src/lib.rs` and `lila-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
+Split the current monolithic compiler implementation into stable ownership boundaries without changing JavaScript behavior or emitted semantics. At the time this plan was written, `scriptw-ir/src/lib.rs` and `scriptw-aot-wasm/src/lib.rs` are tens of thousands of lines and are the primary merge-conflict bottleneck.
 
 ## Required module boundaries
 
 The exact filenames may change, but the resulting architecture must expose equivalent boundaries.
 
-### `lila-ir`
+### `scriptw-ir`
 
 - `ir/`: public `ProgramIr`, statements, expressions, functions, classes, properties, shapes, value information and IDs.
 - `lowering/`: AST-to-spec-IR lowering, split by declarations, expressions, statements, functions/classes and modules.
@@ -3600,7 +3600,7 @@ The exact filenames may change, but the resulting architecture must expose equiv
 - `operations/`: typed representations of shared ECMAScript abstract operations consumed by backends.
 - `diagnostics/`: structured diagnostic codes and source locations.
 
-### `lila-aot-wasm`
+### `scriptw-aot-wasm`
 
 - `module/`: sections, imports/exports, tables, globals, data and validation.
 - `abi/`: tagged values, call/construct convention, completion convention and host imports.
@@ -3636,7 +3636,7 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 - Both giant `lib.rs` files become orchestration/re-export surfaces rather than implementation stores.
 - Feature families have clear files that separate agents can own.
 - There are no cyclic module dependencies or duplicate constant registries.
-- Public APIs used by `lila-engine` remain coherent and documented.
+- Public APIs used by `scriptw-engine` remain coherent and documented.
 - Representative emitted artifacts behave identically before and after extraction. If byte identity is not practical, compare imports, exports, validation, output, completion kind and thrown error class.
 - Workspace compile time and binary size do not regress materially solely because of module movement.
 
@@ -3645,12 +3645,12 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 ```sh
 cargo fmt --all --check
 cargo check --workspace
-cargo test -p lila-ir --quiet
-cargo test -p lila-aot-wasm --quiet
-cargo test -p lila-engine --quiet
-cargo test -p lila-cli --quiet
-./target/debug/lila test262 run language/wasm/pass \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
+cargo test -p scriptw-ir --quiet
+cargo test -p scriptw-aot-wasm --quiet
+cargo test -p scriptw-engine --quiet
+cargo test -p scriptw-cli --quiet
+./target/debug/scriptw test262 run language/wasm/pass \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
 ```
 

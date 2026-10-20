@@ -25,9 +25,9 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/snapshot-comparison-evidence
           git rev-parse HEAD | tee /tmp/snapshot-comparison-evidence/source-commit.txt
-          sha256sum crates/lila-test262/src/lib.rs crates/lila-test262/src/snapshot_comparison_identity_tests.rs \
+          sha256sum crates/scriptw-test262/src/lib.rs crates/scriptw-test262/src/snapshot_comparison_identity_tests.rs \
             | tee /tmp/snapshot-comparison-evidence/input-sha256.txt
-          cargo test --locked -p lila-test262 --lib --no-run --message-format=json-render-diagnostics \
+          cargo test --locked -p scriptw-test262 --lib --no-run --message-format=json-render-diagnostics \
             > /tmp/snapshot-comparison-evidence/build.jsonl
       - name: Execute the complete compiled inventory
         shell: bash
@@ -45,7 +45,7 @@ jobs:
           for line in (evidence / "build.jsonl").read_text().splitlines():
               message = json.loads(line)
               if (message.get("reason") == "compiler-artifact"
-                      and message["target"]["name"] == "lila_test262"
+                      and message["target"]["name"] == "scriptw_test262"
                       and message["profile"]["test"] and message.get("executable")):
                   binaries.add(message["executable"])
           if len(binaries) != 1:
@@ -72,7 +72,7 @@ jobs:
           PY
       - name: Retain snapshot evidence and execution identity contracts
         run: >-
-          cargo test --locked -p lila-test262
+          cargo test --locked -p scriptw-test262
           --test snapshot_use_structure
           --test aggregate_evidence_requirement_structure
           --test execution_identity_structure

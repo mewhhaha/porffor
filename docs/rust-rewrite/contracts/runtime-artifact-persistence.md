@@ -46,7 +46,7 @@ retained packaging metadata. Such builds share the upstream release namespace
 across executable mtimes; genuine development checkouts retain Git revision and
 executable-mtime invalidation. Native compiler compatibility checks and cache
 budgets are unchanged. See the vendored package's
-[`LILA-PATCH.md`](../../../vendor/wasmtime-internal-cache-47.0.0/LILA-PATCH.md)
+[`SCRIPTW-PATCH.md`](../../../vendor/wasmtime-internal-cache-47.0.0/SCRIPTW-PATCH.md)
 for source provenance and the separate identity review required before changing
 Wasmtime's native compiler or runtime source.
 
@@ -58,10 +58,10 @@ must report the original worker deadline and actual cache state.
 Verification controls (run serially through `scripts/limited_verification.py`):
 
 ```sh
-cargo test --locked -p lila-aot-wasm --lib runtime_artifact::cache::tests -- --test-threads=1
-cargo test --locked -p lila-engine --test runtime_cache -- runtime_artifact_cache:: --test-threads=1
-cargo test --locked -p lila-engine --lib linked_runtime_native_modules_honor_both_bypass_retention_paths -- --test-threads=1
-cargo test --locked -p lila-engine --lib memory_module_cache::tests -- --test-threads=1
+cargo test --locked -p scriptw-aot-wasm --lib runtime_artifact::cache::tests -- --test-threads=1
+cargo test --locked -p scriptw-engine --test runtime_cache -- runtime_artifact_cache:: --test-threads=1
+cargo test --locked -p scriptw-engine --lib linked_runtime_native_modules_honor_both_bypass_retention_paths -- --test-threads=1
+cargo test --locked -p scriptw-engine --lib memory_module_cache::tests -- --test-threads=1
 ```
 
 The controls cover integrity and ABI rejection, replacement after corruption,
@@ -74,4 +74,4 @@ different P misses and executes to its expected result. Source changes and
 these controls require execution before any cache-performance or conformance
 result is claimed. The AOT cache identity workflow runs both the standalone
 vendored identity regressions and the Engine process target in a serial job
-on the existing `lila-conformance` runner, using the 4096-MiB launcher.
+on the existing `scriptw-conformance` runner, using the 4096-MiB launcher.

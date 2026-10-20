@@ -16,12 +16,12 @@ class ProductGraphTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        artifact = self.root / "crates/lila-aot-wasm/tests/emission/product_artifact.rs"
+        artifact = self.root / "crates/scriptw-aot-wasm/tests/emission/product_artifact.rs"
         artifact.parent.mkdir(parents=True)
         artifact.write_text("fn product_wasm_contains_compiled_semantics_without_a_source_evaluator() {}\n")
         workflow = self.root / ".github/workflows/ci.yaml"
         workflow.parent.mkdir(parents=True)
-        workflow.write_text("run: cargo test -p lila-aot-wasm --test emission -- product_artifact::\n")
+        workflow.write_text("run: cargo test -p scriptw-aot-wasm --test emission -- product_artifact::\n")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         cargo = self.bin / "cargo"
@@ -49,7 +49,7 @@ if (kind == "oracle" and mode != "missing-oracle") or (kind == "default" and mod
 ''')
         cargo.chmod(0o755)
 
-    def audit(self, mode="clean", package="lila-cli"):
+    def audit(self, mode="clean", package="scriptw-cli"):
         env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
                    CALLS=str(self.root / "calls"), MODE=mode, PACKAGE=package)
         return subprocess.run(["bash", str(SCRIPT)], cwd=self.root, env=env,
@@ -65,7 +65,7 @@ if (kind == "oracle" and mode != "missing-oracle") or (kind == "default" and mod
             self.assertEqual(args[args.index("--prefix") + 1], "none")
 
     def test_failed_default_queries_are_not_success(self):
-        for package in ("lila-engine", "lila-cli"):
+        for package in ("scriptw-engine", "scriptw-cli"):
             with self.subTest(package=package):
                 result = self.audit("default-error", package)
                 self.assertNotEqual(result.returncode, 0)
@@ -85,7 +85,7 @@ if (kind == "oracle" and mode != "missing-oracle") or (kind == "default" and mod
                 self.assertIn("empty dependency graph", result.stderr)
 
     def test_product_interpreter_is_rejected_for_each_package(self):
-        for package in ("lila-engine", "lila-cli"):
+        for package in ("scriptw-engine", "scriptw-cli"):
             with self.subTest(package=package):
                 self.assertNotEqual(self.audit("leak", package).returncode, 0)
 
@@ -93,7 +93,7 @@ if (kind == "oracle" and mode != "missing-oracle") or (kind == "default" and mod
         self.assertNotEqual(self.audit("missing-oracle").returncode, 0)
 
     def test_artifact_and_ci_audits_remain_required(self):
-        (self.root / "crates/lila-aot-wasm/tests/emission/product_artifact.rs").unlink()
+        (self.root / "crates/scriptw-aot-wasm/tests/emission/product_artifact.rs").unlink()
         (self.root / ".github/workflows/ci.yaml").write_text("name: no audit\n")
         result = self.audit()
         self.assertNotEqual(result.returncode, 0)

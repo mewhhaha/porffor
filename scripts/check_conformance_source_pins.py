@@ -125,7 +125,7 @@ def verify(pins_path, suite_root):
 def main():
     repo = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pins", type=Path, default=repo / "crates/lila-test262/src/source-pins.json")
+    parser.add_argument("--pins", type=Path, default=repo / "crates/scriptw-test262/src/source-pins.json")
     parser.add_argument("--suite", type=Path, default=repo / "test262/vendor/test262")
     args = parser.parse_args()
     try:

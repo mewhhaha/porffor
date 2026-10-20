@@ -5,8 +5,8 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from intl_cldr_profile import CLDR_COMMIT,CldrProfile,INHERIT,NO_INHERIT,ResolvedLeaf,Segment,normalize_path,parse_path,path_text
 ROOT=Path(__file__).resolve().parents[1]
-SOURCE='crates/lila-intl/data/duration-cldr-47'
-PROFILE='crates/lila-intl/src/duration_format/generated/profile.json'
+SOURCE='crates/scriptw-intl/data/duration-cldr-47'
+PROFILE='crates/scriptw-intl/src/duration_format/generated/profile.json'
 LOCALES=tuple(sorted(('en','en-US','ar','ar-EG','zh','zh-Hans','zh-Hans-CN','de','fr','it','ja','ko','hi','es','sr')))
 UNITS=('year','month','week','day','hour','minute','second','millisecond','microsecond','nanosecond')
 STYLES=('long','short','narrow');COUNTS=('zero','one','two','few','many','other')
@@ -15,7 +15,7 @@ MANIFEST_SHA='582f922168284a76255554a4b74c6200f0e954853ef2eaf49bceb393a2d48b49'
 def encoded(value):return (json.dumps(value,indent=2,ensure_ascii=False,sort_keys=True)+'\n').encode()
 def sha(raw):return hashlib.sha256(raw).hexdigest()
 def capture(root):
-    base=root/'crates/lila-intl/data/number-cldr-47';raw=(base/'source-manifest.json').read_bytes()
+    base=root/'crates/scriptw-intl/data/number-cldr-47';raw=(base/'source-manifest.json').read_bytes()
     if sha(raw)!=MANIFEST_SHA or sha((base/'sources.tar.gz').read_bytes())!=ARCHIVE_SHA:raise ValueError('CLDR47 authority changed')
     authority={r['path']:r for r in json.loads(raw)['files']}
     with tarfile.open(base/'sources.tar.gz') as archive:
@@ -107,7 +107,7 @@ def number_patterns(nf,locale,unit,style):
 
 def generate(root,profile):
     if profile.selector['locales']!=list(LOCALES) or profile.selector['default_locale']!='en-US':raise ValueError('exact15 locale recipe required')
-    nf=json.loads(gzip.decompress((root/'crates/lila-intl/data/number-cldr-47/profiles.json.gz').read_bytes()));consumed={};locales=[]
+    nf=json.loads(gzip.decompress((root/'crates/scriptw-intl/data/number-cldr-47/profiles.json.gz').read_bytes()));consumed={};locales=[]
     for name in LOCALES:
         locale=name.replace('-','_');units=[];lists=[];patterns={}
         for unit in UNITS:
@@ -133,11 +133,11 @@ def generate(root,profile):
 
 def inputs(root,profile):
     names={'scripts/generate-intl-duration-profile.py','scripts/intl_cldr_profile.py','scripts/intl_ldml_schema.py','scripts/intl_positional_numbering.py',
-        'scripts/intl_calendar_eras.py',SOURCE+'/spec-reference.json',SOURCE+'/manifest.json','crates/lila-intl/data/number-cldr-47/source-manifest.json',
-        'crates/lila-intl/data/number-cldr-47/sources.tar.gz','crates/lila-intl/data/number-cldr-47/profiles.json.gz',
-        'crates/lila-intl/data/number-cldr-47/profiles.bin',
-        'crates/lila-intl/data/list-icu-2/source-inputs.json','crates/lila-intl/data/list-icu-2/sources.tar.gz'}
-    names.update(SOURCE+'/'+n for n in profile.sources);supp='crates/lila-intl/data/numbering-tols-cldr-48'
+        'scripts/intl_calendar_eras.py',SOURCE+'/spec-reference.json',SOURCE+'/manifest.json','crates/scriptw-intl/data/number-cldr-47/source-manifest.json',
+        'crates/scriptw-intl/data/number-cldr-47/sources.tar.gz','crates/scriptw-intl/data/number-cldr-47/profiles.json.gz',
+        'crates/scriptw-intl/data/number-cldr-47/profiles.bin',
+        'crates/scriptw-intl/data/list-icu-2/source-inputs.json','crates/scriptw-intl/data/list-icu-2/sources.tar.gz'}
+    names.update(SOURCE+'/'+n for n in profile.sources);supp='crates/scriptw-intl/data/numbering-tols-cldr-48'
     manifest=json.loads((root/supp/'source-manifest.json').read_bytes());names.add(supp+'/source-manifest.json');names.update(supp+'/'+r['path'] for r in manifest['files'])
     rows=[]
     for name in sorted(names):

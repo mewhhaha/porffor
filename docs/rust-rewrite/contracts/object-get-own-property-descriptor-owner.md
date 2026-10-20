@@ -30,7 +30,7 @@ actual FunctionContext Realm.
 
 The historical 2026-08-28 ownership checkpoint verified the previous source.
 Its results do not verify this GC rewrite. The authored
-`lila-engine/tests/aot_gc_object_entries.rs` controls cover recursive Proxy step
+`scriptw-engine/tests/aot_gc_object_entries.rs` controls cover recursive Proxy step
 order, fresh results and original Throw identity; existing semantic descriptor
 controls remain required. Obsolete source-spelling and linear-heap guards are
 retired. The draft has had no compilation, emitted-Wasm validation or execution.

@@ -50,11 +50,11 @@ change emitted Wasm, make the collector executable or establish semantic roots
 for active calls, exceptions, suspended frames or jobs.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_root_source_structure
-cargo test -p lila-aot-wasm --test heap_named_slot_storage_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_root_registry_covers_gc_safepoint_sources -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_host_boundary_is_call_scoped_and_transiently_rooted -- --exact --test-threads=1
-cargo check -p lila-aot-wasm --lib
+cargo test -p scriptw-aot-wasm --test heap_root_source_structure
+cargo test -p scriptw-aot-wasm --test heap_named_slot_storage_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_root_registry_covers_gc_safepoint_sources -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_host_boundary_is_call_scoped_and_transiently_rooted -- --exact --test-threads=1
+cargo check -p scriptw-aot-wasm --lib
 git diff --check
 ```
 

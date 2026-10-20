@@ -66,8 +66,8 @@ def replay(execution, options):
                "--snapshot-dir", str(options.output_dir / "snapshots"),
                "--snapshot-name", key, "--threads", "1", "--timeout-ms", "60000"]
     environment = os.environ.copy()
-    environment["LILA_TEST262_FORCE_CASE_RUNNER"] = "1"
-    environment.pop("LILA_TEST262_DISABLE_CASE_RUNNER", None)
+    environment["SCRIPTW_TEST262_FORCE_CASE_RUNNER"] = "1"
+    environment.pop("SCRIPTW_TEST262_DISABLE_CASE_RUNNER", None)
     with transcript.open("w") as output:
         completed = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT,
                                    env=environment)
@@ -181,7 +181,7 @@ def run_replay(options):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("execution_list", type=Path)
-    parser.add_argument("--binary", type=Path, default=Path("target/release/lila"))
+    parser.add_argument("--binary", type=Path, default=Path("target/release/scriptw"))
     parser.add_argument("--suite-root", type=Path, default=Path("test262/vendor/test262"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--workers", type=int, choices=range(1, 65), default=2)

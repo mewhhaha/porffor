@@ -1,7 +1,7 @@
 # Generated complete module graphs
 
 `module-graph-v1` is a checked source algebra consumed by
-`lila differential campaign --grammar module-graph-v1 --modules N --edges N`.
+`scriptw differential campaign --grammar module-graph-v1 --modules N --edges N`.
 It admits 1–16 declared Modules and between `modules-1` and
 `min(64, modules²)` exact import edges. A deterministic spanning star makes every
 source reachable from the Module entry; additional unique edges can form self

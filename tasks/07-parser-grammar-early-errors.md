@@ -73,7 +73,7 @@ unexecuted state of the named selected controls described above.
 
 The front end now returns a closed `ParsedSource` with goal-typed
 `ParsedScript` and `ParsedModule` variants. Each variant owns Boa's AST and the
-exact interner that produced it, while `lila-ir` can only borrow the pair
+exact interner that produced it, while `scriptw-ir` can only borrow the pair
 through a controlled compiler session. Raw `SourceUnit` metadata is a distinct
 type that the lowerer does not accept.
 
@@ -155,7 +155,7 @@ the traversal guard passes `1/1`, and the complete front library passes
 `119/119`. The complete relevant IR early and graph groups pass `44/44` and
 `41/41`, with their focused witnesses each passing `1/1`. The complete
 eight-file cohort passes exactly `16/16` Wasm-AOT variants with every failure
-bucket at zero under `--jobs 1 --threads 1`. A broader `lila-ir` run exposed two
+bucket at zero under `--jobs 1 --threads 1`. A broader `scriptw-ir` run exposed two
 unrelated lowerer-test failures, confirmed by exact reruns, so no complete-IR or
 aggregate green claim is made. The source of truth is
 `docs/rust-rewrite/contracts/script-top-level-super-early-errors.md`.
@@ -429,7 +429,7 @@ zero variants; no Test262 pass, pass-gain or aggregate-status claim is made.
 The full front library and parse-pattern structure target pass `158/158` and
 `4/4`. The focused IR filter passes `7/7`, including the three new Module and
 graph witnesses, and the four exact graph/source structure targets pass
-`13/13`; `cargo check -p lila-aot-wasm` compiles the live parser, front and IR
+`13/13`; `cargo check -p scriptw-aot-wasm` compiles the live parser, front and IR
 layers. The implementation-time `17/17` standalone parse/graph checks remain
 green. No broad IR suite was rerun. The source of truth is
 `docs/rust-rewrite/contracts/generator-declaration-contains-super-early-errors.md`.
@@ -518,8 +518,8 @@ code as `Early` / `SyntaxError`. Script witnesses cover direct and nested forms,
 while positive Module and retained-graph witnesses prove that direct and nested
 `import.meta` remain valid under the Module goal. No vendor repair was needed.
 
-The focused `lila-front` `import_meta_` group passed `5/5`, and the complete
-`lila-front --lib` gate passed `108/108`. The exact `lila-ir` classifier test and
+The focused `scriptw-front` `import_meta_` group passed `5/5`, and the complete
+`scriptw-front --lib` gate passed `108/108`. The exact `scriptw-ir` classifier test and
 retained Module graph witness each passed `1/1`. `cargo xc`,
 `cargo fmt --all -- --check`, and `git diff --check` were green. The source guard
 was aligned during verification to the actual derived `ModuleParser`
@@ -561,9 +561,9 @@ rejected dependency prove front-to-IR and graph projection.
 
 Independent reviews of the vendored repair and the front/IR closure were clean.
 Under the shared CPU cap, `cargo fmt --all -- --check` and `cargo xc` were green.
-The first complete `lila-front` run exposed two text-guard count/indent
+The first complete `scriptw-front` run exposed two text-guard count/indent
 assumptions; after repair, the exact vendored-source guard passed `1/1` and the
-complete library passed `103/103`. The focused `lila-ir` early-module group
+complete library passed `103/103`. The focused `scriptw-ir` early-module group
 passed `42/42`, and the exact retained graph witness passed `1/1`.
 
 The four complete pinned paths
@@ -1196,10 +1196,10 @@ Add stable diagnostic codes, phase (`parse` or `early`), error constructor and s
 ## Required tests
 
 ```sh
-cargo test -p lila-front --quiet
-cargo test -p lila-ir early_error --quiet
-cargo test -p lila-engine --quiet
-./target/debug/lila test262 run language --execution-backend wasm
+cargo test -p scriptw-front --quiet
+cargo test -p scriptw-ir early_error --quiet
+cargo test -p scriptw-engine --quiet
+./target/debug/scriptw test262 run language --execution-backend wasm
 ```
 
 During development run focused `language/expressions`, `language/statements`, `language/declarations`, `language/module-code` and negative-phase shards rather than the full language tree on every edit.
@@ -1207,7 +1207,7 @@ During development run focused `language/expressions`, `language/statements`, `l
 ## Dry implementation: shared Unicode identifier character authority
 
 The lexer now exposes its existing decoded-code-point `IdentifierStart` and
-`IdentifierPart` predicates through `lila-front`. Lexing raw and private names, checking
+`IdentifierPart` predicates through `scriptw-front`. Lexing raw and private names, checking
 Unicode escapes, and spelling module namespace/export/source aliases consume
 that same authority. ICU `ID_Start`/`ID_Continue`, the existing Unicode 17
 supplements, and ECMAScript dollar-sign/underscore/join-control handling are

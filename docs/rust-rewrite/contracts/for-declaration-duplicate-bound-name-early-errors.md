@@ -75,7 +75,7 @@ Before this extension, that producer was unreachable from source. Every
 `LexicalDeclaration` parser, whose unconditional duplicate-`BoundNames` check
 emitted `lexical name declared multiple times` before the surrounding parser
 could distinguish classic `for` from `for-in`, `for-of`, or `for-await-of`.
-Lila consequently classified the iterable condition as the broader existing
+Scriptw consequently classified the iterable condition as the broader existing
 `DuplicateLexicalDeclaration`; the condition-specific fixed message never
 crossed the product path. Resource-declaration patterns remain unreachable for
 the separate grammar reason above.
@@ -155,7 +155,7 @@ front-to-IR path.
   deleting the row while retaining the variant fails to build.
 - Add a const ownership assertion requiring exactly one row for the code and
   the exact independently spelled `StartsWith` prefix.
-- Extend `lila-ir`'s exhaustive early-error mapping; no catch-all may absorb
+- Extend `scriptw-ir`'s exhaustive early-error mapping; no catch-all may absorb
   the new variant.
 - Encode `Statement` and `ForHead` as a closed lexical-parser context selected
   only through named constructors, and retain deferred lexical heads as a
@@ -244,10 +244,10 @@ physical file per invocation, rather than using basename or suffix filters.
 Bounded verification completed on 2026-08-23 under the shared CPU cap.
 Independent reviews of both the vendored parser repair and the front/IR closure
 were clean. The capped `cargo fmt --all -- --check` and `cargo xc` gates were
-green. The final complete `lila-front` library run passed `103/103`; its first
+green. The final complete `scriptw-front` library run passed `103/103`; its first
 run had caught two incorrect text-guard count/indent assumptions, which were
 repaired before the exact vendored-source guard passed `1/1` and the complete
-front library reran green. The focused `lila-ir` early-module group passed
+front library reran green. The focused `scriptw-ir` early-module group passed
 `42/42`, and the exact retained-dependency graph witness passed `1/1`.
 
 The four complete suite-relative Test262 paths were each run separately with

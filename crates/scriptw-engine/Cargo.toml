@@ -1,0 +1,34 @@
+[package]
+name = "scriptw-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+scriptw-runtime-image = { path = "../scriptw-runtime-image" }
+scriptw-aot-wasm = { path = "../scriptw-aot-wasm" }
+scriptw-backend-c = { path = "../scriptw-backend-c" }
+scriptw-backend-native = { path = "../scriptw-backend-native" }
+scriptw-front = { path = "../scriptw-front" }
+scriptw-ir = { path = "../scriptw-ir" }
+scriptw-intl = { path = "../scriptw-intl" }
+scriptw-runtime = { path = "../scriptw-runtime" }
+scriptw-spec-exec = { path = "../scriptw-spec-exec", optional = true }
+rayon = "1.11.0"
+sha2 = "0.10.9"
+wasmparser = "0.245.1"
+wasmtime = { version = "=47.0.0", default-features = false, features = ["cache", "cranelift", "gc", "gc-copying", "incremental-cache", "parallel-compilation", "runtime", "std", "threads"] }
+
+[build-dependencies]
+sha2 = "0.10.9"
+
+[features]
+# Off by default: keeps the Boa interpreter (scriptw-spec-exec / boa_engine)
+# out of product and release builds. Only enable for developer-only
+# differential-oracle testing (see AGENTS.md and conformance area T25). Never enable this
+# feature for a shipped/product build.
+spec-exec-oracle = ["dep:scriptw-spec-exec"]
+
+[lib]
+path = "src/lib.rs"

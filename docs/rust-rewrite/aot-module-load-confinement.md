@@ -19,7 +19,7 @@ handle-relative filesystem capabilities rather than more string checks.
 Validation:
 
 ```sh
-cargo test --locked -p lila-engine --lib module_loader::
+cargo test --locked -p scriptw-engine --lib module_loader::
 ```
 
 No published Test262 status or execution denominator changes.

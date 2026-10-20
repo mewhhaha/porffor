@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 TREE = Path(__file__).resolve().parents[2]
-PRIMARY = Path(os.environ.get('LILA_LOCALE_TEXT_PRIMARY_ROOT', str(TREE)))
+PRIMARY = Path(os.environ.get('SCRIPTW_LOCALE_TEXT_PRIMARY_ROOT', str(TREE)))
 spec = importlib.util.spec_from_file_location('locale_text_generator', TREE / 'scripts/generate-intl-locale-text-profile.py')
 gen = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gen)
@@ -96,7 +96,7 @@ class LocaleTextProfileAdmission(unittest.TestCase):
         self.assertEqual(len(sources), 44)
         paths = {source['path'] for source in sources}
         self.assertEqual(len(paths), 44)
-        self.assertIn('crates/lila-intl/src/selection/minimal_admission.rs', paths)
+        self.assertIn('crates/scriptw-intl/src/selection/minimal_admission.rs', paths)
         self.assertEqual(provenance['inputs'][0]['sha256'], gen.SOURCE_SHA)
 
 

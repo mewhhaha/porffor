@@ -1,6 +1,6 @@
 # Bounded case-worker reuse — 2026-10-11
 
-`lila test262 run --reuse-case-workers` shares compiler caches across at most
+`scriptw test262 run --reuse-case-workers` shares compiler caches across at most
 64 sequential cases per supervised process. Each case creates a fresh Engine,
 Realm, Store, GC state and agent ownership. The existing execution deadline and
 cold compilation allowance remain unchanged. Exact execution IDs, compiler

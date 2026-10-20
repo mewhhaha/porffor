@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 
-PACKAGE = 'lila-verification-feature-roots'
+PACKAGE = 'scriptw-verification-feature-roots'
 TARGET = 'feature_roots'
 
 

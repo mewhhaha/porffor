@@ -31,7 +31,7 @@ method returns the original receiver.
 
 The compiler owner is
 `FunctionBuilder::compile_typed_array_prototype_copy_within_builtin` in
-`crates/lila-aot-wasm/src/builtins/standard.rs`. At the inventoried
+`crates/scriptw-aot-wasm/src/builtins/standard.rs`. At the inventoried
 pre-migration baseline it reconstructed the four private view slots, called
 `emit_validate_typed_array_current_byte_length` twice and divided a byte-length
 local by bytes per element after each call. Those raw observations are the
@@ -108,7 +108,7 @@ revalidation.
 
 ## Durable source guard
 
-`crates/lila-aot-wasm/tests/typed_array_copy_within_witness_structure.rs`
+`crates/scriptw-aot-wasm/tests/typed_array_copy_within_witness_structure.rs`
 bounds only the body from
 `compile_typed_array_prototype_copy_within_builtin` to
 `compile_typed_array_prototype_to_reversed_builtin`, plus its dispatcher arm.
@@ -149,7 +149,7 @@ structure-visible without snapshotting the large standard-builtin emitter.
 ## Focused runtime witnesses
 
 The durable CLI control remains
-`crates/lila-cli/tests/fixtures/wasm_typedarray_prototype_copy_within.js`, owned
+`crates/scriptw-cli/tests/fixtures/wasm_typedarray_prototype_copy_within.js`, owned
 by
 `typed_array::run_wasm_backend_copies_typedarray_bytes_with_spec_ordering`.
 It pins descriptor shape, result identity, both overlap directions, non-zero

@@ -8,7 +8,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 NATIVE_ROOT = Path(__file__).resolve().parents[2]
-PRIMARY_ROOT = Path(os.environ.get('LILA_LOCALE_HOUR_CYCLES_PRIMARY_ROOT', NATIVE_ROOT))
+PRIMARY_ROOT = Path(os.environ.get('SCRIPTW_LOCALE_HOUR_CYCLES_PRIMARY_ROOT', NATIVE_ROOT))
 spec = importlib.util.spec_from_file_location('locale_hour_cycles_generator', NATIVE_ROOT / 'scripts/generate-intl-locale-hour-cycles-profile.py')
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
@@ -88,7 +88,7 @@ class TimeDataAdmission(unittest.TestCase):
         provenance = json.loads(outputs[generator.DEST / 'provenance.json'])
         sources = {row['path'] for row in provenance['kernel_input']['sources']}
         self.assertIn(generator.REGION_HELPER.as_posix(), sources)
-        self.assertIn('crates/lila-intl/src/datetime.rs', sources)
+        self.assertIn('crates/scriptw-intl/src/datetime.rs', sources)
         self.assertNotIn((generator.NATIVE / 'tests.rs').as_posix(), sources)
 
 

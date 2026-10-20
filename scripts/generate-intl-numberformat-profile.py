@@ -11,9 +11,9 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-DIRECTORY = ROOT / "crates/lila-intl/data/number-cldr-47"
+DIRECTORY = ROOT / "crates/scriptw-intl/data/number-cldr-47"
 LEAVES = ROOT / "scripts/intl_numberformat_profile"
-SOURCE = ROOT / "crates/lila-intl/src/number_format"
+SOURCE = ROOT / "crates/scriptw-intl/src/number_format"
 GENERATED = ["profiles.json.gz", "profile-provenance.json.gz", "medial-denominator-policy.json", "plural-samples.json", "ordinal-samples.json", "coverage.json", "profiles.bin", "payload-manifest.json"]
 RUST_GENERATED = ["profiles/fingerprint.rs", "tests/plural_samples.rs", "tests/ordinal_samples.rs"]
 
@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--verify-sources", action="store_true", help="verify the complete offline source archive only")
     parser.add_argument("--scratch-parent", type=Path, help="optional directory for temporary extraction")
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="lila-number-cldr-47-", dir=args.scratch_parent) as scratch_name:
+    with tempfile.TemporaryDirectory(prefix="scriptw-number-cldr-47-", dir=args.scratch_parent) as scratch_name:
         scratch = Path(scratch_name)
         manifest = unpack(scratch)
         if args.verify_sources:
@@ -62,9 +62,9 @@ def main():
         shutil.copytree(LEAVES, scratch / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copyfile(ROOT / "scripts/intl_positional_numbering.py", scratch / "scripts/intl_positional_numbering.py")
         shutil.copytree(DIRECTORY.parent / "numbering-tols-cldr-48", scratch / "reference/numbering-tols")
-        generated = scratch / "work/crates/lila-intl/data/number-cldr-47"
+        generated = scratch / "work/crates/scriptw-intl/data/number-cldr-47"
         generated.mkdir(parents=True)
-        rust = scratch / "work/crates/lila-intl/src/number_format"
+        rust = scratch / "work/crates/scriptw-intl/src/number_format"
         rust.mkdir(parents=True)
         shutil.copyfile(SOURCE / "options.rs", rust / "options.rs")
         if args.check:

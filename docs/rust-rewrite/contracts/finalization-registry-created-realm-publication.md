@@ -40,10 +40,10 @@ constructor prototype fallback, and defining-Realm TypeError ownership. It
 does not implement collection-driven cleanup.
 
 The entry-Realm algorithm owners remain
-`crates/lila-aot-wasm/src/builtins/finalization_registry.rs` and
-`crates/lila-aot-wasm/src/intrinsics/collections.rs`. Created-Realm ownership
+`crates/scriptw-aot-wasm/src/builtins/finalization_registry.rs` and
+`crates/scriptw-aot-wasm/src/intrinsics/collections.rs`. Created-Realm ownership
 lives in the private
-`crates/lila-aot-wasm/src/builtins/host/created_realm_finalization_registry_intrinsics.rs`
+`crates/scriptw-aot-wasm/src/builtins/host/created_realm_finalization_registry_intrinsics.rs`
 child.
 
 ## Publication lifecycle
@@ -94,13 +94,13 @@ Realm-local `%FinalizationRegistry.prototype%`.
 ## Evidence
 
 The bounded source test
-`crates/lila-aot-wasm/tests/created_realm_finalization_registry_publication_structure.rs`
+`crates/scriptw-aot-wasm/tests/created_realm_finalization_registry_publication_structure.rs`
 pins the private one-shot token, Realm-slot write, exact callable ownership,
 constructor-first own-key order, descriptor installation, global-allocation
 boundary, and reverse materialize/publish ordering. It passes `7/7`.
 
 The source-free fixture
-`crates/lila-cli/tests/fixtures/wasm_finalization_registry_created_realm.js`
+`crates/scriptw-cli/tests/fixtures/wasm_finalization_registry_created_realm.js`
 covers fresh identities, function parents and metadata, descriptors, exact
 prototype own keys, construction, register/unregister behavior in both
 cross-Realm borrowing directions, four defining-Realm TypeError paths, and all
@@ -128,18 +128,18 @@ bucket at zero:
 
 At the 2026-09-01 shared checkpoint, `cargo xc`, formatting, diff hygiene,
 task-plan, README-status, host-ABI and fixture-syntax gates are green. The broad
-`lila-aot-wasm` library target reports `367/374`; its seven failures are the
+`scriptw-aot-wasm` library target reports `367/374`; its seven failures are the
 unchanged pre-existing string-layout, async-resume, Promise-state,
 async-generator and static-planning baseline failures, with no failure in this
 boundary. The module-boundary gate is red only on the pre-existing raw line
-caps in `lila-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`) and
-`lila-ir/src/builtins.rs` (`1769 > 1760`).
+caps in `scriptw-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`) and
+`scriptw-ir/src/builtins.rs` (`1769 > 1760`).
 
 The focused verification commands are:
 
 ```sh
-cargo test -p lila-aot-wasm --test created_realm_finalization_registry_publication_structure
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-aot-wasm --test created_realm_finalization_registry_publication_structure
+cargo test -p scriptw-cli --test cli \
   iterator::run_wasm_backend_succeeds_for_created_realm_finalization_registry_publication \
   -- --exact
 ```

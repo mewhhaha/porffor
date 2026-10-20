@@ -11,7 +11,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "generate-intl-keyword-aliases.py
 SPEC = importlib.util.spec_from_file_location("intl_keyword_aliases", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
-SOURCE = SCRIPT.parents[1] / "crates/lila-intl/data/cldr-47-bcp47"
+SOURCE = SCRIPT.parents[1] / "crates/scriptw-intl/data/cldr-47-bcp47"
 
 
 class IntlKeywordAliasGenerationTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class IntlKeywordAliasGenerationTests(unittest.TestCase):
     def test_complete_pinned_directory_regenerates_identically(self):
         generated, report = MODULE.generate(self.source)
         self.assertEqual((generated, report), MODULE.generate(self.source))
-        checked = SCRIPT.parents[1] / "crates/lila-intl/src/provider/keyword_aliases/generated.rs"
+        checked = SCRIPT.parents[1] / "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs"
         self.assertEqual(generated, checked.read_text())
         parsed = json.loads(report)
         self.assertEqual(parsed["xml_files"], 15)

@@ -26,7 +26,7 @@ for every value kind and a future duplicate becomes a compiler diagnostic.
 The same compile census found two unused broad imports. `RealmRecordLocal`
 remains privately owned by `functions.rs` and is imported directly by its
 cross-module consumer; the unused crate-root re-export is gone.
-`StaticRegExpCompilation` remains the sole `lila_ir` import in `operations.rs`.
+`StaticRegExpCompilation` remains the sole `scriptw_ir` import in `operations.rs`.
 
 The deleted 242-line dynamic arm has SHA-256
 `68165b09f3c33dde58a972643a8dd69cf970bca44fff30af6baa600ad1063f76`.
@@ -42,6 +42,6 @@ emitted Wasm: both removed match arms were statically unreachable, and the
 removed imports carried no runtime semantics. It adds no Test262
 materialization, capability claim or published count.
 
-At the Batch BV checkpoint, `cargo xc` is green with no `lila-aot-wasm`
+At the Batch BV checkpoint, `cargo xc` is green with no `scriptw-aot-wasm`
 warnings, the focused absence target passes `3/3`, and the three retained
 outlined dynamic-property-read module validations pass `3/3`.

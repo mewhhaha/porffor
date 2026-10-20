@@ -15,7 +15,7 @@ The relevant specification sections are [Date Time String Format and expanded
 years](https://tc39.es/ecma262/multipage/numbers-and-dates.html#sec-date-time-string-format)
 and [Date.parse](https://tc39.es/ecma262/multipage/numbers-and-dates.html#sec-date.parse).
 The latter describes zero-millisecond round trips through the implementation's
-own display methods; this patch implements the formats Lila actually emits.
+own display methods; this patch implements the formats Scriptw actually emits.
 It deliberately does not introduce an arbitrary permissive date parser.
 
 ## Implementation
@@ -49,7 +49,7 @@ No host import, interpreter fallback, test materialization, or suite pin changes
 The committed engine target contains twelve independently named tests:
 
 ```sh
-cargo test --locked -p lila-engine --test aot_builtins -- aot_date_parsing:: --test-threads=1
+cargo test --locked -p scriptw-engine --test aot_builtins -- aot_date_parsing:: --test-threads=1
 ```
 
 Each explicitly selects `ExecutionBackend::WasmAot` and checks the result of

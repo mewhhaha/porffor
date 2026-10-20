@@ -14,14 +14,14 @@ CACHE_TIERS = ('cranelift-functions-v1', 'wasmtime-modules-v1',
 def writable_paths(target_directory, output_directory, environment):
     """Match configured cache paths and both Python and Rust temporary roots."""
     rust_temp = Path(environment.get('TMPDIR', '/tmp'))
-    if 'LILA_CACHE_DIR' in environment:
-        cache = Path(environment['LILA_CACHE_DIR'])
+    if 'SCRIPTW_CACHE_DIR' in environment:
+        cache = Path(environment['SCRIPTW_CACHE_DIR'])
     elif 'XDG_CACHE_HOME' in environment:
-        cache = Path(environment['XDG_CACHE_HOME']) / 'lila'
+        cache = Path(environment['XDG_CACHE_HOME']) / 'scriptw'
     elif 'HOME' in environment:
-        cache = Path(environment['HOME']) / '.cache' / 'lila'
+        cache = Path(environment['HOME']) / '.cache' / 'scriptw'
     else:
-        cache = rust_temp / 'lila'
+        cache = rust_temp / 'scriptw'
     return [('cargo-target', Path(target_directory)),
             ('verification-output', Path(output_directory)),
             ('python-temporary', Path(tempfile.gettempdir())),

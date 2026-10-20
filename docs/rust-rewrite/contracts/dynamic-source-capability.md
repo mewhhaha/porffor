@@ -2,7 +2,7 @@
 
 ## Decision
 
-Lila's Wasm-AOT artifact never contains a parser, interpreter, or VM. Known
+Scriptw's Wasm-AOT artifact never contains a parser, interpreter, or VM. Known
 source candidates compile through the ordinary parser, early errors, spec IR,
 lowering and Wasm code generation. Runtime dispatch selects a prepared unit only
 when the actual intrinsic, source and execution context match. Source outside
@@ -82,7 +82,7 @@ source constancy, or a particular missing lexical environment. Its explicit
 numeric ABI is `Eval=0`, `RealmEvalScript=1`, and ordinary/generator/async/async-
 generator Function construction `=2/3/4/5`.
 
-The mandatory `lila_host.reject_runtime_semantics(i64) -> ()` import receives the
+The mandatory `scriptw_host.reject_runtime_semantics(i64) -> ()` import receives the
 closed `RuntimeSemanticRejection` wire domain. It is the sole numeric authority:
 `DynamicSource(operation)` retains codes 0–5 above; `Gap(TemporalNamedTimeZone)`
 uses code 6 and belongs to T22; `Gap(RegExpRuntimePatternCompilation)` uses code 7
@@ -217,8 +217,8 @@ call sites and the distinct already-accounted discard route.
 Focused verification commands are:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::unsupported_dynamic_source_call_structure:: --test-threads=1
-cargo test -p lila-ir dynamic_source_diagnostics_carry_closed_operation_and_requirement -- --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::unsupported_dynamic_source_call_structure:: --test-threads=1
+cargo test -p scriptw-ir dynamic_source_diagnostics_carry_closed_operation_and_requirement -- --test-threads=1
 ```
 
 Direct eval uses the original identifier call's `DirectEvalContextIr`, carried
@@ -237,8 +237,8 @@ effects, non-string passthrough and replacement receivers. These commands are
 verification obligations, not claims that a fresh run has passed:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::direct_eval_call_site_structure:: --test-threads=1
-cargo test -p lila-engine --test aot_realm_modules -- aot_direct_eval_call_identity:: --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::direct_eval_call_site_structure:: --test-threads=1
+cargo test -p scriptw-engine --test aot_realm_modules -- aot_direct_eval_call_identity:: --test-threads=1
 ```
 
 ## Proven no-source `%eval%`
@@ -356,8 +356,8 @@ replacement callable into an intrinsic or grant indirect eval a caller scope.
 Focused ownership and behavior targets are:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::forwarded_dynamic_source_call_structure:: --test-threads=1
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::forwarded_dynamic_source_call:: --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::forwarded_dynamic_source_call_structure:: --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::forwarded_dynamic_source_call:: --test-threads=1
 ```
 
 ## Current producer coverage
@@ -397,9 +397,9 @@ authority, Boolean ownership projection, wildcard or default route.
 Focused verification commands are:
 
 ```sh
-cargo test -p lila-ir --test lila_ir_integration -- ir_cases::optional_call_source_authority_structure:: --test-threads=1
-cargo test -p lila-ir no_source_eval_works_through_alias_optional_and_safe_multi_target_calls -- --test-threads=1
-cargo test -p lila-ir grouped_optional_dynamic_source_prefix_is_accounted_once -- --test-threads=1
+cargo test -p scriptw-ir --test scriptw_ir_integration -- ir_cases::optional_call_source_authority_structure:: --test-threads=1
+cargo test -p scriptw-ir no_source_eval_works_through_alias_optional_and_safe_multi_target_calls -- --test-threads=1
+cargo test -p scriptw-ir grouped_optional_dynamic_source_prefix_is_accounted_once -- --test-threads=1
 ```
 
 The recorded capability-only checkpoint passed `4/4` structure tests and

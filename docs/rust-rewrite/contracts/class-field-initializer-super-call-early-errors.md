@@ -104,7 +104,7 @@ The enum addition is compile-time owned by:
 - an interpolated duplicate-export witness proving that a user-selected export
   name containing the complete field prefix remains `ModuleDuplicateExport`.
 
-`lila-ir` adds one explicit exhaustive arm mapping the code to
+`scriptw-ir` adds one explicit exhaustive arm mapping the code to
 `IrDiagnosticKind::EarlyError`; it does not add a second message table.
 
 ## Permanent behavior matrix
@@ -193,11 +193,11 @@ initializer predicate owned here.
 The coordinated batch verifier ran:
 
 ```sh
-cargo test -p lila-front class_field_initializer_super_call -- --test-threads=1
-cargo test -p lila-front known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-front pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-ir class_field_initializer_super_call_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
-cargo test -p lila-ir rejected_class_field_super_call_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
+cargo test -p scriptw-front class_field_initializer_super_call -- --test-threads=1
+cargo test -p scriptw-front known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-front pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-ir class_field_initializer_super_call_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
+cargo test -p scriptw-ir rejected_class_field_super_call_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
 ```
 
 All five focused commands passed `1/1` at the field-lane checkpoint. `cargo fmt

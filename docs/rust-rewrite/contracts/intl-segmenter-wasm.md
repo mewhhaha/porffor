@@ -66,7 +66,7 @@ marker. Three upstream singleton `ITER` macros have the `BtreeSet` spelling
 error; ordinary pinned load macros plus explicit one-default-ID iteration
 implementations avoid expanding that arm without changing generated data.
 
-The actual service payload contains `LILASEG1`, a little-endian descriptor
+The actual service payload contains `SCRIPTWSEG1`, a little-endian descriptor
 extent, the existing 17-locale profile descriptor and the ICU blob. The shared
 component envelope binds profile, versions, marker inventory and payload
 digest. Admission requires exact equality with the build-exported pinned
@@ -203,7 +203,7 @@ The first complete all-target command exits 101. One actual source error is
 the positive-zero F64Const literal: the selected wasm-encoder 0.245.1 takes
 Ieee64. The successor adds the standard conversion without changing its bits
 or comparison semantics. Five missing-export errors come from a stale
-lila-intl artifact reused by Cargo’s relative dependency paths across source
+scriptw-intl artifact reused by Cargo’s relative dependency paths across source
 roots; the candidate already declares those exports and operations. No native
 API workaround is added. All twelve workspace packages are cleaned in the
 isolated build directory before fresh compilation, preserving third-party
@@ -289,7 +289,7 @@ and RelativeTimeFormat Engine controls. Segmenter records13 passes and one
 cross-realm failure: its raw Engine fixture calls undeclared $262.createRealm,
 so it throws ReferenceError before the first realm assertion. Test262's runner
 owns that adapter separately; direct Engine tests use the authorized
-__lilaCreateRealm intrinsic. A Root-owned Wasm-AOT diagnostic with only that
+__scriptwCreateRealm intrinsic. A Root-owned Wasm-AOT diagnostic with only that
 host call corrected passes all seven original realm/newTarget assertions.
 This successor corrects the same call in the Segmenter fixture and both
 DurationFormat fixtures that used the undeclared adapter. Every existing

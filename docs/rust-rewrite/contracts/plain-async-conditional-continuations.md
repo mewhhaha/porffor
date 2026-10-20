@@ -59,7 +59,7 @@ unchanged.
 
 ## Regression coverage and verification
 
-`lila-ir` includes three constructor tests and five lowering tests for checked
+`scriptw-ir` includes three constructor tests and five lowering tests for checked
 state ranges, empty branches, condition awaits, nested branches, sequence joins
 and rollback of unused reservations. `aot_async_if` includes 15 Wasm-AOT
 behavior tests covering both branch directions, one condition evaluation,

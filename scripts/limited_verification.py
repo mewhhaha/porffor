@@ -58,16 +58,16 @@ def cloud_module_cache_limits(cloud_budget: int) -> tuple[int, int]:
 def limited_environment(*, cloud_budget: int | None = None,
                         native_jobs: int | None = None) -> dict:
     environment = dict(os.environ)
-    environment.update(CARGO_BUILD_JOBS="1", LILA_JOBS="1",
+    environment.update(CARGO_BUILD_JOBS="1", SCRIPTW_JOBS="1",
                        RUST_TEST_THREADS="1", RAYON_NUM_THREADS="1")
     if native_jobs is not None:
         if native_jobs < 1:
             raise ValueError("native compilation jobs must be positive")
-        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+        for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
             environment[name] = str(inherited_limit(os.environ, name, native_jobs))
         # run-watched invokes capped.sh, whose local default halves affinity.
         # The cloud quota already bounded this set; retain an explicit share.
-        environment.setdefault("LILA_CPU_PERCENT", "100")
+        environment.setdefault("SCRIPTW_CPU_PERCENT", "100")
     # R's native image exceeds the local 64-MiB retention ceiling. Scale the
     # cloud cache with its inherited finite cap so repeated dynamic programs
     # remain hot without allowing retained images above one eighth of the
@@ -77,8 +77,8 @@ def limited_environment(*, cloud_budget: int | None = None,
     else:
         entries, image_bytes = cloud_module_cache_limits(cloud_budget)
     for name, ceiling in (
-        ("LILA_MODULE_MEMORY_CACHE_ENTRIES", entries),
-        ("LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES", image_bytes),
+        ("SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES", entries),
+        ("SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES", image_bytes),
     ):
         environment[name] = str(inherited_limit(environment, name, ceiling))
     return environment
@@ -160,7 +160,7 @@ def cloud_affinity(*, native_limits: bool) -> int:
             break
         group = group.parent
     if native_limits:
-        for name in ("LILA_JOBS", "RAYON_NUM_THREADS"):
+        for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
             capacity = inherited_limit(os.environ, name, capacity)
     selected = set(sorted(inherited)[:capacity])
     os.sched_setaffinity(0, selected)
@@ -217,9 +217,9 @@ def main(argv=None) -> int:
             environment = limited_environment(cloud_budget=cap, native_jobs=native_jobs)
             print(f"limited-verification: confirmed inherited cloud memory cap {cap} bytes, "
                   f"{cpus} CPU(s), serial Cargo/test defaults, "
-                  f"native compilation defaults up to {environment['LILA_JOBS']} jobs; retained module cache "
-                  f"{environment['LILA_MODULE_MEMORY_CACHE_ENTRIES']} entries / "
-                  f"{environment['LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
+                  f"native compilation defaults up to {environment['SCRIPTW_JOBS']} jobs; retained module cache "
+                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entries / "
+                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
                   file=sys.stderr, flush=True)
             os.execvpe(command[0], command, environment)
         environment = limited_environment()
@@ -227,8 +227,8 @@ def main(argv=None) -> int:
             require_kernel_budget(budget)
             print(f"limited-verification: confirmed kernel memory cap {memory_mib} MiB, "
                   "swap 0, one CPU and serial worker defaults; retained module cache "
-                  f"{environment['LILA_MODULE_MEMORY_CACHE_ENTRIES']} entry / "
-                  f"{environment['LILA_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
+                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entry / "
+                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
                   file=sys.stderr, flush=True)
             os.execvpe(command[0], command, environment)
         manager = shutil.which("systemd-run")

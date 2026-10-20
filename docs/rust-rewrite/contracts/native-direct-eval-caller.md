@@ -9,7 +9,7 @@ interpreter or VM is added to emitted Wasm.
 `DirectEvalContextIr::runtime_descriptor` projects immutable caller grammar:
 strictness, `EvalInvocationContext`, visible private spelling-to-identity
 selectors, an external derived-constructor role and an explicit caller import
-origin. Its canonical `LILADE01` codec transports compiler facts, rather than
+origin. Its canonical `SCRIPTWDE01` codec transports compiler facts, rather than
 JavaScript values or runtime references. Decoding does not grant activation or
 private-name authority. The native boundary must validate the descriptor from
 the actual immutable calling program and decode the actual runtime records.

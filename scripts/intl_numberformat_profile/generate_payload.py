@@ -209,7 +209,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    directory = STAGE / "work/crates/lila-intl/data/number-cldr-47"
+    directory = STAGE / "work/crates/scriptw-intl/data/number-cldr-47"
     canonical_bytes = (directory / "profiles.json.gz").read_bytes()
     profile = json.loads(gzip.decompress(canonical_bytes))
     if not profile["complete"]:
@@ -234,11 +234,11 @@ def main():
     ordinal_rows = [f'    ({g["rule"]}, "{s["spelling"]}", CardinalCategory::{s["category"].title()}),' for g in ordinal_samples for s in g["samples"]]
     ordinal_source = "// Generated pinned CLDR47 ordinal-rule sample endpoints.\nuse super::CardinalCategory;\npub(super) const ORDINAL_SAMPLES: &[(usize, &str, CardinalCategory)] = &[\n" + "\n".join(ordinal_rows) + "\n];\n"
     products = {
-        STAGE / "work/crates/lila-intl/src/number_format/tests/ordinal_samples.rs": ordinal_source.encode(),
+        STAGE / "work/crates/scriptw-intl/src/number_format/tests/ordinal_samples.rs": ordinal_source.encode(),
         directory / "profiles.bin": payload,
-        STAGE / "work/crates/lila-intl/src/number_format/tests/plural_samples.rs": sample_source.encode(),
+        STAGE / "work/crates/scriptw-intl/src/number_format/tests/plural_samples.rs": sample_source.encode(),
         directory / "payload-manifest.json": (json.dumps({"schema": 1, "canonical_sha256": hashlib.sha256(gzip.decompress(canonical_bytes)).hexdigest(), "payload_sha256": digest, "payload_bytes": len(payload), "locales": len(profile["locales"]), "numbering_systems": len(profile["numbering_systems"]), "numbering_supplement": profile["numbering_supplement"]}, indent=2) + "\n").encode(),
-        STAGE / "work/crates/lila-intl/src/number_format/profiles/fingerprint.rs": (
+        STAGE / "work/crates/scriptw-intl/src/number_format/profiles/fingerprint.rs": (
             "// Generated from CLDR47 with checked CLDR48/UCD17 tols supplement; scripts/generate-intl-numberformat-profile.py.\n"
             f'pub const NUMBER_FORMAT_DATA_SHA256: &str =\n    "{digest}";\n'
             f'pub(crate) const NUMBERING_SUPPLEMENT_PROVENANCE: &str =\n    "{provenance_line}";\n'

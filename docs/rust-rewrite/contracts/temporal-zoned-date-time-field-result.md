@@ -82,11 +82,11 @@ That version had twelve producers, 15 source-wide result identifiers, ten
 qualified `NumberOnStack` routes and four qualified `WrittenByCallee` routes.
 
 ```sh
-cargo test -p lila-aot-wasm \
+cargo test -p scriptw-aot-wasm \
   --test temporal_zoned_date_time_field_result_structure -- --test-threads=1
-cargo test -p lila-aot-wasm --test intl_temporal -- \
+cargo test -p scriptw-aot-wasm --test intl_temporal -- \
   temporal_zoned_date_time_calendar_coercion_structure:: --test-threads=1
-cargo test -p lila-cli --test cli -- \
+cargo test -p scriptw-cli --test cli -- \
   --exact date::run_wasm_backend_succeeds_for_temporal_zoned_date_time_era_fixture
 ```
 

@@ -202,7 +202,7 @@ exists only so the harness can store a valid function value, not as support.
 `HostSurfacePolicy` is now the authority over those classifications. Product
 compilation, including the CLI/default engine path, admits ECMAScript globals
 and the deliberate `print`/`gc` extensions but does not resolve Test262-only
-`__lila*` globals. The Test262 harness opts in explicitly, the policy is part
+`__scriptw*` globals. The Test262 harness opts in explicitly, the policy is part
 of the whole-program cache key, every IR lowering entry point receives it, and
 agent workers inherit the root compilation's policy. The focused authority
 acceptance requirement is therefore closed. CLI conformance fixtures use the
@@ -846,13 +846,13 @@ Generate a test that fails when Test262 references a known standard global absen
 ## Required tests
 
 ```sh
-cargo test -p lila-ir annex_b --quiet
-cargo test -p lila-aot-wasm error_ --quiet
-cargo test -p lila-aot-wasm global_ --quiet
-cargo test -p lila-cli wasm_error --quiet
-./target/debug/lila test262 run built-ins/Error --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/AggregateError --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run annexB --execution-backend wasm --timeout-ms 180000 --threads 4
+cargo test -p scriptw-ir annex_b --quiet
+cargo test -p scriptw-aot-wasm error_ --quiet
+cargo test -p scriptw-aot-wasm global_ --quiet
+cargo test -p scriptw-cli wasm_error --quiet
+./target/debug/scriptw test262 run built-ins/Error --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/AggregateError --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run annexB --execution-backend wasm --timeout-ms 180000 --threads 4
 ```
 
 Also run URI/global-value/global-function filters, SuppressedError, AbstractModuleSource and IsHTMLDDA-focused cases.
@@ -862,7 +862,7 @@ one private exhaustive projection derives `EveryRealm` for ECMAScript globals
 and `EntryRealmOnly` for product extensions and Test262 capabilities. Exposure
 and realm scope can therefore no longer contradict each other in a catalog
 row. `host_builtin_surface_domain_structure` passes `3/3`, both focused
-`lila-ir` catalog/policy tests pass `1/1`, and the existing Wasm created-realm
+`scriptw-ir` catalog/policy tests pass `1/1`, and the existing Wasm created-realm
 builtin-function-prototype CLI witness passes `1/1`. The shared workspace
 compile and every repository policy gate pass, and all 648 Wasm-golden
 artifacts are byte-identical to the post-Iterator baseline. No broader

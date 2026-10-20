@@ -46,8 +46,8 @@ identifies the exact failed mapping.
 ## Focused verification
 
 ```sh
-cargo test -p lila-aot-wasm --test intl_temporal -- temporal_plain_arithmetic_operation_structure::
-cargo test -p lila-cli --test cli date::run_wasm_backend_distinguishes_plain_temporal_add_and_subtract -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test intl_temporal -- temporal_plain_arithmetic_operation_structure::
+cargo test -p scriptw-cli --test cli date::run_wasm_backend_distinguishes_plain_temporal_add_and_subtract -- --exact --test-threads=1
 cargo fmt --all -- --check
 git diff --check
 ```

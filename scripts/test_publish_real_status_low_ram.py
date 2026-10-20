@@ -23,7 +23,7 @@ import sys
 
 root = Path(os.environ["FAKE_ROOT"])
 config = json.loads((root / "config.json").read_text())
-compiler = {"source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+compiler = {"source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
             "source_fingerprint": "a" * 64,
             "source_revision": {"kind": "unversioned-archive"},
             "executable_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
@@ -37,7 +37,7 @@ index = state.get(command, 0)
 state[command] = index + 1
 state_path.write_text(json.dumps(state))
 with (root / "calls.jsonl").open("a") as log:
-    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("ISOLATE_CASES"), "disable_child": os.environ.get("LILA_TEST262_DISABLE_CASE_RUNNER")}) + "\n")
+    log.write(json.dumps({"args": sys.argv[1:], "isolation": os.environ.get("ISOLATE_CASES"), "disable_child": os.environ.get("SCRIPTW_TEST262_DISABLE_CASE_RUNNER")}) + "\n")
 if index > 3:
     print("fake CLI safety limit: wrapper kept retrying", file=sys.stderr)
     sys.exit(86)
@@ -54,7 +54,7 @@ if mutation.get("command") == command:
         with (root / "repo/scripts/publish-real-status-low-ram.sh").open("a") as source:
             source.write("\n# changed source bytes without moving HEAD\n")
     elif mutation["kind"] == "manifest":
-        Path(os.environ["LILA_PUBLICATION_MANIFEST"]).unlink()
+        Path(os.environ["SCRIPTW_PUBLICATION_MANIFEST"]).unlink()
     elif mutation["kind"] == "source":
         subprocess.run(["git", "-C", str(root / "repo"), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "move source"], check=True)
 if command == "progress-status":
@@ -75,7 +75,7 @@ sys.exit(config.get(command + "_exit", 0))
 
 class PublicationDriverTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="lila publication ")
+        self.temp = tempfile.TemporaryDirectory(prefix="scriptw publication ")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.repo = self.root / "repo"
@@ -91,15 +91,15 @@ class PublicationDriverTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
         self.source = subprocess.check_output(["git", "-C", str(self.repo), "rev-parse", "HEAD"], text=True).strip()
-        self.binary = self.root / "fake lila"
+        self.binary = self.root / "fake scriptw"
         self.binary.write_text(FAKE_CLI)
         self.binary.chmod(0o755)
         self.digest = hashlib.sha256(self.binary.read_bytes()).hexdigest()
         self.env = os.environ.copy()
-        self.env.pop("LILA_TEST262_FORCE_CASE_RUNNER", None)
+        self.env.pop("SCRIPTW_TEST262_FORCE_CASE_RUNNER", None)
         self.env.update({
             "FAKE_ROOT": str(self.root),
-            "LILA_BIN": str(self.binary),
+            "SCRIPTW_BIN": str(self.binary),
             "SUITE_ROOT": str(self.root / "suite root"),
             "SNAPSHOT_DIR": str(self.root / "snapshots"),
             "THREADS": "1", "JOBS": "1", "MAX_MATRIX_NODES": "1",
@@ -298,7 +298,7 @@ class PublicationDriverTests(unittest.TestCase):
                     self.assertEqual(self.calls("report-all"), [])
 
     def test_other_status_fields_and_stderr_are_preserved(self):
-        result = self.run_driver([{"raw": "producer: lila\nmatrix_nodes_completed: 1\nmatrix_nodes_total: 1\npassed: 0", "stderr": "retained diagnostic"}])
+        result = self.run_driver([{"raw": "producer: scriptw\nmatrix_nodes_completed: 1\nmatrix_nodes_total: 1\npassed: 0", "stderr": "retained diagnostic"}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("retained diagnostic", result.stderr)
         self.assertEqual(len(self.calls("publish-status")), 1)
@@ -368,7 +368,7 @@ class PublicationDriverTests(unittest.TestCase):
         self.assertEqual(identity["checkout_commit"], self.source)
         self.assertEqual(identity["executable_sha256"], self.digest)
         self.assertEqual(identity["compiler_identity"], {
-            "source_fingerprint_scheme": "lila-program-cache-compiler-v3",
+            "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
             "source_fingerprint": "a" * 64,
             "source_revision": {"kind": "unversioned-archive"},
             "executable_sha256": self.digest,
@@ -484,12 +484,12 @@ class PublicationDriverTests(unittest.TestCase):
         self.assertFalse(self.manifest_path().exists())
 
     def test_legacy_force_flag_cannot_authorize_disabled_isolation(self):
-        result = self.run_driver([], env={"ISOLATE_CASES": "0", "LILA_TEST262_FORCE_CASE_RUNNER": "1"})
+        result = self.run_driver([], env={"ISOLATE_CASES": "0", "SCRIPTW_TEST262_FORCE_CASE_RUNNER": "1"})
         self.assert_failure(result, "case supervision is mandatory")
         self.assertEqual(self.calls(), [])
 
     def test_enabled_isolation_clears_the_child_recursion_guard(self):
-        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "1", "LILA_TEST262_DISABLE_CASE_RUNNER": "0"})
+        result = self.run_driver([{"completed": 1, "total": 1}], env={"ISOLATE_CASES": "1", "SCRIPTW_TEST262_DISABLE_CASE_RUNNER": "0"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(all(call["isolation"] == "1" and call["disable_child"] is None for call in self.calls()))
 

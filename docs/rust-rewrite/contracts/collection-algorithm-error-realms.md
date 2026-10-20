@@ -43,7 +43,7 @@ The realm correction does not move any check. Each constructor still observes
 `NewTarget`, the adder, the iterable method, the returned iterator, `next`,
 each iterator result and (for Map/WeakMap) each entry in the existing order.
 User-code throws from property lookup or calls continue to propagate before a
-Lila-created algorithm TypeError. Iterator closing behavior is unchanged.
+Scriptw-created algorithm TypeError. Iterator closing behavior is unchanged.
 
 ## Durable evidence
 
@@ -51,7 +51,7 @@ The focused Wasm fixture borrows the created Realm's Map and Set constructors
 and both `forEach` methods. It covers every constructor failure stage across
 the Map and Set algorithms, the Map-only non-object entry failure, both
 requires-new identities, both `forEach` checks, and an abrupt getter control.
-Every Lila-created failure must inherit from the borrowed builtin Realm's
+Every Scriptw-created failure must inherit from the borrowed builtin Realm's
 `TypeError.prototype` and not the entry Realm's. The source-structure evidence
 also pins that the WeakMap and WeakSet wrappers delegate to those same closed
 constructor bodies.

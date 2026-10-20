@@ -165,7 +165,7 @@ class NativePartitionProofTests(unittest.TestCase):
             paths = []
             labels = {}
             for parent in ('default-run', 'all-features-run'):
-                output = base / parent / '0049-lila-cli-cli-partitions'
+                output = base / parent / '0049-scriptw-cli-cli-partitions'
                 for index in range(4):
                     scope = dict(NAMESPACE, args=type('Arguments', (), {
                         'output': output, 'stall_seconds': 3600,
@@ -180,7 +180,7 @@ class NativePartitionProofTests(unittest.TestCase):
                     paths.append(transcript)
                     labels[(parent, index)] = label
             self.assertEqual(len(set(paths)), 8, 'Fresh run owners must not overwrite prior transcripts')
-            output = base / 'default-run' / '0049-lila-cli-cli-partitions'
+            output = base / 'default-run' / '0049-scriptw-cli-cli-partitions'
             alias = output / '..' / output.name
             self.assertEqual(NAMESPACE['partition_label'](alias, 0), labels[('default-run', 0)])
             self.assertEqual(NAMESPACE['partition_label'](output, 0), labels[('default-run', 0)])
@@ -200,15 +200,15 @@ class NativePartitionProofTests(unittest.TestCase):
         checks = [node for node in checks if 'args.qualified_target' in ast.unparse(node)
                   or 'stock_stall' in ast.unparse(node)
                   or 'separator' in ast.unparse(node)]
-        for qualified, requested, expected in [('lila-cli:cli', None, 3600),
-                                                ('lila-engine:aot_intl', None, 900),
-                                                ('lila-engine:aot_intl', 900, 900)]:
+        for qualified, requested, expected in [('scriptw-cli:cli', None, 3600),
+                                                ('scriptw-engine:aot_intl', None, 900),
+                                                ('scriptw-engine:aot_intl', 900, 900)]:
             args = type('Arguments', (), {'qualified_target': qualified,
                                          'stall_seconds': requested})()
-            scope = {'args': args, 'native_stall_seconds': lambda package: 3600 if package == 'lila-cli' else 900}
+            scope = {'args': args, 'native_stall_seconds': lambda package: 3600 if package == 'scriptw-cli' else 900}
             exec(compile(ast.Module(body=checks, type_ignores=[]), str(SOURCE), 'exec'), scope)
             self.assertEqual(args.stall_seconds, expected)
-        args = type('Arguments', (), {'qualified_target': 'lila-engine:aot_intl',
+        args = type('Arguments', (), {'qualified_target': 'scriptw-engine:aot_intl',
                                      'stall_seconds': 3600})()
         with self.assertRaises(AssertionError):
             exec(compile(ast.Module(body=checks, type_ignores=[]), str(SOURCE), 'exec'),

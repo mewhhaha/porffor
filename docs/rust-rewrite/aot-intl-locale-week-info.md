@@ -46,10 +46,10 @@ remain required:
 
 ```sh
 cargo xc --offline --locked
-cargo test --offline --locked -p lila-intl --lib provider::locale_week::
-cargo test --offline --locked -p lila-intl --lib locale_week_wire::
-cargo test --offline --locked -p lila-engine --test aot_intl -- aot_intl_locale_week_info:: --test-threads=2
-cargo test --offline --locked -p lila-aot-wasm --test intl_temporal -- intl_namespace_plan_structure::
+cargo test --offline --locked -p scriptw-intl --lib provider::locale_week::
+cargo test --offline --locked -p scriptw-intl --lib locale_week_wire::
+cargo test --offline --locked -p scriptw-engine --test aot_intl -- aot_intl_locale_week_info:: --test-threads=2
+cargo test --offline --locked -p scriptw-aot-wasm --test intl_temporal -- intl_namespace_plan_structure::
 ```
 
 The Engine file runs each semantic control in both Script modes. Receiver

@@ -59,10 +59,10 @@ collector execution. It does not implement weak clearing or make current weak
 records weak in practice.
 
 ```sh
-cargo test -p lila-aot-wasm --test weak_set_record_heap_slot_structure
-cargo test -p lila-aot-wasm --lib heap::tests::weak_set_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_has_no_slot_collisions -- --exact --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_weak_set_record_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/weak_set_record_heap_slot_structure.rs
+cargo test -p scriptw-aot-wasm --test weak_set_record_heap_slot_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::weak_set_record_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_has_no_slot_collisions -- --exact --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_weak_set_record_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/weak_set_record_heap_slot_structure.rs
 git diff --check
 ```
 

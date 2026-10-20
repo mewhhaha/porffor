@@ -58,7 +58,7 @@ The structure target passes `4/4`, both exact CLI witnesses pass `1/1`, and the
 exact phase unit passes `1/1`. The unit now reads the active
 `builtins/errors/prototype_to_string.rs` module together with its neighboring
 parent only to retain the existing closing marker; the active module split is
-unchanged. The scoped `cargo fmt -p lila-aot-wasm -- --check` and owned-file
+unchanged. The scoped `cargo fmt -p scriptw-aot-wasm -- --check` and owned-file
 `git diff --check` both pass.
 
 Independent review is clean after the guard was strengthened to include the

@@ -44,10 +44,10 @@ constructor-prototype fallback and defining-Realm TypeError ownership. It does
 not make the collector's weak and ephemeron metadata executable.
 
 The entry-Realm algorithms remain in
-`crates/lila-aot-wasm/src/builtins/collections.rs`, and their entry-Realm
-properties remain in `crates/lila-aot-wasm/src/intrinsics/collections.rs`.
+`crates/scriptw-aot-wasm/src/builtins/collections.rs`, and their entry-Realm
+properties remain in `crates/scriptw-aot-wasm/src/intrinsics/collections.rs`.
 Created-Realm ownership lives in the private
-`crates/lila-aot-wasm/src/builtins/host/created_realm_weak_collection_intrinsics.rs`
+`crates/scriptw-aot-wasm/src/builtins/host/created_realm_weak_collection_intrinsics.rs`
 child.
 
 ## Publication lifecycle
@@ -112,12 +112,12 @@ are overwritten.
 
 ## Evidence
 
-`crates/lila-aot-wasm/tests/modules_realms/created_realm_weak_collection_publication_structure.rs`
+`crates/scriptw-aot-wasm/tests/modules_realms/created_realm_weak_collection_publication_structure.rs`
 pins the one-shot token, both Realm-slot writes, typed tag authority, method
 parity with entry installers, constructor-first key order, internal and parent
 LIFO lifecycles, and the filtered global catalog order. It passes `6/6`.
 
-`crates/lila-cli/tests/fixtures/wasm_weak_collections_created_realm.js` is the
+`crates/scriptw-cli/tests/fixtures/wasm_weak_collections_created_realm.js` is the
 source-free runtime witness. It covers fresh identities, parent prototypes,
 descriptors, all method names and lengths, constructability, iterable
 construction, core operations, bidirectional method borrowing, six
@@ -145,21 +145,21 @@ Wasm-AOT executions with every failure and non-success bucket at zero:
 - `built-ins/WeakSet/prototype-of-weakset.js`; and
 - `built-ins/WeakSet/properties-of-the-weakset-prototype-object.js`.
 
-`cargo xc` is green. The broad `lila-aot-wasm` library target remains
+`cargo xc` is green. The broad `scriptw-aot-wasm` library target remains
 `367/374`; its seven failures are the unchanged runtime-message ordering,
 async-resume ownership, Promise-state ownership, suspending async-generator,
 static-planning and string/RegExp layout baseline failures. No failure belongs
 to this boundary. Formatting, diff hygiene, task-plan, README-status and
 Test262-host-ABI checks are green. The module-boundary check remains red only
-at the pre-existing raw-line caps for `lila-ir/src/builtins.rs` (`1769 > 1760`)
-and `lila-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`); neither file is
+at the pre-existing raw-line caps for `scriptw-ir/src/builtins.rs` (`1769 > 1760`)
+and `scriptw-ir/src/lowering/builtin_call_info.rs` (`2291 > 2250`); neither file is
 part of this boundary.
 
 The focused verification commands are:
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms -- created_realm_weak_collection_publication_structure::
-cargo test -p lila-cli --test cli \
+cargo test -p scriptw-aot-wasm --test modules_realms -- created_realm_weak_collection_publication_structure::
+cargo test -p scriptw-cli --test cli \
   iterator::run_wasm_backend_succeeds_for_created_realm_weak_collection_publication \
   -- --exact
 ```

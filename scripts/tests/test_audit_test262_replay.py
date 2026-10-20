@@ -64,7 +64,7 @@ class ReplayAuditTests(unittest.TestCase):
                 f"  {name}: {int(name == outcome)}\n" for name in OUTCOMES))
             failure = {"test_id": execution, "test_path": "case.js", "outcome": outcome, "kind": "Runtime"}
             snapshot = {
-                "producer": "lila", "execution_backend": "wasm-aot", "run_kind": "full",
+                "producer": "scriptw", "execution_backend": "wasm-aot", "run_kind": "full",
                 "pinned_revisions": {"test262": self.pin}, "manifest_hash": index + 1,
                 "total": 1, "passed": int(outcome == "Success"), "completed_test_ids": [execution],
                 "counts_per_outcome": {name: int(name == outcome) for name in OUTCOMES},

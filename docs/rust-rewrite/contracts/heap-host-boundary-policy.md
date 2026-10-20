@@ -46,11 +46,11 @@ introduce a durable pointer, establish executable roots, change emitted Wasm or
 make the collector executable.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_host_boundary_structure
-cargo test -p lila-aot-wasm --test heap_root_source_structure
-cargo test -p lila-aot-wasm --test heap_collector_phase_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_host_boundary_is_call_scoped_and_transiently_rooted -- --exact --test-threads=1
-cargo check -p lila-aot-wasm --lib
+cargo test -p scriptw-aot-wasm --test heap_host_boundary_structure
+cargo test -p scriptw-aot-wasm --test heap_root_source_structure
+cargo test -p scriptw-aot-wasm --test heap_collector_phase_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_host_boundary_is_call_scoped_and_transiently_rooted -- --exact --test-threads=1
+cargo check -p scriptw-aot-wasm --lib
 git diff --check
 ```
 

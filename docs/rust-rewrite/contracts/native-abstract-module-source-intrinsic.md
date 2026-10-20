@@ -8,7 +8,7 @@ language fixtures require host errors for missing targets. Those existing
 loading, linking and dynamic source rejection owners remain authoritative.
 
 The [Source Phase Imports draft](https://tc39.es/proposal-source-phase-imports/)
-defines a Realm intrinsic with no global name. Lila now represents its
+defines a Realm intrinsic with no global name. Scriptw now represents its
 constructor with the existing native FunctionObject/FunctionContext and its
 ordinary prototype with the same semantic GC object model. Two closed Realm
 intrinsic slots cache those identities. Real bootstrap installs the native
@@ -16,7 +16,7 @@ constructor, complete common descriptors and the native tag getter before
 publishing a Realm. The typed Standard catalogue records both bodies, their
 native names, zero lengths and the constructor's unconditional throw.
 
-The Test262-only `__lilaGetAbstractModuleSource` capability retrieves that
+The Test262-only `__scriptwGetAbstractModuleSource` capability retrieves that
 cached constructor from its own function's defining Realm. The harness no
 longer substitutes a JavaScript class. Created Realm hooks and their returned
 facade retain that Realm's own constructor. Ordinary Call and Construct throw

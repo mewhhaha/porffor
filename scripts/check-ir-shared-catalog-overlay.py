@@ -20,8 +20,8 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
     def need(value, message):
         if not value:
             errors.append(message)
-    prefix = 'crates/lila-ir/src/lowering/'
-    lowering = source('crates/lila-ir/src/lowering.rs')
+    prefix = 'crates/scriptw-ir/src/lowering/'
+    lowering = source('crates/scriptw-ir/src/lowering.rs')
     catalog = source(prefix + 'builtin_catalog.rs')
     overlay = source(prefix + 'catalog_overlay.rs')
     flow = source(prefix + 'conditional_flow.rs')
@@ -71,7 +71,7 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
          and 'signature.has_live_shape_roots()' in lowering
          and 'self.function_signatures.values_mut()' not in lowering,
          'shape invalidation must own only typed present roots')
-    need('#[path = "aot_native_program_templates/catalog_overlays.rs"]\nmod catalog_overlays;' in source('crates/lila-engine/tests/aot_native_program_templates.rs'),
+    need('#[path = "aot_native_program_templates/catalog_overlays.rs"]\nmod catalog_overlays;' in source('crates/scriptw-engine/tests/aot_native_program_templates.rs'),
          'exact existing integration target must own the catalog controls')
     for path, name in [
         (prefix + 'catalog_overlay/tests.rs', 'untouched_catalog_and_prepass_forks_never_clone_recipe_values'),
@@ -79,8 +79,8 @@ def check(root: Path, overrides: dict | None = None) -> list[str]:
         (prefix + 'catalog_overlay/tests/changed_facts.rs', 'changed_facts_share_until_mutated_and_replacement_preserves_previous_values'),
         (prefix + 'builtin_catalog/flow_tests.rs', 'global_branch_join_retains_shadowing_tombstones_and_intersection_presence'),
         (prefix + 'builtin_catalog/flow_tests.rs', 'present_shape_invalidation_owns_only_live_rows_and_preserves_fresh_returns'),
-        ('crates/lila-engine/tests/aot_native_program_templates/catalog_overlays.rs', 'native_catalog_overlays_preserve_shadowing_alias_writes_and_branch_joins'),
-        ('crates/lila-engine/tests/aot_native_program_templates/catalog_overlays.rs', 'native_catalog_changes_do_not_escape_into_a_later_unseen_source'),
+        ('crates/scriptw-engine/tests/aot_native_program_templates/catalog_overlays.rs', 'native_catalog_overlays_preserve_shadowing_alias_writes_and_branch_joins'),
+        ('crates/scriptw-engine/tests/aot_native_program_templates/catalog_overlays.rs', 'native_catalog_changes_do_not_escape_into_a_later_unseen_source'),
     ]:
         need('fn ' + name + '()' in source(path), 'missing semantic control: ' + name)
     return errors

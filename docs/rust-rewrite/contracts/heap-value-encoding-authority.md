@@ -42,11 +42,11 @@ value ABI, heap allocation, Number execution, BigInt execution or emitted Wasm.
 It does not claim the BigInt storage gap is closed.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_value_encoding_structure
-cargo test -p lila-aot-wasm --test heap_collector_phase_structure
-cargo test -p lila-aot-wasm --test heap_host_boundary_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_value_encoding_registry_covers_ecmascript_language_types -- --exact --test-threads=1
-cargo check -p lila-aot-wasm --lib
+cargo test -p scriptw-aot-wasm --test heap_value_encoding_structure
+cargo test -p scriptw-aot-wasm --test heap_collector_phase_structure
+cargo test -p scriptw-aot-wasm --test heap_host_boundary_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_value_encoding_registry_covers_ecmascript_language_types -- --exact --test-threads=1
+cargo check -p scriptw-aot-wasm --lib
 git diff --check
 ```
 

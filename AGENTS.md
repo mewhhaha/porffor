@@ -2,16 +2,16 @@
 
 ## Project Direction
 
-- Lila is a greenfield Rust rewrite until 1.0. Optimize for the future Rust library, CLI, compiler architecture, and conformance story.
+- Scriptw is a greenfield Rust rewrite until 1.0. Optimize for the future Rust library, CLI, compiler architecture, and conformance story.
 - Do not preserve legacy internals, APIs, file layouts, or behavior merely for compatibility. The retired JavaScript implementation exists only in Git history at the recovery commit recorded by T28; it is neither a development surface nor an oracle.
 - Breaking changes are acceptable and expected before 1.0 when they move the project toward the correct compiler architecture or better ECMAScript/Test262 conformance.
 - Prefer deleting or replacing legacy-shaped code over layering compatibility shims, unless a shim is the smallest temporary step toward the Rust compiler path.
 
 ## Core Goal
 
-- Rewrite Lila fully in Rust as a library and CLI.
+- Rewrite Scriptw fully in Rust as a library and CLI.
 - Wasm is the sole product compilation target. C output, native JavaScript output and a REPL are outside project scope; do not implement them or count them as remaining acceptance work.
-- Lila must compile JavaScript itself to Wasm. It must not ship a JavaScript interpreter or VM compiled to Wasm as the execution strategy.
+- Scriptw must compile JavaScript itself to Wasm. It must not ship a JavaScript interpreter or VM compiled to Wasm as the execution strategy.
 - The target is literal 100% ECMAScript and Test262 conformance, with no spec cheats, no silent skips, and no regressions.
 
 ## Compiler Contract
@@ -27,7 +27,7 @@
 - Treat experimental Wasmtime as the lower-bound execution target for backend feature planning unless a task explicitly names a narrower runtime.
 - Treat that lower bound as a required backend capability set, not an optional optimization tier. Backend code may assume those features exist by default.
 - Design from that lower bound upward: absence of a lower-bound feature such as Wasm GC is a runtime rejection condition, not a requirement to implement a compatibility backend or fallback representation.
-- This means Lila may rely on Wasmtime-gated Wasm features when they materially improve the compiler architecture or ECMAScript correctness, including Wasm GC, exception handling with `exnref`, typed function references, reference types, and related GC/reference-heavy infrastructure.
+- This means Scriptw may rely on Wasmtime-gated Wasm features when they materially improve the compiler architecture or ECMAScript correctness, including Wasm GC, exception handling with `exnref`, typed function references, reference types, and related GC/reference-heavy infrastructure.
 - Do not add complex fallback implementations merely to support runtimes without those lower-bound features. If a backend design is clean with Wasm GC, typed function references, or `exnref`, prefer that design over maintaining a non-GC/non-reference fallback path, and treat non-GC runtimes as outside this backend target unless a task explicitly changes the target.
 - Do not build or preserve a second object model, closure representation, exception mechanism, memory layout, or compiler backend solely for engines that lack the experimental Wasmtime lower-bound feature set.
 - Treat missing Wasm GC support as an unsupported runtime capability gap for this backend, not as a reason to add a parallel manual heap/object model solely for compatibility.
@@ -90,15 +90,15 @@ and a plain function is better.
 - Keep `README.md` current when work changes user-visible capabilities, conformance, CLI behavior, architecture, or development workflow.
 - If fake suite counts, wasm-safe subset counts, pinned real Test262 status, or major green/red milestones change, update the README status block in the same patch.
 - The README status block must include refresh commands, exact counts, and the refresh date when changed.
-- Use `./target/debug/lila test262 publish-status --execution-backend <spec-exec|wasm-aot>` or equivalent `cargo run -p lila-cli -- test262 publish-status ...` to refresh pinned real-suite artifacts and the README block. Do not hand-edit status numbers.
+- Use `./target/debug/scriptw test262 publish-status --execution-backend <spec-exec|wasm-aot>` or equivalent `cargo run -p scriptw-cli -- test262 publish-status ...` to refresh pinned real-suite artifacts and the README block. Do not hand-edit status numbers.
 - For low-RAM real-suite refreshes, use `./scripts/publish-real-status-low-ram.sh <spec-exec|wasm-aot> <snapshot-name>` so the top-level matrix checkpoints one node per process, then publishes the README only after verified completion.
 
 ## Workspace Map
 
 - Rust workspace: `crates/`
-- Public library face: `crates/lila-engine`
-- Clean-break CLI face: `crates/lila-cli` and the `lila` command
-- Conformance taxonomy and harness rewrite: `crates/lila-test262`
+- Public library face: `crates/scriptw-engine`
+- Clean-break CLI face: `crates/scriptw-cli` and the `scriptw` command
+- Conformance taxonomy and harness rewrite: `crates/scriptw-test262`
 
 ## Legacy Retirement Boundary
 
@@ -113,7 +113,7 @@ and a plain function is better.
   implementation. Do not add an archive copy to the working tree.
 - T29's coordinated identity cutover is complete for current product surfaces.
   Keep all Rust packages, commands, configuration, caches and host interfaces
-  under the canonical Lila identity.
+  under the canonical Scriptw identity.
 
 ## Hard Bans
 

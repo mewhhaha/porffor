@@ -51,10 +51,10 @@ change emitted Wasm. The existing semantic unit witnesses continue to verify
 the iterator, zip-state and concat-state GC-edge classifications.
 
 ```sh
-cargo test -p lila-aot-wasm --test heap_named_slot_storage_structure
-cargo test -p lila-aot-wasm --lib heap::tests::heap_named_slot_registry_marks_iterator_references -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::iterator_zip_state_slots_have_expected_gc_edges -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::iterator_concat_state_slots_have_expected_gc_edges -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --test heap_named_slot_storage_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_named_slot_registry_marks_iterator_references -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::iterator_zip_state_slots_have_expected_gc_edges -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::iterator_concat_state_slots_have_expected_gc_edges -- --exact --test-threads=1
 git diff --check
 ```
 

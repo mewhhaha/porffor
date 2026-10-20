@@ -42,7 +42,7 @@ lowered IR: every removed specialization lacked a product root, and every
 removed field lacked a read. It adds no Test262 materialization, capability
 claim or published count.
 
-At the Batch BW checkpoint, `cargo xc` is green with no `lila-ir` or
-`lila-aot-wasm` warnings, the focused absence target passes `3/3`, and the
+At the Batch BW checkpoint, `cargo xc` is green with no `scriptw-ir` or
+`scriptw-aot-wasm` warnings, the focused absence target passes `3/3`, and the
 retained generator-expression, class-field and regexp-literal units pass
 `3/3`.

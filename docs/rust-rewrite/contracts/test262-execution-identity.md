@@ -26,8 +26,8 @@ matches all six valid mode combinations explicitly after rejecting conflicting
 strictness flags.
 
 ```console
-cargo test -p lila-test262 --test execution_identity_structure
-cargo test -p lila-test262 tests::execution_plan_exhaustively_maps_valid_flags_and_rejects_conflicts -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test execution_identity_structure
+cargo test -p scriptw-test262 tests::execution_plan_exhaustively_maps_valid_flags_and_rejects_conflicts -- --exact --test-threads=1
 ```
 
 The execution-identity structure target passes `4/4`, and the exact flag-plan
@@ -139,9 +139,9 @@ checkpoint, single-case child and completed matrix node. The change preserves
 the existing set comparisons, error text and validation order.
 
 ```console
-cargo test -p lila-test262 --test case_set_requirement_structure -- --test-threads=1
-cargo test -p lila-test262 --lib tests::direct_terminal_and_checkpoint_identity_are_exactly_bound -- --exact --test-threads=1
-cargo test -p lila-test262 --lib tests::case_evidence_contract_rejects_nested_failure_timeout_and_slow_id_drift -- --exact --test-threads=1
+cargo test -p scriptw-test262 --test case_set_requirement_structure -- --test-threads=1
+cargo test -p scriptw-test262 --lib tests::direct_terminal_and_checkpoint_identity_are_exactly_bound -- --exact --test-threads=1
+cargo test -p scriptw-test262 --lib tests::case_evidence_contract_rejects_nested_failure_timeout_and_slow_id_drift -- --exact --test-threads=1
 ```
 
 The focused structure target passes `4/4`, and both exact ownership and

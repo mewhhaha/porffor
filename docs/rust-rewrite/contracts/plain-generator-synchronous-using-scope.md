@@ -124,7 +124,7 @@ No consumer may reuse ordinary temporary locals for the generator capability.
 
 ## Focused invariants and verification
 
-Durable `lila-ir` coverage pins that:
+Durable `scriptw-ir` coverage pins that:
 
 - a plain-generator scope has the `PlainGenerator` owner;
 - its private capability name appears exactly once in the function's owned
@@ -138,10 +138,10 @@ Central integration owns compilation and runtime execution:
 
 ```sh
 cargo fmt --all -- --check
-cargo check -p lila-ir
-cargo check -p lila-aot-wasm --lib
-cargo test -p lila-ir plain_generator_synchronous_using --quiet
-./target/debug/lila test262 run \
+cargo check -p scriptw-ir
+cargo check -p scriptw-aot-wasm --lib
+cargo test -p scriptw-ir plain_generator_synchronous_using --quiet
+./target/debug/scriptw test262 run \
   language/statements/using/initializer-disposed-at-end-of-generatorbody.js \
   --suite-root test262/vendor/test262 \
   --execution-backend wasm-aot --timeout-ms 60000 --threads 1

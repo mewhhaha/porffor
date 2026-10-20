@@ -57,12 +57,12 @@ cell-state admission, weak reachability, cleanup scheduling, emitted Wasm or
 collector execution.
 
 ```sh
-cargo test -p lila-aot-wasm --test finalization_registry_cell_heap_slot_structure
-cargo test -p lila-aot-wasm --test finalization_registry_cell_state_structure
-cargo test -p lila-aot-wasm --lib heap::tests::finalization_registry_cell_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::finalization_registry_cells_keep_only_holdings_strongly_reachable -- --exact --test-threads=1
-cargo test -p lila-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
-rustfmt --check crates/lila-aot-wasm/src/heap_finalization_registry_cell_layout.rs crates/lila-aot-wasm/src/heap.rs crates/lila-aot-wasm/tests/finalization_registry_cell_heap_slot_structure.rs crates/lila-aot-wasm/tests/finalization_registry_cell_state_structure.rs
+cargo test -p scriptw-aot-wasm --test finalization_registry_cell_heap_slot_structure
+cargo test -p scriptw-aot-wasm --test finalization_registry_cell_state_structure
+cargo test -p scriptw-aot-wasm --lib heap::tests::finalization_registry_cell_heap_slot_identities_own_layout_metadata -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::finalization_registry_cells_keep_only_holdings_strongly_reachable -- --exact --test-threads=1
+cargo test -p scriptw-aot-wasm --lib heap::tests::heap_layout_registry_ -- --test-threads=1
+rustfmt --check crates/scriptw-aot-wasm/src/heap_finalization_registry_cell_layout.rs crates/scriptw-aot-wasm/src/heap.rs crates/scriptw-aot-wasm/tests/finalization_registry_cell_heap_slot_structure.rs crates/scriptw-aot-wasm/tests/finalization_registry_cell_state_structure.rs
 git diff --check
 ```
 

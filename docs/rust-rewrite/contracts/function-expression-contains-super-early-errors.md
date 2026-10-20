@@ -88,7 +88,7 @@ The closed front domain and parse table grow from 65 to 66 entries. One
 `StartsWith` row maps the complete fixed prefix to
 `FunctionExpressionContainsSuper`. An evaluated parse-owner witness, exact
 single-owner assertion, disjoint table witnesses, exhaustive wire-name checks,
-and `lila-ir`'s no-catch-all rejection-kind match make the addition structural.
+and `scriptw-ir`'s no-catch-all rejection-kind match make the addition structural.
 
 Classifier checks keep the new prefix distinct from both the remaining raw
 `invalid super usage` and method-owned `invalid super call usage`. A Module
@@ -174,12 +174,12 @@ are not part of this cohort.
 The coordinated batch ran:
 
 ```sh
-cargo test -p lila-front function_expression_super -- --test-threads=1
-cargo test -p lila-front tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-front tests::pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
-cargo test -p lila-ir modules::early::tests::function_expression_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::rejected_function_expression_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
-cargo test -p lila-ir modules::graph::tests::retained_function_expression_without_super_builds_a_real_module_graph -- --exact --test-threads=1
+cargo test -p scriptw-front function_expression_super -- --test-threads=1
+cargo test -p scriptw-front tests::known_script_and_class_super_producers_stay_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-front tests::pinned_contains_super_traversal_stays_structurally_reviewed -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::early::tests::function_expression_super_module_parse_maps_to_an_early_syntax_error -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::rejected_function_expression_super_dependency_keeps_its_code_through_graph_build -- --exact --test-threads=1
+cargo test -p scriptw-ir modules::graph::tests::retained_function_expression_without_super_builds_a_real_module_graph -- --exact --test-threads=1
 ```
 
 All six focused commands passed at the FunctionExpression checkpoint. `cargo

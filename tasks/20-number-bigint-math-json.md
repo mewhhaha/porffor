@@ -283,7 +283,7 @@ and abrupt completion ordering. A four-test bounded structure owner now pins
 the exact state/role domains and wire words, typed persistence and invalid-word
 traps, the unique shared static/dynamic post-call result owner, and the active
 CLI registration with non-vacuous fixture assertions. At the 2026-08-25
-coordinated checkpoint, `cargo check -p lila-aot-wasm` and `cargo xc` are
+coordinated checkpoint, `cargo check -p scriptw-aot-wasm` and `cargo xc` are
 green, the structure target passes `4/4`, and the four exact CLI fixtures pass
 `4/4`. The six direct Test262 leaves pass all twelve ordinary sloppy/strict
 Wasm-AOT executions at vendored suite content tree
@@ -740,7 +740,7 @@ Implement every method/constant in the pinned suite, including exact corner case
 
 ## JSON
 
-Implement a dedicated JSON parser and serializer over Lila values:
+Implement a dedicated JSON parser and serializer over Scriptw values:
 
 - strict JSON lexical grammar, strings/escapes, numbers and duplicate keys;
 - `JSON.parse` reviver traversal/deletion/order, `__proto__` treatment and source-text context argument if present in the pin;
@@ -764,15 +764,15 @@ Property access and calls must route through T04/T10 so getters/proxies and muta
 ## Required tests
 
 ```sh
-cargo test -p lila-ir numeric_ --quiet
-cargo test -p lila-aot-wasm numeric_ --quiet
-cargo test -p lila-cli wasm_number --quiet
-cargo test -p lila-cli wasm_bigint --quiet
-cargo test -p lila-cli wasm_json --quiet
-./target/debug/lila test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
-./target/debug/lila test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
+cargo test -p scriptw-ir numeric_ --quiet
+cargo test -p scriptw-aot-wasm numeric_ --quiet
+cargo test -p scriptw-cli wasm_number --quiet
+cargo test -p scriptw-cli wasm_bigint --quiet
+cargo test -p scriptw-cli wasm_json --quiet
+./target/debug/scriptw test262 run built-ins/Number --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/BigInt --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/Math --execution-backend wasm --timeout-ms 120000 --threads 4
+./target/debug/scriptw test262 run built-ins/JSON --execution-backend wasm --timeout-ms 120000 --threads 4
 ```
 
 Re-run numeric expression/operator tests and binary-data filters that consume Number/BigInt conversions.

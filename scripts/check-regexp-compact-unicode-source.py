@@ -4,10 +4,10 @@ from pathlib import Path
 import re
 import sys
 sys.dont_write_bytecode = True
-PARENT = 'crates/lila-aot-wasm/src/builtins/regexp/compiler.rs'
-CHILD = 'crates/lila-aot-wasm/src/builtins/regexp/compiler/compact_source.rs'
-CONTRACT = 'crates/lila-aot-wasm/src/builtins/regexp/compiler/contracts.rs'
-TEST = 'crates/lila-engine/tests/aot_regexp/aot_regexp_runtime_gap.rs'
+PARENT = 'crates/scriptw-aot-wasm/src/builtins/regexp/compiler.rs'
+CHILD = 'crates/scriptw-aot-wasm/src/builtins/regexp/compiler/compact_source.rs'
+CONTRACT = 'crates/scriptw-aot-wasm/src/builtins/regexp/compiler/contracts.rs'
+TEST = 'crates/scriptw-engine/tests/aot_regexp/aot_regexp_runtime_gap.rs'
 
 
 def between(text, start, end):
@@ -63,17 +63,17 @@ def check(root, overrides=None):
         assert 'Instruction::I64Const(u32::MAX as i64)' in contract
         for name in ['long_unicode_escape_workspace', 'compact_unicode_escape_domains', 'compact_unicode_escape_errors']:
             assert test.count(f'../fixtures/regexp_runtime_gap/{name}.js') == 1
-        long = read('crates/lila-engine/tests/fixtures/regexp_runtime_gap/long_unicode_escape_workspace.js')
+        long = read('crates/scriptw-engine/tests/fixtures/regexp_runtime_gap/long_unicode_escape_workspace.js')
         assert "'0'.repeat(Math.pow(2, 24))" in long
         assert "['u', 'v']" in long
         assert 'actual.source === pair[0]' in long and 'reference.source === pair[1]' in long
         assert "['[' + escaped + ']', '[' + minimal + ']']" in long
-        domains = read('crates/lila-engine/tests/fixtures/regexp_runtime_gap/compact_unicode_escape_domains.js')
+        domains = read('crates/scriptw-engine/tests/fixtures/regexp_runtime_gap/compact_unicode_escape_domains.js')
         assert 'legacy.test(slash + \'u{\' + zeros + \'a}\')' in domains
         assert "new RegExp(paritySource, 'u')" in domains
         assert "new RegExp(stringsSource, 'v')" in domains
         assert 'named.groups.a' in domains
-        invalid = read('crates/lila-engine/tests/fixtures/regexp_runtime_gap/compact_unicode_escape_errors.js')
+        invalid = read('crates/scriptw-engine/tests/fixtures/regexp_runtime_gap/compact_unicode_escape_errors.js')
         assert 'error instanceof SyntaxError' in invalid
         assert "'110000}'" in invalid and "'G}'" in invalid
     except (AssertionError, ValueError, OSError) as error:

@@ -15,7 +15,7 @@ The producer first validates the complete exact pinned JSON through the
 original native decoder. It then copies complete selected rows: all thirty
 unit/plural source witnesses, three four-pattern List witnesses and hm/hms/ms
 digital fields remain unchanged. It removes unselected physical rows rather
-than attaching a label to the full payload. The `LILADUP1` inner frame has a
+than attaching a label to the full payload. The `SCRIPTWDUP1` inner frame has a
 bounded sixteen-KiB descriptor and a JSON extent bounded by the pinned source.
 Its descriptor binds the Custom ID, complete source hash, sorted public rows,
 Locale/Number/List image digests, and actual Number locale, numbering-system
@@ -50,7 +50,7 @@ source and whole Intl placement is Embedded.
 
 The Duration component now carries the exact existing 136,434-byte native
 CLDR47 JSON product. Its closed native descriptor is
-`lila/duration/profiles/v1`; it is not an ICU marker. The shared component frame
+`scriptw/duration/profiles/v1`; it is not an ICU marker. The shared component frame
 binds profile, versions, default `en-US` and content digest. Admission compares
 both exact pinned bytes and the retained generated product hash
 `351c8447d4df24ce6ea8d50d24829e467fdedc3c19fe5cbd1ef3759959122fea`, then validates
@@ -174,7 +174,7 @@ and RelativeTimeFormat Engine controls. Segmenter records13 passes and one
 cross-realm failure: its raw Engine fixture calls undeclared $262.createRealm,
 so it throws ReferenceError before the first realm assertion. Test262's runner
 owns that adapter separately; direct Engine tests use the authorized
-__lilaCreateRealm intrinsic. A Root-owned Wasm-AOT diagnostic with only that
+__scriptwCreateRealm intrinsic. A Root-owned Wasm-AOT diagnostic with only that
 host call corrected passes all seven original realm/newTarget assertions.
 This successor corrects the same call in the Segmenter fixture and both
 DurationFormat fixtures that used the undeclared adapter. Every existing

@@ -4,7 +4,7 @@
 
 For Script entries, lowering retains a private global entry owner alongside the existing prelude owner. Main contains no test declarations or source body. It executes the prelude first, then instantiates and evaluates the original entry, preserving normal and abrupt completion. The preceding Script invalidates compile-time assumptions about mutable globals and intrinsics. Prepared imports retain their actual source graph and host loader authority.
 
-The program-local `lila.global_prelude_phase` scalar is declared after all shared runtime globals and program guards, before the section is sealed. Only P exports it. It records prelude execution and successful completion so native errors keep their underlying classification and their separate setup origin. R's schema, exported shared globals and runtime layout version remain unchanged.
+The program-local `scriptw.global_prelude_phase` scalar is declared after all shared runtime globals and program guards, before the section is sealed. Only P exports it. It records prelude execution and successful completion so native errors keep their underlying classification and their separate setup origin. R's schema, exported shared globals and runtime layout version remain unchanged.
 
 Test262 evaluates its exact harness bytes as this separate Script. Strict mode prefixes only the unchanged test contents; raw cases remain exact and have no harness. Agent worker bodies use the same independent prelude boundary. The optional oracle mirrors these separate Script phases in one context. Jobs retain the existing shared final checkpoint; successful-prelude jobs do not gain separate asynchronous source-lineage attribution.
 

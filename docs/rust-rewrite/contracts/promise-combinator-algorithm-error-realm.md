@@ -83,8 +83,8 @@ witness. The structure target passes `5/5` and the exact CLI target passes
 `1/1` on 2026-08-26.
 
 ```sh
-cargo test -p lila-aot-wasm --test modules_realms --quiet -- promise_combinator_algorithm_error_realm_structure::
-cargo test -p lila-cli --test cli run_wasm_backend_uses_created_realm_promise_combinator_algorithm_errors --quiet
+cargo test -p scriptw-aot-wasm --test modules_realms --quiet -- promise_combinator_algorithm_error_realm_structure::
+cargo test -p scriptw-cli --test cli run_wasm_backend_uses_created_realm_promise_combinator_algorithm_errors --quiet
 ```
 
 The coordinated semantic golden passes `2/2` in 717.58 seconds with 674 dumps.

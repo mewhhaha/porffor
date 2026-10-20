@@ -30,7 +30,7 @@ from T26's denominator or authorize a 100% claim.
 
 ## Fresh full-suite release verdict — 2026-10-05 dry source
 
-The isolated T26 source successor adds `lila test262 close-release`, the library
+The isolated T26 source successor adds `scriptw test262 close-release`, the library
 owner and a capped driver consumed by a dedicated release-tag/dispatch workflow.
 Only this invocation's two fresh, unfiltered full current pinned Wasm-AOT runs
 can construct its verdict. Complete current-image node evidence, exact execution
@@ -705,7 +705,7 @@ Begin formal closure only when:
 
 Record:
 
-- Lila commit and Rust toolchain;
+- Scriptw commit and Rust toolchain;
 - ecma262/Test262 revisions;
 - matrix/snapshot schema versions;
 - host platform, architecture and required locale/time-zone data versions;
@@ -785,7 +785,7 @@ All completed runs must reconcile manifest totals and produce the same semantic 
 
 After all checks pass:
 
-- publish status only through `lila test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
+- publish status only through `scriptw test262 publish-status` or `scripts/publish-real-status-low-ram.sh`;
 - commit the generated README status block with both exact canonical publisher
   outputs, `test262/snapshots/published-status-wasm-aot.json` and
   `test262/snapshots/published-status-wasm-aot.txt`; node, aggregate, focused,
@@ -801,25 +801,25 @@ After all checks pass:
 ```sh
 cargo fmt --all --check
 cargo test --workspace --quiet
-cargo build -p lila-cli
+cargo build -p scriptw-cli
 
-./target/debug/lila test262 run language/wasm/pass \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 \
+./target/debug/scriptw test262 run language/wasm/pass \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 \
   --execution-backend wasm
-./target/debug/lila test262 run \
-  --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262
+./target/debug/scriptw test262 run \
+  --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262
 
 rm -f test262/snapshots/final-wasm-aot-*.json test262/snapshots/final-wasm-aot-*.txt
 ./scripts/publish-real-status-low-ram.sh wasm-aot final-wasm-aot
 
 # Optional oracle-validation matrix; diagnostic only, never published as product conformance:
 rm -f test262/snapshots/final-spec-exec-*.json test262/snapshots/final-spec-exec-*.txt
-./target/debug/lila test262 report-all --execution-backend spec-exec \
+./target/debug/scriptw test262 report-all --execution-backend spec-exec \
   --snapshot-name final-spec-exec --resume
 
-./target/debug/lila test262 progress-status --execution-backend wasm-aot \
+./target/debug/scriptw test262 progress-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
-./target/debug/lila test262 triage-status --execution-backend wasm-aot \
+./target/debug/scriptw test262 triage-status --execution-backend wasm-aot \
   --snapshot-name final-wasm-aot
 ```
 
