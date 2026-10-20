@@ -3,6 +3,10 @@
 [Current implementation, verified builds and remaining work](current-inventory.md)
 is the project status entry point. Historical notes below retain their source/date.
 
+[React SSR through Wasm-AOT](react-ssr.md) records a successful three-case
+synchronous React 19.3.1 render and the failed public browser entry, with exact
+Node comparisons and emitted artifact hashes.
+
 Big rule first: Lila compiles JavaScript directly to Wasm. Lila does not sneak
 an interpreter into Wasm and call that victory.
 

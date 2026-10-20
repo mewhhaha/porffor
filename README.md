@@ -11,6 +11,9 @@ contains the receipts and runnable example sources.
 - Working product: `run` and `build wasm`. Six fresh representative JavaScript/
   module examples and one Wasm emission check pass through the current debug CLI.
   Wasm is the sole output target; C/native output and a REPL are outside scope.
+- [React SSR probe](docs/rust-rewrite/react-ssr.md): React 19.3.1's unmodified
+  synchronous renderer runs through Wasm-AOT; three HTML outputs match Node
+  exactly. The public browser entry fails with an unbound-identifier error.
 - Current source `cbf7cc71f`: 14 source audits, two shell controls and 624 tooling
   tests pass; all 12 ordinary library scopes pass 3,865 tests.
 - Broad verification is **stopped and incomplete: 7,560 passed, one failed,

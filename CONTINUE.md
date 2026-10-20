@@ -13,6 +13,10 @@ and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain auth
 - The current debug CLI runs six fresh examples through Wasm-AOT and emits a
   real program/runtime Wasm pair. Wasm is the sole output target; C/native
   output and a REPL are excluded goals, not unfinished work or release gates.
+- A separate [React SSR probe](docs/rust-rewrite/react-ssr.md) passes three
+  exact Node/HTML comparisons through Wasm-AOT using React 19.3.1's unmodified
+  synchronous renderer; the public browser entry fails. Its emitted Wasm pair
+  is hash-bound in the evidence. This adds no broad-suite or task closure.
 - Previous source `78593daf2` passed full AF9654 plus 11 docs. Those outcomes
   belong to that source and are not current-source completion.
 

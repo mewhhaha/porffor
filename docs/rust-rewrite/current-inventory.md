@@ -56,6 +56,14 @@ The initial examples used `console.log` and failed with an unbound identifier;
 those results remain preserved. Corrected examples use the documented `print`
 extension. The CLI does not supply `console` or establish Node/browser API compatibility.
 
+A subsequent [React 19.3.1 SSR probe](react-ssr.md) passes three exact HTML
+comparisons with Node using the unmodified synchronous ReactDOM renderer;
+the actual Lila outcome identifies Wasm-AOT. It also emits a program/runtime
+Wasm pair. The public `react-dom/server.browser` entry fails with an unbound
+identifier; browser/streaming APIs are not supplied. This separate compatibility
+probe is recorded in [its own evidence](react-ssr-20261020.json), outside the
+six examples/one emission counts above and all suite totals below.
+
 | Build or interface | Current state |
 | --- | --- |
 | Rust frontend/IR/emitter/engine/runtime libraries | Current ordinary library test targets compile and their populated test scopes pass |
