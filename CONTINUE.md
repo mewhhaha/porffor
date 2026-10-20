@@ -4,7 +4,15 @@ The current source integrates atomic checkpoint replacement and measured CLI
 partition costs. A complete same-directory snapshot replaces the prior file
 only after writing and syncing; JSON remains the resume authority. CLI
 costs redistribute every test across the existing processes and retain
-their CPU, worker and deadline policy. Verification of this batch is pending.
+their CPU, worker and deadline policy. All 14 source audits, both shell negative controls, all 624 tooling
+checks and the complete Test262477/CLI82 native libraries pass: 559
+native passes with zero failures or ignored tests. Every prior ID
+remains, plus the new partial-write checkpoint control.
+
+Fresh full all-features/default, release, conformance and performance
+acceptance remain pending. The CLI scheduling speedup is unmeasured.
+
+[Focused batch evidence](docs/rust-rewrite/checkpoint-batch-focused-20261020.json).
 
 The complete all-features result below belongs to source `78593daf2`,
 before this batch. Full final-source, conformance, performance and task
