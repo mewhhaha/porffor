@@ -1,0 +1,74 @@
+{
+  "schema": "scriptw-test262-suite-conflict-triage-v1",
+  "date": "2026-10-20",
+  "classification": "suite-specification-conflict",
+  "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+  "technical_owner": "T24; pinned Test262 expectation and upstream conformance review",
+  "ecma262_pin": "5345883164f463e87f8b40aca4956157ecba8783",
+  "test262_upstream_pin": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+  "test262_tree_pin": "6a4268a9354a545d41c3b62efebc478ed8c521f4",
+  "spec_source_url": "https://raw.githubusercontent.com/tc39/ecma262/5345883164f463e87f8b40aca4956157ecba8783/spec.html",
+  "full_spec_sha256": "5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e",
+    "source_revision": {
+      "kind": "git-commit",
+      "commit": "c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"
+    },
+    "executable_sha256": "771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"
+  },
+  "node_reference": {
+    "node": "v24.19.0",
+    "v8": "13.6.233.17-node.51",
+    "cases": [
+      {
+        "id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "outcome": "Failure",
+        "detail": "Test262Error: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true"
+      },
+      {
+        "id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+        "outcome": "Success"
+      },
+      {
+        "id": "sloppy-script:staging/sm/regress/regress-602621.js",
+        "outcome": "Success"
+      }
+    ]
+  },
+  "wasm_native_total": 3,
+  "wasm_native_passed": 2,
+  "wasm_native_counts": {
+    "Bug": 1,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 2
+  },
+  "wasm_native_failures": [
+    {
+      "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true",
+      "detail_hash": 10162307294149082881,
+      "duration_ms": 1239
+    }
+  ],
+  "reason": "The pinned FunctionDeclarationInstantiation keeps paramNames equal to formal BoundNames. It appends implicit arguments only to distinct paramBindings. The Annex B alternate evaluation checks paramNames and assigns the block function to VariableEnvironment. The 2017 test instead assumes the old append-to-parameterNames algorithm. Its outer-object expectation contradicts both pinned staging controls; V8 and Scriptw agree on the original three test outcomes.",
+  "resolution": "Retain the original failure in all native snapshots, counts, graphs and backlog. Do not change compiler semantics, skip tests, or edit vendored tests to satisfy contradictory assertions. No upstream report has been sent.",
+  "original_source_sha256": {
+    "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js": "1bc4233bfb75d6b06a47773ad93e9fd3e7c500a0fbeb2de4a5b7eb508fdd8dab",
+    "sloppy-script:staging/sm/regress/regress-602621.js": "43ec595a2220317a7b295e1ab23c3d0f94bb104bc65398e606a38a0d323f95cf"
+  },
+  "baseline_results_changed": false,
+  "compiler_source_changed": false,
+  "baseline_publication_commit": "5176eab42da3911cf08197831a8c290efbf8f7c1",
+  "evidence_archive": "test262/snapshots/annex-arguments-triage-20261020.tar.gz",
+  "evidence_archive_sha256": "8bea4ce5cc545aa51e5fbf8eff33afa2b5f5179e3c3bc677bb47986833daa13b",
+  "literal_commands_member": "triage-receipt.json",
+  "literal_commands_receipt_sha256": "f269dff86a5153828674f83b54aa1dd8178556615fd43c709b06ae0f3d8d017c"
+}
