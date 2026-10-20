@@ -1,5 +1,14 @@
 # React SSR through Wasm-AOT — 2026-10-20
 
+**Renamed release recheck:** source `c5053c9d4` also passes these same three
+synchronous HTML comparisons with the ordinary opt3/default-feature `scriptw`
+CLI. Its dependency graph contains no product oracle. The identical bundle
+hash, literal Node/Wasm outputs and Cargo identity are preserved in
+[the new release evidence](v8-baseline-20261020.json). The public browser entry
+was not retested; its original failure remains below. This is still a focused
+synchronous example, not full React compatibility or release acceptance.
+
+
 The recorded run predates the [scriptw rename](scriptw-identity-migration.md).
 Its receipts retain the actual earlier executable identity; reproduction
 commands below use the current project spelling.

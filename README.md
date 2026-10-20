@@ -3,14 +3,42 @@
 Scriptw is a Rust JavaScript-to-Wasm AOT compiler and embedding library.
 
 The [scriptw rename](docs/rust-rewrite/scriptw-identity-migration.md) updates
-the CLI, Rust packages, host imports and cache identity together. The dated
-test results below belong to their recorded pre-rename sources.
+the CLI, Rust packages, host imports and cache identity together. Historical
+suite results remain attached to their recorded pre-rename sources.
 
-## Current implementation and verification — 2026-10-20
+## Renamed release and local benchmark — 2026-10-20
+
+Source `c5053c9d4` builds the ordinary **opt3, default-feature release** CLI
+and Wasmtime measurement runner without the interpreter/oracle dependency.
+All **634 tooling tests** pass with no failures or skips; 19 focused native
+codec/cache tests, three Intl outputs and three React SSR HTML outputs pass.
+These are focused checks, not a completed workspace or conformance suite.
+
+| Measurement | scriptw / Wasmtime | Node / V8 |
+| --- | ---: | ---: |
+| Cold start | 1221.570 ms | 32.789 ms |
+| Hot start (disk cache) | 920.607 ms | 35.565 ms |
+| Execute: 10,000 integer steps | 17.020 ms | 2.400 ms |
+| Execute: 500 objects | 44.490 ms | 0.044 ms |
+
+Medians of seven checked samples per cell, measured on this cloud machine:
+AMD EPYC 9V74 80-Core Processor; 32 GiB cloud memory limit; 4-CPU quota.
+Both runtimes used the same one pinned CPU.
+Node 24.19.0 / V8 13.6.233.17-node.51; Wasmtime 47.0.0.
+Cold start uses a new process and empty application cache; hot start uses a
+new process and populated scriptw disk cache. Execution reuses compiled code
+with a fresh Wasmtime Store or V8 context. The OS cache was not flushed.
+The shared Wasm runtime is precompiled; program modules use the normal Fast
+Wasmtime policy. V8 is faster in all four measured cases. These small workloads
+do not establish application performance.
+[Methodology, ranges and reproduction](docs/rust-rewrite/v8-baseline.md);
+[raw measurements and build evidence](docs/rust-rewrite/v8-baseline-20261020.json).
+
+## Pre-rename implementation and incomplete verification — 2026-10-20
 
 [Current inventory: capabilities, builds, completed work and remaining gates](docs/rust-rewrite/current-inventory.md)
-is the current project summary; [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json)
-contains the receipts and runnable example sources.
+separates the new release checks from the older suite; [pre-rename source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json)
+contains the older receipts and runnable example sources.
 
 - Working product: `run` and `build wasm`. Six fresh representative JavaScript/
   module examples and one Wasm emission check pass through the current debug CLI.
@@ -18,7 +46,7 @@ contains the receipts and runnable example sources.
 - [React SSR probe](docs/rust-rewrite/react-ssr.md): React 19.3.1's unmodified
   synchronous renderer runs through Wasm-AOT; three HTML outputs match Node
   exactly. The public browser entry fails with an unbound-identifier error.
-- Current source `cbf7cc71f`: 14 source audits, two shell controls and 624 tooling
+- Pre-rename source `cbf7cc71f`: 14 source audits, two shell controls and 624 tooling
   tests pass; all 12 ordinary library scopes pass 3,865 tests.
 - Broad verification is **stopped and incomplete: 7,560 passed, one failed,
   zero ignored across 49/113 closed scopes**. The failure is an original-budget

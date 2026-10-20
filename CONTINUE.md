@@ -5,7 +5,20 @@ and its [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.jso
 The durable [acceptance criteria](docs/rust-rewrite/conformance-acceptance.md)
 and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain authoritative.
 
-## Verified and published
+## Latest scriptw release checkpoint
+
+- Rename source `c5053c9d4` builds the ordinary opt3/default-feature CLI and
+  Wasmtime benchmark runner; the product dependency graph has no oracle.
+- All 634 tooling tests pass with no skips; 19 focused native codec/cache
+  tests and three Intl outputs pass. The same three React SSR outputs match
+  Node in this ordinary release build.
+- [Local cold/hot/execution versus V8 measurements](docs/rust-rewrite/v8-baseline.md)
+  are complete with [source-bound raw evidence](docs/rust-rewrite/v8-baseline-20261020.json).
+  This is not calibrated T25 or full-suite acceptance.
+- README diagrams show the unchanged dated AF and historical Test262 results.
+  Do not transfer old suite outcomes to the rename or delete this file/tasks.
+
+## Pre-rename verified and published
 
 - Compiler source: `cbf7cc71f`; checkpoint/scheduling batch published at `5fa2e8432`.
 - 14 source audits, two shell negative controls and all 624 tooling tests pass.
@@ -24,9 +37,12 @@ and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain auth
 
 The saved AF run completed 49/113 scopes: **7,560 pass, one fail, zero ignored**.
 There are 64 uncompleted scopes, including the remaining 2,094 expected native
-bodies and documentation tests. Default, final Cargo checks, ordinary release,
-230 retention, real mechanics and full campaigns remain unstarted at this source.
+bodies and documentation tests. Default, final Cargo checks, 230 retention,
+real mechanics and full campaigns remain unstarted at this frozen source.
+The separate new ordinary release build above does not close those gates.
 
+Package names here use their current spelling; literal original execution IDs
+remain in the dated evidence.
 Failure: `scriptw-test262:differential_generated_campaign` /
 `builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
 The `builtin-stateful-v1` seed-0 array-buffer Wasm worker timed out at the
@@ -36,8 +52,9 @@ Do not replace it with a passing diagnostic replay.
 
 The previous machine stopped before cohort011 because of its disk reserve.
 After cloud restoration its old coordinator processes are absent, while the
-current disk observation has ample headroom. No verification is currently
-running. Existing incomplete output directories are evidence, not restart targets.
+current disk observation has ample headroom. The old frozen-source verification
+coordinators remain stopped. Existing incomplete output directories are evidence,
+not restart targets.
 
 ## Continue in this order
 
@@ -48,7 +65,8 @@ running. Existing incomplete output directories are evidence, not restart target
    general fix. Batch source changes before compilation, preserve all prior IDs,
    then verify affected scopes and the required full checkpoint.
 3. Complete current-source AF/default and Cargo checks; ordinary opt3/non-oracle
-   release plus original230/prior219 retention; real serial/shard/resume;
+   release acceptance beyond the completed build, plus original230/prior219
+   retention; real serial/shard/resume;
    complete debug and optimized T25 corpus/campaigns and idle measurements.
 4. Finish two fresh complete current-pin Wasm-AOT families, real semantic
    failure burn-down, backlog generation twice, canonical publisher output,

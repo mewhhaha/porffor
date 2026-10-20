@@ -1,6 +1,8 @@
 # Current implementation and remaining work — 2026-10-20
 
-This inventory records the measured **pre-rename** compiler. The project is now
+The older suite inventory below records the measured **pre-rename** compiler.
+New renamed-release checks are recorded separately in the next section.
+The project is now
 [scriptw](scriptw-identity-migration.md); commands below use its current spelling,
 while the evidence retains the original executable/package names and hashes.
 The rename does not transfer these outcomes into a new full-suite verification.
@@ -12,6 +14,22 @@ target. C/native output and a REPL are outside scope, not unfinished goals
 or release blockers.** It supplies no current full-suite
 conformance percentage. [Exact receipts, examples and provenance](current-inventory-20261020.json)
 are preserved losslessly in encoded assets.
+
+## New scriptw release checks
+
+At source `c5053c9d4`, the default-feature opt3 CLI and Wasmtime runner build
+successfully without an oracle dependency. All 634 tooling tests pass with
+zero skips, plus 19 focused codec/cache native tests. Three Intl outputs
+and three synchronous React 19.3.1 SSR outputs match Node byte for byte.
+The public React browser entry was not retested; its prior failure remains.
+[The local V8 comparison](v8-baseline.md) records cold start, hot start and
+execution with all samples, machine specs and exact build/source identities
+in [new evidence](v8-baseline-20261020.json).
+
+This proves an ordinary release build and focused operation. Original230/prior219
+retention, full release suites, current-source AF/default, calibrated T25 and
+complete pinned conformance remain outstanding. Old suite outcomes below are
+not transferred to the renamed source.
 
 ## What is done
 
@@ -26,7 +44,7 @@ are preserved losslessly in encoded assets.
 - CLI verification partitions now use measured exact-test costs while keeping
   all 855 CLI IDs and the existing worker counts/deadlines. Its wall-time benefit
   has not been measured by a completed current run.
-- Current source passes **14 source audits, two shell negative controls and
+- Pre-rename source `cbf7cc71f` passes **14 source audits, two shell negative controls and
   624 tooling tests**. All **12 ordinary library scopes pass 3,865 tests**,
   including Test262477, CLI82, AOT442, Front177, IR1607 and Engine973.
   Four of those scopes contain zero tests; successful Rust compilation of
@@ -76,7 +94,7 @@ six examples/one emission counts above and all suite totals below.
 | Debug `scriptw run file.mjs` or `run --module file.js` | Module loader is implemented; the fresh `.mjs` import/TLA example passes |
 | `scriptw build wasm file.js` | Implemented Script compilation; emits program bytes and optional linked runtime sidecar when `SCRIPTW_WASM_DUMP` is set |
 | Dedicated CLI module artifact build | Not exposed: `build wasm` currently calls `compile_script`; module execution is available through `run` |
-| Ordinary optimized release CLI | Implemented build recipe; current-source opt3/non-oracle release build and release acceptance have not run |
+| Ordinary optimized release CLI | Builds at `c5053c9d4`; default features, no oracle dependency; focused Intl/SSR and local benchmark pass. Full release acceptance remains open |
 | Existing C/native and REPL stubs | Outside project scope; obsolete entries are not planned features or completion gates |
 
 The runtime target is experimental Wasmtime with the required GC, reference,
@@ -100,8 +118,9 @@ python3 scripts/limited_verification.py --cloud -- \
   cargo build --locked --offline -p scriptw-cli --bin scriptw --jobs 1
 ```
 
-The inventory reused the existing linked debug CLI; it did not execute this
-Cargo rebuild or a release build. To use a source-bound CLI:
+The older capability inventory reused the existing linked debug CLI. The
+new release build is recorded separately above; its reproduction command is
+in [the benchmark runbook](v8-baseline.md). To use a source-bound CLI:
 
 ```sh
 SCRIPTW_BIN=./target/debug/scriptw
@@ -117,7 +136,7 @@ SCRIPTW_WASM_DUMP=hello.wasm "$SCRIPTW_BIN" --jobs 1 build wasm hello.js
 
 ## Verification: completed, failed and unrun
 
-| Gate | Current source result |
+| Older suite gate | Pre-rename source `cbf7cc71f` result |
 | --- | --- |
 | Source audits / shell controls / tooling | 14 / 2 / 624 passed |
 | All-feature workspace | **Incomplete: 49/113 closed scopes, 7,560 passed, one failed, zero ignored** |
@@ -126,7 +145,7 @@ SCRIPTW_WASM_DUMP=hello.wasm "$SCRIPTW_BIN" --jobs 1 build wasm hello.js
 | Remaining saved AF discovery | 64 uncompleted scopes; 2,094 expected native tests still uncompleted, plus docs |
 | Default workspace | Unstarted; planned 111 scopes, 9,559 native tests and 11 docs |
 | Final all-target Cargo checks | Unstarted; formatter already passed in the source precheck |
-| Ordinary release / original 230 retention / real shard-resume | Unstarted at this source |
+| Ordinary release / original 230 retention / real shard-resume | Original old-source gates unstarted. New `c5053c9d4` release build/focused checks pass; full retention and mechanics remain open |
 | Complete debug/optimized campaigns and timing gates | Unstarted at this source; no calibrated performance acceptance |
 | Current pinned Test262 closure | Both fresh complete 102,994-execution mode-aware families remain unrun |
 | Current canonical publication and deterministic backlog | Outstanding; reuse one completed full family rather than running a third |
@@ -149,8 +168,8 @@ retry must not replace this failure.
 
 The last coordinator receipt waited for cohort011 because the previous
 machine was 9,011,200 bytes below its 2 GiB build reserve. After the cloud
-restore, all four old coordinator PIDs are absent and no verification is
-running. The observed current filesystem has about 32 GB available, so the
+restore, all four old coordinator PIDs were absent at inventory time.
+Those frozen-suite coordinators have not been restarted. The observed current filesystem has about 32 GB available, so the
 old disk wait does not describe current capacity. Later gates were prepared
 but their old waiting processes did not survive. They must be deliberately
 re-admitted; documentation is not an automatic restart.
