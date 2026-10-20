@@ -481,14 +481,19 @@
       "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
     },
     {
-      "bytes": 17530,
+      "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
     },
     {
-      "bytes": 4101,
+      "bytes": 3906,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-      "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+      "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
+    },
+    {
+      "bytes": 340,
+      "path": "crates/scriptw-intl/src/provider/keyword_aliases/identity.rs",
+      "sha256": "e243ffe0b10e0da6500104691e7fa99107a1f8cbc8cb099ef42fb4082dda31ef"
     },
     {
       "bytes": 21618,
@@ -613,7 +618,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "1dfc04d9bca6f80846ffa612a10cb9dfda009e34e9dd67979ce0a0a028ea730f",
+  "provider_data_sha256": "da1968c28fb55da2a0e01ff445d80d89e28dd80b40e7b768ce600a50b0e60eda",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

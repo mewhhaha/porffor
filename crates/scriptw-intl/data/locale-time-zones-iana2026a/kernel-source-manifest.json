@@ -17,7 +17,7 @@
     }
   ],
   "domain": "scriptw-locale-time-zones-native-v1",
-  "kernel_sha256": "33659a92bacef81fe76f675d2dc33a8aeb9d98221e1280517e572431f40c3e40",
+  "kernel_sha256": "f7a6590fe8e69284fcabe995699d871d8a054502e5dbbee642f7293334e3c8f6",
   "production_sources": [
     {
       "bytes": 76508,
@@ -125,14 +125,14 @@
       "sha256": "9f8e71493f749ddd0e8909271c22fff308ce4959c03e78fb14a29d986377fe90"
     },
     {
-      "bytes": 17530,
+      "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
     },
     {
-      "bytes": 4101,
+      "bytes": 3906,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-      "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+      "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
       "bytes": 21618,
@@ -177,7 +177,7 @@
     {
       "bytes": 565,
       "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
-      "sha256": "99866e18fa1e84859e82f08734be0b98af041c8b63f78c4c54daf5402bf81d34"
+      "sha256": "90542febeeee1fe0156ba39181b7a6d8a67060a0dd24e263d91765158e5fe17a"
     },
     {
       "bytes": 3624,
@@ -235,9 +235,9 @@
       "sha256": "cbdb5d124f1af4844208488d51b8258baae197162fc4ef85ac031ff90dbfe1ac"
     },
     {
-      "bytes": 9148,
+      "bytes": 9557,
       "path": "scripts/generate-intl-keyword-aliases.py",
-      "sha256": "99b4e5d54199f2d2fe4c4cf86b68ff2cffb3e2f3cc43fe0f8822868dcdd94d63"
+      "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
     },
     {
       "bytes": 10724,

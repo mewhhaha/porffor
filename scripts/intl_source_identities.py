@@ -9,6 +9,7 @@ import sys
 # locale query provenance. Duration consumes the generated List identity and
 # manifest. Keep dependent recipes after their actual producers.
 RECIPES = (
+    'generate-intl-keyword-aliases.py',
     'generate-intl-named-time-zones.py',
     'generate-intl-locale-time-zones-profile.py',
     'generate-intl-datetime-identity.py',

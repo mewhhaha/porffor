@@ -74,7 +74,7 @@
       {
         "bytes": 31753,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "5a3bdb3f6d7482f95344404d1808734ccb75853102c4c7814a9a4a7f2e69b19b"
+        "sha256": "bafc398893466a097217c4b0c236074242440ef691b6fea65d4658397c301b08"
       },
       {
         "bytes": 34690,
@@ -149,17 +149,17 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "b222aa17ca4299614981b574202ba3ea3b58e585fbc11226d94bd7e55d85983c"
+        "sha256": "089719cd5d029b43cff66a7e9fe45a272af13408211febd609a44b51c941a9b6"
       },
       {
-        "bytes": 4101,
+        "bytes": 3906,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-        "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+        "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
       },
       {
-        "bytes": 17530,
+        "bytes": 17366,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-        "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+        "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
       },
       {
         "bytes": 21618,
@@ -252,9 +252,9 @@
         "sha256": "a3578330a4d0f8933421f02ac94d86dfff166e819fb8f1c66c53956d52e6d872"
       },
       {
-        "bytes": 9148,
+        "bytes": 9557,
         "path": "scripts/generate-intl-keyword-aliases.py",
-        "sha256": "99b4e5d54199f2d2fe4c4cf86b68ff2cffb3e2f3cc43fe0f8822868dcdd94d63"
+        "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
       },
       {
         "bytes": 12513,
@@ -263,7 +263,7 @@
       }
     ]
   },
-  "kernel_sha256": "8d4ba22968e67df1cb7bf1aa701027c2b68e117571ae2dc4ceeb9f5c0751425e",
+  "kernel_sha256": "2fdb9fc15d6f3f6ea82de745744450996ca8b325e45424c8d91a8dd5655d6dc9",
   "language_region_selector_count": 23,
   "normative_source": "https://tc39.es/ecma402/#sec-hourcyclesoflocale",
   "ordering": "allowed preference order; stable uniqueness after projection; never prepend preferred",

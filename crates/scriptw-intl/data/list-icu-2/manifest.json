@@ -142,14 +142,14 @@
       "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
     },
     {
-      "bytes": 4101,
+      "bytes": 3906,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-      "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+      "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
-      "bytes": 17530,
+      "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
     },
     {
       "bytes": 21618,
@@ -333,7 +333,7 @@
       }
     ]
   },
-  "provider_data_sha256": "0cb171a77a5983e125bb530ce63b1825fe4f8207f5a11280f3f48954fd9100a8",
+  "provider_data_sha256": "5de612bcd97eae17305bbdbfe2b52833689d38e905363d2868831cdd69a5988b",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

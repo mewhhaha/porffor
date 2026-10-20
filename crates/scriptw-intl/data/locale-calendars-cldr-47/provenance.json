@@ -277,7 +277,7 @@
       {
         "bytes": 31753,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "5a3bdb3f6d7482f95344404d1808734ccb75853102c4c7814a9a4a7f2e69b19b"
+        "sha256": "bafc398893466a097217c4b0c236074242440ef691b6fea65d4658397c301b08"
       },
       {
         "bytes": 4610,
@@ -297,7 +297,7 @@
       {
         "bytes": 21411,
         "path": "crates/scriptw-intl/data/iana-tzdb-2026a/manifest.json",
-        "sha256": "0caf8099e8324dbd4fb3aa0484b5d2326b6027688d6e015d3c67fa2608989ec9"
+        "sha256": "e50d8771a908ae98abcbbc5137c0d13ed88d11b4e3c21ff9d010f72043f11096"
       },
       {
         "bytes": 51680,
@@ -507,7 +507,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "b222aa17ca4299614981b574202ba3ea3b58e585fbc11226d94bd7e55d85983c"
+        "sha256": "089719cd5d029b43cff66a7e9fe45a272af13408211febd609a44b51c941a9b6"
       },
       {
         "bytes": 8582,
@@ -625,14 +625,14 @@
         "sha256": "5dffbd4ce565ac6464e2235d9a53d45385164547b7a461ab5a6f18972f834228"
       },
       {
-        "bytes": 17530,
+        "bytes": 17366,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-        "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+        "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
       },
       {
-        "bytes": 4101,
+        "bytes": 3906,
         "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-        "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+        "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
       },
       {
         "bytes": 21618,
@@ -712,7 +712,7 @@
       {
         "bytes": 565,
         "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
-        "sha256": "99866e18fa1e84859e82f08734be0b98af041c8b63f78c4c54daf5402bf81d34"
+        "sha256": "90542febeeee1fe0156ba39181b7a6d8a67060a0dd24e263d91765158e5fe17a"
       },
       {
         "bytes": 5089,
@@ -780,9 +780,9 @@
         "sha256": "bc38a8215e4e2854c2a61d5a0029185743fc57724651e82a4b986b740ff668eb"
       },
       {
-        "bytes": 9148,
+        "bytes": 9557,
         "path": "scripts/generate-intl-keyword-aliases.py",
-        "sha256": "99b4e5d54199f2d2fe4c4cf86b68ff2cffb3e2f3cc43fe0f8822868dcdd94d63"
+        "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
       },
       {
         "bytes": 14206,
@@ -1016,7 +1016,7 @@
       }
     ]
   },
-  "kernel_sha256": "9d90c5145f4148271c40b6f61ab7481ce6f075d7a95c80911da72fbfb34c0cd2",
+  "kernel_sha256": "7cc430f59f1a439cf20bbdbe513bc073d7cd9002e596dc2c242682618ea65f8a",
   "language_region_selector_count": 0,
   "normative_source": "https://tc39.es/ecma402/#sec-calendarsoflocale",
   "ordering": "calendar preference order; canonical BCP47 aliases; stable uniqueness; runtime filter against actual checked DateTime AvailableCalendars",

@@ -99,7 +99,7 @@
   ],
   "formatting_DefaultLocale_selection": false,
   "global_union_selection": false,
-  "kernel_sha256": "f9bd8e53a681d993fb75b00f9078199d4813453327d1ffdd913f3bb6a4d4d0a8",
+  "kernel_sha256": "ecb238be202651e9f4cf54c658b47ad78b2187349188284dede207cd7cf82e5b",
   "locale_independent_profile_admission": {
     "current_native_admission": "Setup loads and retains both profiles through existing checked ICU constructors; source-only recipe does not claim current execution.",
     "historical_admission_receipt_sha256": "3fe60ad649669c2e0a99e4374e3871bfaef222e339ebb3b6f1c808dd710f46e6",
@@ -501,14 +501,14 @@
       "sha256": "470cf7b1b0bed8a5d933b6a7f6eb020b09f1dbe76b61259b9a631f296c496cc1"
     },
     {
-      "bytes": 17530,
+      "bytes": 17366,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases.rs",
-      "sha256": "edb876e3f81ba9144859da1b9ff7e8cf663a853bc59106cf1e966b0bebdd350b"
+      "sha256": "663b7a15c8e71a14941898d7a016f2bcf77ce58db7fd9ed0e9d278578f209be8"
     },
     {
-      "bytes": 4101,
+      "bytes": 3906,
       "path": "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs",
-      "sha256": "592b977da5635730777c4d4eb52d726f194391df57a92c746e47ea3d25cb883a"
+      "sha256": "5df07cfb7838e9751a2df69eb32d7584bfc656f974755864226a7797c4f62bfc"
     },
     {
       "bytes": 21618,
@@ -551,9 +551,9 @@
       "sha256": "ef1a57d9ed9b457f7574a6d589dda692f3d5c8290ba57cd563b3cdba068f6dd1"
     },
     {
-      "bytes": 9148,
+      "bytes": 9557,
       "path": "scripts/generate-intl-keyword-aliases.py",
-      "sha256": "99b4e5d54199f2d2fe4c4cf86b68ff2cffb3e2f3cc43fe0f8822868dcdd94d63"
+      "sha256": "d0cf2310c60c078d652c86b6c0a11c3103e6830eea419af176219a4a8a218ea6"
     },
     {
       "bytes": 13006,

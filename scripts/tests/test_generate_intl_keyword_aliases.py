@@ -6,6 +6,8 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import subprocess
+import sys
 
 SCRIPT = Path(__file__).resolve().parents[1] / "generate-intl-keyword-aliases.py"
 SPEC = importlib.util.spec_from_file_location("intl_keyword_aliases", SCRIPT)
@@ -40,6 +42,7 @@ class IntlKeywordAliasGenerationTests(unittest.TestCase):
         self.assertEqual((generated, report), MODULE.generate(self.source))
         checked = SCRIPT.parents[1] / "crates/scriptw-intl/src/provider/keyword_aliases/generated.rs"
         self.assertEqual(generated, checked.read_text())
+        self.assertEqual(MODULE.identity(report), checked.with_name('identity.rs').read_text())
         parsed = json.loads(report)
         self.assertEqual(parsed["xml_files"], 15)
         self.assertEqual(parsed["unicode_aliases"], 60)
@@ -51,6 +54,28 @@ class IntlKeywordAliasGenerationTests(unittest.TestCase):
         self.change_calendar('alias="calendar"', 'alias="changed"', refresh_checksum=False)
         with self.assertRaisesRegex(ValueError, "source checksum mismatch"):
             MODULE.generate(self.source)
+
+    def test_producer_and_consumer_share_the_generated_identity(self):
+        _, report = MODULE.generate(self.source)
+        identity = MODULE.identity(report)
+        digest = bytes(int(value, 16) for value in MODULE.re.findall(r'0x([0-9a-f]{2})', identity))
+        self.assertEqual(digest.hex(), json.loads(report)['provider_data_sha256'])
+        owner = (SCRIPT.parents[1] / 'crates/scriptw-intl/src/provider/keyword_aliases.rs').read_text()
+        self.assertIn('include!("keyword_aliases/identity.rs")', owner)
+        self.change_calendar('alias="gregorian"', 'alias="gregorian customxy"')
+        _, changed = MODULE.generate(self.source)
+        self.assertNotEqual(identity, MODULE.identity(changed))
+
+    def test_check_rejects_stale_consumer_identity_without_rewriting(self):
+        output = self.source / 'generated.rs'
+        command = [sys.executable, '-B', str(SCRIPT), '--source-dir', str(self.source), '--output', str(output)]
+        subprocess.run(command, check=True, capture_output=True)
+        identity = output.with_name('identity.rs')
+        identity.write_text('[0; 32]\n')
+        child = subprocess.run([*command, '--check'], capture_output=True, text=True)
+        self.assertNotEqual(child.returncode, 0)
+        self.assertIn('identity.rs', child.stderr)
+        self.assertEqual(identity.read_text(), '[0; 32]\n')
 
     def test_unlisted_xml_cannot_silently_escape_generation(self):
         (self.source / "common/bcp47/new.xml").write_text("<ldmlBCP47/>")
