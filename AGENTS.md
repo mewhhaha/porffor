@@ -10,7 +10,7 @@
 ## Core Goal
 
 - Rewrite Lila fully in Rust as a library and CLI.
-- Keep the AOT-first Wasm compiler at the center of the project.
+- Wasm is the sole product compilation target. C output, native JavaScript output and a REPL are outside project scope; do not implement them or count them as remaining acceptance work.
 - Lila must compile JavaScript itself to Wasm. It must not ship a JavaScript interpreter or VM compiled to Wasm as the execution strategy.
 - The target is literal 100% ECMAScript and Test262 conformance, with no spec cheats, no silent skips, and no regressions.
 

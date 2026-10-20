@@ -11,7 +11,8 @@ and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain auth
 - 14 source audits, two shell negative controls and all 624 tooling tests pass.
 - All 12 ordinary library scopes pass 3,865 tests. Engine Intl299 also passes.
 - The current debug CLI runs six fresh examples through Wasm-AOT and emits a
-  real program/runtime Wasm pair. C/native emitters and REPL are unimplemented.
+  real program/runtime Wasm pair. Wasm is the sole output target; C/native
+  output and a REPL are excluded goals, not unfinished work or release gates.
 - Previous source `78593daf2` passed full AF9654 plus 11 docs. Those outcomes
   belong to that source and are not current-source completion.
 

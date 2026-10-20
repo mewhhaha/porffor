@@ -5,6 +5,11 @@ state acceptance conditions, not a claim that any current source or run meets
 them. The [ownership registry](conformance-ownership.md) identifies each area.
 Detailed compiler/runtime invariants live beside their source contracts.
 
+Wasm is the sole product compilation target. C output, native JavaScript
+output and a REPL are outside project scope and are not acceptance criteria
+or release blockers. Building the Rust compiler and Wasmtime compiling Wasm
+to machine code remain part of the Wasm execution workflow.
+
 Required final verification includes default and all-feature workspace tests,
 ignored stress controls, documentation tests, debug and release differential
 corpora/campaigns, both complete fake selections, product interpreter exclusion,

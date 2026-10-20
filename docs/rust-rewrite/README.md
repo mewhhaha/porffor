@@ -15,9 +15,9 @@ an interpreter into Wasm and call that victory.
 - `lila-front`: parse and source-unit plumbing.
 - `lila-ir`: spec-shaped lowering stages and IR metadata.
 - `lila-runtime`: realm plus typed host clock, randomness, and output capabilities.
-- `lila-aot-wasm`: primary direct JS -> Wasm backend surface.
-- `lila-backend-c`: future alternate C emitter.
-- `lila-backend-native`: future alternate native emitter.
+- `lila-aot-wasm`: sole product backend, compiling JavaScript directly to Wasm.
+- `lila-backend-c` / `lila-backend-native`: obsolete scaffolds outside product scope.
+  C/native output and a REPL are excluded goals and do not block completion.
 - `lila-engine`: public Rust library API.
 - `lila-cli`: clean-break `lila` CLI.
 - `lila-test262`: conformance taxonomy and harness rewrite support.

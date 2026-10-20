@@ -10,7 +10,7 @@ contains the receipts and runnable example sources.
 
 - Working product: `run` and `build wasm`. Six fresh representative JavaScript/
   module examples and one Wasm emission check pass through the current debug CLI.
-  C/native emitters and the REPL remain unimplemented.
+  Wasm is the sole output target; C/native output and a REPL are outside scope.
 - Current source `cbf7cc71f`: 14 source audits, two shell controls and 624 tooling
   tests pass; all 12 ordinary library scopes pass 3,865 tests.
 - Broad verification is **stopped and incomplete: 7,560 passed, one failed,

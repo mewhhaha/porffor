@@ -1,5 +1,8 @@
 ## Current task inventory — 2026-10-20
 
+Product scope is JavaScript to Wasm only. C/native output and a REPL are
+excluded goals and are not remaining tasks or completion gates.
+
 [Current capabilities, builds, tests and remaining acceptance](../docs/rust-rewrite/current-inventory.md).
 Current source has 7,560 native passes and one timeout in 49/113 closed AF
 scopes; discovery stopped and old cloud coordinators are absent. The 624

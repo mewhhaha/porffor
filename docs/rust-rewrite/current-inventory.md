@@ -2,7 +2,9 @@
 
 Compiler source: `cbf7cc71f`; the verified checkpoint/scheduling batch is on
 main at `5fa2e8432`. This inventory describes observed results, implemented
-interfaces and open acceptance criteria. It supplies no current full-suite
+interfaces and open acceptance criteria. **Wasm is the sole product output
+target. C/native output and a REPL are outside scope, not unfinished goals
+or release blockers.** It supplies no current full-suite
 conformance percentage. [Exact receipts, examples and provenance](current-inventory-20261020.json)
 are preserved losslessly in encoded assets.
 
@@ -13,7 +15,7 @@ are preserved losslessly in encoded assets.
   The interpreter is an explicit engineering oracle.
 - The Rust workspace separates the frontend, IR, Wasm emitter, engine, runtime,
   runtime images, Intl and conformance harness. The library and CLI are usable
-  development interfaces; alternate C/native emitters remain scaffolds.
+  development interfaces. Existing C/native scaffolds are outside product scope.
 - Atomic checkpoint replacement preserves the previous resumable JSON if a
   write fails. The new partial-write regression passes. JSON is the resume authority.
 - CLI verification partitions now use measured exact-test costs while keeping
@@ -23,7 +25,7 @@ are preserved losslessly in encoded assets.
   624 tooling tests**. All **12 ordinary library scopes pass 3,865 tests**,
   including Test262477, CLI82, AOT442, Front177, IR1607 and Engine973.
   Four of those scopes contain zero tests; successful Rust compilation of
-  the C/native scaffold packages does not establish a working emitter.
+  the obsolete C/native scaffold packages adds no product output target.
 - The current Engine Intl integration scope also passes all **299 tests**.
   The separate isolated Intl library suite remains unrun in this saved run.
 - T00, T27, T28 and T29 remain recorded complete: contribution contracts,
@@ -62,15 +64,14 @@ extension. The CLI does not supply `console` or establish Node/browser API compa
 | `lila build wasm file.js` | Implemented Script compilation; emits program bytes and optional linked runtime sidecar when `LILA_WASM_DUMP` is set |
 | Dedicated CLI module artifact build | Not exposed: `build wasm` currently calls `compile_script`; module execution is available through `run` |
 | Ordinary optimized release CLI | Implemented build recipe; current-source opt3/non-oracle release build and release acceptance have not run |
-| `lila build c` / `lila build native` | Unimplemented: both emitter functions return explicit scaffold errors |
-| `lila repl` | Unimplemented reserved command |
+| Existing C/native and REPL stubs | Outside project scope; obsolete entries are not planned features or completion gates |
 
 The runtime target is experimental Wasmtime with the required GC, reference,
 exception and related features, matching Lila runtime imports, host adapters
 and admitted Intl data. An emitted program/runtime pair is not a browser,
-WASI or generic Wasm runtime compatibility claim. C/native compilation here
-means a JavaScript output backend; Wasmtime compiling Wasm to machine code
-is a separate runtime operation.
+WASI or generic Wasm runtime compatibility claim. Native compilation in
+verification means building the Rust compiler or Wasmtime compiling Wasm
+to machine code; it does not add a native JavaScript output target.
 
 Finite prepared eval/Function sources use the real compiler. Arbitrary
 runtime-produced source, unmatched source/context/Realm combinations and

@@ -3625,6 +3625,7 @@ Keep a small `lib.rs` that re-exports the public API and invokes the top-level p
 
 ## Non-goals
 
+- C output, native JavaScript output and a REPL are excluded project goals, not unfinished T02 work. Wasm is the sole product output target.
 - No new builtin coverage.
 - No redesign of the value representation or completion ABI; those belong to T04/T05.
 - No bulk formatting of legacy JavaScript code.
