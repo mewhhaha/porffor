@@ -1,5 +1,18 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
+The same candidate prepares pinned Minimal DateTime data before waiting for
+named-zone admission, using the existing OnceLock. Its final typed value binds
+the actual Locale/IANA owners and image/Locale/IANA plan digests; custom and
+projected paths retain complete admission. Verify this together with shared
+footer proofs before claiming a startup or timeout improvement.
+
+A cold-admission candidate shares only exact parsed POSIX footer proofs during
+one named-zone catalogue construction. Historical tables, handoffs and query
+offset catalogues remain owned and validated per actual immutable payload.
+Verify the entire Intl library, all299 Engine Intl IDs, actual frame/identity
+parity and the original worker budgets before accepting the change. No native
+verification or timeout repair is established for this candidate yet.
+
 Engine `aot_intl` test setup honors the runner's bounded `LILA_JOBS`, capped
 to actual available CPUs. An absent setting selects one job; invalid settings
 fail. This repairs55 hardcoded serial setup calls while keeping the whole299

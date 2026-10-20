@@ -132,7 +132,7 @@ impl<'a> ResolvedNamedZone<'a> {
         if let Some(handoff) = handoff {
             self.consider_transition(handoff, instant, direction, &mut selected)?;
         }
-        if let Some(cycle) = &self.0.data.tail_cycle {
+        if let Some(cycle) = self.0.data.gap_topology.tail_cycle() {
             let period = i128::from(cycle.period_seconds());
             let base = i128::from(cycle.base_seconds());
             // The nearest phase in the requested direction is obtained with

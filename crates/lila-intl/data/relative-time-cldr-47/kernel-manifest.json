@@ -546,9 +546,9 @@
       "sha256": "b6399ded0f542aa0ae975ce61315e032161b663b91234862b5d5a22dbf1a2e0b"
     },
     {
-      "bytes": 80443,
+      "bytes": 80471,
       "path": "crates/lila-intl/src/provider.rs",
-      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      "sha256": "cac8a43e07dfc889352f012deebaf9411b30a1bd5ac9af88e07f225c5cb7f402"
     },
     {
       "bytes": 2251,
@@ -754,7 +754,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "81306aea69bcc8d6af3896fdfef18dde1f5f6031ffab63487224ef5849791174",
+  "provider_data_sha256": "df982fe87eda479ea9f1d046042560ce078a676c5a139ad9fd4e30a8e60187d7",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "RelativeTimeFormat",

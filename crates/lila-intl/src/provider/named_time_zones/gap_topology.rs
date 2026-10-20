@@ -7,8 +7,17 @@
 //! epochs T-1ns and T. A checked marker is retained with the immutable zone;
 //! it cannot be manufactured by a policy consumer or a raw UTC jump alone.
 
+use std::sync::Arc;
 use timezone_provider::tzif::{PosixOffsetChangeCycle, Tzif};
 use tzif::data::time::Seconds;
+
+mod footer;
+
+/// One catalogue construction owns this bounded set of immutable footer proofs.
+#[derive(Default)]
+pub(super) struct FooterTopologyCache {
+    entries: Vec<Arc<footer::FooterTopology>>,
+}
 
 use crate::{
     InvalidTimeZoneData, LocalTimeCoordinate, NamedTimeZoneOffsetSeconds, RawTimeZoneEpoch,
@@ -25,13 +34,13 @@ const SELECTOR_CONTEXT: i64 = 8_640_000_000_000 + 2 * 366 * DAY;
 /// Constructor-only proof retained by the immutable catalogue record.
 /// The marker has no raw/public constructor and is never detached from data.
 pub(super) struct GapTopology {
-    _checked: (),
+    tail: Option<Arc<footer::FooterTopology>>,
 }
 impl GapTopology {
     pub(super) fn validate(
         transitions: &Tzif,
         offsets: &[NamedTimeZoneOffsetSeconds],
-        cycle: Option<&PosixOffsetChangeCycle>,
+        footers: &mut FooterTopologyCache,
     ) -> Result<Self, InvalidTimeZoneData> {
         let block = transitions
             .get_data_block2()
@@ -57,52 +66,57 @@ impl GapTopology {
                 certify_jump(transitions, offsets, boundary.0)?;
             }
         }
-        if let Some(cycle) = cycle {
-            // A private TZif clone changes only table activation. `get` stays
-            // the single authority; no second footer offset selector exists.
-            let mut pure_footer = transitions.clone();
-            let block = pure_footer
-                .data_block2
-                .as_mut()
-                .ok_or(InvalidTimeZoneData("gap topology footer lacks block"))?;
-            block.transition_times.clear();
-            block.transition_types.clear();
-            for &relative in cycle.relative_seconds() {
-                let phase = cycle
-                    .base_seconds()
-                    .checked_add(relative)
-                    .ok_or(InvalidTimeZoneData("gap topology cycle phase overflow"))?;
-                certify_jump(&pure_footer, offsets, phase)?;
-                // The complete 400-year cycle is the proof for every repeated
-                // tail segment. Remote copies additionally validate calendar
-                // arithmetic on both sides of the supported Instant domain.
-                for edge in [
-                    -TimeZoneInstant::limit_seconds(),
-                    TimeZoneInstant::limit_seconds(),
-                ] {
-                    let repetition = (i128::from(edge) - i128::from(phase))
-                        .div_euclid(i128::from(cycle.period_seconds()));
-                    for shift in [0_i128, 1] {
-                        let translated = i128::from(phase)
-                            + (repetition + shift) * i128::from(cycle.period_seconds());
-                        // Copies beyond the selector context are unnecessary:
-                        // the base-cycle proof already covers those phases.
-                        // Certify every relevant remote jump inside context.
-                        if (-i128::from(SELECTOR_CONTEXT - 4 * DAY)
-                            ..=i128::from(SELECTOR_CONTEXT - 4 * DAY))
-                            .contains(&translated)
-                        {
-                            let translated = i64::try_from(translated).map_err(|_| {
-                                InvalidTimeZoneData("gap topology remote phase overflow")
-                            })?;
-                            certify_jump(&pure_footer, offsets, translated)?;
-                        }
-                    }
+        // The footer proof is tied to this record's exact parsed footer. It
+        // is acquired only after this record's full historical/handoff proof.
+        let tail = footers.admit(transitions)?;
+        Ok(Self { tail })
+    }
+
+    pub(super) fn tail_cycle(&self) -> Option<&PosixOffsetChangeCycle> {
+        self.tail.as_ref().map(|tail| tail.cycle())
+    }
+}
+
+/// Certify every actual cycle phase and relevant remote copy through the same
+/// forward selector. The caller owns a private, table-free footer projection.
+fn certify_footer_cycle(
+    pure_footer: &Tzif,
+    offsets: &[NamedTimeZoneOffsetSeconds],
+    cycle: &PosixOffsetChangeCycle,
+) -> Result<(), InvalidTimeZoneData> {
+    for &relative in cycle.relative_seconds() {
+        let phase = cycle
+            .base_seconds()
+            .checked_add(relative)
+            .ok_or(InvalidTimeZoneData("gap topology cycle phase overflow"))?;
+        certify_jump(pure_footer, offsets, phase)?;
+        // The complete 400-year cycle is the proof for every repeated
+        // tail segment. Remote copies additionally validate calendar
+        // arithmetic on both sides of the supported Instant domain.
+        for edge in [
+            -TimeZoneInstant::limit_seconds(),
+            TimeZoneInstant::limit_seconds(),
+        ] {
+            let repetition = (i128::from(edge) - i128::from(phase))
+                .div_euclid(i128::from(cycle.period_seconds()));
+            for shift in [0_i128, 1] {
+                let translated =
+                    i128::from(phase) + (repetition + shift) * i128::from(cycle.period_seconds());
+                // Copies beyond the selector context are unnecessary:
+                // the base-cycle proof already covers those phases.
+                // Certify every relevant remote jump inside context.
+                if (-i128::from(SELECTOR_CONTEXT - 4 * DAY)
+                    ..=i128::from(SELECTOR_CONTEXT - 4 * DAY))
+                    .contains(&translated)
+                {
+                    let translated = i64::try_from(translated)
+                        .map_err(|_| InvalidTimeZoneData("gap topology remote phase overflow"))?;
+                    certify_jump(pure_footer, offsets, translated)?;
                 }
             }
         }
-        Ok(Self { _checked: () })
     }
+    Ok(())
 }
 
 /// A containing change derived from one immutable, certified zone. Independent
@@ -294,8 +308,26 @@ mod tests {
     fn checked(value: &Tzif) -> Result<GapTopology, InvalidTimeZoneData> {
         super::super::validation::validate(value)?;
         let offsets = super::super::exact_query::validated_offset_catalogue(value)?;
-        let cycle = value.posix_offset_change_cycle().unwrap();
-        GapTopology::validate(value, &offsets, cycle.as_ref())
+        GapTopology::validate(value, &offsets, &mut FooterTopologyCache::default())
+    }
+
+    #[test]
+    fn shared_footer_proof_never_replaces_the_records_own_handoff_proof() {
+        let mut cache = FooterTopologyCache::default();
+        let valid = data(0, 0, 0, 0);
+        super::super::validation::validate(&valid).unwrap();
+        let offsets = super::super::exact_query::validated_offset_catalogue(&valid).unwrap();
+        GapTopology::validate(&valid, &offsets, &mut cache).unwrap();
+        assert_eq!(cache.entries.len(), 1);
+        let invalid = data(0, 100, 0, 0);
+        assert_eq!(valid.footer, invalid.footer);
+        super::super::validation::validate(&invalid).unwrap();
+        let offsets = super::super::exact_query::validated_offset_catalogue(&invalid).unwrap();
+        let error = GapTopology::validate(&invalid, &offsets, &mut cache)
+            .err()
+            .unwrap();
+        assert_eq!(error.0, "gap topology interval is not globally empty");
+        assert_eq!(cache.entries.len(), 1);
     }
 
     #[test]

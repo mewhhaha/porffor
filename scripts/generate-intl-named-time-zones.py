@@ -259,7 +259,7 @@ def outputs(root):
                     Path("crates/lila-intl/src/provider/named_time_zones.rs"),
                     Path("crates/lila-intl/src/time_zone/exact.rs"),
                     Path("crates/lila-intl/src/time_zone/named_query.rs")]
-    recipe_paths += sorted(path.relative_to(root) for path in (root / PROVIDER).glob("*.rs")
+    recipe_paths += sorted(path.relative_to(root) for path in (root / PROVIDER).rglob("*.rs")
                            if path.name not in {"identity.rs", "tests.rs", "transition_tests.rs"})
     # Selected IANA/country/Names consumers are source inputs. Never capture the
     # downstream country kernel identity/manifest or this producer's own outputs.

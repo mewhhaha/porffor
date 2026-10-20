@@ -1,3 +1,18 @@
+Pinned Minimal DateTime admission now has a private preparation value: it
+validates rows and calendar kernels after Locale is ready, before waiting for
+the named-zone owner. Final admission retains that actual owner and all three
+plan digests. Custom/projection validation remains complete. The candidate
+uses the existing OnceLock and scheduler; native validation and any startup
+improvement are pending.
+
+A separate cold-admission candidate shares immutable POSIX footer cycles and
+complete gap certificates within one named-zone catalogue. Each actual record
+still validates its full historical offsets, transitions and table/footer
+handoff. The private footer-only proof uses the same forward selector and its
+complete standard/daylight offset range. Tests retain all pinned payloads and
+compare against the uncached full-catalogue proof. Native verification, exact
+frame/identity parity and any timeout improvement remain pending.
+
 Engine Intl verification passes all **299 tests**, with zero failures or ignored
 tests, in **1212.14 seconds**. All55 setup calls now honor the bounded
 compiler CPU budget; the actual run used four compiler/Rayon jobs, serial

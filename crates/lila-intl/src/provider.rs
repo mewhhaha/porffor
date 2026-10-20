@@ -91,7 +91,7 @@ mod named_time_zones;
 mod region_preference;
 mod time_zone_names;
 mod time_zone_snapshot;
-pub(crate) use datetime::DateTimeProvider;
+pub(crate) use datetime::{DateTimeProvider, PreparedDateTimeProvider};
 pub(crate) use keyword_aliases::KeywordAliasData;
 use language_domain::LikelySubtags;
 pub(crate) use language_domain::LocaleCanonicalizationData;

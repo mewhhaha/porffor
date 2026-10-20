@@ -230,10 +230,13 @@ fn shared_payload_reuse_keeps_each_record_spelling_and_digest_checks() {
 
 #[test]
 fn distinct_transition_data_requires_full_admission_before_sharing() {
-    let mut invalid = Tzif::from_bytes(jiff_tzdb::get("America/New_York").unwrap().1).unwrap();
+    let valid = Tzif::from_bytes(jiff_tzdb::get("America/New_York").unwrap().1).unwrap();
+    let mut footers = FooterTopologyCache::default();
+    AdmittedNamedTimeZoneData::from_data_with_footer_cache(valid.clone(), &mut footers).unwrap();
+    let mut invalid = valid;
     invalid.data_block2.as_mut().unwrap().transition_types[0] = usize::MAX;
     assert!(matches!(
-        AdmittedNamedTimeZoneData::from_data(invalid),
+        AdmittedNamedTimeZoneData::from_data_with_footer_cache(invalid, &mut footers),
         Err(InvalidTimeZoneData(
             "invalid pinned TZif transition indices"
         ))

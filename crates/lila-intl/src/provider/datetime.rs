@@ -40,6 +40,46 @@ pub(crate) struct DateTimeProvider {
     named_time_zone_digest: IntlDataDigest,
 }
 
+/// Parsed rows and calendar kernels cannot mint plans before the actual named
+/// owner and its digest are attached. This value is consumed exactly once.
+pub(crate) struct PreparedDateTimeProvider {
+    profile: Profile,
+    calendars: calendar::CalendarKernels,
+    keyword_aliases: Arc<KeywordAliasData>,
+    image_digest: IntlDataDigest,
+    locale_digest: IntlDataDigest,
+}
+
+impl PreparedDateTimeProvider {
+    pub(crate) fn bind_named_image(
+        self,
+        named: &crate::NamedTimeZoneDataImage,
+    ) -> DateTimeProvider {
+        self.bind(named.zones(), named.digest())
+    }
+
+    fn bind(
+        self,
+        named_time_zones: Arc<NamedTimeZones>,
+        named_time_zone_digest: IntlDataDigest,
+    ) -> DateTimeProvider {
+        DateTimeProvider {
+            profile: self.profile,
+            plans: plan_cache::PlanCache::new(
+                &self.image_digest,
+                &self.locale_digest,
+                &named_time_zone_digest,
+            ),
+            calendars: self.calendars,
+            named_time_zones,
+            keyword_aliases: self.keyword_aliases,
+            image_digest: self.image_digest,
+            locale_digest: self.locale_digest,
+            named_time_zone_digest,
+        }
+    }
+}
+
 impl DateTimeProvider {
     pub(crate) fn from_image_data(
         source: &str,
@@ -51,16 +91,32 @@ impl DateTimeProvider {
         locale_digest: IntlDataDigest,
         named_time_zone_digest: IntlDataDigest,
     ) -> Result<Self, DateTimeFormatError> {
-        let profile = Profile::from_json(source)?;
-        Self::from_profile(
-            profile,
+        Ok(Self::prepare_image_data(
+            source,
             data,
             canonicalizer,
             keyword_aliases,
-            named_time_zones,
             image_digest,
             locale_digest,
-            named_time_zone_digest,
+        )?
+        .bind(named_time_zones, named_time_zone_digest))
+    }
+
+    pub(crate) fn prepare_image_data(
+        source: &str,
+        data: &BlobDataProvider,
+        canonicalizer: &LocaleCanonicalizationData,
+        keyword_aliases: Arc<KeywordAliasData>,
+        image_digest: IntlDataDigest,
+        locale_digest: IntlDataDigest,
+    ) -> Result<PreparedDateTimeProvider, DateTimeFormatError> {
+        Self::prepare_profile(
+            Profile::from_json(source)?,
+            data,
+            canonicalizer,
+            keyword_aliases,
+            image_digest,
+            locale_digest,
         )
     }
 
@@ -130,20 +186,32 @@ impl DateTimeProvider {
         locale_digest: IntlDataDigest,
         named_time_zone_digest: IntlDataDigest,
     ) -> Result<Self, DateTimeFormatError> {
-        Self::validate_locales(&profile, canonicalizer)?;
-        Ok(Self {
+        Ok(Self::prepare_profile(
             profile,
-            plans: plan_cache::PlanCache::new(
-                &image_digest,
-                &locale_digest,
-                &named_time_zone_digest,
-            ),
-            calendars: calendar::CalendarKernels::from_data(data)?,
-            named_time_zones,
+            data,
+            canonicalizer,
             keyword_aliases,
             image_digest,
             locale_digest,
-            named_time_zone_digest,
+        )?
+        .bind(named_time_zones, named_time_zone_digest))
+    }
+
+    fn prepare_profile(
+        profile: Profile,
+        data: &BlobDataProvider,
+        canonicalizer: &LocaleCanonicalizationData,
+        keyword_aliases: Arc<KeywordAliasData>,
+        image_digest: IntlDataDigest,
+        locale_digest: IntlDataDigest,
+    ) -> Result<PreparedDateTimeProvider, DateTimeFormatError> {
+        Self::validate_locales(&profile, canonicalizer)?;
+        Ok(PreparedDateTimeProvider {
+            profile,
+            calendars: calendar::CalendarKernels::from_data(data)?,
+            keyword_aliases,
+            image_digest,
+            locale_digest,
         })
     }
 

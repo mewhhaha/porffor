@@ -157,9 +157,9 @@
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
     },
     {
-      "bytes": 80443,
+      "bytes": 80471,
       "path": "crates/lila-intl/src/provider.rs",
-      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      "sha256": "cac8a43e07dfc889352f012deebaf9411b30a1bd5ac9af88e07f225c5cb7f402"
     },
     {
       "bytes": 21454,
@@ -333,7 +333,7 @@
       }
     ]
   },
-  "provider_data_sha256": "0bc2bc9b736c512cc043c3a6e86659a9dfcdb2baa4992bc72e6af8ee6fc8947a",
+  "provider_data_sha256": "15ea400e301a965c95029c09b1325ab6b6abe3520340159631aa9678b7d11753",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

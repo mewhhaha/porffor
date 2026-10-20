@@ -21,6 +21,7 @@ NAMED_PRODUCTION = [
     'crates/lila-intl/src/provider/named_time_zones/catalogue.rs',
     'crates/lila-intl/src/provider/named_time_zones/exact_query.rs',
     'crates/lila-intl/src/provider/named_time_zones/gap_topology.rs',
+    'crates/lila-intl/src/provider/named_time_zones/gap_topology/footer.rs',
     'crates/lila-intl/src/provider/named_time_zones/identity.rs',
     'crates/lila-intl/src/provider/named_time_zones/validation.rs',
 ]

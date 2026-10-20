@@ -8,6 +8,51 @@ fn selected(name: &str) -> (LocaleDataImage, NamedTimeZoneDataImage, DateTimeDat
     let image = DateTimeDataImage::for_profile(profile, &locale, &named).unwrap();
     (locale, named, image)
 }
+
+#[test]
+fn pinned_preparation_retains_exact_frames_plans_and_actual_foundation_owners() {
+    let locale = embedded_locale_data_image().unwrap();
+    // No named owner is needed to parse/validate the pinned rows and kernels.
+    let prepared = PreparedPinnedDateTimeImage::new(&locale).unwrap();
+    let named = embedded_named_time_zone_data_image().unwrap();
+    let image = prepared.finish(&named).unwrap();
+    let ordinary =
+        DateTimeDataImage::for_profile(IntlDataProfile::Minimal, &locale, &named).unwrap();
+    assert_eq!(image.bytes(), ordinary.bytes());
+    assert_eq!(image.digest(), ordinary.digest());
+    assert_eq!(image.locale_digest(), locale.digest());
+    assert_eq!(image.named_time_zone_digest(), named.digest());
+    assert!(image.uses_locale(&locale));
+    assert!(image.uses_named_time_zones(&named.zones()));
+    assert_eq!(
+        image.provider_ref().available_calendar_kernels(),
+        ordinary.provider_ref().available_calendar_kernels()
+    );
+    let request = DateTimeFormatRequest {
+        plan: image
+            .select_plan(plan(&image, "en-US", None, date_fields()))
+            .unwrap()
+            .plan,
+        input: date(2020, 1, 25),
+    };
+    let decoded = DateTimeFormatRequest::decode(&request.encode().unwrap()).unwrap();
+    assert_eq!(
+        ordinary
+            .format_parts(decoded)
+            .unwrap()
+            .to_formatted_string(),
+        "1/25/2020"
+    );
+    let foreign = NamedTimeZoneDataImage::for_profile(IntlDataProfile::Custom(
+        CustomProfileId::parse("foreign-prepared-date-owner").unwrap(),
+    ))
+    .unwrap();
+    let prepared = PreparedPinnedDateTimeImage::new(&locale).unwrap();
+    assert!(matches!(
+        prepared.finish(&foreign),
+        Err(IntlDataImageError::Consumer(_))
+    ));
+}
 fn plan(
     image: &DateTimeDataImage,
     requested: &str,

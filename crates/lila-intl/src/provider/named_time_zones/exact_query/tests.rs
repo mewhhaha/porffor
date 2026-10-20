@@ -317,7 +317,7 @@ fn seasonal_tail_boundaries_roundtrip_and_instant_edges_return_null() {
     ] {
         let zone = &provider().zones[&id.to_ascii_lowercase()];
         let resolved = ResolvedNamedZone::new(zone);
-        let cycle = zone.data.tail_cycle.as_ref().unwrap();
+        let cycle = zone.data.gap_topology.tail_cycle().unwrap();
         for &relative in cycle.relative_seconds() {
             let t = cycle.base_seconds() + relative;
             assert_eq!(

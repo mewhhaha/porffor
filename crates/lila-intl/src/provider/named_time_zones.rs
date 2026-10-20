@@ -2,7 +2,6 @@ use std::collections::{btree_map::Entry, BTreeMap};
 use std::sync::Arc;
 
 use crate::NamedTimeZoneOffsetSeconds;
-use timezone_provider::tzif::PosixOffsetChangeCycle;
 
 use sha2::{Digest, Sha256};
 use timezone_provider::tzif::Tzif;
@@ -21,7 +20,7 @@ mod catalogue;
 mod exact_query;
 mod gap_topology;
 pub(crate) use gap_topology::CertifiedNamedGapBoundary;
-use gap_topology::GapTopology;
+use gap_topology::{FooterTopologyCache, GapTopology};
 mod identity;
 mod validation;
 
@@ -37,22 +36,25 @@ struct NamedTimeZone {
 struct AdmittedNamedTimeZoneData {
     transitions: Tzif,
     offsets: Vec<NamedTimeZoneOffsetSeconds>,
-    tail_cycle: Option<PosixOffsetChangeCycle>,
     gap_topology: GapTopology,
 }
 
 impl AdmittedNamedTimeZoneData {
+    #[cfg(test)]
     fn from_data(transitions: Tzif) -> Result<Self, InvalidTimeZoneData> {
+        Self::from_data_with_footer_cache(transitions, &mut FooterTopologyCache::default())
+    }
+
+    fn from_data_with_footer_cache(
+        transitions: Tzif,
+        footers: &mut FooterTopologyCache,
+    ) -> Result<Self, InvalidTimeZoneData> {
         validation::validate(&transitions)?;
         let offsets = exact_query::validated_offset_catalogue(&transitions)?;
-        let tail_cycle = transitions
-            .posix_offset_change_cycle()
-            .map_err(|_| InvalidTimeZoneData("pinned POSIX offset cycle failed"))?;
-        let gap_topology = GapTopology::validate(&transitions, &offsets, tail_cycle.as_ref())?;
+        let gap_topology = GapTopology::validate(&transitions, &offsets, footers)?;
         Ok(Self {
             transitions,
             offsets,
-            tail_cycle,
             gap_topology,
         })
     }
@@ -123,6 +125,7 @@ impl NamedTimeZones {
         // digest collision cannot reuse another payload's admission proofs.
         let mut admitted: BTreeMap<&[u8], Arc<AdmittedNamedTimeZoneData>> = BTreeMap::new();
         let mut records = records.iter();
+        let mut footers = FooterTopologyCache::default();
         for row in rows {
             let key = row.identity.identifier().to_ascii_lowercase();
             if identities
@@ -158,9 +161,12 @@ impl NamedTimeZones {
                 Entry::Vacant(entry) => {
                     let transitions = Tzif::from_bytes(bytes)
                         .map_err(|_| InvalidTimeZoneData("invalid pinned TZif record"))?;
-                    Arc::clone(
-                        entry.insert(Arc::new(AdmittedNamedTimeZoneData::from_data(transitions)?)),
-                    )
+                    Arc::clone(entry.insert(Arc::new(
+                        AdmittedNamedTimeZoneData::from_data_with_footer_cache(
+                            transitions,
+                            &mut footers,
+                        )?,
+                    )))
                 }
             };
             if zones

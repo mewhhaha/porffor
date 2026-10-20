@@ -1,7 +1,10 @@
 """Catalogue identity, country ownership and corrupt-source controls."""
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "generate-intl-named-time-zones.py"
 SPEC = importlib.util.spec_from_file_location("intl_named_time_zones", SCRIPT)
@@ -16,6 +19,27 @@ class NamedTimeZoneGenerationTests(unittest.TestCase):
         self.assertEqual(outputs, MODULE.outputs(ROOT))
         for path, content in outputs.items():
             self.assertEqual((ROOT / path).read_bytes(), content, str(path))
+
+    def test_nested_footer_source_changes_identity_without_changing_catalogue(self):
+        before = MODULE.outputs(ROOT)
+        relative = MODULE.PROVIDER / 'gap_topology/footer.rs'
+        nested = ROOT / relative
+        read_bytes = Path.read_bytes
+        changed = nested.read_bytes() + b'\n// source identity control\n'
+
+        def bytes_for(path):
+            return changed if path == nested else read_bytes(path)
+
+        with patch.object(Path, 'read_bytes', bytes_for):
+            after = MODULE.outputs(ROOT)
+        self.assertEqual(before[MODULE.DATA / 'catalogue.tsv'],
+                         after[MODULE.DATA / 'catalogue.tsv'])
+        self.assertNotEqual(before[MODULE.PROVIDER / 'identity.rs'],
+                            after[MODULE.PROVIDER / 'identity.rs'])
+        inputs = json.loads(after[MODULE.DATA / 'manifest.json'])['recipe']['inputs']
+        entry, = [entry for entry in inputs if entry['path'] == str(relative)]
+        self.assertEqual(entry['bytes'], len(changed))
+        self.assertEqual(entry['sha256'], hashlib.sha256(changed).hexdigest())
 
     def test_country_names_are_explicit_and_not_inferred_from_alias_groups(self):
         source = (ROOT / MODULE.DATA / "icu-77-1-zoneinfo64.icu").read_text()

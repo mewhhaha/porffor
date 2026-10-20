@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "9d611faed672f936190f7d66c2081804604ce6a11eb764d3152fd15bc14fd422",
+  "kernel_sha256": "b1c3bc67801b86b14e7ac3092a2f4600a80978fb73912230e95ca044f2a81ee2",
   "operations_reserved": [
     33,
     34,
@@ -563,9 +563,9 @@
       "sha256": "555340ca30dabd79560cd293768c0e34208df204af1fb82bec15705bc26dbdfd"
     },
     {
-      "bytes": 80443,
+      "bytes": 80471,
       "path": "crates/lila-intl/src/provider.rs",
-      "sha256": "9e0b05c4d64cd51d5977d3b5102a46ffec6b7038d07a2aff5b90404aa87897c7"
+      "sha256": "cac8a43e07dfc889352f012deebaf9411b30a1bd5ac9af88e07f225c5cb7f402"
     },
     {
       "bytes": 6703,

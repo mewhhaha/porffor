@@ -34,6 +34,86 @@ struct AdmittedDateTimeData {
     numbering_systems: Option<Box<[crate::number_format::NumberingSystemOption]>>,
 }
 
+/// Pinned Minimal preparation owns no named-zone authority and cannot publish
+/// an image. The existing image OnceLock performs this independent work before
+/// waiting for the actual IANA owner, then consumes it during final admission.
+struct PreparedPinnedDateTimeImage {
+    envelope: DataImageEnvelope,
+    locale: LocaleDataImage,
+    provider: crate::provider::PreparedDateTimeProvider,
+}
+
+impl PreparedPinnedDateTimeImage {
+    fn new(locale: &LocaleDataImage) -> Result<Self, IntlDataImageError> {
+        let envelope = DataImageEnvelope::decode(
+            DataImageEnvelope::encode(
+                DataImageComponent::DateTime,
+                &IntlDataProfile::Minimal,
+                DATETIME_IMAGE_MARKERS,
+                &payload(),
+            )?,
+            DataImageComponent::DateTime,
+            DATETIME_IMAGE_MARKERS,
+        )?;
+        if envelope.profile() != locale.profile() {
+            return Err(IntlDataImageError::consumer(
+                "DateTime, Locale and IANA image profiles differ",
+            ));
+        }
+        let (native, calendars) = split_payload(envelope.blob())?;
+        if native != PINNED_NATIVE || calendars != PINNED_CALENDAR {
+            return Err(IntlDataImageError::consumer(
+                "prepared DateTime payload differs from exact locked data",
+            ));
+        }
+        let canonicalizer =
+            LocaleCanonicalizationData::from_image(locale).map_err(IntlDataImageError::consumer)?;
+        let calendar_data = BlobDataProvider::try_new_from_blob(calendars.into())
+            .map_err(IntlDataImageError::consumer)?;
+        let provider = DateTimeProvider::prepare_image_data(
+            core::str::from_utf8(native).map_err(IntlDataImageError::consumer)?,
+            &calendar_data,
+            &canonicalizer,
+            locale.keyword_aliases(),
+            envelope.digest(),
+            locale.digest(),
+        )
+        .map_err(IntlDataImageError::consumer)?;
+        Ok(Self {
+            envelope,
+            locale: locale.clone(),
+            provider,
+        })
+    }
+
+    fn finish(
+        self,
+        named: &NamedTimeZoneDataImage,
+    ) -> Result<DateTimeDataImage, IntlDataImageError> {
+        if self.envelope.profile() != named.profile() {
+            return Err(IntlDataImageError::consumer(
+                "DateTime, Locale and IANA image profiles differ",
+            ));
+        }
+        if named.named_time_zone_selection().is_some() {
+            return Err(IntlDataImageError::consumer(
+                "unprojected DateTime names paired with selected IANA owner",
+            ));
+        }
+        let provider = self.provider.bind_named_image(named);
+        provider
+            .available_calendars()
+            .map_err(IntlDataImageError::consumer)?;
+        Ok(DateTimeDataImage(Arc::new(AdmittedDateTimeData {
+            envelope: self.envelope,
+            locale: self.locale,
+            named: named.clone(),
+            provider: Arc::new(provider),
+            numbering_systems: None,
+        })))
+    }
+}
+
 /// Construction admits every native table and calendar payload and retains the
 /// exact Locale and IANA owners before an opaque plan can be minted.
 #[derive(Clone)]
@@ -364,11 +444,8 @@ pub fn embedded_date_time_data_image() -> Result<DateTimeDataImage, IntlDataImag
     static IMAGE: OnceLock<Result<DateTimeDataImage, IntlDataImageError>> = OnceLock::new();
     IMAGE
         .get_or_init(|| {
-            DateTimeDataImage::for_profile(
-                IntlDataProfile::Minimal,
-                &embedded_locale_data_image()?,
-                &embedded_named_time_zone_data_image()?,
-            )
+            let prepared = PreparedPinnedDateTimeImage::new(&embedded_locale_data_image()?)?;
+            prepared.finish(&embedded_named_time_zone_data_image()?)
         })
         .clone()
 }
