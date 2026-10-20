@@ -1,22 +1,27 @@
 # Batch workflow: write concurrently, verify once, triage afterwards
 
-Current all-features discovery has passed **5,851 native tests**
-across **38 of113 scopes**, with zero failures or ignored tests in
-the completed scopes. All12 ordinary library scopes pass. The original
-650 Intl,35 worker and299 Engine Intl tests are included once. All14 source
-audits,622 tooling bodies and four original5000ms cold requests pass.
+The complete all-features workspace suite passes **9,654 native tests and 11
+documentation tests across all 113 scopes**, with zero failures or ignored
+tests. Every prior execution ID remains, plus four new Intl regressions.
+The prior suite's five-second worker timeout is eliminated in this run;
+the original failure remains preserved. All 14 source audits, 622 tooling
+controls and four original 5,000 ms cold requests also pass.
 
-Remaining integration suites are running at the same frozen source, then
-fresh default-feature tests and CI checks. Ordinary release/230-case replay,
-real harness mechanics, idle measurements and debug campaigns are queued
-sequentially. Full-suite, release, conformance, calibrated performance and
-task cleanup acceptance remain pending.
+The prepared checkpoint-write and scheduling repairs will enter the next
+source batch before fresh all-features/default and required Cargo checks.
+Ordinary release/230-case retention, real shard/resume checks, idle
+measurements, debug/optimized campaigns, full pinned conformance, calibrated
+performance and task cleanup acceptance remain pending.
 
-A checkpoint replacement bug was found during review. Its atomic-write
-repair and partial-write regression are prepared in a separate checkout;
-they have not been compiled or applied to the source under verification.
+A separately prepared atomic checkpoint-write repair remains uncompiled
+and has not changed this frozen tested source.
 
-[Closed scope evidence and prepared repair](native-progress-checkpoint-20261020.json).
+The scheduling candidate passes 13 focused Python controls and retains
+all 855 CLI IDs, one CPU per partition and original deadlines. Its
+elapsed-time benefit remains unmeasured. Unstarted old-source default
+and later queues were superseded without interrupting a native body.
+
+[Complete all-feature evidence and remaining gates](full-af-checkpoint-20261020.json).
 
 The same candidate prepares pinned Minimal DateTime data before waiting for
 named-zone admission, using the existing OnceLock. Its final typed value binds

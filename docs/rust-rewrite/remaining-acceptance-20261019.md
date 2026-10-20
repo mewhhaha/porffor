@@ -332,7 +332,10 @@ LILA_BIN="$PRODUCT" CLOSURE_EVIDENCE_DIR="$OUT/closure" \
 
 The default is one worker; the existing explicit cloud `--threads 4` route
 uses at most the machine quota with one compilation job per worker. Keep
-60,000ms per execution, without resume or worker reuse. The current source-pin census contains 102,994 mode-aware executions.
+60,000ms per execution, without resume or outcome carry. The explicit
+`--reuse-case-workers` option is supported by the current closure contract;
+each request receives fresh Realm, Store and GC state, and each worker
+handles at most 64 requests. Both full families still execute afresh. The current source-pin census contains 102,994 mode-aware executions.
 Both complete result maps must agree and contain zero nonpasses for T26 to
 pass. Explicit unsupported dynamic-source cases remain nonpasses.
 
