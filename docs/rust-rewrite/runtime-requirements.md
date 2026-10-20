@@ -58,13 +58,35 @@ This does not establish full ECMAScript `eval`, `new Function` or cross-realm
 dynamic-source compatibility. See the [current inventory](current-inventory.md)
 for verification and remaining acceptance work.
 
+## Out-of-scope tests
+
+Standalone Wasm dynamic-source cases that would require bundling a JavaScript
+parser, interpreter or VM into the emitted artifact are **outside product
+scope**, rather than features planned for implementation. This includes such
+uses of `eval`, `new Function` and cross-realm Function constructors.
+
+This is not a blanket exclusion of those APIs: finite prepared sources and
+native-host compilation remain supported paths. A parser/lowering bug in a
+supported path stays a failure or unimplemented feature. A test's filename,
+use of `eval` or `Function`, or `Unsupported` failure kind alone cannot decide
+that it is out of scope.
+
+The README chart reserves blue for out-of-scope cases. The historical publication
+does not include per-test scope decisions, so its blue category has an **unknown
+count** and no numeric bar height. The three measured categories retain their
+original counts and full denominator; some may include cases later classified
+out of scope. No cases are subtracted or silently skipped. A numeric split
+requires case-level evidence from the same suite pin and run, with a reason
+for each excluded case, before it can change the chart.
+
 ## Refreshing the README chart
 
 `python3 -B scripts/generate-test-graph.py` refreshes the README caption and
 [vertical bar chart](assets/test262-status.svg) from the canonical published
 Test262 snapshot. `--check` checks both outputs without writing them.
-Green is Success, red is Bug plus Crash, and gray is NotImplemented. Unrun
-tests are not reclassified as unimplemented. The date and pin remain visible;
+Green is Success, red is Bug plus Crash, gray is NotImplemented, and blue is
+the explicitly unclassified out-of-scope category. Unrun tests are not
+reclassified as unimplemented. The date and pin remain visible;
 this chart is a historical publication, not a current compiler pass rate.
 
 The previous 12,400-line README is preserved verbatim beneath a short provenance

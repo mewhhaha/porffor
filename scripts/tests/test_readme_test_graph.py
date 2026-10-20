@@ -21,7 +21,7 @@ class RecordedTestChart(unittest.TestCase):
         self.record = copy.deepcopy(self.publication)
 
     def test_gray_is_not_implemented_and_red_includes_bugs_and_crashes(self):
-        self.assertEqual([row[2] for row in GRAPH.categories(self.record)], [96678, 4240, 1125])
+        self.assertEqual([row[2] for row in GRAPH.categories(self.record)], [96678, 4240, 1125, None])
         text = GRAPH.render(self.record)
         self.assertIn('1,125 not implemented', text)
         self.assertIn('4,240 bugs/crashes', text)
@@ -54,6 +54,8 @@ class RecordedTestChart(unittest.TestCase):
         bars = {node.attrib['id']: node for node in svg.findall('svg:g/svg:rect', ns)}
         scale = None
         for key, _, count, color in GRAPH.categories(self.record):
+            if count is None:
+                continue
             bar = bars[key].attrib
             self.assertEqual(int(bar['data-count']), count)
             self.assertEqual(bar['fill'], color)
@@ -64,6 +66,26 @@ class RecordedTestChart(unittest.TestCase):
                 scale = height / count
             self.assertAlmostEqual(height / count, scale, places=8)
         self.assertNotIn('<script', GRAPH.render_svg(self.record))
+
+    def test_out_of_scope_is_unknown_not_zero_or_a_guess_from_unsupported_counts(self):
+        rows = GRAPH.categories(self.record)
+        self.assertIsNone(rows[-1][2])
+        self.assertEqual(sum(count for _, _, count, _ in rows if count is not None), 102043)
+        text = GRAPH.render(self.record)
+        self.assertIn('out of scope not classified', text)
+        self.assertIn('count is **unknown**, not zero', text)
+        self.assertIn('published totals\nabove remain unchanged', text)
+        svg = ET.fromstring(GRAPH.render_svg(self.record))
+        ns = {'svg': 'http://www.w3.org/2000/svg'}
+        unknown = svg.find('svg:g/svg:g[@id="out-of-scope"]', ns)
+        self.assertEqual(unknown.attrib['data-status'], 'unclassified')
+        self.assertEqual(unknown.attrib['fill'], '#0969da')
+        self.assertNotIn('data-count', unknown.attrib)
+        self.assertEqual(unknown.findall('svg:rect', ns), [])
+        self.assertIn('Out of scope: not classified, count unknown', svg.find('svg:desc', ns).text)
+        # FailureKind::Unsupported is not a scope decision; no subtraction.
+        self.record['real_suite']['counts_per_kind'] = [{'label': 'Unsupported', 'count': 1125}]
+        self.assertEqual(GRAPH.categories(self.record), rows)
 
     def test_check_detects_stale_svg_and_readme_and_keeps_current_files_untouched(self):
         with tempfile.TemporaryDirectory() as directory:

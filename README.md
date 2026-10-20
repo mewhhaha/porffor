@@ -29,12 +29,17 @@ policy. These small workloads are a local baseline.
 ## Tests
 
 <!-- scriptw-test-graph:start -->
-![Test262: 96,678 passing, 4,240 failing, 1,125 not implemented](docs/rust-rewrite/assets/test262-status.svg)
+![Test262: 96,678 passing, 4,240 failing, 1,125 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)
 
 Published snapshot: **2026-10-02**, pin `aa55200d1`,
 102,043 path-based entries. Red combines 4,240 bugs/crashes;
 gray means unimplemented, not unrun. This historical snapshot does not establish
 current compiler conformance. [Published evidence](test262/snapshots/published-status-wasm-aot.json).
+
+Blue marks **out of scope**: dynamic `eval` / Function-constructor cases that
+would require a parser or VM inside emitted Wasm. The snapshot has no case-level
+scope breakdown, so that count is **unknown**, not zero; the published totals
+above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 <!-- scriptw-test-graph:end -->
 
 ## Caveats
@@ -44,6 +49,7 @@ current compiler conformance. [Published evidence](test262/snapshots/published-s
 - **Dynamic code generation is limited.** Prepared `eval` / `new Function`
   sources can run; the native host can compile additional supported sources.
   Standalone Wasm does not contain a parser or provide general runtime `eval`.
+  Cases requiring a parser or VM inside emitted Wasm are outside product scope.
 - **Host APIs are limited.** Scriptw is not a Node.js or browser replacement.
   Three synchronous React SSR cases work; the public browser/streaming entry
   fails. [React probe and limitations](docs/rust-rewrite/react-ssr.md).

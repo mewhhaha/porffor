@@ -109,6 +109,8 @@ can also compile additional supported runtime strings. Portable Wasm artifacts
 do not contain a parser; unsupported source/context/Realm combinations and
 selected host operations remain explicit capability gaps. Such cases remain
 non-passing in real Test262 accounting. Full ECMAScript support is not established.
+Dynamic-source cases requiring a parser or VM inside emitted Wasm are outside
+product scope; the published aggregate has no exact count for that category.
 See [runtime requirements and dynamic-source limits](runtime-requirements.md).
 
 From the repository root, an ordinary CLI rebuild recipe is:

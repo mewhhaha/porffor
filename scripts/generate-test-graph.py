@@ -41,32 +41,42 @@ def categories(publication):
         ('passing', 'Passing', outcomes['Success'], '#2da44e'),
         ('failing', 'Failing', outcomes['Bug'] + outcomes['Crash'], '#cf222e'),
         ('not-implemented', 'Not implemented', outcomes['NotImplemented'], '#8c959f'),
+        # This aggregate has no case-level scope classification. Unknown is
+        # neither zero nor permission to subtract every eval/Function test.
+        ('out-of-scope', 'Out of scope', None, '#0969da'),
     ]
 
 
 def render(publication):
     real = publication['real_suite']
-    passed, failed, missing = [row[2] for row in categories(publication)]
+    passed, failed, missing, _ = [row[2] for row in categories(publication)]
     tick = chr(96)
     return f'''{START}
-![Test262: {passed:,} passing, {failed:,} failing, {missing:,} not implemented]({CHART})
+![Test262: {passed:,} passing, {failed:,} failing, {missing:,} not implemented; out of scope not classified]({CHART})
 
 Published snapshot: **{real['refresh_date']}**, pin {tick}{real['pinned_revisions']['test262'][:9]}{tick},
 {real['total']:,} path-based entries. Red combines {failed:,} bugs/crashes;
 gray means unimplemented, not unrun. This historical snapshot does not establish
 current compiler conformance. [Published evidence]({SNAPSHOT}).
+
+Blue marks **out of scope**: dynamic `eval` / Function-constructor cases that
+would require a parser or VM inside emitted Wasm. The snapshot has no case-level
+scope breakdown, so that count is **unknown**, not zero; the published totals
+above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 {END}'''
 
 
 def render_svg(publication):
     rows = categories(publication)
     real = publication['real_suite']
-    highest = max(row[2] for row in rows)
+    highest = max(count for _, _, count, _ in rows if count is not None)
     step = 10 ** (len(str(highest)) - 1)
     maximum = max(4, ((highest + step - 1) // step) * step)
     top, bottom, left, right = 78, 326, 96, 724
     height = bottom - top
-    description = '; '.join(f'{label}: {count:,}' for _, label, count, _ in rows)
+    description = '; '.join(
+        f'{label}: {count:,}' if count is not None else f'{label}: not classified, count unknown'
+        for _, label, count, _ in rows)
     source = f"{real['refresh_date']} · pin {real['pinned_revisions']['test262'][:9]} · {real['total']:,} entries"
     elements = [
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">',
@@ -85,7 +95,16 @@ def render_svg(publication):
             f'<path d="M {left} {y:g} H {right}" stroke="#d8dee4" stroke-width="1"/>',
             f'<text x="{left - 12}" y="{y + 4:g}" text-anchor="end" font-size="12" fill="#57606a">{label}</text>',
         ])
-    for (key, label, count, color), x in zip(rows, [206, 416, 626], strict=True):
+    for (key, label, count, color), x in zip(rows, [174, 332, 490, 648], strict=True):
+        if count is None:
+            elements.extend([
+                f'<g id="{key}" data-status="unclassified" fill="{color}">',
+                f'<text x="{x}" y="300" text-anchor="middle" font-size="12" font-weight="600">Not classified</text>',
+                f'<path d="M {x - 40} {bottom} H {x + 40}" stroke="{color}" stroke-width="3" stroke-dasharray="6 4"/>',
+                f'<text x="{x}" y="357" text-anchor="middle" font-size="15">{label}</text>',
+                '</g>',
+            ])
+            continue
         bar_height = height * count / maximum
         y = bottom - bar_height
         elements.extend([
@@ -94,6 +113,7 @@ def render_svg(publication):
             f'<text x="{x}" y="357" text-anchor="middle" font-size="15">{label}</text>',
         ])
     elements.extend([
+        '<text x="380" y="378" text-anchor="middle" font-size="11" fill="#0969da">Out-of-scope count unknown; published totals unchanged.</text>',
         f'<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">{escape(source)}</text>',
         '</g>', '</svg>', '',
     ])
