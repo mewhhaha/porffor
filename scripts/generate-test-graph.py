@@ -51,17 +51,32 @@ def render(publication):
     real = publication['real_suite']
     passed, failed, missing, _ = [row[2] for row in categories(publication)]
     tick = chr(96)
+    identity = real.get('compiler_identity')
+    if identity:
+        revision = identity['source_revision']
+        if revision['kind'] == 'git-commit':
+            measured = revision['commit'][:9]
+        elif revision['kind'] == 'unversioned-archive':
+            measured = 'archive ' + identity['source_fingerprint'][:9]
+        else:
+            raise ValueError('unknown compiler source revision kind')
+        units = 'mode-specific executions'
+        context = (f'Measured compiler: {tick}{measured}{tick} on the Wasm-AOT backend. '
+                   'This is a complete pinned-suite baseline, not full ECMAScript conformance.')
+    else:
+        units = 'path-based entries'
+        context = 'This historical snapshot does not establish\ncurrent compiler conformance.'
     return f'''{START}
 ![Test262: {passed:,} passing, {failed:,} failing, {missing:,} not implemented; out of scope not classified]({CHART})
 
 Published snapshot: **{real['refresh_date']}**, pin {tick}{real['pinned_revisions']['test262'][:9]}{tick},
-{real['total']:,} path-based entries. Red combines {failed:,} bugs/crashes;
-gray means unimplemented, not unrun. This historical snapshot does not establish
-current compiler conformance. [Published evidence]({SNAPSHOT}).
+{real['total']:,} {units}. Red combines {failed:,} bugs/crashes;
+gray means unimplemented, not unrun. {context}
+[Published evidence]({SNAPSHOT}) · [Run details](docs/rust-rewrite/test262-current.md).
 
-Blue marks **out of scope**: dynamic `eval` / Function-constructor cases that
-would require a parser or VM inside emitted Wasm. The snapshot has no case-level
-scope breakdown, so that count is **unknown**, not zero; the published totals
+Blue reserves **out of scope** for dynamic `eval` / Function-constructor cases
+requiring a parser or VM inside emitted Wasm. Scope classification is unaudited,
+so that count is **unknown**, not zero; the published totals
 above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 {END}'''
 
@@ -70,22 +85,28 @@ def render_svg(publication):
     rows = categories(publication)
     real = publication['real_suite']
     highest = max(count for _, _, count, _ in rows if count is not None)
-    step = 10 ** (len(str(highest)) - 1)
-    maximum = max(4, ((highest + step - 1) // step) * step)
+    magnitude = 10 ** (len(str(highest)) - 1)
+    maximum = max(4, next(magnitude * factor for factor in
+                         [1, 1.25, 1.5, 2, 2.5, 4, 5, 7.5, 10]
+                         if magnitude * factor >= highest))
     top, bottom, left, right = 78, 326, 96, 724
     height = bottom - top
     description = '; '.join(
         f'{label}: {count:,}' if count is not None else f'{label}: not classified, count unknown'
         for _, label, count, _ in rows)
-    source = f"{real['refresh_date']} · pin {real['pinned_revisions']['test262'][:9]} · {real['total']:,} entries"
+    current = bool(real.get('compiler_identity'))
+    source_unit = 'executions' if current else 'entries'
+    source = f"{real['refresh_date']} · pin {real['pinned_revisions']['test262'][:9]} · {real['total']:,} {source_unit}"
+    context = 'Complete pinned-suite baseline' if current else 'Historical snapshot'
+    unit = 'test executions' if current else 'test entries'
     elements = [
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">',
         '<title id="title">Published Test262 results</title>',
-        f'<desc id="description">{escape(description)}. Linear counts from zero. Historical snapshot: {escape(source)}. Not a current conformance percentage.</desc>',
+        f'<desc id="description">{escape(description)}. Linear counts from zero. {context}: {escape(source)}. Not full ECMAScript conformance.</desc>',
         '<rect width="760" height="422" rx="12" fill="#ffffff"/>',
         '<g font-family="system-ui, sans-serif" fill="#24292f">',
         '<text x="30" y="35" font-size="20" font-weight="600">Published Test262 results</text>',
-        '<text x="30" y="57" font-size="12" fill="#57606a">Historical snapshot · number of test entries</text>',
+        f'<text x="30" y="57" font-size="12" fill="#57606a">{context} · number of {unit}</text>',
     ]
     for index in range(5):
         value = maximum * index / 4

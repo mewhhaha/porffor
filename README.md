@@ -29,23 +29,23 @@ policy. These small workloads are a local baseline.
 ## Tests
 
 <!-- scriptw-test-graph:start -->
-![Test262: 96,678 passing, 4,240 failing, 1,125 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)
+![Test262: 102,978 passing, 16 failing, 0 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)
 
-Published snapshot: **2026-10-02**, pin `aa55200d1`,
-102,043 path-based entries. Red combines 4,240 bugs/crashes;
-gray means unimplemented, not unrun. This historical snapshot does not establish
-current compiler conformance. [Published evidence](test262/snapshots/published-status-wasm-aot.json).
+Published snapshot: **2026-10-20**, pin `6a4268a93`,
+102,994 mode-specific executions. Red combines 16 bugs/crashes;
+gray means unimplemented, not unrun. Measured compiler: `c5053c9d4` on the Wasm-AOT backend. This is a complete pinned-suite baseline, not full ECMAScript conformance.
+[Published evidence](test262/snapshots/published-status-wasm-aot.json) · [Run details](docs/rust-rewrite/test262-current.md).
 
-Blue marks **out of scope**: dynamic `eval` / Function-constructor cases that
-would require a parser or VM inside emitted Wasm. The snapshot has no case-level
-scope breakdown, so that count is **unknown**, not zero; the published totals
+Blue reserves **out of scope** for dynamic `eval` / Function-constructor cases
+requiring a parser or VM inside emitted Wasm. Scope classification is unaudited,
+so that count is **unknown**, not zero; the published totals
 above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 <!-- scriptw-test-graph:end -->
 
 ## Caveats
 
-- **Conformance is incomplete.** The chart is a dated publication, not a pass
-  rate for the current compiler. [Current verification and remaining work](docs/rust-rewrite/current-inventory.md).
+- **Conformance is incomplete.** The chart identifies its measured compiler
+  and complete pinned suite. [Current verification and remaining work](docs/rust-rewrite/current-inventory.md).
 - **Dynamic code generation is limited.** Prepared `eval` / `new Function`
   sources can run; the native host can compile additional supported sources.
   Standalone Wasm does not contain a parser or provide general runtime `eval`.
@@ -90,30 +90,29 @@ SCRIPTW_WASM_DUMP=hello.wasm ./target/release/scriptw build wasm hello.js
 
 ## Current Status
 <!-- scriptw-status:start -->
-<!-- lila-status:start -->
 Rust rewrite status must be read in layers, not one vanity number:
 - Fake wasm-safe Test262 subset: `187/187` green
 - Fake full Rust rewrite suite: `191/191` green
-- Pinned real Test262 baseline (`wasm-aot`, refreshed `2026-10-02`): `96678/102043` not green (`94.7%`)
-- Real Test262 goal: Success=96678/102043 (94.7%); burn down NotImplemented=1125, Crash=39, Bug=4201 to zero
-- Pinned revisions: `ecma262=ecma262-current-draft` `test262=aa55200d1310384c5cf69ea95b2a2ecba457007b`
-- Current real outcomes: `Success=96678`, `NotImplemented=1125`, `Crash=39`, `Bug=4201`
-- Biggest current real failing kinds: `Runtime=4441`, `Unsupported=753`, `HostHarness=162`
-- Biggest current real failing origins: `unknown=5191`, `icu-intl=162`, `boa-parser=9`
-- Worst current real matrix targets: `intl402/DurationFormat: 0/222 passed`, `intl402/Temporal/PlainDateTime: 29/250 passed`, `intl402/Temporal/ZonedDateTime: 54/250 passed`
-- Published status artifacts: `/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.json` and `/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.txt`
+- Pinned real Test262 baseline (`wasm-aot`, refreshed `2026-10-20`): `102978/102994` not green (`100.0%`)
+- Real Test262 goal: Success=102978/102994 (100.0%); burn down NotImplemented=0, Crash=0, Bug=16 to zero
+- Pinned revisions: `ecma262=5345883164f463e87f8b40aca4956157ecba8783` `test262=6a4268a9354a545d41c3b62efebc478ed8c521f4`
+- Compiler build fingerprint: `53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e`; executing image SHA-256: `771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6`
+- Current real outcomes: `Success=102978`, `NotImplemented=0`, `Crash=0`, `Bug=16`
+- Biggest current real failing kinds: `Runtime=16`
+- Biggest current real failing origins: `unknown=16`
+- Worst current real matrix targets: `built-ins/Object/getOwnPropertyDescriptor: 116/120 passed`, `built-ins/Object/getOwnPropertyNames: 88/90 passed`, `built-ins/parseFloat: 106/108 passed`
+- Published status artifacts: `/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.json` and `/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.txt`
 
-As of `2026-10-02`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.
+As of `2026-10-20`, Rust Wasm-AOT path is at 100% of repo fake coverage, not 100% ECMAScript. Project is still off literal 100% until full pinned real Test262 run is green for Rust path.
 
 Status refresh commands:
-- `cargo test -p lila-engine --quiet`
-- `cargo test -p lila-cli --quiet`
-- `./target/debug/lila test262 run language/wasm/pass --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
-- `./target/debug/lila test262 run --suite-root crates/lila-test262/tests/fixtures/fake_test262/vendor/test262`
+- `cargo test -p scriptw-engine --quiet`
+- `cargo test -p scriptw-cli --quiet`
+- `./target/debug/scriptw test262 run language/wasm/pass --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262 --execution-backend wasm`
+- `./target/debug/scriptw test262 run --suite-root crates/scriptw-test262/tests/fixtures/fake_test262/vendor/test262`
 - `./scripts/publish-real-status-low-ram.sh wasm-aot codex-published-real`
 
 When counts move, update this block in same change. Do not claim full Test262 `100%` from fake-suite numbers.
-<!-- lila-status:end -->
 <!-- scriptw-status:end -->
 
 </details>

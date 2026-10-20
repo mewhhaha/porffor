@@ -71,8 +71,8 @@ supported path stays a failure or unimplemented feature. A test's filename,
 use of `eval` or `Function`, or `Unsupported` failure kind alone cannot decide
 that it is out of scope.
 
-The README chart reserves blue for out-of-scope cases. The historical publication
-does not include per-test scope decisions, so its blue category has an **unknown
+The README chart reserves blue for out-of-scope cases. The publication
+does not include audited per-test scope decisions, so its blue category has an **unknown
 count** and no numeric bar height. The three measured categories retain their
 original counts and full denominator; some may include cases later classified
 out of scope. No cases are subtracted or silently skipped. A numeric split
@@ -87,7 +87,7 @@ Test262 snapshot. `--check` checks both outputs without writing them.
 Green is Success, red is Bug plus Crash, gray is NotImplemented, and blue is
 the explicitly unclassified out-of-scope category. Unrun tests are not
 reclassified as unimplemented. The date and pin remain visible;
-this chart is a historical publication, not a current compiler pass rate.
+this chart is a dated measurement of its identified compiler and suite, not full ECMAScript conformance.
 
 The previous 12,400-line README is preserved verbatim beneath a short provenance
 header in [development history](../../DEVELOPMENT_HISTORY.md). Its body and source

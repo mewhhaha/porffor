@@ -15,8 +15,8 @@ and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain auth
 - [Local cold/hot/execution versus V8 measurements](docs/rust-rewrite/v8-baseline.md)
   are complete with [source-bound raw evidence](docs/rust-rewrite/v8-baseline-20261020.json).
   This is not calibrated T25 or full-suite acceptance.
-- README diagrams show the unchanged dated AF and historical Test262 results.
-  Do not transfer old suite outcomes to the rename or delete this file/tasks.
+- The [fresh full Test262 baseline](docs/rust-rewrite/test262-current.md) measured all 102,994 current-pin executions; the README chart uses its exact native publication.
+  Native workspace and release closure remain open; keep this file/tasks.
 
 ## Pre-rename verified and published
 

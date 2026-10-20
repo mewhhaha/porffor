@@ -15,7 +15,18 @@ SPEC.loader.exec_module(GRAPH)
 class RecordedTestChart(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.publication = json.loads(GRAPH.read_committed_or_local(ROOT, GRAPH.SNAPSHOT))
+        # A stable historical fixture; unit tests must survive a new publication.
+        # The actual committed output is separately verified by --check in CI.
+        cls.publication = {'real_suite': {
+            'refresh_date': '2026-10-02', 'total': 102043, 'passed': 96678,
+            'pinned_revisions': {'test262': 'aa55200d1310384c5cf69ea95b2a2ecba457007b'},
+            'counts_per_outcome': [
+                {'label': 'Success', 'count': 96678},
+                {'label': 'Bug', 'count': 4201},
+                {'label': 'Crash', 'count': 39},
+                {'label': 'NotImplemented', 'count': 1125},
+            ],
+        }}
 
     def setUp(self):
         self.record = copy.deepcopy(self.publication)
@@ -46,6 +57,22 @@ class RecordedTestChart(unittest.TestCase):
             with self.subTest(error=error), self.assertRaisesRegex(ValueError, error):
                 GRAPH.render_svg(record)
 
+    def test_source_bound_publication_uses_execution_units_and_measured_revision(self):
+        self.record['real_suite']['compiler_identity'] = {
+            'source_revision': {'kind': 'git-commit', 'commit': 'a' * 40},
+        }
+        self.record['real_suite']['refresh_date'] = '2026-10-20'
+        text = GRAPH.render(self.record)
+        self.assertIn('mode-specific executions', text)
+        self.assertIn('Measured compiler: `aaaaaaaaa`', text)
+        self.assertIn('2026-10-20', text)
+        self.assertNotIn('historical snapshot', text)
+        self.assertNotIn('path-based entries', text)
+        svg = GRAPH.render_svg(self.record)
+        self.assertIn('Complete pinned-suite baseline', svg)
+        self.assertIn('number of test executions', svg)
+        self.assertNotIn('Historical snapshot', svg)
+
     def test_svg_has_accessible_linear_zero_based_bars_in_the_requested_colors(self):
         svg = ET.fromstring(GRAPH.render_svg(self.record))
         self.assertEqual(svg.attrib['role'], 'img')
@@ -66,6 +93,26 @@ class RecordedTestChart(unittest.TestCase):
                 scale = height / count
             self.assertAlmostEqual(height / count, scale, places=8)
         self.assertNotIn('<script', GRAPH.render_svg(self.record))
+
+    def test_unversioned_build_is_identified_by_fingerprint_and_unknown_kind_is_rejected(self):
+        self.record['real_suite']['compiler_identity'] = {
+            'source_revision': {'kind': 'unversioned-archive'},
+            'source_fingerprint': 'b' * 64,
+        }
+        self.assertIn('Measured compiler: `archive bbbbbbbbb`', GRAPH.render(self.record))
+        self.record['real_suite']['compiler_identity']['source_revision']['kind'] = 'invented'
+        with self.assertRaisesRegex(ValueError, 'unknown compiler source revision'):
+            GRAPH.render(self.record)
+
+    def test_axis_does_not_double_at_one_hundred_thousand_passes(self):
+        real = self.record['real_suite']
+        real['counts_per_outcome'][0]['count'] = real['passed'] = 101000
+        real['total'] = sum(row['count'] for row in real['counts_per_outcome'])
+        svg = ET.fromstring(GRAPH.render_svg(self.record))
+        ns = {'svg': 'http://www.w3.org/2000/svg'}
+        bar = svg.find('svg:g/svg:rect[@id="passing"]', ns)
+        self.assertGreater(float(bar.attrib['height']), 0.75 * 248)
+        self.assertLessEqual(float(bar.attrib['height']), 248)
 
     def test_out_of_scope_is_unknown_not_zero_or_a_guess_from_unsupported_counts(self):
         rows = GRAPH.categories(self.record)

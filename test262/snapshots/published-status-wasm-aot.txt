@@ -1,43 +1,45 @@
 published real Test262 status
-producer=lila
-refresh_date=2026-10-02
+producer=scriptw
+refresh_date=2026-10-20
 execution_backend=wasm-aot
-manifest_hash=8622785491567939163
-pinned: ecma262=ecma262-current-draft test262=aa55200d1310384c5cf69ea95b2a2ecba457007b
+manifest_hash=13327628081868727304
+compiler_identity={"source_fingerprint_scheme":"scriptw-program-cache-compiler-v3","source_fingerprint":"53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e","source_revision":{"kind":"git-commit","commit":"c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"},"executable_sha256":"771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"}
+pinned: ecma262=5345883164f463e87f8b40aca4956157ecba8783 test262=6a4268a9354a545d41c3b62efebc478ed8c521f4
 fake_wasm_safe=187/187
 fake_full=191/191
-real_total=102043
-real_passed=96678
-real_failed=5365
+real_total=102994
+real_passed=102978
+real_failed=16
 goal=Full pinned Test262 green
-progress=96678/102043
-remaining_to_green=5365
-burn_down: NotImplemented=1125 Crash=39 Bug=4201
-snapshot_json=/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.json
-snapshot_txt=/home/mewhhaha/src/porffor/target/publication-freeze-20260930-1790756341160032048/test262/snapshots/current-pin-wasm-aot-20260930-2885103bea4c-2x1-aggregate-8622785491567939163.txt
+progress=102978/102994
+remaining_to_green=16
+burn_down: NotImplemented=0 Crash=0 Bug=16
+snapshot_json=/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.json
+snapshot_txt=/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.txt
 outcomes:
-  Success=96678
-  NotImplemented=1125
-  Crash=39
-  Bug=4201
+  Success=102978
+  NotImplemented=0
+  Crash=0
+  Bug=16
 failure_kinds:
-  Runtime=4441
-  Unsupported=753
-  HostHarness=162
-  Parser=7
-  EarlyError=2
+  Runtime=16
+  EarlyError=0
+  HostHarness=0
   Lowering=0
+  Parser=0
+  Unsupported=0
   WasmBackend=0
 failure_origins:
-  unknown=5191
-  icu-intl=162
-  boa-parser=9
-  boa-runtime=3
+  unknown=16
+  boa-parser=0
+  boa-runtime=0
+  icu-intl=0
   local-harness=0
   spec-exec-host=0
+  wasm-backend=0
 top_targets:
-  intl402/DurationFormat: 0/222 passed (failed 222)
-  intl402/Temporal/PlainDateTime: 29/250 passed (failed 221)
-  intl402/Temporal/ZonedDateTime: 54/250 passed (failed 196)
-  intl402/Temporal/ZonedDateTime: 62/250 passed (failed 188)
-  intl402/Temporal/ZonedDateTime: 72/250 passed (failed 178)
+  built-ins/Object/getOwnPropertyDescriptor: 116/120 passed (failed 4)
+  built-ins/Object/getOwnPropertyNames: 88/90 passed (failed 2)
+  built-ins/parseFloat: 106/108 passed (failed 2)
+  built-ins/parseInt: 108/110 passed (failed 2)
+  intl402/Temporal/ZonedDateTime: 248/250 passed (failed 2)

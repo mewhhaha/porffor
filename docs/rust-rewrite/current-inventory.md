@@ -1,5 +1,17 @@
 # Current implementation and remaining work — 2026-10-20
 
+## Fresh full Test262 measurement — 2026-10-20
+
+All 102,994 current-pin mode-specific executions were measured through
+the ordinary release Wasm-AOT compiler: 102,978 pass,
+16 fail, 0 unimplemented.
+The measured compiler remains source `c5053c9d4`, whose compiler
+inputs match checkout `e21347cc7`. This closes baseline measurement,
+not conformance or the separate native/release acceptance gates below.
+[Current Test262 evidence and reproduction](test262-current.md).
+
+## Prior verification inventory
+
 The older suite inventory below records the measured **pre-rename** compiler.
 New renamed-release checks are recorded separately in the next section.
 The project is now
@@ -151,7 +163,7 @@ SCRIPTW_WASM_DUMP=hello.wasm "$SCRIPTW_BIN" --jobs 1 build wasm hello.js
 | Final all-target Cargo checks | Unstarted; formatter already passed in the source precheck |
 | Ordinary release / original 230 retention / real shard-resume | Original old-source gates unstarted. New `c5053c9d4` release build/focused checks pass; full retention and mechanics remain open |
 | Complete debug/optimized campaigns and timing gates | Unstarted at this source; no calibrated performance acceptance |
-| Current pinned Test262 closure | Both fresh complete 102,994-execution mode-aware families remain unrun |
+| Current pinned Test262 closure | One full current-input baseline is measured; two fresh green release-closure families remain outstanding |
 | Current canonical publication and deterministic backlog | Outstanding; reuse one completed full family rather than running a third |
 | Historical 5,365 replay and supported-host reproducibility | Separate outstanding obligations |
 
@@ -189,7 +201,7 @@ and the [ownership index](conformance-ownership.md).
 | Task | Recorded state | Implementation / work still required for closure |
 | --- | --- | --- |
 | T00 contribution protocol | Complete | Keep ownership, provenance, resource and publication guards passing |
-| T01 baseline/backlog | In progress | Tools exist; fresh complete current-pin baseline, deterministic backlog twice, comparison and canonical publication remain |
+| T01 baseline/backlog | In progress | Fresh baseline, canonical publication and deterministic backlog measured; comparison acceptance remains |
 | T02 IR/Wasm architecture | In progress | Modular Rust pipeline exists; remaining architecture/behavior/build-cost acceptance and final broad checks |
 | T03 harness integrity | In progress | Source audits and Test262477 pass; full current harness/fake-publication/host and shortcut-removal acceptance remain |
 | T04 shared operations/completion | In progress | Shared conversion/completion machinery exists; complete affected semantic families and side-effect/abrupt-order criteria |

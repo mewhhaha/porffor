@@ -1,0 +1,400 @@
+{
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e",
+    "source_revision": {
+      "kind": "git-commit",
+      "commit": "c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"
+    },
+    "executable_sha256": "771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"
+  },
+  "snapshot_version": 8,
+  "producer": "scriptw",
+  "matrix_strategy_version": 3,
+  "execution_backend": "wasm-aot",
+  "pinned_revisions": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "manifest_hash": 13327628081868727304,
+  "snapshot_name": "scriptw-current-20261020",
+  "total": 102994,
+  "passed": 102978,
+  "failed": 16,
+  "records": [
+    {
+      "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "features": [],
+      "flags": [
+        "noStrict"
+      ],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(«\"function arguments() {}\"», «\"[object Arguments]\"») to be true",
+      "detail_hash": 10162307294149082881,
+      "duration_ms": 1112,
+      "timed_out": false,
+      "matrix_node": "annexB",
+      "owner_task_id": "T24",
+      "debt_category": "annexb"
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "test_path": "built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object: Cannot convert undefined or null to object",
+      "detail_hash": 14295543663725541159,
+      "duration_ms": 622,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyDescriptor@chunk-0003-of-0003",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "test_path": "built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object: Cannot convert undefined or null to object",
+      "detail_hash": 14295543663725541159,
+      "duration_ms": 631,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyDescriptor@chunk-0003-of-0003",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "test_path": "built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object: Cannot convert undefined or null to object",
+      "detail_hash": 14295543663725541159,
+      "duration_ms": 631,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyDescriptor@chunk-0003-of-0003",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "test_path": "built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: TypeError: wasm-aot completion: object: Cannot convert undefined or null to object",
+      "detail_hash": 14295543663725541159,
+      "duration_ms": 676,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyDescriptor@chunk-0003-of-0003",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "test_path": "built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: result1[expResult[p1]] !== true",
+      "detail_hash": 2224158851783726138,
+      "duration_ms": 691,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyNames",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "test_path": "built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: result1[expResult[p1]] !== true",
+      "detail_hash": 2224158851783726138,
+      "duration_ms": 713,
+      "timed_out": false,
+      "matrix_node": "built-ins/Object/getOwnPropertyNames",
+      "owner_task_id": "T10",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:built-ins/parseFloat/prop-desc.js",
+      "test_path": "built-ins/parseFloat/prop-desc.js",
+      "features": [],
+      "flags": [],
+      "includes": [
+        "propertyHelper.js"
+      ],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: parseFloat should be a function Expected SameValue(«\"undefined\"», «\"function\"») to be true",
+      "detail_hash": 17748099366871874221,
+      "duration_ms": 1688,
+      "timed_out": false,
+      "matrix_node": "built-ins/parseFloat",
+      "owner_task_id": "T24",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:built-ins/parseFloat/prop-desc.js",
+      "test_path": "built-ins/parseFloat/prop-desc.js",
+      "features": [],
+      "flags": [],
+      "includes": [
+        "propertyHelper.js"
+      ],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: parseFloat should be a function Expected SameValue(«\"undefined\"», «\"function\"») to be true",
+      "detail_hash": 17748099366871874221,
+      "duration_ms": 1746,
+      "timed_out": false,
+      "matrix_node": "built-ins/parseFloat",
+      "owner_task_id": "T24",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:built-ins/parseInt/prop-desc.js",
+      "test_path": "built-ins/parseInt/prop-desc.js",
+      "features": [],
+      "flags": [],
+      "includes": [
+        "propertyHelper.js"
+      ],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: parseInt should be a function Expected SameValue(«\"undefined\"», «\"function\"») to be true",
+      "detail_hash": 12203008569420728014,
+      "duration_ms": 3027,
+      "timed_out": false,
+      "matrix_node": "built-ins/parseInt",
+      "owner_task_id": "T24",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:built-ins/parseInt/prop-desc.js",
+      "test_path": "built-ins/parseInt/prop-desc.js",
+      "features": [],
+      "flags": [],
+      "includes": [
+        "propertyHelper.js"
+      ],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: parseInt should be a function Expected SameValue(«\"undefined\"», «\"function\"») to be true",
+      "detail_hash": 12203008569420728014,
+      "duration_ms": 2959,
+      "timed_out": false,
+      "matrix_node": "built-ins/parseInt",
+      "owner_task_id": "T24",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+      "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+      "features": [
+        "Temporal",
+        "canonical-tz"
+      ],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(«false», «true») to be true",
+      "detail_hash": 7555442764907322715,
+      "duration_ms": 1396,
+      "timed_out": false,
+      "matrix_node": "intl402/Temporal/ZonedDateTime@chunk-0001-of-0005",
+      "owner_task_id": "T22",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+      "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+      "features": [
+        "Temporal",
+        "canonical-tz"
+      ],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(«false», «true») to be true",
+      "detail_hash": 7555442764907322715,
+      "duration_ms": 1184,
+      "timed_out": false,
+      "matrix_node": "intl402/Temporal/ZonedDateTime@chunk-0001-of-0005",
+      "owner_task_id": "T22",
+      "debt_category": "semantic"
+    },
+    {
+      "test_id": "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: #5: typeof this.parseInt !== \"undefined\"",
+      "detail_hash": 6604191238790961401,
+      "duration_ms": 889,
+      "timed_out": false,
+      "matrix_node": "language/expressions/property-accessors",
+      "owner_task_id": "T07",
+      "debt_category": "parser"
+    },
+    {
+      "test_id": "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "test_path": "language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "features": [],
+      "flags": [],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: #5: typeof this.parseInt !== \"undefined\"",
+      "detail_hash": 6604191238790961401,
+      "duration_ms": 795,
+      "timed_out": false,
+      "matrix_node": "language/expressions/property-accessors",
+      "owner_task_id": "T07",
+      "debt_category": "parser"
+    },
+    {
+      "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "features": [],
+      "flags": [
+        "noStrict"
+      ],
+      "includes": [],
+      "negative_phase": null,
+      "negative_type": null,
+      "failure_kind": "Runtime",
+      "outcome": "Bug",
+      "origin": "unknown",
+      "normalized_detail": "[origin:unknown] uncaught throw: ReferenceError: wasm-aot completion: object: unbound identifier",
+      "detail_hash": 17421951291840835756,
+      "duration_ms": 1686,
+      "timed_out": false,
+      "matrix_node": "staging/sm/lexical-environment",
+      "owner_task_id": "T26-unclassified",
+      "debt_category": "unclassified"
+    }
+  ],
+  "summary_by_task": {
+    "T07": 2,
+    "T10": 6,
+    "T22": 2,
+    "T24": 5,
+    "T26-unclassified": 1
+  },
+  "summary_by_feature": {
+    "(none)": 14,
+    "Temporal": 2,
+    "canonical-tz": 2
+  },
+  "summary_by_failure_hash": {
+    "1eddccb10c9c143a": 2,
+    "5ba6ccf0f0e1d8f9": 2,
+    "68da532a0b189d5b": 2,
+    "8d07c4a44e1dff01": 1,
+    "a959cba3bb5ec6ce": 2,
+    "c663f9389b727727": 4,
+    "f1c73464fc54b0ac": 1,
+    "f64dea5738bbbaad": 2
+  },
+  "slowest_subtrees": [
+    {
+      "subtree": "built-ins/parseInt",
+      "duration_ms": 5986
+    },
+    {
+      "subtree": "built-ins/Object",
+      "duration_ms": 3964
+    },
+    {
+      "subtree": "built-ins/parseFloat",
+      "duration_ms": 3434
+    },
+    {
+      "subtree": "intl402/Temporal",
+      "duration_ms": 2580
+    },
+    {
+      "subtree": "staging/sm",
+      "duration_ms": 1686
+    },
+    {
+      "subtree": "language/expressions",
+      "duration_ms": 1684
+    },
+    {
+      "subtree": "annexB/language",
+      "duration_ms": 1112
+    }
+  ]
+}

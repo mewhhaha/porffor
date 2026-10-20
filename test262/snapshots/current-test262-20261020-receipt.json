@@ -1,0 +1,188 @@
+{
+  "schema": "scriptw-full-test262-refresh-v1",
+  "complete": true,
+  "measurement_date": "2026-10-20",
+  "checkout_commit": "e21347cc7aa790346d794cfadc41f1b7b30a6fa3",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e",
+    "source_revision": {
+      "kind": "git-commit",
+      "commit": "c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"
+    },
+    "executable_sha256": "771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"
+  },
+  "pinned_revisions": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "total": 102994,
+  "counts_per_outcome": {
+    "Success": 102978,
+    "NotImplemented": 0,
+    "Crash": 0,
+    "Bug": 16
+  },
+  "native_progress": {
+    "execution_backend": "wasm-aot",
+    "matrix_nodes_completed": "748",
+    "matrix_nodes_total": "748",
+    "observed_total": "102994",
+    "target_total": "102994",
+    "unobserved_total": "0",
+    "current_success": "102978",
+    "current_success_full": "102978/102994",
+    "remaining_observed_failures": "16",
+    "remaining_to_green": "16",
+    "manifest_hash": "13327628081868727304",
+    "compiler_identity": "{\"source_fingerprint_scheme\":\"scriptw-program-cache-compiler-v3\",\"source_fingerprint\":\"53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e\",\"source_revision\":{\"kind\":\"git-commit\",\"commit\":\"c5053c9d4ed1ce961f66eff8cd0d721b39108ffd\"},\"executable_sha256\":\"771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6\"}",
+    "pinned_ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "pinned_test262": "6a4268a9354a545d41c3b62efebc478ed8c521f4",
+    "snapshot_json": "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots/scriptw-current-20261020-aggregate-13327628081868727304.json",
+    "Success": "102978",
+    "NotImplemented": "0",
+    "Crash": "0",
+    "Bug": "16",
+    "burn_down": "NotImplemented=0 Crash=0 Bug=16",
+    "not_run": "0"
+  },
+  "archive": "test262/snapshots/current-test262-20261020.tar.gz",
+  "compiler_inputs_match_checkout": true,
+  "release_acceptance": false,
+  "out_of_scope_classification": "not-audited; no exclusions",
+  "checks": [
+    {
+      "command": [
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/scriptw",
+        "--jobs",
+        "1",
+        "compiler-identity"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-00.log",
+      "sha256": "f81bfe737ea9136996dcde25f9334c626adef543e7dd835019f2cdadb96adb41"
+    },
+    {
+      "command": [
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/scriptw",
+        "--jobs",
+        "1",
+        "test262",
+        "progress-status",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/workspace/lila-tooling-next/test262/vendor/test262",
+        "--snapshot-dir",
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots",
+        "--snapshot-name",
+        "scriptw-current-20261020"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-01.log",
+      "sha256": "c8bd9a469134050f775fccb097b4083776b287c87dc45a8af3f11b28997bac17"
+    },
+    {
+      "command": [
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/scriptw",
+        "--jobs",
+        "1",
+        "test262",
+        "generate-backlog",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/workspace/lila-tooling-next/test262/vendor/test262",
+        "--snapshot-dir",
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots",
+        "--snapshot-name",
+        "scriptw-current-20261020"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-02.log",
+      "sha256": "d3127b55406ad2a5eeb42f8832758d1fe86f8ecd10c054295b685c4651e395ce"
+    },
+    {
+      "command": [
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/scriptw",
+        "--jobs",
+        "1",
+        "test262",
+        "generate-backlog",
+        "--execution-backend",
+        "wasm-aot",
+        "--suite-root",
+        "/workspace/lila-tooling-next/test262/vendor/test262",
+        "--snapshot-dir",
+        "/workspace/porffor/target/scriptw-test262-refresh-20261020-run1/snapshots",
+        "--snapshot-name",
+        "scriptw-current-20261020"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-03.log",
+      "sha256": "d3127b55406ad2a5eeb42f8832758d1fe86f8ecd10c054295b685c4651e395ce"
+    },
+    {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "scripts/generate-test-graph.py"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-04.log",
+      "sha256": "ca776c9a33e552d0413cdb9f845e8241a3baee765acacd58eab1d1aa017b81b6"
+    },
+    {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/tests",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-05.log",
+      "sha256": "16b055242838465ce7975382c2228c1b0d14b80ea273afaa9584a5bfa3044927"
+    },
+    {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "-B",
+        "scripts/generate-test-graph.py",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-06.log",
+      "sha256": "ca776c9a33e552d0413cdb9f845e8241a3baee765acacd58eab1d1aa017b81b6"
+    },
+    {
+      "command": [
+        "./scripts/check-scriptw-identity.sh"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-07.log",
+      "sha256": "c2597a582068604a1f39bba27b809f06ffe5957b46410f83c825ee407cc03d76"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "finish-check-08.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "deterministic_backlog_sha256": {
+    "test262/backlog/6a4268a9354a545d41c3b62efebc478ed8c521f4/wasm-aot.json": "b58e67e4f57150156f47f291d764a6af3b7684826e7c10618ef82442ff732f6a",
+    "test262/backlog/6a4268a9354a545d41c3b62efebc478ed8c521f4/wasm-aot.txt": "1c7d03708c66825ffb573efaafae894b47968437998d66ccbfa4990c07bf1883"
+  },
+  "tooling_tests": 641,
+  "archive_sha256": "af7b478660d979eb6a7a226b0e8293c7b8319e4747598d4977486fa4d4175aaf",
+  "archive_assets": 2265
+}

@@ -1,0 +1,32 @@
+test262 backlog wasm-aot snapshot=scriptw-current-20261020
+producer=scriptw snapshot_version=8
+compiler_identity={"source_fingerprint_scheme":"scriptw-program-cache-compiler-v3","source_fingerprint":"53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e","source_revision":{"kind":"git-commit","commit":"c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"},"executable_sha256":"771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"}
+pinned: ecma262=5345883164f463e87f8b40aca4956157ecba8783 test262=6a4268a9354a545d41c3b62efebc478ed8c521f4
+total=102994 passed=102978 failed=16 records=16
+by_task:
+  T07: 2
+  T10: 6
+  T22: 2
+  T24: 5
+  T26-unclassified: 1
+by_feature:
+  (none): 14
+  Temporal: 2
+  canonical-tz: 2
+top_failure_hashes:
+  1eddccb10c9c143a: 2
+  5ba6ccf0f0e1d8f9: 2
+  68da532a0b189d5b: 2
+  8d07c4a44e1dff01: 1
+  a959cba3bb5ec6ce: 2
+  c663f9389b727727: 4
+  f1c73464fc54b0ac: 1
+  f64dea5738bbbaad: 2
+slowest_subtrees:
+  built-ins/parseInt: 5986ms
+  built-ins/Object: 3964ms
+  built-ins/parseFloat: 3434ms
+  intl402/Temporal: 2580ms
+  staging/sm: 1686ms
+  language/expressions: 1684ms
+  annexB/language: 1112ms
