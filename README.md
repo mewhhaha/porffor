@@ -46,8 +46,7 @@ above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.m
 
 - **Conformance is incomplete.** The chart identifies its measured compiler
   and complete pinned suite. [Current verification and remaining work](docs/rust-rewrite/current-inventory.md).
-  [Verified global-property repair](docs/rust-rewrite/global-prelude-hosts-fix-20261020.md).
-  [Three reviewed test corrections and the separate 27/27 replay](docs/rust-rewrite/test262-errata-20261020.md).
+  [Verified repairs and the remaining labelled-function case](docs/rust-rewrite/annex-label-triage-20261020.md).
 - **Dynamic code generation is limited.** Prepared `eval` / `new Function`
   sources can run; the native host can compile additional supported sources.
   Standalone Wasm does not contain a parser or provide general runtime `eval`.

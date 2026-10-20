@@ -269,3 +269,15 @@ preparation regressions and eleven pinned-provider offset samples also pass.
 Original vendor bytes, source pins, canonical full counts and chart are unchanged.
 This is focused amended-suite evidence, not unmodified upstream or full-suite
 acceptance. [Corrections, exact comparison and remaining specification gap](test262-errata-20261020.md).
+
+
+## Final baseline failure inventory
+
+The completed baseline retains all sixteen failures. Focused verification of
+the integrated compiler repair passes the twelve affected original executions.
+Three other executions pass with the explicit reviewed fixture corrections;
+the original suite still records their failures. One additional labelled-function
+staging execution remains open and is reproduced on the fixed candidate.
+Its thirteen isolated diagnostic calls give 10 pass/3 fail; V8 passes all 13.
+[Exact distinction, evidence and next work](annex-label-triage-20261020.md).
+No complete green integrated-source suite has been demonstrated.

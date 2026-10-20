@@ -100,3 +100,15 @@ repairs remain green. Original vendor/pins/full results are preserved, and the
 Johnston backzone-Zone specification gap is still explicit. Do not count this
 as full upstream Test262 acceptance or delete continuation/tasks.
 [Exact proof and reproduction](docs/rust-rewrite/test262-errata-20261020.md).
+
+
+## Final original-pin failures — 2026-10-20
+
+The full baseline completed 102,994 executions: 102,978 pass, 16 Bug, 0 Crash,
+0 NotImplemented. The integrated global-prelude repair passes all 12 affected
+original executions in focused verification. Three explicit test corrections
+pass in the separate 27/27 cohort. The additional labelled-function staging
+test remains open; its 13 independent diagnostic calls expose three disputed
+expectations. [Evidence and next steps](docs/rust-rewrite/annex-label-triage-20261020.md).
+Resolve that case before a fresh full integrated-source campaign. Original
+failures, pins and chart remain intact; keep this file/tasks until acceptance.
