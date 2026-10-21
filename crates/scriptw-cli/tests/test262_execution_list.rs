@@ -173,7 +173,7 @@ fn four_case_workers_keep_exact_native_shards_realms_and_literal_failures() {
             if shard.is_some() { "shard" } else { "run" },
         ]);
         if let Some(shard) = shard {
-            command.arg(shard);
+            command.arg("--shard").arg(shard);
         }
         command
             .arg("language/list")

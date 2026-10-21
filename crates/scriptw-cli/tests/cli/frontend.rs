@@ -1074,6 +1074,7 @@ fn test262_shard_exits_unsuccessfully_and_keeps_failure_snapshot() {
     let output = ProcessCommand::new(env!("CARGO_BIN_EXE_scriptw"))
         .arg("test262")
         .arg("shard")
+        .arg("--shard")
         .arg("1/1")
         .arg("--suite-root")
         .arg(&suite_root)
@@ -1153,7 +1154,7 @@ fn test262_run_and_shard_reject_unsupported_and_keep_failure_snapshots() {
         let mut process = ProcessCommand::new(env!("CARGO_BIN_EXE_scriptw"));
         process.arg("test262").arg(command);
         if let Some(shard_selector) = shard_selector {
-            process.arg(shard_selector);
+            process.arg("--shard").arg(shard_selector);
         }
         let output = process
             .arg("--suite-root")

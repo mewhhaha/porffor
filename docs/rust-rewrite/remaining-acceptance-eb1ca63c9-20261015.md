@@ -80,7 +80,7 @@ the shown outer launcher and its own `--cloud` admission flag.
    existing selector), then use the same input set throughout:
    `"$PRODUCT" --jobs 1 test262 list harness --execution-backend wasm-aot`
    `"$PRODUCT" --jobs 1 test262 run harness --execution-backend wasm-aot --threads 1 --timeout-ms 60000 --snapshot-dir "$OUT/mechanics" --snapshot-name serial`
-   `"$PRODUCT" --jobs 1 test262 shard 1/2 harness --execution-backend wasm-aot --threads 2 --timeout-ms 60000 --snapshot-dir "$OUT/mechanics" --snapshot-name shard1`
+   `"$PRODUCT" --jobs 1 test262 shard --shard 1/2 harness --execution-backend wasm-aot --threads 2 --timeout-ms 60000 --snapshot-dir "$OUT/mechanics" --snapshot-name shard1`
    Repeat shard2, and independently start a same-input resume family; interrupt
    its owned process group only after a genuine nonempty persisted checkpoint,
    then invoke the identical command plus `--resume` to completion. The runner

@@ -150,7 +150,7 @@ done
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'hash.update(services.wire().to_le_bytes());' 1 'cache binds the actual public service set'
 require_exact_line_count crates/scriptw-cli/src/main.rs 'enum IntlLocaleProjectionComponent {' 1 'private closed CLI component input authority'
 require_fixed_string_count crates/scriptw-cli/src/main.rs 'fn parse(argument: &str) -> Option<Self>' 1 'sole open-string CLI component boundary'
-require_fixed_string_count crates/scriptw-cli/src/main.rs 'IntlLocaleProjectionComponent::parse(&args[index])' 1 'actual parser consumes the checked component token'
+require_fixed_string_count crates/scriptw-cli/src/main.rs 'IntlLocaleProjectionComponent::parse(argument)' 1 'single-pass argument cursor consumes the checked component token'
 for cli_projection_route in 'List:list' 'RelativeTime:relative_time' 'DisplayNames:display_names' 'Duration:duration' 'Number:number' 'DateTime:date_time' 'Collator:collator' 'Segmenter:segmenter'; do
   cli_projection_component="${cli_projection_route%%:*}"
   cli_projection_field="${cli_projection_route#*:}"

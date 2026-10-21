@@ -97,7 +97,7 @@ with the same execution modes and unchanged sources on baseline and head:
 A complete subtree exceeded the original 60-minute CI job limit while making
 steady progress. CI therefore builds the product once, checks its source SHA in
 each consumer, and executes all four one-based disjoint shards for each of the
-four subtrees. For example, `test262 shard 1/4 built-ins/Array/prototype/map/`
+four subtrees. For example, `test262 shard --shard 1/4 built-ins/Array/prototype/map/`
 uses the same backend and timeout arguments above; shards `2/4`, `3/4`, and `4/4`
 are required too. No test or execution mode is excluded. Every shard must
 complete with a nonempty passing verdict. Retained Array CLI fixtures run in a

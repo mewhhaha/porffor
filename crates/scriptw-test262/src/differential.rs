@@ -2577,12 +2577,13 @@ mod tests {
 
     #[test]
     fn committed_v1_case_and_fingerprint_remain_byte_for_byte_stable() {
+        // The fingerprint domain includes the canonical Scriptw product identity.
         let case = case_v1();
 
         assert_eq!(case.id().as_str(), "t25/foundation/arithmetic-self-check");
         assert_eq!(case.goal(), DifferentialGoal::Script);
         assert_eq!(case.timeout_ms().get(), 5_000);
-        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:73f75d9ae75e0f47");
+        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:44268dc163e7df7d");
         assert_eq!(
             case.to_pretty_json().expect("v1 case should encode"),
             FOUNDATION_CASE_V1
@@ -2598,7 +2599,7 @@ mod tests {
             DifferentialProtocol::V2PrimitiveCompletionNoOutput
         );
         assert_eq!(case.id().as_str(), "t25/foundation/primitive-number");
-        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:71825b2dcabbbc2c");
+        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:669d9f580d8c49de");
         assert_eq!(
             case.to_pretty_json().expect("v2 case should encode"),
             FOUNDATION_CASE_V2
@@ -2621,7 +2622,7 @@ mod tests {
             case.id().as_str(),
             "t25/foundation/primitive-number-and-print"
         );
-        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:efcaa4952f4021ef");
+        assert_eq!(case_fingerprint(&case).as_str(), "fnv1a64:a3b6996af6785a95");
         assert_eq!(
             case.to_pretty_json().expect("v3 case should encode"),
             FOUNDATION_CASE_V3
@@ -2786,7 +2787,7 @@ mod tests {
                 .expect("mismatch should have signature")
                 .as_str(),
             "scriptw-diff-v1:self-check-disposition:t25/foundation/arithmetic-self-check:\
-             fnv1a64:73f75d9ae75e0f47:script:wasm-aot=normal:spec-exec=error"
+             fnv1a64:44268dc163e7df7d:script:wasm-aot=normal:spec-exec=error"
         );
     }
 
@@ -2820,7 +2821,7 @@ mod tests {
             r#"{
   "schema_version": 1,
   "case_id": "t25/foundation/arithmetic-self-check",
-  "case_fingerprint": "fnv1a64:73f75d9ae75e0f47",
+  "case_fingerprint": "fnv1a64:44268dc163e7df7d",
   "observation_contract": "self_checking_no_output",
   "verdict": "both_completed",
   "semantic_equivalence": "not_established",
@@ -3117,7 +3118,7 @@ mod tests {
                 .mismatch_signature()
                 .expect("v2 mismatch should have a signature")
                 .as_str(),
-            "scriptw-diff-v2:primitive-completion:t25/foundation/primitive-number:fnv1a64:71825b2dcabbbc2c:script:wasm-aot=normal-number-0000000000000000:spec-exec=normal-number-8000000000000000"
+            "scriptw-diff-v2:primitive-completion:t25/foundation/primitive-number:fnv1a64:669d9f580d8c49de:script:wasm-aot=normal-number-0000000000000000:spec-exec=normal-number-8000000000000000"
         );
     }
 
@@ -3263,7 +3264,7 @@ mod tests {
                 .mismatch_signature()
                 .expect("boundary mismatch should have a signature")
                 .as_str(),
-            "scriptw-diff-v3:primitive-completion-print-transcript:fnv1a64-4789c076c31a59f8"
+            "scriptw-diff-v3:primitive-completion-print-transcript:fnv1a64-e93cd73b45fc20cd"
         );
         assert_ne!(
             boundary_mismatch.mismatch_signature(),

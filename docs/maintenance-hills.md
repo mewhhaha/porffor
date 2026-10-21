@@ -1,8 +1,8 @@
 # Scriptw maintenance hills
 
 Audit: 2026-10-21, baseline `6b3d9b449`. These 100 distinct candidates implement
-the approved inventory; 500 is a ceiling, not a quota. The user has authorized all 100 hills. H001–H035 and H091 are complete
-(36 total); the remaining 64 are queued in bounded implementation batches.
+the approved inventory; 500 is a ceiling, not a quota. The user has authorized all 100 hills. H001–H044 and H091 are complete
+(45 total); the remaining 55 are queued in bounded implementation batches.
 Investigation entries require evidence before a code change. This backlog does not supersede conformance acceptance.
 
 ## How to complete a hill
@@ -59,15 +59,15 @@ Risk is initial review guidance, not a claim that the code contains a bug.
 | H033 | Next | Done; low | Share chart display identity and count preparation | `generate-test-graph.py::render/render_svg` | T |
 | H034 | Next | Done; medium | Make resource-number parsing contracts explicit | `limited_verification.py and check-scratch-space.py` | T |
 | H035 | Later | Done; high | Separate build process discovery from affinity mutation | `workspace_build_cpus.py::expand_build_tree` | T |
-| H036 | Next | Queued; medium | Separate typed Test262 inputs, dispatch and rendering | `scriptw-cli/src/main.rs::handle_test262_command` | R |
-| H037 | Next | Queued; medium | Share option cursor/value extraction | `CLI Test262 and case-worker argument parsers` | R |
-| H038 | Next | Queued; medium | Declare allowed options per subcommand | `CLI cross-command option validation` | R |
-| H039 | Later | Queued; high | Replace positional shard ambiguity with an explicit option | `CLI parse_test262_args` | R |
-| H040 | Next | Queued; medium | Extract global options in one pass | `take_global_jobs/host_surface_policy/intl_profile` | R |
-| H041 | Later | Queued; high | Use one JSONC lexical pass | `strip_json_comments and strip_trailing_json_commas` | R |
-| H042 | Next | Queued; medium | Centralize complete and partial outcome totals | `CLI progress/status and publication counters` | R |
-| H043 | Next | Queued; medium | Define taxonomy wire labels and ordering once | `FailureKind, OutcomeKind, FailureOrigin` | R |
-| H044 | Next | Queued; medium | Share human report rendering | `Test262 and CLI count/summary printers` | R |
+| H036 | Next | Done; medium | Separate typed Test262 inputs, dispatch and rendering | `scriptw-cli/src/main.rs::handle_test262_command` | R |
+| H037 | Next | Done; medium | Share option cursor/value extraction | `CLI Test262 and case-worker argument parsers` | R |
+| H038 | Next | Done; medium | Declare allowed options per subcommand | `CLI cross-command option validation` | R |
+| H039 | Later | Done; high | Replace positional shard ambiguity with an explicit option | `CLI parse_test262_args` | R |
+| H040 | Next | Done; medium | Extract global options in one pass | `take_global_jobs/host_surface_policy/intl_profile` | R |
+| H041 | Later | Done; high | Use one JSONC lexical pass | `strip_json_comments and strip_trailing_json_commas` | R |
+| H042 | Next | Done; medium | Centralize complete and partial outcome totals | `CLI progress/status and publication counters` | R |
+| H043 | Next | Done; medium | Define taxonomy wire labels and ordering once | `FailureKind, OutcomeKind, FailureOrigin` | R |
+| H044 | Next | Done; medium | Share human report rendering | `Test262 and CLI count/summary printers` | R |
 | H045 | Next | Queued; medium | Use structured engine failures before prose heuristics | `classify_engine_failure/classify_failure_outcome` | R |
 | H046 | Next | Queued; medium | Type publication recovery conditions | `CLI publish-status missing/incomplete errors` | R |
 | H047 | Next | Queued; medium | Validate README markers and replace output atomically | `rewrite_current_status_block` | R |
@@ -186,4 +186,13 @@ and [bounded evidence](rust-rewrite/maintenance-tooling-wave-20261021.json) bind
 663 passing tooling controls, exact unchanged workspace plans, all 15 Intl
 identities and maintained documentation/ownership checks. This wave depends on
 the first batch and changes no product semantics or published Test262 totals.
-H036–H090 and H092–H100 remain queued; all are authorized.
+H045–H090 and H092–H100 remain queued; all are authorized.
+
+## CLI and reporting wave
+
+H036–H044 are complete in this change. Their [verification record](rust-rewrite/maintenance-cli-wave-20261021.md)
+and [bounded evidence](rust-rewrite/maintenance-cli-wave-20261021.json) preserve the
+original full selected checkpoint and corrected 478 library, 89 CLI unit and
+14 affected command passes. This wave depends on the tooling wave, changes the
+shard command spelling, and preserves all taxonomy wire labels and published
+Test262 totals. There are 45 completed hills and 55 authorized hills remaining.

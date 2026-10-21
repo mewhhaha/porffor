@@ -23,6 +23,17 @@ use scriptw_test262::{
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+mod argument_cursor;
+mod test262_args;
+mod test262_output;
+use argument_cursor::ArgumentCursor;
+use test262_args::{AdmittedTest262Command, Test262Command};
+#[cfg(test)]
+mod argument_tests;
+use test262_output::{
+    print_kind_counts, print_origin_counts, print_outcome_counts, OutcomeCoverage, OutcomeTotals,
+};
+
 mod differential_campaign;
 mod differential_corpus;
 mod differential_robustness;
@@ -30,6 +41,7 @@ mod differential_scenario_pair;
 mod differential_test262;
 mod fake_suite_publication;
 mod intl_data;
+mod jsonc;
 mod performance;
 use fake_suite_publication::VerifiedFakeSuiteCounts;
 
@@ -53,6 +65,7 @@ impl HostHooks for StdoutHostHooks {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParsedTest262Args {
+    provided_options: BTreeSet<String>,
     config: SuiteConfig,
     filter: Option<String>,
     matrix_node: Option<String>,
@@ -254,7 +267,7 @@ Commands:
   test262 run [filter] [options]
   test262 run-list <execution-list> [options]
                                         exact mode:path cohort; normal supervision
-  test262 shard <index>/<total> [filter] [options]
+  test262 shard --shard <index>/<total> [filter] [options]
   test262 report [filter] [options]
   test262 report-all [options]
   test262 publish-status [options]      publish verified wasm-aot status only
@@ -265,7 +278,8 @@ Commands:
   test262 compare-snapshots <base-snapshot-name> [options]
   inspect <file>                        show compile pipeline summary
 
-test262 options:
+test262 options (accepted only by commands that use them):
+  --shard INDEX/TOTAL                  shard only; one-based, 1 <= INDEX <= TOTAL
   --suite-root PATH
   --snapshot-dir PATH
   --threads N
@@ -318,11 +332,14 @@ types options:
 }
 
 fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), String> {
-    if let Some(jobs) = take_global_jobs(&mut args)? {
+    let GlobalOptions {
+        jobs,
+        host_surface_policy,
+        intl_profile,
+    } = take_global_options(&mut args)?;
+    if let Some(jobs) = jobs {
         configure_compilation_jobs(jobs)?;
     }
-    let host_surface_policy = take_global_host_surface_policy(&mut args)?;
-    let intl_profile = take_global_intl_profile(&mut args)?;
     let mut args = args.into_iter();
     let Some(command) = args.next() else {
         if intl_profile.is_some() {
@@ -992,65 +1009,27 @@ fn print_cache_directory(label: &str, status: &scriptw_engine::CacheDirectorySta
     }
 }
 
-fn take_global_jobs(args: &mut Vec<String>) -> Result<Option<usize>, String> {
-    let mut jobs = None;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] != "--jobs" {
-            index += 1;
-            continue;
-        }
-        if jobs.is_some() {
-            return Err("--jobs may only be specified once".to_string());
-        }
-        let value = args
-            .get(index + 1)
-            .ok_or_else(|| "--jobs needs a value".to_string())?
-            .parse::<usize>()
-            .map_err(|err| format!("invalid --jobs value: {err}"))?;
-        if value == 0 {
-            return Err("--jobs must be a positive integer".to_string());
-        }
-        jobs = Some(value);
-        args.drain(index..=index + 1);
-    }
-    if jobs.is_none() {
-        jobs = match std::env::var("SCRIPTW_JOBS") {
-            Ok(value) => Some(
-                value
-                    .parse::<std::num::NonZeroUsize>()
-                    .map_err(|_| "SCRIPTW_JOBS must be a positive integer".to_string())?
-                    .get(),
-            ),
-            Err(std::env::VarError::NotPresent) => None,
-            Err(error) => return Err(error.to_string()),
-        };
-    }
-    Ok(jobs)
+struct GlobalOptions {
+    jobs: Option<usize>,
+    host_surface_policy: HostSurfacePolicy,
+    intl_profile: Option<IntlCompilationProfile>,
 }
 
+#[cfg(test)]
+fn take_global_jobs(args: &mut Vec<String>) -> Result<Option<usize>, String> {
+    take_global_options(args).map(|options| options.jobs)
+}
+
+#[cfg(test)]
 fn take_global_host_surface_policy(args: &mut Vec<String>) -> Result<HostSurfacePolicy, String> {
-    let mut policy = None;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] != "--host-surface" {
-            index += 1;
-            continue;
-        }
-        if policy.is_some() {
-            return Err("--host-surface may only be specified once".to_string());
-        }
-        let value = args
-            .get(index + 1)
-            .ok_or_else(|| "--host-surface needs a value".to_string())?;
-        policy = Some(match value.as_str() {
-            "product" => HostSurfacePolicy::Product,
-            "test262" => HostSurfacePolicy::Test262,
-            value => return Err(format!("unknown --host-surface value: {value}")),
-        });
-        args.drain(index..=index + 1);
-    }
-    Ok(policy.unwrap_or_default())
+    take_global_options(args).map(|options| options.host_surface_policy)
+}
+
+#[cfg(test)]
+fn take_global_intl_profile(
+    args: &mut Vec<String>,
+) -> Result<Option<IntlCompilationProfile>, String> {
+    take_global_options(args).map(|options| options.intl_profile)
 }
 
 enum IntlLocaleProjectionComponent {
@@ -1080,9 +1059,10 @@ impl IntlLocaleProjectionComponent {
     }
 }
 
-fn take_global_intl_profile(
-    args: &mut Vec<String>,
-) -> Result<Option<IntlCompilationProfile>, String> {
+fn take_global_options(args: &mut Vec<String>) -> Result<GlobalOptions, String> {
+    let mut jobs = None;
+    let mut policy = None;
+    let mut remaining = Vec::with_capacity(args.len());
     let mut profile = None;
     let mut manifest = None;
     let mut list_locales = None;
@@ -1093,22 +1073,46 @@ fn take_global_intl_profile(
     let mut date_time_locales = None;
     let mut collator_locales = None;
     let mut segmenter_locales = None;
-    let mut index = 0;
-    while index < args.len() {
-        if args[index] == "--intl-manifest" {
+    let mut cursor = ArgumentCursor::new(args);
+    while let Some(argument) = cursor.next() {
+        if argument == "--jobs" {
+            if jobs.is_some() {
+                return Err("--jobs may only be specified once".into());
+            }
+            let value = cursor
+                .value("--jobs needs a value")?
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --jobs value: {error}"))?;
+            if value == 0 {
+                return Err("--jobs must be a positive integer".into());
+            }
+            jobs = Some(value);
+            continue;
+        }
+        if argument == "--host-surface" {
+            if policy.is_some() {
+                return Err("--host-surface may only be specified once".into());
+            }
+            policy = Some(match cursor.value("--host-surface needs a value")? {
+                "product" => HostSurfacePolicy::Product,
+                "test262" => HostSurfacePolicy::Test262,
+                value => return Err(format!("unknown --host-surface value: {value}")),
+            });
+            continue;
+        }
+        if argument == "--intl-manifest" {
             if manifest.is_some() {
                 return Err("--intl-manifest may only be specified once".into());
             }
-            let value = args
-                .get(index + 1)
-                .filter(|value| !value.is_empty() && !value.starts_with("--"))
-                .ok_or_else(|| "--intl-manifest needs a path".to_owned())?;
+            let value = cursor.value("--intl-manifest needs a path")?;
+            if value.is_empty() || value.starts_with("--") {
+                return Err("--intl-manifest needs a path".into());
+            }
             manifest = Some(PathBuf::from(value));
-            args.drain(index..=index + 1);
             continue;
         }
-        if let Some(component) = IntlLocaleProjectionComponent::parse(&args[index]) {
-            let flag = args[index].clone();
+        if let Some(component) = IntlLocaleProjectionComponent::parse(argument) {
+            let flag = argument;
             let locales = match component {
                 IntlLocaleProjectionComponent::List => &mut list_locales,
                 IntlLocaleProjectionComponent::RelativeTime => &mut relative_time_locales,
@@ -1122,24 +1126,21 @@ fn take_global_intl_profile(
             if locales.is_some() {
                 return Err(format!("{flag} may only be specified once"));
             }
-            let value = args
-                .get(index + 1)
-                .filter(|value| !value.starts_with("--"))
-                .ok_or_else(|| format!("{flag} needs a value"))?;
+            let value = cursor.value(&format!("{flag} needs a value"))?;
+            if value.starts_with("--") {
+                return Err(format!("{flag} needs a value"));
+            }
             *locales = Some(value.split(',').map(str::to_owned).collect::<Vec<_>>());
-            args.drain(index..=index + 1);
             continue;
         }
-        if args[index] != "--intl-profile" {
-            index += 1;
+        if argument != "--intl-profile" {
+            remaining.push(argument.to_owned());
             continue;
         }
         if profile.is_some() {
             return Err("--intl-profile may only be specified once".into());
         }
-        let value = args
-            .get(index + 1)
-            .ok_or_else(|| "--intl-profile needs a value".to_string())?;
+        let value = cursor.value("--intl-profile needs a value")?;
         profile = Some(if value == "minimal" {
             IntlCompilationProfile::Minimal
         } else if let Some(id) = value.strip_prefix("custom:") {
@@ -1154,41 +1155,57 @@ fn take_global_intl_profile(
                 "unknown --intl-profile value: {value} (expected minimal, conformance or custom:ID)"
             ));
         });
-        args.drain(index..=index + 1);
     }
-    if let Some(path) = manifest {
-        if profile.is_some()
-            || list_locales.is_some()
-            || relative_time_locales.is_some()
-            || display_names_locales.is_some()
-            || duration_locales.is_some()
-            || number_locales.is_some()
-            || date_time_locales.is_some()
-            || collator_locales.is_some()
-            || segmenter_locales.is_some()
-        {
-            return Err(
+    if jobs.is_none() {
+        jobs = match std::env::var("SCRIPTW_JOBS") {
+            Ok(value) => Some(
+                value
+                    .parse::<std::num::NonZeroUsize>()
+                    .map_err(|_| "SCRIPTW_JOBS must be a positive integer".to_string())?
+                    .get(),
+            ),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(error) => return Err(error.to_string()),
+        };
+    }
+    *args = remaining;
+    let intl_profile = (|| -> Result<Option<IntlCompilationProfile>, String> {
+        if let Some(path) = manifest {
+            if profile.is_some()
+                || list_locales.is_some()
+                || relative_time_locales.is_some()
+                || display_names_locales.is_some()
+                || duration_locales.is_some()
+                || number_locales.is_some()
+                || date_time_locales.is_some()
+                || collator_locales.is_some()
+                || segmenter_locales.is_some()
+            {
+                return Err(
                 "--intl-manifest cannot be combined with --intl-profile or component locale flags"
                     .into(),
             );
+            }
+            use std::io::Read as _;
+            let file = std::fs::File::open(&path).map_err(|error| {
+                format!("cannot read --intl-manifest {}: {error}", path.display())
+            })?;
+            let mut bytes = Vec::new();
+            file.take(CustomIntlProfile::MANIFEST_MAX_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|error| {
+                    format!("cannot read --intl-manifest {}: {error}", path.display())
+                })?;
+            if bytes.len() > CustomIntlProfile::MANIFEST_MAX_BYTES {
+                return Err("--intl-manifest exceeds 256 KiB".into());
+            }
+            let json = std::str::from_utf8(&bytes)
+                .map_err(|error| format!("--intl-manifest must be UTF-8: {error}"))?;
+            let selection = CustomIntlProfile::from_manifest_json(json)
+                .map_err(|error| format!("invalid --intl-manifest {}: {error}", path.display()))?;
+            return Ok(Some(IntlCompilationProfile::CustomProjection(selection)));
         }
-        use std::io::Read as _;
-        let file = std::fs::File::open(&path)
-            .map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
-        let mut bytes = Vec::new();
-        file.take(CustomIntlProfile::MANIFEST_MAX_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| format!("cannot read --intl-manifest {}: {error}", path.display()))?;
-        if bytes.len() > CustomIntlProfile::MANIFEST_MAX_BYTES {
-            return Err("--intl-manifest exceeds 256 KiB".into());
-        }
-        let json = std::str::from_utf8(&bytes)
-            .map_err(|error| format!("--intl-manifest must be UTF-8: {error}"))?;
-        let selection = CustomIntlProfile::from_manifest_json(json)
-            .map_err(|error| format!("invalid --intl-manifest {}: {error}", path.display()))?;
-        return Ok(Some(IntlCompilationProfile::CustomProjection(selection)));
-    }
-    match (profile, list_locales, relative_time_locales, display_names_locales, duration_locales, number_locales, date_time_locales, collator_locales, segmenter_locales) {
+        match (profile, list_locales, relative_time_locales, display_names_locales, duration_locales, number_locales, date_time_locales, collator_locales, segmenter_locales) {
         (profile, None, None, None, None, None, None, None, None) => Ok(profile),
         (Some(IntlCompilationProfile::Custom(id)), lists, relative_times, display_names, durations, numbers, date_times, collators, segmenters) => {
             let lists = lists
@@ -1226,6 +1243,12 @@ fn take_global_intl_profile(
                 .into(),
         ),
     }
+    })()?;
+    Ok(GlobalOptions {
+        jobs,
+        host_surface_policy: policy.unwrap_or_default(),
+        intl_profile,
+    })
 }
 
 fn repo_root() -> PathBuf {
@@ -1282,11 +1305,10 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
 }
 
 fn sorted_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> Vec<PublishedCountEntry> {
-    let mut entries = FailureKind::ALL
-        .into_iter()
-        .map(|kind| PublishedCountEntry {
+    let mut entries = FailureKind::ordered_counts(counts)
+        .map(|(kind, count)| PublishedCountEntry {
             label: kind.as_str().to_string(),
-            count: counts.get(&kind).copied().unwrap_or(0),
+            count,
         })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
@@ -1299,21 +1321,19 @@ fn sorted_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> Vec<PublishedCou
 }
 
 fn sorted_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> Vec<PublishedCountEntry> {
-    OutcomeKind::ALL
-        .into_iter()
-        .map(|outcome| PublishedCountEntry {
+    OutcomeKind::ordered_counts(counts)
+        .map(|(outcome, count)| PublishedCountEntry {
             label: outcome.as_str().to_string(),
-            count: counts.get(&outcome).copied().unwrap_or(0),
+            count,
         })
         .collect()
 }
 
 fn sorted_origin_counts(counts: &BTreeMap<FailureOrigin, usize>) -> Vec<PublishedCountEntry> {
-    let mut entries = FailureOrigin::ALL
-        .into_iter()
-        .map(|origin| PublishedCountEntry {
+    let mut entries = FailureOrigin::ordered_counts(counts)
+        .map(|(origin, count)| PublishedCountEntry {
             label: origin.as_str().to_string(),
-            count: counts.get(&origin).copied().unwrap_or(0),
+            count,
         })
         .collect::<Vec<_>>();
     entries.sort_by(|left, right| {
@@ -1354,30 +1374,10 @@ fn build_published_status_artifact(
     publication_backend: PublicationBackend,
     refresh_date: &str,
 ) -> PublishedStatusArtifact {
-    let success = summary
-        .summary
-        .counts_per_outcome
-        .get(&OutcomeKind::Success)
-        .copied()
-        .unwrap_or(0);
-    let not_implemented = summary
-        .summary
-        .counts_per_outcome
-        .get(&OutcomeKind::NotImplemented)
-        .copied()
-        .unwrap_or(0);
-    let crash = summary
-        .summary
-        .counts_per_outcome
-        .get(&OutcomeKind::Crash)
-        .copied()
-        .unwrap_or(0);
-    let bug = summary
-        .summary
-        .counts_per_outcome
-        .get(&OutcomeKind::Bug)
-        .copied()
-        .unwrap_or(0);
+    let totals = OutcomeTotals::new(
+        &summary.summary.counts_per_outcome,
+        OutcomeCoverage::Complete,
+    );
     PublishedStatusArtifact {
         producer: ArtifactProducer::CURRENT,
         fake_wasm_safe: fake_counts.wasm_safe().clone(),
@@ -1406,9 +1406,9 @@ fn build_published_status_artifact(
                 name: "Full pinned Test262 green".to_string(),
                 denominator: "pinned-suite-total".to_string(),
                 target_total: summary.summary.total,
-                current_success: success,
-                remaining_to_green: not_implemented + crash + bug,
-                pass_rate: percent_string(success, summary.summary.total),
+                current_success: totals.success,
+                remaining_to_green: totals.remaining_to_green(),
+                pass_rate: percent_string(totals.success, summary.summary.total),
                 outcome_targets: vec![
                     PublishedCountEntry {
                         label: OutcomeKind::NotImplemented.as_str().to_string(),
@@ -2050,114 +2050,11 @@ fn read_typegen_config(path: &Path) -> Result<Value, String> {
 }
 
 fn parse_typegen_json_like(source: &str, path: &Path) -> Result<Value, String> {
-    serde_json::from_str(&strip_trailing_json_commas(&strip_json_comments(source)))
-        .map_err(|err| format!("Failed to parse {}: {err}", path.display()))
-}
-
-fn strip_json_comments(source: &str) -> String {
-    let chars = source.chars().collect::<Vec<_>>();
-    let mut out = String::new();
-    let mut in_string = false;
-    let mut quote = '\0';
-    let mut escaped = false;
-    let mut index = 0;
-    while index < chars.len() {
-        let ch = chars[index];
-        let next = chars.get(index + 1).copied();
-
-        if in_string {
-            out.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if ch == '"' || ch == '\'' {
-            in_string = true;
-            quote = ch;
-            out.push(ch);
-            index += 1;
-            continue;
-        }
-
-        if ch == '/' && next == Some('/') {
-            while index < chars.len() && chars[index] != '\n' {
-                index += 1;
-            }
-            out.push('\n');
-            continue;
-        }
-
-        if ch == '/' && next == Some('*') {
-            index += 2;
-            while index + 1 < chars.len() && !(chars[index] == '*' && chars[index + 1] == '/') {
-                index += 1;
-            }
-            index = (index + 2).min(chars.len());
-            continue;
-        }
-
-        out.push(ch);
-        index += 1;
-    }
-    out
-}
-
-fn strip_trailing_json_commas(source: &str) -> String {
-    let chars = source.chars().collect::<Vec<_>>();
-    let mut out = String::new();
-    let mut in_string = false;
-    let mut quote = '\0';
-    let mut escaped = false;
-    let mut index = 0;
-    while index < chars.len() {
-        let ch = chars[index];
-        if in_string {
-            out.push(ch);
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == quote {
-                in_string = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if ch == '"' || ch == '\'' {
-            in_string = true;
-            quote = ch;
-            out.push(ch);
-            index += 1;
-            continue;
-        }
-
-        if ch == ',' {
-            let mut next_index = index + 1;
-            while chars
-                .get(next_index)
-                .copied()
-                .is_some_and(char::is_whitespace)
-            {
-                next_index += 1;
-            }
-            if matches!(chars.get(next_index), Some('}' | ']')) {
-                index += 1;
-                continue;
-            }
-        }
-
-        out.push(ch);
-        index += 1;
-    }
-    out
+    serde_json::from_str(
+        &jsonc::normalize(source)
+            .map_err(|err| format!("Failed to parse {}: {err}", path.display()))?,
+    )
+    .map_err(|err| format!("Failed to parse {}: {err}", path.display()))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3077,20 +2974,14 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
         return require_passing_test262_verdict(Test262VerdictCommand::Run, summary.verdict()?);
     }
 
-    let subcommand = args[0].clone();
-    let mut parsed = parse_test262_args(&args[1..])?;
-    if parsed.matrix_node.is_some() && !matches!(subcommand.as_str(), "run" | "report") {
-        return Err("--matrix-node is only valid with test262 run or report".to_string());
-    }
-    if parsed.matrix_node.is_some() && parsed.run_config.max_matrix_nodes.is_some() {
-        return Err("--matrix-node cannot be combined with --max-matrix-nodes".to_string());
-    }
-    if parsed.matrix_node.is_some()
-        && (parsed.run_config.shard_index != 0 || parsed.run_config.shard_count != 1)
-    {
-        return Err("--matrix-node cannot be combined with a shard selector".to_string());
-    }
-    let execution_list = if subcommand == "run-list" {
+    let subcommand = Test262Command::parse(&args[0])?;
+    let parsed = parse_test262_args(&args[1..])?;
+    execute_test262_command(subcommand.admit(parsed)?)
+}
+
+fn execute_test262_command(input: AdmittedTest262Command) -> Result<(), String> {
+    let (subcommand, mut parsed) = input.into_parts();
+    let execution_list = if subcommand == Test262Command::RunList {
         let path = parsed
             .filter
             .take()
@@ -3105,8 +2996,8 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
     let runner = ConformanceRunner::with_config(parsed.config);
     let execution_backend = parsed.run_config.execution_backend;
 
-    match subcommand.as_str() {
-        "sync" => {
+    match subcommand {
+        Test262Command::Sync => {
             let pinned = runner.pinned_revisions();
             if !runner.config().suite_root.join("test").exists() {
                 return Err(format!(
@@ -3120,10 +3011,10 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("local harness: {}", runner.config().local_harness);
             Ok(())
         }
-        "list" | "list-all" => {
+        Test262Command::List | Test262Command::ListAll => {
             let manifest = runner.discover_suite(parsed.filter.as_deref())?;
             println!("count: {}", manifest.cases.len());
-            let limit = if subcommand == "list-all" {
+            let limit = if subcommand == Test262Command::ListAll {
                 manifest.cases.len()
             } else {
                 50
@@ -3136,7 +3027,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "run" | "run-list" => {
+        Test262Command::Run | Test262Command::RunList => {
             let verdict_command = if execution_list.is_some() {
                 Test262VerdictCommand::RunList
             } else {
@@ -3154,19 +3045,8 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("execution_backend: {}", execution_backend.as_str());
             println!("total: {}", summary.total);
             println!("passed: {}", summary.passed);
-            for kind in scriptw_test262::FailureKind::ALL {
-                let count = summary.counts_per_kind.get(&kind).copied().unwrap_or(0);
-                println!("{}: {}", kind.as_str(), count);
-            }
-            println!("outcomes:");
-            for outcome in OutcomeKind::ALL {
-                let count = summary
-                    .counts_per_outcome
-                    .get(&outcome)
-                    .copied()
-                    .unwrap_or(0);
-                println!("  {}: {}", outcome.as_str(), count);
-            }
+            print_kind_counts(&summary.counts_per_kind);
+            print_outcome_counts(&summary.counts_per_outcome);
             for failure in summary.failures.iter().take(10) {
                 println!(
                     "failure: {} [{}:{}] {}",
@@ -3178,7 +3058,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             require_passing_test262_verdict(verdict_command, summary.verdict()?)
         }
-        "report" => {
+        Test262Command::Report => {
             let summary = match parsed.matrix_node.as_deref() {
                 Some(node_selector) => runner.run_matrix_node(node_selector, parsed.run_config)?,
                 None => runner.run_full(parsed.run_config)?,
@@ -3188,15 +3068,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("total: {}", report.total);
             println!("passed: {}", report.passed);
             println!("failed: {}", report.failed);
-            println!("outcomes:");
-            for outcome in OutcomeKind::ALL {
-                let count = summary
-                    .counts_per_outcome
-                    .get(&outcome)
-                    .copied()
-                    .unwrap_or(0);
-                println!("  {}: {}", outcome.as_str(), count);
-            }
+            print_outcome_counts(&summary.counts_per_outcome);
             for bucket in report.buckets {
                 println!("bucket: {} ({})", bucket.kind.as_str(), bucket.total);
                 for (subtree, count) in bucket.top_subtrees.iter().take(5) {
@@ -3205,37 +3077,16 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "report-all" => {
-            if parsed.filter.is_some() {
-                return Err(
-                    "report-all does not take a filter; it always runs the top-level matrix"
-                        .to_string(),
-                );
-            }
+        Test262Command::ReportAll => {
             let report =
                 runner.aggregate_baseline_report(&runner.run_top_level_matrix(parsed.run_config)?);
             println!("execution_backend: {}", execution_backend.as_str());
             println!("total: {}", report.total);
             println!("passed: {}", report.passed);
             println!("failed: {}", report.failed);
-            for kind in scriptw_test262::FailureKind::ALL {
-                let count = report.counts_per_kind.get(&kind).copied().unwrap_or(0);
-                println!("{}: {}", kind.as_str(), count);
-            }
-            println!("outcomes:");
-            for outcome in OutcomeKind::ALL {
-                let count = report
-                    .counts_per_outcome
-                    .get(&outcome)
-                    .copied()
-                    .unwrap_or(0);
-                println!("  {}: {}", outcome.as_str(), count);
-            }
-            println!("origins:");
-            for origin in scriptw_test262::FailureOrigin::ALL {
-                let count = report.counts_per_origin.get(&origin).copied().unwrap_or(0);
-                println!("  {}: {}", origin.as_str(), count);
-            }
+            print_kind_counts(&report.counts_per_kind);
+            print_outcome_counts(&report.counts_per_outcome);
+            print_origin_counts(&report.counts_per_origin);
             println!("targets:");
             for entry in report.entries {
                 println!(
@@ -3245,19 +3096,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "publish-status" => {
-            if parsed.filter.is_some() {
-                return Err(
-                    "publish-status does not take a filter; it always runs the top-level matrix"
-                        .to_string(),
-                );
-            }
-            if parsed.run_config.max_matrix_nodes.is_some() {
-                return Err(
-                    "publish-status does not allow --max-matrix-nodes; use report-all or run the full matrix"
-                        .to_string(),
-                );
-            }
+        Test262Command::PublishStatus => {
             let publication_backend = PublicationBackend::try_from(execution_backend)?;
             let verified = match runner.load_publishable_aggregate_summary(
                 &parsed.run_config.snapshot_name,
@@ -3340,46 +3179,18 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "progress-status" => {
-            if parsed.filter.is_some() {
-                return Err(
-                    "progress-status does not take a filter; it always reads the top-level matrix"
-                        .to_string(),
-                );
-            }
+        Test262Command::ProgressStatus => {
             let progress = runner.load_aggregate_progress_summary(
                 &parsed.run_config.snapshot_name,
                 execution_backend,
             )?;
-            let success = progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::Success)
-                .copied()
-                .unwrap_or(0);
-            let not_implemented = progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::NotImplemented)
-                .copied()
-                .unwrap_or(0);
-            let crash = progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::Crash)
-                .copied()
-                .unwrap_or(0);
-            let bug = progress
-                .summary
-                .counts_per_outcome
-                .get(&OutcomeKind::Bug)
-                .copied()
-                .unwrap_or(0);
-            let unobserved_total = progress
-                .target_total()
-                .saturating_sub(progress.summary.total);
-            let remaining_to_green = unobserved_total + not_implemented + crash + bug;
-
+            let totals = OutcomeTotals::new(
+                &progress.summary.counts_per_outcome,
+                OutcomeCoverage::Partial {
+                    observed: progress.summary.total,
+                    target: progress.target_total(),
+                },
+            );
             println!("execution_backend: {}", execution_backend.as_str());
             println!("complete={}", progress.is_complete());
             println!(
@@ -3389,18 +3200,18 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             println!("matrix_nodes_total: {}", progress.matrix_nodes_total());
             println!("observed_total: {}", progress.summary.total);
             println!("target_total: {}", progress.target_total());
-            println!("unobserved_total: {}", unobserved_total);
-            println!("current_success: {}", success);
+            println!("unobserved_total: {}", totals.unobserved);
+            println!("current_success: {}", totals.success);
             println!(
                 "current_success_full: {}/{}",
-                success,
+                totals.success,
                 progress.target_total()
             );
             println!(
                 "remaining_observed_failures: {}",
-                not_implemented + crash + bug
+                totals.observed_failures()
             );
-            println!("remaining_to_green: {}", remaining_to_green);
+            println!("remaining_to_green: {}", totals.remaining_to_green());
             println!("manifest_hash: {}", progress.manifest_hash);
             println!(
                 "compiler_identity: {}",
@@ -3413,30 +3224,15 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
                 "snapshot_json: {}",
                 progress.snapshot_paths.json_path.display()
             );
-            println!("outcomes:");
-            for outcome in OutcomeKind::ALL {
-                let count = progress
-                    .summary
-                    .counts_per_outcome
-                    .get(&outcome)
-                    .copied()
-                    .unwrap_or(0);
-                println!("  {}: {}", outcome.as_str(), count);
-            }
+            print_outcome_counts(&progress.summary.counts_per_outcome);
             println!(
                 "burn_down: NotImplemented={} Crash={} Bug={}",
-                not_implemented, crash, bug
+                totals.not_implemented, totals.crash, totals.bug
             );
-            println!("not_run: {}", unobserved_total);
+            println!("not_run: {}", totals.unobserved);
             Ok(())
         }
-        "triage-status" => {
-            if parsed.filter.is_some() {
-                return Err(
-                    "triage-status does not take a filter; it ranks completed failing matrix nodes"
-                        .to_string(),
-                );
-            }
+        Test262Command::TriageStatus => {
             let entries = runner
                 .load_matrix_triage_entries(&parsed.run_config.snapshot_name, execution_backend)?;
             println!("execution_backend: {}", execution_backend.as_str());
@@ -3461,7 +3257,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "failure-details" => {
+        Test262Command::FailureDetails => {
             let node_selector = parsed.filter.as_deref().ok_or_else(|| {
                 "failure-details needs a matrix node id or exact filter".to_string()
             })?;
@@ -3495,13 +3291,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "generate-backlog" => {
-            if parsed.filter.is_some() {
-                return Err(
-                    "generate-backlog does not take a filter; it reads a verified aggregate snapshot"
-                        .to_string(),
-                );
-            }
+        Test262Command::GenerateBacklog => {
             let (artifact, paths) =
                 runner.generate_backlog(&parsed.run_config.snapshot_name, execution_backend)?;
             println!("execution_backend: {}", execution_backend.as_str());
@@ -3520,7 +3310,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "compare-snapshots" => {
+        Test262Command::CompareSnapshots => {
             let base_snapshot_name = parsed.filter.as_deref().ok_or_else(|| {
                 "compare-snapshots needs a base snapshot name; candidate uses --snapshot-name"
                     .to_string()
@@ -3568,7 +3358,7 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             Ok(())
         }
-        "shard" => {
+        Test262Command::Shard => {
             let summary = runner.run_shard(parsed.run_config)?;
             println!("execution_backend: {}", execution_backend.as_str());
             println!(
@@ -3589,7 +3379,6 @@ fn handle_test262_command(args: Vec<String>) -> Result<(), String> {
             }
             require_passing_test262_verdict(Test262VerdictCommand::Shard, summary.verdict()?)
         }
-        _ => Err(format!("unknown test262 subcommand: {subcommand}")),
     }
 }
 
@@ -3597,32 +3386,27 @@ fn parse_test262_case_worker_args(args: &[String]) -> Result<ParsedTest262Args, 
     let mut normal = Vec::new();
     let mut harness = None;
     let mut suite_output = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    let mut cursor = ArgumentCursor::new(args);
+    while let Some(argument) = cursor.next() {
+        match argument {
             "--case-suite-output" => {
                 if suite_output.is_some() {
                     return Err("case worker suite output may be specified once".into());
                 }
-                index += 1;
                 suite_output = Some(PathBuf::from(
-                    args.get(index)
-                        .ok_or("case worker suite output requires a path")?,
+                    cursor.value("case worker suite output requires a path")?,
                 ));
             }
             "--case-harness" | "--case-harness-file" => {
                 if harness.is_some() {
                     return Err("case worker harness may be specified once".into());
                 }
-                let selector = args[index].as_str();
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or("case worker harness requires a value")?;
+                let selector = argument;
+                let value = cursor.value("case worker harness requires a value")?;
                 harness = Some(if selector == "--case-harness-file" {
                     LocalHarnessSource::File(PathBuf::from(value))
                 } else {
-                    match value.as_str() {
+                    match value {
                         "none" => LocalHarnessSource::None,
                         "spec-exec" => LocalHarnessSource::EmbeddedSpecExec,
                         "wasm-aot" => LocalHarnessSource::EmbeddedWasmAot,
@@ -3631,9 +3415,19 @@ fn parse_test262_case_worker_args(args: &[String]) -> Result<ParsedTest262Args, 
                     }
                 });
             }
-            _ => normal.push(args[index].clone()),
+            _ => {
+                normal.push(argument.to_owned());
+                if argument.starts_with("--")
+                    && !matches!(argument, "--resume" | "--reuse-case-workers")
+                {
+                    normal.push(
+                        cursor
+                            .value(&format!("{argument} needs a value"))?
+                            .to_owned(),
+                    );
+                }
+            }
         }
-        index += 1;
     }
     let mut parsed = parse_test262_args(&normal)?;
     if parsed.matrix_node.is_some() || parsed.readme_path.is_some() {
@@ -3661,46 +3455,37 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     run_config.execution_backend = ExecutionBackend::WasmAot;
     let mut readme_path = None::<PathBuf>;
 
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    let mut provided_options = BTreeSet::new();
+    let mut cursor = ArgumentCursor::new(args);
+    while let Some(argument) = cursor.next() {
+        if argument.starts_with("--") {
+            if !provided_options.insert(argument.to_owned()) {
+                return Err(format!("{argument} may only be specified once"));
+            }
+        }
+        match argument {
             "--suite-root" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--suite-root needs a value".to_string())?;
+                let value = cursor.value("--suite-root needs a value")?;
                 config.suite_root = PathBuf::from(value);
             }
             "--snapshot-dir" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--snapshot-dir needs a value".to_string())?;
+                let value = cursor.value("--snapshot-dir needs a value")?;
                 config.snapshot_dir = PathBuf::from(value);
             }
             "--threads" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--threads needs a value".to_string())?;
+                let value = cursor.value("--threads needs a value")?;
                 config.worker_count = value
                     .parse::<usize>()
                     .map_err(|err| format!("invalid --threads value {value}: {err}"))?;
             }
             "--timeout-ms" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--timeout-ms needs a value".to_string())?;
+                let value = cursor.value("--timeout-ms needs a value")?;
                 config.timeout_ms = value
                     .parse::<u64>()
                     .map_err(|err| format!("invalid --timeout-ms value {value}: {err}"))?;
             }
             "--execution-backend" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--execution-backend needs a value".to_string())?;
+                let value = cursor.value("--execution-backend needs a value")?;
                 run_config.execution_backend = parse_execution_backend(value)?;
             }
             "--resume" => {
@@ -3710,24 +3495,15 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                 config.reuse_case_workers = true;
             }
             "--snapshot-name" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--snapshot-name needs a value".to_string())?;
-                run_config.snapshot_name = value.clone();
+                let value = cursor.value("--snapshot-name needs a value")?;
+                run_config.snapshot_name = value.to_owned();
             }
             "--matrix-node" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--matrix-node needs a value".to_string())?;
-                matrix_node = Some(value.clone());
+                let value = cursor.value("--matrix-node needs a value")?;
+                matrix_node = Some(value.to_owned());
             }
             "--max-matrix-nodes" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--max-matrix-nodes needs a value".to_string())?;
+                let value = cursor.value("--max-matrix-nodes needs a value")?;
                 let limit = value
                     .parse::<usize>()
                     .map_err(|err| format!("invalid --max-matrix-nodes value {value}: {err}"))?;
@@ -3737,28 +3513,29 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
                 run_config.max_matrix_nodes = Some(limit);
             }
             "--readme-path" => {
-                index += 1;
-                let value = args
-                    .get(index)
-                    .ok_or_else(|| "--readme-path needs a value".to_string())?;
+                let value = cursor.value("--readme-path needs a value")?;
                 readme_path = Some(PathBuf::from(value));
             }
-            value if value.contains('/') && value.split('/').count() == 2 && filter.is_none() => {
-                let parts = value.split('/').collect::<Vec<_>>();
-                match (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                    (Ok(one_based_index), Ok(shard_count)) => {
-                        run_config.shard_index = one_based_index.saturating_sub(1);
-                        run_config.shard_count = shard_count.max(1);
-                    }
-                    _ => filter = Some(value.to_string()),
+            "--shard" => {
+                let value = cursor.value("--shard needs a value")?;
+                let (index, total) = value.split_once('/').ok_or("--shard needs INDEX/TOTAL")?;
+                let parse = |part: &str| {
+                    part.parse::<std::num::NonZeroUsize>()
+                        .map(std::num::NonZeroUsize::get)
+                        .map_err(|_| "--shard needs positive INDEX/TOTAL integers".to_owned())
+                };
+                let (index, total) = (parse(index)?, parse(total)?);
+                if index > total {
+                    return Err("--shard INDEX cannot exceed TOTAL".into());
                 }
+                run_config.shard_index = index - 1;
+                run_config.shard_count = total;
             }
             value if !value.starts_with('-') && filter.is_none() => {
                 filter = Some(value.to_string());
             }
             value => return Err(format!("unknown test262 arg: {value}")),
         }
-        index += 1;
     }
 
     if matrix_node.is_some() && filter.is_some() {
@@ -3793,6 +3570,7 @@ fn parse_test262_args(args: &[String]) -> Result<ParsedTest262Args, String> {
     run_config.filter = filter.clone();
 
     Ok(ParsedTest262Args {
+        provided_options,
         config,
         filter,
         matrix_node,
@@ -5396,6 +5174,7 @@ mod tests {
     #[test]
     fn parse_test262_args_reads_filter_and_shard() {
         let parsed = parse_test262_args(&[
+            "--shard".to_string(),
             "1/4".to_string(),
             "language/expressions".to_string(),
             "--timeout-ms".to_string(),

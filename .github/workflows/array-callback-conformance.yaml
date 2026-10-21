@@ -201,7 +201,7 @@ jobs:
         run: |
           set -euo pipefail
           ./target/debug/scriptw test262 list "built-ins/Array/prototype/$ARRAY_METHOD/" | tee /tmp/callback-inventory.txt
-          ./target/debug/scriptw test262 shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
+          ./target/debug/scriptw test262 shard --shard "$ARRAY_SHARD/4" "built-ins/Array/prototype/$ARRAY_METHOD/" --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/callback-test262 --snapshot-name "$ARRAY_METHOD-ci-$ARRAY_SHARD" 2>&1 | tee /tmp/callback-test262.txt
           python3 scripts/check-test262-shard-report.py --inventory /tmp/callback-inventory.txt --report /tmp/callback-test262.txt --shard "$ARRAY_SHARD/4"
       - uses: actions/upload-artifact@v4
         if: always()

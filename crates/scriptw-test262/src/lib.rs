@@ -251,120 +251,8 @@ impl HostHooks for CapturingTest262Output {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum FailureKind {
-    #[serde(rename = "Parser")]
-    Parser,
-    #[serde(rename = "EarlyError")]
-    EarlyError,
-    #[serde(rename = "Lowering")]
-    Lowering,
-    #[serde(rename = "Runtime")]
-    Runtime,
-    #[serde(rename = "WasmBackend")]
-    WasmBackend,
-    #[serde(rename = "HostHarness")]
-    HostHarness,
-    #[serde(rename = "Unsupported")]
-    Unsupported,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum OutcomeKind {
-    #[serde(rename = "Success")]
-    Success,
-    #[serde(rename = "NotImplemented")]
-    NotImplemented,
-    #[serde(rename = "Crash")]
-    Crash,
-    #[serde(rename = "Bug")]
-    Bug,
-}
-
-impl OutcomeKind {
-    pub const ALL: [OutcomeKind; 4] = [
-        OutcomeKind::Success,
-        OutcomeKind::NotImplemented,
-        OutcomeKind::Crash,
-        OutcomeKind::Bug,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            OutcomeKind::Success => "Success",
-            OutcomeKind::NotImplemented => "NotImplemented",
-            OutcomeKind::Crash => "Crash",
-            OutcomeKind::Bug => "Bug",
-        }
-    }
-}
-
-impl FailureKind {
-    pub const ALL: [FailureKind; 7] = [
-        FailureKind::Parser,
-        FailureKind::EarlyError,
-        FailureKind::Lowering,
-        FailureKind::Runtime,
-        FailureKind::WasmBackend,
-        FailureKind::HostHarness,
-        FailureKind::Unsupported,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            FailureKind::Parser => "Parser",
-            FailureKind::EarlyError => "EarlyError",
-            FailureKind::Lowering => "Lowering",
-            FailureKind::Runtime => "Runtime",
-            FailureKind::WasmBackend => "WasmBackend",
-            FailureKind::HostHarness => "HostHarness",
-            FailureKind::Unsupported => "Unsupported",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum FailureOrigin {
-    #[serde(rename = "unknown")]
-    Unknown,
-    #[serde(rename = "local-harness")]
-    LocalHarness,
-    #[serde(rename = "boa-runtime")]
-    BoaRuntime,
-    #[serde(rename = "boa-parser")]
-    BoaParser,
-    #[serde(rename = "icu-intl")]
-    IcuIntl,
-    #[serde(rename = "spec-exec-host")]
-    SpecExecHost,
-    /// Wasmtime engine/capability rejection of emitted Wasm.
-    #[serde(rename = "wasm-backend")]
-    WasmBackend,
-}
-
-impl FailureOrigin {
-    pub const ALL: [FailureOrigin; 7] = [
-        FailureOrigin::Unknown,
-        FailureOrigin::LocalHarness,
-        FailureOrigin::BoaRuntime,
-        FailureOrigin::BoaParser,
-        FailureOrigin::IcuIntl,
-        FailureOrigin::SpecExecHost,
-        FailureOrigin::WasmBackend,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            FailureOrigin::Unknown => "unknown",
-            FailureOrigin::LocalHarness => "local-harness",
-            FailureOrigin::BoaRuntime => "boa-runtime",
-            FailureOrigin::BoaParser => "boa-parser",
-            FailureOrigin::IcuIntl => "icu-intl",
-            FailureOrigin::SpecExecHost => "spec-exec-host",
-            FailureOrigin::WasmBackend => "wasm-backend",
-        }
-    }
-}
+mod taxonomy;
+pub use taxonomy::{FailureKind, FailureOrigin, OutcomeKind};
 
 /// Stable text used for taxonomy values at JSON object-key boundaries.
 ///
@@ -374,24 +262,6 @@ impl FailureOrigin {
 /// instead of changing their key order to enum declaration order.
 trait TaxonomyWireLabel {
     fn wire_label(&self) -> &'static str;
-}
-
-impl TaxonomyWireLabel for FailureKind {
-    fn wire_label(&self) -> &'static str {
-        (*self).as_str()
-    }
-}
-
-impl TaxonomyWireLabel for OutcomeKind {
-    fn wire_label(&self) -> &'static str {
-        (*self).as_str()
-    }
-}
-
-impl TaxonomyWireLabel for FailureOrigin {
-    fn wire_label(&self) -> &'static str {
-        (*self).as_str()
-    }
 }
 
 fn serialize_taxonomy_counts<K, S>(
@@ -6545,26 +6415,17 @@ fn snapshot_outcome_counts(
 }
 
 fn complete_kind_counts(counts: &BTreeMap<FailureKind, usize>) -> BTreeMap<FailureKind, usize> {
-    FailureKind::ALL
-        .into_iter()
-        .map(|kind| (kind, counts.get(&kind).copied().unwrap_or(0)))
-        .collect()
+    FailureKind::ordered_counts(counts).collect()
 }
 
 fn complete_outcome_counts(counts: &BTreeMap<OutcomeKind, usize>) -> BTreeMap<OutcomeKind, usize> {
-    OutcomeKind::ALL
-        .into_iter()
-        .map(|outcome| (outcome, counts.get(&outcome).copied().unwrap_or(0)))
-        .collect()
+    OutcomeKind::ordered_counts(counts).collect()
 }
 
 fn complete_origin_counts(
     counts: &BTreeMap<FailureOrigin, usize>,
 ) -> BTreeMap<FailureOrigin, usize> {
-    FailureOrigin::ALL
-        .into_iter()
-        .map(|origin| (origin, counts.get(&origin).copied().unwrap_or(0)))
-        .collect()
+    FailureOrigin::ordered_counts(counts).collect()
 }
 
 fn render_snapshot_json(snapshot: &ProgressSnapshot) -> String {
@@ -6631,27 +6492,11 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
         snapshot.total, snapshot.passed, failed
     )
     .unwrap();
-    for kind in FailureKind::ALL {
-        writeln!(
-            &mut out,
-            "{}={}",
-            kind.as_str(),
-            snapshot.counts_per_kind.get(&kind).copied().unwrap_or(0)
-        )
-        .unwrap();
+    for (kind, count) in FailureKind::ordered_counts(&snapshot.counts_per_kind) {
+        writeln!(&mut out, "{}={}", kind.as_str(), count).unwrap();
     }
-    for outcome in OutcomeKind::ALL {
-        writeln!(
-            &mut out,
-            "outcome_{}={}",
-            outcome.as_str(),
-            snapshot
-                .counts_per_outcome
-                .get(&outcome)
-                .copied()
-                .unwrap_or(0)
-        )
-        .unwrap();
+    for (outcome, count) in OutcomeKind::ordered_counts(&snapshot.counts_per_outcome) {
+        writeln!(&mut out, "outcome_{}={}", outcome.as_str(), count).unwrap();
     }
     if !snapshot.timeout_list.is_empty() {
         let timeouts = snapshot
@@ -11325,8 +11170,8 @@ export const value = helperRead();
         let sta = section("sta.js");
         let sta_preamble = section("sta-preamble.js");
 
-        assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_171);
-        assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0xe031_f32c_ab10_55cc);
+        assert_eq!(WASM_AOT_HOST_PRELUDE.len(), 2_219);
+        assert_eq!(fnv1a(WASM_AOT_HOST_PRELUDE), 0x58ca_c928_d580_3302);
         assert_eq!(sta, sta_preamble);
         assert_eq!(sta.len(), 793);
         assert_eq!(fnv1a(&sta), 0xd1de_6d61_b24b_c195);
@@ -14227,8 +14072,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         const LOCAL_PROPERTY_HELPER_BYTES: usize = 18_957;
         const VENDORED_PROPERTY_HELPER_BYTES: usize = 18_957;
         const VENDORED_IS_CONSTRUCTOR_BYTES: usize = 545;
-        const DORMANT_HOST_BYTES: usize = 2_171;
-        const DORMANT_HOST_FNV1A: u64 = 0xe031_f32c_ab10_55cc;
+        const DORMANT_HOST_BYTES: usize = 2_219;
+        const DORMANT_HOST_FNV1A: u64 = 0x58ca_c928_d580_3302;
         const DYNAMIC_SUBCLASS_DEFINITIONS: &str = r#"function subClass(type) {
   try {
     return new Function('return class My' + type + ' extends ' + type + ' {}')();

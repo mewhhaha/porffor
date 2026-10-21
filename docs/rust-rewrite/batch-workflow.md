@@ -151,6 +151,13 @@ SCRIPTW_BIN=/absolute/path/to/verified/scriptw
     --threads 1 --timeout-ms 60000
 ```
 
+For an explicit shard, use `test262 shard --shard INDEX/TOTAL [filter]`;
+indices are one-based and must lie within the total. A positional `1/2` is now
+a literal filter. Options are admitted only by commands that use them: for
+example, `--max-matrix-nodes` belongs to `report-all`, `--readme-path` to
+`publish-status`, and `--matrix-node` to `run` or `report`. Read-only status
+commands reject execution flags such as `--threads` or `--resume`.
+
 For continuation, add `--resume` to the same command only after verifying its
 compiler, pins, resources and snapshot identity. Prefer the publication
 supervisor above when the goal includes a canonical README refresh.

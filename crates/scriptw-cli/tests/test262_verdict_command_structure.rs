@@ -180,13 +180,13 @@ fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_produc
     ));
     for (start, end, argument) in [
         (
-            "        \"run\" | \"run-list\" => {",
-            "        \"report\" => {",
+            "        Test262Command::Run | Test262Command::RunList => {",
+            "        Test262Command::Report => {",
             "verdict_command",
         ),
         (
-            "        \"shard\" => {",
-            "        _ => Err(",
+            "        Test262Command::Shard => {",
+            "\n    }\n}\n\nfn parse_test262_case_worker_args(",
             "Test262VerdictCommand::Shard",
         ),
     ] {
@@ -206,8 +206,8 @@ fn test262_run_shard_and_case_worker_are_the_only_ordered_verdict_command_produc
     }
     let run_arm = bounded(
         command_dispatch,
-        "        \"run\" | \"run-list\" => {",
-        "        \"report\" => {",
+        "        Test262Command::Run | Test262Command::RunList => {",
+        "        Test262Command::Report => {",
     );
     assert_before(run_arm, "let verdict_command =", "let summary =");
     assert!(run_arm.contains("Test262VerdictCommand::RunList"));

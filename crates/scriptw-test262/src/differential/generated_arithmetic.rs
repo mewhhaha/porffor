@@ -1590,7 +1590,7 @@ mod tests {
         );
         assert_eq!(
             super::super::input_fingerprint(&generated).as_str(),
-            "fnv1a64:b5a5446001a77052"
+            "fnv1a64:23e8aa4843c96b1c"
         );
         scriptw_front::parse(generated.source(), scriptw_front::ParseOptions::script())
             .expect("the closed arithmetic grammar should emit a valid Script");
