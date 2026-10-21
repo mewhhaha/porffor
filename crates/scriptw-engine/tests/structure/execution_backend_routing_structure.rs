@@ -12,15 +12,22 @@ fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
 
 #[test]
 fn every_backend_dispatcher_exhaustively_routes_the_closed_domain() {
+    for (start, end, goal) in [
+        ("pub fn run_script(", "pub fn run_module(", "Script"),
+        ("pub fn run_module(", "fn run_source(", "Module"),
+    ] {
+        let wrapper = bounded(ENGINE_SOURCE, start, end);
+        assert_eq!(wrapper.matches("self.run_source(").count(), 1);
+        assert!(wrapper.contains(&format!(
+            "self.run_source(source, ParseGoal::{goal}, options, run)"
+        )));
+        assert!(!wrapper.contains("run.backend"));
+        assert!(!wrapper.contains("self.run_with_spec_exec("));
+        assert!(!wrapper.contains("self.run_source_with_cached_wasm("));
+    }
     for (start, end, oracle_call, wasm_call) in [
         (
-            "pub fn run_script(",
-            "pub fn run_module(",
-            "self.run_with_spec_exec(",
-            "self.run_source_with_cached_wasm(",
-        ),
-        (
-            "pub fn run_module(",
+            "fn run_source(",
             "/// Executes one Script while keeping ECMAScript abrupt completion distinct",
             "self.run_with_spec_exec(",
             "self.run_source_with_cached_wasm(",
@@ -39,6 +46,18 @@ fn every_backend_dispatcher_exhaustively_routes_the_closed_domain() {
         ),
     ] {
         let dispatcher = bounded(ENGINE_SOURCE, start, end);
+        if start == "fn run_source(" {
+            let dispatch_at = dispatcher.find("match run.backend {").unwrap();
+            for validation in [
+                "validate_execution_intl_profile(&options.intl_profile, run.backend)?;",
+                "validate_execution_language_features(options.language_features, run.backend)?;",
+            ] {
+                assert_eq!(dispatcher.matches(validation).count(), 1);
+                assert!(dispatcher.find(validation).unwrap() < dispatch_at);
+            }
+            assert_eq!(dispatcher.matches("                goal,\n").count(), 2);
+            assert!(!dispatcher.contains("ParseGoal::"));
+        }
         assert_eq!(
             dispatcher.matches("match run.backend {").count(),
             1,

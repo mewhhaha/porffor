@@ -16,13 +16,34 @@ use std::sync::OnceLock;
 mod preferences;
 use preferences::LocaleCollationPreferences;
 
+// Pinned ICU CollationMetadata bit assignments, independent of wire offsets.
+const TAILORED: u32 = 1 << 3;
+const TAILORED_DIACRITICS: u32 = 1 << 4;
+const REORDERING: u32 = 1 << 5;
+
+/// ECMA-402 BestAvailableLocale removes a trailing singleton with its suffix.
+fn truncate_lookup(candidate: &str) -> Option<&str> {
+    let shortened = &candidate[..candidate.rfind('-')?];
+    if shortened
+        .rsplit('-')
+        .next()
+        .is_some_and(|part| part.len() == 1)
+    {
+        Some(&shortened[..shortened.rfind('-')?])
+    } else {
+        Some(shortened)
+    }
+}
+
 fn data_error(error: impl fmt::Display) -> CollatorOperationError {
     CollatorOperationError::Data(error.to_string().into_boxed_str())
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ConsumedCollationLoad {
     marker: &'static str,
+    requested: DataIdentifierCow<'static>,
     effective_locale: DataLocale,
+    used_fallback: bool,
 }
 struct AdmissionProvider<'a> {
     data: &'a CollatorImageProvider,
@@ -50,7 +71,7 @@ impl AdmissionProvider<'_> {
         let singleton = request.id.locale.is_unknown() && request.id.marker_attributes.is_empty();
         let admitted = match domain {
             LoadDomain::Profile => profile,
-            LoadDomain::Diacritics if self.bits & 16 != 0 => profile,
+            LoadDomain::Diacritics if self.bits & TAILORED_DIACRITICS != 0 => profile,
             LoadDomain::Diacritics | LoadDomain::Singleton => singleton,
         };
         if !admitted {
@@ -62,6 +83,15 @@ impl AdmissionProvider<'_> {
         let response = DataProvider::<M>::load(self.data, request)?;
         self.loads.borrow_mut().push(ConsumedCollationLoad {
             marker,
+            requested: DataIdentifierCow::from_owned(
+                request.id.marker_attributes.to_owned(),
+                request.id.locale.clone(),
+            ),
+            used_fallback: response
+                .metadata
+                .locale
+                .as_ref()
+                .is_some_and(|locale| locale != request.id.locale),
             effective_locale: response
                 .metadata
                 .locale
@@ -75,6 +105,100 @@ impl AdmissionProvider<'_> {
 #[cfg(test)]
 mod locale_independent_sort_tests {
     use super::*;
+
+    #[test]
+    fn lookup_truncation_retains_complete_candidates_and_removes_singletons() {
+        for (input, expected) in [
+            ("en-US", Some("en")),
+            ("zh-Hant-TW", Some("zh-Hant")),
+            ("de-DE-u-co", Some("de-DE")),
+            ("en-x-private", Some("en")),
+            ("en-x-u-data", Some("en-x")),
+            ("en", None),
+            ("x-private", None),
+        ] {
+            assert_eq!(truncate_lookup(input), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn exact_consumed_loads_reject_duplicates_order_and_request_drift() {
+        let original = required(CollationType::Emoji);
+        let baseline = original.loads.to_vec();
+        require_consumed_loads(&baseline, &baseline, false).unwrap();
+        let mut duplicate = baseline.clone();
+        duplicate.push(baseline[0].clone());
+        assert!(require_consumed_loads(&baseline, &duplicate, false).is_err());
+        let mut reversed = baseline.clone();
+        reversed.swap(0, 1);
+        assert!(require_consumed_loads(&baseline, &reversed, false).is_err());
+        let mut drift = baseline.clone();
+        drift[0].used_fallback = !drift[0].used_fallback;
+        assert!(require_consumed_loads(&baseline, &drift, false).is_err());
+        let mut drift = baseline.clone();
+        drift[0].requested.locale = "en".parse().unwrap();
+        assert!(require_consumed_loads(&baseline, &drift, false).is_err());
+        let mut drift = baseline.clone();
+        drift[0].requested.marker_attributes = std::borrow::Cow::Borrowed(
+            icu_provider::DataMarkerAttributes::from_str_or_panic("search"),
+        );
+        assert!(require_consumed_loads(&baseline, &drift, false).is_err());
+        let mut drift = baseline.clone();
+        drift[0].effective_locale = "en".parse().unwrap();
+        assert!(require_consumed_loads(&baseline, &drift, false).is_err());
+        let mut conditional = baseline.clone();
+        conditional.push(ConsumedCollationLoad {
+            marker: "CollationSpecialPrimariesV1",
+            requested: DataIdentifierCow::default(),
+            effective_locale: DataLocale::default(),
+            used_fallback: false,
+        });
+        require_consumed_loads(&baseline, &conditional, true).unwrap();
+        assert!(require_consumed_loads(&baseline, &conditional, false).is_err());
+        conditional.last_mut().unwrap().used_fallback = true;
+        assert!(require_consumed_loads(&baseline, &conditional, true).is_err());
+    }
+
+    #[test]
+    fn all_pinned_metadata_profiles_admit_all_49_required_configurations() {
+        let profiles = embedded_collator_profiles().unwrap();
+        let mut configurations = 0;
+        assert_eq!(profiles.data.metadata_ids().len(), 144);
+        for id in profiles.data.metadata_ids() {
+            let locale: Locale = id.locale.to_string().parse().unwrap();
+            let kind = if id.marker_attributes.is_empty() {
+                None
+            } else {
+                Some(collation_type(id.marker_attributes.as_str()).unwrap())
+            };
+            let admitted = profile(
+                &profiles.data,
+                &locale,
+                kind,
+                kind.map(|value| value.as_str().into()),
+            )
+            .unwrap()
+            .unwrap();
+            configurations += 1; // profile() executed the actual default constructor.
+            for numeric in [false, true] {
+                for case_first in [
+                    CollatorCaseFirst::False,
+                    CollatorCaseFirst::Lower,
+                    CollatorCaseFirst::Upper,
+                ] {
+                    for sensitivity in CollatorSensitivity::ALL {
+                        for ignore in [false, true] {
+                            admitted
+                                .construct(numeric, case_first, *sensitivity, ignore)
+                                .unwrap();
+                            configurations += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(configurations, 7_056);
+    }
 
     fn required(kind: CollationType) -> Arc<CollationProfile> {
         embedded_collator_profiles()
@@ -122,6 +246,7 @@ mod locale_independent_sort_tests {
             let corrupt = Arc::new(CollationProfile {
                 data: original.data.clone(),
                 id: original.id.clone(),
+                locale: original.locale.clone(),
                 kind: original.kind,
                 public_collation: if bad_name {
                     Some("search".into())
@@ -186,15 +311,10 @@ macro_rules! admit_marker {
         }
     };
 }
-admit_marker!(CollationRootV1, LoadDomain::Singleton);
-admit_marker!(CollationTailoringV1, LoadDomain::Profile);
-admit_marker!(CollationMetadataV1, LoadDomain::Profile);
-admit_marker!(CollationDiacriticsV1, LoadDomain::Diacritics);
-admit_marker!(CollationJamoV1, LoadDomain::Singleton);
-admit_marker!(CollationReorderingV1, LoadDomain::Profile);
-admit_marker!(CollationSpecialPrimariesV1, LoadDomain::Singleton);
-admit_marker!(NormalizerNfdDataV1, LoadDomain::Singleton);
-admit_marker!(NormalizerNfdTablesV1, LoadDomain::Singleton);
+macro_rules! admission_markers {
+    ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => { $( admit_marker!($marker, LoadDomain::$domain); )* };
+}
+crate::collator_markers::for_each!(admission_markers);
 
 fn purpose(kind: CollationType) -> Result<bool, CollatorOperationError> {
     Ok(match kind {
@@ -233,6 +353,7 @@ fn defaults_case_first(
 pub(super) struct CollationProfile {
     data: Arc<CollatorImageProvider>,
     id: DataIdentifierCow<'static>,
+    locale: Locale,
     kind: Option<CollationType>,
     public_collation: Option<Box<str>>,
     bits: u32,
@@ -249,14 +370,8 @@ impl CollationProfile {
     }
     fn preferences(&self, numeric: bool, case_first: CollatorCaseFirst) -> CollatorPreferences {
         let mut prefs = CollatorPreferences::default();
-        // The completed DataLocale already owns the real marker preference transform.
-        let locale: Locale = self
-            .id
-            .locale
-            .to_string()
-            .parse()
-            .expect("admitted DataLocale parses as Locale");
-        prefs.locale_preferences = (&locale).into();
+        // Retain the parsed admitted DataLocale, including its ICU transform.
+        prefs.locale_preferences = (&self.locale).into();
         prefs.collation_type = self.kind;
         prefs.numeric_ordering = Some(if numeric {
             CollationNumericOrdering::True
@@ -301,17 +416,64 @@ impl CollationProfile {
         let collator =
             Collator::try_new_unstable(&provider, self.preferences(numeric, case_first), options)
                 .map_err(data_error)?;
-        // Every nonconditional marker retains the exact consumed effective locale.
-        // Numeric and shifted options add only the known singleton special-primary load.
-        let loads = provider.loads.into_inner();
-        for expected in &self.loads {
-            if !loads.iter().any(|actual| actual == expected) {
-                return Err(data_error("Collator consumed profile association drift"));
-            }
-        }
+        require_consumed_loads(&self.loads, &provider.loads.into_inner(), numeric || ignore)?;
         Ok(collator)
     }
 }
+fn require_consumed_loads(
+    baseline: &[ConsumedCollationLoad],
+    actual: &[ConsumedCollationLoad],
+    special: bool,
+) -> Result<(), CollatorOperationError> {
+    if actual.len() != baseline.len() + usize::from(special)
+        || actual.get(..baseline.len()) != Some(baseline)
+    {
+        return Err(data_error(
+            "Collator consumed load order or profile association drift",
+        ));
+    }
+    if special {
+        let load = &actual[baseline.len()];
+        if load.marker != "CollationSpecialPrimariesV1"
+            || !load.requested.locale.is_unknown()
+            || !load.requested.marker_attributes.is_empty()
+            || !load.effective_locale.is_unknown()
+            || load.used_fallback
+        {
+            return Err(data_error("Collator conditional singleton load drift"));
+        }
+    }
+    Ok(())
+}
+
+fn require_baseline_loads(
+    loads: &[ConsumedCollationLoad],
+    bits: u32,
+    special: bool,
+) -> Result<(), CollatorOperationError> {
+    let mut markers = vec![
+        "CollationRootV1",
+        "NormalizerNfdDataV1",
+        "NormalizerNfdTablesV1",
+        "CollationJamoV1",
+        "CollationMetadataV1",
+    ];
+    if bits & TAILORED != 0 {
+        markers.push("CollationTailoringV1");
+    }
+    if bits & REORDERING != 0 {
+        markers.push("CollationReorderingV1");
+    }
+    markers.push("CollationDiacriticsV1");
+    let baseline = loads
+        .get(..markers.len())
+        .ok_or_else(|| data_error("incomplete Collator baseline load inventory"))?;
+    if !baseline.iter().map(|load| load.marker).eq(markers) {
+        return Err(data_error("Collator baseline marker order drift"));
+    }
+    require_consumed_loads(baseline, loads, special)
+}
+
 #[derive(Debug)]
 struct LocaleProfile {
     locale: CanonicalLocaleId,
@@ -436,12 +598,18 @@ fn profile(
         _ => return Err(data_error("unknown pinned punctuation default")),
     };
     let mut loads = provider.loads.into_inner();
+    // The admitted immutable provider owns locale fallback for all CLDR request
+    // locales, including those without an exact metadata ID. Capture that real
+    // association once; every later option configuration must reproduce it.
+    require_baseline_loads(&loads, bits, ignore)?;
+    let admitted_locale: Locale = id.locale.to_string().parse().map_err(data_error)?;
     // Conditional singleton SpecialPrimaries is checked by each completed constructor;
     // it is not required by both sides of an ignorePunctuation override.
     loads.retain(|load| load.marker != "CollationSpecialPrimariesV1");
     let profile = Arc::new(CollationProfile {
         data: data.clone(),
         id,
+        locale: admitted_locale,
         kind,
         public_collation,
         bits,
@@ -589,15 +757,7 @@ impl CollatorProfiles {
             {
                 return Some(index);
             }
-            let position = candidate.rfind('-')?;
-            candidate = &candidate[..position];
-            if candidate
-                .rsplit('-')
-                .next()
-                .is_some_and(|part| part.len() == 1)
-            {
-                candidate = &candidate[..candidate.rfind('-')?];
-            }
+            candidate = truncate_lookup(candidate)?;
         }
     }
     /// Locale information uses only the matched locale's admitted sort profiles.

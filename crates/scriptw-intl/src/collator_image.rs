@@ -19,21 +19,17 @@ mod projection;
 pub(crate) use projection::CollatorCatalogue;
 
 pub const INTL_COLLATOR_DATA_CUSTOM_SECTION: &str = "scriptw.intl-collator-data.v1";
-const MARKERS: [&str; 10] = [
-    "collation/root/v1",
-    "collation/tailoring/v1",
-    "collation/metadata/v1",
-    "collation/diacritics/v1",
-    "collation/jamo/v1",
-    "collation/reordering/v1",
-    "collation/special/primaries/v1",
-    "normalizer/nfd/data/v1",
-    "normalizer/nfd/tables/v1",
-    "scriptw/collator/locale-inventory/v1",
-];
+macro_rules! envelope_markers {
+    ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => {
+        const MARKERS: [&str; 10] = [$($wire,)* "scriptw/collator/locale-inventory/v1"];
+    };
+}
+crate::collator_markers::for_each!(envelope_markers);
 const PINNED_BLOB: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/collator-data.blob"));
 const PINNED_LOCALES: &[u8] = include_bytes!("../data/collator-icu-2/locale-inventory.json");
 const MAGIC: &[u8; 8] = b"LCLI0001";
+const EXTENT_BYTES: usize = std::mem::size_of::<u64>();
+const FRAMING_BYTES: usize = MAGIC.len() + 2 * EXTENT_BYTES;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,7 +75,7 @@ impl CollatorLocaleInventory {
 }
 
 fn pinned_payload() -> Result<Vec<u8>, IntlDataImageError> {
-    let size = 24usize
+    let size = FRAMING_BYTES
         .checked_add(PINNED_LOCALES.len())
         .and_then(|size| size.checked_add(PINNED_BLOB.len()))
         .ok_or_else(|| IntlDataImageError::consumer("Collator data payload extent"))?;
@@ -101,13 +97,13 @@ fn pinned_payload() -> Result<Vec<u8>, IntlDataImageError> {
 
 fn admit_payload(bytes: &[u8]) -> Result<(&[u8], CollatorLocaleInventory), IntlDataImageError> {
     let fail = || IntlDataImageError::consumer("Collator data payload framing or locked source");
-    if bytes.get(..8) != Some(MAGIC.as_slice()) {
+    if bytes.get(..MAGIC.len()) != Some(MAGIC.as_slice()) {
         return Err(fail());
     }
-    let mut position = 8usize;
+    let mut position = MAGIC.len();
     let mut inputs = [&[][..]; 2];
     for (input, pinned) in inputs.iter_mut().zip([PINNED_LOCALES, PINNED_BLOB]) {
-        let end = position.checked_add(8).ok_or_else(fail)?;
+        let end = position.checked_add(EXTENT_BYTES).ok_or_else(fail)?;
         let size = bytes.get(position..end).ok_or_else(fail)?;
         let size = usize::try_from(u64::from_le_bytes(
             size.try_into().expect("eight-byte extent"),
@@ -202,15 +198,10 @@ impl CollatorImageProvider {
                 }
             }};
         }
-        admit!(CollationRootV1);
-        admit!(CollationTailoringV1);
-        admit!(CollationMetadataV1);
-        admit!(CollationDiacriticsV1);
-        admit!(CollationJamoV1);
-        admit!(CollationReorderingV1);
-        admit!(CollationSpecialPrimariesV1);
-        admit!(NormalizerNfdDataV1);
-        admit!(NormalizerNfdTablesV1);
+        macro_rules! admit_all {
+            ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => { $( admit!($marker); )* };
+        }
+        crate::collator_markers::for_each!(admit_all);
         let metadata_ids = IterableDynamicDataProvider::<BufferMarker>::iter_ids_for_marker(
             &provider,
             CollationMetadataV1::INFO,
@@ -290,15 +281,10 @@ macro_rules! image_marker {
         }
     };
 }
-image_marker!(CollationRootV1);
-image_marker!(CollationTailoringV1);
-image_marker!(CollationMetadataV1);
-image_marker!(CollationDiacriticsV1);
-image_marker!(CollationJamoV1);
-image_marker!(CollationReorderingV1);
-image_marker!(CollationSpecialPrimariesV1);
-image_marker!(NormalizerNfdDataV1);
-image_marker!(NormalizerNfdTablesV1);
+macro_rules! implement_all {
+    ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => { $( image_marker!($marker); )* };
+}
+crate::collator_markers::for_each!(implement_all);
 
 #[derive(Debug)]
 struct AdmittedCollatorData {

@@ -8,44 +8,21 @@ use icu_provider_blob::BlobDataProvider;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Marker {
-    Root,
-    Tailoring,
-    Metadata,
-    Diacritics,
-    Jamo,
-    Reordering,
-    SpecialPrimaries,
-    NfdData,
-    NfdTables,
-}
-impl Marker {
-    const ALL: [Self; 9] = [
-        Self::Root,
-        Self::Tailoring,
-        Self::Metadata,
-        Self::Diacritics,
-        Self::Jamo,
-        Self::Reordering,
-        Self::SpecialPrimaries,
-        Self::NfdData,
-        Self::NfdTables,
-    ];
-    pub(super) fn info(self) -> DataMarkerInfo {
-        match self {
-            Self::Root => CollationRootV1::INFO,
-            Self::Tailoring => CollationTailoringV1::INFO,
-            Self::Metadata => CollationMetadataV1::INFO,
-            Self::Diacritics => CollationDiacriticsV1::INFO,
-            Self::Jamo => CollationJamoV1::INFO,
-            Self::Reordering => CollationReorderingV1::INFO,
-            Self::SpecialPrimaries => CollationSpecialPrimariesV1::INFO,
-            Self::NfdData => NormalizerNfdDataV1::INFO,
-            Self::NfdTables => NormalizerNfdTablesV1::INFO,
+macro_rules! define_markers {
+    ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub(super) enum Marker { $( $variant, )* }
+        impl Marker {
+            const ALL: [Self; 9] = [$(Self::$variant,)*];
+            pub(super) fn info(self) -> DataMarkerInfo {
+                match self { $(Self::$variant => $marker::INFO,)* }
+            }
         }
-    }
+    };
+}
+crate::collator_markers::for_each!(define_markers);
+impl Marker {
     pub(super) fn from_info(info: DataMarkerInfo) -> Option<Self> {
         Self::ALL.into_iter().find(|marker| marker.info() == info)
     }

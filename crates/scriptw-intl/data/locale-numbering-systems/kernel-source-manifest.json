@@ -24,13 +24,13 @@
   ],
   "decimal_numbering_systems": 78,
   "domain": "scriptw-locale-numbering-systems-native-v1",
-  "kernel_sha256": "6d8c332ccb442a3fe3a777b09d61b6c88883e9db37285d6c1e97d62646a87375",
+  "kernel_sha256": "d5c4144a557c3de5869b52a385dc15d9954c71f99c02fb7a9ef3683d7540ee44",
   "number_locales": 1082,
   "production_sources": [
     {
-      "bytes": 76221,
+      "bytes": 76236,
       "path": "Cargo.lock",
-      "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
+      "sha256": "ee4e2240f84e00b37e54a0e284c2139f7055efdb49b058a418d9368705cf3e74"
     },
     {
       "bytes": 5887,
@@ -38,9 +38,9 @@
       "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
     },
     {
-      "bytes": 87228,
+      "bytes": 87544,
       "path": "crates/scriptw-aot-wasm/src/emit.rs",
-      "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+      "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
     },
     {
       "bytes": 81271,
@@ -63,9 +63,9 @@
       "sha256": "cdfbb56032f503abce00520323cacb17ae27fb811812e46ccc98e601e9bd94d6"
     },
     {
-      "bytes": 2583,
+      "bytes": 2790,
       "path": "crates/scriptw-intl/build.rs",
-      "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+      "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
     },
     {
       "bytes": 8388,
@@ -88,9 +88,9 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 41356,
+      "bytes": 41455,
       "path": "crates/scriptw-intl/src/lib.rs",
-      "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+      "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
     },
     {
       "bytes": 6510,

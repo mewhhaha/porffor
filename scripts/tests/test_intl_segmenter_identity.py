@@ -46,6 +46,28 @@ class SegmenterIdentityTests(unittest.TestCase):
         shutil.copyfile(ROOT / "Cargo.lock", path)
         changed = self.original.copy(); changed["feature_proposal"] = {"required": ["compiled_data"], "actual_manifest_edit": False}; self.reject(changed)
 
+    def test_archive_ancestry_does_not_depend_on_current_build_selection(self):
+        # An invalid current lock must not rewrite historical archive truth.
+        (self.root / "Cargo.lock").write_text('not a lock')
+        MODULE.verified_archives(self.root)
+        with self.assertRaises(ValueError):
+            MODULE.verify_archive_lock(self.root)
+
+    def test_current_build_admission_does_not_need_source_archives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            path = root / "crates/scriptw-intl/Cargo.toml"
+            path.parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / "Cargo.lock", root / "Cargo.lock")
+            original = (ROOT / path.relative_to(root)).read_text()
+            path.write_text(original)
+            selected = MODULE.admit_build_selection(root)
+            self.assertEqual(selected["features"], {"runtime": ["serde", "auto"], "build": ["datagen", "auto"]})
+            path.write_text(original.replace('features = ["serde", "auto"]', 'features = ["serde"]'))
+            self.assertNotEqual(path.read_text(), original)
+            with self.assertRaisesRegex(ValueError, "manifest admission"):
+                MODULE.admit_build_selection(root)
+
     def test_actual_transitive_auto_package_closure_is_bound(self):
         packages = MODULE.locked_packages(self.root)
         names = {(p["name"], p["version"]) for p in packages}

@@ -178,6 +178,17 @@ fn missing_required_inputs_fail_closed() {
 #[test]
 fn pure_test_input_lifecycle_preserves_production_identity_and_rerun_inputs() {
     for input in [
+        "crates/scriptw-front/src/tests/fixture.rs",
+        "crates/scriptw-front/src/json/tests.rs",
+        "crates/scriptw-ir/src/ir/tests.rs",
+        "crates/scriptw-ir/src/analysis/private_environment_tests.rs",
+        "crates/scriptw-ir/src/runtime_global_script/tests.rs",
+        "crates/scriptw-aot-wasm/src/tests.rs",
+        "crates/scriptw-aot-wasm/src/tests/fixture.rs",
+        "crates/scriptw-aot-wasm/src/planning/tests.rs",
+        "crates/scriptw-aot-wasm/src/control_flow/tests.rs",
+        "crates/scriptw-runtime/src/rooted_snapshot/tests.rs",
+        "crates/scriptw-engine/src/tests/fixture.rs",
         "crates/scriptw-front/tests/fixture.js",
         "crates/scriptw-ir/tests/regression.rs",
         "crates/scriptw-ir/src/tests/inspection.rs",

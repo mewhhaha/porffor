@@ -20,7 +20,8 @@ const KNOWN_FAILURES: &str = include_str!("../../../scriptw-cli/tests/known-fail
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/ordinary-property-eager-compound-assignment-reference.md"
 );
-const README: &str = include_str!("../../../../README.md");
+// Exact dated results live in the frozen overview linked by the current README.
+const HISTORICAL_OVERVIEW: &str = include_str!("../../../../DEVELOPMENT_HISTORY.md");
 
 macro_rules! exact_test262 {
     ($name:literal) => {
@@ -514,7 +515,7 @@ fn exact_a7_inventory_is_raw_unmasked_and_keeps_all_t3_controls() {
 
 #[test]
 fn status_records_the_exact_baseline_and_keeps_the_batch_bounded() {
-    for source in [README] {
+    for source in [HISTORICAL_OVERVIEW] {
         for marker in [
             "ae1bd994b",
             "22/88",

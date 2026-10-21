@@ -90,7 +90,7 @@ impl<'ast> Visitor<'ast> for TemplateCensus {
 /// Retaining the actual syntax allocation makes cloned parsed Scripts share
 /// an owner while separately parsed equal text stays distinct, without hashes
 /// or a global counter.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct TemplateSourceOwners {
     parsed: Vec<(ParsedScriptIdentity, Option<TemplateSourceIr>)>,
 }

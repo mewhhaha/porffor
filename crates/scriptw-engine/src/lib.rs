@@ -2574,25 +2574,7 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
-        validate_execution_intl_profile(&options.intl_profile, run.backend)?;
-        validate_execution_language_features(options.language_features, run.backend)?;
-        match run.backend {
-            ExecutionBackend::SpecExec => self.run_with_spec_exec(
-                source,
-                options.filename.as_deref(),
-                ParseGoal::Script,
-                options.module_loading_policy,
-                options.module_prelude.as_deref(),
-                run,
-            ),
-            ExecutionBackend::WasmAot => self.run_source_with_cached_wasm(
-                source,
-                ParseGoal::Script,
-                options,
-                run.timeout_ms,
-                run.can_block,
-            ),
-        }
+        self.run_source(source, ParseGoal::Script, options, run)
     }
 
     /// Runs a Module through the selected backend. Wasm AOT reports an
@@ -2605,20 +2587,30 @@ impl Engine {
         options: CompileOptions,
         run: RunOptions,
     ) -> Result<RunOutcome, EngineError> {
+        self.run_source(source, ParseGoal::Module, options, run)
+    }
+
+    fn run_source(
+        &self,
+        source: &str,
+        goal: ParseGoal,
+        options: CompileOptions,
+        run: RunOptions,
+    ) -> Result<RunOutcome, EngineError> {
         validate_execution_intl_profile(&options.intl_profile, run.backend)?;
         validate_execution_language_features(options.language_features, run.backend)?;
         match run.backend {
             ExecutionBackend::SpecExec => self.run_with_spec_exec(
                 source,
                 options.filename.as_deref(),
-                ParseGoal::Module,
+                goal,
                 options.module_loading_policy,
                 options.module_prelude.as_deref(),
                 run,
             ),
             ExecutionBackend::WasmAot => self.run_source_with_cached_wasm(
                 source,
-                ParseGoal::Module,
+                goal,
                 options,
                 run.timeout_ms,
                 run.can_block,
@@ -3134,7 +3126,12 @@ impl Engine {
                     scriptw_ir::LoweringStage::WasmReady => "wasm-ready",
                 })
                 .collect(),
-            invariants: unit.ir.invariants.clone(),
+            invariants: unit
+                .ir
+                .invariants
+                .iter()
+                .map(|invariant| invariant.as_str())
+                .collect(),
             ir_summary: unit.ir.ir_summary(),
             diagnostics: unit
                 .ir

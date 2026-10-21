@@ -104,8 +104,15 @@ def check(root, overrides=None):
         source = c[A + 'runtime_' + kind + '.rs']
         require('emit_runtime_'+kind+'_module(program,validated)?' in source and
                 'ValidatedRuntimeArtifact::new(Arc::clone(runtime),intl_profile.clone())?' in source and
-                'Arc::ptr_eq(actual,runtime)' in source,
+                'validated.require_linked_program(&emitted,' in source and
+                'runtime:Arc::clone(runtime)' in source,
                 kind + ' keeps checked raw API and exact linked R')
+    require(('pub(crate)fnrequire_linked_program(&self,emitted:&super::EmittedModule,'
+             "diagnostic:&'staticstr,)->Result<(),EmitError>{"
+             'ifemitted.runtime_layout.is_some()||!emitted.artifact.runtime().is_some_and('
+             '|actual|Arc::ptr_eq(actual,self.runtime())){'
+             'returnErr(EmitError::unsupported(diagnostic));}Ok(())}') in proof,
+            'shared linkage owner rejects a new layout or a different runtime Arc')
     entries = c[A + 'emit/module_assembly/program_entries.rs']
     native = c[A + 'emit/module_assembly/native_program.rs']
     require(entries.count('Some(validated)') == 1 and native.count('Some(validated)') == 2 and

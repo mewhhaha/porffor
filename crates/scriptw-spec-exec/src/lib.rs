@@ -27,6 +27,15 @@ use scriptw_runtime::{
     ObservedCompletion, ObservedJsValue, ObservedNumber,
 };
 
+mod host_session;
+use host_session::{
+    create_host_realm, current_host_session, host_realm, with_agent_state, with_agent_state_mut,
+    HostRealmContext, HostRealmScope,
+};
+mod module_context;
+use module_context::{
+    build_host_context, parse_entry_script, prepare_module_context, source_with_name,
+};
 mod embedded_module_loader;
 mod oracle_exception;
 mod rooted_graph;
@@ -136,464 +145,6 @@ impl core::fmt::Display for ExecutionError {
 }
 
 impl std::error::Error for ExecutionError {}
-
-thread_local! {
-    static HOST_REALMS: RefCell<HostRealmStore> = RefCell::new(HostRealmStore::default());
-    static CURRENT_HOST_SESSION: RefCell<Option<Arc<HostSession>>> = const { RefCell::new(None) };
-    static CURRENT_AGENT_STATE: RefCell<Option<AgentThreadState>> = const { RefCell::new(None) };
-}
-
-#[derive(Default)]
-struct HostRealmStore {
-    next_id: u64,
-    realms: BTreeMap<u64, HostRealmContext>,
-}
-
-/// Embedded Realms share their creating Context's interner and job domain.
-/// Ambient policies retain their existing independent Context ownership.
-#[derive(Clone)]
-enum HostRealmContext {
-    SeparateContext(Rc<RefCell<Context>>),
-    EmbeddedRealm(boa_engine::realm::Realm),
-}
-
-impl HostRealmContext {
-    fn with_context<T>(
-        &self,
-        context: &mut Context,
-        action: impl FnOnce(&mut Context) -> JsResult<T>,
-    ) -> JsResult<T> {
-        match self {
-            Self::SeparateContext(realm) => {
-                let mut realm = realm.try_borrow_mut().map_err(|_| {
-                    oracle_exception::host_failure(
-                        JsNativeError::typ()
-                            .with_message("host realm context is already active")
-                            .into(),
-                        context,
-                    )
-                })?;
-                action(&mut realm)
-            }
-            Self::EmbeddedRealm(realm) => {
-                let old_realm = context.enter_realm(realm.clone());
-                let result = action(context);
-                context.enter_realm(old_realm);
-                result
-            }
-        }
-    }
-
-    fn eval(&self, source: &str, context: &mut Context) -> JsResult<JsValue> {
-        match self {
-            Self::SeparateContext(_) => self.with_context(context, |realm| {
-                let result = realm.eval(Source::from_bytes(source.as_bytes()))?;
-                realm.run_jobs()?;
-                Ok(result)
-            }),
-            Self::EmbeddedRealm(_) => {
-                let result = self.with_context(context, |realm| {
-                    realm.eval(Source::from_bytes(source.as_bytes()))
-                })?;
-                // The creating Context is restored before jobs run. Boa jobs
-                // retain their actual execution Realm and this same interner.
-                context.run_jobs()?;
-                Ok(result)
-            }
-        }
-    }
-}
-
-struct HostRealmScope {
-    host_session: Arc<HostSession>,
-}
-
-struct HostSession {
-    can_block: bool,
-    module_loading_policy: ModuleLoadingPolicy,
-    started_at: StdInstant,
-    host_hooks: Arc<dyn HostHooks>,
-    output_events: HostOutputEvents,
-    reports_tx: Sender<String>,
-    reports_rx: Mutex<Receiver<String>>,
-    agents: Mutex<Vec<AgentHandle>>,
-}
-
-enum HostOutputEvents {
-    DelegateOnly,
-    Capture(Mutex<Vec<HostOutputEvent>>),
-}
-
-struct AgentHandle {
-    command_tx: Sender<AgentCommand>,
-    join: JoinHandle<()>,
-}
-
-#[derive(Clone)]
-enum AgentCommand {
-    Broadcast(RawSharedArrayBuffer),
-    Shutdown,
-}
-
-struct AgentThreadState {
-    callback: Option<boa_engine::JsObject>,
-    report_tx: Sender<String>,
-    started_at: StdInstant,
-    leaving: bool,
-}
-
-impl HostRealmScope {
-    fn legacy(
-        can_block: bool,
-        module_loading_policy: ModuleLoadingPolicy,
-        host_hooks: Arc<dyn HostHooks>,
-    ) -> Self {
-        Self::new(
-            can_block,
-            module_loading_policy,
-            host_hooks,
-            HostOutputEvents::DelegateOnly,
-        )
-    }
-
-    fn observed(
-        can_block: bool,
-        module_loading_policy: ModuleLoadingPolicy,
-        host_hooks: Arc<dyn HostHooks>,
-    ) -> Self {
-        Self::new(
-            can_block,
-            module_loading_policy,
-            host_hooks,
-            HostOutputEvents::Capture(Mutex::new(Vec::new())),
-        )
-    }
-
-    fn new(
-        can_block: bool,
-        module_loading_policy: ModuleLoadingPolicy,
-        host_hooks: Arc<dyn HostHooks>,
-        output_events: HostOutputEvents,
-    ) -> Self {
-        reset_host_realms();
-        let (reports_tx, reports_rx) = mpsc::channel();
-        let host_session = Arc::new(HostSession {
-            can_block,
-            module_loading_policy,
-            started_at: StdInstant::now(),
-            host_hooks,
-            output_events,
-            reports_tx,
-            reports_rx: Mutex::new(reports_rx),
-            agents: Mutex::new(Vec::new()),
-        });
-        CURRENT_HOST_SESSION.with(|session| {
-            *session.borrow_mut() = Some(host_session.clone());
-        });
-        Self { host_session }
-    }
-
-    fn finish_output_events(&self) -> Vec<HostOutputEvent> {
-        // Agents share this execution's sink. Join them before taking the
-        // transcript so a line emitted while shutdown is in flight is not
-        // silently left behind in the session.
-        self.host_session.shutdown();
-        self.host_session.output_events.take()
-    }
-}
-
-impl Drop for HostRealmScope {
-    fn drop(&mut self) {
-        self.host_session.shutdown();
-        CURRENT_HOST_SESSION.with(|session| {
-            *session.borrow_mut() = None;
-        });
-        CURRENT_AGENT_STATE.with(|state| {
-            *state.borrow_mut() = None;
-        });
-        reset_host_realms();
-    }
-}
-
-impl HostSession {
-    fn print_line(&self, text: String) {
-        self.output_events.record(&text);
-        self.host_hooks.print_line(&text);
-    }
-
-    fn start_agent(self: &Arc<Self>, source: String) -> Result<(), ExecutionError> {
-        let (command_tx, command_rx) = mpsc::channel();
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let session = self.clone();
-        let join = thread::Builder::new()
-            .name("scriptw-test262-agent".to_string())
-            .spawn(move || run_agent_thread(session, source, command_rx, ready_tx))
-            .map_err(|err| ExecutionError::new(format!("failed to spawn agent thread: {err}")))?;
-
-        match ready_rx.recv() {
-            Ok(Ok(())) => {
-                self.agents
-                    .lock()
-                    .expect("agent list mutex poisoned")
-                    .push(AgentHandle { command_tx, join });
-                Ok(())
-            }
-            Ok(Err(message)) => {
-                let _ = join.join();
-                self.reports_tx.send(message.clone()).map_err(|err| {
-                    ExecutionError::new(format!("failed to queue agent error: {err}"))
-                })?;
-                Ok(())
-            }
-            Err(err) => {
-                let _ = join.join();
-                Err(ExecutionError::new(format!(
-                    "failed to initialize agent thread: {err}"
-                )))
-            }
-        }
-    }
-
-    fn broadcast(&self, buffer: RawSharedArrayBuffer) -> usize {
-        let mut sent = 0;
-        let mut agents = self.agents.lock().expect("agent list mutex poisoned");
-        let mut survivors = Vec::with_capacity(agents.len());
-
-        for handle in agents.drain(..) {
-            if handle
-                .command_tx
-                .send(AgentCommand::Broadcast(buffer.clone()))
-                .is_ok()
-            {
-                sent += 1;
-                survivors.push(handle);
-            } else {
-                let _ = handle.join.join();
-            }
-        }
-
-        *agents = survivors;
-        sent
-    }
-
-    fn next_report(&self) -> Result<Option<String>, ExecutionError> {
-        let receiver = self
-            .reports_rx
-            .lock()
-            .map_err(|_| ExecutionError::new("report queue mutex poisoned"))?;
-        match receiver.try_recv() {
-            Ok(report) => Ok(Some(report)),
-            Err(TryRecvError::Empty) => Ok(None),
-            Err(TryRecvError::Disconnected) => Ok(None),
-        }
-    }
-
-    fn shutdown(&self) {
-        let mut agents = self.agents.lock().expect("agent list mutex poisoned");
-        let handles = std::mem::take(&mut *agents);
-        drop(agents);
-
-        for handle in &handles {
-            let _ = handle.command_tx.send(AgentCommand::Shutdown);
-        }
-        for handle in handles {
-            let _ = handle.join.join();
-        }
-    }
-}
-
-impl HostOutputEvents {
-    fn record(&self, text: &str) {
-        if let Self::Capture(events) = self {
-            events
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .push(HostOutputEvent::PrintLine(text.to_string()));
-        }
-    }
-
-    fn take(&self) -> Vec<HostOutputEvent> {
-        let Self::Capture(events) = self else {
-            return Vec::new();
-        };
-        let mut events = events
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        std::mem::take(&mut *events)
-    }
-}
-
-fn reset_host_realms() {
-    oracle_exception::reset_host_failures();
-    HOST_REALMS.with(|store| {
-        let mut store = store.borrow_mut();
-        store.next_id = 0;
-        store.realms.clear();
-    });
-}
-
-fn current_host_session(context: &mut Context) -> JsResult<Arc<HostSession>> {
-    CURRENT_HOST_SESSION.with(|session| {
-        session.borrow().clone().ok_or_else(|| {
-            oracle_exception::host_failure(
-                JsNativeError::typ()
-                    .with_message("host session is not initialized")
-                    .into(),
-                context,
-            )
-        })
-    })
-}
-
-fn with_agent_state_mut<R>(
-    action: impl FnOnce(&mut AgentThreadState) -> JsResult<R>,
-) -> JsResult<R> {
-    CURRENT_AGENT_STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        let state = state.as_mut().ok_or_else(|| {
-            JsError::from(
-                JsNativeError::typ().with_message("agent thread state is not initialized"),
-            )
-        })?;
-        action(state)
-    })
-}
-
-fn with_agent_state<R>(action: impl FnOnce(&AgentThreadState) -> R) -> Option<R> {
-    CURRENT_AGENT_STATE.with(|state| state.borrow().as_ref().map(action))
-}
-
-/// Builds every Script-capable context under the session's closed loader
-/// policy. Boa otherwise defaults to a `SimpleModuleLoader` rooted at the
-/// process working directory, which would let dynamic source escape a replay's
-/// serialized inputs.
-fn build_host_context(
-    can_block: bool,
-    module_loading_policy: ModuleLoadingPolicy,
-) -> JsResult<Context> {
-    match module_loading_policy {
-        ModuleLoadingPolicy::Filesystem => Context::builder()
-            .job_executor(Rc::new(SimpleJobExecutor::new()))
-            .module_loader(Rc::new(oracle_exception::AmbientModuleLoader::new()?))
-            .can_block(can_block)
-            .build(),
-        ModuleLoadingPolicy::RejectAll => Context::builder()
-            .job_executor(Rc::new(SimpleJobExecutor::new()))
-            .module_loader(Rc::new(oracle_exception::DisabledModuleLoader))
-            .can_block(can_block)
-            .build(),
-        ModuleLoadingPolicy::Embedded(graph) => {
-            EmbeddedGraphModuleLoader::context(graph, can_block).map(|(context, _)| context)
-        }
-    }
-}
-
-fn run_agent_thread(
-    session: Arc<HostSession>,
-    source: String,
-    command_rx: Receiver<AgentCommand>,
-    ready_tx: Sender<Result<(), String>>,
-) {
-    reset_host_realms();
-    CURRENT_HOST_SESSION.with(|host| {
-        *host.borrow_mut() = Some(session.clone());
-    });
-    CURRENT_AGENT_STATE.with(|state| {
-        *state.borrow_mut() = Some(AgentThreadState {
-            callback: None,
-            report_tx: session.reports_tx.clone(),
-            started_at: StdInstant::now(),
-            leaving: false,
-        });
-    });
-
-    let mut context = match build_host_context(true, session.module_loading_policy.clone()) {
-        Ok(context) => context,
-        Err(err) => {
-            let _ = ready_tx.send(Err(err.to_string()));
-            reset_host_realms();
-            CURRENT_AGENT_STATE.with(|state| {
-                *state.borrow_mut() = None;
-            });
-            CURRENT_HOST_SESSION.with(|host| {
-                *host.borrow_mut() = None;
-            });
-            return;
-        }
-    };
-
-    let init_result = (|| -> Result<(), String> {
-        install_host_globals(&mut context, &[]).map_err(|err| err.to_string())?;
-        context
-            .eval(Source::from_bytes(source.as_bytes()))
-            .map_err(|err| format_js_error(err, &mut context).to_string())?;
-        context
-            .run_jobs()
-            .map_err(|err| format_js_error(err, &mut context).to_string())?;
-        Ok(())
-    })();
-
-    let _ = ready_tx.send(init_result.clone());
-
-    if init_result.is_ok() {
-        loop {
-            if with_agent_state(|state| state.leaving).unwrap_or(true) {
-                break;
-            }
-
-            match command_rx.recv() {
-                Ok(AgentCommand::Broadcast(buffer)) => {
-                    if let Err(message) = invoke_agent_callback(buffer, &mut context) {
-                        let _ = session.reports_tx.send(message);
-                        break;
-                    }
-                }
-                Ok(AgentCommand::Shutdown) | Err(_) => break,
-            }
-        }
-    }
-
-    reset_host_realms();
-    CURRENT_AGENT_STATE.with(|state| {
-        *state.borrow_mut() = None;
-    });
-    CURRENT_HOST_SESSION.with(|host| {
-        *host.borrow_mut() = None;
-    });
-}
-
-fn invoke_agent_callback(
-    buffer: RawSharedArrayBuffer,
-    context: &mut Context,
-) -> Result<(), String> {
-    let callback = with_agent_state(|state| state.callback.clone());
-    let Some(callback) = callback.flatten() else {
-        return Ok(());
-    };
-
-    let shared = JsSharedArrayBuffer::from_buffer(buffer, context);
-    let result = callback
-        .call(&JsValue::undefined(), &[shared.into()], context)
-        .map_err(|err| format_js_error(err, context).to_string())?;
-
-    if let Some(object) = result.as_object() {
-        if let Ok(promise) = JsPromise::from_object(object.clone()) {
-            promise
-                .await_blocking(context)
-                .map_err(|err| format_js_error(err, context).to_string())?;
-        } else {
-            context
-                .run_jobs()
-                .map_err(|err| format_js_error(err, context).to_string())?;
-        }
-    } else {
-        context
-            .run_jobs()
-            .map_err(|err| format_js_error(err, context).to_string())?;
-    }
-
-    Ok(())
-}
 
 #[derive(Debug)]
 struct StdoutHostHooks;
@@ -825,12 +376,12 @@ pub fn execute_module(
     match loaded.state() {
         PromiseState::Fulfilled(_) => (),
         PromiseState::Rejected(value) => {
-            return Err(ExecutionError::new(observe_opaque_throw(&value).1))
+            return Err(ExecutionError::new(observe_opaque_throw(&value).1));
         }
         PromiseState::Pending => {
             return Err(ExecutionError::new(
                 "runtime module loading is still pending after host job flush",
-            ))
+            ));
         }
     }
     module.link(&mut context).map_err(|error| {
@@ -887,346 +438,6 @@ pub fn observe_module(
 /// Couple an Embedded root's supplied source/goal/locator to its owner before
 /// any parser or host context can select different source bytes. An omitted
 /// diagnostic filename uses the already declared identity, never a path base.
-fn root_source_name(
-    source: &str,
-    filename: Option<&str>,
-    goal: EmbeddedModuleGoal,
-    policy: &ModuleLoadingPolicy,
-) -> Result<Option<String>, ExecutionError> {
-    match policy {
-        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => {
-            Ok(filename.map(str::to_owned))
-        }
-        ModuleLoadingPolicy::Embedded(graph) => {
-            let entry = graph.entry();
-            if entry.goal() != goal
-                || entry.source() != source
-                || filename.is_some_and(|identity| identity != entry.identity())
-            {
-                return Err(ExecutionError::new(
-                    "embedded execution source, goal and identity must match the graph entry",
-                ));
-            }
-            Ok(Some(entry.identity().to_owned()))
-        }
-    }
-}
-
-/// The actual Script producer for both public entry consumers owns entry
-/// admission together with parsing, so neither caller separately mints a root
-/// Script whose locator/source disagrees with the shared embedded policy.
-fn parse_entry_script(
-    source: &str,
-    filename: Option<&str>,
-    policy: &ModuleLoadingPolicy,
-    context: &mut Context,
-) -> Result<Script, ExecutionError> {
-    let filename = root_source_name(source, filename, EmbeddedModuleGoal::Script, policy)?;
-    let source = match policy {
-        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => source,
-        ModuleLoadingPolicy::Embedded(graph) => graph.entry().source(),
-    };
-    Script::parse(source_with_name(source, filename.as_deref()), None, context)
-        .map_err(|error| ExecutionError::entry_parse(error, context))
-}
-
-/// Both Module entry consumers obtain a parsed/cache-owned root here. The
-/// Embedded arm reads only the validated source owner; its parsed root cannot
-/// be omitted from the loader cache before graph loading or import.meta.
-fn prepare_module_context(
-    source: &str,
-    filename: Option<&str>,
-    host: &ModuleHostConfig,
-    argv: &[String],
-    can_block: bool,
-) -> Result<(Context, Module, Option<PathBuf>), ExecutionError> {
-    match &host.module_loading_policy {
-        ModuleLoadingPolicy::Filesystem => {
-            let module_path = normalize_module_path(filename).or_else(|| host.test_path.clone());
-            let loader = Rc::new(Test262ModuleLoader::new(
-                host.module_root.as_deref(),
-                module_path.as_deref(),
-            ));
-            let mut context = Context::builder()
-                .job_executor(Rc::new(SimpleJobExecutor::new()))
-                .module_loader(loader.clone())
-                .can_block(can_block)
-                .build()
-                .map_err(|err| ExecutionError::new(err.to_string()))?;
-            install_host_globals(&mut context, argv)?;
-            let module = Module::parse(source_with_name(source, filename), None, &mut context)
-                .map_err(|err| ExecutionError::entry_parse(err, &mut context))?;
-            loader.insert(
-                module_path.clone().unwrap_or_else(|| loader.entry_path()),
-                LoadedModuleKind::Source,
-                module.clone(),
-            );
-            Ok((context, module, module_path))
-        }
-        ModuleLoadingPolicy::RejectAll => Err(ExecutionError::new(
-            "module loading disabled by host policy",
-        )),
-        ModuleLoadingPolicy::Embedded(graph) => {
-            let identity = root_source_name(
-                source,
-                filename,
-                EmbeddedModuleGoal::Module,
-                &host.module_loading_policy,
-            )?
-            .expect("an Embedded root has an immutable declared identity");
-            let (mut context, loader) =
-                EmbeddedGraphModuleLoader::context(Arc::clone(graph), can_block)
-                    .map_err(|err| ExecutionError::new(err.to_string()))?;
-            install_host_globals(&mut context, argv)?;
-            let module = loader
-                .entry_module(&mut context)
-                .map_err(|err| ExecutionError::entry_parse(err, &mut context))?;
-            Ok((context, module, Some(PathBuf::from(identity))))
-        }
-    }
-}
-
-#[derive(Debug, Default)]
-struct Test262ModuleLoader {
-    root: PathBuf,
-    entry_path: PathBuf,
-    module_map: RefCell<BTreeMap<(PathBuf, LoadedModuleKind), Module>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum LoadedModuleKind {
-    Source,
-    Json,
-    Text,
-    Bytes,
-}
-
-impl Test262ModuleLoader {
-    fn new(module_root: Option<&Path>, test_path: Option<&Path>) -> Self {
-        let entry_path = test_path
-            .map(normalize_absolute_path)
-            .unwrap_or_else(|| normalize_absolute_path(&PathBuf::from("main.mjs")));
-        let root = module_root
-            .map(normalize_absolute_path)
-            .or_else(|| entry_path.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| normalize_absolute_path(&PathBuf::from(".")));
-        Self {
-            root,
-            entry_path,
-            module_map: RefCell::new(BTreeMap::new()),
-        }
-    }
-
-    fn entry_path(&self) -> PathBuf {
-        self.entry_path.clone()
-    }
-
-    fn insert(&self, path: PathBuf, kind: LoadedModuleKind, module: Module) {
-        self.module_map.borrow_mut().insert((path, kind), module);
-    }
-
-    fn get(&self, path: &Path, kind: LoadedModuleKind) -> Option<Module> {
-        self.module_map
-            .borrow()
-            .get(&(path.to_path_buf(), kind))
-            .cloned()
-    }
-
-    fn resolve_path(&self, referrer: Referrer, specifier: &JsString) -> JsResult<PathBuf> {
-        let specifier = specifier.to_std_string_escaped();
-        let specifier_path = Path::new(&specifier);
-        if specifier_path.is_absolute() {
-            return Ok(normalize_absolute_path(specifier_path));
-        }
-
-        let base_dir = if specifier.starts_with("./")
-            || specifier.starts_with("../")
-            || specifier == "."
-            || specifier == ".."
-        {
-            referrer
-                .path()
-                .and_then(Path::parent)
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| {
-                    self.entry_path
-                        .parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| self.root.clone())
-                })
-        } else {
-            self.root.clone()
-        };
-
-        Ok(normalize_absolute_path(&base_dir.join(specifier_path)))
-    }
-
-    fn request_kind(request: &ModuleRequest) -> JsResult<LoadedModuleKind> {
-        let mut type_value = None;
-        for attribute in request.attributes() {
-            if attribute.key().to_std_string_escaped() == "type" {
-                type_value = Some(attribute.value().to_std_string_escaped());
-                break;
-            }
-        }
-
-        match type_value.as_deref() {
-            None | Some("") => Ok(LoadedModuleKind::Source),
-            Some("json") => Ok(LoadedModuleKind::Json),
-            Some("text") => Ok(LoadedModuleKind::Text),
-            Some("bytes") => Ok(LoadedModuleKind::Bytes),
-            Some(other) => Err(JsNativeError::syntax()
-                .with_message(format!("unsupported import attribute type `{other}`"))
-                .into()),
-        }
-    }
-}
-
-impl ModuleLoader for Test262ModuleLoader {
-    async fn load_imported_module(
-        self: Rc<Self>,
-        referrer: Referrer,
-        request: ModuleRequest,
-        context: &RefCell<&mut Context>,
-    ) -> JsResult<Module> {
-        let result = (|| {
-            let specifier = request.specifier();
-            let short_path = specifier.to_std_string_escaped();
-            let path = self.resolve_path(referrer, &specifier)?;
-            let kind = Self::request_kind(&request)?;
-            if let Some(module) = self.get(&path, kind) {
-                return Ok(module);
-            }
-
-            let module = match kind {
-                LoadedModuleKind::Source => {
-                    let source = std::fs::read_to_string(&path).map_err(|err| {
-                        JsNativeError::typ()
-                            .with_message(format!("could not open file `{short_path}`"))
-                            .with_cause(boa_engine::JsError::from_opaque(
-                                js_string!(err.to_string()).into(),
-                            ))
-                    })?;
-                    let should_consider_harness = path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .map(|name| !name.contains("_FIXTURE"))
-                        .unwrap_or(true);
-                    let inject_harness = should_consider_harness
-                        && (source.contains("assert.")
-                            || source.contains("assert(")
-                            || source.contains("Test262Error"));
-                    let source = if inject_harness {
-                        format!("{TEST262_STA_GLOBAL}\n{TEST262_ASSERT_GLOBAL}\n{source}")
-                    } else {
-                        source
-                    };
-                    let path_string = path.to_string_lossy().into_owned();
-                    Module::parse(
-                        source_with_name(&source, Some(&path_string)),
-                        None,
-                        &mut context.borrow_mut(),
-                    )
-                    .map_err(|err| {
-                        JsNativeError::syntax()
-                            .with_message(format!("could not parse module `{short_path}`"))
-                            .with_cause(err)
-                    })?
-                }
-                LoadedModuleKind::Json => {
-                    let source = std::fs::read_to_string(&path).map_err(|err| {
-                        JsNativeError::typ()
-                            .with_message(format!("could not open file `{short_path}`"))
-                            .with_cause(boa_engine::JsError::from_opaque(
-                                js_string!(err.to_string()).into(),
-                            ))
-                    })?;
-                    Module::parse_json(js_string!(source), &mut context.borrow_mut()).map_err(
-                        |err| {
-                            JsNativeError::syntax()
-                                .with_message(format!("could not parse module `{short_path}`"))
-                                .with_cause(err)
-                        },
-                    )?
-                }
-                LoadedModuleKind::Text => {
-                    let source = std::fs::read_to_string(&path).map_err(|err| {
-                        JsNativeError::typ()
-                            .with_message(format!("could not open file `{short_path}`"))
-                            .with_cause(boa_engine::JsError::from_opaque(
-                                js_string!(err.to_string()).into(),
-                            ))
-                    })?;
-                    Module::from_value_as_default(
-                        JsValue::from(js_string!(source)),
-                        &mut context.borrow_mut(),
-                    )
-                }
-                LoadedModuleKind::Bytes => {
-                    let source = std::fs::read(&path).map_err(|err| {
-                        JsNativeError::typ()
-                            .with_message(format!("could not open file `{short_path}`"))
-                            .with_cause(boa_engine::JsError::from_opaque(
-                                js_string!(err.to_string()).into(),
-                            ))
-                    })?;
-                    let bytes = AlignedVec::from_iter(0, source);
-                    let value = {
-                        let mut context = context.borrow_mut();
-                        let array_buffer =
-                            JsArrayBuffer::from_byte_block_immutable(bytes, &mut context)?;
-                        let array = JsUint8Array::from_array_buffer(array_buffer, &mut context)?;
-                        JsValue::from(array)
-                    };
-                    Module::from_value_as_default(value, &mut context.borrow_mut())
-                }
-            };
-            self.insert(path, kind, module.clone());
-            Ok(module)
-        })();
-        result.map_err(|error| oracle_exception::host_failure(error, &mut context.borrow_mut()))
-    }
-}
-
-fn source_with_name<'a>(
-    source_text: &'a str,
-    filename: Option<&'a str>,
-) -> Source<'a, boa_engine::parser::source::UTF8Input<&'a [u8]>> {
-    let source = Source::from_bytes(source_text);
-    match filename {
-        Some(path) => source.with_path(Path::new(path)),
-        None => source,
-    }
-}
-
-fn normalize_module_path(filename: Option<&str>) -> Option<PathBuf> {
-    filename
-        .map(PathBuf::from)
-        .map(|path| normalize_absolute_path(&path))
-}
-
-fn normalize_absolute_path(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(path)
-    };
-
-    let mut normalized = PathBuf::new();
-    for component in absolute.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                normalized.pop();
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-    normalized
-}
-
 #[allow(dead_code)]
 const DATE_TIME_FORMAT_SHIM: &str = r#"
 (function () {
@@ -2966,49 +2177,6 @@ fn host_eval_script(_this: &JsValue, args: &[JsValue], context: &mut Context) ->
     Ok(result)
 }
 
-fn create_host_realm(
-    context: &mut Context,
-) -> Result<(u64, boa_engine::JsObject), boa_engine::JsError> {
-    let session = current_host_session(context)?;
-    let realm = match &session.module_loading_policy {
-        ModuleLoadingPolicy::Embedded(graph) => HostRealmContext::EmbeddedRealm(
-            EmbeddedGraphModuleLoader::create_realm(graph, context)?,
-        ),
-        ModuleLoadingPolicy::Filesystem | ModuleLoadingPolicy::RejectAll => {
-            let context =
-                build_host_context(session.can_block, session.module_loading_policy.clone())?;
-            HostRealmContext::SeparateContext(Rc::new(RefCell::new(context)))
-        }
-    };
-    let global = realm.with_context(context, |realm| {
-        install_host_globals(realm, &[])
-            .map_err(|err| JsNativeError::error().with_message(err.to_string()))?;
-        Ok(realm.global_object())
-    })?;
-
-    let id = HOST_REALMS.with(|store| {
-        let mut store = store.borrow_mut();
-        let id = store.next_id;
-        store.next_id += 1;
-        store.realms.insert(id, realm);
-        id
-    });
-    install_host_realm_eval(id, context)?;
-    Ok((id, global))
-}
-
-fn host_realm(realm_id: u64) -> JsResult<HostRealmContext> {
-    // User source can create or enter another Realm. Keep the store borrow
-    // shorter than that user call while retaining the actual owner.
-    HOST_REALMS
-        .with(|store| store.borrow().realms.get(&realm_id).cloned())
-        .ok_or_else(|| {
-            JsNativeError::reference()
-                .with_message(format!("unknown host realm id {realm_id}"))
-                .into()
-        })
-}
-
 fn with_host_realm<T>(
     realm_id: u64,
     context: &mut Context,
@@ -3051,37 +2219,57 @@ fn format_js_error(err: impl core::fmt::Display, _context: &mut Context) -> Exec
 }
 
 fn json_string_array(values: &[String]) -> String {
-    let mut out = String::from("[");
-    for (index, value) in values.iter().enumerate() {
-        if index > 0 {
-            out.push_str(", ");
-        }
-        out.push('"');
-        out.push_str(&json_escape(value));
-        out.push('"');
-    }
-    out.push(']');
-    out
-}
-
-fn json_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '\\' => escaped.push_str("\\\\"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(ch),
-        }
-    }
-    escaped
+    serde_json::to_string(values).expect("String slices always serialize as JSON")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_realm_restores_creator_on_success_error_and_unwind() {
+        let mut context = Context::default();
+        let creator = context.realm().clone();
+        let target = context.create_realm().unwrap();
+        let realm = HostRealmContext::EmbeddedRealm(target.clone());
+        realm
+            .with_context(&mut context, |context| {
+                assert_eq!(context.realm(), &target);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(context.realm(), &creator);
+        assert!(realm
+            .with_context(&mut context, |_| Err::<(), _>(
+                JsNativeError::typ().with_message("expected").into()
+            ))
+            .is_err());
+        assert_eq!(context.realm(), &creator);
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: JsResult<()> =
+                realm.with_context(&mut context, |_| panic!("realm action failed"));
+        }));
+        assert!(panic.is_err());
+        assert_eq!(context.realm(), &creator);
+    }
+
+    #[test]
+    fn argv_serialization_round_trips_all_json_control_characters() {
+        let values = vec![
+            (0..=31).map(char::from).collect::<String>(),
+            "quotes\" slash/ backslash\\ 😀\u{2028}\u{2029}".into(),
+        ];
+        let encoded = json_string_array(&values);
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&encoded).unwrap(),
+            values
+        );
+        let source = format!(
+            "if (__scriptwArgv[0].length !== 32 || __scriptwArgv[1] !== {}) throw new Error('argv changed'); for (var i=0; i<32; i++) if (__scriptwArgv[0].charCodeAt(i) !== i) throw new Error('control changed');",
+            serde_json::to_string(&values[1]).unwrap()
+        );
+        execute_script(&source, None, &values).unwrap();
+    }
 
     #[derive(Debug)]
     struct SilentHostHooks;
@@ -3361,20 +2549,6 @@ mod tests {
         let error = execute_script("throw 1;", Some("legacy-throw.js"), &[])
             .expect_err("legacy execute_script must preserve its error contract");
         assert!(!error.message().is_empty());
-    }
-
-    #[test]
-    fn legacy_output_delegates_without_retaining_a_transcript() {
-        let events = HostOutputEvents::DelegateOnly;
-        events.record("streamed only");
-        assert!(events.take().is_empty());
-
-        let events = HostOutputEvents::Capture(Mutex::new(Vec::new()));
-        events.record("captured");
-        assert_eq!(
-            events.take(),
-            vec![HostOutputEvent::PrintLine("captured".to_string())]
-        );
     }
 
     #[test]

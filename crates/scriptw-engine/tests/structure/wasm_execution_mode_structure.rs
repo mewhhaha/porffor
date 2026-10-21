@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 const ENGINE_SOURCE: &str = include_str!("../../src/lib.rs");
-const ENGINE_TEST_SOURCE: &str = include_str!("../../src/tests.rs");
+const ENGINE_TEST_SOURCE: &str = include_str!("../../src/tests/control_flow.rs");
 const GRAPH_SOURCE: &str = include_str!("../../src/graph_observation.rs");
 const NATIVE_DIRECT_EVAL_TEST_SOURCE: &str =
     include_str!("../../src/native_direct_eval_compiler_tests.rs");

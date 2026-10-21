@@ -2,7 +2,7 @@ use crate::async_generator_source::{
     AsyncGeneratorIfSourceStates, AsyncGeneratorLoopSourceStates, AsyncGeneratorSourceRange,
 };
 use crate::generator_loop_control::{
-    checked_next_state, has_unowned_head_branch, mixed_sequence_end,
+    checked_next_state, has_unowned_head_branch, mixed_sequence_end, require_state,
     validate_classic_loop_environment, GeneratorLoopControlError,
 };
 use crate::{
@@ -12,14 +12,6 @@ use crate::{
 };
 
 pub(crate) type AsyncGeneratorControlError = GeneratorLoopControlError;
-
-fn require_state(expected: u32, actual: u32) -> Result<(), AsyncGeneratorControlError> {
-    if expected == actual {
-        Ok(())
-    } else {
-        Err(AsyncGeneratorControlError::StateMismatch { expected, actual })
-    }
-}
 
 /// A complete mixed-protocol region minted from the actual source range.
 /// Ordinary-generator and plain-async carriers cannot supply this region.

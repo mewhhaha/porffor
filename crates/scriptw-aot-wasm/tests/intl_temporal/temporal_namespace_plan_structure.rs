@@ -3,7 +3,7 @@ const SHAPES_SOURCE: &str = include_str!("../../../scriptw-ir/src/lowering/built
 const PLANNING_SOURCE: &str = include_str!("../../src/planning.rs");
 const TEMPORAL_PLAN_SOURCE: &str = include_str!("../../src/planning/temporal_namespace.rs");
 const BOOTSTRAP_SOURCE: &str = include_str!("../../src/builtins/bootstrap.rs");
-const ENGINE_TEST_SOURCE: &str = include_str!("../../../scriptw-engine/src/tests.rs");
+const ENGINE_TEST_SOURCE: &str = include_str!("../../../scriptw-engine/src/tests/intl.rs");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source

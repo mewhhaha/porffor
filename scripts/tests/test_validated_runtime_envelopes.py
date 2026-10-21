@@ -8,6 +8,10 @@ spec = importlib.util.spec_from_file_location(
     'validated_profile', ROOT / 'scripts/check-abi8-validated-runtime-profile.py')
 controls = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(controls)
+direct_spec = importlib.util.spec_from_file_location(
+    'native_direct_eval', ROOT / 'scripts/check-abi8-native-direct-eval.py')
+direct_controls = importlib.util.module_from_spec(direct_spec)
+direct_spec.loader.exec_module(direct_controls)
 
 
 class ValidatedEnvelopeControls(unittest.TestCase):
@@ -31,3 +35,35 @@ class ValidatedEnvelopeControls(unittest.TestCase):
                 changed[path] = sources[path].replace(before, after)
                 failures = {row['invariant'] for row in controls.check(changed)}
                 self.assertIn('checked_envelopes', failures)
+
+    def test_shared_linkage_proof_and_every_emitter_call_are_required(self):
+        sources = {name: (ROOT / name).read_text() for name in controls.FILES}
+        self.assertEqual(controls.check(sources), [])
+        direct_sources = {name: (ROOT / name).read_text() for name in direct_controls.FILES}
+        self.assertEqual(direct_controls.check(direct_sources), [])
+        for before, after in [
+            ('emitted.runtime_layout.is_some()', 'false'),
+            ('Arc::ptr_eq(actual, self.runtime())', 'true'),
+        ]:
+            with self.subTest(before=before):
+                changed = dict(sources)
+                self.assertEqual(changed[controls.P].count(before), 1)
+                changed[controls.P] = changed[controls.P].replace(before, after)
+                self.assertIn('exact_linkage_owner', {row['invariant'] for row in controls.check(changed)})
+                direct_changed = dict(direct_sources)
+                direct_changed[controls.P] = changed[controls.P]
+                self.assertIn(
+                    'complete cached witness and exact R/profile: shared linkage owner',
+                    direct_controls.check(direct_changed))
+        for kind in controls.KINDS:
+            with self.subTest(kind=kind):
+                path = controls.A + 'runtime_' + kind + '.rs'
+                changed = dict(sources)
+                changed[path] = changed[path].replace('validated.require_linked_program(', 'unrelated_check(')
+                self.assertIn('exact_emission_pair', {row['invariant'] for row in controls.check(changed)})
+                if kind == 'direct_eval':
+                    direct_changed = dict(direct_sources)
+                    direct_changed[path] = changed[path]
+                    self.assertTrue(any(
+                        row.startswith('complete cached witness and exact R/profile: validated.require_linked_program(')
+                        for row in direct_controls.check(direct_changed)))

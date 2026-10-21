@@ -135,8 +135,7 @@ fn exception_type(error: &JsError, context: &Context) -> Option<OracleExceptionT
     if let Some(kind) = intrinsic_type(&constructor, brand, context.intrinsics().constructors()) {
         return Some(kind);
     }
-    let realms =
-        HOST_REALMS.with(|store| store.borrow().realms.values().cloned().collect::<Vec<_>>());
+    let realms = super::host_session::host_realms();
     for realm in realms {
         let kind = match realm {
             HostRealmContext::EmbeddedRealm(realm) => {

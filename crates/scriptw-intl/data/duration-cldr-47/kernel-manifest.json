@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 76221,
+      "bytes": 76236,
       "path": "Cargo.lock",
-      "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
+      "sha256": "ee4e2240f84e00b37e54a0e284c2139f7055efdb49b058a418d9368705cf3e74"
     },
     {
       "bytes": 5887,
@@ -11,9 +11,9 @@
       "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
     },
     {
-      "bytes": 87228,
+      "bytes": 87544,
       "path": "crates/scriptw-aot-wasm/src/emit.rs",
-      "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+      "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
     },
     {
       "bytes": 81271,
@@ -41,9 +41,9 @@
       "sha256": "cdfbb56032f503abce00520323cacb17ae27fb811812e46ccc98e601e9bd94d6"
     },
     {
-      "bytes": 2583,
+      "bytes": 2790,
       "path": "crates/scriptw-intl/build.rs",
-      "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+      "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
     },
     {
       "bytes": 2953,
@@ -193,7 +193,7 @@
     {
       "bytes": 13040,
       "path": "crates/scriptw-intl/data/list-icu-2/manifest.json",
-      "sha256": "c98dba55472c41e01092f96a1bacdd213158961bdcdd05215226b2e71a165c63"
+      "sha256": "cf1ded288e8bbb15914bf8bd4b0e58fadf97350e637705c6924a8ff39f411d58"
     },
     {
       "bytes": 3359,
@@ -341,14 +341,19 @@
       "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
+      "bytes": 1907,
+      "path": "crates/scriptw-intl/src/image_build/export_contract.rs",
+      "sha256": "cc58777e4e4f0e49f7e8d6793b616df166b80c7154101c039d556eda0185c9b2"
+    },
+    {
       "bytes": 1366,
       "path": "crates/scriptw-intl/src/image_build/keyword.rs",
       "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
     },
     {
-      "bytes": 2390,
+      "bytes": 2275,
       "path": "crates/scriptw-intl/src/image_build/list.rs",
-      "sha256": "c6765e874a7ed37d7aada8db72df0b4971dc3aed0889e8338ee664877ad8d553"
+      "sha256": "a2b3520009d202a0f81797542b72b02869a8108aba2fa91e11c709b507a4eab1"
     },
     {
       "bytes": 1473,
@@ -356,9 +361,9 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 41356,
+      "bytes": 41455,
       "path": "crates/scriptw-intl/src/lib.rs",
-      "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+      "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
     },
     {
       "bytes": 7480,
@@ -368,7 +373,7 @@
     {
       "bytes": 327,
       "path": "crates/scriptw-intl/src/list_format/identity.rs",
-      "sha256": "00ac4b47200c9369a6fe333eba3f3e0a53f0f893e702fe948bb243834e0d5bfa"
+      "sha256": "2e10fede736064134c7706ce3cff4eba6e9e36d4589060da0d7072c731983e7b"
     },
     {
       "bytes": 5033,
@@ -656,9 +661,9 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 7257,
+      "bytes": 7317,
       "path": "scripts/generate-intl-duration-identity.py",
-      "sha256": "207f39446bfe38e7de7d36f80e7bacadcda0400551209fecbcd3249d10e74dbf"
+      "sha256": "cecc1a0e7bd5c75a2716e9c8f46d30790e2e528925140d76977bb373c6f52b2c"
     },
     {
       "bytes": 11210,
@@ -1043,7 +1048,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "fb2bb456bb0417c01c80c9b6ae744f39e335d4613de5705829b3dc26abafa653",
+  "provider_data_sha256": "20887861a844b4d7dfffe7d0698a0ef01f59dcbfcb2748f168b6e4ae01934b4b",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

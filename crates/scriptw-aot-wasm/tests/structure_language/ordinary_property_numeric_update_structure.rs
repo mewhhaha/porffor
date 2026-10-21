@@ -18,7 +18,8 @@ const KNOWN_FAILURES: &str = include_str!("../../../scriptw-cli/tests/known-fail
 const CONTRACT: &str = include_str!(
     "../../../../docs/rust-rewrite/contracts/ordinary-property-numeric-update-reference.md"
 );
-const README: &str = include_str!("../../../../README.md");
+// Exact dated results live in the frozen overview linked by the current README.
+const HISTORICAL_OVERVIEW: &str = include_str!("../../../../DEVELOPMENT_HISTORY.md");
 
 const EXACT_TEST262: &[(&str, &str)] = &[
     (
@@ -482,7 +483,7 @@ fn exact_a6_inventory_is_raw_unmasked_and_runs_in_both_modes() {
 
 #[test]
 fn dry_status_records_the_exact_current_baseline_and_nonclaims() {
-    for source in [README] {
+    for source in [HISTORICAL_OVERVIEW] {
         for marker in [
             "0f004c0c6",
             "0/8",

@@ -69,20 +69,10 @@ impl LocaleCollationPreferences {
             {
                 break Some(self.locales[index].1.as_ref());
             }
-            let Some(position) = candidate.rfind('-') else {
+            let Some(shortened) = truncate_lookup(candidate) else {
                 break None;
             };
-            candidate = &candidate[..position];
-            if candidate
-                .rsplit('-')
-                .next()
-                .is_some_and(|part| part.len() == 1)
-            {
-                let Some(position) = candidate.rfind('-') else {
-                    break None;
-                };
-                candidate = &candidate[..position];
-            }
+            candidate = shortened;
         };
         match selected {
             Some(names) => Self::owned_names(names.iter().map(Box::as_ref)),

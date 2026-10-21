@@ -8,6 +8,78 @@ fn invalid(detail: &'static str) -> SnapshotRejection {
     }
 }
 
+#[derive(Default)]
+enum PropertyKeyPhase {
+    #[default]
+    Indices,
+    Strings,
+    Symbols,
+}
+
+/// Owns the ECMAScript key-order proof and largest admitted array index.
+#[derive(Default)]
+struct PropertyOrder {
+    phase: PropertyKeyPhase,
+    largest_index: Option<u32>,
+}
+
+impl PropertyOrder {
+    fn string(&mut self, units: &[u16]) -> Result<(), SnapshotRejection> {
+        match array_index(units) {
+            Some(index) => {
+                if !matches!(self.phase, PropertyKeyPhase::Indices)
+                    || self.largest_index.is_some_and(|previous| previous >= index)
+                {
+                    return Err(invalid("integer property keys are not in numeric order"));
+                }
+                self.largest_index = Some(index);
+            }
+            None => {
+                if matches!(self.phase, PropertyKeyPhase::Symbols) {
+                    return Err(invalid("string key follows Symbol key"));
+                }
+                self.phase = PropertyKeyPhase::Strings;
+            }
+        }
+        Ok(())
+    }
+
+    fn symbol(&mut self) {
+        self.phase = PropertyKeyPhase::Symbols;
+    }
+}
+
+#[cfg(test)]
+mod property_order_tests {
+    use super::*;
+
+    #[test]
+    fn indices_then_strings_then_symbols_is_the_only_admitted_order() {
+        let mut order = PropertyOrder::default();
+        order.string(&[48]).unwrap();
+        order.string(&[50]).unwrap();
+        assert_eq!(order.largest_index, Some(2));
+        order.string(&[120]).unwrap();
+        order.symbol();
+        order.symbol();
+        assert!(order.string(&[121]).is_err());
+        assert!(order.string(&[51]).is_err());
+        let mut order = PropertyOrder::default();
+        order.string(&[50]).unwrap();
+        assert!(order.string(&[49]).is_err());
+        assert!(order.string(&[50]).is_err());
+        let mut order = PropertyOrder::default();
+        order
+            .string(&"4294967294".encode_utf16().collect::<Vec<_>>())
+            .unwrap();
+        order
+            .string(&"4294967295".encode_utf16().collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(order.largest_index, Some(u32::MAX - 1));
+        assert!(matches!(order.phase, PropertyKeyPhase::Strings));
+    }
+}
+
 pub(super) fn admit(graph: GraphWire) -> Result<RootedSnapshotGraph, SnapshotRejection> {
     if graph.version != 1 {
         return Err(invalid("unsupported snapshot version"));
@@ -67,10 +139,8 @@ pub(super) fn admit(graph: GraphWire) -> Result<RootedSnapshotGraph, SnapshotRej
             .budget
             .charge(SnapshotBudgetDimension::Properties, node.properties.len())?;
         let mut keys = HashSet::new();
-        let mut key_phase = 0_u8;
-        let mut previous_index = None;
+        let mut property_order = PropertyOrder::default();
         let mut array_length = None;
-        let mut largest_index = None;
         for property in &node.properties {
             admission.budget.work(1)?;
             if !keys.insert(&property.key) {
@@ -79,25 +149,7 @@ pub(super) fn admit(graph: GraphWire) -> Result<RootedSnapshotGraph, SnapshotRej
             match &property.key {
                 SnapshotKey::String { units } => {
                     admission.units(units)?;
-                    match array_index(units.units()) {
-                        Some(index) => {
-                            if key_phase != 0
-                                || previous_index.is_some_and(|previous| previous >= index)
-                            {
-                                return Err(invalid(
-                                    "integer property keys are not in numeric order",
-                                ));
-                            }
-                            previous_index = Some(index);
-                            largest_index = Some(index);
-                        }
-                        None => {
-                            if key_phase == 2 {
-                                return Err(invalid("string key follows Symbol key"));
-                            }
-                            key_phase = 1;
-                        }
-                    }
+                    property_order.string(units.units())?;
                     if units.units() == [108, 101, 110, 103, 116, 104]
                         && node.kind == (SnapshotObjectKind::Array {})
                     {
@@ -105,7 +157,7 @@ pub(super) fn admit(graph: GraphWire) -> Result<RootedSnapshotGraph, SnapshotRej
                     }
                 }
                 SnapshotKey::Symbol { id } => {
-                    key_phase = 2;
+                    property_order.symbol();
                     admission.symbol(*id)?;
                 }
             }
@@ -138,7 +190,10 @@ pub(super) fn admit(graph: GraphWire) -> Result<RootedSnapshotGraph, SnapshotRej
         }
         if node.kind == (SnapshotObjectKind::Array {}) {
             let length = array_length.ok_or_else(|| invalid("Array has no own length"))?;
-            if largest_index.is_some_and(|index| index >= length) {
+            if property_order
+                .largest_index
+                .is_some_and(|index| index >= length)
+            {
                 return Err(invalid("Array index is outside its length"));
             }
         }

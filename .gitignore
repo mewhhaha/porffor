@@ -24,3 +24,6 @@ target/
 
 # Preserve the complete official Test262 tree, including text and binary fixtures.
 !/test262/vendor/test262/**
+
+# Adjacent staged generator outputs; recovery journals live under target/.
+.scriptw-generated-*

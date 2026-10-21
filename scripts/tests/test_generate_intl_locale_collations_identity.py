@@ -25,6 +25,34 @@ def source_fixture(root):
 
 
 class CollationIdentity(unittest.TestCase):
+    def test_current_build_selection_is_separate_from_archives(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'crates/scriptw-intl/Cargo.toml'
+            path.parent.mkdir(parents=True)
+            original = (ROOT / path.relative_to(root)).read_text()
+            path.write_text(original)
+            lock = (ROOT / 'Cargo.lock').read_text()
+            (root / 'Cargo.lock').write_text(lock)
+            selected = GEN.admit_build_selection(root)
+            self.assertEqual(selected['features'], {'runtime': ['serde'], 'build': ['datagen']})
+            path.write_text(original.replace('features = ["serde"]', 'features = ["compiled_data"]'))
+            with self.assertRaisesRegex(ValueError, 'feature selection'):
+                GEN.admit_build_selection(root)
+            normalizer = 'icu_normalizer = { version = "=2.0.1", default-features = false, features = ["serde"] }'
+            self.assertEqual(original.count(normalizer), 1)
+            path.write_text(original.replace(normalizer, normalizer.replace('["serde"]', '["compiled_data"]')))
+            with self.assertRaisesRegex(ValueError, 'icu_normalizer.*feature selection'):
+                GEN.admit_build_selection(root)
+            path.write_text(original)
+            for package in ['icu_collator', 'yoke']:
+                with self.subTest(package=package):
+                    changed = lock.replace('name = "' + package + '"', 'name = "unselected_' + package + '"')
+                    self.assertNotEqual(changed, lock)
+                    (root / 'Cargo.lock').write_text(changed)
+                    with self.assertRaisesRegex(ValueError, 'package selection'):
+                        GEN.admit_build_selection(root)
+
     def root_evidence(self):
         with tarfile.open(ROOT / GEN.COLLATOR / 'sources.tar.gz', 'r:gz') as archive:
             raw = archive.extractfile('evidence/admission-receipt.json').read()

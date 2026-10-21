@@ -247,11 +247,11 @@ for combined_projection_control in \
 do
   require_file "$combined_projection_control"
 done
-require_fixed_string_count crates/scriptw-engine/src/tests.rs 'fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently()' 1 'real artifact cache tuple control'
+require_fixed_string_count crates/scriptw-engine/src/tests/cache.rs 'fn component_projection_cache_keys_bind_each_filter_presence_and_order_independently()' 1 'real artifact cache tuple control'
 require_fixed_string_count crates/scriptw-cli/src/main.rs 'fn relative_and_combined_projection_arguments_are_checked_before_source_loading()' 1 'actual CLI admission and ordering control'
 require_fixed_string_count crates/scriptw-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_selected_wire_owners()' 1 'actual emitted-frame and wire-owner control'
 require_fixed_string_count crates/scriptw-cli/tests/cli/intl.rs 'fn combined_projection_cli_build_matches_sdk_and_runs_both_selected_services()' 1 'actual CLI/SDK artifact equality and operation control'
-require_fixed_string_count crates/scriptw-engine/src/tests.rs 'fn display_names_cache_filters_are_independent_of_other_components_and_input_order()' 1 'actual independent third cache-field control'
+require_fixed_string_count crates/scriptw-engine/src/tests/cache.rs 'fn display_names_cache_filters_are_independent_of_other_components_and_input_order()' 1 'actual independent third cache-field control'
 require_fixed_string_count crates/scriptw-cli/src/main.rs 'fn display_names_projection_arguments_are_checked_before_source_loading()' 1 'actual three-component CLI admission ordering control'
 require_fixed_string_count crates/scriptw-engine/tests/aot_intl/aot_intl_compilation_profile.rs 'fn display_names_and_three_component_projections_emit_selected_tables_and_run_real_consumers()' 1 'actual physical frames/foreign/wire/script/module consumer control'
 require_fixed_string_count crates/scriptw-cli/tests/cli/intl.rs 'fn display_names_cli_projection_matches_sdk_and_composes_all_three_filters()' 1 'actual CLI/SDK three-component producer parity control'

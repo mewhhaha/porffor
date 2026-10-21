@@ -35,7 +35,7 @@ pub(crate) fn checked_next_state(state: u32) -> Result<u32, GeneratorLoopControl
         .ok_or(GeneratorLoopControlError::StateOverflow)
 }
 
-fn require_state(expected: u32, actual: u32) -> Result<(), GeneratorLoopControlError> {
+pub(crate) fn require_state(expected: u32, actual: u32) -> Result<(), GeneratorLoopControlError> {
     if expected == actual {
         Ok(())
     } else {

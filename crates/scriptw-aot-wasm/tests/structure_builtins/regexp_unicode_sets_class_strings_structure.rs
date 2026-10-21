@@ -11,7 +11,8 @@ const PROGRAM_SOURCE: &str = include_str!("../../../scriptw-ir/src/regexp/progra
 const TEST262_RUNNER_SOURCE: &str = include_str!("../../../scriptw-test262/src/lib.rs");
 const SHORTCUT_ALLOWLIST: &str = include_str!("../../../../test262/backlog/shortcut-allowlist.tsv");
 const KNOWN_FAILURES: &str = include_str!("../../../scriptw-cli/tests/known-failures.tsv");
-const README: &str = include_str!("../../../../README.md");
+// Exact dated results live in the frozen overview linked by the current README.
+const HISTORICAL_OVERVIEW: &str = include_str!("../../../../DEVELOPMENT_HISTORY.md");
 const HISTORICAL_STATUS: &str = include_str!(
     "../../../../docs/rust-rewrite/regexp-finite-string-algebra-historical-evidence.md"
 );
@@ -514,7 +515,7 @@ fn durable_fixture_exercises_complete_string_members_and_set_algebra() {
 fn verified_status_preserves_baseline_and_exact_scope() {
     for (source, scope) in [
         (
-            README,
+            HISTORICAL_OVERVIEW,
             "This records no broader UnicodeSets or RegExp completion claim.",
         ),
         (

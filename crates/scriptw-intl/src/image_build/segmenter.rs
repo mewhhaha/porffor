@@ -51,9 +51,7 @@ pub(super) fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
                 let ids = <PinnedSegmenterProvider as IterableDataProvider<$marker>>::iter_ids(
                     &provider,
                 )?;
-                if ids.is_empty() {
-                    return Err("empty pinned Segmenter marker inventory".into());
-                }
+                crate::export_contract::require_identifiers(<$marker>::INFO, &ids)?;
                 for id in ids {
                     let response = <PinnedSegmenterProvider as DataProvider<$marker>>::load(
                         &provider,

@@ -217,3 +217,32 @@ fn each_request_beyond_the_prepared_catalogue_limit_has_its_own_real_ir() {
         );
     }
 }
+
+#[test]
+fn prepared_source_length_is_the_lossless_transport_byte_length() {
+    let mut source: Vec<u16> = "'😀".encode_utf16().collect();
+    source.extend([0xD800, b'\'' as u16, b';' as u16]);
+    let parsed = scriptw_front::parse_script_utf16(&source).unwrap();
+    assert_ne!(parsed.source_text.len(), source.len());
+    for kind in [
+        RuntimeGlobalScriptKind::IndirectEval,
+        RuntimeGlobalScriptKind::RealmScript,
+    ] {
+        let compiled =
+            lower_runtime_global_script(kind, &source, HostSurfacePolicy::default()).unwrap();
+        assert_eq!(compiled.program().source_len, parsed.source_text.len());
+        assert_eq!(
+            compiled
+                .program()
+                .invariants
+                .iter()
+                .map(|value| value.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "direct-js-to-wasm-only",
+                "no-shipped-interpreter-in-wasm",
+                "spec-ir-is-semantic-source-of-truth",
+            ]
+        );
+    }
+}

@@ -91,10 +91,16 @@ def check(sources):
     artifact = a('runtime_direct_eval.rs')
     for token in ('caller:RuntimeDirectEvalCaller,','source:Arc<[u16]>,',
                   'caller:program.caller().clone(),','source:Arc::from(source),',
-                  'Arc::ptr_eq(actual,runtime)',
+                  'validated.require_linked_program(&emitted,"nativedirectevaldidnotretainitsexactlinkedruntime",)?;',
                   'letvalidated=ValidatedRuntimeArtifact::new(Arc::clone(runtime),intl_profile.clone())?;'):
         require(token in artifact, 'complete cached witness and exact R/profile: '+token)
     proof = a('runtime_artifact/validated_profile.rs')
+    require(('pub(crate)fnrequire_linked_program(&self,emitted:&super::EmittedModule,'
+             "diagnostic:&'staticstr,)->Result<(),EmitError>{"
+             'ifemitted.runtime_layout.is_some()||!emitted.artifact.runtime().is_some_and('
+             '|actual|Arc::ptr_eq(actual,self.runtime())){'
+             'returnErr(EmitError::unsupported(diagnostic));}Ok(())}') in proof,
+            'complete cached witness and exact R/profile: shared linkage owner')
     require('letruntime=validated.runtime();' in artifact and 'emit_runtime_direct_eval_module(program,validated)?' in artifact and
             'runtime:Arc<RuntimeArtifact>,selection:IntlDataSelection,' in proof and
             len(re.findall(r'require_runtime_profile\(runtime[.]bytes\(\),&selection,?\)\?;', proof)) == 1 and

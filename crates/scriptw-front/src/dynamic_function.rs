@@ -16,6 +16,15 @@ pub enum FunctionParseKind {
 }
 
 impl FunctionParseKind {
+    const fn grammar_flags(self) -> (bool, bool) {
+        match self {
+            Self::Ordinary => (false, false),
+            Self::Generator => (true, false),
+            Self::Async => (false, true),
+            Self::AsyncGenerator => (true, true),
+        }
+    }
+
     const fn prefix(self) -> &'static str {
         match self {
             Self::Ordinary => "function",
@@ -75,12 +84,7 @@ pub fn prepare_dynamic_function(
         });
     let parameters = parameters.join(",");
     let body = format!("\n{body}\n");
-    let (allow_yield, allow_await) = match kind {
-        FunctionParseKind::Ordinary => (false, false),
-        FunctionParseKind::Generator => (true, false),
-        FunctionParseKind::Async => (false, true),
-        FunctionParseKind::AsyncGenerator => (true, true),
-    };
+    let (allow_yield, allow_await) = kind.grammar_flags();
     let mut interner = Interner::default();
     parse_with_boundary(&parameters, || {
         Parser::new(Source::from_bytes(parameters.as_bytes())).parse_formal_parameters(
@@ -129,12 +133,7 @@ pub fn prepare_dynamic_function_utf16(
     let mut body_units = vec![u16::from(b'\n')];
     body_units.extend_from_slice(body);
     body_units.push(u16::from(b'\n'));
-    let (allow_yield, allow_await) = match kind {
-        FunctionParseKind::Ordinary => (false, false),
-        FunctionParseKind::Generator => (true, false),
-        FunctionParseKind::Async => (false, true),
-        FunctionParseKind::AsyncGenerator => (true, true),
-    };
+    let (allow_yield, allow_await) = kind.grammar_flags();
     let mut interner = Interner::default();
     parse_utf16_with_boundary(&parameter_units, || {
         Parser::new(Source::from_utf16(&parameter_units)).parse_formal_parameters(

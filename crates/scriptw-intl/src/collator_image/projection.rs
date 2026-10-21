@@ -18,6 +18,8 @@ mod rows;
 pub(super) use rows::RawRows;
 use rows::{Marker, RowKey};
 const MAGIC: &[u8; 8] = b"LCLP0001";
+const DESCRIPTOR_LENGTH_BYTES: usize = std::mem::size_of::<u32>();
+const DESCRIPTOR_START: usize = MAGIC.len() + DESCRIPTOR_LENGTH_BYTES;
 const MAX_DESCRIPTOR_BYTES: usize = 512 * 1024;
 
 /// Both public and private domains originate in complete pinned constructors.
@@ -215,7 +217,7 @@ pub(super) fn project(
             "Collator projection descriptor extent",
         ));
     }
-    let mut size = 12usize
+    let mut size = DESCRIPTOR_START
         .checked_add(description.len())
         .ok_or_else(|| IntlDataImageError::consumer("Collator projection payload extent"))?;
     for (_, response) in rows.iter() {
@@ -255,7 +257,7 @@ pub(super) fn admit(
         ));
     };
     let length = bytes
-        .get(8..12)
+        .get(MAGIC.len()..DESCRIPTOR_START)
         .ok_or_else(|| IntlDataImageError::consumer("Collator projection header"))?;
     let length = u32::from_le_bytes(length.try_into().expect("four-byte extent")) as usize;
     if length > MAX_DESCRIPTOR_BYTES {
@@ -263,11 +265,11 @@ pub(super) fn admit(
             "Collator projection descriptor extent",
         ));
     }
-    let end = 12usize
+    let end = DESCRIPTOR_START
         .checked_add(length)
         .ok_or_else(|| IntlDataImageError::consumer("Collator projection extent"))?;
     let raw: Descriptor =
-        serde_json::from_slice(bytes.get(12..end).ok_or_else(|| {
+        serde_json::from_slice(bytes.get(DESCRIPTOR_START..end).ok_or_else(|| {
             IntlDataImageError::consumer("Collator projection descriptor extent")
         })?)
         .map_err(IntlDataImageError::consumer)?;

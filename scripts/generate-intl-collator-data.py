@@ -47,7 +47,8 @@ def normalize_provider_documentation(raw):
     return raw.replace(old, new, 1)
 
 
-def consumed_export(inputs, export, *, refresh_documentation=False):
+def consumed_export(inputs, export, *, refresh_documentation=False, root=None):
+    root = ROOT if root is None else Path(root)
     projection = inputs['documentation_projection']
     if (set(projection) != {'schema_version', 'raw_mod', 'policy'}
             or projection['schema_version'] != 1
@@ -56,7 +57,7 @@ def consumed_export(inputs, export, *, refresh_documentation=False):
     raw_row = projection['raw_mod']
     if set(raw_row) != {'path', 'sha256', 'bytes'} or raw_row['path'] != 'exported-mod.rs':
         raise ValueError('unreviewed raw exporter module owner')
-    raw = (ROOT / DATA / raw_row['path']).read_bytes()
+    raw = (root / DATA / raw_row['path']).read_bytes()
     original = next(row for row in export['generated_files'] if row['path'] == 'mod.rs')
     if (sha(raw) != original['sha256'] or len(raw) != original['bytes']
             or raw_row['sha256'] != original['sha256'] or raw_row['bytes'] != original['bytes']):
@@ -69,7 +70,7 @@ def consumed_export(inputs, export, *, refresh_documentation=False):
     if inputs['generated_outputs'] != expected and not refresh_documentation:
         raise ValueError('consumed Collator projection inventory mismatch')
     for row in expected:
-        content = (ROOT / EXPORT_OWNER / 'generated' / row['path']).read_bytes()
+        content = (root / EXPORT_OWNER / 'generated' / row['path']).read_bytes()
         if sha(content) != row['sha256'] or len(content) != row['bytes']:
             raise ValueError('consumed generated source identity mismatch: ' + row['path'])
     if refresh_documentation:
@@ -81,12 +82,13 @@ def consumed_export(inputs, export, *, refresh_documentation=False):
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
 
-def sources(*, refresh_documentation=False):
-    raw = (ROOT / DATA / 'source-inputs.json').read_bytes()
+def sources(*, refresh_documentation=False, root=None):
+    root = ROOT if root is None else Path(root)
+    raw = (root / DATA / 'source-inputs.json').read_bytes()
     inputs = json.loads(raw)
     if inputs['schema_version'] != 1:
         raise ValueError('unsupported Collator input schema')
-    archive = (ROOT / DATA / inputs['source_archive']).read_bytes()
+    archive = (root / DATA / inputs['source_archive']).read_bytes()
     if sha(archive) != inputs['source_archive_sha256'] or len(archive) != inputs['source_archive_bytes']:
         raise ValueError('source archive identity mismatch')
     members = {}
@@ -112,7 +114,7 @@ def sources(*, refresh_documentation=False):
             rows = [row for lock in locks for row in lock['package'] if row['name']==package and row['version']==version]
             if not rows or any(row['checksum']!=sha(content) for row in rows):
                 raise ValueError('full crate is not a pinned actual-lock package: '+name)
-    genuine = (ROOT / DATA / inputs['icu_export']['archive']).read_bytes()
+    genuine = (root / DATA / inputs['icu_export']['archive']).read_bytes()
     if sha(genuine)!=inputs['icu_export']['sha256'] or len(genuine)!=inputs['icu_export']['bytes']:
         raise ValueError('genuine ICU ZIP identity mismatch')
     with zipfile.ZipFile(io.BytesIO(genuine)) as archive:
@@ -126,16 +128,15 @@ def sources(*, refresh_documentation=False):
         raise ValueError('actual constructor admission closure mismatch')
     if sha(members['foundation/Cargo.lock'])!=export['cargo_lock_sha256'] or sha(members['foundation/admission/Cargo.lock'])!=admission['cargo_lock_sha256']:
         raise ValueError('actual proof lock association mismatch')
-    consumed_export(inputs, export, refresh_documentation=refresh_documentation)
-    inventory=ROOT/inputs['candidate_locale_inventory']['source']
+    consumed_export(inputs, export, refresh_documentation=refresh_documentation, root=root)
+    inventory=root/inputs['candidate_locale_inventory']['source']
     if sha(inventory.read_bytes())!=inputs['candidate_locale_inventory']['sha256']:
         raise ValueError('candidate locale inventory identity mismatch')
-    if refresh_documentation:
-        (ROOT / DATA / 'source-inputs.json').write_text(json.dumps(inputs, indent=2) + '\n')
     return inputs, members, export
 
-def result(inputs):
-    lock = tomllib.loads((ROOT / 'Cargo.lock').read_text())
+def result(inputs, *, root=None, source_inputs_bytes=None):
+    root = ROOT if root is None else Path(root)
+    lock = tomllib.loads((root / 'Cargo.lock').read_text())
     image_packages = []
     for name, version in sorted({'icu_provider': '2.0.0', 'icu_provider_blob': '2.0.0',
                                  'icu_provider_adapters': '2.0.0', 'icu_locale': '2.0.0',
@@ -163,14 +164,18 @@ def result(inputs):
     # introducing a second export or a full-data runtime fallback.
     projection = Path('crates/scriptw-intl/src/collator_image')
     expected_projection = {projection/'projection.rs', projection/'projection/rows.rs'}
-    actual_projection = {path.relative_to(ROOT) for path in (ROOT/projection).rglob('*.rs')
+    actual_projection = {path.relative_to(root) for path in (root/projection).rglob('*.rs')
                          if 'tests' not in path.parts and path.name != 'tests.rs'}
     if actual_projection != expected_projection:
         raise ValueError('missing or unreviewed Collator projection production owner')
     owners.extend(sorted(expected_projection))
     owners.append(OWNER/'profiles/preferences.rs')
-    rows=[{'path':str(path),'sha256':sha((ROOT/path).read_bytes())} for path in owners]
-    payload={'schema_version':1,'image_packages':image_packages,'source_inputs_sha256':sha((ROOT/DATA/'source-inputs.json').read_bytes()),'owners':rows,'candidate_inventory_sha256':inputs['candidate_locale_inventory']['sha256'],'generated_outputs':inputs['generated_outputs'],
+    owners.extend(Path(name) for name in [
+        'crates/scriptw-intl/src/collator_markers.rs',
+        'crates/scriptw-intl/src/image_build/export_contract.rs',
+        'scripts/generated_output_transaction.py'])
+    rows=[{'path':str(path),'sha256':sha((root/path).read_bytes())} for path in owners]
+    payload={'schema_version':1,'image_packages':image_packages,'source_inputs_sha256':sha(source_inputs_bytes if source_inputs_bytes is not None else (root/DATA/'source-inputs.json').read_bytes()),'owners':rows,'candidate_inventory_sha256':inputs['candidate_locale_inventory']['sha256'],'generated_outputs':inputs['generated_outputs'],
              'generated_owner_path':str(EXPORT_OWNER/'generated'),
              'public_catalogue_policy':'full canonical CLDR candidates; all sort-default and genuine-search profiles independently admitted; only explicit sort-purpose types with complete consumed data enter per-locale/public union',
              'utf16_policy':'direct pinned compare_utf16; isolated units have ICU replacement weights, valid pairs are scalar; raw units preserved; no lexical tie-breaker',
@@ -184,15 +189,16 @@ def result(inputs):
     rust+='];\n'
     return json.dumps(payload,indent=2)+'\n',rust
 
-def reexport(inputs,members,export):
-    (ROOT/'target').mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='collator-reexport-',dir=ROOT/'target') as name:
+def reexport(inputs,members,export, *, root=None):
+    root = ROOT if root is None else Path(root)
+    (root/'target').mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='collator-reexport-',dir=root/'target') as name:
         scratch=Path(name)
         for path,raw in members.items():
             if path.startswith('foundation/'):
                 relative=Path(path).relative_to('foundation')
                 output=scratch/relative;output.parent.mkdir(parents=True,exist_ok=True);output.write_bytes(raw)
-        subprocess.run(['cargo','run','--offline','--locked','--manifest-path',str(scratch/'Cargo.toml'),'--bin','collator-export','--',str(ROOT/DATA/inputs['icu_export']['archive'])],check=True,cwd=ROOT)
+        subprocess.run(['cargo','run','--offline','--locked','--manifest-path',str(scratch/'Cargo.toml'),'--bin','collator-export','--',str(root/DATA/inputs['icu_export']['archive'])],check=True,cwd=root)
         actual={p.name:p.read_bytes() for p in (scratch/'generated').iterdir() if p.is_file()}
         expected={row['path'] for row in export['generated_files']}
         if actual.keys()!=expected:
@@ -202,22 +208,36 @@ def reexport(inputs,members,export):
                 raise ValueError('real reexport bytes differ: '+row['path'])
         actual['mod.rs'] = normalize_provider_documentation(actual['mod.rs'])
         for row in inputs['generated_outputs']:
-            if actual[row['path']] != (ROOT/EXPORT_OWNER/'generated'/row['path']).read_bytes():
+            if actual[row['path']] != (root/EXPORT_OWNER/'generated'/row['path']).read_bytes():
                 raise ValueError('consumed normalized reexport differs: '+row['path'])
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--check',action='store_true');parser.add_argument('--reexport',action='store_true')
+    from generated_output_transaction import recover_outputs, publish_outputs
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root', type=Path, default=ROOT)
+    parser.add_argument('--check', action='store_true')
+    parser.add_argument('--reexport', action='store_true')
     parser.add_argument('--refresh-documentation-projection', action='store_true')
-    args=parser.parse_args()
+    args = parser.parse_args()
     if args.check and args.refresh_documentation_projection:
         parser.error('--check cannot refresh the documentation projection')
-    inputs,members,export=sources(refresh_documentation=args.refresh_documentation_projection)
-    manifest,rust=result(inputs)
-    outputs={ROOT/DATA/'manifest.json':manifest,ROOT/OWNER/'identity.rs':rust}
-    for path,content in outputs.items():
-        if args.check:
-            if not path.is_file() or path.read_text()!=content:raise ValueError('stale generated Collator identity: '+str(path))
-        else:path.write_text(content)
-    if args.reexport:reexport(inputs,members,export)
+    root = args.root.resolve()
+    recover_outputs(root, 'intl-collator', check=args.check)
+    inputs, members, export = sources(root=root, refresh_documentation=args.refresh_documentation_projection)
+    source_inputs_bytes = ((json.dumps(inputs, indent=2) + '\n').encode()
+                           if args.refresh_documentation_projection else None)
+    manifest, rust = result(inputs, root=root, source_inputs_bytes=source_inputs_bytes)
+    outputs = {DATA/'manifest.json': manifest.encode(), OWNER/'identity.rs': rust.encode()}
+    if source_inputs_bytes is not None:
+        outputs[DATA/'source-inputs.json'] = source_inputs_bytes
+    if args.reexport:
+        reexport(inputs, members, export, root=root)
+    if args.check:
+        for path, content in outputs.items():
+            if not (root/path).is_file() or (root/path).read_bytes() != content:
+                raise ValueError('stale generated Collator identity: ' + str(path))
+    else:
+        publish_outputs(root, 'intl-collator', outputs)
     print(json.dumps({'status':'source/data check complete','source_metadata_ids':144,'actual_foundation_constructor_configurations':7056,'generated_files':10,'available_locale_count':None,'public_sort_collation_count':None,'data_sha256':json.loads(manifest)['data_sha256'],'real_reexport_executed':args.reexport}))
 if __name__=='__main__':main()

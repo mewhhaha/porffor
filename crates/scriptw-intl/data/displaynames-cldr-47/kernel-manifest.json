@@ -6,9 +6,9 @@
       "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
     },
     {
-      "bytes": 87228,
+      "bytes": 87544,
       "path": "crates/scriptw-aot-wasm/src/emit.rs",
-      "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+      "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
     },
     {
       "bytes": 81271,
@@ -36,9 +36,9 @@
       "sha256": "cdfbb56032f503abce00520323cacb17ae27fb811812e46ccc98e601e9bd94d6"
     },
     {
-      "bytes": 2583,
+      "bytes": 2790,
       "path": "crates/scriptw-intl/build.rs",
-      "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+      "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
     },
     {
       "bytes": 2033,
@@ -426,9 +426,9 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 41356,
+      "bytes": 41455,
       "path": "crates/scriptw-intl/src/lib.rs",
-      "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+      "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
     },
     {
       "bytes": 6510,
@@ -618,7 +618,7 @@
       "version": "0.10.9"
     }
   ],
-  "provider_data_sha256": "56ec2809988a9ebd281786a8e90c0cabd210d8bddd060963d3ea6378025e6d6c",
+  "provider_data_sha256": "dec070f83bcd06eb2d8c2e7b3ab96d7ee07746ea6c010d2b8442aff44d7a518a",
   "schema_version": 1,
   "scope": "actual immutable image admission, retained selected data owners, checked native algorithm, primitive codecs, host consumer and captured CLDR inputs; tests and self identities excluded; runtime acceptance pending",
   "service": "DisplayNames",

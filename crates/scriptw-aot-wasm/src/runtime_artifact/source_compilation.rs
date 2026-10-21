@@ -57,27 +57,49 @@ impl RuntimeSourceCompilationProfile {
     }
 }
 
+#[derive(Clone, Copy)]
+enum CompilerImportSlot {
+    DynamicFunction,
+    GlobalScript,
+    DirectEval,
+}
+impl CompilerImportSlot {
+    const ALL: [Self; 3] = [Self::DynamicFunction, Self::GlobalScript, Self::DirectEval];
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "compile_dynamic_function" => Some(Self::DynamicFunction),
+            "compile_global_script" => Some(Self::GlobalScript),
+            "compile_direct_eval" => Some(Self::DirectEval),
+            _ => None,
+        }
+    }
+    const fn index(self) -> usize {
+        match self {
+            Self::DynamicFunction => 0,
+            Self::GlobalScript => 1,
+            Self::DirectEval => 2,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct SourceCompilationProfileAdmission {
     profile: Option<RuntimeSourceCompilationProfile>,
-    imports: [bool; 3],
+    imports: [bool; CompilerImportSlot::ALL.len()],
 }
 
 impl SourceCompilationProfileAdmission {
     pub(super) fn import(&mut self, import: &Import<'_>) -> Result<(), EmitError> {
-        let slot = match import.name {
-            "compile_dynamic_function" => 0,
-            "compile_global_script" => 1,
-            "compile_direct_eval" => 2,
-            _ => return Ok(()),
+        let Some(slot) = CompilerImportSlot::from_name(import.name) else {
+            return Ok(());
         };
         if import.module != "scriptw_host"
             || !matches!(import.ty, TypeRef::Func(_) | TypeRef::FuncExact(_))
-            || self.imports[slot]
+            || self.imports[slot.index()]
         {
             return Err(RuntimeSourceCompilationProfile::malformed());
         }
-        self.imports[slot] = true;
+        self.imports[slot.index()] = true;
         Ok(())
     }
 
@@ -97,8 +119,8 @@ impl SourceCompilationProfileAdmission {
             .profile
             .ok_or_else(RuntimeSourceCompilationProfile::malformed)?;
         let expected = match profile {
-            RuntimeSourceCompilationProfile::Portable => [false; 3],
-            RuntimeSourceCompilationProfile::NativeHost => [true; 3],
+            RuntimeSourceCompilationProfile::Portable => [false; CompilerImportSlot::ALL.len()],
+            RuntimeSourceCompilationProfile::NativeHost => [true; CompilerImportSlot::ALL.len()],
         };
         if self.imports != expected {
             return Err(RuntimeSourceCompilationProfile::malformed());

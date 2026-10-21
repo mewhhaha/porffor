@@ -77,16 +77,10 @@ fn emit_validated(
 ) -> Result<RuntimeDirectEvalArtifact, EmitError> {
     let runtime = validated.runtime();
     let emitted = crate::emit::emit_runtime_direct_eval_module(program, validated)?;
-    if emitted.runtime_layout.is_some()
-        || !emitted
-            .artifact
-            .runtime()
-            .is_some_and(|actual| Arc::ptr_eq(actual, runtime))
-    {
-        return Err(EmitError::unsupported(
-            "native direct eval did not retain its exact linked runtime",
-        ));
-    }
+    validated.require_linked_program(
+        &emitted,
+        "native direct eval did not retain its exact linked runtime",
+    )?;
     Ok(RuntimeDirectEvalArtifact {
         bytes: Arc::from(emitted.artifact.bytes),
         runtime: Arc::clone(runtime),

@@ -12,6 +12,22 @@ pub struct ValidatedRuntimeArtifact {
     selection: IntlDataSelection,
 }
 impl ValidatedRuntimeArtifact {
+    pub(crate) fn require_linked_program(
+        &self,
+        emitted: &super::EmittedModule,
+        diagnostic: &'static str,
+    ) -> Result<(), EmitError> {
+        if emitted.runtime_layout.is_some()
+            || !emitted
+                .artifact
+                .runtime()
+                .is_some_and(|actual| Arc::ptr_eq(actual, self.runtime()))
+        {
+            return Err(EmitError::unsupported(diagnostic));
+        }
+        Ok(())
+    }
+
     pub fn new(
         runtime: Arc<RuntimeArtifact>,
         profile: IntlCompilationProfile,

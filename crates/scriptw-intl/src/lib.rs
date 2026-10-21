@@ -9,6 +9,7 @@ use core::{fmt, fmt::Write as _};
 
 pub mod collator;
 mod collator_image;
+mod collator_markers;
 mod collator_protocol;
 mod datetime;
 mod datetime_image;
@@ -20,6 +21,9 @@ pub mod duration_format;
 mod duration_image;
 mod duration_protocol;
 mod duration_wire;
+#[cfg(test)]
+#[path = "image_build/export_contract.rs"]
+mod export_contract;
 mod identifiers;
 mod image;
 pub mod list_format;

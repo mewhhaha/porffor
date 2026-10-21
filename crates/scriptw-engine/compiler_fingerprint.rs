@@ -46,6 +46,17 @@ pub(crate) const COMPILER_INPUTS: &[&str] = &[
 // AOT/Engine modules. Do not generalize this to every path named "tests": vendored
 // sources and production resources retain conservative coverage.
 const TEST_ONLY_INPUTS: &[&str] = &[
+    "crates/scriptw-front/src/tests",
+    "crates/scriptw-front/src/json/tests.rs",
+    "crates/scriptw-ir/src/ir/tests.rs",
+    "crates/scriptw-ir/src/analysis/private_environment_tests.rs",
+    "crates/scriptw-ir/src/runtime_global_script/tests.rs",
+    "crates/scriptw-aot-wasm/src/tests.rs",
+    "crates/scriptw-aot-wasm/src/tests",
+    "crates/scriptw-aot-wasm/src/planning/tests.rs",
+    "crates/scriptw-aot-wasm/src/control_flow/tests.rs",
+    "crates/scriptw-runtime/src/rooted_snapshot/tests.rs",
+    "crates/scriptw-engine/src/tests",
     "crates/scriptw-front/tests",
     "crates/scriptw-ir/tests",
     "crates/scriptw-ir/src/tests",

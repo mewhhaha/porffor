@@ -7,9 +7,9 @@
       "sha256": "b7d6a11c10c601fc153122a829e3ba0b8d8600d7e463351145bf43d84708303a"
     },
     {
-      "bytes": 87228,
+      "bytes": 87544,
       "path": "crates/scriptw-aot-wasm/src/emit.rs",
-      "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+      "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
     },
     {
       "bytes": 33833,
@@ -27,9 +27,9 @@
       "sha256": "cdfbb56032f503abce00520323cacb17ae27fb811812e46ccc98e601e9bd94d6"
     },
     {
-      "bytes": 2583,
+      "bytes": 2790,
       "path": "crates/scriptw-intl/build.rs",
-      "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+      "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
     },
     {
       "bytes": 2953,
@@ -67,9 +67,9 @@
       "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
     },
     {
-      "bytes": 2390,
+      "bytes": 2275,
       "path": "crates/scriptw-intl/src/image_build/list.rs",
-      "sha256": "c6765e874a7ed37d7aada8db72df0b4971dc3aed0889e8338ee664877ad8d553"
+      "sha256": "a2b3520009d202a0f81797542b72b02869a8108aba2fa91e11c709b507a4eab1"
     },
     {
       "bytes": 1473,
@@ -77,9 +77,9 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 41356,
+      "bytes": 41455,
       "path": "crates/scriptw-intl/src/lib.rs",
-      "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+      "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
     },
     {
       "bytes": 5033,
@@ -338,7 +338,7 @@
       }
     ]
   },
-  "provider_data_sha256": "5101399d4991a71c99156928514d8c053214635466f92b34cc7ab5323fdb5717",
+  "provider_data_sha256": "07f1bbb61794b0c6c5fb8d92352285337cdf0ac794a0ab4ff57e7aef9aaf0644",
   "purpose": "pinned ICU list templates, conditional DFA and exact UTF16/indexed parts kernel",
   "schema_version": 1,
   "source_archive_sha256": "f64d583886e9a8201535b5296be9fb2f299d6e21f84d39488ce51affdd6c8f5e"

@@ -19,6 +19,7 @@ struct Heap {
     nodes: Vec<Node>,
     entry: usize,
     reject: bool,
+    object_comparisons: usize,
 }
 
 impl SnapshotBackend for Heap {
@@ -30,6 +31,7 @@ impl SnapshotBackend for Heap {
         self.entry
     }
     fn same_object(&mut self, a: &usize, b: &usize) -> Result<bool, SnapshotRejection> {
+        self.object_comparisons += 1;
         Ok(a == b)
     }
     fn same_symbol(&mut self, a: &usize, b: &usize) -> Result<bool, SnapshotRejection> {
@@ -132,6 +134,7 @@ fn cyclic_aliases_and_same_description_symbols_keep_distinct_canonical_identitie
     let mut heap = Heap {
         entry: 88,
         reject: false,
+        object_comparisons: 0,
         nodes: vec![
             node(&[
                 ("self", Value::Object(0)),
@@ -172,6 +175,7 @@ fn realm_ids_follow_encounters_and_keep_entry_separate() {
         Heap {
             entry,
             reject: false,
+            object_comparisons: 0,
             nodes: vec![
                 node(&[("a", Value::Object(1)), ("b", Value::Object(2))]),
                 first_function,
@@ -191,6 +195,7 @@ fn adjacent_copy_and_node_budgets_preserve_exact_boundary_and_cycles() {
     let mut heap = Heap {
         entry: 0,
         reject: false,
+        object_comparisons: 0,
         nodes: vec![node(&[("x", Value::Object(0))])],
     };
     let text = Value::Text(vec![97, 0xd800, 0xdc00, 98]);
@@ -231,6 +236,7 @@ fn arrays_keep_holes_and_nondefault_descriptors() {
     let mut heap = Heap {
         entry: 0,
         reject: false,
+        object_comparisons: 0,
         nodes: vec![array],
     };
     let holes = capture(&mut heap, Value::Object(0));
@@ -249,6 +255,7 @@ fn wire_rejects_dangling_noncanonical_unused_and_unbounded_state() {
     let mut heap = Heap {
         entry: 0,
         reject: false,
+        object_comparisons: 0,
         nodes: vec![node(&[("self", Value::Object(0))])],
     };
     let graph = capture(&mut heap, Value::Object(0));
@@ -280,6 +287,7 @@ fn unsupported_exotic_is_rejection_and_not_an_empty_successful_graph() {
     let mut heap = Heap {
         entry: 0,
         reject: true,
+        object_comparisons: 0,
         nodes: Vec::new(),
     };
     assert_eq!(
@@ -297,6 +305,7 @@ fn number_bits_keep_negative_zero_and_normalize_nan_payloads() {
     let mut heap = Heap {
         entry: 0,
         reject: false,
+        object_comparisons: 0,
         nodes: Vec::new(),
     };
     assert_ne!(
@@ -330,4 +339,84 @@ fn tagged_empty_rows_reject_foreign_payload_fields() {
         serde_json::json!({"kind": "local", "key": []})
     )
     .is_err());
+}
+
+#[test]
+fn wire_property_order_and_array_bounds_reject_hostile_reordering() {
+    let mut array = node(&[
+        ("0", Value::Undefined),
+        ("2", Value::Undefined),
+        ("length", Value::Number(3.0)),
+    ]);
+    array.array = true;
+    let mut heap = Heap {
+        nodes: vec![array],
+        entry: 0,
+        reject: false,
+        object_comparisons: 0,
+    };
+    let valid = serde_json::to_value(capture(&mut heap, Value::Object(0))).unwrap();
+    for order in [[1, 0, 2], [2, 0, 1]] {
+        let mut wire = valid.clone();
+        let properties = valid["nodes"][0]["properties"].as_array().unwrap();
+        wire["nodes"][0]["properties"] = order.map(|i| properties[i].clone()).to_vec().into();
+        assert!(serde_json::from_value::<RootedSnapshotGraph>(wire).is_err());
+    }
+    let mut missing_length = valid.clone();
+    missing_length["nodes"][0]["properties"]
+        .as_array_mut()
+        .unwrap()
+        .pop();
+    assert!(serde_json::from_value::<RootedSnapshotGraph>(missing_length).is_err());
+    let mut outside_length = valid;
+    outside_length["nodes"][0]["properties"][1]["key"]["units"] = serde_json::json!([51]);
+    assert!(serde_json::from_value::<RootedSnapshotGraph>(outside_length).is_err());
+}
+
+#[test]
+fn object_identity_comparisons_are_measured_and_work_bounded() {
+    fn wide(count: usize) -> Heap {
+        let mut nodes: Vec<_> = (0..count).map(|_| node(&[])).collect();
+        nodes[0].properties = (1..count)
+            .rev()
+            .map(|i| (format!("p{i}"), Value::Object(i)))
+            .collect();
+        Heap {
+            nodes,
+            entry: 0,
+            reject: false,
+            object_comparisons: 0,
+        }
+    }
+    for count in [16, 128, 512] {
+        let mut heap = wide(count);
+        let started = std::time::Instant::now();
+        let graph = capture(&mut heap, Value::Object(0));
+        assert_eq!(graph.nodes().len(), count);
+        assert_eq!(heap.object_comparisons, count * (count - 1) / 2);
+        eprintln!(
+            "snapshot identities: nodes={count} comparisons={} capture_and_validation_us={}",
+            heap.object_comparisons,
+            started.elapsed().as_micros()
+        );
+    }
+    let mut heap = wide(4096);
+    let outcome = capture_snapshot(&mut heap, &Value::Object(0), SnapshotLimits::HARD_MAX);
+    assert!(matches!(
+        outcome,
+        SnapshotOutcome::Rejected {
+            reason: SnapshotRejection::BudgetExceeded {
+                dimension: SnapshotBudgetDimension::Work,
+                ..
+            }
+        }
+    ));
+    assert!(
+        heap.object_comparisons
+            < SnapshotLimits::HARD_MAX.get(SnapshotBudgetDimension::Work) as usize
+    );
+    eprintln!(
+        "snapshot hard ceiling: comparisons={} rejected=Work",
+        heap.object_comparisons
+    );
 }

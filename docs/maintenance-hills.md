@@ -1,8 +1,8 @@
 # Scriptw maintenance hills
 
 Audit: 2026-10-21, baseline `6b3d9b449`. These 100 distinct candidates implement
-the approved inventory; 500 is a ceiling, not a quota. The user has authorized all 100 hills. H001–H060 and H091 are complete
-(61 total); the remaining 39 are queued in bounded implementation batches.
+the approved inventory; 500 is a ceiling, not a quota. All 100 authorized hills
+are complete. The records below retain each implementation and its verification.
 Investigation entries require evidence before a code change. This backlog does not supersede conformance acceptance.
 
 ## How to complete a hill
@@ -84,46 +84,46 @@ Risk is initial review guidance, not a claim that the code contains a bug.
 | H058 | Next | Done; medium | Bind module content kind and validated location once | `module_catalog.rs::Catalog::resolve` | R |
 | H059 | Next | Done; medium | Name module request key fields | `module_catalog.rs::Catalog::add_edge` | R |
 | H060 | Next | Done; medium | Share deterministic test/harness traversal | `scan_tests and scan_harness_files` | R |
-| H061 | Next | Queued; medium | Move frontend tests into topic-owned child modules | `scriptw-front/src/lib.rs::tests` | R |
-| H062 | Next | Queued; medium | Share UTF-8/UTF-16 Dynamic Function preparation | `scriptw-front/src/dynamic_function.rs` | R |
-| H063 | Later | Queued; high | Make source coordinate units explicit | `frontend source_span and byte_offset helpers` | R |
-| H064 | Later | Queued; high | Isolate UTF-16 sentinel decoding state | `utf16_source.rs::decode_js_string_utf16` | R |
-| H065 | Next | Queued; medium | Use checked JSON cursor/digit primitives | `scriptw-front/src/json.rs` | R |
-| H066 | Later | Queued; high | Separate program-lowering orchestration | `lower_script_program_with_allocations` | R |
-| H067 | Investigate | Queued; high | Replace avoidable allocation-state clones with ownership transfer | `AnalysisAllocationState handoff in lowering` | I + R |
-| H068 | Investigate | Queued; high | Audit and encode lowering source-length units | `ProgramIr source_len and lowering inputs` | I + R |
-| H069 | Later | Queued; high | Organize IR domains and embedded tests | `scriptw-ir/src/ir.rs and analysis.rs` | R |
-| H070 | Investigate | Queued; high | Share only identical generator protocol operations | `generator and async_generator lowering modules` | I + R |
-| H071 | Investigate | Queued; high | Type identities where string aliases permit a real mix-up | `FunctionId and analysis owner/helper IDs` | I + R |
-| H072 | Next | Queued; medium | Type the closed lowering invariant domain | `lowering.rs::new_program invariant strings` | R |
-| H073 | Later | Queued; high | Separate oracle host and module responsibilities | `scriptw-spec-exec/src/lib.rs` | R |
-| H074 | Later | Queued; high | Give oracle agent threads one lifecycle owner | `HostSession and AgentThreadState` | R |
-| H075 | Next | Queued; medium | Scope oracle realm restoration | `HostRealmContext::with_context/eval` | R |
-| H076 | Next | Queued; medium | Use the existing JSON serializer for oracle strings | `json_string_array/json_escape` | R |
-| H077 | Investigate | Queued; high | Measure and index repeated embedded-module lookups | `embedded_module_graph.rs::find_module` | I + R |
-| H078 | Later | Queued; high | Bind snapshot budget charges to operations | `rooted_snapshot capture and validation` | R |
-| H079 | Next | Queued; medium | Centralize snapshot property/array ordering validation | `rooted_snapshot/validation.rs` | R |
-| H080 | Investigate | Queued; high | Measure snapshot object identity lookup cost | `rooted_snapshot/capture.rs::Capture::object` | I + R |
-| H081 | Next | Queued; medium | Reduce redundant Wasm emission wrapper chains | `aot-wasm emit.rs and runtime_artifact.rs` | R |
-| H082 | Next | Queued; medium | Share program/runtime admission and linkage checks | `runtime_function/global_script/direct_eval emitters` | R |
-| H083 | Next | Queued; medium | Type source-compilation import slots | `SourceCompilationProfileAdmission` | R |
-| H084 | Next | Queued; medium | Check separate function/global index conversions | `RuntimeLayout::emit_runtime_imports` | R |
-| H085 | Next | Queued; medium | Separate AOT tests by existing feature ownership | `aot-wasm root/planning/control_flow tests` | R |
-| H086 | Next | Queued; medium | Split engine tests into domain-owned child modules | `scriptw-engine/src/tests.rs` | R |
-| H087 | Next | Queued; medium | Share Script/Module setup using explicit parse goals | `Engine compile_script/module and run_script/module` | R |
-| H088 | Next | Queued; medium | Share cache-limit parsing with explicit fallbacks | `cache.rs::parse_cache_limit/parse_tier_limit` | R |
-| H089 | Investigate | Queued; high | Assess a focused runtime-image producer boundary | `runtime-image build.rs engine source includes` | I + R |
-| H090 | Later | Queued; high | Bind admitted runtime and original budget at construction | `NativeSourceCompilerContext::new` | R |
+| H061 | Next | Done; medium | Move frontend tests into topic-owned child modules | `scriptw-front/src/lib.rs::tests` | R |
+| H062 | Next | Done; medium | Share UTF-8/UTF-16 Dynamic Function preparation | `scriptw-front/src/dynamic_function.rs` | R |
+| H063 | Later | Done; high | Make source coordinate units explicit | `frontend source_span and byte_offset helpers` | R |
+| H064 | Later | Done; high | Isolate UTF-16 sentinel decoding state | `utf16_source.rs::decode_js_string_utf16` | R |
+| H065 | Next | Done; medium | Use checked JSON cursor/digit primitives | `scriptw-front/src/json.rs` | R |
+| H066 | Later | Done; high | Separate program-lowering orchestration | `lower_script_program_with_allocations` | R |
+| H067 | Investigate | Done; high | Replace avoidable allocation-state clones with ownership transfer | `AnalysisAllocationState handoff in lowering` | I + R |
+| H068 | Investigate | Done; high | Audit and encode lowering source-length units | `ProgramIr source_len and lowering inputs` | I + R |
+| H069 | Later | Done; high | Organize IR domains and embedded tests | `scriptw-ir/src/ir.rs and analysis.rs` | R |
+| H070 | Investigate | Done; high | Share only identical generator protocol operations | `generator and async_generator lowering modules` | I + R |
+| H071 | Investigate | Done; high | Type identities where string aliases permit a real mix-up | `FunctionId and analysis owner/helper IDs` | I + R |
+| H072 | Next | Done; medium | Type the closed lowering invariant domain | `lowering.rs::new_program invariant strings` | R |
+| H073 | Later | Done; high | Separate oracle host and module responsibilities | `scriptw-spec-exec/src/lib.rs` | R |
+| H074 | Later | Done; high | Give oracle agent threads one lifecycle owner | `HostSession and AgentThreadState` | R |
+| H075 | Next | Done; medium | Scope oracle realm restoration | `HostRealmContext::with_context/eval` | R |
+| H076 | Next | Done; medium | Use the existing JSON serializer for oracle strings | `json_string_array/json_escape` | R |
+| H077 | Investigate | Done; high | Measure and index repeated embedded-module lookups | `embedded_module_graph.rs::find_module` | I + R |
+| H078 | Later | Done; high | Bind snapshot budget charges to operations | `rooted_snapshot capture and validation` | R |
+| H079 | Next | Done; medium | Centralize snapshot property/array ordering validation | `rooted_snapshot/validation.rs` | R |
+| H080 | Investigate | Done; high | Measure snapshot object identity lookup cost | `rooted_snapshot/capture.rs::Capture::object` | I + R |
+| H081 | Next | Done; medium | Reduce redundant Wasm emission wrapper chains | `aot-wasm emit.rs and runtime_artifact.rs` | R |
+| H082 | Next | Done; medium | Share program/runtime admission and linkage checks | `runtime_function/global_script/direct_eval emitters` | R |
+| H083 | Next | Done; medium | Type source-compilation import slots | `SourceCompilationProfileAdmission` | R |
+| H084 | Next | Done; medium | Check separate function/global index conversions | `RuntimeLayout::emit_runtime_imports` | R |
+| H085 | Next | Done; medium | Separate AOT tests by existing feature ownership | `aot-wasm root/planning/control_flow tests` | R |
+| H086 | Next | Done; medium | Split engine tests into domain-owned child modules | `scriptw-engine/src/tests.rs` | R |
+| H087 | Next | Done; medium | Share Script/Module setup using explicit parse goals | `Engine compile_script/module and run_script/module` | R |
+| H088 | Next | Done; medium | Share cache-limit parsing with explicit fallbacks | `cache.rs::parse_cache_limit/parse_tier_limit` | R |
+| H089 | Investigate | Done; high | Assess a focused runtime-image producer boundary | `runtime-image build.rs engine source includes` | I + R |
+| H090 | Later | Done; high | Bind admitted runtime and original budget at construction | `NativeSourceCompilerContext::new` | R |
 | H091 | First | Done; medium | Use one LDML schema implementation including staged generation | `intl_ldml_schema.py and NumberFormat staging` | T + G |
-| H092 | Next | Queued; medium | Retain parsed collator locale at admission | `CollationProfile::preferences` | G |
-| H093 | Next | Queued; medium | Share locale lookup truncation | `collator profiles::matching and preferences::resolve` | G |
-| H094 | Investigate | Queued; high | Specify allowed collator consumed-load inventory | `CollationProfile::construct` | I + G |
-| H095 | Next | Queued; medium | Check collator marker inventory across interfaces | `collator_image MARKERS and projection Marker::ALL` | G |
-| H096 | Next | Queued; medium | Name collator framing sizes, offsets and metadata bits | `collator protocol/image framing` | G |
-| H097 | Next | Queued; medium | Make image export invariants explicit and consistent | `image_build list/segmenter/collator` | G |
-| H098 | Next | Queued; medium | Validate generator owners and support isolated roots | `generate-intl-collator-data.py` | G |
-| H099 | Later | Queued; high | Stage related generated outputs with recoverable publication | `collator and related identity generators` | G |
-| H100 | Next | Queued; medium | Separate source/archive and feature/lock identity validation | `locale-collations and segmenter identity generators` | G |
+| H092 | Next | Done; medium | Retain parsed collator locale at admission | `CollationProfile::preferences` | G |
+| H093 | Next | Done; medium | Share locale lookup truncation | `collator profiles::matching and preferences::resolve` | G |
+| H094 | Investigate | Done; high | Specify allowed collator consumed-load inventory | `CollationProfile::construct` | I + G |
+| H095 | Next | Done; medium | Check collator marker inventory across interfaces | `collator_image MARKERS and projection Marker::ALL` | G |
+| H096 | Next | Done; medium | Name collator framing sizes, offsets and metadata bits | `collator protocol/image framing` | G |
+| H097 | Next | Done; medium | Make image export invariants explicit and consistent | `image_build list/segmenter/collator` | G |
+| H098 | Next | Done; medium | Validate generator owners and support isolated roots | `generate-intl-collator-data.py` | G |
+| H099 | Later | Done; high | Stage related generated outputs with recoverable publication | `collator and related identity generators` | G |
+| H100 | Next | Done; medium | Separate source/archive and feature/lock identity validation | `locale-collations and segmenter identity generators` | G |
 
 ## First-batch dependencies and acceptance
 
@@ -203,5 +203,22 @@ H045–H060 are complete. The [verification record](rust-rewrite/maintenance-con
 and [bounded evidence](rust-rewrite/maintenance-conformance-wave-20261021.json)
 bind the corrected 493 library, 91 CLI unit, 856 CLI integration and 29 adjacent
 native passes, 669 tooling controls, 53 structure checks and full pinned metadata
-census. Original failures remain recorded. There are 61 completed hills;
-H061–H090 and H092–H100 are the 39 authorized hills remaining.
+census. Original failures remain recorded. That checkpoint completed 61 hills;
+H061–H090 and H092–H100 were the 39 authorized hills remaining.
+
+## Compiler, runtime and Intl wave
+
+H061–H090 and H092–H100 are complete. The [verification record](rust-rewrite/maintenance-compiler-intl-wave-20261021.md)
+and [bounded evidence](rust-rewrite/maintenance-compiler-intl-wave-20261021.json)
+cover all 109 all-feature native scopes: 9,712 passing tests, zero remaining
+failures or ignored tests, after two complete test-owner replays. The record
+retains earlier failures and proves that only the two reviewed test files changed
+between that workspace checkpoint and the replays. Subsequent standalone guard
+corrections change only verification scripts and their mutation controls; the
+compiler and native tests remain unchanged. All 685 tooling controls and
+15 Intl identities pass; pinned generated semantic payloads remain identical.
+Investigation hills record measured costs and preserve existing boundaries where
+an additional abstraction or index would not improve the project.
+
+All 100 maintenance hills are now complete. Broader default/release and Test262
+acceptance remains in the [current inventory](rust-rewrite/current-inventory.md).

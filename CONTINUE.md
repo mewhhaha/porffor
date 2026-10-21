@@ -7,19 +7,20 @@ policy. The [maintenance backlog](docs/maintenance-hills.md) tracks cleanup work
 
 ## Current maintenance work
 
-All 100 hills are authorized. H001–H060 and H091 are complete (61 total).
-The [first-wave record](docs/rust-rewrite/maintenance-first-wave-20261021.md),
-[tooling-wave record](docs/rust-rewrite/maintenance-tooling-wave-20261021.md),
-[CLI-wave record](docs/rust-rewrite/maintenance-cli-wave-20261021.md), and
-[conformance-wave record](docs/rust-rewrite/maintenance-conformance-wave-20261021.md) retain
-checks and failed attempts. Continue implementing the remaining 39 hills:
-H061–H090 and H092–H100. Investigation entries need measured or characterized
-evidence before deciding whether code changes improve the project.
+All 100 authorized maintenance hills are complete. The final
+[compiler/runtime/Intl record](docs/rust-rewrite/maintenance-compiler-intl-wave-20261021.md)
+closes the remaining 39 and links the exact verification evidence. The
+[first-wave](docs/rust-rewrite/maintenance-first-wave-20261021.md),
+[tooling-wave](docs/rust-rewrite/maintenance-tooling-wave-20261021.md),
+[CLI-wave](docs/rust-rewrite/maintenance-cli-wave-20261021.md) and
+[conformance-wave](docs/rust-rewrite/maintenance-conformance-wave-20261021.md)
+records retain earlier checks and failed attempts.
 
-Use coherent CLI/conformance, compiler/runtime and Intl batches, with Luna
-agents for read-only exploration/review and root-owned implementation. Push each
-verified batch to main. Do not treat maintenance completion as full-suite or
-release acceptance; the broader queue below remains open.
+All 109 all-feature native scopes are covered after two complete test-owner
+replays. The final 685-test tooling checkpoint and complete standalone boundary
+checks also pass. Default/release and broader acceptance remain open below. Continue using
+Luna agents for read-only exploration/review and root-owned implementation. Push
+each verified batch to main.
 
 ## Decisions to retain
 
@@ -33,15 +34,16 @@ release acceptance; the broader queue below remains open.
   A passing diagnostic retry does not replace a failed receipt.
 - Keep this file and tasks until every acceptance criterion passes.
 
-## Broader continuation after this batch
+## Broader continuation
 
-1. Reconcile the stopped native campaign's receipts before re-admitting remaining
-   scopes in a fresh namespace. Saved coordinator state is not a running process.
-2. Diagnose the original-budget differential worker timeout with a general fix;
-   preserve its original request and failed executable.
-3. Finish current-source native/default/release, retention, real shard/resume,
-   differential, host reproducibility and calibrated performance gates.
-4. Complete the required original Test262 families and native publication. Keep
+1. Complete current-source default and optimized release acceptance. The new
+   all-feature native checkpoint is complete; retain the stopped pre-rename
+   campaign and its original-budget timeout as historical evidence.
+2. Finish retention, real shard/resume, debug/optimized differential and
+   robustness, host reproducibility and calibrated performance gates. The
+   formerly timed-out native control now passes at its original budget; its
+   historical failure has not been erased or assigned an unproven cause.
+3. Complete the required original Test262 families and native publication. Keep
    unresolved upstream failures visible; do not claim literal green acceptance.
 
 Exact outstanding gates and the missing historical replay input are recorded in

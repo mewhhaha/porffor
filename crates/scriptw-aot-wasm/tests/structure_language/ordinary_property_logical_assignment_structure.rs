@@ -16,6 +16,7 @@ const REFERENCE_LOWERING_SOURCE: &str =
 const LOGICAL_LOWERING_SOURCE: &str =
     include_str!("../../../scriptw-ir/src/lowering/ordinary_property_logical.rs");
 const PLANNING_SOURCE: &str = include_str!("../../src/planning.rs");
+const PLANNING_TESTS: &str = include_str!("../../src/planning/tests.rs");
 const FIXTURE: &str = include_str!(
     "../../../scriptw-cli/tests/fixtures/wasm_ordinary_property_logical_assignment_reference.js"
 );
@@ -347,8 +348,10 @@ fn lowering_intercepts_only_simple_property_logical_assignments() {
 
 #[test]
 fn exhaustive_consumers_and_budget_name_the_fused_lifecycle() {
+    assert!(
+        PLANNING_TESTS.contains("fn dynamic_property_keys_root_every_possible_shape_accessor()")
+    );
     for marker in [
-        "fn dynamic_property_keys_root_every_possible_shape_accessor()",
         "selection: ShapeAccessorReferenceSelection,",
         "any_accessor(shape, target, selection)",
         "assignment.possible_getters().contains(target)",

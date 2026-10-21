@@ -986,15 +986,43 @@ fn new_program(goal: ParseGoal, source_len: usize, stages: Vec<LoweringStage>) -
         goal,
         stages,
         source_len,
-        invariants: vec![
-            "direct-js-to-wasm-only",
-            "no-shipped-interpreter-in-wasm",
-            "spec-ir-is-semantic-source-of-truth",
-        ],
+        invariants: crate::LoweringInvariant::ALL.to_vec(),
         diagnostics: Vec::new(),
         script: None,
         modules: None,
     }
+}
+
+/// Complete binding/source/slot analysis before Script lowering consumes it.
+/// Capacity admission stays at the caller, before any source owner is allocated.
+fn prepare_script_analysis<'a>(
+    script_source: &'a ParsedScript,
+    script: &'a Script,
+    interner: &'a Interner,
+    definitions: &modules::LinkedScriptDefinitions,
+    instantiation: &ScriptInstantiation,
+    allocations: &mut AnalysisAllocationState,
+) -> Analysis<'a> {
+    let template_source = allocations.template_sources.for_parsed(script_source);
+    let mut analysis =
+        AnalysisBuilder::with_allocations(allocations, instantiation.clone(), template_source)
+            .with_realm_reusable_module_environments(definitions.has_realm_reusable_modules())
+            .finish(
+                script,
+                interner,
+                CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
+            );
+    analysis.function_global_hints = allocations
+        .prepared_sources
+        .function_global_hints(script_source);
+    definitions.apply(script, &mut analysis, interner);
+    analysis.prepare_runtime_script_slots(script, interner);
+    analysis.source_function_global_hypotheses =
+        finite_function_global_syntax::source_function_global_hypotheses(
+            script, interner, &analysis,
+        );
+    allocations.commit_analysis(&analysis.allocations);
+    analysis
 }
 
 fn lower_script_program_with_allocations(
@@ -1031,28 +1059,14 @@ fn lower_script_program_with_allocations(
         }
         let trace_phases = std::env::var_os("SCRIPTW_LOWER_TRACE").is_some();
         let t0 = std::time::Instant::now();
-        let template_source = allocations.template_sources.for_parsed(script_source);
-        let mut analysis = AnalysisBuilder::with_allocations(
-            allocations.clone(),
-            instantiation.clone(),
-            template_source,
-        )
-        .with_realm_reusable_module_environments(definitions.has_realm_reusable_modules())
-        .finish(
+        let analysis = prepare_script_analysis(
+            script_source,
             script,
             interner,
-            CompilerSourceText::Utf16(script_source.compiler_source_utf16()),
+            definitions,
+            &instantiation,
+            allocations,
         );
-        analysis.function_global_hints = allocations
-            .prepared_sources
-            .function_global_hints(script_source);
-        definitions.apply(script, &mut analysis, interner);
-        analysis.prepare_runtime_script_slots(script, interner);
-        analysis.source_function_global_hypotheses =
-            finite_function_global_syntax::source_function_global_hypotheses(
-                script, interner, &analysis,
-            );
-        *allocations = analysis.allocations.clone();
         if trace_phases {
             eprintln!("scriptw lower trace: analysis: {:?}", t0.elapsed());
         }

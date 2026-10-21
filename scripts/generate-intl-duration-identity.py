@@ -27,6 +27,7 @@ def generate(root):
   'crates/scriptw-intl/src/image.rs','crates/scriptw-intl/src/duration_image.rs',
   'crates/scriptw-intl/src/locale_image.rs','crates/scriptw-intl/src/number_image.rs',
   'crates/scriptw-intl/src/list_image.rs','crates/scriptw-intl/src/image_build/list.rs',
+  'crates/scriptw-intl/src/image_build/export_contract.rs',
   'crates/scriptw-intl/src/image_build/locale.rs','crates/scriptw-intl/build.rs',
   'crates/scriptw-intl/data/number-cldr-47/payload-manifest.json',
   'crates/scriptw-intl/src/duration_format.rs','crates/scriptw-intl/src/duration_protocol.rs',

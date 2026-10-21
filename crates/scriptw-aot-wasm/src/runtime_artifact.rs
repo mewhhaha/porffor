@@ -134,8 +134,15 @@ impl RuntimeLayout {
                 "compiler invariant violated: the program imports a different host function set than the runtime",
             ));
         }
+        // Admit both complete index spaces before appending any import.
+        if let Some(last) = self.function_types.len().checked_sub(1) {
+            runtime_function_index(host_imports, last)?;
+        }
+        if let Some(last) = self.globals.len().checked_sub(1) {
+            runtime_global_index(last)?;
+        }
         for (position, type_index) in self.function_types.iter().enumerate() {
-            let index = host_imports + position as u32;
+            let index = runtime_function_index(host_imports, position)?;
             imports.import(
                 RUNTIME_IMPORT_NAMESPACE,
                 &function_export_name(index),
@@ -145,11 +152,41 @@ impl RuntimeLayout {
         for (index, global_type) in self.globals.iter().enumerate() {
             imports.import(
                 RUNTIME_IMPORT_NAMESPACE,
-                &global_export_name(index as u32),
+                &global_export_name(runtime_global_index(index)?),
                 EntityType::Global(*global_type),
             );
         }
         Ok(())
+    }
+}
+
+fn runtime_function_index(host_imports: u32, position: usize) -> Result<u32, EmitError> {
+    u32::try_from(position)
+        .ok()
+        .and_then(|position| host_imports.checked_add(position))
+        .ok_or_else(|| {
+            EmitError::unsupported("runtime function import index exceeds the Wasm index space")
+        })
+}
+fn runtime_global_index(position: usize) -> Result<u32, EmitError> {
+    u32::try_from(position).map_err(|_| {
+        EmitError::unsupported("runtime global import index exceeds the Wasm index space")
+    })
+}
+
+#[cfg(test)]
+mod import_index_tests {
+    use super::*;
+    #[test]
+    fn function_prefix_and_global_index_have_independent_checked_spaces() {
+        assert_eq!(runtime_function_index(3, 2).unwrap(), 5);
+        assert_eq!(runtime_global_index(2).unwrap(), 2);
+        assert_eq!(runtime_function_index(u32::MAX, 0).unwrap(), u32::MAX);
+        assert!(runtime_function_index(u32::MAX, 1).is_err());
+        if let Ok(large) = usize::try_from(u64::from(u32::MAX) + 1) {
+            assert!(runtime_function_index(0, large).is_err());
+            assert!(runtime_global_index(large).is_err());
+        }
     }
 }
 
@@ -313,7 +350,7 @@ impl Eq for RuntimeArtifact {}
 pub fn runtime_artifact(
     selection: &scriptw_intl::IntlDataSelection,
 ) -> Result<Arc<RuntimeArtifact>, EmitError> {
-    runtime_artifact_with_cache(selection, None)
+    runtime_artifact_with_inputs(selection, RuntimeArtifactInputs::new(None))
 }
 
 /// Reuses a validated raw runtime artifact before falling back to emission.

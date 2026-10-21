@@ -28,11 +28,7 @@ pub(super) fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
             ($marker:ty) => {{
                 let ids =
                     <PinnedListProvider as IterableDataProvider<$marker>>::iter_ids(&provider)?;
-                if ids.is_empty() {
-                    return Err("empty pinned List marker inventory".into());
-                }
-                // BTreeSet enumeration and BlobExporter's sorted final resources
-                // make repeated exports independent of native hash-map ordering.
+                crate::export_contract::require_identifiers(<$marker>::INFO, &ids)?;
                 for id in ids {
                     let response = <PinnedListProvider as DataProvider<$marker>>::load(
                         &provider,
@@ -55,6 +51,9 @@ pub(super) fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         export_marker!(ListOrV1);
         export_marker!(ListUnitV1);
         exporter.close()?;
+    }
+    if output.is_empty() {
+        return Err("List export produced no payload".into());
     }
     Ok(output)
 }

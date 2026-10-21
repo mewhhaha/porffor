@@ -749,3 +749,57 @@ fn untyped_target_cannot_silently_select_between_source_text_and_native_source()
         Err(EmbeddedModuleGraphError::RecordKindMismatch { .. })
     ));
 }
+
+#[test]
+fn binary_lookup_measurement_preserves_kind_and_missing_identity() {
+    for count in [128, 1024, 8192] {
+        let identities: Vec<_> = (0..count).map(|i| format!("case/m{i:05}.js")).collect();
+        let sources = identities
+            .iter()
+            .rev()
+            .map(|id| module(id, "export {};"))
+            .collect();
+        let resolutions = identities
+            .iter()
+            .map(|id| {
+                edge(
+                    EmbeddedModuleReferrer::Script("case/entry.js".into()),
+                    id,
+                    Vec::new(),
+                    id,
+                )
+            })
+            .collect();
+        let started = std::time::Instant::now();
+        let graph =
+            EmbeddedModuleGraph::try_new(entry(EmbeddedModuleGoal::Script), sources, resolutions)
+                .unwrap();
+        let admission_us = started.elapsed().as_micros();
+        for id in &identities {
+            assert_eq!(
+                graph
+                    .module(id, EmbeddedModuleKind::SourceText)
+                    .unwrap()
+                    .identity(),
+                id
+            );
+            assert!(graph.module(id, EmbeddedModuleKind::Json).is_none());
+        }
+        assert!(graph
+            .module("case/missing.js", EmbeddedModuleKind::SourceText)
+            .is_none());
+        let started = std::time::Instant::now();
+        for _ in 0..8 {
+            for id in &identities {
+                std::hint::black_box(graph.module(id, EmbeddedModuleKind::SourceText));
+                std::hint::black_box(graph.module(id, EmbeddedModuleKind::Json));
+            }
+            std::hint::black_box(graph.module("case/missing.js", EmbeddedModuleKind::SourceText));
+        }
+        eprintln!(
+            "embedded module lookup: modules={count} resolutions={count} admission_us={admission_us} lookups={} lookup_us={}",
+            16 * count + 8,
+            started.elapsed().as_micros()
+        );
+    }
+}

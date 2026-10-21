@@ -95,6 +95,11 @@ def check(sources):
     engine = c[E + "lib.rs"]
     require("policy.clone(),Arc::clone(&execution_control),native_mode,)?;" in engine and "pub(super)policy:WasmCompilationPolicy" in context,
             "original_context_deadline", "context creation uses the already armed original execution control and propagates admission error")
+    linked = function(sources[P], "require_linked_program")
+    require("emitted.runtime_layout.is_some()" in linked and
+            "!emitted.artifact.runtime().is_some_and(|actual|Arc::ptr_eq(actual,self.runtime()))" in linked and
+            "returnErr(EmitError::unsupported(diagnostic))" in linked,
+            "exact_linkage_owner", "one linkage owner rejects a new layout or a different runtime Arc")
     for kind in KINDS:
         source = sources[A + "runtime_" + kind + ".rs"]
         raw = function(source, "emit_runtime_" + kind)
@@ -111,7 +116,7 @@ def check(sources):
                 "require_runtime_profile(" not in compact(source),
                 "proof_fast_path", kind + " proof entry retains program validation without reparsing R")
         require("letruntime=validated.runtime();" in emitted and
-                "Arc::ptr_eq(actual,runtime)" in emitted and "runtime:Arc::clone(runtime)" in emitted and
+                "validated.require_linked_program(&emitted," in emitted and "runtime:Arc::clone(runtime)" in emitted and
                 "emit_runtime_" + kind + "_module(program,validated)?" in emitted,
                 "exact_emission_pair", kind + " emission consumes the exact retained proof pair and returns exact R Arc")
         host = c[E + "wasm_native_" + kind + "_compiler/factory.rs"]

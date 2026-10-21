@@ -10,7 +10,7 @@
     ]
   },
   "host_call_abi": 17,
-  "kernel_sha256": "cc7fd445beaf79566244c6df33d1cba90336bf6ab13a497dc6500def83507bfd",
+  "kernel_sha256": "546fca16e2e3bd312a35b30e3ef01dc8d38d29b5d74f210d585cf2a51e309f89",
   "operations_reserved": [
     33,
     34,
@@ -378,9 +378,9 @@
   "source_manifest_sha256": "8612f2eb0857fab45863f717f63e95220274747717549f92b2f1af394f067cbe",
   "source_rows": [
     {
-      "bytes": 76221,
+      "bytes": 76236,
       "path": "Cargo.lock",
-      "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
+      "sha256": "ee4e2240f84e00b37e54a0e284c2139f7055efdb49b058a418d9368705cf3e74"
     },
     {
       "bytes": 5887,
@@ -393,9 +393,9 @@
       "sha256": "b7d6a11c10c601fc153122a829e3ba0b8d8600d7e463351145bf43d84708303a"
     },
     {
-      "bytes": 87228,
+      "bytes": 87544,
       "path": "crates/scriptw-aot-wasm/src/emit.rs",
-      "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+      "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
     },
     {
       "bytes": 33833,
@@ -418,9 +418,9 @@
       "sha256": "cdfbb56032f503abce00520323cacb17ae27fb811812e46ccc98e601e9bd94d6"
     },
     {
-      "bytes": 2583,
+      "bytes": 2790,
       "path": "crates/scriptw-intl/build.rs",
-      "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+      "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
     },
     {
       "bytes": 2953,
@@ -478,6 +478,11 @@
       "sha256": "8de93320ef8c48beae3e16c53cbe8d2748bd84249f27ccf310aafdce7c519f56"
     },
     {
+      "bytes": 1907,
+      "path": "crates/scriptw-intl/src/image_build/export_contract.rs",
+      "sha256": "cc58777e4e4f0e49f7e8d6793b616df166b80c7154101c039d556eda0185c9b2"
+    },
+    {
       "bytes": 1366,
       "path": "crates/scriptw-intl/src/image_build/keyword.rs",
       "sha256": "dbc80fd6505d7deef7b16ebd2b2550ac9428a5f091471c23c1008dcb00f87056"
@@ -488,14 +493,14 @@
       "sha256": "ec0fcbc2d88ff06f33804439b74328f0628391920916c40d861226b6cec005e6"
     },
     {
-      "bytes": 4015,
+      "bytes": 3964,
       "path": "crates/scriptw-intl/src/image_build/segmenter.rs",
-      "sha256": "7bdaf50414b0f9365da5cc688526d5a0163a7eb67b34233295ad72b31a402015"
+      "sha256": "7751d28d97851a838bd80faf8577d37a3b90d4052e8126773689c585cdcce36f"
     },
     {
-      "bytes": 41356,
+      "bytes": 41455,
       "path": "crates/scriptw-intl/src/lib.rs",
-      "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+      "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
     },
     {
       "bytes": 6510,
@@ -658,9 +663,14 @@
       "sha256": "465bad0432715cd018ebdc6a9b973d82c262fa4ffdc0bd1babcd9994b2890299"
     },
     {
-      "bytes": 14829,
+      "bytes": 15707,
       "path": "scripts/generate-intl-segmenter-identity.py",
-      "sha256": "110dfb5644d3e66d1bbe932d1421843574af832abc156ab12817609f671794c5"
+      "sha256": "90188cf75c944dcc12b2919b75db3a73b5a8186bba6c2f8da80d824ed4fc81a6"
+    },
+    {
+      "bytes": 8104,
+      "path": "scripts/generated_output_transaction.py",
+      "sha256": "c5872d6a97e1a9350b2fc26f3f62c6b006fc9598977d5cc7991b595b08542475"
     }
   ],
   "wire_version": 1

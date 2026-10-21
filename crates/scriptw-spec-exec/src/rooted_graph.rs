@@ -350,8 +350,7 @@ impl BoaSnapshotBackend {
         }
         // Only create_host_realm inserts here, after creating a fresh Realm;
         // the retained entry Realm is never inserted a second time.
-        let count = HOST_REALMS
-            .with(|store| store.borrow().realms.len().checked_add(1))
+        let count = super::host_session::with_host_realms(|realms| realms.len().checked_add(1))
             .ok_or(SnapshotRejection::BudgetExceeded {
                 dimension: SnapshotBudgetDimension::Realms,
             })?;
@@ -583,8 +582,8 @@ impl SnapshotBackend for BoaSnapshotBackend {
         }
         let mut anchors = Vec::new();
         collect_anchors(&self.entry, object, budget, &mut anchors)?;
-        HOST_REALMS.with(|store| -> Result<(), SnapshotRejection> {
-            for owner in store.borrow().realms.values() {
+        super::host_session::with_host_realms(|realms| -> Result<(), SnapshotRejection> {
+            for owner in realms.values() {
                 budget.work(1)?;
                 match owner {
                     HostRealmContext::EmbeddedRealm(realm) => {

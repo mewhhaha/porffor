@@ -914,7 +914,7 @@ require_fixed_string_count crates/scriptw-aot-wasm/src/objects/has_property.rs '
 require_fixed_string_count crates/scriptw-aot-wasm/src/objects/has_property.rs 'pub(crate) fn compile_object_has_property_helper(' 1 'actual shared HasProperty body'
 require_fixed_string_count crates/scriptw-aot-wasm/src/objects/has_property.rs 'fn emit_has_property_dispatch(' 1 'private HasProperty dispatch'
 require_fixed_string_count \
-  crates/scriptw-engine/src/tests.rs \
+  crates/scriptw-engine/src/tests/objects.rs \
   'fn wasm_backend_has_property_dispatches_every_live_exotic_branch()' \
   1 \
   'complete HasProperty runtime regression'

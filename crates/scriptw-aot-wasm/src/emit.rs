@@ -406,17 +406,23 @@ pub(crate) struct FunctionBuilder<'a> {
 }
 
 pub fn emit(program: &ProgramIr) -> Result<WasmArtifact, EmitError> {
-    emit_with_promise_rejection_policy(program, PromiseRejectionPolicy::default())
+    emit_with_intl_profile_and_runtime_inputs(
+        program,
+        PromiseRejectionPolicy::default(),
+        &scriptw_intl::IntlCompilationProfile::default(),
+        crate::RuntimeArtifactInputs::new(None),
+    )
 }
 
 pub fn emit_with_promise_rejection_policy(
     program: &ProgramIr,
     promise_rejection_policy: PromiseRejectionPolicy,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_intl_profile(
+    emit_with_intl_profile_and_runtime_inputs(
         program,
         promise_rejection_policy,
         &scriptw_intl::IntlCompilationProfile::default(),
+        crate::RuntimeArtifactInputs::new(None),
     )
 }
 
@@ -427,7 +433,12 @@ pub fn emit_with_intl_profile(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &scriptw_intl::IntlCompilationProfile,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_intl_profile_and_runtime_cache(program, promise_rejection_policy, intl_profile, None)
+    emit_with_intl_profile_and_runtime_inputs(
+        program,
+        promise_rejection_policy,
+        intl_profile,
+        crate::RuntimeArtifactInputs::new(None),
+    )
 }
 
 /// Compile with optional bounded persistence of the program-independent runtime.
@@ -468,11 +479,11 @@ pub fn emit_with_rooted_snapshot(
     promise_rejection_policy: PromiseRejectionPolicy,
     intl_profile: &scriptw_intl::IntlCompilationProfile,
 ) -> Result<WasmArtifact, EmitError> {
-    emit_with_rooted_snapshot_and_runtime_cache(
+    emit_with_rooted_snapshot_and_runtime_inputs(
         program,
         promise_rejection_policy,
         intl_profile,
-        None,
+        crate::RuntimeArtifactInputs::new(None),
     )
 }
 

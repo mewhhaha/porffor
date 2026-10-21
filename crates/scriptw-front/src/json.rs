@@ -130,17 +130,32 @@ impl Parser<'_> {
     fn peek(&self) -> Option<u8> {
         self.source.as_bytes().get(self.offset).copied()
     }
+    fn take_if(&mut self, byte: u8) -> bool {
+        if self.peek() == Some(byte) {
+            self.offset += 1;
+            true
+        } else {
+            false
+        }
+    }
+    fn digits(&mut self) -> bool {
+        let start = self.offset;
+        while matches!(self.peek(), Some(b'0'..=b'9')) {
+            self.offset += 1;
+        }
+        self.offset != start
+    }
     fn whitespace(&mut self) {
         while matches!(self.peek(), Some(b' ' | b'\t' | b'\r' | b'\n')) {
             self.offset += 1;
         }
     }
     fn expect(&mut self, byte: u8, message: &'static str) -> Result<(), JsonParseError> {
-        if self.peek() != Some(byte) {
-            return Err(self.error(message));
+        if self.take_if(byte) {
+            Ok(())
+        } else {
+            Err(self.error(message))
         }
-        self.offset += 1;
-        Ok(())
     }
     fn literal(&mut self, literal: &str, value: JsonValue) -> Result<JsonValue, JsonParseError> {
         if !self.source[self.offset..].starts_with(literal) {
@@ -153,9 +168,9 @@ impl Parser<'_> {
         let mut unit = 0u16;
         for _ in 0..4 {
             let digit = match self.peek() {
-                Some(b'0'..=b'9') => self.peek().unwrap() - b'0',
-                Some(b'a'..=b'f') => self.peek().unwrap() - b'a' + 10,
-                Some(b'A'..=b'F') => self.peek().unwrap() - b'A' + 10,
+                Some(byte @ b'0'..=b'9') => byte - b'0',
+                Some(byte @ b'a'..=b'f') => byte - b'a' + 10,
+                Some(byte @ b'A'..=b'F') => byte - b'A' + 10,
                 _ => return Err(self.error("JSON Unicode escape requires four hex digits")),
             };
             unit = unit * 16 + u16::from(digit);
@@ -199,7 +214,7 @@ impl Parser<'_> {
                     });
                 }
                 Some(0..=31) => {
-                    return Err(self.error("unescaped control character in JSON string"))
+                    return Err(self.error("unescaped control character in JSON string"));
                 }
                 Some(_) => {
                     let character = self.source[self.offset..]
@@ -215,28 +230,20 @@ impl Parser<'_> {
     }
     fn number(&mut self) -> Result<JsonValue, JsonParseError> {
         let start = self.offset;
-        if self.peek() == Some(b'-') {
-            self.offset += 1;
-        }
+        self.take_if(b'-');
         match self.peek() {
             Some(b'0') => {
                 self.offset += 1;
             }
             Some(b'1'..=b'9') => {
                 self.offset += 1;
-                while matches!(self.peek(), Some(b'0'..=b'9')) {
-                    self.offset += 1;
-                }
+                self.digits();
             }
             _ => return Err(self.error("JSON number requires an integer part")),
         }
-        if self.peek() == Some(b'.') {
-            self.offset += 1;
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+        if self.take_if(b'.') {
+            if !self.digits() {
                 return Err(self.error("JSON fraction requires a digit"));
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.offset += 1;
             }
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
@@ -244,11 +251,8 @@ impl Parser<'_> {
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.offset += 1;
             }
-            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+            if !self.digits() {
                 return Err(self.error("JSON exponent requires a digit"));
-            }
-            while matches!(self.peek(), Some(b'0'..=b'9')) {
-                self.offset += 1;
             }
         }
         let number = self.source[start..self.offset]

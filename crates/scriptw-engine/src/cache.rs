@@ -85,11 +85,7 @@ fn parse_tier_limit(raw: Option<&str>) -> Option<u64> {
 /// panicking: a typo in an environment variable must not take down a sweep that
 /// has been running for hours.
 fn parse_cache_limit(raw: Option<&str>) -> u64 {
-    raw.map(str::trim)
-        .filter(|value| !value.is_empty())
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|bytes| *bytes > 0)
-        .unwrap_or(DEFAULT_CACHE_LIMIT_BYTES)
+    parse_tier_limit(raw).unwrap_or(DEFAULT_CACHE_LIMIT_BYTES)
 }
 
 const FUNCTION_CACHE_FORMAT: &str = "cranelift-functions-v1";

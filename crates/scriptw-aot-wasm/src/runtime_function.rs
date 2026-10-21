@@ -67,16 +67,10 @@ fn emit_validated(
 ) -> Result<RuntimeFunctionArtifact, EmitError> {
     let runtime = validated.runtime();
     let emitted = crate::emit::emit_runtime_function_module(program, validated)?;
-    if emitted.runtime_layout.is_some()
-        || !emitted
-            .artifact
-            .runtime()
-            .is_some_and(|actual| Arc::ptr_eq(actual, runtime))
-    {
-        return Err(EmitError::unsupported(
-            "native Function emission did not retain its exact linked runtime",
-        ));
-    }
+    validated.require_linked_program(
+        &emitted,
+        "native Function emission did not retain its exact linked runtime",
+    )?;
     Ok(RuntimeFunctionArtifact {
         bytes: Arc::from(emitted.artifact.bytes),
         runtime: Arc::clone(runtime),

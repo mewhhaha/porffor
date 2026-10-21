@@ -1,0 +1,198 @@
+"""Recover a staged generated-file set by rolling forward a checked journal.
+
+Each replacement is atomic; interruption can leave a mixed set until recovery.
+Check mode never writes and rejects an outstanding journal. Only the exact
+staged bytes recorded before the first replacement may complete a generation.
+"""
+
+from contextlib import contextmanager
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import tempfile
+
+
+def _sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def _journal(root, owner):
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", owner):
+        raise ValueError("invalid generated-output owner")
+    # Journal and lock need the same root/symlink boundary as output members.
+    return _member(root, "target/generated-output-transactions/" + owner + ".json")
+
+
+def _member(root, relative):
+    if not isinstance(relative, str):
+        raise ValueError("generated-output path is not text")
+    path = Path(relative)
+    if path.is_absolute() or not path.parts or any(p in (".", "..") for p in path.parts):
+        raise ValueError("generated-output path escapes its root")
+    current = root
+    for part in path.parts:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("generated-output paths cannot use symlinks")
+    if current.exists() and not current.is_file():
+        raise ValueError("generated-output member is not a regular file")
+    return current
+
+
+def _sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _make_directories(path):
+    """Persist newly created ancestors before persisting their children."""
+    if path.exists():
+        if not path.is_dir():
+            raise ValueError("generated-output parent is not a directory")
+        return
+    _make_directories(path.parent)
+    path.mkdir(exist_ok=True)
+    _sync_directory(path.parent)
+
+
+def _output_member(root, relative):
+    path = _member(root, relative)
+    if path.is_relative_to(root / "target/generated-output-transactions"):
+        raise ValueError("generated outputs cannot replace transaction state")
+    return path
+
+
+def _stage(path, data):
+    descriptor, name = tempfile.mkstemp(prefix=".scriptw-generated-", dir=path.parent)
+    staged = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            os.fchmod(stream.fileno(), path.stat().st_mode & 0o777 if path.exists() else 0o644)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return staged
+    except BaseException:
+        staged.unlink(missing_ok=True)
+        raise
+
+
+def _recover(root, journal, after_replace=None):
+    if not journal.exists():
+        return
+    if journal.is_symlink() or not journal.is_file():
+        raise ValueError("generated-output journal is not a regular file")
+    value = json.loads(journal.read_bytes())
+    if set(value) != {"version", "members"} or value["version"] != 1 or not value["members"]:
+        raise ValueError("invalid generated-output journal")
+    checked = []
+    paths = set()
+    for member in value["members"]:
+        if set(member) != {"target", "staged", "sha256", "bytes"}:
+            raise ValueError("invalid generated-output journal member")
+        target = _output_member(root, member["target"])
+        staged = _output_member(root, member["staged"])
+        if staged.parent != target.parent or not staged.name.startswith(".scriptw-generated-"):
+            raise ValueError("generated-output stage is not adjacent and owned")
+        if target in paths or staged in paths or target == staged:
+            raise ValueError("duplicate generated-output journal path")
+        paths.update((target, staged))
+        if not isinstance(member["bytes"], int) or isinstance(member["bytes"], bool) or member["bytes"] < 0:
+            raise ValueError("invalid generated-output byte count")
+        if not isinstance(member["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", member["sha256"]):
+            raise ValueError("invalid generated-output digest")
+        available = staged if staged.exists() else target
+        data = available.read_bytes()
+        if len(data) != member["bytes"] or _sha(data) != member["sha256"]:
+            raise ValueError("generated-output recovery bytes do not match the journal")
+        unchanged = target.is_file() and target.read_bytes() == data
+        checked.append((target, staged, unchanged))
+    # Verify the whole generation before changing any remaining member.
+    for index, (target, staged, unchanged) in enumerate(checked):
+        if staged.exists():
+            if unchanged:
+                # Preserve source mtimes so an identity-only refresh does not
+                # invalidate Cargo units whose generated bytes did not change.
+                staged.unlink()
+            else:
+                os.replace(staged, target)
+            _sync_directory(target.parent)
+            if after_replace is not None:
+                after_replace(index)
+    journal.unlink()
+    _sync_directory(journal.parent)
+
+
+@contextmanager
+def _locked(journal):
+    _make_directories(journal.parent)
+    lock = journal.with_suffix(".lock")
+    if lock.is_symlink():
+        raise ValueError("generated-output lock cannot be a symlink")
+    with lock.open("a+b") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        yield
+
+
+def recover_outputs(root, owner, *, check=False):
+    """Call before reading generation inputs; check mode stays read-only."""
+    root = Path(root).resolve(strict=True)
+    journal = _journal(root, owner)
+    if check:
+        if journal.exists() or journal.is_symlink():
+            raise ValueError("pending generated-output recovery; run the generator without --check")
+        return
+    with _locked(journal):
+        _recover(root, journal)
+
+
+def publish_outputs(root, owner, outputs, *, after_replace=None):
+    """Stage all bytes, persist the journal, then replace the related outputs.
+
+    after_replace is a test seam for process-interruption/recovery controls.
+    """
+    root = Path(root).resolve(strict=True)
+    journal = _journal(root, owner)
+    with _locked(journal):
+        _recover(root, journal)
+        members = []
+        staged_files = []
+        targets = set()
+        journal_published = False
+        try:
+            for relative, data in sorted(outputs.items(), key=lambda pair: str(pair[0])):
+                path = Path(relative)
+                if path.is_absolute():
+                    path = path.relative_to(root)
+                target = _output_member(root, path.as_posix())
+                if target in targets:
+                    raise ValueError("duplicate generated-output target")
+                targets.add(target)
+                if not isinstance(data, bytes):
+                    raise ValueError("generated outputs must be bytes")
+                _make_directories(target.parent)
+                staged = _stage(target, data)
+                staged_files.append(staged)
+                members.append({"target": path.as_posix(), "staged": staged.relative_to(root).as_posix(), "sha256": _sha(data), "bytes": len(data)})
+            if not members:
+                raise ValueError("generated-output generation must not be empty")
+            for parent in {path.parent for path in staged_files}:
+                _sync_directory(parent)
+            journal_bytes = (json.dumps({"version": 1, "members": members}, sort_keys=True, indent=2) + "\n").encode()
+            temporary_journal = _stage(journal, journal_bytes)
+            staged_files.append(temporary_journal)
+            os.replace(temporary_journal, journal)
+            journal_published = True
+            _sync_directory(journal.parent)
+            _recover(root, journal, after_replace)
+        finally:
+            # Journal-owned stages survive interruption for verified recovery.
+            if not journal_published:
+                for path in staged_files:
+                    path.unlink(missing_ok=True)

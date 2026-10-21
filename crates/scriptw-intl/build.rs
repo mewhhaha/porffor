@@ -4,6 +4,10 @@
 mod calendar;
 #[path = "src/image_build/collator.rs"]
 mod collator;
+#[path = "src/collator_markers.rs"]
+mod collator_markers;
+#[path = "src/image_build/export_contract.rs"]
+mod export_contract;
 #[path = "src/image_build/keyword.rs"]
 mod keyword;
 #[path = "src/image_build/list.rs"]
@@ -18,6 +22,8 @@ mod segmenter;
 fn main() {
     for source in [
         "build.rs",
+        "src/collator_markers.rs",
+        "src/image_build/export_contract.rs",
         "src/image_build/locale.rs",
         "src/image_build/list.rs",
         "src/image_build/collator.rs",

@@ -16,11 +16,12 @@ are recorded with [artifact identities](maintenance-first-wave-20261021.json).
 The following [tooling/documentation wave](maintenance-tooling-wave-20261021.md)
 completes 28 more hills. The [CLI/reporting wave](maintenance-cli-wave-20261021.md)
 completes nine more. The [conformance/publication wave](maintenance-conformance-wave-20261021.md)
-completes another 16: 61 total, with 39 authorized hills remaining.
-The tooling checkpoint passed 663 tooling tests in 172.262 seconds with zero skips;
-107 default and 109 all-feature native planning scopes are unchanged. These
-batches add no conformance passes and do not establish complete workspace,
-release or Test262 acceptance.
+completes another 16. The [compiler/runtime/Intl wave](maintenance-compiler-intl-wave-20261021.md)
+completes the final 39: **all 100 authorized maintenance hills are done**.
+The final checkpoint covers all 109 all-feature native scopes after two complete
+test-owner replays, plus 685 tooling controls and all 15 Intl identities.
+107 default and 109 all-feature planning scopes remain unchanged. Maintenance
+adds no published Test262 passes and does not establish release acceptance.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
@@ -32,7 +33,8 @@ integration tests, 91 CLI unit tests and 29 adjacent native tests across its
 corrected source-bound checkpoints. It also passes 669 tooling controls and 53
 structure checks, and admits all 53,910 pinned Test262 files (102,994 execution
 IDs). Failed attempts and the test-only changes between checkpoints are retained
-in its record; no complete workspace or conformance refresh is implied.
+in its record; that earlier selected checkpoint implied no complete workspace
+or conformance refresh. The final maintenance checkpoint is recorded below.
 
 ## Test262: complete baseline and focused repair
 
@@ -87,39 +89,41 @@ Scope classification of Test262 dynamic-code cases remains unaudited.
 
 ## Native verification and release gates
 
-At `e7532de91`, complete engine (973), CLI library (82) and CLI integration (856)
-scopes pass with zero failures or ignored tests; the replacement runtime-image
-anchor has zero tests. The CLI inventory is covered exactly once by four serial
-partitions. Engine Intl's 299 tests pass on the preceding frozen batch source.
-The record separates these receipts and documents the fixture-only correction
-and formatting-only restoration between them. All 653 tooling checks pass, as do
-locked all-target/all-feature Cargo check and full NumberFormat regeneration.
-These affected scopes do not replace the unfinished broader campaign below.
+The final [compiler/runtime/Intl checkpoint](maintenance-compiler-intl-wave-20261021.md)
+covers every one of the 109 all-feature native scopes: **9,712 passed, zero
+remaining failures, zero ignored**. The frozen workspace run passed 107 scopes
+and exposed two stale source-layout assertions. Only those two test files changed;
+complete frontend (181) and engine structure (33) replays then passed with the
+same dependency closures. The zero-test feature anchor adds no tests.
+[Exact receipts and source boundaries](maintenance-compiler-intl-wave-20261021.json)
+retain both original failures and all inventories.
 
-The stopped pre-rename campaign at `cbf7cc71f` completed 49/113 scopes with
-7,560 passes, one failure and zero ignored tests. Sixty-four scopes remain
-uncompleted, including 2,094 expected native bodies and documentation tests.
-Its original failure is:
+This includes all 973 engine unit tests, 299 Engine Intl integration tests,
+856 CLI integration tests and the differential campaigns at their original
+budgets. The final full tooling checkpoint passes all 685 controls with zero
+skips under TMPDIR=/tmp. It includes three new mutation controls for standalone
+source guards corrected after the native replays; no compiler or native-test
+source changed. Earlier failed boundary checks are retained in the record.
+Locked all-target/all-feature Cargo check and all 15 Intl identity checks pass.
+Generated semantic payloads remain byte-identical. This is all-feature debug
+native verification, not default/release or a complete refreshed Test262 run.
+
+The stopped pre-rename campaign at `cbf7cc71f` remains historical: 49/113 scopes,
+7,560 passes, one failure and zero ignored tests, with 64 scopes unfinished.
+It is superseded for current all-feature coverage by the complete 109-scope
+checkpoint above, not silently resumed or relabelled. Its original failure was:
 
 `scriptw-test262:differential_generated_campaign::builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`
 
-The seed-0 array-buffer Wasm worker timed out at the original 5,000 ms deadline.
-The oracle completed. Its cause is unresolved; a diagnostic pass does not replace
-it. The failed executable and receipts remain in the
-[source-bound inventory](current-inventory-20261020.json).
-
-The old coordinators were absent after restoration. Their saved disk wait is
-historical, not a current capacity or live-process observation. Reconcile original
-receipts before continuing uncompleted scopes in a fresh namespace.
-
-At the earlier source, all ordinary library scopes and Engine Intl integration
-checks passed. Later renamed-release and tooling checks have separate receipts;
-none transfers an older full-suite result to the maintenance batch.
+The seed-0 array-buffer Wasm worker exceeded its original 5,000 ms deadline.
+That control now passes at the unchanged deadline in the new complete native
+checkpoint. This does not prove the old timeout's cause; its failed executable
+and receipts remain in the [historical source-bound inventory](current-inventory-20261020.json).
 
 Outstanding gates include:
 
-- Complete current-source all-feature/default native suites and ordinary
-  optimized release acceptance.
+- Complete current-source default native and ordinary optimized release
+  acceptance; current all-feature native coverage is complete as recorded above.
 - Original 230-case/prior 219-case retention and real serial/shard/resume checks.
 - Complete debug/optimized differential and robustness campaigns, idle samples,
   supported-host reproducibility and calibrated T25 performance.

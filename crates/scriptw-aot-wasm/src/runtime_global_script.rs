@@ -63,16 +63,10 @@ fn emit_validated(
 ) -> Result<RuntimeGlobalScriptArtifact, EmitError> {
     let runtime = validated.runtime();
     let emitted = crate::emit::emit_runtime_global_script_module(program, validated)?;
-    if emitted.runtime_layout.is_some()
-        || !emitted
-            .artifact
-            .runtime()
-            .is_some_and(|actual| Arc::ptr_eq(actual, runtime))
-    {
-        return Err(EmitError::unsupported(
-            "native global Script did not retain its exact linked runtime",
-        ));
-    }
+    validated.require_linked_program(
+        &emitted,
+        "native global Script did not retain its exact linked runtime",
+    )?;
     Ok(RuntimeGlobalScriptArtifact {
         bytes: Arc::from(emitted.artifact.bytes),
         runtime: Arc::clone(runtime),

@@ -101,3 +101,18 @@ fn json_containers_parse_and_release_using_source_sized_explicit_frames() {
     drop(cloned);
     assert!(parse_json(format!("{}0{}!", "[".repeat(depth), "]".repeat(depth))).is_err());
 }
+
+#[test]
+fn malformed_escape_offsets_follow_multibyte_text_without_overrun() {
+    for tail in ["", "D", "D8", "D80", "D80X"] {
+        let source = format!("\"é😀\\u{tail}");
+        let error = parse_json(source.clone()).unwrap_err();
+        let offset = if tail.ends_with('X') {
+            source.len() - 1
+        } else {
+            source.len()
+        };
+        assert_eq!(error.byte_offset(), offset, "{source:?}");
+        assert!(source.is_char_boundary(error.byte_offset()));
+    }
+}

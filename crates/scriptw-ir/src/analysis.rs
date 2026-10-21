@@ -226,7 +226,7 @@ impl FunctionPlan<'_> {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub(crate) struct AnalysisAllocationState {
     pub(crate) prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
     pub(crate) script_import_origin: Option<crate::direct_eval_context::ScriptImportOrigin>,
@@ -237,7 +237,26 @@ pub(crate) struct AnalysisAllocationState {
     next_private_environment_id: u32,
 }
 
+/// Analysis retains only its live semantic cache and allocation counters.
+/// The parsed-template registry stays with the caller across compilation units.
+#[derive(Debug, Clone)]
+pub(crate) struct AnalysisAllocationProgress {
+    pub(crate) prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
+    pub(crate) script_import_origin: Option<crate::direct_eval_context::ScriptImportOrigin>,
+    next_static_script_id: u32,
+    next_function_id: usize,
+    next_environment_id: usize,
+    next_private_environment_id: u32,
+}
+
 impl AnalysisAllocationState {
+    pub(crate) fn commit_analysis(&mut self, progress: &AnalysisAllocationProgress) {
+        self.next_static_script_id = progress.next_static_script_id;
+        self.next_function_id = progress.next_function_id;
+        self.next_environment_id = progress.next_environment_id;
+        self.next_private_environment_id = progress.next_private_environment_id;
+    }
+
     pub(crate) fn with_private_environment_floor(mut self, floor: u32) -> Self {
         self.next_private_environment_id = floor;
         self
@@ -271,7 +290,7 @@ pub(crate) struct Analysis<'a> {
     pub(crate) source_function_global_hypotheses:
         crate::prepared_source_cache::FunctionGlobalConstructorHints,
     pub(crate) script_instantiation: ScriptInstantiation,
-    pub(crate) allocations: AnalysisAllocationState,
+    pub(crate) allocations: AnalysisAllocationProgress,
     pub(crate) owner_plans: BTreeMap<String, OwnerPlan>,
     pub(crate) environment_plans: BTreeMap<EnvironmentId, EnvironmentPlan>,
     pub(crate) physical_binding_environments: BTreeMap<String, BTreeSet<EnvironmentId>>,
@@ -379,7 +398,6 @@ pub(crate) struct AnalysisBuilder<'a> {
     prepared_sources: crate::prepared_source_cache::PreparedSourceCache,
     script_import_origin: Option<crate::direct_eval_context::ScriptImportOrigin>,
     template_source: Option<TemplateSourceIr>,
-    template_sources: crate::template_site::TemplateSourceOwners,
     script_instantiation: ScriptInstantiation,
     eval_visible: bool,
     source_names_by_storage: BTreeMap<String, String>,
@@ -429,15 +447,14 @@ impl<'a> AnalysisBuilder<'a> {
     }
 
     pub(crate) fn with_allocations(
-        allocations: AnalysisAllocationState,
+        allocations: &AnalysisAllocationState,
         script_instantiation: ScriptInstantiation,
         template_source: Option<TemplateSourceIr>,
     ) -> Self {
         Self {
             template_source,
-            prepared_sources: allocations.prepared_sources,
+            prepared_sources: allocations.prepared_sources.clone(),
             script_import_origin: allocations.script_import_origin,
-            template_sources: allocations.template_sources,
             script_instantiation,
             next_static_script_id: allocations.next_static_script_id,
             next_function_id: allocations.next_function_id,
@@ -627,10 +644,9 @@ impl<'a> AnalysisBuilder<'a> {
             source_function_global_hypotheses: Default::default(),
             template_source: self.template_source,
             script_instantiation: self.script_instantiation,
-            allocations: AnalysisAllocationState {
+            allocations: AnalysisAllocationProgress {
                 prepared_sources: self.prepared_sources,
                 script_import_origin: self.script_import_origin,
-                template_sources: self.template_sources,
                 next_static_script_id: self.next_static_script_id,
                 next_function_id: self.next_function_id,
                 next_environment_id: self.next_environment_id,
@@ -7087,115 +7103,4 @@ impl<'a> AnalysisBuilder<'a> {
 }
 
 #[cfg(test)]
-mod private_environment_tests {
-    use super::*;
-
-    fn analyze(source: &'static str) -> Analysis<'static> {
-        let interner = Box::leak(Box::new(Interner::default()));
-        let scope = Scope::new_global();
-        let script = Box::leak(Box::new(
-            Parser::new(Source::from_bytes(source.as_bytes()))
-                .parse_script(&scope, interner)
-                .expect("private-environment fixture should parse"),
-        ));
-        AnalysisBuilder::default().finish(script, interner, source)
-    }
-
-    fn environment_with_binding(analysis: &Analysis<'_>, name: &str) -> PrivateEnvironmentId {
-        analysis
-            .private_environment_plans
-            .values()
-            .find(|environment| environment.bindings.contains_key(name))
-            .map(|environment| environment.id)
-            .unwrap_or_else(|| panic!("private environment should bind `{name}`"))
-    }
-
-    fn function_private_environment(
-        analysis: &Analysis<'_>,
-        name: &str,
-    ) -> Option<PrivateEnvironmentId> {
-        let function = analysis
-            .function_plans
-            .values()
-            .find(|function| function.name == name)
-            .unwrap_or_else(|| panic!("function `{name}` should be planned"));
-        analysis.owner_plans[&function.id].private_environment_id
-    }
-
-    #[test]
-    fn private_environments_resolve_nearest_binding_and_share_accessor_names() {
-        let analysis = analyze(
-            "class Outer {
-                get #value() { return 1; }
-                set #value(next) {}
-                make() {
-                    function read(receiver) { return receiver.#value; }
-                    return class Inner {
-                        #value;
-                        readOuter(receiver) { return receiver.#value; }
-                    };
-                }
-            }",
-        );
-        assert_eq!(analysis.private_environment_plans.len(), 2);
-
-        let outer_id = analysis
-            .private_environment_plans
-            .values()
-            .find(|environment| environment.parent.is_none())
-            .expect("outer private environment should be planned")
-            .id;
-        let inner_id = analysis
-            .private_environment_plans
-            .values()
-            .find(|environment| environment.parent == Some(outer_id))
-            .expect("inner private environment should link to outer")
-            .id;
-        let outer = &analysis.private_environment_plans[&outer_id];
-        assert_eq!(outer.bindings.len(), 1);
-        assert_eq!(
-            function_private_environment(&analysis, "read"),
-            Some(outer_id)
-        );
-
-        let (_, outer_value) = analysis
-            .resolve_private_name(Some(outer_id), "value")
-            .expect("outer private name should resolve");
-        let (resolved_inner_id, inner_value) = analysis
-            .resolve_private_name(Some(inner_id), "value")
-            .expect("inner private name should shadow outer");
-        assert_eq!(resolved_inner_id, inner_id);
-        assert_ne!(inner_value, outer_value);
-    }
-
-    #[test]
-    fn class_heritage_uses_outer_private_environment_and_body_uses_inner() {
-        let analysis = analyze(
-            "class Outer {
-                #outer;
-                make(Base) {
-                    return class Inner extends ((function heritage(receiver) {
-                        return receiver.#outer;
-                    }), Base) {
-                        #inner;
-                        [(function body(receiver) { return receiver.#inner; })()]() {}
-                    };
-                }
-            }",
-        );
-        let outer_id = environment_with_binding(&analysis, "outer");
-        let inner_id = environment_with_binding(&analysis, "inner");
-        assert_eq!(
-            analysis.private_environment_plans[&inner_id].parent,
-            Some(outer_id)
-        );
-        assert_eq!(
-            function_private_environment(&analysis, "heritage"),
-            Some(outer_id)
-        );
-        assert_eq!(
-            function_private_environment(&analysis, "body"),
-            Some(inner_id)
-        );
-    }
-}
+mod private_environment_tests;

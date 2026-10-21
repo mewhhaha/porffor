@@ -4,7 +4,8 @@ const FIXTURE: &str = include_str!(
 const ITERATOR_CLI_TESTS: &str = include_str!("../../../scriptw-cli/tests/cli/iterator.rs");
 const CONTRACT: &str =
     include_str!("../../../../docs/rust-rewrite/contracts/iterator-close-error-realm.md");
-const README: &str = include_str!("../../../../README.md");
+// Exact dated results live in the frozen overview linked by the current README.
+const HISTORICAL_OVERVIEW: &str = include_str!("../../../../DEVELOPMENT_HISTORY.md");
 
 fn bounded<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     source
@@ -82,7 +83,7 @@ fn published_boundary_names_the_owner_routes_witness_and_nonclaims() {
     ] {
         assert!(CONTRACT.contains(marker), "contract marker: {marker}");
     }
-    for source in [README] {
+    for source in [HISTORICAL_OVERVIEW] {
         assert!(source.contains("iterator-close-error-realm.md"));
         assert!(source.contains("68"));
     }

@@ -15,11 +15,7 @@ pub fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         macro_rules! marker {
             ($marker:ty) => {{
                 let ids = IterableDataProvider::<$marker>::iter_ids(&PinnedCollatorProvider)?;
-                if ids.is_empty() {
-                    return Err(
-                        concat!("missing cached identifiers for ", stringify!($marker)).into(),
-                    );
-                }
+                crate::export_contract::require_identifiers(<$marker>::INFO, &ids)?;
                 for id in ids {
                     let response = DataProvider::<$marker>::load(
                         &PinnedCollatorProvider,
@@ -48,15 +44,10 @@ pub fn export() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
                 exporter.flush(<$marker>::INFO, FlushMetadata::default())?;
             }};
         }
-        marker!(CollationRootV1);
-        marker!(CollationTailoringV1);
-        marker!(CollationMetadataV1);
-        marker!(CollationDiacriticsV1);
-        marker!(CollationJamoV1);
-        marker!(CollationReorderingV1);
-        marker!(CollationSpecialPrimariesV1);
-        marker!(NormalizerNfdDataV1);
-        marker!(NormalizerNfdTablesV1);
+        macro_rules! export_markers {
+            ($( $variant:ident, $marker:ident, $wire:literal, $domain:ident; )*) => { $( marker!($marker); )* };
+        }
+        crate::collator_markers::for_each!(export_markers);
         exporter.close()?;
     }
     if bytes.is_empty() {

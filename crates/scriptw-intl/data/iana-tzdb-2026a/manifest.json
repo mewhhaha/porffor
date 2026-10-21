@@ -23,7 +23,7 @@
       "ianaCountry": "IS"
     }
   ],
-  "providerDataSha256": "b0816a04eaa89e04cf0fb7bbbb28cac811c5c9d3609dc25e140a7d77f75e9faf",
+  "providerDataSha256": "dab19a5ee2a7425951096e1c2aca86161f8ff049d8dee0f2121f6b132f9f8040",
   "recipe": {
     "domain": "scriptw-intl-named-time-zones-v1",
     "iana": "2026a",
@@ -113,8 +113,8 @@
       },
       {
         "path": "Cargo.lock",
-        "bytes": 76221,
-        "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
+        "bytes": 76236,
+        "sha256": "ee4e2240f84e00b37e54a0e284c2139f7055efdb49b058a418d9368705cf3e74"
       },
       {
         "path": "crates/scriptw-intl/Cargo.toml",
@@ -123,13 +123,13 @@
       },
       {
         "path": "crates/scriptw-intl/build.rs",
-        "bytes": 2583,
-        "sha256": "afb1830297fd97ca06cf0f0e694d778730e524acc191995c24a990516a0ca481"
+        "bytes": 2790,
+        "sha256": "544e4349c169a72ba2433447d84505c067114eb098b82c72732e2b1f21f932e8"
       },
       {
         "path": "crates/scriptw-intl/src/lib.rs",
-        "bytes": 41356,
-        "sha256": "2a661d08a69c0ceac771a3533904db3939882e6ed705711a15448f9b8d09316b"
+        "bytes": 41455,
+        "sha256": "26f17ce159d0335e8754eaa6cf4756d109f598b2bce3ef950faa2dd9c89a8967"
       },
       {
         "path": "crates/scriptw-intl/src/provider.rs",
@@ -228,8 +228,8 @@
       },
       {
         "path": "crates/scriptw-aot-wasm/src/emit.rs",
-        "bytes": 87228,
-        "sha256": "20bde368542d15b7f1904b0b11d28991e2d4b46163a3872cf6c873057217bf76"
+        "bytes": 87544,
+        "sha256": "69d7b19a9e5c84cfbbce2f21af2d85f704b0c670fbb996dee092cf731c4fa113"
       },
       {
         "path": "crates/scriptw-aot-wasm/src/emit/module_assembly.rs",
@@ -561,7 +561,7 @@
     {
       "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
       "bytes": 565,
-      "sha256": "70cf8a47978f1ab9696c4422cc6c3b61351986315cec2411aa48e53cd2581506"
+      "sha256": "f0747516a6494eef4f34fa816b480c2330372d74f6ffcc9a709a6b252b634067"
     }
   ]
 }

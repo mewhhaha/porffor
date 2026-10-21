@@ -1600,6 +1600,7 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "scriptw-runtime",
+ "serde_json",
 ]
 
 [[package]]
