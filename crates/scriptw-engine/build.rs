@@ -9,6 +9,8 @@ fn main() {
         .join("../..")
         .canonicalize()
         .expect("Scriptw workspace root should resolve");
+    compiler_fingerprint::verify_implementation(&workspace)
+        .expect("compiler fingerprint implementation must match the current checkout");
     for input in compiler_fingerprint::compiler_rerun_inputs(&workspace)
         .expect("production compiler rerun inputs should resolve")
     {

@@ -56,8 +56,6 @@ the inherited machine limits; the benchmark pins both runtimes to one allowed CP
 
 ```sh
 mkdir -p target/performance-build
-# Refresh matching source stamps when reusing a target directory across checkouts.
-touch crates/scriptw-engine/build.rs crates/scriptw-runtime-image/build.rs
 python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   cargo build --locked --offline --release -p scriptw-cli \
   --bin scriptw --example runtime_baseline --jobs 1 --message-format=json \
@@ -74,7 +72,11 @@ If `CARGO_TARGET_DIR` is set, use its actual executable paths in these commands.
 The output directory must be new. Default startup priming enables compilation
 trace outside the measured samples and requires a confirmed embedded-runtime hit.
 A stale compiler/image source stamp fails here with retained diagnostics, before
-spending time on cold samples. The runner keeps an incomplete report and logs
+spending time on cold samples. Both build-script producers also verify that their
+compiled fingerprint implementation matches the current checkout. If that check
+rejects a shared target directory, remove only the affected release build artifacts
+with `cargo clean --release -p scriptw-engine -p scriptw-runtime-image`, then rebuild;
+there is no need to clean third-party compiler dependencies. The runner keeps an incomplete report and logs
 on failure; a failed checksum, trap or timeout fails the benchmark. It records
 machine/cgroup limits, one-CPU affinity, runtime versions, source and executable
 identities, exact workload bytes and output checksums. JavaScript still follows

@@ -99,6 +99,20 @@ pub(crate) fn fingerprint(workspace: &Path) -> io::Result<String> {
     fingerprint_files(workspace, FINGERPRINT_SCHEME, files)
 }
 
+/// Shared target directories can retain a build-script executable whose module
+/// dependency paths refer to another checkout. Reject its stale input inventory
+/// before it can stamp a compiler or runtime image with a different identity.
+pub(crate) fn verify_implementation(workspace: &Path) -> io::Result<()> {
+    let current = fs::read(workspace.join("crates/scriptw-engine/compiler_fingerprint.rs"))?;
+    if current != include_bytes!("compiler_fingerprint.rs") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stale compiler fingerprint build script; rebuild its Cargo build-script artifact",
+        ));
+    }
+    Ok(())
+}
+
 // Cargo recursively watches directory rerun inputs. Descend mixed source/test
 // roots instead of watching their ancestor; keep wholly production subtrees
 // recursive so adding or removing data files still triggers fingerprinting.

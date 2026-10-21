@@ -2,7 +2,8 @@
 mod compiler_fingerprint;
 
 use compiler_fingerprint::{
-    compiler_rerun_inputs, fingerprint, native_fingerprint, COMPILER_INPUTS, NATIVE_COMPILER_INPUTS,
+    compiler_rerun_inputs, fingerprint, native_fingerprint, verify_implementation, COMPILER_INPUTS,
+    NATIVE_COMPILER_INPUTS,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,6 +52,28 @@ impl Drop for Workspace {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn reused_build_script_must_match_its_actual_fingerprint_implementation() {
+    let workspace = Workspace::new();
+    assert_eq!(
+        verify_implementation(&workspace.0).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+    workspace.write(
+        "crates/scriptw-engine/compiler_fingerprint.rs",
+        include_str!("../../compiler_fingerprint.rs"),
+    );
+    verify_implementation(&workspace.0).unwrap();
+    workspace.write(
+        "crates/scriptw-engine/compiler_fingerprint.rs",
+        "different inventory",
+    );
+    assert_eq!(
+        verify_implementation(&workspace.0).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
 }
 
 #[test]
