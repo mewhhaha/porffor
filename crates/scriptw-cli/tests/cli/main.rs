@@ -435,7 +435,7 @@ fn temp_readme_path(name: &str) -> String {
     ));
     std::fs::write(
         &path,
-        "# Scriptw\n\n## Current Status\nold status\n\n## Design\nstill here\n",
+        "# Scriptw\n\n## Current Status\n<!-- scriptw-status:start -->\nold status\n<!-- scriptw-status:end -->\n\n## Design\nstill here\n",
     )
     .expect("temp readme should write");
     path.display().to_string()

@@ -6,8 +6,9 @@ The wire values are `parse`, `early`,
 `resolution`, and `runtime`; code after discovery cannot substitute an
 interchangeable string.
 
-The YAML-like frontmatter parser is the only free-text boundary. A missing
-phase retains Test262's `NegativePhase::Runtime` default, but a present unknown
+The consumed frontmatter parser is the only free-text boundary. A present
+negative mapping must include both phase and type. A missing phase is rejected
+rather than inferred as `NegativePhase::Runtime`; a present unknown
 `negative.phase` rejects discovery with both the test path and offending
 spelling. It is never silently reclassified as a runtime negative.
 

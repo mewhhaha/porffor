@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher};
 use std::fmt::{self, Write as _};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -10,12 +10,15 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+#[cfg(test)]
+use std::time::Duration;
+use std::time::Instant;
 
 use scriptw_engine::{
-    compilation_jobs, wasm_aot_module_is_cached, wasm_aot_script_is_cached, CompileOptions, Engine,
-    EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy, ModuleLoadingPolicy,
-    PromiseRejectionPolicy, RealmBuilder, RunOptions, WasmExecutionFailureKind,
+    CompileOptions, Engine, EngineError, ExecutionBackend, HostHooks, HostSurfacePolicy,
+    ModuleLoadingPolicy, PromiseRejectionPolicy, RealmBuilder, RunOptions,
+    WasmExecutionFailureKind, compilation_jobs, wasm_aot_module_is_cached,
+    wasm_aot_script_is_cached,
 };
 use scriptw_ir::{
     ConformanceOwner, EarlyErrorCode, IrDiagnosticPhase, NativeErrorKind, UnsupportedFeature,
@@ -27,9 +30,15 @@ mod attempt_journal;
 mod case_process;
 mod case_worker_server;
 mod compiler_provenance;
+mod frontmatter;
 mod module_catalog;
 mod performance_evidence;
+mod snapshot_admission;
+use snapshot_admission::{AdmittedSnapshot, decode_snapshot_bytes, read_snapshot_file};
 mod snapshot_publication;
+pub use snapshot_publication::write_snapshot_file as atomic_write;
+mod status_generation;
+pub use status_generation::{PublishedStatusPaths, publish_status_generation};
 mod source_pins;
 mod suite_identity;
 pub use performance_evidence::ConformancePerformanceEvidence;
@@ -41,8 +50,8 @@ pub mod conformance_closure;
 pub mod differential;
 
 use attempt_journal::{
-    plan_run_phases, AdmittedCase, AttemptJournal, AttemptJournalIdentity, CaseAdmission,
-    CaseStrikes, CrashStrikeLimit,
+    AdmittedCase, AttemptJournal, AttemptJournalIdentity, CaseAdmission, CaseStrikes,
+    CrashStrikeLimit, plan_run_phases,
 };
 
 const TOP_LEVEL_FILTERS: [&str; 6] = [
@@ -235,6 +244,44 @@ enum SnapshotUse {
 enum AggregateEvidenceRequirement {
     Envelope,
     Complete,
+}
+
+/// Publication may resume only absent or valid-but-incomplete evidence. Invalid
+/// and ambiguous inputs remain hard errors, independent of diagnostic wording.
+#[derive(Debug)]
+pub enum AggregateLoadError {
+    Missing(String),
+    Incomplete(String),
+    Invalid(String),
+    Ambiguous(String),
+}
+
+impl AggregateLoadError {
+    pub fn may_resume(&self) -> bool {
+        matches!(self, Self::Missing(_) | Self::Incomplete(_))
+    }
+}
+
+impl std::fmt::Display for AggregateLoadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Missing(detail)
+            | Self::Incomplete(detail)
+            | Self::Invalid(detail)
+            | Self::Ambiguous(detail) => formatter.write_str(detail),
+        }
+    }
+}
+impl std::error::Error for AggregateLoadError {}
+impl From<String> for AggregateLoadError {
+    fn from(detail: String) -> Self {
+        Self::Invalid(detail)
+    }
+}
+impl From<AggregateLoadError> for String {
+    fn from(error: AggregateLoadError) -> Self {
+        error.to_string()
+    }
 }
 
 #[derive(Debug)]
@@ -802,8 +849,8 @@ enum PreludeHostOwnership {
 
 mod complete_wasm_aot_host_prelude {
     use super::{
-        WasmAotRealmActivation, WASM_AOT_ACTIVE_CREATE_REALM, WASM_AOT_ACTIVE_REALM_GLOBAL,
-        WASM_AOT_HOST_PRELUDE, WASM_AOT_INACTIVE_CREATE_REALM, WASM_AOT_INACTIVE_REALM_GLOBAL,
+        WASM_AOT_ACTIVE_CREATE_REALM, WASM_AOT_ACTIVE_REALM_GLOBAL, WASM_AOT_HOST_PRELUDE,
+        WASM_AOT_INACTIVE_CREATE_REALM, WASM_AOT_INACTIVE_REALM_GLOBAL, WasmAotRealmActivation,
     };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1778,7 +1825,7 @@ pub struct MatrixRunSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct SnapshotFile {
+pub(crate) struct SnapshotFile {
     snapshot_version: u32,
     #[serde(default, skip_serializing_if = "WireCompilerIdentity::is_absent")]
     compiler_identity: WireCompilerIdentity,
@@ -1966,42 +2013,6 @@ where
         D: Deserializer<'de>,
     {
         Option::<Vec<T>>::deserialize(deserializer).map(Self::Present)
-    }
-}
-
-impl SnapshotFile {
-    fn artifact_kind(&self) -> Result<SnapshotArtifactKind, String> {
-        SnapshotArtifactKind::decode(self.snapshot_version, self.producer)
-    }
-
-    fn provenance(&self) -> Result<SnapshotProvenance, String> {
-        self.compiler_identity.clone().admit(self.artifact_kind()?)
-    }
-
-    fn require_current(&self, path: &Path, operation: &str) -> Result<(), String> {
-        self.provenance()?
-            .require_current(operation)
-            .map(|_| ())
-            .map_err(|error| format!("{error} in {}", path.display()))
-    }
-
-    fn require_running(&self, path: &Path, operation: &str) -> Result<(), String> {
-        self.provenance()?
-            .require_running(operation)
-            .map(|_| ())
-            .map_err(|error| format!("{error} in {}", path.display()))
-    }
-
-    fn require_compiler(&self, expected: &CompilerProvenance, path: &Path) -> Result<(), String> {
-        let provenance = self.provenance()?;
-        let actual = provenance.require_current("matrix node evidence")?;
-        if actual != expected {
-            return Err(format!(
-                "node snapshot {} has different compiler_identity from its aggregate or resume context",
-                path.display()
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -2217,7 +2228,7 @@ impl ConformanceRunner {
         &self,
         snapshot_name: &str,
         publication_backend: PublicationBackend,
-    ) -> Result<VerifiedAggregateSummary, String> {
+    ) -> Result<VerifiedAggregateSummary, AggregateLoadError> {
         load_publishable_aggregate_summary(&self.config, snapshot_name, publication_backend)
     }
 
@@ -2278,14 +2289,14 @@ impl ConformanceRunner {
     }
 }
 
-pub fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
+fn pinned_revisions(config: &SuiteConfig) -> PinnedRevisions {
     PinnedRevisions {
         ecma262: source_pins::ecma262_revision().to_string(),
         test262: suite_test262_pin(config),
     }
 }
 
-pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<SuiteManifest, String> {
+fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<SuiteManifest, String> {
     suite_identity::owned_output_root(config)?;
     let test_root = config.suite_root.join("test");
     if !test_root.exists() {
@@ -2350,7 +2361,7 @@ pub fn discover_suite(config: &SuiteConfig, filter: Option<&str>) -> Result<Suit
     })
 }
 
-pub fn load_preludes(config: &SuiteConfig) -> Result<PreludeStore, String> {
+fn load_preludes(config: &SuiteConfig) -> Result<PreludeStore, String> {
     let mut store = PreludeStore::default();
 
     let (merged, host_ownership): (Option<Cow<'static, str>>, PreludeHostOwnership) =
@@ -2449,10 +2460,7 @@ fn resolve_declared_preludes<'a>(
     Ok(resolved)
 }
 
-pub fn materialize_test(
-    case: &TestCase,
-    preludes: &PreludeStore,
-) -> Result<MaterializedTest, String> {
+fn materialize_test(case: &TestCase, preludes: &PreludeStore) -> Result<MaterializedTest, String> {
     let mode = case.execution_mode();
     if mode.is_raw() {
         return Ok(MaterializedTest {
@@ -2720,7 +2728,7 @@ fn source_may_use_wasm_aot_realm_host(source: &str) -> bool {
     false
 }
 
-pub fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSummary, String> {
+fn run_shard(config: &SuiteConfig, run_config: RunConfig) -> Result<ShardSummary, String> {
     let discovered = discover_suite(config, run_config.filter.as_deref())?;
     let preludes = load_preludes(config)?;
     let cases = shard_cases(
@@ -2821,7 +2829,7 @@ impl TestExecutionList {
 }
 
 /// Execute an exact cohort through the normal supervised runner and snapshots.
-pub fn run_execution_list(
+fn run_execution_list(
     config: &SuiteConfig,
     run_config: RunConfig,
     executions: TestExecutionList,
@@ -2915,7 +2923,7 @@ pub fn run_case_worker_server(config: SuiteConfig, run_config: RunConfig) -> Res
     case_worker_server::serve(config, run_config)
 }
 
-pub fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
+fn run_full(config: &SuiteConfig, run_config: RunConfig) -> Result<RunSummary, String> {
     let manifest = discover_suite(config, run_config.filter.as_deref())?;
     run_full_with_manifest(config, run_config, manifest)
 }
@@ -2959,7 +2967,7 @@ fn run_full_with_manifest(
     Ok(summary)
 }
 
-pub fn run_top_level_matrix(
+fn run_top_level_matrix(
     config: &SuiteConfig,
     run_config: RunConfig,
 ) -> Result<AggregateRunSummary, String> {
@@ -3151,7 +3159,9 @@ impl ResumeCheckpointLoadPolicy {
             (Self::RequireExact, Ok(value)) | (Self::TreatStaleEnvelopeAsAbsent, Ok(value)) => {
                 Ok(value)
             }
-            (Self::RequireExact, Err(ResumeCheckpointLoadError::StaleEnvelope(err))) => Err(err),
+            (Self::RequireExact, Err(ResumeCheckpointLoadError::StaleEnvelope(err))) => {
+                Err(err.to_string())
+            }
             (Self::RequireExact, Err(ResumeCheckpointLoadError::Integrity(err))) => Err(err),
             (
                 Self::TreatStaleEnvelopeAsAbsent,
@@ -3170,13 +3180,80 @@ impl ResumeCheckpointLoadPolicy {
 /// matching made body hash corruption look stale and silently dropped it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ResumeCheckpointLoadError {
-    StaleEnvelope(String),
+    StaleEnvelope(StaleCheckpointEnvelope),
     Integrity(String),
 }
 
+// Only run-envelope fields can be stale. Manifest/case hashes and compiler
+// provenance deliberately have no variant here: their corruption is fatal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StaleEnvelopeField {
+    ExecutionBackend,
+    MatrixStrategy,
+    Ecma262Revision,
+    Test262Revision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResumeEnvelopeKind {
+    Node,
+    Checkpoint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StaleCheckpointEnvelope {
+    context: ResumeEnvelopeKind,
+    field: StaleEnvelopeField,
+    path: PathBuf,
+    expected: String,
+    actual: String,
+}
+
+impl fmt::Display for StaleCheckpointEnvelope {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let context = match self.context {
+            ResumeEnvelopeKind::Node => "resume node snapshot",
+            ResumeEnvelopeKind::Checkpoint => "resume checkpoint",
+        };
+        let field = match self.field {
+            StaleEnvelopeField::ExecutionBackend => "execution_backend",
+            StaleEnvelopeField::MatrixStrategy => "matrix_strategy_version",
+            StaleEnvelopeField::Ecma262Revision => "ecma262 revision",
+            StaleEnvelopeField::Test262Revision => "test262 revision",
+        };
+        let equivalent = match self.field {
+            StaleEnvelopeField::Test262Revision => {
+                " (or a pin whose vendored suite content verifies as identical)"
+            }
+            StaleEnvelopeField::ExecutionBackend
+            | StaleEnvelopeField::MatrixStrategy
+            | StaleEnvelopeField::Ecma262Revision => "",
+        };
+        write!(
+            formatter,
+            "{context} mismatch for {field} in {}: expected {}{equivalent}, found {}",
+            self.path.display(),
+            self.expected,
+            self.actual
+        )
+    }
+}
+
 impl ResumeCheckpointLoadError {
-    fn stale(message: impl Into<String>) -> Self {
-        Self::StaleEnvelope(message.into())
+    fn stale(
+        context: ResumeEnvelopeKind,
+        field: StaleEnvelopeField,
+        path: &Path,
+        expected: impl ToString,
+        actual: impl ToString,
+    ) -> Self {
+        Self::StaleEnvelope(StaleCheckpointEnvelope {
+            context,
+            field,
+            path: path.to_owned(),
+            expected: expected.to_string(),
+            actual: actual.to_string(),
+        })
     }
 
     fn integrity(message: impl Into<String>) -> Self {
@@ -3185,7 +3262,8 @@ impl ResumeCheckpointLoadError {
 
     fn into_message(self) -> String {
         match self {
-            Self::StaleEnvelope(message) | Self::Integrity(message) => message,
+            Self::StaleEnvelope(reason) => reason.to_string(),
+            Self::Integrity(message) => message,
         }
     }
 }
@@ -3193,7 +3271,8 @@ impl ResumeCheckpointLoadError {
 impl fmt::Display for ResumeCheckpointLoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::StaleEnvelope(message) | Self::Integrity(message) => formatter.write_str(message),
+            Self::StaleEnvelope(reason) => fmt::Display::fmt(reason, formatter),
+            Self::Integrity(message) => formatter.write_str(message),
         }
     }
 }
@@ -3304,7 +3383,7 @@ fn load_resume_matrix_node_summary(
 
 fn validate_resume_node_snapshot(
     config: &SuiteConfig,
-    file: &SnapshotFile,
+    file: &AdmittedSnapshot,
     path: &Path,
     node: &RunMatrixNode,
     expected_manifest_hash: u64,
@@ -3315,40 +3394,44 @@ fn validate_resume_node_snapshot(
     file.require_compiler(expected_compiler, path)
         .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != expected_backend.as_str() {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume node snapshot mismatch for execution_backend in {}: expected {}, found {}",
-            path.display(),
-            expected_backend.as_str(),
-            file.execution_backend
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Node,
+            StaleEnvelopeField::ExecutionBackend,
+            &path,
+            &expected_backend.as_str(),
+            &file.execution_backend,
+        ));
     }
     if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume node snapshot mismatch for matrix_strategy_version in {}: expected {}, found {}",
-            path.display(),
-            MATRIX_STRATEGY_VERSION,
-            file.matrix_strategy_version
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Node,
+            StaleEnvelopeField::MatrixStrategy,
+            &path,
+            &MATRIX_STRATEGY_VERSION,
+            &file.matrix_strategy_version,
+        ));
     }
     if file.pinned_revisions.ecma262 != expected_pinned.ecma262 {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume node snapshot mismatch for ecma262 revision in {}: expected {}, found {}",
-            path.display(),
-            expected_pinned.ecma262,
-            file.pinned_revisions.ecma262
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Node,
+            StaleEnvelopeField::Ecma262Revision,
+            &path,
+            &expected_pinned.ecma262,
+            &file.pinned_revisions.ecma262,
+        ));
     }
     let recorded_pinned = PinnedRevisions {
         ecma262: file.pinned_revisions.ecma262.clone(),
         test262: file.pinned_revisions.test262.clone(),
     };
     if !test262_pins_equivalent(config, &recorded_pinned, expected_pinned) {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume node snapshot mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
-            path.display(),
-            expected_pinned.test262,
-            file.pinned_revisions.test262
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Node,
+            StaleEnvelopeField::Test262Revision,
+            &path,
+            &expected_pinned.test262,
+            &file.pinned_revisions.test262,
+        ));
     }
     if file.manifest_hash != expected_manifest_hash {
         return Err(ResumeCheckpointLoadError::integrity(format!(
@@ -3384,7 +3467,7 @@ fn validate_resume_node_snapshot(
     })
 }
 
-pub fn classify_failure(
+fn classify_failure(
     test_id: TestExecutionId,
     kind: FailureKind,
     detail: impl Into<String>,
@@ -3429,7 +3512,7 @@ fn classify_failure_with_outcome(
     }
 }
 
-pub fn write_snapshot(
+fn write_snapshot(
     config: &SuiteConfig,
     snapshot: &ProgressSnapshot,
     snapshot_name: &str,
@@ -3623,7 +3706,7 @@ fn load_or_build_run_matrix(
     Ok(nodes)
 }
 
-pub fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, String> {
+fn build_run_matrix(config: &SuiteConfig) -> Result<Vec<RunMatrixNode>, String> {
     build_run_matrix_uncached(config)
 }
 
@@ -3646,7 +3729,7 @@ fn select_run_matrix_node<'a>(
     }
 }
 
-pub fn run_selected_matrix_node(
+fn run_selected_matrix_node(
     config: &SuiteConfig,
     node_selector: &str,
     run_config: RunConfig,
@@ -4071,7 +4154,7 @@ fn execute_cases(
                 thread::Builder::new()
                     .stack_size(TEST262_WORKER_STACK_SIZE)
                     .spawn_scoped(scope, move || {
-                      let mut session = None;
+                      let mut session = case_worker_server::Worker::default();
                       loop {
                         let maybe_case = {
                             let mut guard = queue.lock().expect("queue mutex poisoned");
@@ -4198,7 +4281,7 @@ fn execute_cases(
                             }
                         }
                       }
-                      if let Err(err) = retire_case_session(&mut session) {
+                      if let Err(err) = session.retire() {
                           let mut error_guard = checkpoint_error
                               .lock()
                               .expect("checkpoint error mutex poisoned");
@@ -4671,16 +4754,54 @@ fn append_case_harness(command: &mut Command, harness: &LocalHarnessSource) {
     }
 }
 
-fn retire_case_session(session: &mut Option<case_worker_server::Session>) -> Result<(), String> {
-    if let Some(mut owned) = session.take() {
-        owned.retire()?;
+/// Keep the primary classified failure even when retirement/removal also fails.
+/// A successful attempt never stays green after failed cleanup.
+fn with_case_cleanup(
+    case: &TestCase,
+    result: Result<TestResult, String>,
+    cleanup: Result<(), String>,
+) -> Result<TestResult, String> {
+    let Err(cleanup) = cleanup else {
+        return result;
+    };
+    let mut result = match result {
+        Ok(result) => result,
+        Err(primary) => TestResult {
+            test_id: case.execution_id.clone(),
+            status: TestStatus::Failed(classify_failure(
+                case.execution_id.clone(),
+                FailureKind::HostHarness,
+                primary,
+            )),
+            duration_ms: None,
+        },
+    };
+    match &mut result.status {
+        TestStatus::Passed => Err(cleanup),
+        TestStatus::Failed(failure) => {
+            failure
+                .detail
+                .push_str(&format!("; cleanup failed: {cleanup}"));
+            failure.detail_hash = hash_detail(&failure.detail);
+            Ok(result)
+        }
     }
-    Ok(())
+}
+
+fn combine_cleanup_errors(
+    first: Result<(), String>,
+    second: Result<(), String>,
+) -> Result<(), String> {
+    match (first, second) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(first), Err(second)) => Err(format!("{first}; {second}")),
+    }
 }
 
 fn run_one_case_in_reused_process(
     binary: &Path,
-    session: &mut Option<case_worker_server::Session>,
+    session: &mut case_worker_server::Worker,
     config: &SuiteConfig,
     case: &TestCase,
     run: &RunConfig,
@@ -4699,79 +4820,83 @@ fn run_one_case_in_reused_process(
     };
     let result = (|| {
         let deadline = case_process::CaseDeadline::new(config.timeout_ms, run.execution_backend)?;
-        if session.is_none() {
-            *session = Some(case_worker_server::Session::spawn(
-                binary, config, run, deadline,
-            )?);
-        }
-        let outcome =
-            session
-                .as_mut()
-                .unwrap()
-                .request(&case.execution_id, &directory, &name, deadline)?;
-        let Some(outcome) = outcome else {
-            retire_case_session(session)?;
-            let duration_ms = deadline.elapsed_ms();
-            return Ok(TestResult {
-                test_id: case.execution_id.clone(),
-                status: TestStatus::Failed(classify_failure(
-                    case.execution_id.clone(),
-                    FailureKind::Runtime,
-                    format!("timeout exceeded after {duration_ms}ms"),
-                )),
-                duration_ms: Some(duration_ms),
-            });
-        };
-        // Retire timed-out, faulty and exhausted workers before reading files.
-        // A completed semantic failure still owns a fresh, already dropped Store.
-        // Successful requests have joined all work before their terminal ACK.
-        if outcome == case_worker_server::Outcome::WorkerFailure
-            || session.as_ref().unwrap().exhausted()
-        {
-            retire_case_session(session)?;
-        }
-        let snapshot = load_previous_snapshot(
-            &child_config,
+        let (outcome, retirement) = match session.request(
+            binary,
+            config,
+            run,
+            &case.execution_id,
+            &directory,
             &name,
-            ResumeCheckpointIdentity::for_single_case_child(&manifest, run),
-            ResumeCheckpointLoadPolicy::RequireExact,
-        )?
-        .ok_or("case worker responded without its exact completed snapshot")?;
-        let result = result_from_single_case_snapshot(case, snapshot, deadline.elapsed_ms())?;
-        if matches!(result.status, TestStatus::Passed)
-            != (outcome == case_worker_server::Outcome::Passed)
-        {
-            return Err("case worker terminal verdict contradicts its validated snapshot".into());
-        }
-        Ok(result)
+            deadline,
+        ) {
+            case_worker_server::RequestCompletion::Completed {
+                outcome,
+                retirement,
+            } => (outcome, retirement),
+            case_worker_server::RequestCompletion::TimedOut { retirement } => {
+                let duration_ms = deadline.elapsed_ms();
+                return with_case_cleanup(
+                    case,
+                    Ok(TestResult {
+                        test_id: case.execution_id.clone(),
+                        status: TestStatus::Failed(classify_failure(
+                            case.execution_id.clone(),
+                            FailureKind::Runtime,
+                            format!("timeout exceeded after {duration_ms}ms"),
+                        )),
+                        duration_ms: Some(duration_ms),
+                    }),
+                    retirement,
+                );
+            }
+            case_worker_server::RequestCompletion::Failed {
+                primary,
+                retirement,
+            } => {
+                return with_case_cleanup(case, Err(primary), retirement);
+            }
+        };
+        // A valid terminal ACK owns a completed snapshot. Preserve its case
+        // classification even if retiring the exhausted/suspect worker failed.
+        let result = (|| {
+            let snapshot = load_previous_snapshot(
+                &child_config,
+                &name,
+                ResumeCheckpointIdentity::for_single_case_child(&manifest, run),
+                ResumeCheckpointLoadPolicy::RequireExact,
+            )?
+            .ok_or("case worker responded without its exact completed snapshot")?;
+            let result = result_from_single_case_snapshot(case, snapshot, deadline.elapsed_ms())?;
+            if matches!(result.status, TestStatus::Passed)
+                != (outcome == case_worker_server::Outcome::Passed)
+            {
+                return Err(
+                    "case worker terminal verdict contradicts its validated snapshot".into(),
+                );
+            }
+            Ok(result)
+        })();
+        with_case_cleanup(case, result, retirement)
     })();
+    // A failed admission may leave a writer active. Retire it before unlinking
+    // its snapshot directory, including errors after a valid terminal reply.
+    let retirement = if result.is_err() {
+        session.retire()
+    } else {
+        Ok(())
+    };
     let cleanup = fs::remove_dir_all(&directory).map_err(|error| {
         format!(
             "cannot remove case snapshot directory {}: {error}",
             directory.display()
         )
     });
-    let retirement = if result.is_err() || cleanup.is_err() {
-        retire_case_session(session)
+    let retirement = if cleanup.is_err() {
+        combine_cleanup_errors(retirement, session.retire())
     } else {
-        Ok(())
+        retirement
     };
-    match (result, retirement, cleanup) {
-        (Ok(result), Ok(()), Ok(())) => Ok(result),
-        (result, retirement, cleanup) => {
-            let mut errors = Vec::new();
-            if let Err(error) = result {
-                errors.push(error);
-            }
-            if let Err(error) = retirement {
-                errors.push(error);
-            }
-            if let Err(error) = cleanup {
-                errors.push(error);
-            }
-            Err(errors.join("; "))
-        }
-    }
+    with_case_cleanup(case, result, combine_cleanup_errors(retirement, cleanup))
 }
 
 fn run_one_case_in_child_process(
@@ -4884,36 +5009,43 @@ fn run_one_case_in_child_snapshot_directory(
         };
 
         let status = child.wait_until_deadline();
-        // Retirement also kills descendants after a normally exited direct child.
-        // Snapshot reading never races a writer surviving the attempt, including
-        // when polling returned an error.
+        // Retirement precedes snapshot reads: no surviving writer may race
+        // admission. Its diagnostic cannot replace a known timeout/poll error.
         let retirement = child.retire();
-        let status = match (status, retirement) {
-            (Ok(status), Ok(())) => status,
-            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
-            (Err(error), Err(cleanup)) => return Err(format!("{error}; {cleanup}")),
-        };
         let duration_ms = budget.elapsed_ms();
-        if status.is_none() {
-            return Ok(TestResult {
-                test_id: case.execution_id.clone(),
-                status: TestStatus::Failed(classify_failure(
-                    case.execution_id.clone(),
-                    FailureKind::Runtime,
-                    format!("timeout exceeded after {}ms", duration_ms),
-                )),
-                duration_ms: Some(duration_ms),
-            });
-        }
-
-        let status = status.expect("timeout returned above");
-        if !status.success() {
-            if status.code() != Some(1) {
-                return Err(format!(
-                    "child case runner crashed for {}: {status}",
-                    case.path
-                ));
+        let status = match status {
+            Ok(None) => {
+                return with_case_cleanup(
+                    case,
+                    Ok(TestResult {
+                        test_id: case.execution_id.clone(),
+                        status: TestStatus::Failed(classify_failure(
+                            case.execution_id.clone(),
+                            FailureKind::Runtime,
+                            format!("timeout exceeded after {duration_ms}ms"),
+                        )),
+                        duration_ms: Some(duration_ms),
+                    }),
+                    retirement,
+                );
             }
+            Err(primary) => return with_case_cleanup(case, Err(primary), retirement),
+            Ok(Some(status)) if !status.success() && status.code() != Some(1) => {
+                return with_case_cleanup(
+                    case,
+                    Err(format!(
+                        "child case runner crashed for {}: {status}",
+                        case.path
+                    )),
+                    retirement,
+                );
+            }
+            Ok(Some(status)) => {
+                retirement?;
+                status
+            }
+        };
+        if !status.success() {
             // A failed case is intentionally exit 1, so accept only its exact
             // validated failure snapshot; a crash cannot turn a staged pass green.
             let snapshot = load_previous_snapshot(
@@ -4954,15 +5086,15 @@ fn run_one_case_in_child_snapshot_directory(
         }
     })();
 
-    fs::remove_dir_all(&child_snapshot_dir).map_err(|err| {
+    let cleanup = fs::remove_dir_all(&child_snapshot_dir).map_err(|err| {
         format!(
             "failed to remove child snapshot directory {} after running {}: {err}",
             child_snapshot_dir.display(),
             case.path
         )
-    })?;
+    });
 
-    child_result
+    with_case_cleanup(case, child_result, cleanup)
 }
 
 /// Runs one case that the attempt journal has admitted.
@@ -4983,12 +5115,19 @@ fn run_case_entry(
 ) -> TestResult {
     let dispatch = CaseExecutionDispatch::admit(config, std::slice::from_ref(admitted.case()))
         .expect("test fixture must explicitly choose its execution role");
-    run_case_entry_with_dispatch(&dispatch, &mut None, config, preludes, admitted, run_config)
+    run_case_entry_with_dispatch(
+        &dispatch,
+        &mut case_worker_server::Worker::default(),
+        config,
+        preludes,
+        admitted,
+        run_config,
+    )
 }
 
 fn run_case_entry_with_dispatch(
     dispatch: &CaseExecutionDispatch,
-    session: &mut Option<case_worker_server::Session>,
+    session: &mut case_worker_server::Worker,
     config: &SuiteConfig,
     preludes: &PreludeStore,
     admitted: AdmittedCase,
@@ -5121,64 +5260,60 @@ fn execute_materialized_case(
     run_options: RunOptions,
     wasm_aot_execution_stack: WasmAotExecutionStack,
 ) -> Result<scriptw_engine::RunOutcome, EngineError> {
-    let execution_backend = run_options.backend;
     let agent_prelude = materialized.agent_prelude.clone();
 
-    if execution_backend == ExecutionBackend::WasmAot
-        && !materialized.execution_mode().is_module()
-        && agent_prelude.is_some()
-        && (match &wasm_aot_execution_stack {
-            #[cfg(test)]
-            WasmAotExecutionStack::DedicatedWorker => false,
-            WasmAotExecutionStack::PersistentTest262Worker => true,
-        })
-    {
-        engine.run_wasm_aot_script_with_agents_on_current_thread(
-            &materialized.source,
-            compile_options,
-            run_options.timeout_ms,
-            run_options.can_block,
-            agent_prelude
-                .clone()
-                .expect("agent prelude was checked above"),
-        )
-    } else if execution_backend == ExecutionBackend::WasmAot
-        && !materialized.execution_mode().is_module()
-        && agent_prelude.is_some()
-    {
-        engine.run_wasm_aot_script_with_agents(
-            &materialized.source,
-            compile_options,
-            run_options.timeout_ms,
-            run_options.can_block,
-            agent_prelude.expect("agent prelude was checked above"),
-        )
-    } else if execution_backend == ExecutionBackend::WasmAot
-        && (match &wasm_aot_execution_stack {
-            #[cfg(test)]
-            WasmAotExecutionStack::DedicatedWorker => false,
-            WasmAotExecutionStack::PersistentTest262Worker => true,
-        })
-    {
-        if materialized.execution_mode().is_module() {
-            engine.run_wasm_aot_module_on_current_thread(
-                &materialized.source,
-                compile_options,
-                run_options.timeout_ms,
-                run_options.can_block,
-            )
-        } else {
-            engine.run_wasm_aot_script_on_current_thread(
-                &materialized.source,
-                compile_options,
-                run_options.timeout_ms,
-                run_options.can_block,
-            )
+    match run_options.backend {
+        ExecutionBackend::SpecExec => {
+            if materialized.execution_mode().is_module() {
+                engine.run_module(&materialized.source, compile_options, run_options)
+            } else {
+                engine.run_script(&materialized.source, compile_options, run_options)
+            }
         }
-    } else if materialized.execution_mode().is_module() {
-        engine.run_module(&materialized.source, compile_options, run_options)
-    } else {
-        engine.run_script(&materialized.source, compile_options, run_options)
+        ExecutionBackend::WasmAot => match wasm_aot_execution_stack {
+            WasmAotExecutionStack::PersistentTest262Worker => {
+                match (materialized.execution_mode().is_module(), agent_prelude) {
+                    (true, Some(_) | None) => engine.run_wasm_aot_module_on_current_thread(
+                        &materialized.source,
+                        compile_options,
+                        run_options.timeout_ms,
+                        run_options.can_block,
+                    ),
+                    (false, Some(prelude)) => engine
+                        .run_wasm_aot_script_with_agents_on_current_thread(
+                            &materialized.source,
+                            compile_options,
+                            run_options.timeout_ms,
+                            run_options.can_block,
+                            prelude,
+                        ),
+                    (false, None) => engine.run_wasm_aot_script_on_current_thread(
+                        &materialized.source,
+                        compile_options,
+                        run_options.timeout_ms,
+                        run_options.can_block,
+                    ),
+                }
+            }
+            #[cfg(test)]
+            WasmAotExecutionStack::DedicatedWorker => {
+                match (materialized.execution_mode().is_module(), agent_prelude) {
+                    (true, Some(_) | None) => {
+                        engine.run_module(&materialized.source, compile_options, run_options)
+                    }
+                    (false, Some(prelude)) => engine.run_wasm_aot_script_with_agents(
+                        &materialized.source,
+                        compile_options,
+                        run_options.timeout_ms,
+                        run_options.can_block,
+                        prelude,
+                    ),
+                    (false, None) => {
+                        engine.run_script(&materialized.source, compile_options, run_options)
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -5388,9 +5523,12 @@ fn run_one_case_with_execution(
                             return Ok(());
                         }
                         return Err(classify_failure(
-                            case.execution_id.clone(), negative_kind,
-                            format!("negative test expected {} {} entry rejection, got a different phase or error: {}",
-                                negative.phase, negative.error_type, err),
+                            case.execution_id.clone(),
+                            negative_kind,
+                            format!(
+                                "negative test expected {} {} entry rejection, got a different phase or error: {}",
+                                negative.phase, negative.error_type, err
+                            ),
                         ));
                     }
                     // run_script/run_module can surface parser/IR diagnostics
@@ -5439,13 +5577,12 @@ fn run_one_case_with_execution(
                             ExecutionBackend::SpecExec => {
                                 let mismatch = format!(
                                     "negative test error mismatch: expected {}, got admitted constructor {}: {}",
-                                    negative.error_type, err.oracle_javascript_exception_constructor_name().unwrap_or("<unclassified>"), detail
+                                    negative.error_type,
+                                    err.oracle_javascript_exception_constructor_name()
+                                        .unwrap_or("<unclassified>"),
+                                    detail
                                 );
-                                (
-                                    OutcomeKind::Bug,
-                                    FailureOrigin::Unknown,
-                                    mismatch,
-                                )
+                                (OutcomeKind::Bug, FailureOrigin::Unknown, mismatch)
                             }
                         };
                         Err(classify_failure_with_outcome(
@@ -5965,23 +6102,10 @@ fn is_expected_negative_exception(
 }
 
 fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> FailureRecord {
-    let kind = classify_engine_error(err);
-    let outcome = match err.wasm_execution_failure_kind() {
-        Some(
-            WasmExecutionFailureKind::DynamicSource
-            | WasmExecutionFailureKind::SemanticGap
-            | WasmExecutionFailureKind::UnavailableCapability,
-        ) => OutcomeKind::NotImplemented,
-        Some(WasmExecutionFailureKind::Trap | WasmExecutionFailureKind::Timeout) => {
-            OutcomeKind::Crash
-        }
-        Some(
-            WasmExecutionFailureKind::JavaScriptException
-            | WasmExecutionFailureKind::IncompleteModuleEvaluation
-            | WasmExecutionFailureKind::ConcurrentFailure,
-        ) => OutcomeKind::Bug,
-        None => classify_failure_outcome(kind, err.message()),
-    };
+    let (kind, outcome) = structured_engine_failure(err).unwrap_or_else(|| {
+        let kind = classify_engine_error_message(err.message());
+        (kind, classify_failure_outcome(kind, err.message()))
+    });
     let (kind, origin) = if err.is_global_prelude_failure() {
         (FailureKind::HostHarness, FailureOrigin::LocalHarness)
     } else {
@@ -5990,26 +6114,76 @@ fn classify_engine_failure(test_id: TestExecutionId, err: &EngineError) -> Failu
     classify_failure_with_outcome(test_id, kind, outcome, origin, err.to_string())
 }
 
-fn classify_engine_error(err: &EngineError) -> FailureKind {
+/// Engine-owned classifications take precedence over source/user-controlled
+/// prose. Historical/unstructured records keep the legacy text classifier.
+fn structured_engine_failure(err: &EngineError) -> Option<(FailureKind, OutcomeKind)> {
     if let Some(kind) = err.wasm_execution_failure_kind() {
-        return match kind {
+        return Some(match kind {
             WasmExecutionFailureKind::DynamicSource
             | WasmExecutionFailureKind::SemanticGap
-            | WasmExecutionFailureKind::UnavailableCapability => FailureKind::Unsupported,
+            | WasmExecutionFailureKind::UnavailableCapability => {
+                (FailureKind::Unsupported, OutcomeKind::NotImplemented)
+            }
+            WasmExecutionFailureKind::Trap | WasmExecutionFailureKind::Timeout => {
+                (FailureKind::Runtime, OutcomeKind::Crash)
+            }
             WasmExecutionFailureKind::JavaScriptException
             | WasmExecutionFailureKind::IncompleteModuleEvaluation
-            | WasmExecutionFailureKind::ConcurrentFailure
-            | WasmExecutionFailureKind::Trap
-            | WasmExecutionFailureKind::Timeout => FailureKind::Runtime,
-        };
+            | WasmExecutionFailureKind::ConcurrentFailure => {
+                (FailureKind::Runtime, OutcomeKind::Bug)
+            }
+        });
     }
-    if let Some(feature) = err
-        .ir_diagnostic()
-        .and_then(|diagnostic| diagnostic.unsupported_feature())
+    if let Some(diagnostic) = err.parse_diagnostic() {
+        return Some(parse_failure_taxonomy(diagnostic));
+    }
+    if let Some(diagnostic) = err.ir_diagnostic() {
+        if let Some(feature) = diagnostic.unsupported_feature() {
+            return Some((
+                classify_unsupported_feature(feature),
+                OutcomeKind::NotImplemented,
+            ));
+        }
+        return Some(match diagnostic.kind() {
+            scriptw_ir::IrDiagnosticKind::EarlyError => (FailureKind::EarlyError, OutcomeKind::Bug),
+            scriptw_ir::IrDiagnosticKind::LinkError | scriptw_ir::IrDiagnosticKind::Lowering => {
+                (FailureKind::Lowering, OutcomeKind::Bug)
+            }
+            scriptw_ir::IrDiagnosticKind::Unsupported => {
+                (FailureKind::Unsupported, OutcomeKind::NotImplemented)
+            }
+        });
+    }
+    if err.is_oracle_entry_syntax_rejection() {
+        return Some((FailureKind::Parser, OutcomeKind::Bug));
+    }
+    if err.oracle_javascript_exception_phase().is_some() {
+        return Some((FailureKind::Runtime, OutcomeKind::Bug));
+    }
+    if err.intl_artifact_identity_error().is_some()
+        || err.wasm_gc_capability().is_some()
+        || err.wasm_weak_reachability_capability().is_some()
     {
-        return classify_unsupported_feature(feature);
+        return Some((FailureKind::WasmBackend, OutcomeKind::Bug));
     }
-    classify_engine_error_message(err.message())
+    None
+}
+
+fn parse_failure_taxonomy(
+    diagnostic: &scriptw_front::ParseDiagnostic,
+) -> (FailureKind, OutcomeKind) {
+    match diagnostic.kind() {
+        scriptw_front::ParseDiagnosticKind::UnsupportedParserFeature => {
+            (FailureKind::Parser, OutcomeKind::NotImplemented)
+        }
+        scriptw_front::ParseDiagnosticKind::MalformedJavaScript => (
+            match diagnostic.phase() {
+                scriptw_front::ParseDiagnosticPhase::Parse => FailureKind::Parser,
+                scriptw_front::ParseDiagnosticPhase::Early => FailureKind::EarlyError,
+            },
+            OutcomeKind::Bug,
+        ),
+    }
 }
 
 fn classify_unsupported_feature(feature: UnsupportedFeature) -> FailureKind {
@@ -6199,11 +6373,9 @@ fn validate_snapshot_checkpoint_identity(
     }
 }
 
-fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
+fn snapshot_from_file(admitted: AdmittedSnapshot) -> Result<ProgressSnapshot, String> {
+    let (file, artifact_kind, provenance) = admitted.into_parts();
     let version = file.snapshot_version;
-    let artifact_kind = file.artifact_kind()?;
-    let provenance = file.compiler_identity.clone().admit(artifact_kind)?;
-    validate_snapshot_checkpoint_identity(&file, artifact_kind)?;
     if artifact_kind.has_execution_identity() {
         if !file.completed_paths.is_absent() || !file.timeout_list.is_absent() {
             return Err(format!(
@@ -6528,35 +6700,6 @@ fn render_human_summary(snapshot: &ProgressSnapshot) -> String {
     out
 }
 
-fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, String> {
-    let raw = fs::read_to_string(path)
-        .map_err(|err| format!("failed to read snapshot {}: {err}", path.display()))?;
-    decode_snapshot_bytes(raw.as_bytes(), path)
-}
-
-/// The same native schema/provenance/checkpoint admission used by file readers.
-/// Robustness workers pass exact bounded bytes without constructing a fake pin.
-pub(crate) fn decode_snapshot_bytes(raw: &[u8], path: &Path) -> Result<SnapshotFile, String> {
-    let file: SnapshotFile = serde_json::from_slice(raw)
-        .map_err(|err| format!("failed to parse snapshot {}: {err}", path.display()))?;
-    let artifact_kind = file
-        .artifact_kind()
-        .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
-    file.provenance().map_err(|err| {
-        format!(
-            "invalid snapshot compiler identity in {}: {err}",
-            path.display()
-        )
-    })?;
-    validate_snapshot_checkpoint_identity(&file, artifact_kind)
-        .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
-    if artifact_kind.has_execution_identity() {
-        parse_snapshot_execution_backend(&file.execution_backend)
-            .map_err(|err| format!("invalid snapshot schema in {}: {err}", path.display()))?;
-    }
-    Ok(file)
-}
-
 fn load_resume_aggregate_snapshot(
     config: &SuiteConfig,
     snapshot_name: &str,
@@ -6651,7 +6794,7 @@ fn load_resume_aggregate_snapshot(
 
 fn validate_resume_aggregate_snapshot(
     config: &SuiteConfig,
-    file: &SnapshotFile,
+    file: &AdmittedSnapshot,
     path: &Path,
     expected_manifest_hash: u64,
     expected_backend: ExecutionBackend,
@@ -6757,40 +6900,44 @@ fn load_previous_snapshot_checked(
     file.require_running(&path, "resume checkpoint")
         .map_err(ResumeCheckpointLoadError::integrity)?;
     if file.execution_backend != identity.execution_backend.as_str() {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume checkpoint mismatch for execution_backend in {}: expected {}, found {}",
-            path.display(),
-            identity.execution_backend.as_str(),
-            file.execution_backend
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Checkpoint,
+            StaleEnvelopeField::ExecutionBackend,
+            &path,
+            &identity.execution_backend.as_str(),
+            &file.execution_backend,
+        ));
     }
     if file.matrix_strategy_version != MATRIX_STRATEGY_VERSION {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume checkpoint mismatch for matrix_strategy_version in {}: expected {}, found {}",
-            path.display(),
-            MATRIX_STRATEGY_VERSION,
-            file.matrix_strategy_version
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Checkpoint,
+            StaleEnvelopeField::MatrixStrategy,
+            &path,
+            &MATRIX_STRATEGY_VERSION,
+            &file.matrix_strategy_version,
+        ));
     }
     if file.pinned_revisions.ecma262 != identity.pinned_revisions.ecma262 {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume checkpoint mismatch for ecma262 revision in {}: expected {}, found {}",
-            path.display(),
-            identity.pinned_revisions.ecma262,
-            file.pinned_revisions.ecma262
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Checkpoint,
+            StaleEnvelopeField::Ecma262Revision,
+            &path,
+            &identity.pinned_revisions.ecma262,
+            &file.pinned_revisions.ecma262,
+        ));
     }
     let recorded_pinned = PinnedRevisions {
         ecma262: file.pinned_revisions.ecma262.clone(),
         test262: file.pinned_revisions.test262.clone(),
     };
     if !test262_pins_equivalent(config, &recorded_pinned, &identity.pinned_revisions) {
-        return Err(ResumeCheckpointLoadError::stale(format!(
-            "resume checkpoint mismatch for test262 revision in {}: expected {} (or a pin whose vendored suite content verifies as identical), found {}",
-            path.display(),
-            identity.pinned_revisions.test262,
-            file.pinned_revisions.test262
-        )));
+        return Err(ResumeCheckpointLoadError::stale(
+            ResumeEnvelopeKind::Checkpoint,
+            StaleEnvelopeField::Test262Revision,
+            &path,
+            &identity.pinned_revisions.test262,
+            &file.pinned_revisions.test262,
+        ));
     }
     if file.manifest_hash != identity.manifest_hash {
         return Err(ResumeCheckpointLoadError::integrity(format!(
@@ -6840,7 +6987,7 @@ fn load_previous_snapshot_checked(
 struct ResolvedAggregateSnapshot {
     snapshot_name: String,
     snapshot_paths: SnapshotPaths,
-    file: SnapshotFile,
+    file: AdmittedSnapshot,
 }
 
 fn aggregate_snapshot_paths(
@@ -6877,9 +7024,14 @@ fn resolve_aggregate_snapshot(
     snapshot_use: SnapshotUse,
     nodes: &[RunMatrixNode],
     evidence_requirement: AggregateEvidenceRequirement,
-) -> Result<ResolvedAggregateSnapshot, String> {
+) -> Result<ResolvedAggregateSnapshot, AggregateLoadError> {
     let exact_paths = aggregate_snapshot_paths(config, snapshot_name, manifest_hash);
-    if exact_paths.json_path.exists() {
+    if exact_paths.json_path.try_exists().map_err(|error| {
+        format!(
+            "cannot inspect aggregate {}: {error}",
+            exact_paths.json_path.display()
+        )
+    })? {
         let file = read_snapshot_file(&exact_paths.json_path)?;
         validate_resume_aggregate_snapshot(
             config,
@@ -6898,18 +7050,35 @@ fn resolve_aggregate_snapshot(
     }
 
     let suffix = format!("-aggregate-{manifest_hash}.json");
-    let mut candidate_names = fs::read_dir(&config.snapshot_dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
-        .filter_map(|file_name| {
-            file_name
-                .strip_suffix(&suffix)
-                .filter(|name| !name.is_empty() && *name != snapshot_name)
-                .map(str::to_string)
-        })
-        .collect::<Vec<_>>();
+    let mut candidate_names = match fs::read_dir(&config.snapshot_dir) {
+        Ok(entries) => entries
+            .map(|entry| {
+                entry.map_err(|error| {
+                    format!(
+                        "cannot enumerate aggregates in {}: {error}",
+                        config.snapshot_dir.display()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+            .filter_map(|file_name| {
+                file_name
+                    .strip_suffix(&suffix)
+                    .filter(|name| !name.is_empty() && *name != snapshot_name)
+                    .map(str::to_string)
+            })
+            .collect::<Vec<_>>(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => {
+            return Err(format!(
+                "cannot read aggregate directory {}: {error}",
+                config.snapshot_dir.display()
+            )
+            .into());
+        }
+    };
     candidate_names.sort();
     candidate_names.dedup();
 
@@ -6943,7 +7112,8 @@ fn resolve_aggregate_snapshot(
                     &candidate,
                     nodes,
                     execution_backend,
-                )?;
+                )
+                .map_err(String::from)?;
                 Ok(())
             }
         });
@@ -6965,17 +7135,22 @@ fn resolve_aggregate_snapshot(
                     incompatible.join(", ")
                 )
             };
-            Err(format!(
+            let detail = format!(
                 "missing aggregate snapshot {}; no compatible {} aggregate snapshot for manifest hash {} exists in {}{}",
                 exact_paths.json_path.display(),
                 execution_backend.as_str(),
                 manifest_hash,
                 config.snapshot_dir.display(),
                 incompatible_note,
-            ))
+            );
+            Err(if incompatible.is_empty() {
+                AggregateLoadError::Missing(detail)
+            } else {
+                AggregateLoadError::Invalid(detail)
+            })
         }
-        _ => Err(format!(
-            "missing aggregate snapshot {}; multiple compatible aggregate snapshots exist for manifest hash {}: [{}]; pass an explicit snapshot name to pick one",
+        _ => Err(AggregateLoadError::Ambiguous(format!(
+            "ambiguous aggregate snapshot {}; multiple compatible aggregate snapshots exist for manifest hash {}: [{}]; pass an explicit snapshot name to pick one",
             exact_paths.json_path.display(),
             manifest_hash,
             compatible
@@ -6983,7 +7158,7 @@ fn resolve_aggregate_snapshot(
                 .map(|candidate| candidate.snapshot_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
-        )),
+        ))),
     }
 }
 
@@ -7111,25 +7286,25 @@ fn validate_complete_aggregate_contract(
     snapshot: &ProgressSnapshot,
     nodes: &[RunMatrixNode],
     snapshot_path: &Path,
-) -> Result<(), String> {
+) -> Result<(), AggregateLoadError> {
     let context = format!(
         "aggregate snapshot integrity failure in {}",
         snapshot_path.display()
     );
     if snapshot.matrix_path.len() != 1 || snapshot.matrix_path[0] != "top-level" {
-        return Err(format!(
+        return Err(AggregateLoadError::Invalid(format!(
             "{context}: matrix_path must be exactly [top-level], found [{}]",
             snapshot.matrix_path.join(", ")
-        ));
+        )));
     }
     if !snapshot.failures.is_empty()
         || !snapshot.completed_test_ids.is_empty()
         || !snapshot.slowest_tests.is_empty()
         || !snapshot.timeout_list.is_empty()
     {
-        return Err(format!(
+        return Err(AggregateLoadError::Invalid(format!(
             "{context}: aggregate-only snapshot fields must be empty"
-        ));
+        )));
     }
 
     let expected_nodes = nodes
@@ -7142,10 +7317,12 @@ fn validate_complete_aggregate_contract(
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
     if completed_nodes.len() != snapshot.completed_nodes.len() {
-        return Err(format!("{context}: completed_nodes contains duplicates"));
+        return Err(AggregateLoadError::Invalid(format!(
+            "{context}: completed_nodes contains duplicates"
+        )));
     }
     let expected_node_ids = expected_nodes.keys().copied().collect::<BTreeSet<_>>();
-    if completed_nodes != expected_node_ids {
+    let incomplete = if completed_nodes != expected_node_ids {
         let missing = expected_node_ids
             .difference(&completed_nodes)
             .take(5)
@@ -7156,46 +7333,52 @@ fn validate_complete_aggregate_contract(
             .take(5)
             .copied()
             .collect::<Vec<_>>();
-        return Err(format!(
+        let detail = format!(
             "aggregate snapshot incomplete in {}: completed {} of {} matrix nodes; missing [{}]; extra [{}]",
             snapshot_path.display(),
             completed_nodes.len(),
             expected_node_ids.len(),
             missing.join(", "),
             extra.join(", ")
-        ));
-    }
+        );
+        if !extra.is_empty() {
+            return Err(AggregateLoadError::Invalid(detail));
+        }
+        Some(detail)
+    } else {
+        None
+    };
 
     let mut entries = BTreeMap::new();
     for entry in &snapshot.aggregate_entries {
         if entries.insert(entry.node_id.as_str(), entry).is_some() {
-            return Err(format!(
+            return Err(AggregateLoadError::Invalid(format!(
                 "{context}: duplicate aggregate entry for node {}",
                 entry.node_id
-            ));
+            )));
         }
         let Some(node) = expected_nodes.get(entry.node_id.as_str()) else {
-            return Err(format!(
+            return Err(AggregateLoadError::Invalid(format!(
                 "{context}: aggregate entry names unknown node {}",
                 entry.node_id
-            ));
+            )));
         };
         if entry.node_kind != node.node_kind
             || entry.filter != node.filter
             || entry.matrix_path != node.matrix_path
             || entry.total != node.total_cases
         {
-            return Err(format!(
+            return Err(AggregateLoadError::Invalid(format!(
                 "{context}: aggregate entry metadata does not match current matrix node {}",
                 entry.node_id
-            ));
+            )));
         }
         let expected_hash = matrix_node_manifest_hash(&snapshot.pinned_revisions, node);
         if entry.manifest_hash != expected_hash {
-            return Err(format!(
+            return Err(AggregateLoadError::Invalid(format!(
                 "{context}: aggregate entry {} has manifest hash {}, expected {}",
                 entry.node_id, entry.manifest_hash, expected_hash
-            ));
+            )));
         }
         validate_summary_count_contract(
             &format!("{context}: node {}", entry.node_id),
@@ -7207,10 +7390,10 @@ fn validate_complete_aggregate_contract(
             &entry.counts_per_origin,
         )?;
     }
-    if entries.keys().copied().collect::<BTreeSet<_>>() != expected_node_ids {
-        return Err(format!(
+    if entries.keys().copied().collect::<BTreeSet<_>>() != completed_nodes {
+        return Err(AggregateLoadError::Invalid(format!(
             "{context}: aggregate entries do not cover every completed matrix node"
-        ));
+        )));
     }
 
     let rebuilt = aggregate_from_entries(&snapshot.aggregate_entries);
@@ -7220,9 +7403,9 @@ fn validate_complete_aggregate_contract(
         || snapshot.counts_per_outcome != rebuilt.counts_per_outcome
         || snapshot.aggregate_counts_so_far != rebuilt.counts_per_kind
     {
-        return Err(format!(
+        return Err(AggregateLoadError::Invalid(format!(
             "{context}: aggregate totals do not equal the sum of its node entries"
-        ));
+        )));
     }
     validate_summary_count_contract(
         &context,
@@ -7232,7 +7415,11 @@ fn validate_complete_aggregate_contract(
         &rebuilt.counts_per_kind,
         &rebuilt.counts_per_outcome,
         &rebuilt.counts_per_origin,
-    )
+    )?;
+    match incomplete {
+        Some(detail) => Err(AggregateLoadError::Incomplete(detail)),
+        None => Ok(()),
+    }
 }
 
 enum CaseSetRequirement {
@@ -7443,23 +7630,35 @@ fn validate_complete_aggregate_evidence(
     snapshot: &ProgressSnapshot,
     nodes: &[RunMatrixNode],
     execution_backend: ExecutionBackend,
-) -> Result<(), String> {
+) -> Result<(), AggregateLoadError> {
     let suite_test_ids = discover_suite(config, None)?
         .cases
         .into_iter()
         .map(|case| case.execution_id)
         .collect::<Vec<_>>();
     validate_run_matrix_contract(nodes, &suite_test_ids)?;
-    validate_complete_aggregate_contract(snapshot, nodes, snapshot_path)?;
-
+    let completeness = validate_complete_aggregate_contract(snapshot, nodes, snapshot_path);
+    if let Err(error) = &completeness {
+        if !matches!(error, AggregateLoadError::Incomplete(_)) {
+            return completeness;
+        }
+    }
+    // Even a partial aggregate must prove every recorded node before a caller
+    // may resume it. Missing work is recoverable; damaged evidence is not.
+    let recorded_nodes = nodes
+        .iter()
+        .filter(|node| snapshot.completed_nodes.contains(&node.node_id))
+        .cloned()
+        .collect::<Vec<_>>();
     validate_aggregate_node_evidence(
         config,
         snapshot_name,
         snapshot_path,
         snapshot,
-        nodes,
+        &recorded_nodes,
         execution_backend,
-    )
+    )?;
+    completeness
 }
 
 fn validate_aggregate_node_evidence(
@@ -7508,7 +7707,7 @@ fn load_and_validate_resolved_aggregate_evidence(
     resolved: &ResolvedAggregateSnapshot,
     nodes: &[RunMatrixNode],
     execution_backend: ExecutionBackend,
-) -> Result<ProgressSnapshot, String> {
+) -> Result<ProgressSnapshot, AggregateLoadError> {
     let snapshot = snapshot_from_file(resolved.file.clone()).map_err(|err| {
         format!(
             "invalid snapshot data in {}: {err}",
@@ -7531,7 +7730,7 @@ fn load_and_validate_resolved_aggregate_evidence(
 /// Legacy envelopes remain available only through the explicitly metadata-only
 /// progress and pin-report workflows; complete evidence is never upgraded from
 /// a path-era schema.
-pub fn load_verified_aggregate_summary(
+fn load_verified_aggregate_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
@@ -7542,6 +7741,7 @@ pub fn load_verified_aggregate_summary(
         execution_backend,
         SnapshotUse::CurrentState,
     )
+    .map_err(Into::into)
 }
 
 /// Loads the only aggregate schema that may feed a new publication.
@@ -7549,11 +7749,11 @@ pub fn load_verified_aggregate_summary(
 /// Publication rejects every legacy version: it must be based on a compiler-bound version-8
 /// aggregate whose producer is the closed `Scriptw` identity and whose cases
 /// carry execution identity.
-pub fn load_publishable_aggregate_summary(
+fn load_publishable_aggregate_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
     publication_backend: PublicationBackend,
-) -> Result<VerifiedAggregateSummary, String> {
+) -> Result<VerifiedAggregateSummary, AggregateLoadError> {
     load_verified_aggregate_summary_for_use(
         config,
         snapshot_name,
@@ -7573,6 +7773,7 @@ fn load_current_aggregate_summary(
         execution_backend,
         SnapshotUse::CurrentState,
     )
+    .map_err(Into::into)
 }
 
 fn load_verified_aggregate_summary_for_use(
@@ -7580,7 +7781,7 @@ fn load_verified_aggregate_summary_for_use(
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
     snapshot_use: SnapshotUse,
-) -> Result<VerifiedAggregateSummary, String> {
+) -> Result<VerifiedAggregateSummary, AggregateLoadError> {
     let nodes = load_or_build_run_matrix(config, execution_backend)?;
     let manifest_hash = hash_matrix_nodes(&nodes, execution_backend);
     let expected_pinned = pinned_revisions(config);
@@ -7618,7 +7819,7 @@ fn load_verified_aggregate_summary_for_use(
     })
 }
 
-pub fn load_aggregate_progress_summary(
+fn load_aggregate_progress_summary(
     config: &SuiteConfig,
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
@@ -7689,7 +7890,7 @@ pub fn load_aggregate_progress_summary(
     })
 }
 
-pub fn load_matrix_triage_entries(
+fn load_matrix_triage_entries(
     config: &SuiteConfig,
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
@@ -7736,7 +7937,7 @@ pub fn load_matrix_triage_entries(
     Ok(entries)
 }
 
-pub fn load_matrix_failure_details(
+fn load_matrix_failure_details(
     config: &SuiteConfig,
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
@@ -7884,7 +8085,7 @@ fn group_failures_by_detail_identity(failures: &[FailureRecord]) -> Vec<FailureD
     groups
 }
 
-pub fn generate_backlog(
+fn generate_backlog(
     config: &SuiteConfig,
     snapshot_name: &str,
     execution_backend: ExecutionBackend,
@@ -8068,7 +8269,7 @@ fn load_comparison_aggregate_summary(
 
 /// Compare two explicitly named, complete current snapshots.
 /// Unlike status/backlog discovery, comparison never substitutes another name.
-pub fn compare_snapshots(
+fn compare_snapshots(
     config: &SuiteConfig,
     base_snapshot_name: &str,
     candidate_snapshot_name: &str,
@@ -8171,7 +8372,7 @@ pub fn compare_snapshots(
 /// string, but the git object store verifies identical suite content), or
 /// `Mismatch` (unverifiable — such snapshots are refused by merge/compare
 /// paths). The report is deterministic (sorted by file name) and read-only.
-pub fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, String> {
+fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, String> {
     let current = pinned_revisions(config);
     let mut file_names = fs::read_dir(&config.snapshot_dir)
         .map_err(|err| {
@@ -8209,7 +8410,7 @@ pub fn snapshot_pin_report(config: &SuiteConfig) -> Result<SnapshotPinReport, St
             mismatched += 1;
         }
         entries.push(SnapshotPinReportEntry {
-            provenance: file.provenance()?,
+            provenance: file.provenance().clone(),
             file_name,
             execution_backend: file.execution_backend.clone(),
             manifest_hash: file.manifest_hash,
@@ -8277,7 +8478,7 @@ fn locate_node_snapshot(
     execution_backend: ExecutionBackend,
     entry: &TopLevelRunSummary,
     expected_compiler: &CompilerProvenance,
-) -> Result<Option<(PathBuf, SnapshotFile)>, String> {
+) -> Result<Option<(PathBuf, AdmittedSnapshot)>, String> {
     let expected_pinned = pinned_revisions(config);
     let node_snapshot_name = format!(
         "{}-{}",
@@ -8671,7 +8872,7 @@ fn aggregate_summary_from_snapshot(snapshot: &ProgressSnapshot) -> AggregateRunS
     }
 }
 
-pub fn baseline_report(summary: &RunSummary) -> BaselineReport {
+fn baseline_report(summary: &RunSummary) -> BaselineReport {
     let mut subtree_by_kind: BTreeMap<FailureKind, BTreeMap<String, usize>> = BTreeMap::new();
     for failure in &summary.failures {
         let subtree = top_level_subtree(&failure.test_path);
@@ -8713,7 +8914,7 @@ pub fn baseline_report(summary: &RunSummary) -> BaselineReport {
     }
 }
 
-pub fn aggregate_baseline_report(summary: &AggregateRunSummary) -> AggregateRunSummary {
+fn aggregate_baseline_report(summary: &AggregateRunSummary) -> AggregateRunSummary {
     let mut grouped = BTreeMap::<String, TopLevelRunSummary>::new();
     for entry in &summary.entries {
         let aggregate = grouped.entry(entry.filter.clone()).or_insert_with(|| {
@@ -8802,6 +9003,15 @@ fn shard_cases(
         .collect())
 }
 
+fn sorted_directory_entries(dir: &Path, owner: &str) -> Result<Vec<fs::DirEntry>, String> {
+    let mut entries = fs::read_dir(dir)
+        .map_err(|err| format!("failed to read {owner} dir {}: {err}", dir.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| format!("failed to iterate {owner} dir {}: {err}", dir.display()))?;
+    entries.sort_by_key(|entry| entry.path());
+    Ok(entries)
+}
+
 fn scan_tests(
     dir: &Path,
     test_root: &Path,
@@ -8809,11 +9019,7 @@ fn scan_tests(
     boundary_filter: bool,
     cases: &mut Vec<TestCase>,
 ) -> Result<(), String> {
-    let mut entries = fs::read_dir(dir)
-        .map_err(|err| format!("failed to read test dir {}: {err}", dir.display()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("failed to iterate test dir {}: {err}", dir.display()))?;
-    entries.sort_by_key(|entry| entry.path());
+    let entries = sorted_directory_entries(dir, "test")?;
 
     for entry in entries {
         let path = entry.path();
@@ -8896,12 +9102,13 @@ fn parse_test_executions(
     source_path: PathBuf,
     original_source: String,
 ) -> Result<Vec<TestCase>, String> {
-    let frontmatter = parse_frontmatter_block(&original_source);
-    let flags = parse_frontmatter_list(frontmatter.get("flags").map(String::as_str));
-    let features = parse_frontmatter_list(frontmatter.get("features").map(String::as_str));
-    let includes = parse_frontmatter_vec(frontmatter.get("includes").map(String::as_str));
-    let negative =
-        parse_negative(&path, frontmatter.get("negative").map(String::as_str))?.map(Arc::new);
+    let frontmatter::Metadata {
+        flags,
+        features,
+        includes,
+        negative,
+    } = frontmatter::parse(&original_source, &path)?;
+    let negative = negative.map(Arc::new);
     let plan = TestExecutionPlan::from_flags(&path, &flags)?;
     let original_source: Arc<str> = original_source.into();
 
@@ -8930,133 +9137,12 @@ fn parse_test_case(path: String, source_path: PathBuf, original_source: String) 
         .expect("every valid Test262 execution plan is non-empty")
 }
 
-fn parse_frontmatter_block(source: &str) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    let Some(start) = source.find("/*---") else {
-        return out;
-    };
-    let Some(end) = source[start + 5..].find("---*/") else {
-        return out;
-    };
-    let body = &source[start + 5..start + 5 + end];
-    let normalized_body = body.replace("\r\n", "\n").replace('\r', "\n");
-    let mut current_key = None::<String>;
-    let mut current_value = String::new();
-
-    for line in normalized_body.lines() {
-        let trimmed = line.trim_end();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if let Some((key, value)) = trimmed.split_once(':') {
-            if !line.starts_with(' ') && !line.starts_with('\t') {
-                if let Some(key) = current_key.take() {
-                    out.insert(key, current_value.trim().to_string());
-                    current_value.clear();
-                }
-                current_key = Some(key.trim().to_string());
-                current_value.push_str(value.trim());
-                current_value.push('\n');
-                continue;
-            }
-        }
-
-        current_value.push_str(trimmed.trim());
-        current_value.push('\n');
-    }
-
-    if let Some(key) = current_key {
-        out.insert(key, current_value.trim().to_string());
-    }
-
-    out
-}
-
-fn parse_frontmatter_list(value: Option<&str>) -> BTreeSet<String> {
-    let Some(value) = value else {
-        return BTreeSet::new();
-    };
-    let value = value.trim();
-    if value.starts_with('[') && value.ends_with(']') {
-        return value[1..value.len() - 1]
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(str::to_string)
-            .collect();
-    }
-
-    let mut out = BTreeSet::new();
-    for line in value.lines() {
-        let item = line.trim().trim_start_matches('-').trim();
-        if !item.is_empty() {
-            out.insert(item.to_string());
-        }
-    }
-    out
-}
-
-fn parse_frontmatter_vec(value: Option<&str>) -> Vec<String> {
-    let Some(value) = value else {
-        return Vec::new();
-    };
-    let value = value.trim();
-    if value.starts_with('[') && value.ends_with(']') {
-        return value[1..value.len() - 1]
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(str::to_string)
-            .collect();
-    }
-
-    value
-        .lines()
-        .map(|line| line.trim().trim_start_matches('-').trim())
-        .filter(|item| !item.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-fn parse_negative(
-    test_path: &str,
-    value: Option<&str>,
-) -> Result<Option<NegativeExpectation>, String> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let mut phase = None;
-    let mut error_type = String::new();
-    for line in value.lines() {
-        if let Some(rest) = line.trim().strip_prefix("phase:") {
-            phase = Some(rest.trim());
-        } else if let Some(rest) = line.trim().strip_prefix("type:") {
-            error_type = rest.trim().to_string();
-        }
-    }
-
-    if phase.is_none() && error_type.is_empty() {
-        return Ok(None);
-    }
-
-    let phase = phase
-        .map(NegativePhase::parse)
-        .transpose()
-        .map_err(|err| format!("invalid Test262 negative metadata for {test_path}: {err}"))?
-        .unwrap_or(NegativePhase::Runtime);
-    Ok(Some(NegativeExpectation { phase, error_type }))
-}
-
 fn scan_harness_files(
     root: &Path,
     dir: &Path,
     files: &mut Vec<(String, PathBuf)>,
 ) -> Result<(), String> {
-    let mut entries = fs::read_dir(dir)
-        .map_err(|err| format!("failed to read harness dir {}: {err}", dir.display()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|err| format!("failed to iterate harness dir {}: {err}", dir.display()))?;
-    entries.sort_by_key(|entry| entry.path());
+    let entries = sorted_directory_entries(dir, "harness")?;
 
     for entry in entries {
         let path = entry.path();
@@ -9550,6 +9636,24 @@ impl RunSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn read_snapshot_file(path: &Path) -> Result<SnapshotFile, String> {
+        super::read_snapshot_file(path).map(|file| file.into_parts().0)
+    }
+
+    fn snapshot_from_file(file: SnapshotFile) -> Result<ProgressSnapshot, String> {
+        super::snapshot_from_file(snapshot_admission::admit(
+            file,
+            Path::new("test.snapshot.json"),
+        )?)
+    }
+
+    impl SnapshotFile {
+        fn require_running(&self, path: &Path, operation: &str) -> Result<(), String> {
+            snapshot_admission::admit(self.clone(), path)?.require_running(path, operation)
+        }
+    }
+
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -10361,9 +10465,11 @@ function $DONE(error) {
         ] {
             let list =
                 TestExecutionList::parse("strict-script:language/fail/parse-negative.js").unwrap();
-            assert!(run_execution_list(&fixture_config(), config, list)
-                .unwrap_err()
-                .contains("cannot also select"));
+            assert!(
+                run_execution_list(&fixture_config(), config, list)
+                    .unwrap_err()
+                    .contains("cannot also select")
+            );
         }
     }
 
@@ -10420,12 +10526,16 @@ function $DONE(error) {
                 .expect_err("a shard manifest must reject duplicate execution ids")
                 .contains("unique executions")
         );
-        assert!(validate_manifest_execution_set(&first, &duplicate)
-            .expect_err("dispatch must reject a duplicate selected execution")
-            .contains("duplicate ids"));
-        assert!(validate_manifest_execution_set(&discovered, &first.cases)
-            .expect_err("a shard selection must not run under the full-suite manifest")
-            .contains("does not exactly match"));
+        assert!(
+            validate_manifest_execution_set(&first, &duplicate)
+                .expect_err("dispatch must reject a duplicate selected execution")
+                .contains("duplicate ids")
+        );
+        assert!(
+            validate_manifest_execution_set(&discovered, &first.cases)
+                .expect_err("a shard selection must not run under the full-suite manifest")
+                .contains("does not exactly match")
+        );
     }
 
     #[test]
@@ -10790,7 +10900,9 @@ function $DONE(error) {
         host_case.original_source = Arc::from("$262.gc();".to_string());
         let materialized = materialize_test(&host_case, &wasm_aot)
             .expect("embedded wasm-aot profile should materialize its host");
-        assert!(script_fixture_ledger(&host_case, &materialized).starts_with(WASM_AOT_HOST_PRELUDE));
+        assert!(
+            script_fixture_ledger(&host_case, &materialized).starts_with(WASM_AOT_HOST_PRELUDE)
+        );
 
         let wasm_aot_host_only = real_wasm_aot_host_only_preludes();
         assert_eq!(
@@ -10809,7 +10921,9 @@ function $DONE(error) {
         );
         let materialized = materialize_test(&host_case, &wasm_aot_host_only)
             .expect("embedded wasm-aot host-only profile should materialize its host");
-        assert!(script_fixture_ledger(&host_case, &materialized).starts_with(WASM_AOT_HOST_PRELUDE));
+        assert!(
+            script_fixture_ledger(&host_case, &materialized).starts_with(WASM_AOT_HOST_PRELUDE)
+        );
     }
 
     #[test]
@@ -11059,6 +11173,146 @@ export const value = helperRead();
     }
 
     #[test]
+    fn structured_parse_failure_ignores_misleading_source_prose() {
+        for message in [
+            "unsupported stub",
+            "panic segmentation fault",
+            "wasm trapped timeout exceeded",
+        ] {
+            let diagnostic = scriptw_front::ParseDiagnostic {
+                code: scriptw_front::ParseCode::Malformed,
+                span: None,
+                message: message.into(),
+            };
+            assert_eq!(
+                parse_failure_taxonomy(&diagnostic),
+                (FailureKind::Parser, OutcomeKind::Bug)
+            );
+            let unsupported = scriptw_front::ParseDiagnostic {
+                code: scriptw_front::ParseCode::UnsupportedParserFeature,
+                ..diagnostic
+            };
+            assert_eq!(
+                parse_failure_taxonomy(&unsupported),
+                (FailureKind::Parser, OutcomeKind::NotImplemented)
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "spec-exec-oracle")]
+    fn structured_oracle_exceptions_keep_runtime_taxonomy_and_opaque_diagnostics() {
+        let engine = Engine::new(RealmBuilder::new().build());
+        for (source, expected_detail) in [
+            (
+                "throw 'unsupported panic wasm trapped stub';",
+                "uncaught ECMAScript throw (string)",
+            ),
+            (
+                "throw new Error('unsupported panic wasm trapped stub');",
+                "uncaught ECMAScript throw (object)",
+            ),
+            (
+                "unsupported_panic_wasm_trapped_stub;",
+                "uncaught ECMAScript throw (object)",
+            ),
+        ] {
+            let error = engine
+                .run_script(
+                    source,
+                    CompileOptions::default(),
+                    RunOptions {
+                        backend: ExecutionBackend::SpecExec,
+                        ..RunOptions::default()
+                    },
+                )
+                .unwrap_err();
+            assert_eq!(
+                structured_engine_failure(&error),
+                Some((FailureKind::Runtime, OutcomeKind::Bug)),
+                "{error}"
+            );
+            let failure = classify_engine_failure(
+                synthetic_case("language/classification.js").execution_id,
+                &error,
+            );
+            assert_eq!(failure.kind, FailureKind::Runtime);
+            assert_eq!(failure.outcome, OutcomeKind::Bug);
+            assert_eq!(failure.origin, FailureOrigin::BoaRuntime);
+            assert!(
+                failure.detail.contains(expected_detail),
+                "{}",
+                failure.detail
+            );
+        }
+    }
+
+    #[test]
+    fn cleanup_retains_primary_failure_taxonomy_and_never_preserves_a_pass() {
+        let case = synthetic_case("language/cleanup.js");
+        for (kind, outcome, detail) in [
+            (
+                FailureKind::Runtime,
+                OutcomeKind::Crash,
+                "timeout exceeded after 1ms",
+            ),
+            (FailureKind::Runtime, OutcomeKind::Bug, "assertion failed"),
+        ] {
+            let failure = classify_failure_with_outcome(
+                case.execution_id.clone(),
+                kind,
+                outcome,
+                FailureOrigin::Unknown,
+                detail.into(),
+            );
+            let original = failure.detail.clone();
+            let result = with_case_cleanup(
+                &case,
+                Ok(TestResult {
+                    test_id: case.execution_id.clone(),
+                    status: TestStatus::Failed(failure),
+                    duration_ms: Some(1),
+                }),
+                Err("unsupported panic in cleanup".into()),
+            )
+            .unwrap();
+            let TestStatus::Failed(failure) = result.status else {
+                panic!("failure must remain red")
+            };
+            assert_eq!((failure.kind, failure.outcome), (kind, outcome));
+            assert!(failure.detail.starts_with(&original));
+            assert!(failure.detail.contains("unsupported panic in cleanup"));
+            assert_eq!(failure.detail_hash, hash_detail(&failure.detail));
+            assert_eq!(result.duration_ms, Some(1));
+        }
+        let error = with_case_cleanup(
+            &case,
+            Err("failed to poll worker".into()),
+            Err("unsupported cleanup".into()),
+        )
+        .unwrap();
+        let TestStatus::Failed(failure) = error.status else {
+            panic!("failure must remain red")
+        };
+        assert_eq!(
+            (failure.kind, failure.outcome),
+            (FailureKind::HostHarness, OutcomeKind::Bug)
+        );
+        assert!(
+            with_case_cleanup(
+                &case,
+                Ok(TestResult {
+                    test_id: case.execution_id.clone(),
+                    status: TestStatus::Passed,
+                    duration_ms: Some(1)
+                }),
+                Err("cleanup failed".into())
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn classify_engine_error_marks_host_harness_unsupported() {
         assert_eq!(
             classify_engine_error_message(
@@ -11270,10 +11524,14 @@ export const value = helperRead();
             let materialized =
                 materialize_test(&case, &preludes).expect("non-realm host case should materialize");
 
-            assert!(script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
-            assert!(script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_CREATE_REALM));
+            assert!(
+                script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_REALM_GLOBAL)
+            );
+            assert!(
+                script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_CREATE_REALM)
+            );
             assert!(!script_fixture_ledger(&case, &materialized).contains("__scriptwCreateRealm"));
             assert_eq!(
                 script_fixture_ledger(&case, &materialized),
@@ -11342,8 +11600,10 @@ export const value = helperRead();
             assert!(
                 script_fixture_ledger(&case, &materialized).contains(WASM_AOT_ACTIVE_CREATE_REALM)
             );
-            assert!(!script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_CREATE_REALM));
+            assert!(
+                !script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_CREATE_REALM)
+            );
             assert_eq!(
                 script_fixture_ledger(&case, &materialized),
                 format!(
@@ -11363,10 +11623,14 @@ export const value = helperRead();
         included_realm_case.includes = vec!["realmBoundary.js".to_string()];
         let materialized = materialize_test(&included_realm_case, &preludes)
             .expect("included realm host case should materialize");
-        assert!(script_fixture_ledger(&included_realm_case, &materialized)
-            .contains(WASM_AOT_ACTIVE_REALM_GLOBAL));
-        assert!(script_fixture_ledger(&included_realm_case, &materialized)
-            .contains(WASM_AOT_ACTIVE_CREATE_REALM));
+        assert!(
+            script_fixture_ledger(&included_realm_case, &materialized)
+                .contains(WASM_AOT_ACTIVE_REALM_GLOBAL)
+        );
+        assert!(
+            script_fixture_ledger(&included_realm_case, &materialized)
+                .contains(WASM_AOT_ACTIVE_CREATE_REALM)
+        );
         assert_eq!(
             script_fixture_ledger(&included_realm_case, &materialized),
             format!(
@@ -12046,10 +12310,14 @@ if ($262.getGlobal('__scriptwHostAccessorSentinel') !== 13) {
                 "null.property;",
                 "var error = new TypeError('ordinary root'); error.name = 'RangeError'; throw error;",
             ] {
-                let case = oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
+                let case =
+                    oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
                 let result = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec);
-                assert!(matches!(result.status, TestStatus::Passed),
-                    "actual TypeError root in {mode:?}: {source}: {:?}", result.status);
+                assert!(
+                    matches!(result.status, TestStatus::Passed),
+                    "actual TypeError root in {mode:?}: {source}: {:?}",
+                    result.status
+                );
             }
         }
     }
@@ -12064,13 +12332,19 @@ if ($262.getGlobal('__scriptwHostAccessorSentinel') !== 13) {
                 "var error = new RangeError('ordinary root'); error.name = 'TypeError'; throw error;",
                 "throw 'TypeError';",
             ] {
-                let case = oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
-                let TestStatus::Failed(failure) = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status else {
+                let case =
+                    oracle_negative_fixture(source, mode, NegativePhase::Runtime, "TypeError");
+                let TestStatus::Failed(failure) =
+                    run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status
+                else {
                     panic!("wrong oracle exception satisfied TypeError in {mode:?}: {source}");
                 };
                 assert_eq!(failure.kind, FailureKind::Runtime, "{source}: {failure:?}");
                 assert_eq!(failure.outcome, OutcomeKind::Bug, "{source}: {failure:?}");
-                assert!(failure.detail.contains("negative test error mismatch"), "{source}: {failure:?}");
+                assert!(
+                    failure.detail.contains("negative test error mismatch"),
+                    "{source}: {failure:?}"
+                );
             }
         }
     }
@@ -12084,12 +12358,25 @@ if ($262.getGlobal('__scriptwHostAccessorSentinel') !== 13) {
             "throw new Proxy(new TypeError('ordinary root'), {});",
             "class CustomError extends TypeError {} throw new CustomError('ordinary root');",
         ] {
-            let case = oracle_negative_fixture(source, TestExecutionMode::RawScript, NegativePhase::Runtime, "TypeError");
-            let TestStatus::Failed(failure) = run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status else {
+            let case = oracle_negative_fixture(
+                source,
+                TestExecutionMode::RawScript,
+                NegativePhase::Runtime,
+                "TypeError",
+            );
+            let TestStatus::Failed(failure) =
+                run_one_case(&case, &preludes, 30_000, ExecutionBackend::SpecExec).status
+            else {
                 panic!("unadmitted constructor acquired intrinsic TypeError proof: {source}");
             };
-            assert!(failure.detail.contains("negative test error mismatch"), "{source}: {failure:?}");
-            assert!(failure.detail.contains("<unclassified>"), "{source}: {failure:?}");
+            assert!(
+                failure.detail.contains("negative test error mismatch"),
+                "{source}: {failure:?}"
+            );
+            assert!(
+                failure.detail.contains("<unclassified>"),
+                "{source}: {failure:?}"
+            );
         }
     }
 
@@ -12228,9 +12515,11 @@ if ($262.getGlobal('__scriptwHostAccessorSentinel') !== 13) {
         };
         assert_eq!(failure.kind, FailureKind::Parser);
         assert!(failure.detail.contains("expected TypeError"));
-        assert!(failure
-            .detail
-            .contains("got E_OBJECT_DUPLICATE_PROTO SyntaxError"));
+        assert!(
+            failure
+                .detail
+                .contains("got E_OBJECT_DUPLICATE_PROTO SyntaxError")
+        );
     }
 
     #[test]
@@ -12675,8 +12964,10 @@ print('Test262:AsyncTestComplete');
 
         assert!(script_fixture_ledger(&case, &materialized).contains("assert.sameValue"));
         assert!(script_fixture_ledger(&case, &materialized).contains("full compare"));
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("var TypedArray = Object.getPrototypeOf(Int8Array);"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("var TypedArray = Object.getPrototypeOf(Int8Array);")
+        );
     }
 
     #[test]
@@ -12701,9 +12992,11 @@ print('Test262:AsyncTestComplete');
 
         assert!(script_fixture_ledger(&case, &materialized).contains("full same value"));
         assert!(script_fixture_ledger(&case, &materialized).contains("full compare"));
-        assert!(materialized
-            .source
-            .contains("assert(compareArray(new Uint8Array([1]), [1])"));
+        assert!(
+            materialized
+                .source
+                .contains("assert(compareArray(new Uint8Array([1]), [1])")
+        );
     }
 
     #[test]
@@ -13209,9 +13502,11 @@ print('Test262:AsyncTestComplete');
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
         assert!(script_fixture_ledger(&case, &materialized).contains("full assert"));
-        assert!(materialized
-            .source
-            .contains("assert.notSameValue(value, false"));
+        assert!(
+            materialized
+                .source
+                .contains("assert.notSameValue(value, false")
+        );
     }
 
     #[test]
@@ -13236,14 +13531,18 @@ print('Test262:AsyncTestComplete');
 
         assert!(script_fixture_ledger(&case, &materialized).contains("function Test262Error"));
         assert!(!script_fixture_ledger(&case, &materialized).contains("var $262"));
-        assert!(materialized
-            .used_preludes
-            .iter()
-            .any(|(name, _)| name == "sta-preamble.js"));
-        assert!(!materialized
-            .used_preludes
-            .iter()
-            .any(|(name, _)| name == "sta.js"));
+        assert!(
+            materialized
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "sta-preamble.js")
+        );
+        assert!(
+            !materialized
+                .used_preludes
+                .iter()
+                .any(|(name, _)| name == "sta.js")
+        );
     }
 
     #[test]
@@ -13859,8 +14158,10 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
 
         let local_materialized = materialize_test(&case, &real_wasm_aot_preludes())
             .expect("local intrinsic case should materialize");
-        assert!(script_fixture_ledger(&case, &local_materialized)
-            .contains("Reflect.construct(function(){}, [], f);"));
+        assert!(
+            script_fixture_ledger(&case, &local_materialized)
+                .contains("Reflect.construct(function(){}, [], f);")
+        );
         assert!(local_materialized.used_preludes.contains(&(
             "isConstructor.js".to_string(),
             PreludeOrigin::VendoredHarness
@@ -13877,13 +14178,17 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         );
         let vendored_materialized = materialize_test(&case, &vendored_store)
             .expect("literal helper case should materialize");
-        assert!(script_fixture_ledger(&case, &vendored_materialized)
-            .contains("Reflect.construct(function(){}, [], f);"));
+        assert!(
+            script_fixture_ledger(&case, &vendored_materialized)
+                .contains("Reflect.construct(function(){}, [], f);")
+        );
         assert!(script_fixture_ledger(&case, &vendored_materialized).contains("return false;"));
         assert!(script_fixture_ledger(&case, &vendored_materialized).contains("return true;"));
-        assert!(vendored_materialized
-            .source
-            .ends_with(case.original_source.as_ref()));
+        assert!(
+            vendored_materialized
+                .source
+                .ends_with(case.original_source.as_ref())
+        );
 
         let mut changed_store = real_wasm_aot_preludes();
         let mut changed_prelude = changed_store
@@ -13904,11 +14209,15 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         );
         let changed_materialized = materialize_test(&case, &changed_store)
             .expect("changed constructor helper should materialize safely");
-        assert!(script_fixture_ledger(&case, &changed_materialized)
-            .contains("// changed constructor helper"));
-        assert!(changed_materialized
-            .source
-            .ends_with(case.original_source.as_ref()));
+        assert!(
+            script_fixture_ledger(&case, &changed_materialized)
+                .contains("// changed constructor helper")
+        );
+        assert!(
+            changed_materialized
+                .source
+                .ends_with(case.original_source.as_ref())
+        );
     }
 
     #[test]
@@ -13943,7 +14252,10 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                         .contains("class MyUint8Array extends Uint8Array {}"),
                     "{path}"
                 );
-                assert!(script_fixture_ledger(case, &materialized).contains("new Function"), "{path}");
+                assert!(
+                    script_fixture_ledger(case, &materialized).contains("new Function"),
+                    "{path}"
+                );
             }
         }
     }
@@ -14229,10 +14541,12 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 "{}",
                 contract.method
             );
-            assert!(contract
-                .changed_suffixes
-                .iter()
-                .all(|suffix| !contract.without_test_typed_array_suffixes.contains(suffix)));
+            assert!(
+                contract
+                    .changed_suffixes
+                    .iter()
+                    .all(|suffix| !contract.without_test_typed_array_suffixes.contains(suffix))
+            );
 
             let prefix = format!("built-ins/TypedArray/prototype/{}/", contract.method);
             let mut executions = Vec::new();
@@ -14911,16 +15225,20 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness, "{name}");
             assert_eq!(prelude.contents, vendored_harness_source(name), "{name}");
         }
-        assert!(local_store
-            .get("assert.js")
-            .expect("local store should contain assert.js")
-            .contents
-            .contains("Test262Error"));
-        assert!(vendored_store
-            .get("assert.js")
-            .expect("vendored store should contain assert.js")
-            .contents
-            .contains("Test262Error"));
+        assert!(
+            local_store
+                .get("assert.js")
+                .expect("local store should contain assert.js")
+                .contents
+                .contains("Test262Error")
+        );
+        assert!(
+            vendored_store
+                .get("assert.js")
+                .expect("vendored store should contain assert.js")
+                .contents
+                .contains("Test262Error")
+        );
 
         for contract in DIRECTORIES {
             let prefix = format!("built-ins/TypedArray/prototype/{}/", contract.method);
@@ -16000,18 +16318,26 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 .collect::<Vec<_>>(),
             [88, 4]
         );
-        assert!(FULL_VENDORED
-            .windows(2)
-            .all(|cases| cases[0].suffix < cases[1].suffix));
-        assert!(NO_TEST_TYPED_ARRAY
-            .windows(2)
-            .all(|cases| cases[0].suffix < cases[1].suffix));
-        assert!(PROPERTY_HELPER_SUFFIXES
-            .windows(2)
-            .all(|suffixes| suffixes[0] < suffixes[1]));
-        assert!(TEST262_ERROR_SUFFIXES
-            .windows(2)
-            .all(|suffixes| suffixes[0] < suffixes[1]));
+        assert!(
+            FULL_VENDORED
+                .windows(2)
+                .all(|cases| cases[0].suffix < cases[1].suffix)
+        );
+        assert!(
+            NO_TEST_TYPED_ARRAY
+                .windows(2)
+                .all(|cases| cases[0].suffix < cases[1].suffix)
+        );
+        assert!(
+            PROPERTY_HELPER_SUFFIXES
+                .windows(2)
+                .all(|suffixes| suffixes[0] < suffixes[1])
+        );
+        assert!(
+            TEST262_ERROR_SUFFIXES
+                .windows(2)
+                .all(|suffixes| suffixes[0] < suffixes[1])
+        );
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -16120,16 +16446,20 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             assert_eq!(prelude.origin, PreludeOrigin::VendoredHarness, "{name}");
             assert_eq!(prelude.contents, vendored_harness_source(name), "{name}");
         }
-        assert!(local_store
-            .get("assert.js")
-            .expect("local store should contain assert.js")
-            .contents
-            .contains("Test262Error"));
-        assert!(vendored_store
-            .get("assert.js")
-            .expect("vendored store should contain assert.js")
-            .contents
-            .contains("Test262Error"));
+        assert!(
+            local_store
+                .get("assert.js")
+                .expect("local store should contain assert.js")
+                .contents
+                .contains("Test262Error")
+        );
+        assert!(
+            vendored_store
+                .get("assert.js")
+                .expect("vendored store should contain assert.js")
+                .contents
+                .contains("Test262Error")
+        );
         for (store_name, store) in [("local", &local_store), ("vendored", &vendored_store)] {
             let test_typed_array = store
                 .get("testTypedArray.js")
@@ -16430,8 +16760,10 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
         assert!(materialized.source.ends_with(original_source));
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("Only values between 0 and 2**53 - 1"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("Only values between 0 and 2**53 - 1")
+        );
         assert!(materialized.used_preludes.contains(&(
             "testTypedArray.js".to_string(),
             PreludeOrigin::VendoredHarness
@@ -16853,21 +17185,36 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 0x69fc_8867_de30_aeb2,
                 0x78a1_0b91_fc90_c644,
                 TEST_TYPED_ARRAY,
-                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "BigInt",
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/BigInt/negative-index-resize-to-out-of-bounds.js",
                 0x3c84_4bff_c088_7fce,
                 0x88cb_0ea7_39d6_716c,
                 TEST_TYPED_ARRAY,
-                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "BigInt",
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/BigInt/value-coercion-shrinks.js",
                 0xf52c_d50d_87ab_267a,
                 0xcbce_158c_af93_c219,
                 TEST_TYPED_ARRAY,
-                &["BigInt", "TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "BigInt",
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/early-type-coercion.js",
@@ -16909,7 +17256,11 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 0x9de2_faba_abe6_3bff,
                 0x6d74_f6be_046f_a6ee,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
-                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/index-negative.js",
@@ -16965,14 +17316,22 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 0xe746_6bd1_8ec3_56bb,
                 0x639c_97a3_e3f0_52ac,
                 TEST_TYPED_ARRAY,
-                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/negative-index-resize-to-out-of-bounds.js",
                 0xde1a_dd8a_3ea2_b038,
                 0xbd51_2cb6_7faa_f184,
                 TEST_TYPED_ARRAY,
-                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/not-a-constructor.js",
@@ -17007,14 +17366,22 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 0x53da_8b0f_8d01_d208,
                 0x60ae_178a_039b_6f06,
                 TEST_TYPED_ARRAY,
-                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/value-coercion-shrinks.js",
                 0x0bc0_577c_c02e_7803,
                 0x7568_d695_03f6_3f33,
                 TEST_TYPED_ARRAY_COMPARE_ARRAY,
-                &["TypedArray", "change-array-by-copy", "resizable-arraybuffer"],
+                &[
+                    "TypedArray",
+                    "change-array-by-copy",
+                    "resizable-arraybuffer",
+                ],
             ),
             (
                 "built-ins/TypedArray/prototype/with/value-throw-completion.js",
@@ -17536,10 +17903,15 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                     "{}",
                     case.execution_id()
                 );
-                assert!(!script_fixture_ledger(&case, &local_materialized)
-                    .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
-                assert!(!script_fixture_ledger(&case, &local_materialized)
-                    .contains("function invokeForConstructor(f, constructor, argFactory)"));
+                assert!(
+                    !script_fixture_ledger(&case, &local_materialized).contains(
+                        "function selectCtorArgFactories(includeFeatures, excludeFeatures)"
+                    )
+                );
+                assert!(
+                    !script_fixture_ledger(&case, &local_materialized)
+                        .contains("function invokeForConstructor(f, constructor, argFactory)")
+                );
 
                 let vendored_materialized = materialize_test(&case, &vendored_store)
                     .unwrap_or_else(|error| {
@@ -17585,10 +17957,15 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                     "{}",
                     case.execution_id()
                 );
-                assert!(!script_fixture_ledger(&case, &vendored_materialized)
-                    .contains("function selectCtorArgFactories(includeFeatures, excludeFeatures)"));
-                assert!(!script_fixture_ledger(&case, &vendored_materialized)
-                    .contains("function invokeForConstructor(f, constructor, argFactory)"));
+                assert!(
+                    !script_fixture_ledger(&case, &vendored_materialized).contains(
+                        "function selectCtorArgFactories(includeFeatures, excludeFeatures)"
+                    )
+                );
+                assert!(
+                    !script_fixture_ledger(&case, &vendored_materialized)
+                        .contains("function invokeForConstructor(f, constructor, argFactory)")
+                );
             }
         }
     }
@@ -17629,10 +18006,14 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                     .expect("callable helper must materialize unchanged");
                 assert!(script_fixture_ledger(&case, &materialized).contains(&prelude.contents));
                 assert!(materialized.source.ends_with(case.original_source.as_ref()));
-                assert!(!script_fixture_ledger(&case, &materialized)
-                    .contains("__scriptwValidateNativeFunctionSource"));
-                assert!(!script_fixture_ledger(&case, &materialized)
-                    .contains("var isConstructor = __scriptwIsConstructor"));
+                assert!(
+                    !script_fixture_ledger(&case, &materialized)
+                        .contains("__scriptwValidateNativeFunctionSource")
+                );
+                assert!(
+                    !script_fixture_ledger(&case, &materialized)
+                        .contains("var isConstructor = __scriptwIsConstructor")
+                );
             }
         }
     }
@@ -18358,10 +18739,14 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             assert!(
                 script_fixture_ledger(&case, &materialized).contains(WASM_AOT_ACTIVE_CREATE_REALM)
             );
-            assert!(!script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
-            assert!(!script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_CREATE_REALM));
+            assert!(
+                !script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_REALM_GLOBAL)
+            );
+            assert!(
+                !script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_CREATE_REALM)
+            );
         }
     }
 
@@ -19101,8 +19486,8 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
     }
 
     #[test]
-    fn typed_array_to_locale_string_cases_preserve_pinned_sources_and_full_test_typed_array_prelude(
-    ) {
+    fn typed_array_to_locale_string_cases_preserve_pinned_sources_and_full_test_typed_array_prelude()
+     {
         const TEST_TYPED_ARRAY: &[&str] = &["testTypedArray.js"];
         const TEST_TYPED_ARRAY_COMPARE_ARRAY: &[&str] = &["testTypedArray.js", "compareArray.js"];
         const TEST_TYPED_ARRAY_DETACH: &[&str] = &["testTypedArray.js", "detachArrayBuffer.js"];
@@ -19350,9 +19735,11 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         ];
 
         assert!(CASES.windows(2).all(|cases| cases[0].0 < cases[1].0));
-        assert!(NO_TEST_TYPED_ARRAY_CASES
-            .windows(2)
-            .all(|cases| cases[0].0 < cases[1].0));
+        assert!(
+            NO_TEST_TYPED_ARRAY_CASES
+                .windows(2)
+                .all(|cases| cases[0].0 < cases[1].0)
+        );
 
         let repo_root = repo_root();
         let test_root = repo_root.join("test262/vendor/test262/test");
@@ -19795,15 +20182,21 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 .any(|include| include == "resizableArrayBufferUtils.js")
             {
                 assert!(
-                    script_fixture_ledger(&case, &materialized).starts_with(&expected_helper_prefix),
+                    script_fixture_ledger(&case, &materialized)
+                        .starts_with(&expected_helper_prefix),
                     "{path}"
                 );
-                assert!(script_fixture_ledger(&case, &materialized).contains(DYNAMIC_SUBCLASS_DEFINITIONS));
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains(DYNAMIC_SUBCLASS_DEFINITIONS)
+                );
                 assert!(
                     !script_fixture_ledger(&case, &materialized)
                         .contains("class MyUint8Array extends Uint8Array {}")
                 );
-                assert!(script_fixture_ledger(&case, &materialized).contains("const builtinCtors = ["));
+                assert!(
+                    script_fixture_ledger(&case, &materialized).contains("const builtinCtors = [")
+                );
                 assert!(
                     script_fixture_ledger(&case, &materialized)
                         .contains("builtinCtors.push(Float16Array)")
@@ -19821,7 +20214,10 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                         "const ctors = builtinCtors.concat(MyUint8Array, MyFloat32Array)"
                     )
                 );
-                assert!(script_fixture_ledger(&case, &materialized).contains("ctors.push(MyBigInt64Array)"));
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains("ctors.push(MyBigInt64Array)")
+                );
                 assert!(
                     script_fixture_ledger(&case, &materialized)
                         .contains("const oldBigIntPrototypeToLocaleString")
@@ -19894,8 +20290,13 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
                 materialize_test(&case, &store).expect("materialization should work");
 
             assert!(materialized.source.contains(original_source));
-            assert!(script_fixture_ledger(&case, &materialized).contains("$DETACHBUFFER(sample.buffer)"));
-            assert!(script_fixture_ledger(&case, &materialized).contains("assert.throws(TypeError"));
+            assert!(
+                script_fixture_ledger(&case, &materialized)
+                    .contains("$DETACHBUFFER(sample.buffer)")
+            );
+            assert!(
+                script_fixture_ledger(&case, &materialized).contains("assert.throws(TypeError")
+            );
             assert!(
                 script_fixture_ledger(&case, &materialized)
                     .contains("Only values between 0 and 2**53 - 1")
@@ -21236,8 +21637,10 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
             .expect("materialization should work");
 
         assert!(materialized.source.ends_with(&original_source));
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("Array.from(Array.prototype.keys.call(fixedLength))"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("Array.from(Array.prototype.keys.call(fixedLength))")
+        );
         assert!(!script_fixture_ledger(&case, &materialized).contains("function IteratorToArray"));
     }
 
@@ -21275,13 +21678,19 @@ const MyBigInt64Array = subClass('BigInt64Array');"#;
         );
         assert!(materialized.source.ends_with(&original_source));
         assert!(script_fixture_ledger(&case, &materialized).contains("new Function"));
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("function TestIterationAndResize("));
-        assert!(!script_fixture_ledger(&case, &materialized)
-            .contains("class MyUint8Array extends Uint8Array {}"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("function TestIterationAndResize(")
+        );
+        assert!(
+            !script_fixture_ledger(&case, &materialized)
+                .contains("class MyUint8Array extends Uint8Array {}")
+        );
         assert!(!script_fixture_ledger(&case, &materialized).contains("function ConsumeIterator("));
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("for (let [key, value] of Array.prototype.entries.call(ta)) {"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("for (let [key, value] of Array.prototype.entries.call(ta)) {")
+        );
         assert!(
             script_fixture_ledger(&case, &materialized).contains("Array.from(ArrayEntriesHelper(")
         );
@@ -21372,8 +21781,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
         assert!(script_fixture_ledger(&case, &materialized).contains("new Function"));
-        assert!(!script_fixture_ledger(&case, &materialized)
-            .contains("class MyUint8Array extends Uint8Array {}"));
+        assert!(
+            !script_fixture_ledger(&case, &materialized)
+                .contains("class MyUint8Array extends Uint8Array {}")
+        );
         assert!(materialized.source.ends_with(case.original_source.as_ref()));
     }
 
@@ -21445,8 +21856,10 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 TestExecutionMode::StrictScript,
             ]
         );
-        assert!(original_source
-            .contains("assert.sameValue(Error.isError(new other.SuppressedError()), true);"));
+        assert!(
+            original_source
+                .contains("assert.sameValue(Error.isError(new other.SuppressedError()), true);")
+        );
 
         for case in cases {
             assert!(case.includes.is_empty(), "{}", case.execution_id());
@@ -21471,10 +21884,14 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             assert!(
                 script_fixture_ledger(&case, &materialized).contains(WASM_AOT_ACTIVE_CREATE_REALM)
             );
-            assert!(!script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_REALM_GLOBAL));
-            assert!(!script_fixture_ledger(&case, &materialized)
-                .contains(WASM_AOT_INACTIVE_CREATE_REALM));
+            assert!(
+                !script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_REALM_GLOBAL)
+            );
+            assert!(
+                !script_fixture_ledger(&case, &materialized)
+                    .contains(WASM_AOT_INACTIVE_CREATE_REALM)
+            );
             assert_eq!(
                 materialized.used_preludes,
                 vec![
@@ -21510,10 +21927,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             let case = parse_test_case(path.clone(), root.join(&path), original.clone());
             let materialized = materialize_test(&case, &preludes).expect("original materializes");
             assert!(materialized.source.ends_with(&original), "{path}");
-            assert!(materialized
-                .used_preludes
-                .iter()
-                .any(|(name, _)| name == "assert.js"));
+            assert!(
+                materialized
+                    .used_preludes
+                    .iter()
+                    .any(|(name, _)| name == "assert.js")
+            );
         }
     }
 
@@ -21886,13 +22305,21 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                     script_fixture_ledger(&case, &materialized).contains("assert.throws(TypeError")
                 );
                 if file == "this-is-not-object.js" {
-                    assert!(script_fixture_ledger(&case, &materialized)
-                        .contains("getter.call(undefined)"));
+                    assert!(
+                        script_fixture_ledger(&case, &materialized)
+                            .contains("getter.call(undefined)")
+                    );
                     assert!(script_fixture_ledger(&case, &materialized).contains("getter.call(s)"));
                 } else {
-                    assert!(script_fixture_ledger(&case, &materialized).contains("getter.call({})"));
-                    assert!(script_fixture_ledger(&case, &materialized).contains("getter.call(ta)"));
-                    assert!(script_fixture_ledger(&case, &materialized).contains("getter.call(dv)"));
+                    assert!(
+                        script_fixture_ledger(&case, &materialized).contains("getter.call({})")
+                    );
+                    assert!(
+                        script_fixture_ledger(&case, &materialized).contains("getter.call(ta)")
+                    );
+                    assert!(
+                        script_fixture_ledger(&case, &materialized).contains("getter.call(dv)")
+                    );
                 }
             }
         }
@@ -21906,11 +22333,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized
-            .source
-            .ends_with(changed_case.original_source.as_ref()));
-        assert!(script_fixture_ledger(&changed_case, &materialized)
-            .contains("var sourceDriftMarker = true;"));
+        assert!(
+            materialized
+                .source
+                .ends_with(changed_case.original_source.as_ref())
+        );
+        assert!(
+            script_fixture_ledger(&changed_case, &materialized)
+                .contains("var sourceDriftMarker = true;")
+        );
     }
 
     #[test]
@@ -23664,17 +24095,27 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 materialized.source.ends_with(case.original_source.as_ref()),
                 "{path}"
             );
-            assert!(script_fixture_ledger(&case, &materialized).contains("assert.throws(TypeError"));
+            assert!(
+                script_fixture_ledger(&case, &materialized).contains("assert.throws(TypeError")
+            );
             if file == "context-is-not-object.js" {
-                assert!(script_fixture_ledger(&case, &materialized)
-                    .contains("ArrayBuffer.prototype.slice.call(undefined)"));
-                assert!(script_fixture_ledger(&case, &materialized)
-                    .contains("ArrayBuffer.prototype.slice.call(Symbol())"));
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains("ArrayBuffer.prototype.slice.call(undefined)")
+                );
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains("ArrayBuffer.prototype.slice.call(Symbol())")
+                );
             } else {
-                assert!(script_fixture_ledger(&case, &materialized)
-                    .contains("ArrayBuffer.prototype.slice.call({})"));
-                assert!(script_fixture_ledger(&case, &materialized)
-                    .contains("ArrayBuffer.prototype.slice.call([])"));
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains("ArrayBuffer.prototype.slice.call({})")
+                );
+                assert!(
+                    script_fixture_ledger(&case, &materialized)
+                        .contains("ArrayBuffer.prototype.slice.call([])")
+                );
             }
         }
 
@@ -23687,25 +24128,24 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         let materialized =
             materialize_test(&changed_case, &store).expect("changed case should materialize");
 
-        assert!(materialized
-            .source
-            .ends_with(changed_case.original_source.as_ref()));
-        assert!(script_fixture_ledger(&changed_case, &materialized)
-            .contains("var sourceDriftMarker = true;"));
+        assert!(
+            materialized
+                .source
+                .ends_with(changed_case.original_source.as_ref())
+        );
+        assert!(
+            script_fixture_ledger(&changed_case, &materialized)
+                .contains("var sourceDriftMarker = true;")
+        );
     }
 
     #[test]
     fn parse_frontmatter_block_handles_cr_line_endings() {
         let source =
             "/*---\resid: test\rincludes: [nativeFunctionMatcher.js]\rflags: [raw]\r---*/\r0;";
-        let frontmatter = parse_frontmatter_block(source);
-
-        assert_eq!(frontmatter.get("esid"), Some(&"test".to_string()));
-        assert_eq!(
-            frontmatter.get("includes"),
-            Some(&"[nativeFunctionMatcher.js]".to_string())
-        );
-        assert_eq!(frontmatter.get("flags"), Some(&"[raw]".to_string()));
+        let metadata = frontmatter::parse(source, "cr.js").unwrap();
+        assert_eq!(metadata.includes, ["nativeFunctionMatcher.js"]);
+        assert_eq!(metadata.flags, BTreeSet::from(["raw".to_string()]));
     }
 
     #[test]
@@ -23782,10 +24222,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(summary.passed, 191);
         assert_eq!(summary.failed, 0);
         assert!(summary.entries.len() >= TOP_LEVEL_FILTERS.len());
-        assert!(summary
-            .entries
-            .iter()
-            .any(|entry| entry.filter == "language/pass"));
+        assert!(
+            summary
+                .entries
+                .iter()
+                .any(|entry| entry.filter == "language/pass")
+        );
     }
 
     #[test]
@@ -24506,9 +24948,11 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         .expect("rebuild from node snapshots should work");
         assert_eq!(rebuilt.len(), 1);
         assert_eq!(rebuilt[0].node_id, first_summary.node_id);
-        assert!(!rebuilt
-            .iter()
-            .any(|entry| entry.node_id == second_summary.node_id));
+        assert!(
+            !rebuilt
+                .iter()
+                .any(|entry| entry.node_id == second_summary.node_id)
+        );
 
         let mut foreign = original;
         foreign
@@ -25032,10 +25476,12 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .collect();
         let before = summarize_results(&original);
         assert_eq!(before.slowest_tests.len(), 10);
-        assert!(!before
-            .slowest_tests
-            .iter()
-            .any(|(id, _)| id == &cases[11].execution_id));
+        assert!(
+            !before
+                .slowest_tests
+                .iter()
+                .any(|(id, _)| id == &cases[11].execution_id)
+        );
         write_resume_case_checkpoint(
             &config,
             &manifest,
@@ -25524,30 +25970,36 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
                 panic!("resume checkpoint identity should permit a unique case subset");
             };
         }
-        assert!(direct_snapshot_case_requirement(
-            DirectSnapshotKind::ResumeCheckpoint,
-            &CheckpointRunIdentity::admitted_by_test("shard-1/2", &[]),
-            "shard-2/2",
-            None,
-            &[],
-        )
-        .is_err());
-        assert!(direct_snapshot_case_requirement(
-            DirectSnapshotKind::ResumeCheckpoint,
-            &CheckpointRunIdentity::admitted_by_test("shard-1/2", &[]),
-            "shard-01/02",
-            None,
-            &[],
-        )
-        .is_err());
-        assert!(direct_snapshot_case_requirement(
-            DirectSnapshotKind::SingleCaseChild,
-            &CheckpointRunIdentity::full(),
-            "matrix-filter-leaf",
-            None,
-            &[],
-        )
-        .is_err());
+        assert!(
+            direct_snapshot_case_requirement(
+                DirectSnapshotKind::ResumeCheckpoint,
+                &CheckpointRunIdentity::admitted_by_test("shard-1/2", &[]),
+                "shard-2/2",
+                None,
+                &[],
+            )
+            .is_err()
+        );
+        assert!(
+            direct_snapshot_case_requirement(
+                DirectSnapshotKind::ResumeCheckpoint,
+                &CheckpointRunIdentity::admitted_by_test("shard-1/2", &[]),
+                "shard-01/02",
+                None,
+                &[],
+            )
+            .is_err()
+        );
+        assert!(
+            direct_snapshot_case_requirement(
+                DirectSnapshotKind::SingleCaseChild,
+                &CheckpointRunIdentity::full(),
+                "matrix-filter-leaf",
+                None,
+                &[],
+            )
+            .is_err()
+        );
 
         write_resume_case_checkpoint(
             &config,
@@ -26954,12 +27406,16 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .collect::<Vec<_>>();
         let nodes = build_matrix_nodes_for_root("built-ins", &cases, 3, 2);
         assert_eq!(nodes.len(), 4);
-        assert!(nodes
-            .iter()
-            .all(|node| node.node_kind == MatrixNodeKind::ChunkLeaf));
-        assert!(nodes
-            .iter()
-            .all(|node| node.filter == "built-ins/RegExp/property-escapes"));
+        assert!(
+            nodes
+                .iter()
+                .all(|node| node.node_kind == MatrixNodeKind::ChunkLeaf)
+        );
+        assert!(
+            nodes
+                .iter()
+                .all(|node| node.filter == "built-ins/RegExp/property-escapes")
+        );
         assert!(nodes.iter().all(|node| !node.node_id.ends_with(".js")));
         assert_eq!(
             nodes[0].node_id,
@@ -27224,7 +27680,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             Path::new("aggregate.json"),
         )
         .expect_err("duplicate entries must be rejected");
-        assert!(err.contains("duplicate aggregate entry"));
+        assert!(err.to_string().contains("duplicate aggregate entry"));
 
         let mut bad_total = snapshot;
         bad_total.total += 1;
@@ -27234,24 +27690,26 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             Path::new("aggregate.json"),
         )
         .expect_err("aggregate totals must equal node evidence");
-        assert!(err.contains("aggregate totals"));
+        assert!(err.to_string().contains("aggregate totals"));
 
         kinds.insert(FailureKind::Runtime, 1);
-        assert!(validate_summary_count_contract(
-            "synthetic node",
-            1,
-            1,
-            0,
-            &kinds,
-            &BTreeMap::from([
-                (OutcomeKind::Success, 1),
-                (OutcomeKind::NotImplemented, 0),
-                (OutcomeKind::Crash, 0),
-                (OutcomeKind::Bug, 0),
-            ]),
-            &origins,
-        )
-        .is_err());
+        assert!(
+            validate_summary_count_contract(
+                "synthetic node",
+                1,
+                1,
+                0,
+                &kinds,
+                &BTreeMap::from([
+                    (OutcomeKind::Success, 1),
+                    (OutcomeKind::NotImplemented, 0),
+                    (OutcomeKind::Crash, 0),
+                    (OutcomeKind::Bug, 0),
+                ]),
+                &origins,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -27359,7 +27817,7 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
     }
 
     #[test]
-    fn load_verified_aggregate_summary_rejects_incomplete_matrix_snapshot() {
+    fn load_verified_aggregate_summary_rejects_corruption_disguised_as_incomplete() {
         let config = fixture_config();
         let run_config = RunConfig {
             snapshot_name: "incomplete-aggregate".to_string(),
@@ -27382,13 +27840,65 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         )
         .expect("tampered snapshot should write");
 
-        let err = load_verified_aggregate_summary(
+        let err = load_verified_aggregate_summary_for_use(
             &config,
             &run_config.snapshot_name,
             ExecutionBackend::SpecExec,
+            SnapshotUse::CurrentState,
         )
-        .expect_err("incomplete aggregate snapshot should be rejected");
-        assert!(err.contains("aggregate snapshot incomplete"));
+        .expect_err("corrupt aggregate snapshot should be rejected");
+        assert!(matches!(err, AggregateLoadError::Invalid(_)), "{err}");
+        assert!(!err.may_resume());
+    }
+
+    #[test]
+    fn only_missing_or_valid_incomplete_aggregates_may_resume() {
+        let config = fixture_config();
+        let load = || {
+            load_verified_aggregate_summary_for_use(
+                &config,
+                "typed-recovery",
+                ExecutionBackend::SpecExec,
+                SnapshotUse::CurrentState,
+            )
+        };
+        let missing = load().unwrap_err();
+        assert!(
+            matches!(missing, AggregateLoadError::Missing(_)),
+            "{missing}"
+        );
+        assert!(missing.may_resume());
+        let partial = run_top_level_matrix(
+            &config,
+            RunConfig {
+                snapshot_name: "typed-recovery".into(),
+                execution_backend: ExecutionBackend::SpecExec,
+                max_matrix_nodes: Some(1),
+                ..RunConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(partial.entries.len(), 1);
+        let incomplete = load().unwrap_err();
+        assert!(
+            matches!(incomplete, AggregateLoadError::Incomplete(_)),
+            "{incomplete}"
+        );
+        assert!(incomplete.may_resume());
+        let progress =
+            load_aggregate_progress_summary(&config, "typed-recovery", ExecutionBackend::SpecExec)
+                .unwrap();
+        fs::write(
+            &progress.snapshot_paths.json_path,
+            b"not JSON: missing aggregate snapshot incomplete",
+        )
+        .unwrap();
+        let invalid = load().unwrap_err();
+        assert!(
+            matches!(invalid, AggregateLoadError::Invalid(_)),
+            "{invalid}"
+        );
+        assert!(!invalid.may_resume());
     }
 
     fn tiny_failing_suite_config(label: &str) -> SuiteConfig {
@@ -28332,13 +28842,15 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert_eq!(progress.resolved_snapshot_name, "published-elsewhere");
         assert!(progress.is_complete());
         assert_eq!(progress.summary.failed, 1);
-        assert!(progress
-            .snapshot_paths
-            .json_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .expect("snapshot path should have a name")
-            .starts_with("published-elsewhere-aggregate-"));
+        assert!(
+            progress
+                .snapshot_paths
+                .json_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("snapshot path should have a name")
+                .starts_with("published-elsewhere-aggregate-")
+        );
 
         let verified =
             load_verified_aggregate_summary(&config, "latest", ExecutionBackend::SpecExec)
@@ -28367,6 +28879,19 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
         assert!(err.contains("multiple compatible aggregate snapshots"));
         assert!(err.contains("published-elsewhere"));
         assert!(err.contains("published-elsewhere-two"));
+
+        let ambiguous = load_verified_aggregate_summary_for_use(
+            &config,
+            "latest",
+            ExecutionBackend::SpecExec,
+            SnapshotUse::CurrentState,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(ambiguous, AggregateLoadError::Ambiguous(_)),
+            "{ambiguous}"
+        );
+        assert!(!ambiguous.may_resume());
 
         // An exact-name aggregate always wins over resolution.
         let exact = load_aggregate_progress_summary(
@@ -28836,14 +29361,18 @@ const ctors = [MyUint8Array, MyFloat32Array, MyBigInt64Array];
             .unwrap(),
             assigned
         );
-        assert!(serde_json::from_str::<BacklogOwnership>(
-            r#"{"owner_task_id":"T23","debt_category":"unclassified"}"#
-        )
-        .is_err());
-        assert!(serde_json::from_str::<BacklogOwnership>(
-            r#"{"owner_task_id":"T26-unclassified","debt_category":"semantic"}"#
-        )
-        .is_err());
+        assert!(
+            serde_json::from_str::<BacklogOwnership>(
+                r#"{"owner_task_id":"T23","debt_category":"unclassified"}"#
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_str::<BacklogOwnership>(
+                r#"{"owner_task_id":"T26-unclassified","debt_category":"semantic"}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -29303,7 +29832,9 @@ assert.sameValue(bytes[3], 0);
         let case = synthetic_case("built-ins/Atomics/load/no-helper.js");
         let materialized =
             materialize_test(&case, &preludes).expect("non-helper case should materialize");
-        assert!(!script_fixture_ledger(&case, &materialized).contains(WASM_AOT_AGENT_TIMER_PRELUDE));
+        assert!(
+            !script_fixture_ledger(&case, &materialized).contains(WASM_AOT_AGENT_TIMER_PRELUDE)
+        );
     }
 
     #[test]
@@ -29323,10 +29854,14 @@ assert.sameValue(bytes[3], 0);
 
         let materialized = materialize_test(&case, &store).expect("materialization should work");
 
-        assert!(script_fixture_ledger(&case, &materialized)
-            .contains("var __globalObject = Function(\"return this;\")();"));
-        assert!(!script_fixture_ledger(&case, &materialized)
-            .contains("var __globalObject = globalThis;"));
+        assert!(
+            script_fixture_ledger(&case, &materialized)
+                .contains("var __globalObject = Function(\"return this;\")();")
+        );
+        assert!(
+            !script_fixture_ledger(&case, &materialized)
+                .contains("var __globalObject = globalThis;")
+        );
     }
 
     #[test]
@@ -29550,12 +30085,16 @@ assert.sameValue(bytes[3], 0);
             SnapshotArtifactKind::decode(SNAPSHOT_VERSION, Some(ArtifactProducer::CURRENT)),
             Ok(SnapshotArtifactKind::CurrentScriptwV8)
         );
-        assert!(SnapshotArtifactKind::decode(SNAPSHOT_VERSION, None)
-            .expect_err("current snapshots require an explicit producer")
-            .contains("missing required producer scriptw"));
-        assert!(SnapshotArtifactKind::decode(SNAPSHOT_VERSION + 1, None)
-            .expect_err("unknown snapshot versions must fail")
-            .contains("unsupported snapshot_version"));
+        assert!(
+            SnapshotArtifactKind::decode(SNAPSHOT_VERSION, None)
+                .expect_err("current snapshots require an explicit producer")
+                .contains("missing required producer scriptw")
+        );
+        assert!(
+            SnapshotArtifactKind::decode(SNAPSHOT_VERSION + 1, None)
+                .expect_err("unknown snapshot versions must fail")
+                .contains("unsupported snapshot_version")
+        );
         assert!(serde_json::from_str::<ArtifactProducer>(r#""other""#).is_err());
         assert_eq!(
             parse_snapshot_execution_backend("spec-exec"),
@@ -29565,9 +30104,11 @@ assert.sameValue(bytes[3], 0);
             parse_snapshot_execution_backend("wasm-aot"),
             Ok(ExecutionBackend::WasmAot)
         );
-        assert!(parse_snapshot_execution_backend("future-backend")
-            .expect_err("snapshot backend spellings form a closed domain")
-            .contains("unknown execution_backend"));
+        assert!(
+            parse_snapshot_execution_backend("future-backend")
+                .expect_err("snapshot backend spellings form a closed domain")
+                .contains("unknown execution_backend")
+        );
         let case = synthetic_case("schema/backend.js");
         let manifest = SuiteManifest {
             pinned_revisions: PinnedRevisions {
@@ -29593,16 +30134,20 @@ assert.sameValue(bytes[3], 0);
             .expect("running compiler identity must be captured"),
         );
         file.execution_backend = "future-backend".to_string();
-        assert!(snapshot_from_file(file)
-            .expect_err("current snapshots must reject unknown backend spellings")
-            .contains("unknown execution_backend"));
+        assert!(
+            snapshot_from_file(file)
+                .expect_err("current snapshots must reject unknown backend spellings")
+                .contains("unknown execution_backend")
+        );
         assert_eq!(
             PublicationBackend::try_from(ExecutionBackend::WasmAot),
             Ok(PublicationBackend::WasmAot)
         );
-        assert!(PublicationBackend::try_from(ExecutionBackend::SpecExec)
-            .expect_err("the oracle backend must never enter publication state")
-            .contains("oracle-only"));
+        assert!(
+            PublicationBackend::try_from(ExecutionBackend::SpecExec)
+                .expect_err("the oracle backend must never enter publication state")
+                .contains("oracle-only")
+        );
     }
     fn compiler_provenance_snapshot_fixture() -> ProgressSnapshot {
         aggregate_snapshot(
@@ -29670,9 +30215,11 @@ assert.sameValue(bytes[3], 0);
             current["compiler_identity"].clone(),
         ] {
             legacy["compiler_identity"] = identity;
-            assert!(decode_snapshot_value_for_test(&legacy)
-                .expect_err("v7 may not carry even null compiler binding")
-                .contains("must omit compiler_identity"));
+            assert!(
+                decode_snapshot_value_for_test(&legacy)
+                    .expect_err("v7 may not carry even null compiler binding")
+                    .contains("must omit compiler_identity")
+            );
         }
     }
 
@@ -29809,9 +30356,11 @@ assert.sameValue(bytes[3], 0);
             assert_eq!(fs::read_to_string(&txt_path).unwrap(), "original summary\n");
         }
         fs::remove_file(&json_path).unwrap();
-        assert!(write_snapshot(&config, &snapshot, "bound")
-            .expect_err("text without JSON has no compiler authority")
-            .contains("unbound summary"));
+        assert!(
+            write_snapshot(&config, &snapshot, "bound")
+                .expect_err("text without JSON has no compiler authority")
+                .contains("unbound summary")
+        );
         assert_eq!(fs::read_to_string(&txt_path).unwrap(), "original summary\n");
         fs::remove_dir_all(&config.snapshot_dir).unwrap();
     }

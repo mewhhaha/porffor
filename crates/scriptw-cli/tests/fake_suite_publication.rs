@@ -87,7 +87,7 @@ fn test262_publish_status_supports_wasm_backend() {
     let snapshot_dir = root.join("snapshots");
     fs::write(
         &readme_path,
-        "# Scriptw\n\n## Current Status\nold status\n\n## Design\nstill here\n",
+        "# Scriptw\n\n## Current Status\n<!-- scriptw-status:start -->\nold status\n<!-- scriptw-status:end -->\n\n## Design\nstill here\n",
     )
     .expect("fixture README should write");
     let test_dir = suite_root.join("test/language/wasm/pass");
@@ -197,6 +197,36 @@ fn test262_publish_status_supports_wasm_backend() {
     assert_eq!(status["fake_wasm_safe"]["total"], 187);
     assert_eq!(status["fake_wasm_safe"]["passed"], 187);
     let status_text = fs::read_to_string(status_txt_path).expect("status text should read");
+    let manifest_path = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("status_manifest: "))
+        .unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["schema_version"], 1);
+    assert_eq!(manifest["backend"], "wasm-aot");
+    use sha2::{Digest, Sha256};
+    let mut generation = Sha256::new();
+    generation.update(b"scriptw-status-generation-v1\0");
+    for (field, path, bytes) in [
+        ("json", status_json_path, status_json.as_bytes()),
+        ("text", status_txt_path, status_text.as_bytes()),
+    ] {
+        assert_eq!(
+            manifest[field]["file"],
+            Path::new(path).file_name().unwrap().to_str().unwrap()
+        );
+        assert_eq!(
+            manifest[field]["sha256"],
+            format!("{:x}", Sha256::digest(bytes))
+        );
+        generation.update((bytes.len() as u64).to_le_bytes());
+        generation.update(bytes);
+    }
+    assert_eq!(
+        manifest["generation"],
+        format!("{:x}", generation.finalize())
+    );
     let text_identity = status_text
         .lines()
         .find_map(|line| line.strip_prefix("compiler_identity="))

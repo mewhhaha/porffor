@@ -1,8 +1,8 @@
 # Scriptw maintenance hills
 
 Audit: 2026-10-21, baseline `6b3d9b449`. These 100 distinct candidates implement
-the approved inventory; 500 is a ceiling, not a quota. The user has authorized all 100 hills. H001–H044 and H091 are complete
-(45 total); the remaining 55 are queued in bounded implementation batches.
+the approved inventory; 500 is a ceiling, not a quota. The user has authorized all 100 hills. H001–H060 and H091 are complete
+(61 total); the remaining 39 are queued in bounded implementation batches.
 Investigation entries require evidence before a code change. This backlog does not supersede conformance acceptance.
 
 ## How to complete a hill
@@ -68,22 +68,22 @@ Risk is initial review guidance, not a claim that the code contains a bug.
 | H042 | Next | Done; medium | Centralize complete and partial outcome totals | `CLI progress/status and publication counters` | R |
 | H043 | Next | Done; medium | Define taxonomy wire labels and ordering once | `FailureKind, OutcomeKind, FailureOrigin` | R |
 | H044 | Next | Done; medium | Share human report rendering | `Test262 and CLI count/summary printers` | R |
-| H045 | Next | Queued; medium | Use structured engine failures before prose heuristics | `classify_engine_failure/classify_failure_outcome` | R |
-| H046 | Next | Queued; medium | Type publication recovery conditions | `CLI publish-status missing/incomplete errors` | R |
-| H047 | Next | Queued; medium | Validate README markers and replace output atomically | `rewrite_current_status_block` | R |
-| H048 | Later | Queued; high | Publish JSON/TXT status as a coherent generation | `write_published_status_artifact` | R |
-| H049 | Later | Queued; high | Encapsulate snapshot decoding and admission | `Test262 SnapshotFile and snapshot_publication` | R |
-| H050 | Later | Queued; high | Reduce duplicate runner API entry points | `ConformanceRunner and free functions` | R |
-| H051 | Later | Queued; high | Give each case worker one lifecycle owner | `ConformanceRunner execution/session/checkpoint closure` | R |
-| H052 | Next | Queued; medium | Preserve primary case errors through worker cleanup | `child/reused-process timeout construction` | R |
-| H053 | Later | Queued; high | Make materialized execution dispatch exhaustive | `execute_materialized_case` | R |
-| H054 | Next | Queued; medium | Type stale-checkpoint envelope mismatch reasons | `ResumeCheckpointLoadError` | R |
-| H055 | Investigate | Queued; high | Characterize and validate the pinned frontmatter subset | `parse_frontmatter_block/list/negative` | I + R |
-| H056 | Investigate | Queued; high | Make module-catalog eligibility sound without extra lowering | `module_catalog.rs::ModuleLoadingSyntax` | I + R |
-| H057 | Investigate | Queued; high | Distinguish module IO failures from absent imports | `module_catalog.rs::fixture_rows/resolve` | I + R |
-| H058 | Next | Queued; medium | Bind module content kind and validated location once | `module_catalog.rs::Catalog::resolve` | R |
-| H059 | Next | Queued; medium | Name module request key fields | `module_catalog.rs::Catalog::add_edge` | R |
-| H060 | Next | Queued; medium | Share deterministic test/harness traversal | `scan_tests and scan_harness_files` | R |
+| H045 | Next | Done; medium | Use structured engine failures before prose heuristics | `classify_engine_failure/classify_failure_outcome` | R |
+| H046 | Next | Done; medium | Type publication recovery conditions | `CLI publish-status missing/incomplete errors` | R |
+| H047 | Next | Done; medium | Validate README markers and replace output atomically | `rewrite_current_status_block` | R |
+| H048 | Later | Done; high | Publish JSON/TXT status as a coherent generation | `write_published_status_artifact` | R |
+| H049 | Later | Done; high | Encapsulate snapshot decoding and admission | `Test262 SnapshotFile and snapshot_publication` | R |
+| H050 | Later | Done; high | Reduce duplicate runner API entry points | `ConformanceRunner and free functions` | R |
+| H051 | Later | Done; high | Give each case worker one lifecycle owner | `ConformanceRunner execution/session/checkpoint closure` | R |
+| H052 | Next | Done; medium | Preserve primary case errors through worker cleanup | `child/reused-process timeout construction` | R |
+| H053 | Later | Done; high | Make materialized execution dispatch exhaustive | `execute_materialized_case` | R |
+| H054 | Next | Done; medium | Type stale-checkpoint envelope mismatch reasons | `ResumeCheckpointLoadError` | R |
+| H055 | Investigate | Done; high | Characterize and validate the pinned frontmatter subset | `parse_frontmatter_block/list/negative` | I + R |
+| H056 | Investigate | Done; high | Make module-catalog eligibility sound without extra lowering | `module_catalog.rs::ModuleLoadingSyntax` | I + R |
+| H057 | Investigate | Done; high | Distinguish module IO failures from absent imports | `module_catalog.rs::fixture_rows/resolve` | I + R |
+| H058 | Next | Done; medium | Bind module content kind and validated location once | `module_catalog.rs::Catalog::resolve` | R |
+| H059 | Next | Done; medium | Name module request key fields | `module_catalog.rs::Catalog::add_edge` | R |
+| H060 | Next | Done; medium | Share deterministic test/harness traversal | `scan_tests and scan_harness_files` | R |
 | H061 | Next | Queued; medium | Move frontend tests into topic-owned child modules | `scriptw-front/src/lib.rs::tests` | R |
 | H062 | Next | Queued; medium | Share UTF-8/UTF-16 Dynamic Function preparation | `scriptw-front/src/dynamic_function.rs` | R |
 | H063 | Later | Queued; high | Make source coordinate units explicit | `frontend source_span and byte_offset helpers` | R |
@@ -186,7 +186,7 @@ and [bounded evidence](rust-rewrite/maintenance-tooling-wave-20261021.json) bind
 663 passing tooling controls, exact unchanged workspace plans, all 15 Intl
 identities and maintained documentation/ownership checks. This wave depends on
 the first batch and changes no product semantics or published Test262 totals.
-H045–H090 and H092–H100 remain queued; all are authorized.
+At that checkpoint H045–H090 and H092–H100 remained queued; all were authorized.
 
 ## CLI and reporting wave
 
@@ -195,4 +195,13 @@ and [bounded evidence](rust-rewrite/maintenance-cli-wave-20261021.json) preserve
 original full selected checkpoint and corrected 478 library, 89 CLI unit and
 14 affected command passes. This wave depends on the tooling wave, changes the
 shard command spelling, and preserves all taxonomy wire labels and published
-Test262 totals. There are 45 completed hills and 55 authorized hills remaining.
+Test262 totals. That checkpoint completed 45 hills with 55 authorized hills remaining.
+
+## Conformance harness and publication wave
+
+H045–H060 are complete. The [verification record](rust-rewrite/maintenance-conformance-wave-20261021.md)
+and [bounded evidence](rust-rewrite/maintenance-conformance-wave-20261021.json)
+bind the corrected 493 library, 91 CLI unit, 856 CLI integration and 29 adjacent
+native passes, 669 tooling controls, 53 structure checks and full pinned metadata
+census. Original failures remain recorded. There are 61 completed hills;
+H061–H090 and H092–H100 are the 39 authorized hills remaining.

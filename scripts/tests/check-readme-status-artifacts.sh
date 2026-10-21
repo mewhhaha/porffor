@@ -142,6 +142,48 @@ setup_canonical_pair() {
   add_artifact test262/snapshots/published-status-wasm-aot.txt
 }
 
+setup_generation() {
+  change_generated_status
+  python3 - "$repo_root/scripts" "${1:-wasm-aot}" <<'PYGEN'
+import hashlib, json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from status_publication import generation_id
+root = Path("test262/snapshots")
+data = (json.dumps({"producer": "scriptw", "real_suite": {"backend": sys.argv[2]}}).encode(), b'fixture=true\n')
+generation = generation_id(*data)
+manifest = {"schema_version": 1, "backend": "wasm-aot", "generation": generation}
+for field, suffix, payload in zip(("json", "text"), ("json", "txt"), data):
+    name = f"published-status-wasm-aot-{generation}.{suffix}"
+    (root / name).write_bytes(payload)
+    manifest[field] = {"file": name, "sha256": hashlib.sha256(payload).hexdigest()}
+(root / "published-status-wasm-aot.manifest.json").write_text(json.dumps(manifest))
+PYGEN
+}
+
+setup_generation_oracle_payload() {
+  setup_generation spec-exec
+}
+
+setup_generation_missing_member() {
+  setup_generation
+  rm test262/snapshots/published-status-wasm-aot-*.txt
+}
+
+setup_generation_damaged_member() {
+  setup_generation
+  printf 'changed\n' >> test262/snapshots/published-status-wasm-aot-*.txt
+}
+
+setup_generation_symlink_member() {
+  setup_generation
+  local member
+  for member in test262/snapshots/published-status-wasm-aot-*.txt; do
+    rm "$member"
+    ln -s ../../README.md "$member"
+  done
+}
+
 setup_canonical_pair_with_node() {
   setup_canonical_pair
   add_artifact test262/snapshots/current-built-ins-123.json
@@ -227,6 +269,11 @@ run_case canonical-pair 0 setup_canonical_pair
 run_case canonical-pair-with-node 0 setup_canonical_pair_with_node
 run_case canonical-pair-with-spec-exec 1 setup_canonical_pair_with_spec_exec
 run_case deleted-canonical-pair 1 setup_deleted_canonical_pair
+run_case coherent-generation 0 setup_generation
+run_case oracle-generation-payload 1 setup_generation_oracle_payload
+run_case missing-generation-member 1 setup_generation_missing_member
+run_case damaged-generation-member 1 setup_generation_damaged_member
+run_case symlink-generation-member 1 setup_generation_symlink_member
 run_case canonical-symlink-pair 1 setup_canonical_symlink_pair
 for canonical_path in \
   test262/snapshots/published-status-wasm-aot.json \

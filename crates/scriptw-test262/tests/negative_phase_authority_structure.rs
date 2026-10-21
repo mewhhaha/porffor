@@ -23,16 +23,15 @@ fn negative_expectations_carry_the_closed_phase_authority() {
 #[test]
 fn discovery_is_the_only_free_text_phase_boundary() {
     let source = compact(SOURCE);
-
-    assert!(source.contains(
-        "fnparse_negative(test_path:&str,value:Option<&str>,)->Result<Option<NegativeExpectation>,String>"
+    let metadata = compact(include_str!("../src/frontmatter.rs"));
+    assert!(metadata.contains(
+        "fnparse_negative(lines:Option<&[&str]>)->Result<Option<NegativeExpectation>,String>"
     ));
-    assert!(source.contains(
-        ".map(NegativePhase::parse).transpose().map_err(|err|format!(\"invalidTest262negativemetadatafor{test_path}:{err}\"))?.unwrap_or(NegativePhase::Runtime)"
-    ));
-    assert!(source.contains(
-        "letnegative=parse_negative(&path,frontmatter.get(\"negative\").map(String::as_str))?.map(Arc::new);"
-    ));
+    assert!(metadata.contains("NegativePhase::parse(phase)?"));
+    assert!(metadata.contains("fields.get(\"phase\").ok_or(\"negativeismissingphase\")?"));
+    assert!(!metadata.contains("unwrap_or(NegativePhase::Runtime)"));
+    assert!(source.contains("frontmatter::parse(&original_source,&path)?"));
+    assert!(source.contains("letnegative=negative.map(Arc::new);"));
     assert!(source.contains("unknownnegative.phase`{value}`"));
 }
 

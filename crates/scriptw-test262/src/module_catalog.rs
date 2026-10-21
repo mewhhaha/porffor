@@ -44,6 +44,22 @@ pub(crate) fn declare(
     if goal == EmbeddedModuleGoal::Script && !syntax.loads_modules {
         return Ok(None);
     }
+    // The text gate admits candidates only. Confirm actual requests before
+    // requiring a filesystem-backed entry; ordinary in-memory Scripts may
+    // contain `eval`, comments or escaped strings without loading any module.
+    // Retain this scan so finite-source preparation happens only once.
+    let entry_scan = if goal == EmbeddedModuleGoal::Script {
+        let scan = Catalog::scan_source(&Node::ScriptEntry, original_source);
+        if scan.requests.is_empty()
+            && scan.realm_requests.is_empty()
+            && scan.dynamic_imports.is_empty()
+        {
+            return Ok(None);
+        }
+        Some(scan)
+    } else {
+        None
+    };
     let entry_path = case_path
         .canonicalize()
         .map_err(|error| format!("cannot canonicalize {}: {error}", case_path.display()))?;
@@ -58,7 +74,7 @@ pub(crate) fn declare(
         texts: BTreeMap::new(),
         edges: BTreeMap::new(),
     };
-    catalog.discover(original_source)?;
+    catalog.discover(original_source, entry_scan)?;
     catalog.into_graph(entry_source).map(Some)
 }
 
@@ -73,54 +89,22 @@ fn include_prepared_script_imports_if_needed(
     }
 }
 
-/// What a source text can ask the host for, found without a second parser.
+/// A cheap, conservative gate for the request discovery below. JavaScript
+/// trivia, computed string properties and Unicode escapes must not hide a
+/// request. False positives only run the AST scanner; raw text grants no edge.
 struct ModuleLoadingSyntax {
-    /// Any `import(...)`, `import.defer(...)`, `import.source(...)` or
-    /// `importValue(` appears.
     loads_modules: bool,
 }
 
 impl ModuleLoadingSyntax {
     fn scan(text: &str) -> Self {
-        let bytes = text.as_bytes();
-        let mut syntax = Self {
-            loads_modules: text.contains("importValue("),
-        };
-        let mut from = 0;
-        while let Some(found) = text[from..].find("import") {
-            let start = from + found;
-            let end = start + "import".len();
-            from = end;
-            let ident = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$');
-            if start > 0 && (ident(bytes[start - 1]) || bytes[start - 1] == b'.') {
-                continue;
-            }
-            let mut cursor = skip_whitespace(bytes, end);
-            if bytes.get(cursor) == Some(&b'.') {
-                cursor = skip_whitespace(bytes, cursor + 1);
-                let rest = &text[cursor..];
-                let Some(phase) = ["defer", "source"]
-                    .into_iter()
-                    .find(|phase| rest.starts_with(phase))
-                else {
-                    continue;
-                };
-                cursor = skip_whitespace(bytes, cursor + phase.len());
-            }
-            if bytes.get(cursor) != Some(&b'(') {
-                continue;
-            }
-            syntax.loads_modules = true;
+        Self {
+            // Direct imports and importValue contain `import`; finite direct
+            // eval can assemble that word, and escapes can spell either name.
+            // The AST's direct-eval predicate still gates finite-source lowering.
+            loads_modules: text.contains("import") || text.contains("eval") || text.contains('\\'),
         }
-        syntax
     }
-}
-
-fn skip_whitespace(bytes: &[u8], mut cursor: usize) -> usize {
-    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
-        cursor += 1;
-    }
-    cursor
 }
 
 /// A resolution source: the entry, a loaded module, or the Realm base.
@@ -132,7 +116,19 @@ enum Node {
     Realm,
 }
 
-type RequestRow = (Node, String, Vec<(String, String)>);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RequestRow {
+    referrer: Node,
+    specifier: String,
+    attributes: Vec<(String, String)>,
+}
+
+/// Identity and contents are bound once, after resolving and reading an admitted
+/// target. All edges to a key use this same loaded record.
+struct LoadedModuleTarget {
+    identity: String,
+    contents: EmbeddedModuleContents,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum ModuleTargetLocator {
@@ -165,12 +161,16 @@ struct Catalog {
     entry_path: PathBuf,
     goal: EmbeddedModuleGoal,
     /// Every readable file some row targets, by canonical path.
-    texts: BTreeMap<ModuleTarget, EmbeddedModuleContents>,
+    texts: BTreeMap<ModuleTarget, LoadedModuleTarget>,
     edges: BTreeMap<RequestRow, ModuleTarget>,
 }
 
 impl Catalog {
-    fn discover(&mut self, original_source: &str) -> Result<(), String> {
+    fn discover(
+        &mut self,
+        original_source: &str,
+        mut entry_scan: Option<ScannedSource>,
+    ) -> Result<(), String> {
         let entry_node = match self.goal {
             EmbeddedModuleGoal::Script => Node::ScriptEntry,
             EmbeddedModuleGoal::Module => Node::Module(self.entry_path.clone()),
@@ -185,7 +185,12 @@ impl Catalog {
                 Node::ScriptEntry | Node::Realm => self.root.clone(),
                 Node::Module(path) => path.parent().unwrap_or(&self.root).to_path_buf(),
             };
-            let scan = self.scan_source(&node, &text);
+            let scan = if node == entry_node {
+                entry_scan.take()
+            } else {
+                None
+            }
+            .unwrap_or_else(|| Self::scan_source(&node, &text));
             let mut referenced_dirs = BTreeSet::from([base.clone()]);
             let mut rows = Vec::new();
             for request in &scan.requests {
@@ -213,7 +218,7 @@ impl Catalog {
                 }
             }
             for (specifier, attributes) in &rows {
-                if let Some(target) = self.resolve(&base, specifier, attributes) {
+                if let Some(target) = self.resolve(&base, specifier, attributes)? {
                     if let Some(parent) = target.file_path().and_then(Path::parent) {
                         referenced_dirs.insert(parent.to_path_buf());
                     }
@@ -225,7 +230,7 @@ impl Catalog {
                 .any(|site| site.static_specifier.is_none())
             {
                 for directory in &referenced_dirs {
-                    for request in self.fixture_rows(&base, directory) {
+                    for request in self.fixture_rows(&base, directory)? {
                         if scan.dynamic_imports.iter().any(|site| {
                             site.static_specifier.is_none() && site.permits_catalog_key(&request)
                         }) {
@@ -235,7 +240,7 @@ impl Catalog {
                 }
             }
             for (specifier, attributes) in rows {
-                self.add_edge(&node, &base, specifier, attributes, &mut pending);
+                self.add_edge(&node, &base, specifier, attributes, &mut pending)?;
             }
             // ShadowRealm `importValue` resolves against the entry directory,
             // independent of the active module, like `loader.resolve(None, ..)`.
@@ -243,7 +248,7 @@ impl Catalog {
                 let (specifier, attributes) =
                     (request.specifier().to_owned(), attributes_of(&request));
                 let root = self.root.clone();
-                self.add_edge(&Node::Realm, &root, specifier, attributes, &mut pending);
+                self.add_edge(&Node::Realm, &root, specifier, attributes, &mut pending)?;
             }
         }
         Ok(())
@@ -256,19 +261,23 @@ impl Catalog {
         specifier: String,
         attributes: Vec<(String, String)>,
         pending: &mut VecDeque<(Node, String)>,
-    ) {
-        let key = (node.clone(), specifier, attributes);
+    ) -> Result<(), String> {
+        let key = RequestRow {
+            referrer: node.clone(),
+            specifier,
+            attributes,
+        };
         if self.edges.contains_key(&key) {
-            return;
+            return Ok(());
         }
-        let Some(target) = self.resolve(base, &key.1, &key.2) else {
-            return;
+        let Some(target) = self.resolve(base, &key.specifier, &key.attributes)? else {
+            return Ok(());
         };
         let is_entry_module = self.goal == EmbeddedModuleGoal::Module
             && target.file_path() == Some(self.entry_path.as_path())
             && target.kind == EmbeddedModuleKind::SourceText;
         if !is_entry_module {
-            if let EmbeddedModuleContents::SourceText(text) = &self.texts[&target] {
+            if let EmbeddedModuleContents::SourceText(text) = &self.texts[&target].contents {
                 pending.push_back((
                     Node::Module(
                         target
@@ -281,9 +290,10 @@ impl Catalog {
             }
         }
         self.edges.insert(key, target);
+        Ok(())
     }
 
-    fn scan_source(&self, node: &Node, text: &str) -> ScannedSource {
+    fn scan_source(node: &Node, text: &str) -> ScannedSource {
         let source = match node {
             Node::Realm => None,
             Node::ScriptEntry => {
@@ -333,18 +343,25 @@ impl Catalog {
 
     /// Rows naming each `*_FIXTURE*` file of `directory`, as a computed
     /// specifier written relative to `base` would spell them.
-    fn fixture_rows(&self, base: &Path, directory: &Path) -> Vec<ModuleRequestKeyIr> {
-        let Ok(entries) = fs::read_dir(directory) else {
-            return Vec::new();
-        };
+    fn fixture_rows(
+        &self,
+        base: &Path,
+        directory: &Path,
+    ) -> Result<Vec<ModuleRequestKeyIr>, String> {
+        let entries = super::sorted_directory_entries(directory, "fixture")?;
         let mut rows = Vec::new();
-        for entry in entries.flatten() {
+        for entry in entries {
             let path = entry.path();
             let is_fixture = path
                 .file_name()
                 .and_then(|name| name.to_str())
                 .is_some_and(|name| name.contains("_FIXTURE"));
-            if !is_fixture || !path.is_file() {
+            if !is_fixture {
+                continue;
+            }
+            let metadata = fs::metadata(&path)
+                .map_err(|error| format!("cannot inspect fixture {}: {error}", path.display()))?;
+            if !metadata.is_file() {
                 continue;
             }
             let Some(specifier) = relative_specifier(base, &path) else {
@@ -364,7 +381,7 @@ impl Catalog {
             }
         }
         rows.sort();
-        rows
+        Ok(rows)
     }
 
     /// `FilesystemModuleLoader::resolve` plus the read `load` performs, for a
@@ -374,12 +391,12 @@ impl Catalog {
         base: &Path,
         specifier: &str,
         attributes: &[(String, String)],
-    ) -> Option<ModuleTarget> {
+    ) -> Result<Option<ModuleTarget>, String> {
         let json = matches!(attributes, [(key, value)] if key == "type" && value == "json");
         let bytes = matches!(attributes, [(key, value)] if key == "type" && value == "bytes");
         let text = matches!(attributes, [(key, value)] if key == "type" && value == "text");
         if !attributes.is_empty() && !json && !bytes && !text {
-            return None;
+            return Ok(None);
         }
         // Test262's implementation-defined host module-source contract. This
         // virtual module is declared here, never recognized by the compiler.
@@ -388,12 +405,15 @@ impl Catalog {
                 locator: ModuleTargetLocator::HostModuleSource,
                 kind: EmbeddedModuleKind::ModuleSource,
             };
-            self.texts.entry(target.clone()).or_insert_with(|| {
-                EmbeddedModuleContents::ModuleSource {
-                    source_tag: "ModuleSource".into(),
-                }
-            });
-            return Some(target);
+            self.texts
+                .entry(target.clone())
+                .or_insert_with(|| LoadedModuleTarget {
+                    identity: "host/module-source".into(),
+                    contents: EmbeddedModuleContents::ModuleSource {
+                        source_tag: "ModuleSource".into(),
+                    },
+                });
+            return Ok(Some(target));
         }
         let candidate = if Path::new(specifier).is_absolute() {
             PathBuf::from(specifier)
@@ -403,12 +423,38 @@ impl Catalog {
             self.root.join(specifier)
         };
         let normalized = normalize(&candidate);
-        let resolved = normalized.canonicalize().unwrap_or(normalized);
-        if !resolved.starts_with(&self.root)
-            || !resolved.is_file()
-            || (!bytes && !text && is_json(&resolved) != json)
-        {
-            return None;
+        let resolved = match normalized.canonicalize() {
+            Ok(path) => path,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound
+                        | std::io::ErrorKind::NotADirectory
+                        | std::io::ErrorKind::InvalidInput
+                ) =>
+            {
+                // Missing components and malformed locators are rejected
+                // requests; operational IO failures remain host diagnostics.
+                return Ok(None);
+            }
+            Err(error) => {
+                return Err(format!(
+                    "cannot resolve module {}: {error}",
+                    normalized.display()
+                ))
+            }
+        };
+        if !resolved.starts_with(&self.root) || (!bytes && !text && is_json(&resolved) != json) {
+            return Ok(None);
+        }
+        let metadata = fs::metadata(&resolved).map_err(|error| {
+            format!(
+                "cannot inspect resolved module {}: {error}",
+                resolved.display()
+            )
+        })?;
+        if !metadata.is_file() {
+            return Ok(None);
         }
         let target = ModuleTarget {
             locator: ModuleTargetLocator::File(resolved),
@@ -423,26 +469,41 @@ impl Catalog {
             },
         };
         if !self.texts.contains_key(&target) {
+            let path = target.file_path().expect("filesystem target");
+            let payload = fs::read(path).map_err(|error| {
+                format!("cannot read resolved module {}: {error}", path.display())
+            })?;
             let contents = match target.kind {
-                EmbeddedModuleKind::SourceText => EmbeddedModuleContents::SourceText(
-                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
-                ),
-                EmbeddedModuleKind::Json => EmbeddedModuleContents::Json(
-                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
-                ),
-                EmbeddedModuleKind::Text => EmbeddedModuleContents::Text(
-                    fs::read_to_string(target.file_path().expect("filesystem target")).ok()?,
-                ),
-                EmbeddedModuleKind::Bytes => EmbeddedModuleContents::Bytes(
-                    fs::read(target.file_path().expect("filesystem target")).ok()?,
-                ),
+                EmbeddedModuleKind::Bytes => EmbeddedModuleContents::Bytes(payload),
+                EmbeddedModuleKind::SourceText
+                | EmbeddedModuleKind::Json
+                | EmbeddedModuleKind::Text => {
+                    // Invalid encoded contents are a rejected module request,
+                    // not a filesystem failure. In particular binary fixture
+                    // files may coexist with computed text/source requests.
+                    let Ok(source) = String::from_utf8(payload) else {
+                        return Ok(None);
+                    };
+                    match target.kind {
+                        EmbeddedModuleKind::SourceText => {
+                            EmbeddedModuleContents::SourceText(source)
+                        }
+                        EmbeddedModuleKind::Json => EmbeddedModuleContents::Json(source),
+                        EmbeddedModuleKind::Text => EmbeddedModuleContents::Text(source),
+                        EmbeddedModuleKind::Bytes | EmbeddedModuleKind::ModuleSource => {
+                            unreachable!("text kind admitted above")
+                        }
+                    }
+                }
                 EmbeddedModuleKind::ModuleSource => {
                     unreachable!("virtual host source returned before filesystem loading")
                 }
             };
-            self.texts.insert(target.clone(), contents);
+            let identity = target.identity()?;
+            self.texts
+                .insert(target.clone(), LoadedModuleTarget { identity, contents });
         }
-        Some(target)
+        Ok(Some(target))
     }
 
     fn into_graph(self, entry_source: &str) -> Result<CaseModuleCatalog, String> {
@@ -462,9 +523,9 @@ impl Catalog {
             {
                 continue;
             }
-            let identity = target.identity()?;
+            let identity = self.texts[target].identity.clone();
             let meta_url = format!("scriptw://{identity}");
-            modules.push(match &self.texts[target] {
+            modules.push(match &self.texts[target].contents {
                 EmbeddedModuleContents::SourceText(text) => {
                     EmbeddedModuleInput::SourceText(EmbeddedModuleSourceInput {
                         identity,
@@ -503,17 +564,17 @@ impl Catalog {
             });
         }
         let mut resolutions = Vec::new();
-        for ((node, specifier, attributes), target) in &self.edges {
-            let referrer = match node {
+        for (request, target) in &self.edges {
+            let referrer = match &request.referrer {
                 Node::ScriptEntry => EmbeddedModuleReferrer::Script(entry_identity.clone()),
                 Node::Module(path) => EmbeddedModuleReferrer::Module(identity(path)?),
                 Node::Realm => EmbeddedModuleReferrer::Realm,
             };
             resolutions.push(EmbeddedModuleResolutionInput {
                 referrer,
-                specifier: specifier.clone(),
-                attributes: attributes.clone(),
-                target: target.identity()?,
+                specifier: request.specifier.clone(),
+                attributes: request.attributes.clone(),
+                target: self.texts[target].identity.clone(),
             });
         }
         EmbeddedModuleGraph::try_new_typed(entry, modules, resolutions)

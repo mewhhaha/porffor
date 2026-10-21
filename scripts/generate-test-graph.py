@@ -2,25 +2,16 @@
 """Generate the README's dated Test262 bar chart from published evidence."""
 import argparse
 from html import escape
-import json
 from pathlib import Path
 import re
-import subprocess
+
+from status_publication import load_publication
 
 ROOT = Path(__file__).resolve().parents[1]
 START = "<!-- scriptw-test-graph:start -->"
 END = "<!-- scriptw-test-graph:end -->"
 SNAPSHOT = "test262/snapshots/published-status-wasm-aot.json"
 CHART = "docs/rust-rewrite/assets/test262-status.svg"
-
-
-def read_committed_or_local(root, name):
-    path = root / name
-    return (
-        path.read_bytes()
-        if path.exists()
-        else subprocess.check_output(["git", "show", ":" + name], cwd=root)
-    )
 
 
 def categories(publication):
@@ -77,7 +68,7 @@ def chart_display(publication):
     }
 
 
-def render(publication):
+def render(publication, evidence_path=SNAPSHOT):
     display = chart_display(publication)
     real = display["real"]
     passed, failed, missing, _ = [row[2] for row in display["rows"]]
@@ -100,7 +91,7 @@ def render(publication):
 Published snapshot: **{display['date']}**, pin {tick}{display['pin']}{tick},
 {display['total']:,} {units}. Red combines {failed:,} bugs/crashes;
 gray means unimplemented, not unrun. {context}
-[Published evidence]({SNAPSHOT}) · [Run details](docs/rust-rewrite/test262-current.md).
+[Published evidence]({evidence_path}) · [Run details](docs/rust-rewrite/test262-current.md).
 
 Blue reserves **out of scope** for dynamic `eval` / Function-constructor cases
 requiring a parser or VM inside emitted Wasm. Scope classification is unaudited,
@@ -204,10 +195,10 @@ def replace_block(readme, graph):
 
 
 def generate(root=ROOT, check=False):
-    publication = json.loads(read_committed_or_local(root, SNAPSHOT))
+    publication, evidence_path = load_publication(root)
     path = root / "README.md"
     outputs = {
-        path: replace_block(path.read_text(), render(publication)),
+        path: replace_block(path.read_text(), render(publication, evidence_path)),
         root / CHART: render_svg(publication),
     }
     stale = [

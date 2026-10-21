@@ -94,7 +94,7 @@ fn candidate_resolution_exhaustively_binds_both_evidence_policies() {
     let resolver = normalized(resolver);
 
     assert!(resolver.contains(
-        "letevidence=envelope.and_then(|()|match&evidence_requirement{AggregateEvidenceRequirement::Envelope=>Ok(()),AggregateEvidenceRequirement::Complete=>{load_and_validate_resolved_aggregate_evidence(config,&candidate,nodes,execution_backend,)?;Ok(())}});"
+        "letevidence=envelope.and_then(|()|match&evidence_requirement{AggregateEvidenceRequirement::Envelope=>Ok(()),AggregateEvidenceRequirement::Complete=>{load_and_validate_resolved_aggregate_evidence(config,&candidate,nodes,execution_backend,).map_err(String::from)?;Ok(())}});"
     ));
     assert_eq!(resolver.matches("match&evidence_requirement").count(), 1);
     assert!(!resolver.contains("evidence_requirement=="));
@@ -107,18 +107,18 @@ fn all_three_aggregate_consumers_choose_an_exact_evidence_policy() {
     for (start, end, snapshot_use, requirement) in [
         (
             "fn load_verified_aggregate_summary_for_use(",
-            "pub fn load_aggregate_progress_summary(",
+            "fn load_aggregate_progress_summary(",
             "snapshot_use",
             "Complete",
         ),
         (
-            "\npub fn load_aggregate_progress_summary(",
-            "\npub fn load_matrix_triage_entries(",
+            "\nfn load_aggregate_progress_summary(",
+            "\nfn load_matrix_triage_entries(",
             "SnapshotUse::CurrentState",
             "Envelope",
         ),
         (
-            "\npub fn load_matrix_failure_details(",
+            "\nfn load_matrix_failure_details(",
             "\nfn group_failures_by_detail_identity(",
             "SnapshotUse::CurrentState",
             "Envelope",

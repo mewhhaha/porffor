@@ -2,11 +2,13 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location('test_graph', ROOT / 'scripts/generate-test-graph.py')
 GRAPH = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GRAPH)

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use scriptw_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
 use scriptw_ir::HostSurfacePolicy;
-use scriptw_test262::{load_preludes, LocalHarnessSource, SuiteConfig};
+use scriptw_test262::{ConformanceRunner, LocalHarnessSource, SuiteConfig};
 
 fn assert_harness(source: &str, includes: &[&str]) {
     assert_harness_profile(source, includes, LocalHarnessSource::EmbeddedWasmAot, false);
@@ -19,7 +19,9 @@ fn assert_harness_profile(
     config.suite_root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262");
     config.local_harness = profile;
-    let preludes = load_preludes(&config).expect("embedded pinned harness");
+    let preludes = ConformanceRunner::with_config(config)
+        .load_preludes()
+        .expect("embedded pinned harness");
     let mut program = if strict {
         "\"use strict\";\n".to_string()
     } else {

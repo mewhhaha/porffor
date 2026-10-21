@@ -193,7 +193,7 @@ fn verified_status_retains_unique_name_fallback() {
 }
 
 #[test]
-fn compare_rejects_incomplete_exact_candidate() {
+fn compare_rejects_contradictory_incomplete_exact_candidate() {
     let fixture = Fixture::new();
     fixture.run("baseline", 1, 1);
     fixture.run("candidate", 1, 1);
@@ -209,7 +209,10 @@ fn compare_rejects_incomplete_exact_candidate() {
     .expect("incomplete snapshot should write");
     let error = compare_snapshots(&fixture.config, "baseline", "candidate", BACKEND)
         .expect_err("an incomplete named candidate must not fall back to the baseline");
-    assert!(error.contains("aggregate snapshot incomplete"), "{error}");
+    assert!(
+        error.contains("aggregate entries do not cover every completed matrix node"),
+        "{error}"
+    );
 }
 
 #[test]

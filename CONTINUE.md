@@ -7,12 +7,13 @@ policy. The [maintenance backlog](docs/maintenance-hills.md) tracks cleanup work
 
 ## Current maintenance work
 
-All 100 hills are authorized. H001–H044 and H091 are complete (45 total).
-The [first-wave record](docs/rust-rewrite/maintenance-first-wave-20261021.md) and
-[tooling-wave record](docs/rust-rewrite/maintenance-tooling-wave-20261021.md) and
-[CLI-wave record](docs/rust-rewrite/maintenance-cli-wave-20261021.md) retain
-checks and failed attempts. Continue implementing the remaining 55 hills:
-H045–H090 and H092–H100. Investigation entries need measured or characterized
+All 100 hills are authorized. H001–H060 and H091 are complete (61 total).
+The [first-wave record](docs/rust-rewrite/maintenance-first-wave-20261021.md),
+[tooling-wave record](docs/rust-rewrite/maintenance-tooling-wave-20261021.md),
+[CLI-wave record](docs/rust-rewrite/maintenance-cli-wave-20261021.md), and
+[conformance-wave record](docs/rust-rewrite/maintenance-conformance-wave-20261021.md) retain
+checks and failed attempts. Continue implementing the remaining 39 hills:
+H061–H090 and H092–H100. Investigation entries need measured or characterized
 evidence before deciding whether code changes improve the project.
 
 Use coherent CLI/conformance, compiler/runtime and Intl batches, with Luna

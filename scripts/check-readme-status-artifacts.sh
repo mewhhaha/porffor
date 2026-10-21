@@ -75,7 +75,7 @@ if [[ "$base_status" == '<!-- lila-status:start -->'* ]] \
   exit 0
 fi
 
-if grep -Eq '^test262/snapshots/published-status-spec-exec\.(json|txt)$' <<<"$changed_files"; then
+if grep -Eq '^test262/snapshots/published-status-spec-exec([.-][a-z0-9]+)?\.(json|txt)$' <<<"$changed_files"; then
   cat >&2 <<'EOF'
 check-readme-status-artifacts: spec-exec is oracle-only and cannot authorize the generated README status block.
 Use `scriptw test262 publish-status` or `scripts/publish-real-status-low-ram.sh` with the wasm-aot product backend.
@@ -105,6 +105,21 @@ if grep -Fqx -- '<!-- porffor-status:start -->' <<<"$base_status" \
   && [ "$(normalize_t27_t29_status <<<"$base_status")" = "$head_status" ]; then
   printf 'check-readme-status-artifacts: status evidence unchanged; exact T27/T29 identity and wasm-aot policy migration\n'
   exit 0
+fi
+
+# New publications commit one manifest after both immutable members. Verify
+# the committed generation; two independently replaced files are not its owner.
+canonical_status_manifest='test262/snapshots/published-status-wasm-aot.manifest.json'
+if [ -e "$canonical_status_manifest" ] || [ -L "$canonical_status_manifest" ] \
+  || git cat-file -e "HEAD:$canonical_status_manifest" 2>/dev/null; then
+  if canonical_status_blob "$canonical_status_manifest" \
+    && changed_file "$canonical_status_manifest" \
+    && python3 "$(dirname "${BASH_SOURCE[0]}")/status_publication.py" --check-committed; then
+    printf 'check-readme-status-artifacts: README status change has one verified wasm-aot generation\n'
+    exit 0
+  fi
+  printf 'check-readme-status-artifacts: status manifest must change and admit both committed members\n' >&2
+  exit 1
 fi
 
 if changed_file "$canonical_status_json" \

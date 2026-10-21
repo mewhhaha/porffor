@@ -86,12 +86,12 @@ fn snapshot_use_is_the_exact_private_no_capability_domain() {
 
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse"),
-        14,
-        "one declaration, three parameters, eight producers and two exhaustive arms own every source mention"
+        17,
+        "one declaration, three parameters, eight production choices, three recovery controls and two exhaustive arms own every source mention"
     );
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse::CurrentState"),
-        8
+        11
     );
     assert_eq!(
         count_in_rust_sources(&source_root(), "SnapshotUse::ReadOnlyEvidence"),
@@ -180,12 +180,12 @@ fn all_eight_product_producers_select_the_exact_snapshot_use() {
 
     for (start, end, expected_call) in [
         (
-            "\npub fn load_verified_aggregate_summary(",
-            "\npub fn load_publishable_aggregate_summary(",
+            "\nfn load_verified_aggregate_summary(",
+            "\nfn load_publishable_aggregate_summary(",
             "load_verified_aggregate_summary_for_use(config,snapshot_name,execution_backend,SnapshotUse::CurrentState,)",
         ),
         (
-            "\npub fn load_publishable_aggregate_summary(",
+            "\nfn load_publishable_aggregate_summary(",
             "\nfn load_current_aggregate_summary(",
             "load_verified_aggregate_summary_for_use(config,snapshot_name,publication_backend.as_execution_backend(),SnapshotUse::CurrentState,)",
         ),
@@ -204,7 +204,7 @@ fn all_eight_product_producers_select_the_exact_snapshot_use() {
     let verified_forwarder = normalized(bounded(
         &source,
         "\nfn load_verified_aggregate_summary_for_use(",
-        "\npub fn load_aggregate_progress_summary(",
+        "\nfn load_aggregate_progress_summary(",
     ));
     assert_eq!(
         verified_forwarder
@@ -215,13 +215,13 @@ fn all_eight_product_producers_select_the_exact_snapshot_use() {
 
     for (start, end, use_name, requirement) in [
         (
-            "\npub fn load_aggregate_progress_summary(",
-            "\npub fn load_matrix_triage_entries(",
+            "\nfn load_aggregate_progress_summary(",
+            "\nfn load_matrix_triage_entries(",
             "CurrentState",
             "Envelope",
         ),
         (
-            "\npub fn load_matrix_failure_details(",
+            "\nfn load_matrix_failure_details(",
             "\nfn group_failures_by_detail_identity(",
             "CurrentState",
             "Envelope",
@@ -237,7 +237,7 @@ fn all_eight_product_producers_select_the_exact_snapshot_use() {
     let comparison = normalized(bounded(
         &source,
         "\nfn load_comparison_aggregate_summary(",
-        "\npub fn compare_snapshots(",
+        "\nfn compare_snapshots(",
     ));
     assert_eq!(
         comparison.matches("SnapshotUse::ReadOnlyEvidence").count(),

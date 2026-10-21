@@ -250,7 +250,11 @@ fn case_set_requirement_is_one_private_capability_free_authority() {
         "        &rebuilt.counts_per_kind,\n",
         "        &rebuilt.counts_per_outcome,\n",
         "        &rebuilt.counts_per_origin,\n",
-        "    )\n",
+        "    )?;\n",
+        "    match incomplete {\n",
+        "        Some(detail) => Err(AggregateLoadError::Incomplete(detail)),\n",
+        "        None => Ok(()),\n",
+        "    }\n",
         "}\n\n",
     );
     let declaration_start = OWNER_SOURCE
@@ -268,8 +272,8 @@ fn case_set_requirement_is_one_private_capability_free_authority() {
 
     assert_eq!(
         count_identifier_in_rust_sources(&source_root(), "CaseSetRequirement"),
-        17,
-        "the former equality observation was the eighteenth source mention"
+        19,
+        "thirteen production mentions and six corruption/control mentions own the authority"
     );
     assert_eq!(
         exact_identifier_count(
@@ -382,7 +386,7 @@ fn all_six_deliveries_and_both_constructor_rows_are_exact() {
 
     for (start, end, call) in [
         (
-            "\npub fn run_shard(",
+            "\nfn run_shard(",
             "fn manifest_for_selected_cases(",
             r#"
             validate_case_snapshot_contract(
@@ -399,7 +403,7 @@ fn all_six_deliveries_and_both_constructor_rows_are_exact() {
         ),
         (
             "\nfn run_full_with_manifest(",
-            "\npub fn run_top_level_matrix(",
+            "\nfn run_top_level_matrix(",
             r#"
             validate_case_snapshot_contract(
                 &snapshot,

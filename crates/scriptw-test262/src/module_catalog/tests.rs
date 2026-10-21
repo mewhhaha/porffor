@@ -20,6 +20,127 @@ impl Drop for Directory {
     }
 }
 
+fn empty_catalog(directory: &Directory) -> Catalog {
+    Catalog {
+        root: directory.0.canonicalize().unwrap(),
+        entry_path: directory.0.join("entry.js"),
+        goal: EmbeddedModuleGoal::Script,
+        texts: BTreeMap::new(),
+        edges: BTreeMap::new(),
+    }
+}
+
+#[test]
+fn catalog_eligibility_preserves_javascript_trivia_and_escaped_requests() {
+    let directory = Directory::new();
+    let entry = directory.0.join("entry.js");
+    fs::write(
+        directory.0.join("target_FIXTURE.js"),
+        "export const value = 42;",
+    )
+    .unwrap();
+    let request =
+        scriptw_engine::EmbeddedModuleRequest::try_new("./target_FIXTURE.js", vec![]).unwrap();
+    for (source, realm) in [
+        ("import/* comment */('./target_FIXTURE.js');", false),
+        ("import\u{a0}('./target_FIXTURE.js');", false),
+        (
+            "realm.importValue /* comment */ ('./target_FIXTURE.js', 'value');",
+            true,
+        ),
+        (
+            "realm['importValue']('./target_FIXTURE.js', 'value');",
+            true,
+        ),
+        (
+            r"realm.\u0069mportValue('./target_FIXTURE.js', 'value');",
+            true,
+        ),
+        ("eval('im' + 'port(\"./target_FIXTURE.js\")');", false),
+    ] {
+        fs::write(&entry, source).unwrap();
+        let graph = declare(&entry, EmbeddedModuleGoal::Script, source, source)
+            .unwrap()
+            .unwrap()
+            .graph;
+        let referrer = if realm {
+            EmbeddedModuleReferrer::Realm
+        } else {
+            EmbeddedModuleReferrer::Script(graph.entry().identity().into())
+        };
+        assert!(graph.resolve(&referrer, &request).is_some(), "{source}");
+    }
+    for source in [
+        "// import('./target_FIXTURE.js')",
+        "const text = 'importValue';",
+        "// eval('im'+'port(...)')",
+    ] {
+        fs::write(&entry, source).unwrap();
+        assert!(
+            declare(&entry, EmbeddedModuleGoal::Script, source, source)
+                .unwrap()
+                .is_none(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn catalog_distinguishes_rejected_requests_from_failed_fixture_traversal() {
+    let directory = Directory::new();
+    let mut catalog = empty_catalog(&directory);
+    assert!(
+        catalog
+            .resolve(&directory.0, "./missing.js", &[])
+            .unwrap()
+            .is_none()
+    );
+    fs::write(directory.0.join("invalid_FIXTURE.js"), [255]).unwrap();
+    assert!(
+        catalog
+            .resolve(&directory.0, "./invalid_FIXTURE.js", &[])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        catalog
+            .resolve(&directory.0, "./invalid_FIXTURE.js/child.js", &[])
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        catalog
+            .resolve(&directory.0, "./invalid\0.js", &[])
+            .unwrap()
+            .is_none()
+    );
+    let invalid_directory = directory.0.join("invalid_FIXTURE.js");
+    let error = catalog
+        .fixture_rows(&directory.0, &invalid_directory)
+        .unwrap_err();
+    assert!(error.contains("fixture"), "{error}");
+    assert!(error.contains("invalid_FIXTURE.js"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn catalog_reports_canonicalization_and_fixture_metadata_failures() {
+    use std::os::unix::fs::symlink;
+    let directory = Directory::new();
+    let mut catalog = empty_catalog(&directory);
+    symlink("loop_FIXTURE.js", directory.0.join("loop_FIXTURE.js")).unwrap();
+    let error = catalog
+        .resolve(&directory.0, "./loop_FIXTURE.js", &[])
+        .unwrap_err();
+    assert!(error.contains("cannot resolve module"), "{error}");
+    assert!(error.contains("loop_FIXTURE.js"), "{error}");
+    let error = catalog
+        .fixture_rows(&directory.0, &directory.0)
+        .unwrap_err();
+    assert!(error.contains("cannot inspect fixture"), "{error}");
+    assert!(error.contains("loop_FIXTURE.js"), "{error}");
+}
+
 #[test]
 fn catalog_reads_binary_fixtures_and_retains_mixed_records_at_one_url() {
     let directory = Directory::new();
@@ -60,9 +181,11 @@ fn catalog_reads_binary_fixtures_and_retains_mixed_records_at_one_url() {
         .resolve(&referrer, &request("./raw_FIXTURE.png", true))
         .unwrap();
     assert_eq!(image.payload_bytes(), &[0, 255, 128, 10]);
-    assert!(graph
-        .resolve(&referrer, &request("./raw_FIXTURE.png", false))
-        .is_none());
+    assert!(
+        graph
+            .resolve(&referrer, &request("./raw_FIXTURE.png", false))
+            .is_none()
+    );
     assert_eq!(
         graph
             .resolve(&referrer, &request("./empty_FIXTURE.txt", true))
@@ -98,17 +221,21 @@ fn text_catalog_keeps_self_import_raw_and_admits_computed_json_text() {
         .unwrap();
     assert_eq!(own.kind(), EmbeddedModuleKind::Text);
     assert_eq!(own.source_text(), Some(source));
-    assert!(graph
-        .module(graph.entry().identity(), EmbeddedModuleKind::SourceText)
-        .is_some());
+    assert!(
+        graph
+            .module(graph.entry().identity(), EmbeddedModuleKind::SourceText)
+            .is_some()
+    );
     let data = graph
         .resolve(&referrer, &text_request("./raw_FIXTURE.json"))
         .unwrap();
     assert_eq!(data.kind(), EmbeddedModuleKind::Text);
     assert_eq!(data.source_text(), Some(raw));
-    assert!(graph
-        .resolve(&referrer, &text_request("./invalid_FIXTURE.txt"))
-        .is_none());
+    assert!(
+        graph
+            .resolve(&referrer, &text_request("./invalid_FIXTURE.txt"))
+            .is_none()
+    );
 }
 
 #[test]
@@ -121,10 +248,11 @@ fn literal_runtime_attributes_declare_only_that_locator_supported_record_variant
     fs::write(directory.0.join("plain.json"), "262").unwrap();
     fs::write(directory.0.join("unrelated_FIXTURE.json"), "123").unwrap();
     for goal in [EmbeddedModuleGoal::Script, EmbeddedModuleGoal::Module] {
-        let graph = declare(&entry, goal, source, source)
-            .unwrap()
-            .unwrap()
-            .graph;
+        let Some(catalog) = declare(&entry, goal, source, source).unwrap() else {
+            assert_eq!(goal, EmbeddedModuleGoal::Script);
+            continue; // No catalog leaves the host's RejectAll policy intact.
+        };
+        let graph = catalog.graph;
         let referrer = match goal {
             EmbeddedModuleGoal::Script => {
                 EmbeddedModuleReferrer::Script(graph.entry().identity().into())
@@ -288,12 +416,16 @@ fn finite_direct_eval_imports_declare_only_actual_script_referrer_edges() {
         graph.resolve(&referrer, &request).unwrap().source_text(),
         Some("export default 42;")
     );
-    assert!(graph
-        .resolve(&EmbeddedModuleReferrer::Realm, &request)
-        .is_none());
-    assert!(graph
-        .resolve(&EmbeddedModuleReferrer::Unlocated, &request)
-        .is_none());
+    assert!(
+        graph
+            .resolve(&EmbeddedModuleReferrer::Realm, &request)
+            .is_none()
+    );
+    assert!(
+        graph
+            .resolve(&EmbeddedModuleReferrer::Unlocated, &request)
+            .is_none()
+    );
     let unrelated =
         scriptw_engine::EmbeddedModuleRequest::try_new("./unrelated_FIXTURE.js", Vec::new())
             .unwrap();
@@ -317,10 +449,11 @@ fn unproved_eval_requests_do_not_authorize_available_fixture_files() {
         ),
     ] {
         fs::write(&entry, source).unwrap();
-        let graph = declare(&entry, goal, source, source)
-            .unwrap()
-            .unwrap()
-            .graph;
+        let Some(catalog) = declare(&entry, goal, source, source).unwrap() else {
+            assert_eq!(goal, EmbeddedModuleGoal::Script);
+            continue; // No catalog preserves the host's RejectAll policy.
+        };
+        let graph = catalog.graph;
         let request =
             scriptw_engine::EmbeddedModuleRequest::try_new("./target_FIXTURE.js", Vec::new())
                 .unwrap();
@@ -333,9 +466,11 @@ fn unproved_eval_requests_do_not_authorize_available_fixture_files() {
             }
         };
         assert!(graph.resolve(&referrer, &request).is_none());
-        assert!(graph
-            .resolve(&EmbeddedModuleReferrer::Realm, &request)
-            .is_none());
+        assert!(
+            graph
+                .resolve(&EmbeddedModuleReferrer::Realm, &request)
+                .is_none()
+        );
     }
 }
 
@@ -465,10 +600,18 @@ fn prepared_script_discovery_covers_nested_escaped_and_parenthesized_direct_eval
 
 #[test]
 fn pinned_source_export_fixture_catalog_declares_one_shared_virtual_host_record() {
-    const ENTRY: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-source-and-export.js");
-    const ONE: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-1_FIXTURE.js");
-    const TWO: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-2_FIXTURE.js");
-    const STAR: &str = include_str!("../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-reexport_FIXTURE.js");
+    const ENTRY: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-unambiguous-if-import-source-and-export.js"
+    );
+    const ONE: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-1_FIXTURE.js"
+    );
+    const TWO: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-2_FIXTURE.js"
+    );
+    const STAR: &str = include_str!(
+        "../../../../test262/vendor/test262/test/language/module-code/ambiguous-export-bindings/namespace-import-source-and-export-reexport_FIXTURE.js"
+    );
     let directory = Directory::new();
     let entry = directory.0.join("entry.js");
     fs::write(&entry, ENTRY).unwrap();
@@ -519,4 +662,39 @@ fn virtual_source_host_contract_does_not_accept_other_names_or_data_attributes()
         "<module source>"
     );
     assert!(graph.resolutions()[0].request().attributes().is_empty());
+}
+
+#[test]
+fn candidate_text_without_module_requests_needs_no_filesystem_identity() {
+    let directory = Directory::new();
+    let missing = directory.0.join("in-memory-script.js");
+    for source in [
+        "// import('./target.js')",
+        "var value = 'eval';",
+        r"var pattern = /\u0041/;",
+        "eval('1 + 2')",
+        "var holder = { invoke: eval }; holder.invoke('1 + 2');",
+        "new ShadowRealm().evaluate('1 + 2');",
+    ] {
+        assert!(
+            declare(&missing, EmbeddedModuleGoal::Script, source, source)
+                .unwrap()
+                .is_none(),
+            "{source}"
+        );
+    }
+    for (goal, source) in [
+        (EmbeddedModuleGoal::Script, "import('./target.js')"),
+        (
+            EmbeddedModuleGoal::Script,
+            "eval('im' + 'port(\"./target.js\")')",
+        ),
+        (EmbeddedModuleGoal::Module, "export const value = 1;"),
+    ] {
+        let error = match declare(&missing, goal, source, source) {
+            Err(error) => error,
+            Ok(_) => panic!("module-capable source lost its filesystem requirement: {source}"),
+        };
+        assert!(error.contains("cannot canonicalize"), "{error}");
+    }
 }

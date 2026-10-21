@@ -134,9 +134,93 @@ pub(super) fn serve(config: SuiteConfig, run: RunConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) struct Session {
+struct Session {
     process: CaseProcess,
     completed: u64,
+}
+
+/// The pool slot owns the live session and all reuse/retirement decisions.
+/// Callers cannot reuse a process after a malformed, late or exhausted reply.
+#[derive(Default)]
+pub(super) struct Worker {
+    session: Option<Session>,
+}
+
+pub(super) enum RequestCompletion {
+    Completed {
+        outcome: Outcome,
+        retirement: Result<(), String>,
+    },
+    TimedOut {
+        retirement: Result<(), String>,
+    },
+    Failed {
+        primary: String,
+        retirement: Result<(), String>,
+    },
+}
+
+impl Worker {
+    pub(super) fn request(
+        &mut self,
+        binary: &Path,
+        config: &SuiteConfig,
+        run: &RunConfig,
+        test_id: &TestExecutionId,
+        snapshot_dir: &Path,
+        snapshot_name: &str,
+        deadline: CaseDeadline,
+    ) -> RequestCompletion {
+        let result = (|| {
+            if self.session.is_none() {
+                self.session = Some(Session::spawn(binary, config, run, deadline)?);
+            }
+            self.session
+                .as_mut()
+                .expect("session admitted above")
+                .request(test_id, snapshot_dir, snapshot_name, deadline)
+        })();
+        match result {
+            Err(primary) => RequestCompletion::Failed {
+                primary,
+                retirement: self.retire(),
+            },
+            Ok(None) => RequestCompletion::TimedOut {
+                retirement: self.retire(),
+            },
+            Ok(Some(outcome)) => {
+                let retirement = if outcome == Outcome::WorkerFailure
+                    || self
+                        .session
+                        .as_ref()
+                        .expect("completed request owns session")
+                        .exhausted()
+                {
+                    self.retire()
+                } else {
+                    Ok(())
+                };
+                RequestCompletion::Completed {
+                    outcome,
+                    retirement,
+                }
+            }
+        }
+    }
+
+    pub(super) fn retire(&mut self) -> Result<(), String> {
+        match self.session.take() {
+            Some(mut session) => session.retire(),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        // Explicit retirement reports errors; unwinding still owns cleanup.
+        let _ = self.retire();
+    }
 }
 
 impl Session {
@@ -222,6 +306,104 @@ mod tests {
         assert!(read_request(&mut Cursor::new(vec![b'x'; FRAME_LIMIT + 2])).is_err());
         assert!(read_request(&mut Cursor::new(b"{}")).is_err());
         assert!(read_request(&mut Cursor::new(b"")).unwrap().is_none());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn pool_retires_bad_timed_out_and_exhausted_sessions_before_reuse() {
+        let id = TestExecutionId::parse_wire_key("raw-script:language/a.js").unwrap();
+        let config = SuiteConfig::default();
+        for (reply, completed, expected) in [
+            ("not JSON".to_owned(), 0, "failure"),
+            (String::new(), 0, "timeout"),
+            (
+                format!(
+                    r#"{{"sequence":{CASE_LIMIT},"test_id":"raw-script:language/a.js","outcome":"passed"}}"#
+                ),
+                CASE_LIMIT - 1,
+                "passed",
+            ),
+            (
+                r#"{"sequence":1,"test_id":"raw-script:language/a.js","outcome":"worker-failure"}"#
+                    .into(),
+                0,
+                "worker-failure",
+            ),
+        ] {
+            let mut command = Command::new("sh");
+            command
+                .arg("-c")
+                .arg("read line; if [ -n \"$1\" ]; then printf '%s\\n' \"$1\"; fi; read another")
+                .arg("worker")
+                .arg(reply)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped());
+            let deadline =
+                CaseDeadline::new(500, scriptw_engine::ExecutionBackend::SpecExec).unwrap();
+            let mut worker = Worker {
+                session: Some(Session {
+                    process: CaseProcess::spawn(&mut command, deadline).unwrap(),
+                    completed,
+                }),
+            };
+            let run = RunConfig::default();
+            match worker.request(
+                Path::new("absent-worker"),
+                &config,
+                &run,
+                &id,
+                Path::new("snapshot"),
+                "case",
+                deadline,
+            ) {
+                RequestCompletion::Failed { retirement, .. } => {
+                    assert_eq!(expected, "failure");
+                    retirement.unwrap();
+                }
+                RequestCompletion::TimedOut { retirement } => {
+                    assert_eq!(expected, "timeout");
+                    retirement.unwrap();
+                }
+                RequestCompletion::Completed {
+                    outcome,
+                    retirement,
+                } => {
+                    retirement.unwrap();
+                    assert_eq!(
+                        match outcome {
+                            Outcome::Passed => "passed",
+                            Outcome::WorkerFailure => "worker-failure",
+                            Outcome::Failed => "failed",
+                        },
+                        expected
+                    );
+                }
+            }
+            assert!(
+                worker.session.is_none(),
+                "{expected} session was kept reusable"
+            );
+            // A new request must spawn: the deliberately absent binary must
+            // fail immediately rather than write to the former process.
+            match worker.request(
+                Path::new("absent-worker"),
+                &config,
+                &run,
+                &id,
+                Path::new("snapshot"),
+                "case",
+                CaseDeadline::new(500, scriptw_engine::ExecutionBackend::SpecExec).unwrap(),
+            ) {
+                RequestCompletion::Failed {
+                    primary,
+                    retirement,
+                } => {
+                    assert!(!primary.is_empty());
+                    retirement.unwrap();
+                }
+                _ => panic!("retired process was reused"),
+            }
+        }
     }
 
     #[test]

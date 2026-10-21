@@ -69,7 +69,9 @@ impl Drop for PendingSnapshotFile {
     }
 }
 
-pub(super) fn write_snapshot_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+/// Atomically replace a file after writing and syncing a sibling temporary.
+/// The previous file remains intact if writing or renaming fails.
+pub fn write_snapshot_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_snapshot_file_with(path, |file| file.write_all(bytes))
 }
 

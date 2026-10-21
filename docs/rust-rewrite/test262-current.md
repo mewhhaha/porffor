@@ -14,9 +14,13 @@ Rust/Cargo/vendor inputs; intervening commits changed documentation/tooling.
 This records the loaded build honestly and does not relabel its embedded revision.
 Test262 tree pin: `6a4268a9354a545d41c3b62efebc478ed8c521f4`. See [source pins](../../crates/scriptw-test262/src/source-pins.json) for upstream revisions.
 
-[Canonical JSON](../../test262/snapshots/published-status-wasm-aot.json) and
-[text](../../test262/snapshots/published-status-wasm-aot.txt) are byte-identical
-native publisher output. [Lossless evidence archive](../../test262/snapshots/current-test262-20261020.tar.gz)
+[Baseline JSON](../../test262/snapshots/published-status-wasm-aot.json) and
+[text](../../test262/snapshots/published-status-wasm-aot.txt) retain the byte-identical
+2026-10-20 native publisher output. Future refreshes select immutable JSON/text
+members through `published-status-wasm-aot.manifest.json`; the graph reader
+verifies that generation rather than reading these historical filenames.
+See the [publication contract](reproducible-publication-driver.md).
+[Lossless evidence archive](../../test262/snapshots/current-test262-20261020.tar.gz)
 retains every native matrix/node snapshot, execution ID, failure, transcript and
 publication-session identity, with a SHA-256 inventory. Its absolute original
 snapshot locators are retained for provenance; the archive makes their bytes portable.

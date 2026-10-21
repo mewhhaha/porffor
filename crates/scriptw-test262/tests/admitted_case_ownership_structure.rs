@@ -314,7 +314,7 @@ fn queue_admission_and_execution_each_consume_the_previous_authority() {
         true,
     );
     assert!(runner.starts_with(
-        "dispatch:&CaseExecutionDispatch,session:&mutOption<case_worker_server::Session>,config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
+        "dispatch:&CaseExecutionDispatch,session:&mutcase_worker_server::Worker,config:&SuiteConfig,preludes:&PreludeStore,admitted:AdmittedCase,run_config:&RunConfig,)->TestResult{letcase=admitted.case();"
     ));
     assert!(!runner.contains("admitted:&AdmittedCase"));
     let fixture = rust_code(
@@ -329,7 +329,7 @@ fn queue_admission_and_execution_each_consume_the_previous_authority() {
     assert!(fixture
         .contains("CaseExecutionDispatch::admit(config,std::slice::from_ref(admitted.case()))"));
     assert!(fixture.contains(
-        "run_case_entry_with_dispatch(&dispatch,&mutNone,config,preludes,admitted,run_config)"
+        "run_case_entry_with_dispatch(&dispatch,&mutcase_worker_server::Worker::default(),config,preludes,admitted,run_config,)"
     ));
     assert!(!fixture.contains("admitted.clone()"));
 }

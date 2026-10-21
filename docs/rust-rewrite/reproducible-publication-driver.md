@@ -9,6 +9,21 @@ invoke `publish-status`. It does not decode, rewrite, classify or approve any
 snapshot. The Rust publisher remains responsible for pins, execution identities,
 complete node evidence, outcome accounting and the canonical status artifacts.
 
+New publications write immutable `published-status-wasm-aot-<generation>.json`
+and `.txt` members, then atomically replace
+`published-status-wasm-aot.manifest.json`. The manifest binds both members by
+SHA-256 and a shared generation digest. Readers resolve it once and verify both
+members; an interrupted write cannot select a mixed pair. Commit all three files
+with the generated README update. `scripts/generate-test-graph.py` and the README
+artifact guard use this contract. The historical canonical pair remains readable
+only while no generation manifest exists; a damaged manifest never falls back
+to that older evidence. README replacement also requires exactly one correctly
+ordered status marker pair under its heading and uses atomic file replacement.
+
+Publication recovery admits only a missing aggregate or a valid incomplete
+aggregate. Malformed, contradictory and ambiguous evidence remain errors even
+when their diagnostic text happens to mention missing or incomplete snapshots.
+
 ## Invariants
 
 The driver accepts only the Wasm product backend (`wasm` is normalized to

@@ -15,7 +15,8 @@ is separated from history. Implementation is in `ab7093a46`, `30065bbb5` and
 are recorded with [artifact identities](maintenance-first-wave-20261021.json).
 The following [tooling/documentation wave](maintenance-tooling-wave-20261021.md)
 completes 28 more hills. The [CLI/reporting wave](maintenance-cli-wave-20261021.md)
-completes nine more: 45 total, with the remaining 55 authorized and queued.
+completes nine more. The [conformance/publication wave](maintenance-conformance-wave-20261021.md)
+completes another 16: 61 total, with 39 authorized hills remaining.
 The tooling checkpoint passed 663 tooling tests in 172.262 seconds with zero skips;
 107 default and 109 all-feature native planning scopes are unchanged. These
 batches add no conformance passes and do not establish complete workspace,
@@ -25,6 +26,13 @@ The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
 issues and ten preexisting rename-related expectations. Its record retains the
 earlier full 856-ID CLI checkpoint and adjacent checks with their source limits.
+
+The conformance/publication wave passes 493 Test262 library tests, all 856 CLI
+integration tests, 91 CLI unit tests and 29 adjacent native tests across its
+corrected source-bound checkpoints. It also passes 669 tooling controls and 53
+structure checks, and admits all 53,910 pinned Test262 files (102,994 execution
+IDs). Failed attempts and the test-only changes between checkpoints are retained
+in its record; no complete workspace or conformance refresh is implied.
 
 ## Test262: complete baseline and focused repair
 

@@ -17,8 +17,8 @@ use scriptw_test262::{
         SpecExecOracle,
     },
     ArtifactProducer, CompilerProvenance, ConformanceRunVerdict, ConformanceRunner, FailureKind,
-    FailureOrigin, LocalHarnessSource, OutcomeKind, PublicationBackend, RunConfig, SuiteConfig,
-    VerifiedAggregateSummary,
+    FailureOrigin, LocalHarnessSource, OutcomeKind, PublicationBackend, PublishedStatusPaths,
+    RunConfig, SuiteConfig, VerifiedAggregateSummary,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -43,6 +43,7 @@ mod fake_suite_publication;
 mod intl_data;
 mod jsonc;
 mod performance;
+mod status_publication;
 use fake_suite_publication::VerifiedFakeSuiteCounts;
 
 #[derive(Debug)]
@@ -156,12 +157,6 @@ struct PublishedStatusArtifact {
     fake_wasm_safe: PublishedStatusCount,
     fake_full: PublishedStatusCount,
     real_suite: PublishedRealSuiteStatus,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PublishedStatusPaths {
-    json_path: PathBuf,
-    txt_path: PathBuf,
 }
 
 fn usage() -> &'static str {
@@ -1428,17 +1423,6 @@ fn build_published_status_artifact(
     }
 }
 
-fn published_status_paths(
-    snapshot_dir: &Path,
-    publication_backend: PublicationBackend,
-) -> PublishedStatusPaths {
-    let stem = format!("published-status-{}", publication_backend.as_str());
-    PublishedStatusPaths {
-        json_path: snapshot_dir.join(format!("{stem}.json")),
-        txt_path: snapshot_dir.join(format!("{stem}.txt")),
-    }
-}
-
 fn render_published_status_text(artifact: &PublishedStatusArtifact) -> String {
     let mut out = String::new();
     let real = &artifact.real_suite;
@@ -1515,22 +1499,21 @@ fn write_published_status_artifact(
     publication_backend: PublicationBackend,
     artifact: &PublishedStatusArtifact,
 ) -> Result<PublishedStatusPaths, String> {
-    fs::create_dir_all(snapshot_dir).map_err(|err| {
+    let json = serde_json::to_vec_pretty(artifact)
+        .map_err(|err| format!("failed to encode published status json: {err}"))?;
+    let text = render_published_status_text(artifact);
+    scriptw_test262::publish_status_generation(
+        snapshot_dir,
+        publication_backend,
+        &json,
+        text.as_bytes(),
+    )
+    .map_err(|err| {
         format!(
-            "failed to create snapshot dir {}: {err}",
+            "failed to publish status generation in {}: {err}",
             snapshot_dir.display()
         )
-    })?;
-    let paths = published_status_paths(snapshot_dir, publication_backend);
-    fs::write(
-        &paths.json_path,
-        serde_json::to_string_pretty(artifact)
-            .map_err(|err| format!("failed to encode published status json: {err}"))?,
-    )
-    .map_err(|err| format!("failed to write {}: {err}", paths.json_path.display()))?;
-    fs::write(&paths.txt_path, render_published_status_text(artifact))
-        .map_err(|err| format!("failed to write {}: {err}", paths.txt_path.display()))?;
-    Ok(paths)
+    })
 }
 
 fn percent_string(passed: usize, total: usize) -> String {
@@ -1635,39 +1618,14 @@ fn rewrite_current_status_block(
     let raw = fs::read_to_string(readme_path)
         .map_err(|err| format!("failed to read {}: {err}", readme_path.display()))?;
     let replacement = render_current_status_block(artifact);
-    let updated = if let (Some(start), Some(end)) = (
-        raw.find("<!-- scriptw-status:start -->"),
-        raw.find("<!-- scriptw-status:end -->"),
-    ) {
-        let section_start = raw[..start].rfind("## Current Status").ok_or_else(|| {
+    let updated =
+        status_publication::replace_status_section(&raw, &replacement).map_err(|error| {
             format!(
-                "missing `## Current Status` before status marker in {}",
+                "invalid status section in {}: {error}",
                 readme_path.display()
             )
         })?;
-        let after_end = end + "<!-- scriptw-status:end -->".len();
-        format!(
-            "{}{}{}",
-            &raw[..section_start],
-            replacement,
-            &raw[after_end..]
-        )
-    } else {
-        let section_start = raw
-            .find("## Current Status")
-            .ok_or_else(|| format!("missing `## Current Status` in {}", readme_path.display()))?;
-        let section_end = raw[section_start + "## Current Status".len()..]
-            .find("\n## ")
-            .map(|offset| section_start + "## Current Status".len() + offset)
-            .unwrap_or(raw.len());
-        format!(
-            "{}{}{}",
-            &raw[..section_start],
-            replacement,
-            &raw[section_end..]
-        )
-    };
-    fs::write(readme_path, updated)
+    scriptw_test262::atomic_write(readme_path, updated.as_bytes())
         .map_err(|err| format!("failed to write {}: {err}", readme_path.display()))
 }
 
@@ -3103,10 +3061,7 @@ fn execute_test262_command(input: AdmittedTest262Command) -> Result<(), String> 
                 publication_backend,
             ) {
                 Ok(verified) => verified,
-                Err(err)
-                    if err.contains("missing aggregate snapshot")
-                        || err.contains("aggregate snapshot incomplete") =>
-                {
+                Err(err) if err.may_resume() => {
                     let mut resume_run_config = parsed.run_config.clone();
                     resume_run_config.resume = true;
                     runner.run_top_level_matrix(resume_run_config)?;
@@ -3115,7 +3070,7 @@ fn execute_test262_command(input: AdmittedTest262Command) -> Result<(), String> 
                         publication_backend,
                     )?
                 }
-                Err(err) => return Err(err),
+                Err(err) => return Err(err.into()),
             };
             let refresh_date = current_utc_date_string()?;
             let fake_counts = VerifiedFakeSuiteCounts::measure(fake_suite_config()?)?;
@@ -3163,6 +3118,7 @@ fn execute_test262_command(input: AdmittedTest262Command) -> Result<(), String> 
                 "snapshot_txt: {}",
                 verified.snapshot_paths.txt_path.display()
             );
+            println!("status_manifest: {}", status_paths.manifest_path.display());
             println!("status_json: {}", status_paths.json_path.display());
             println!("status_txt: {}", status_paths.txt_path.display());
             println!("readme_path: {}", readme_path.display());

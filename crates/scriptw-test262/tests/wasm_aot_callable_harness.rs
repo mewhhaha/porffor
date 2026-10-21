@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use scriptw_engine::{CompileOptions, Engine, ExecutionBackend, RealmBuilder, RunOptions};
 use scriptw_ir::HostSurfacePolicy;
-use scriptw_test262::{load_preludes, LocalHarnessSource, PreludeOrigin, SuiteConfig};
+use scriptw_test262::{ConformanceRunner, LocalHarnessSource, PreludeOrigin, SuiteConfig};
 
 fn assert_callable_harness(source: &str, include: &str, strict: bool) {
     scriptw_engine::configure_compilation_jobs(1).expect("one compilation worker");
@@ -10,7 +10,9 @@ fn assert_callable_harness(source: &str, include: &str, strict: bool) {
     config.suite_root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../test262/vendor/test262");
     config.local_harness = LocalHarnessSource::EmbeddedWasmAot;
-    let preludes = load_preludes(&config).expect("pinned callable harness");
+    let preludes = ConformanceRunner::with_config(config)
+        .load_preludes()
+        .expect("pinned callable harness");
     let canonical = preludes.get(include).expect("canonical helper");
     assert_eq!(canonical.origin, PreludeOrigin::VendoredHarness);
     let mut program = if strict {
