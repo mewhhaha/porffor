@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -81,6 +82,13 @@ def require_producers(log, cli, runner):
     return producers
 
 
+def check_runtime_prime(trace, required):
+    hit = 'runtime-native-bundle hit:' in trace
+    if required and not hit:
+        raise ValueError('default startup did not admit its embedded native runtime; retain trace and refresh coherent build metadata before benchmarking')
+    return hit
+
+
 def main():
     if sys.argv[1:2] == ['compare']:
         parser = argparse.ArgumentParser(description='Verify retained artifacts and compare matching v2 benchmark reports.')
@@ -96,10 +104,12 @@ def main():
     parser.add_argument('--runtime-runner', type=Path, required=True)
     parser.add_argument('--build-log', type=Path, required=True)
     parser.add_argument('--node', default='node')
+    parser.add_argument('--time', default=shutil.which('gtime') or shutil.which('time') or 'time', help='GNU time executable')
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, default=DEFAULT_FIXTURES)
     parser.add_argument('--case', action='append', dest='cases', help='select an execution manifest entry; repeatable')
     parser.add_argument('--skip-startup', action='store_true', help='measure only selected execution workloads')
+    parser.add_argument('--execution-cache', type=Path, help='reuse checked execution caches across runs; startup caches remain isolated')
     parser.add_argument('--baseline', type=Path, help='compatible complete v2 report to compare')
     parser.add_argument('--samples', type=int, default=7, choices=range(3, 101), metavar='3..100')
     parser.add_argument('--warmups', type=int, default=10, choices=range(1, 101), metavar='1..100')
@@ -129,15 +139,17 @@ def main():
                   cargo_producers={str(path): producers[path] for path in (cli, runner)},
                   profile='release; default features; opt-level 3', samples=args.samples,
                   configuration=dict(startup=not args.skip_startup, warmups=args.warmups,
-                                     timeout_seconds=args.timeout, native_jobs=1),
+                                     timeout_seconds=args.timeout, native_jobs=1,
+                                     execution_cache=dict(kind='shared', path=str(args.execution_cache.resolve())) if args.execution_cache else dict(kind='fresh-per-report')),
                   process_samples=[], execution={r: dict(cases=[]) for r in ('wasmtime', 'v8')},
                   commands=[], retained_files=[],
                   policy=dict(version=2,
-                              startup='parent spawn-to-reap monotonic wall time; blocking wait4, receipts outside span; OS cache not flushed',
+                              startup='parent spawn-to-reap monotonic wall time; GNU time supervisor and blocking wait4; receipts outside span; OS cache not flushed',
                               cold='unique empty application cache; shared runtime build image retained; normal Node without persistent compile cache',
                               hot='prewarmed scriptw disk cache; repeated new Node process without equivalent persistent code cache',
                               execution='compile once per case/process; equal warmup counts; fresh Store or vm Context; output/completion included; setup outside execution span',
-                              memory='wait4 kernel high-water RSS covers each child lifetime including compilation, warmups and runtime caches; no subtraction',
+                              memory='GNU time kernel high-water RSS covers the runtime child including compilation, warmups and caches; excludes inherited Python launcher high-water; no subtraction',
+                              prime='SCRIPTW_WASM_TRACE=1 only for unmeasured startup priming; record whether embedded native runtime was admitted',
                               heap='Wasmtime GC capacity is reserved space, V8 heapUsed is process-wide used space; not equivalent live JS byte counts',
                               sampler='existing Wasmtime invocation RSS sampling every 10ms plus endpoints; Node memoryUsage endpoints; instrumentation is part of the measured configuration',
                               gc='normal runtime GC and V8 tiering; no forced collections; no unavailable Wasmtime allocation/live-heap/GC-pause claims',
@@ -149,6 +161,10 @@ def main():
     report['workloads'] = [dict(case, role=role, sha256=digest(fixtures / case['file']))
                            for role, case in [('startup', plan['startup']), *[('execution', c) for c in plan['execution']]]]
     report['node_versions'] = json.loads(subprocess.check_output([args.node, '-p', 'JSON.stringify(process.versions)'], env=env, text=True))
+    report['time_version'] = subprocess.check_output([args.time, '--version'], text=True).strip()
+    if 'GNU Time' not in report['time_version']:
+        raise ValueError('--time must select GNU time')
+    report['time_sha256'] = digest(Path(shutil.which(args.time) or args.time))
     report['wasmtime_version'] = next(p['version'] for p in tomllib.loads((ROOT / 'Cargo.lock').read_text())['package'] if p['name'] == 'wasmtime')
     # Reject incompatible baselines before spending time compiling/running JS.
     if baseline:
@@ -172,7 +188,7 @@ def main():
         report['commands'].append(event)
         save()
         with (output / 'logs' / (label + '.stdout')).open('xb') as out, (output / 'logs' / (label + '.stderr')).open('xb') as err:
-            event.update(measure_process(command, cwd=ROOT, env=environment, stdout=out, stderr=err, timeout=args.timeout))
+            event.update(measure_process(command, cwd=ROOT, env=environment, stdout=out, stderr=err, timeout=args.timeout, time_binary=args.time))
         event.update(state='closed',
                      stdout_sha256=digest(output / 'logs' / (label + '.stdout')),
                      stderr_sha256=digest(output / 'logs' / (label + '.stderr')))
@@ -195,9 +211,12 @@ def main():
             node_command = [args.node, '-e', 'globalThis.print = console.log; require(process.argv[1]);', str(startup)]
             scriptw_command = [cli, '--jobs', '1', 'run', '--execution-backend', 'wasm', str(startup)]
             warm_env = dict(env, SCRIPTW_CACHE_DIR=str(output / 'hot-cache'))
-            _, text = invoke('scriptw-prime-hot-cache', scriptw_command, warm_env)
+            _, text = invoke('scriptw-prime-hot-cache', scriptw_command, dict(warm_env, SCRIPTW_WASM_TRACE='1'))
             if text != plan['startup']['stdout'] + suffix:
                 raise ValueError('startup warmup output mismatch')
+            trace = (output / 'logs/scriptw-prime-hot-cache.stderr').read_text()
+            report['embedded_runtime_prime_hit'] = check_runtime_prime(trace, fixtures == DEFAULT_FIXTURES)
+            save()
             for mode in ('cold', 'hot'):
                 for index in range(args.samples):
                     for runtime in (['scriptw', 'v8'] if index % 2 == 0 else ['v8', 'scriptw']):
@@ -213,7 +232,9 @@ def main():
                 label = 'execution-' + runtime + '-' + case['file']
                 command = ([runner, workload_root, str(args.samples), str(args.warmups), case['file'], output / 'wasm'] if runtime == 'wasmtime' else
                            [args.node, str(DEFAULT_FIXTURES / 'node-runtime.cjs'), workload_root, str(args.samples), str(args.warmups), case['file']])
-                _, text = invoke(label, command, dict(env, SCRIPTW_CACHE_DIR=str(output / 'execution-cache')))
+                execution_cache = args.execution_cache.resolve() if args.execution_cache else output / 'execution-cache'
+                report['execution_cache_directory'] = str(execution_cache)
+                _, text = invoke(label, command, dict(env, SCRIPTW_CACHE_DIR=str(execution_cache)))
                 result = json.loads(text)
                 if result['samples'] != args.samples or result['warmups'] != args.warmups or len(result['cases']) != 1 or result['cases'][0]['file'] != case['file']:
                     raise ValueError('runtime sample plan differs')

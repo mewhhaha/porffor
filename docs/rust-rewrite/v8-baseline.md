@@ -46,7 +46,9 @@ The table above is the original v1 result, not a fresh measurement of this tool.
 The two schemas have different instrumentation and cannot serve as each other's
 performance baseline.
 
-Use the release/default-feature product CLI and the companion runtime runner.
+Requires Linux, GNU `time`, Node and the Rust toolchain. Use `--time PATH` for
+a GNU time executable outside PATH. Use the release/default-feature product CLI
+and the companion runtime runner.
 Commit the coherent source batch before building: both executables must identify
 that exact commit. Keep the Cargo JSON build log. Run builds and tests before
 benchmarking, then measure on an otherwise idle machine. The cloud launcher uses
@@ -54,6 +56,8 @@ the inherited machine limits; the benchmark pins both runtimes to one allowed CP
 
 ```sh
 mkdir -p target/performance-build
+# Refresh matching source stamps when reusing a target directory across checkouts.
+touch crates/scriptw-engine/build.rs crates/scriptw-runtime-image/build.rs
 python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   cargo build --locked --offline --release -p scriptw-cli \
   --bin scriptw --example runtime_baseline --jobs 1 --message-format=json \
@@ -67,7 +71,10 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
 ```
 
 If `CARGO_TARGET_DIR` is set, use its actual executable paths in these commands.
-The output directory must be new. The runner keeps an incomplete report and logs
+The output directory must be new. Default startup priming enables compilation
+trace outside the measured samples and requires a confirmed embedded-runtime hit.
+A stale compiler/image source stamp fails here with retained diagnostics, before
+spending time on cold samples. The runner keeps an incomplete report and logs
 on failure; a failed checksum, trap or timeout fails the benchmark. It records
 machine/cgroup limits, one-CPU affinity, runtime versions, source and executable
 identities, exact workload bytes and output checksums. JavaScript still follows
@@ -83,8 +90,13 @@ python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
   --runtime-runner target/release/examples/runtime_baseline \
   --build-log target/performance-build/cargo.jsonl \
   --output-dir target/performance-objects-before \
-  --case retained-objects.js --skip-startup --samples 3 --warmups 3 --idle-machine
+  --case retained-objects.js --skip-startup --samples 3 --warmups 3 \
+  --execution-cache target/performance-execution-cache --idle-machine
 ```
+
+The explicit execution cache reuses the ordinary checked runtime/function/module
+caches across runs. It does not affect isolated cold/cached startup measurements.
+Compilation and warmup observations remain outside the execution summaries.
 
 After a compiler change, commit and rebuild with a new build log. Repeat the
 same measurement with a fresh output directory and optionally
@@ -126,18 +138,20 @@ historical and are rejected as v2 baselines.
   instantiation, export lookup, execution and total. Preparation/lowering/emission/
   validation spans are single compilation diagnostics, not repeated benchmarks.
   The exact emitted Wasm and body/data footprint identify code-size changes.
-- **CPU and process memory:** Linux `wait4` gives each child's user/system CPU
-  time and kernel high-water RSS. Startup has repeated child observations;
+- **CPU and process memory:** GNU `time` gives the runtime child's kernel high-water RSS,
+  excluding the Python launcher's inherited pre-exec footprint. Linux `wait4`
+  gives CPU time for the small native supervisor and its waited child. Startup has repeated child observations;
   execution has one whole-child observation per runtime/case, including compilation,
   warmups and retained runtime caches. Blocking wait avoids timeout-polling rounding
   in short startup spans. Driver receipt/log writes sit outside the wall timer;
-  process launch, watchdog setup and scheduling stay inside. A watchdog kills the
+  the GNU time supervisor, process launch, watchdog setup and scheduling stay inside. A watchdog kills the
   owned process group at the explicit timeout.
 - **Invocation memory:** Wasmtime's existing profiler samples process RSS every
   10 ms plus endpoints around runtime admission through completion. Short peaks
   can be missed; it includes process-wide caches, host work and sampler overhead.
   V8 reports process memory endpoints before context creation, before execution
-  and after execution. These are not per-workload live bytes or peak samples.
+  and after execution. Earlier warmups and contexts can contribute to those process
+  totals until normal GC runs. These are not per-workload live bytes or peak samples.
 - **Heap observations:** Wasmtime exposes GC heap *capacity* before/after execution.
   V8 exposes process-wide used/reserved heap, external and ArrayBuffer endpoints.
   They have different meanings. Do not subtract process RSS to invent a JS heap,

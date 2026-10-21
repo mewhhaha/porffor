@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from status_publication import load_publication
+from test262_chart_evidence import EVIDENCE, build as build_reconciliation, load as load_reconciliation
 
 ROOT = Path(__file__).resolve().parents[1]
 START = "<!-- scriptw-test-graph:start -->"
@@ -14,7 +15,7 @@ SNAPSHOT = "test262/snapshots/published-status-wasm-aot.json"
 CHART = "docs/rust-rewrite/assets/test262-status.svg"
 
 
-def categories(publication):
+def categories(publication, reconciliation=None):
     real = publication["real_suite"]
     outcomes = {}
     for row in real["counts_per_outcome"]:
@@ -34,19 +35,24 @@ def categories(publication):
         or outcomes["Success"] != real["passed"]
     ):
         raise ValueError("published totals disagree")
+    if reconciliation is not None:
+        projected = reconciliation["scoped_chart_counts"]
+        if sum(projected.values()) != real["total"]:
+            raise ValueError("reconciled chart changed the full denominator")
+        outcomes = projected
     return [
         ("passing", "Passing", outcomes["Success"], "#2da44e"),
         ("failing", "Failing", outcomes["Bug"] + outcomes["Crash"], "#cf222e"),
         ("not-implemented", "Not implemented", outcomes["NotImplemented"], "#8c959f"),
-        # This aggregate has no case-level scope classification. Unknown is
-        # neither zero nor permission to subtract every eval/Function test.
-        ("out-of-scope", "Out of scope", None, "#0969da"),
+        # Historical publications lack scope classification; numeric counts
+        # require the independently verified case-level projection.
+        ("out-of-scope", "Out of scope", outcomes.get("OutOfScope"), "#0969da"),
     ]
 
 
-def chart_display(publication):
+def chart_display(publication, reconciliation=None):
     real = publication["real_suite"]
-    rows = categories(publication)
+    rows = categories(publication, reconciliation)
     identity = real.get("compiler_identity")
     measured = None
     if identity:
@@ -68,9 +74,31 @@ def chart_display(publication):
     }
 
 
-def render(publication, evidence_path=SNAPSHOT):
-    display = chart_display(publication)
+def render(publication, evidence_path=SNAPSHOT, reconciliation=None):
+    display = chart_display(publication, reconciliation)
     real = display["real"]
+    if reconciliation is not None:
+        counts = reconciliation["scoped_chart_counts"]
+        failed = counts["Bug"] + counts["Crash"]
+        repaired = categories(publication)[1][2] - failed
+        return f"""{START}
+![Test262 checkpoints: {counts['Success']:,} passing in scope, {failed:,} failing, {counts['NotImplemented']:,} not implemented, {counts['OutOfScope']:,} out of standalone Wasm scope]({CHART})
+
+**Reconciled checkpoints, {reconciliation['date']}:** {display['total']:,} mode-specific
+executions at pin `{display['pin']}`. This combines the complete **2026-10-20**
+baseline with the exact original-failure replay: **{repaired:,} repaired, {failed:,} still failing**.
+The other baseline successes have not had a fresh full rerun on the repaired compiler.
+
+Blue is an audited **{counts['OutOfScope']:,}-execution subset** focused on dynamic
+`eval` / Function source compilation outside the standalone Wasm product promise.
+These cases passed through the native host; their historical results remain intact.
+Ordinary API properties and `call` / `apply` / `bind` stay in the measured categories.
+The four bars partition the original {display['total']:,} executions; scope is not a failure fix.
+[Chart inputs and exact scope inventory]({EVIDENCE}) ·
+[Original complete baseline]({evidence_path}) ·
+[Failure replay](docs/rust-rewrite/failed-case-replay-20261021.md) ·
+[Scope policy](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
+{END}"""
     passed, failed, missing, _ = [row[2] for row in display["rows"]]
     tick = chr(96)
     if display["current"]:
@@ -100,8 +128,8 @@ above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.m
 {END}"""
 
 
-def render_svg(publication):
-    display = chart_display(publication)
+def render_svg(publication, reconciliation=None):
+    display = chart_display(publication, reconciliation)
     rows, real = display["rows"], display["real"]
     highest = max(count for _, _, count, _ in rows if count is not None)
     magnitude = 10 ** (len(str(highest)) - 1)
@@ -128,15 +156,21 @@ def render_svg(publication):
     source = (
         f"{display['date']} · pin {display['pin']} · {display['total']:,} {source_unit}"
     )
-    context = "Complete pinned-suite baseline" if current else "Historical snapshot"
+    if reconciliation is not None:
+        source = f"Baseline {display['date']} + replay {reconciliation['date']} · pin {display['pin']} · {display['total']:,} executions"
+    context = ("Baseline + exact failure replay; scoped view" if reconciliation is not None else
+               "Complete pinned-suite baseline" if current else "Historical snapshot")
+    title = "Test262 verification by product scope" if reconciliation is not None else "Published Test262 results"
+    footer = (f"{display['rows'][-1][2]:,} audited dynamic-source executions outside standalone Wasm scope; not a fresh full rerun."
+              if reconciliation is not None else "Out-of-scope count unknown; published totals unchanged.")
     unit = "test executions" if current else "test entries"
     elements = [
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 422" role="img" aria-labelledby="title description">',
-        '<title id="title">Published Test262 results</title>',
+        f'<title id="title">{title}</title>',
         f'<desc id="description">{escape(description)}. Linear counts from zero. {context}: {escape(source)}. Not full ECMAScript conformance.</desc>',
         '<rect width="760" height="422" rx="12" fill="#ffffff"/>',
         '<g font-family="system-ui, sans-serif" fill="#24292f">',
-        '<text x="30" y="35" font-size="20" font-weight="600">Published Test262 results</text>',
+        f'<text x="30" y="35" font-size="20" font-weight="600">{title}</text>',
         f'<text x="30" y="57" font-size="12" fill="#57606a">{context} · number of {unit}</text>',
     ]
     for index in range(5):
@@ -172,7 +206,7 @@ def render_svg(publication):
         )
     elements.extend(
         [
-            '<text x="380" y="378" text-anchor="middle" font-size="11" fill="#0969da">Out-of-scope count unknown; published totals unchanged.</text>',
+            f'<text x="380" y="378" text-anchor="middle" font-size="11" fill="#0969da">{footer}</text>',
             f'<text x="380" y="397" text-anchor="middle" font-size="12" fill="#57606a">{escape(source)}</text>',
             "</g>",
             "</svg>",
@@ -196,10 +230,11 @@ def replace_block(readme, graph):
 
 def generate(root=ROOT, check=False):
     publication, evidence_path = load_publication(root)
+    reconciliation = load_reconciliation(root, publication)
     path = root / "README.md"
     outputs = {
-        path: replace_block(path.read_text(), render(publication, evidence_path)),
-        root / CHART: render_svg(publication),
+        path: replace_block(path.read_text(), render(publication, evidence_path, reconciliation)),
+        root / CHART: render_svg(publication, reconciliation),
     }
     stale = [
         path
@@ -220,7 +255,13 @@ def generate(root=ROOT, check=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--refresh-evidence", action="store_true", help="rebuild the pinned baseline/replay/scope reconciliation")
     args = parser.parse_args()
+    if args.check and args.refresh_evidence:
+        parser.error("--check is read-only; use --refresh-evidence separately")
+    if args.refresh_evidence:
+        import json
+        (ROOT / EVIDENCE).write_text(json.dumps(build_reconciliation(ROOT), indent=2) + "\n")
     generate(check=args.check)
     print("README Test262 chart: current with published evidence")
 

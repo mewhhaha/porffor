@@ -82,3 +82,4 @@ paths and otherwise report a skip. Skips are not passing evidence for those cont
 | [test_intl_generation_publication.py](../../scripts/tests/test_intl_generation_publication.py) | All-module discovery | — |
 | [test_maintenance_source_guards.py](../../scripts/tests/test_maintenance_source_guards.py) | All-module discovery | — |
 | [test_status_publication.py](../../scripts/tests/test_status_publication.py) | All-module discovery | — |
+| [test_test262_chart_evidence.py](../../scripts/tests/test_test262_chart_evidence.py) | All-module discovery | — |

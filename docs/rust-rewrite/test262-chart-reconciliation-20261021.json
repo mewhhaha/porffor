@@ -1,0 +1,2342 @@
+{
+  "schema": "scriptw-test262-chart-reconciliation-v1",
+  "date": "2026-10-21",
+  "interpretation": "Full published baseline successes plus exact original-failure replay; not a fresh full run of the repaired compiler.",
+  "source_pins": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "baseline_compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "53007aa326f737bd5721312044ac1e8e5981e34481941eef5707bf6c48c7380e",
+    "source_revision": {
+      "kind": "git-commit",
+      "commit": "c5053c9d4ed1ce961f66eff8cd0d721b39108ffd"
+    },
+    "executable_sha256": "771a15da06cbac5c7b45b24ecd8b9232af152eac9f1e24cd1e615976642ff1c6"
+  },
+  "replay_compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+    "source_revision": {
+      "kind": "unversioned-archive"
+    },
+    "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+  },
+  "total": 102994,
+  "baseline_counts": {
+    "Success": 102978,
+    "NotImplemented": 0,
+    "Crash": 0,
+    "Bug": 16
+  },
+  "replay_counts": {
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "Success": 12
+  },
+  "reconciled_counts": {
+    "Success": 102990,
+    "NotImplemented": 0,
+    "Crash": 0,
+    "Bug": 4
+  },
+  "scoped_chart_counts": {
+    "Success": 102561,
+    "Bug": 4,
+    "Crash": 0,
+    "NotImplemented": 0,
+    "OutOfScope": 429
+  },
+  "remaining_failures": [
+    {
+      "execution_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "outcome": "Bug"
+    },
+    {
+      "execution_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+      "outcome": "Bug"
+    }
+  ],
+  "replayed_execution_ids": [
+    "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+    "sloppy-script:built-ins/parseFloat/prop-desc.js",
+    "sloppy-script:built-ins/parseInt/prop-desc.js",
+    "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+    "strict-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+    "strict-script:built-ins/parseFloat/prop-desc.js",
+    "strict-script:built-ins/parseInt/prop-desc.js",
+    "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js"
+  ],
+  "scope_policy": {
+    "version": 1,
+    "meaning": "Primary-target dynamic-source semantics outside the standalone Wasm product promise; native-host passes remain in historical outcomes.",
+    "coverage": "Conservative audited subset; not an exhaustive count of every dynamic-source use.",
+    "eval_esids": [
+      "sec-performeval",
+      "sec-performeval-rules-in-initializer"
+    ],
+    "eval_non_source_exclusions": [
+      "language/eval-code/direct/non-string-object.js",
+      "language/eval-code/direct/non-string-primitive.js",
+      "language/eval-code/indirect/non-string-object.js",
+      "language/eval-code/indirect/non-string-primitive.js"
+    ],
+    "reviewed_function_paths": [
+      "annexB/built-ins/Function/createdynfn-html-close-comment-body.js",
+      "annexB/built-ins/Function/createdynfn-html-close-comment-params.js",
+      "annexB/built-ins/Function/createdynfn-html-open-comment-body.js",
+      "annexB/built-ins/Function/createdynfn-html-open-comment-params.js",
+      "annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js",
+      "annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js",
+      "built-ins/Function/StrictFunction_reservedwords_with.js",
+      "built-ins/Function/private-identifiers-not-empty.js"
+    ],
+    "preserves": "API properties, call/apply/bind, constructor setup, prepared-source support and unrelated mentions remain ordinary outcomes."
+  },
+  "scope_source_paths": 221,
+  "scope_execution_count": 429,
+  "scope_rows": [
+    {
+      "path": "annexB/built-ins/Function/createdynfn-html-close-comment-body.js",
+      "source_sha256": "c258bace5084240a9c72c7f9e7b348c0e4776bb1a4ce72142010c4892ebbff7c",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-html-close-comment-body.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-html-close-comment-body.js"
+      ]
+    },
+    {
+      "path": "annexB/built-ins/Function/createdynfn-html-close-comment-params.js",
+      "source_sha256": "5abd79ec3c0879f8919046854332731bc71360c1fa77d2d82228fbbc59a6770b",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-html-close-comment-params.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-html-close-comment-params.js"
+      ]
+    },
+    {
+      "path": "annexB/built-ins/Function/createdynfn-html-open-comment-body.js",
+      "source_sha256": "def835fc7c068e6a0546bf0e84a83fe2758295dc45e77140aa551278f1bff38e",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-html-open-comment-body.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-html-open-comment-body.js"
+      ]
+    },
+    {
+      "path": "annexB/built-ins/Function/createdynfn-html-open-comment-params.js",
+      "source_sha256": "0fe73f31f4e41f3b686e01ef067cfb66092d170b2a3414891b44de611708e176",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-html-open-comment-params.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-html-open-comment-params.js"
+      ]
+    },
+    {
+      "path": "annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js",
+      "source_sha256": "6146dc0af3bbd5514708b42a5d11c6456e0863ac45f869136db5ed5bf3fcdcac",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-body.js"
+      ]
+    },
+    {
+      "path": "annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js",
+      "source_sha256": "c2139dbe42342f3362d21c5bc3b2d14800c5644b75dc93952d68553f4d599fa0",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js",
+        "strict-script:annexB/built-ins/Function/createdynfn-no-line-terminator-html-close-comment-params.js"
+      ]
+    },
+    {
+      "path": "built-ins/Function/StrictFunction_reservedwords_with.js",
+      "source_sha256": "32c00ed5c8601ada64f71f65e592b0e886ff1f81b29db949c5d27ce2ec9c2333",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:built-ins/Function/StrictFunction_reservedwords_with.js",
+        "strict-script:built-ins/Function/StrictFunction_reservedwords_with.js"
+      ]
+    },
+    {
+      "path": "built-ins/Function/private-identifiers-not-empty.js",
+      "source_sha256": "9b6600f6323352f7958ab7da0d611d00182947892bbeda77eef4ef6c729bccc2",
+      "esid": "sec-createdynamicfunction",
+      "reason": "dynamic-function-source-parser",
+      "execution_ids": [
+        "sloppy-script:built-ins/Function/private-identifiers-not-empty.js",
+        "strict-script:built-ins/Function/private-identifiers-not-empty.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-distinct-cls.js",
+      "source_sha256": "d3add354d50f23de1c67837ad3ff7e44cf22743640430e856a066e1c2ae1af0a",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-distinct-cls.js",
+        "strict-script:language/eval-code/direct/lex-env-distinct-cls.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-distinct-const.js",
+      "source_sha256": "b4ac312dc336570a229a29308b9f3fd8f34eb88067d4fa9ee461dca2ae7b3fa7",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-distinct-const.js",
+        "strict-script:language/eval-code/direct/lex-env-distinct-const.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-distinct-let.js",
+      "source_sha256": "238f2b86a2f42693297832200aa73c33a9152cd4ce3288fc440ca2115b984cdc",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-distinct-let.js",
+        "strict-script:language/eval-code/direct/lex-env-distinct-let.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-heritage.js",
+      "source_sha256": "9a29cbfdc4aead7a86094c398bfd0c53805acd540c373942e4e0fa74d546709b",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-heritage.js",
+        "strict-script:language/eval-code/direct/lex-env-heritage.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-no-init-cls.js",
+      "source_sha256": "27e69b0c7b975f401654f02a3044173ca572143d9756a8c029fdef4e46534c3f",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-no-init-cls.js",
+        "strict-script:language/eval-code/direct/lex-env-no-init-cls.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-no-init-const.js",
+      "source_sha256": "7d7d161d1eb7826889b2326721ad95449362a4d4e70d7112c619b7f63e543fa0",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-no-init-const.js",
+        "strict-script:language/eval-code/direct/lex-env-no-init-const.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/lex-env-no-init-let.js",
+      "source_sha256": "813ec0ecf3911d9e630c666b2ef8606a6f9eab88737f2165fbffbf2cfa00e10d",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/lex-env-no-init-let.js",
+        "strict-script:language/eval-code/direct/lex-env-no-init-let.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/parse-failure-6.js",
+      "source_sha256": "eb2bf3f3e4165698eb6af791acccec9863e3ecdc12b200d3abe5e35e4bbf1f91",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/parse-failure-6.js",
+        "strict-script:language/eval-code/direct/parse-failure-6.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/strict-caller-function-context.js",
+      "source_sha256": "db81c6e14383e4a76c9e803563d9bc0cbf8ac231f87543f0fa5a9037edcbebc0",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/strict-caller-function-context.js",
+        "strict-script:language/eval-code/direct/strict-caller-function-context.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/strict-caller-global.js",
+      "source_sha256": "ab918e5965e83e0623f40b02e0899fda5e3aae05115877facb600963d556b864",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "strict-script:language/eval-code/direct/strict-caller-global.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/super-call-fn.js",
+      "source_sha256": "514d375663b874b5a685899a039409ac755663af22ce6f9964c5f13ffb2a7cad",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/super-call-fn.js",
+        "strict-script:language/eval-code/direct/super-call-fn.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/super-call-method.js",
+      "source_sha256": "0c44c2c17aeeb1c41639c5841b252752451d77eec35c444e3142efaf79b14218",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/super-call-method.js",
+        "strict-script:language/eval-code/direct/super-call-method.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/super-prop-dot-no-home.js",
+      "source_sha256": "7e33cd7fd21c1417421835cd07b4c833b20f7422243ee0e3c9048b82eab171f7",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/super-prop-dot-no-home.js",
+        "strict-script:language/eval-code/direct/super-prop-dot-no-home.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/super-prop-expr-no-home-no-eval.js",
+      "source_sha256": "50fc0222144738bb36ab8c107441efb77560bbabdd4eb290654e23eadcdba247",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/super-prop-expr-no-home-no-eval.js",
+        "strict-script:language/eval-code/direct/super-prop-expr-no-home-no-eval.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/super-prop-expr-no-home.js",
+      "source_sha256": "6d150e6296657a86d53d5cff1b8da78429c856885f03c4d29121fb10317e733b",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/super-prop-expr-no-home.js",
+        "strict-script:language/eval-code/direct/super-prop-expr-no-home.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/this-value-func-non-strict.js",
+      "source_sha256": "855f8ca14f893ecc8f3e014b76ce8f23bc1602ecf945446d4ac213f0771ea340",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/this-value-func-non-strict.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/this-value-func-strict-caller.js",
+      "source_sha256": "838b126a6087648dafc87ac78e44d3546cc3658a90cd67632dfb583a64a4267a",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "strict-script:language/eval-code/direct/this-value-func-strict-caller.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/this-value-func-strict-source.js",
+      "source_sha256": "7f05b94ebc81960a8bfc5f5da7b6fcee1896c44b85f736a6ebc19e014db64d0d",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/this-value-func-strict-source.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/this-value-global.js",
+      "source_sha256": "ca77c1d103f7ca15fb2004398dd578bb5ddb213a5d4618cb94a95c78fc6b03df",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/this-value-global.js",
+        "strict-script:language/eval-code/direct/this-value-global.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/direct/var-env-func-non-strict.js",
+      "source_sha256": "5081e1069727d8180c05579e4bc286c1156adff50fcdffd32bba30cefa99ab6b",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/direct/var-env-func-non-strict.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-block.js",
+      "source_sha256": "2d2146a7a36ba96fc5ec31f38a4ae1e2bbd5932ed77d1c5a2fa61c2270ae5467",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-block.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-block.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-do-while.js",
+      "source_sha256": "f5dd27ec87c0107db1bfb2cf44b763a0ca5c712599c7dc9064fa13be750cde3d",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-do-while.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-do-while.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-empty.js",
+      "source_sha256": "7d852db397e4f95c0d01e132e95710849035a85e826a39c3381f43cad6002246",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-empty.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-empty.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-for.js",
+      "source_sha256": "0560f59b0a6bdff39ec713c7188a560a55a7695adc198f03f792d6396824fb60",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-for.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-for.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-if.js",
+      "source_sha256": "a482a660d59b1b3c4d458945e01f90cbbecfd4777b81279661cd5872abe55ae2",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-if.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-if.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-switch.js",
+      "source_sha256": "edd335c0c640a5d51b93a2d698c31c4a07a86a06e4cb897b05fb9acdc9ab7a75",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-switch.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-switch.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-var.js",
+      "source_sha256": "bd2f2799a4689c7da83f95fb2fcfab0e0f96154a9e095cd50165552fba0a6c79",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-var.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-var.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-empty-while.js",
+      "source_sha256": "5fe25a0acba2e470dbbb7bc4d7af3aeb7903fdefa52c24c0929626d3eebc6dbf",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-empty-while.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-empty-while.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-expr-obj.js",
+      "source_sha256": "e274b2bb2092a56c6a59d785cb36d35053b690d69997602ddf965a6e28e2bfe9",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-expr-obj.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-expr-obj.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/cptn-nrml-expr-prim.js",
+      "source_sha256": "39a15c0d4663f1a803116de4b6c15502a6b62bd2c9afda7fe2aebd096db79c0d",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/cptn-nrml-expr-prim.js",
+        "strict-script:language/eval-code/indirect/cptn-nrml-expr-prim.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-distinct-cls.js",
+      "source_sha256": "2a04dc1d21ee7c0bcd7797cab22917551d9781bc39b1b105705a53399a7ec55d",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-distinct-cls.js",
+        "strict-script:language/eval-code/indirect/lex-env-distinct-cls.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-distinct-const.js",
+      "source_sha256": "fcde6ae4f756c301436b8f6ef186dc0c2845b38b53f58f61dd4a04c7880659e4",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-distinct-const.js",
+        "strict-script:language/eval-code/indirect/lex-env-distinct-const.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-distinct-let.js",
+      "source_sha256": "be3e210ca302b4cd58ad5b4cb10a73e37b6eed89e03e803c72b7c54c5dd85a1a",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-distinct-let.js",
+        "strict-script:language/eval-code/indirect/lex-env-distinct-let.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-heritage.js",
+      "source_sha256": "9b8b3997dfd4b2f4e4181f1a9e75d9b6a281b7f50d506a242ba9b7ab5f27222b",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-heritage.js",
+        "strict-script:language/eval-code/indirect/lex-env-heritage.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-no-init-cls.js",
+      "source_sha256": "56e120a7c671f566b48dff1636ecc957b95284893f40ccfb1387c7a5a1d9f207",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-no-init-cls.js",
+        "strict-script:language/eval-code/indirect/lex-env-no-init-cls.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-no-init-const.js",
+      "source_sha256": "fead1f0c87be18ed3536a73ab0dc9870794c620513c83ab6c93c788963f67aad",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-no-init-const.js",
+        "strict-script:language/eval-code/indirect/lex-env-no-init-const.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/lex-env-no-init-let.js",
+      "source_sha256": "09a98be913831b12d14fa9fe7ef9e5f8e1e8c2c2bd8dfaae956bf1c0998f5d5b",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/lex-env-no-init-let.js",
+        "strict-script:language/eval-code/indirect/lex-env-no-init-let.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-1.js",
+      "source_sha256": "47e9b42a13d66ac2794b135f5bab6ef3f18161c492ad5b779a2002ef4a1d2e01",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-1.js",
+        "strict-script:language/eval-code/indirect/parse-failure-1.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-2.js",
+      "source_sha256": "d2f753a16d03089f6472e4505c4ab57d0b03b9450ad4f832f662bb11a725c6d8",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-2.js",
+        "strict-script:language/eval-code/indirect/parse-failure-2.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-3.js",
+      "source_sha256": "a71ed0c58a9a1a3c551eb7434032c367d4145d4fee840083b66b90d9c9bf377e",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-3.js",
+        "strict-script:language/eval-code/indirect/parse-failure-3.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-4.js",
+      "source_sha256": "d24feb17ced8c8f3488e95da02c2205c3a4fe3be9629f3e91ca80022901a3517",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-4.js",
+        "strict-script:language/eval-code/indirect/parse-failure-4.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-5.js",
+      "source_sha256": "d04598b91a696035362b65dbe4d9a8d2051cba497d6b4c1fab24ee2e882a8938",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-5.js",
+        "strict-script:language/eval-code/indirect/parse-failure-5.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/parse-failure-6.js",
+      "source_sha256": "cd71e95c846f283799800466fdae4a61b4bb4393399661b43ae2a6f3b42699c5",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/parse-failure-6.js",
+        "strict-script:language/eval-code/indirect/parse-failure-6.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/realm.js",
+      "source_sha256": "045e0e81bbc08bf23b6fe7e51b42187eb791280004d6b6c55dc926068d418c06",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/realm.js",
+        "strict-script:language/eval-code/indirect/realm.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/this-value-func.js",
+      "source_sha256": "b8612a41ab235a1cc0b910b15c1d32e469abd301ce68a252629a2671afe19d6f",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/this-value-func.js",
+        "strict-script:language/eval-code/indirect/this-value-func.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/this-value-global.js",
+      "source_sha256": "2af074eb4e76d9eb3d682dfb1fa33e88f36bccb39651c0e44b9e27d08f83ebc8",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/this-value-global.js",
+        "strict-script:language/eval-code/indirect/this-value-global.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/var-env-func-non-strict.js",
+      "source_sha256": "648c1b37a651d2c9879133a9431a14b0a8d7e576925c9947ac053704df98923c",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/var-env-func-non-strict.js",
+        "strict-script:language/eval-code/indirect/var-env-func-non-strict.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/var-env-func-strict.js",
+      "source_sha256": "59b478a652e9e7ea662f9d2d220f1ae5243b2d97283b6f8040e409e8d867880f",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/var-env-func-strict.js",
+        "strict-script:language/eval-code/indirect/var-env-func-strict.js"
+      ]
+    },
+    {
+      "path": "language/eval-code/indirect/var-env-var-non-strict.js",
+      "source_sha256": "e648932c81c7b8037d3666d9adaa9e366bdfd2ccd65852d180dd1133830f9944",
+      "esid": "sec-performeval",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/eval-code/indirect/var-env-var-non-strict.js",
+        "strict-script:language/eval-code/indirect/var-env-var-non-strict.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "34941bc60d65cf999aa71ecb1e6fdd28d968ba3f5d78fb9c060033f69bd0fe13",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "6319711cfcacc0bec25c52d0db6d7bc31860c9f7279f5d3dab21eea6ad5073c5",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "7d897f97fd0d686217cd3a15d28c2ef67e4c419efb55b82416effce69fba6ac8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "0d968ab9997c7d7a03b0f7f3dd3fbb49fed62b14bf5d791625d4f4593afb7f5a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "b917495fd12c59226e6b139a380393202bdb3651cdd31ece47a6eba69457d0b8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "3ab514fef0e0ee57c4569f8c0c025494bc7341ba6165c4380210a421d796383b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "4b5f31d182ada27e2197625331c63921c423ed5c1a9f8c4c15f6c27b1d745f0e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "6d74ac6266494efa27e8ba179954ad7a4a0fbb27f28dbf854816b1501b68d18e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "4f149267d539e3a7b6c1af16da08efc83d7b7b9d9cba3ec2a5b5df8d493f6fcb",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "f05eca4ff87f4086a418080a400ba25cfe7fd712bdfd684c3b56da58b5c3ea06",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-direct-eval-err-contains-arguments.js",
+      "source_sha256": "abc56c4e98ab139fc1dba58d8c1bbfed7adbf4e4fd93d2ec9e9152036181970f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/arrow-body-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "76bd055405d09654c85f57e2076263a5d9a2c746ef843e9c72b636152f6ffb68",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/arrow-body-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "bf006fa53c71e95c30f3d02aad89369bae512b0619619a8b75946c07ffa9ad2a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "383c38de317b3e9e2f0cb0644ddc491a8a9774d128ffa87b7f9b8db918139449",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "3bbbf869df305699896bfe92b516ee01c195c1f7bddbca8bbbdaa30dcb9deecf",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "7a1d9bfb9b8931eb682a8de5d11fad64591047dd8b84cde9a2b649304071c292",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "96e66d51e07bb331758c7ad3c1bfa795498e86fbebf059803adb02d2303454ef",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "3cf4500c35d6edb69a9d494c22e763879e1545345901be5104f21fea8649aa4b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "e5cd50546dc5ce97b93b56f9429660b3c2871260c663cb6d7f926a80b663d826",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "705531502a73b52c27d11ace4886be86d7523b5118d05ba27ae0ed5b90ac3b7a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "e1b46305531343f54f7001563c54e0a90a643eb87211f3b99b6a27c55ed88613",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "ac3c0773db1e30b2cf1bd70e88ddbb90b707767e3941140d33a301f03b857358",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "873dace5fc6d35b754b3ecefea77ca1741703fa25611baa1fe92168e26e7c12f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "f26fac6bfb1e0488353c4ccd53a90fe4d8879f7c8515ffb820a59456b5311649",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "ce0ece0a00f301116251a7a2f638b084d8f297fe5221656925fc2e200b86db85",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "ee332160ac6fd484f83cc4e3c3a1490baaa8dab6412156eb459010d2d4a80868",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "09fb533d2ca22cb403d9d1edc4f60739dfcc3134f0364d9db9ac2c065789e4c9",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "2da2e3e8180edd9b655f594ac2590814e5e7ed55f247d3ed6cfeb795de54b89d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "5c87a8ae9287f5491cdb39cc8f304bfd23946fc9e853c3049f699cd746aa3ba9",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "d4cebae191bf11a280cb2f4c7edc03964a2f81dcde9c481cb42a8138b94d324c",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "e1cdec04ab72a6422ad8de6fea4c3bdd186065b73392d82032420219b34349e0",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "9095a44552167aaf7b6d6ac9012224303e4a0ef97b4033428f9605cc7c9dc605",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "9e30a751762196b9db6113828c57ae4bff398965bc0169634f25ccc3192d70d2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "2a2af7dd4bd141846ffc86d03f7dfb12e63fce8d33980c7832fd3bfd61dcedc6",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "9e9b4a2e076708b26b29c5f56d1af0f61bbb82e91964a2a567fa28ae11d93baa",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "09379d1bd158e9c23bdcc874ee1a3b1a9c2c74f01e7ecbb10e39ca0445788338",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/direct-eval-err-contains-arguments.js",
+      "source_sha256": "369cb861e7b7fe860700d3a5fe9991b5059e5cc1bc7b9c30b01df1d4c3ce6c77",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/direct-eval-err-contains-newtarget.js",
+      "source_sha256": "40441820f02993efa2774504848a55e03831db79d40291587beb24e8763f7028",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/indirect-eval-contains-arguments.js",
+      "source_sha256": "18cd1821ea085d19c8520df3cf26e547c60f8574988365b7c261e87627a232d8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "23f2e667aaffd9f90a4446daf3c0d602d6d6178596da867ac97e2c1a6e24572e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "3fb1e0791047cbf959b7f7fe352df3094a445c35a8cb3b80e0a83f160817fd1a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "5803321a423d0a428877786aec1290e3e746f673266de146af5e9634faf76abb",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "60a72e619f41b6bf1f52862b7efd531fb8922ddebff775fbd38ff3ea5d7aa25d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "f7247b2b30bbc6febdbd21882016cfb061411a5174ff1a033586e2861cd3de7a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "9b8962bfb1953917ddf307502d69ea3a9537a0c94166ab26ed08a97c64357054",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "c8fd85bd45f07c3e5c351b77384cd8524a3351db39b9c1ca170e3df04c38bcb0",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "0953cde6daf07b6e4f1b8c410ca5f043adbcdac52cb577b265405003e4867470",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "efb1de41adcf668bfac8f80a8f34f05d9ad8e48c9c7d28f9b593c0fc501c97c7",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "a02b2620941ffb749dd2361f1d1c28c7cb335b8c6aa199fe7693b91c37e28b1e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "6949efd67ee84ba33b446be7faabe4f284c41e390b74b67193a6d9fee1148506",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-direct-eval-err-contains-arguments.js",
+      "source_sha256": "08c227c620577379221ed3527753606fb807c5a82f7be3e4c45f0ecc2743e3aa",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/nested-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "57abf9628a1d3aa6ce844daee99539844dd3ad33a14e55ebdbf7a66401f812e8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/nested-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-indirect-eval-contains-arguments.js",
+      "source_sha256": "1c7c4f883350fb1fed509a612486b5774bab91fd330b88d2f13221ac1a6dfcde",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "a57100ae0c0ac331433f28c3de4f56b884e4140bdd08a82581896221f2ec7659",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/nested-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "3011efbc47c6fece748d4e6a48063a0603658887146119063ebb4dc0fc7b7fb2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "3c2e300dd864cc6666eab36099b1aa39b9c48b6f0bf33fb1c9e94d55fb3236a3",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "433e3ca09b7faea96a14fdc9adf38158f40bb7acb170db49ae9b0764acf3f60a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "e86cfb678e13ddc9f8eedca2cce00d400335451b18bdc0b1390287c08d89bd49",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "b6b3f7474d91d36f4861d4cc7079d8f510fa52fee0420ad0f571f21fba1178cb",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "78be9eb96aa816f5199e901c32e0e3931b037c6c8379a3e6909093a7351dfc0e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "b17deeb7022e18a9f2d6a425532b9a5aa6efb101776e44bd858fccc62f8f9168",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "1c6d2e2a747875386c07da24705f18f7631a95d202aae786209798fcc36a4617",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "4779b8ab72b3e697bff2d9233f9dfabcedb9bffd6b60b144cfe6169c0c65d707",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "552c6264d31a1b100a65a30e5426d15c54cd885cf2da1e546401dc488e5a3903",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "d6564df8ee22c6f98635a906f6857b962d5edddca7b720a8996c8f9c32ec39bd",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/nested-private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "953355769378162a45854247463d10bc16fd1dde93e5776bdfbac0cb9b19c91a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/nested-private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-indirect-eval-contains-arguments.js",
+      "source_sha256": "e4a248a18cef5357db29347a233eaffdc620e000b63de6677ac9c35fc12e2b21",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/nested-private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "66de3e0e3310cd3c17199f39a237dbbe412321d56e9f9bacaa00cc774afc426f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/nested-private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/nested-private-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "84035055d59366c7f0ca3b20c90bc3d8b68aed2c75d46d756c4f7b453083e778",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "365bf72bb0a1a0c6ef08e8e1da9cf256e55863f6b1be52e6ba1e000521069af0",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "33d5b3d8417bcbc0942a0d1d3a2bfec1d0482ea1323e45ab94193c3c898a2723",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "7b962e6f5a1afec78f98e37812ba302881c36c3ed5dc671b7786189e5ae3e977",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "b9bf4de2e1dc38330a82b534685df02727d755f3aef9a0086490fb45f0f0fabf",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "130b9200ded5165d7bc61d672220458251c31e1534a3a0b3e223be03f4f3f4f2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "31307071500af614bd62188bc2bfce39315ea4f3e64c61859dcc6c32d336590d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "a48e264f74f2476a804a58eeb811db5990f4c5b7572809a000cffd7be36691f8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "9855761d06ba28346ac2edc69f4d75e74a446a28e28713e64d56de5735fad54a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "268d8b08be908db886763371c611a3a2a2cd5e091c9c27e04558cb3b124af90b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/expressions/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "06556971498da1beb8db6cf5795ddebef38d810f5cf692116933983ede8aabc2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/expressions/class/elements/private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "1ab6e04331242b80ac3660702320d5b58a49e52279471066bddeb763cffea185",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-indirect-eval-contains-arguments.js",
+      "source_sha256": "27f87000668bef742f287c3699fdb237c114a9ef1f7af84c6f29eb3653be82be",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/expressions/class/elements/private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "1951d7beb6ff0ce49188fae6a1b2f553987d92558889e8892b5e93ad9ce98ee2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/expressions/class/elements/private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/expressions/class/elements/private-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "e771494969af15e2cfc0a3e9ad6e6da4542e75780e0052c74e7f71172e9a613b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "a1d9bdd2e4d54cf4a1d21907e74126d115b5f8020c4293e9928e888aa563aafc",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "d3293d70770e48cbb9f837f0015cf465f5b59306a2ba2dcbe8c30b97d020419a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "5a31c92d042ffe85f1a076d0e88d2850fc4a7410b91e46bc6c04dc98275fcb8f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "717ca05d20a0cf735fa801d26d50532c3111db07b3b8cc20db4a1c34aa13b253",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "88819990f0c3dc93c348a844863d51f2897add75d9be8512a52276915e2a89a2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "4ce43de8cd51754a00a79b27d50139cd3deb0cc3f4eaa3226a29c18098a6a74e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "2a12c12e38c586fc9ace4831d32dc914e51c6ed84ed5347b766ccba76f723b36",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "99aff5ba3208c4229df8bd8f70cadf04c960bc18c674fd1fc11f51bd5bbc14d9",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "e77d8613c65cb78c40f4b3ede97669a3638f59e724ecada4e824227b295292a4",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/arrow-body-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-direct-eval-err-contains-arguments.js",
+      "source_sha256": "661bdf04cc5a66bdd0ddf0d41a3450f0bc675f1b2d30ef2d526aed3e2121cabe",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/arrow-body-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "557a8991b9592ad8ca0003c13740e83df3ed169adee55d5c3dbbcc97b7a1ebbf",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/arrow-body-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "65c460f579a2d8e37b933b711042eda76146fbf23d808b1299e3eb26ba444c4b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/arrow-body-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "b86798b1776fedc1f7fd46ea56000ff9d4dd67cfe87c0288a9e260025da7d775",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "76b87038a46af4783fb2e7fec80f89609ac2d93abdd05e5c4c442651565de668",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "4036ee7d12238a2e2459955d6a43c8e8bb08e2f6935bbc1ad8ec11002eefa003",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "cc03630e346928a21f155cc1b2453c43efe96ad8af42654b1edc50c2ca5c436f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "78564a6728bd60b9774111b71442a525b96aa682eddf66db3886a7a5ef467b46",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "066f0419616b53544ab6bb47bad553ffb2f2b03261f87bbcaf7e1754a77ff7c2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "085f1524a7730f5d8c2bd7581caf9155f40f8ee26658a90879bd4a34c5c40028",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "66d79017209a7ea968f5103d0c6aa9ef41bb1ebc77d69b38b57d53cfa8680af8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "53da8f111761e3d9546f1e16d924162adc0ff98b2537df5dc45cf92030b602d8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "dd229209f68d02fc9e2b352975dad5a1e9b74bedd6346f3b1bf4a1b8a0e6c734",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "8b1ba97c7aae963819839ba29df8f6828830f9b7e64028547b109f1f3813ac94",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "1fe0d552e9acf56125bc333f03bf3a4d62d836bf6f1adb3fcbff15f42a200d75",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "ce38cfdb3c3044f3286e4bce6740aa89b4401bb5d0e72340fdf9f3c34d47ad95",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/arrow-body-private-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "9cd509121ef66e0bab66f63728272206fb468364b02982fb3a9c68cf0f38afc7",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "c78d80be301bdca26d3e5a206c54d7316d085ffa5a93deeffb2623987d373967",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "e81dd44994568e8fe521cbab376938e36ce5386b8513b88be42c239f17c0bc2c",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "afb48760f80e188fd5ef5bd9a87509d61bbb2f55cbbd5b1a1f8a4afdeae7d101",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "12edcd31eeb6ab23189424056d035e64da79842e9e119c34aafa2542aeac134e",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "e1187384a3c619c6af4fa23631712ad34ef261b1c26784984f63941015970d59",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "0b0f3a93af5b89bb999a252df05bd090a34d8a009fe0e2311a2be81016259b8a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "f4e22951d3e1a9f0c819db2bf2e065f1a62d30f4cd3a3af9d5073f39b8421331",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "ac3d9897f065bb90f839348decacae43cf3c200a14d17b3705a0d4513be3e22f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "575c342fba74610c4e8e6d483e133dbed98255c52a74803bbe19518c70dcc91c",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/direct-eval-err-contains-arguments.js",
+      "source_sha256": "3021888b0c7a5af33a3b1e38185fe6dbaa677ade35405a7316b3ad20e5472550",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/direct-eval-err-contains-newtarget.js",
+      "source_sha256": "a68a88f199b8579f418c819d46a133e54ad8cef461be506125c8a423b0368c8f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/indirect-eval-contains-arguments.js",
+      "source_sha256": "847a75a1f30d55c95c75143ff8c70bc3f2e799a04a3461a1113ccca3c89074f9",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "47ad78ff08932d4f1c79e67919a89cf82514b02c9963894b3e8b362f007c501a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "f06b3e30620c1fe403ea3b931a9bfeae663873b5c997f4ff9120763ff60ad6ed",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "89a7dd00dc466907eac8fe01c0f0416fd3436396c2055dc00fad1578a137030d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "e0dded17657f41e74cb28ae678e9f3db4848f291990ea74d4f5fd06dd34ca96f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "16f7d12deda67cd9821d29e68cad68764cecbdfce000c92c9accbdacfedca535",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "58b1b761172a63b6ce756554af9ef8bb5257c51b06cdaf60f3c8569060e670b3",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "f80668cebaefddb9159b266a96558ed8a78de14794f002f39f4cec7c2ee1b007",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "ca75f8abd92786f1a15a344313f084709245331f6713eec6a4d243a7ab56a123",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "7a631dc9bb2a12d5873eb2ea13f5131e7415c28c8971eee8645bac8ca779d669",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "48dd8e72c55a4511b7ff96dd8b084d137f03e51bad9eabe59f682f3e610a9edb",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "9126e1a5aefeb19d0343d9f54a1f63a2732f188810e58dca0cf856ee0d6d33cd",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/nested-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-direct-eval-err-contains-arguments.js",
+      "source_sha256": "e51031787ff0b1af187907a8f7def1779105725e8d88705676dd30b824db51c7",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/nested-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "5f40954ea813e91ba782f9f2a25467febf17718a5558d114093da1b0effb9de6",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/nested-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-indirect-eval-contains-arguments.js",
+      "source_sha256": "35272c58ff2798a58c092f738916b86b16874a38821c468ce76931047daf9352",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "98217736463cdf23061018d9fc16cb1dbf8f48132860daee0798eb89108a3f9d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/nested-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "5f6382dc9835ce58a312d6da064f488f4b2152dc947a933dae9201d913f7306d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "229cd7880c1e36985f9374bbacae248fed9da2b0fa9ee3d91636a7427410f2a0",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "675e8c5fd1beb0a5ef7973b494543b4f9e3cdfc6d5585d46e77f797dbf94d09b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "16c4be87e83aa99fb36b914138714e53c202a0ecd84b47283a254dfce1513ee6",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "636f05f7e89ef742b1f566c6941bb169cc1c5439b711934dc8e42138e4ab8bcd",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "3d0dbc6b44316b06056a38c14d0982129d737079c0315109b0e62a197fdd18b1",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "c99e07deaa5e62bef0a511840a23b5bbbe0972235101af94954a2fbebc212040",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "011726cea59746329fc0c5d5de3e8c97960fbadd14c5eb907463d6daf1007e72",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "e1a4247b8142326a16a29440afcc1b4acae1c6d0b991b0795f3702037dd3895c",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "17ae25ac6ba2fa72d44657d7d10b582b55b1e95f917e6bce3165a4db6aaad32b",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/nested-private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "219ec00312e65f2ecc8f088f03320b7e254a625eda74266eb433a8f512801883",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/nested-private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "610a0e497f972cfcce8da14a738ddf1759133a83fa95d21f86533e0090dacb1a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/nested-private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-indirect-eval-contains-arguments.js",
+      "source_sha256": "a8f2773572f378e804b3401b5af1914aeef7b4c53cece7f11435a0363345e65f",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/nested-private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "dac7c7524abe6c44b8812517d44fe61b77422f0a63c5afd85be353d307f8ecf2",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/nested-private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/nested-private-indirect-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js",
+      "source_sha256": "6b64f37446dc6e6904c1ca34ce0e32149994773abd3db2bba5f78a056da52431",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js",
+      "source_sha256": "caeb58f331ffc3c5b99a09814da5fc36494711b6b18962b098fde6fc43c7e0ad",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-direct-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js",
+      "source_sha256": "a23cf8ded5cdd892f03ec2d2b45b5a4595a890205347cf8bc1241605b97eb3a3",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js",
+      "source_sha256": "0a6fc0edabc74314913f1319915866385a25c0985d83258af425034a57a7e739",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js",
+      "source_sha256": "90abb2f21af69d06f7a31d43e36767cacfa0026a8a38dd7db354fb816740054d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-direct-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js",
+      "source_sha256": "ee07597fdd36e7ae2002879258c0f518f545232be3c5bb57643beff1f861896d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js",
+      "source_sha256": "04daf75e27bf128058b99924f7f23d8db5c74f3c2c4cd3f1cd099471a95d7afb",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-indirect-eval-contains-superproperty-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+      "source_sha256": "c6b4573c434b9db03776b40e793618e5bd93050fada223ac41b93f97021e0f62",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-1.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+      "source_sha256": "8b9e1fbecef705a805ec16177482b74db99d08f322e2bc75639aa2184d19fed8",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall-2.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js",
+      "source_sha256": "7a461bc581ee29ec320c6307787026b6d62018c2d26c714a954c94303d45ad77",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js",
+        "strict-script:language/statements/class/elements/private-derived-cls-indirect-eval-err-contains-supercall.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-direct-eval-err-contains-arguments.js",
+      "source_sha256": "06f5f492acfa4ffea0cdd67faba09a75efe33bb66e8b35c143359166cc9351f6",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-direct-eval-err-contains-arguments.js",
+        "strict-script:language/statements/class/elements/private-direct-eval-err-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-direct-eval-err-contains-newtarget.js",
+      "source_sha256": "c5a1acbf6a69b20a631e1c74b8c00093fe19a2e605270030b4bf599861a55125",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-direct-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/private-direct-eval-err-contains-newtarget.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-indirect-eval-contains-arguments.js",
+      "source_sha256": "c54cf4cad381d49a859018e5e2b99f812505786fbeead3fda158cc65af2a339d",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-indirect-eval-contains-arguments.js"
+      ]
+    },
+    {
+      "path": "language/statements/class/elements/private-indirect-eval-err-contains-newtarget.js",
+      "source_sha256": "a9fedf2944899ae72757c5d406589c8e3cefc35ad1e5554f7c00580371e2c58a",
+      "esid": "sec-performeval-rules-in-initializer",
+      "reason": "dynamic-eval-primary-target",
+      "execution_ids": [
+        "sloppy-script:language/statements/class/elements/private-indirect-eval-err-contains-newtarget.js",
+        "strict-script:language/statements/class/elements/private-indirect-eval-err-contains-newtarget.js"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "path": "test262/snapshots/published-status-wasm-aot.json",
+      "sha256": "ee9814828afc2dea281091ea780767b02fdb5896d47f8a629306d2d8f9c1c079"
+    },
+    {
+      "path": "test262/snapshots/current-test262-20261020-receipt.json",
+      "sha256": "688b3749be534af4c4395201637105e53fa5480a1cfcb1d99bc087746fce2d06"
+    },
+    {
+      "path": "test262/snapshots/current-test262-20261020.tar.gz",
+      "sha256": "af7b478660d979eb6a7a226b0e8293c7b8319e4747598d4977486fa4d4175aaf"
+    },
+    {
+      "path": "test262/backlog/6a4268a9354a545d41c3b62efebc478ed8c521f4/wasm-aot.json",
+      "sha256": "b58e67e4f57150156f47f291d764a6af3b7684826e7c10618ef82442ff732f6a"
+    },
+    {
+      "path": "docs/rust-rewrite/failed-case-replay-20261021.json",
+      "sha256": "edfb4188dd54996c94de6305e8606e84360a8c13a6984d7659566320216f6227"
+    },
+    {
+      "path": "test262/snapshots/failed-case-replay-20261021.tar.gz",
+      "sha256": "97185430f564f778b93e3716a9df7c4880269807cfb5e761410ce34fdbfa7c60"
+    }
+  ],
+  "full_current_source_rerun": false
+}

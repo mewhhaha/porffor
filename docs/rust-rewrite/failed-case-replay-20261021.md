@@ -53,8 +53,9 @@ The original four-case command returns exit status 1; the controls return 0.
 To reproduce, extract `original-four.txt` and `controls.txt` from that archive,
 then use the `run-list` command below with each list and a fresh snapshot directory,
 keeping `--suite-root test262/vendor/test262`. No amended suite is needed.
-The original full baseline and its README chart remain unchanged. The outstanding
-work is to resolve these test/specification/compatibility disagreements and then
+The original full publication remains unchanged. The README chart now shows a
+labeled reconciliation with this exact replay and the audited product-scope
+partition. The outstanding work is to resolve these test/specification/compatibility disagreements and then
 run the complete suite on the resulting compiler; amended tests alone do not
 complete that work.
 
@@ -122,6 +123,7 @@ memory budget. The original-fixture run is expected to return nonzero and record
 the four literal failures; retain that exit status and its output.
 
 This is a replay of the previous failures. The other 102,978 baseline successes
-were not rerun on the fixed compiler. The README chart and canonical publication
-therefore remain the complete pre-fix measurement. A fresh full campaign and
+were not rerun on the fixed compiler. The canonical publication remains the
+complete pre-fix measurement; the README chart labels its separate reconciled
+view explicitly. A fresh full campaign and
 the other native/release acceptance gates are still required for closure.

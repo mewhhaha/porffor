@@ -65,29 +65,49 @@ parser, interpreter or VM into the emitted artifact are **outside product
 scope**, rather than features planned for implementation. This includes such
 uses of `eval`, `new Function` and cross-realm Function constructors.
 
-This is not a blanket exclusion of those APIs: finite prepared sources and
-native-host compilation remain supported paths. A parser/lowering bug in a
-supported path stays a failure or unimplemented feature. A test's filename,
-use of `eval` or `Function`, or `Unsupported` failure kind alone cannot decide
-that it is out of scope.
+The chart now classifies a conservative, audited subset by each test's primary
+specification target: the two exact PerformEval ESIDs and eight individually
+reviewed Function-constructor source-parser cases. This is **221 source files /
+429 mode-specific executions** at the published suite pin: 413 eval and 16 Function
+executions. It excludes the general dynamic-source promise of standalone Wasm,
+even where finite prepared fixtures or the native compiler host can pass a test.
+It does not remove supported prepared-source/native-host code or declare it broken.
 
-The README chart reserves blue for out-of-scope cases. The publication
-does not include audited per-test scope decisions, so its blue category has an **unknown
-count** and no numeric bar height. The three measured categories retain their
-original counts and full denominator; some may include cases later classified
-out of scope. No cases are subtracted or silently skipped. A numeric split
-requires case-level evidence from the same suite pin and run, with a reason
-for each excluded case, before it can change the chart.
+The four direct/indirect non-string eval pass-through tests remain in scope: they
+return their input without compiling source. Ordinary API-property tests, Function call/apply/bind, constructors used only to
+set up another behavior, and incidental source mentions remain in the ordinary
+measured categories. This is a known audited subset, not an exhaustive inventory
+of every dynamic-source use. Parser/lowering failures in supported paths remain
+failures; an Unsupported failure kind cannot decide scope. No excluded execution
+is an existing failure or unimplemented result. The four remaining original
+failures stay red.
+
+[Exact scope and chart evidence](test262-chart-reconciliation-20261021.json)
+binds every selected source hash, execution ID, reason and ESID to the full native
+baseline archive and the verified vendored tree. The original 102,994 executions
+are preserved: blue partitions 429 historical native-host successes, and green
+contains the remaining in-scope successes. Canonical native outcome records remain
+unchanged. Blue describes product scope; it does not claim those tests failed.
 
 ## Refreshing the README chart
 
-`python3 -B scripts/generate-test-graph.py` refreshes the README caption and
-[vertical bar chart](assets/test262-status.svg) from the canonical published
-Test262 snapshot. `--check` checks both outputs without writing them.
-Green is Success, red is Bug plus Crash, gray is NotImplemented, and blue is
-the explicitly unclassified out-of-scope category. Unrun tests are not
-reclassified as unimplemented. The date and pin remain visible;
-this chart is a dated measurement of its identified compiler and suite, not full ECMAScript conformance.
+`python3 -B scripts/generate-test-graph.py --refresh-evidence` rebuilds the checked
+projection from the retained full baseline, the exact original-failure replay and
+the pinned source audit, then refreshes the README caption and
+[vertical bar chart](assets/test262-status.svg). `--check` verifies the evidence
+and both generated outputs without writing. It rejects changed pins, archives,
+source bytes, incomplete/duplicate replays, altered counts and scope decisions
+that would hide a non-success. Reviewed errata snapshots are never inputs.
+
+Green is in-scope Success, red is Bug plus Crash, gray is NotImplemented, and blue
+is the audited standalone dynamic-source scope subset. The graph reconciles the
+complete 2026-10-20 baseline with the 12 repaired original failures from the exact
+2026-10-21 replay: before scope classification, 102,990 historical/replayed passes
+and four remaining bugs. It does not claim the other baseline successes were
+rerun on the repaired compiler. The detailed canonical publication still records
+its original 102,978 passes and 16 bugs. A new full original-suite run is still
+required for current-source conformance publication. Unrun tests do not become
+unimplemented tests, and no scope decision silently skips execution.
 
 The previous 12,400-line README is preserved verbatim beneath a short provenance
 header in [development history](../../DEVELOPMENT_HISTORY.md). Its body and source

@@ -33,7 +33,13 @@ class AccountingTests(unittest.TestCase):
         self.assertGreater(large['peak_rss_bytes'], small['peak_rss_bytes'] + 32 * 1024**2)
         self.assertGreater(small['elapsed_ns'], 0)
         self.assertFalse(small['timed_out'])
-        self.assertEqual(small['memory_scope'], 'child-process-lifetime-high-water-rss')
+        self.assertEqual(small['memory_scope'], 'runtime-child-lifetime-high-water-rss;excludes-python-launcher')
+
+    def test_python_launcher_memory_is_not_the_runtime_child_peak(self):
+        payload = bytearray(64 * 1024**2)
+        measured = self.run_child('pass')
+        self.assertLess(measured['peak_rss_bytes'], len(payload) // 2)
+        self.assertEqual(measured['peak_rss_bytes'], measured['child_peak_rss_kib'] * 1024)
 
     def test_failure_and_timeout_remain_failed_measurements(self):
         failed = self.run_child('raise SystemExit(7)')
@@ -54,6 +60,12 @@ class AccountingTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_default_startup_requires_proven_embedded_runtime_reuse(self):
+        self.assertTrue(BENCH.check_runtime_prime('scriptw wasm trace: runtime-native-bundle hit: 81291072 bytes', True))
+        self.assertFalse(BENCH.check_runtime_prime('scalar-only custom startup', False))
+        with self.assertRaisesRegex(ValueError, 'refresh coherent build metadata'):
+            BENCH.check_runtime_prime('runtime module compiled normally', True)
+
     def make_report(self, root):
         for directory in ('logs', 'workload', 'wasm'):
             (root / directory).mkdir()
@@ -101,7 +113,7 @@ class EvidenceTests(unittest.TestCase):
         report = dict(schema=metrics.SCHEMA, complete=True, source_commit='old', machine={'cpu': 'test'},
             configuration=dict(startup=False, warmups=1, timeout_seconds=900, native_jobs=1),
             policy={'version': 2}, profile='release', samples=3, node_versions={'v8': 'test'},
-            wasmtime_version='47', harness_sha256={'harness': 'hash'}, process_samples=[], commands=[identity_command, command, v8command],
+            wasmtime_version='47', time_version='GNU Time', harness_sha256={'harness': 'hash'}, process_samples=[], commands=[identity_command, command, v8command],
             workloads=[dict(plan['startup'], role='startup', sha256=metrics.digest(startup)),
                        dict(plan['execution'][0], role='execution', sha256=metrics.digest(source))],
             execution={'wasmtime': {'cases': [dict(case, command_label=command['label'])]},

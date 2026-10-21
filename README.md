@@ -44,21 +44,27 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The chart below retains the complete pre-fix baseline; a full run of the repaired
-compiler is still pending.
+The chart below reconciles that full baseline with the exact original-failure
+replay and an audited standalone Wasm scope split. A fresh full run of the
+repaired compiler is still pending.
 
 <!-- scriptw-test-graph:start -->
-![Test262: 102,978 passing, 16 failing, 0 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)
+![Test262 checkpoints: 102,561 passing in scope, 4 failing, 0 not implemented, 429 out of standalone Wasm scope](docs/rust-rewrite/assets/test262-status.svg)
 
-Published snapshot: **2026-10-20**, pin `6a4268a93`,
-102,994 mode-specific executions. Red combines 16 bugs/crashes;
-gray means unimplemented, not unrun. Measured compiler: `c5053c9d4` on the Wasm-AOT backend. This is a complete pinned-suite baseline, not full ECMAScript conformance.
-[Published evidence](test262/snapshots/published-status-wasm-aot.json) · [Run details](docs/rust-rewrite/test262-current.md).
+**Reconciled checkpoints, 2026-10-21:** 102,994 mode-specific
+executions at pin `6a4268a93`. This combines the complete **2026-10-20**
+baseline with the exact original-failure replay: **12 repaired, 4 still failing**.
+The other baseline successes have not had a fresh full rerun on the repaired compiler.
 
-Blue reserves **out of scope** for dynamic `eval` / Function-constructor cases
-requiring a parser or VM inside emitted Wasm. Scope classification is unaudited,
-so that count is **unknown**, not zero; the published totals
-above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
+Blue is an audited **429-execution subset** focused on dynamic
+`eval` / Function source compilation outside the standalone Wasm product promise.
+These cases passed through the native host; their historical results remain intact.
+Ordinary API properties and `call` / `apply` / `bind` stay in the measured categories.
+The four bars partition the original 102,994 executions; scope is not a failure fix.
+[Chart inputs and exact scope inventory](docs/rust-rewrite/test262-chart-reconciliation-20261021.json) ·
+[Original complete baseline](test262/snapshots/published-status-wasm-aot.json) ·
+[Failure replay](docs/rust-rewrite/failed-case-replay-20261021.md) ·
+[Scope policy](docs/rust-rewrite/runtime-requirements.md#out-of-scope-tests).
 <!-- scriptw-test-graph:end -->
 
 ## Caveats

@@ -47,7 +47,9 @@ or conformance refresh. The final maintenance checkpoint is recorded below.
 
 [Complete baseline](test262-current.md) and [focused replay](failed-case-replay-20261021.md)
 bind exact pins, compiler fingerprints, executable hashes and commands. The
-canonical README chart still represents the complete pre-repair baseline.
+canonical publication retains the complete pre-repair baseline. The README chart
+now reconciles it with those exact replay repairs and an audited standalone
+dynamic-source scope partition; it does not claim a fresh full rerun.
 There has been no complete fixed-source campaign, so subtracting targeted fixes
 from published totals is not authorized.
 

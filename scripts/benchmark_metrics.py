@@ -5,9 +5,11 @@ import math
 import os
 from pathlib import Path
 import signal
+import shutil
 import statistics
 import subprocess
 import threading
+import tempfile
 import time
 
 SCHEMA = 'scriptw-v8-machine-baseline-v2'
@@ -27,18 +29,37 @@ def summary(values):
                 p95=ordered[math.ceil(len(values) * .95) - 1])
 
 
-def measure_process(command, *, cwd, env, stdout, stderr, timeout):
-    """wait4 observes this child alone, including its kernel-recorded RSS peak.
+def measure_process(command, *, cwd, env, stdout, stderr, timeout, time_binary=None):
+    """GNU time observes the actual exec child's kernel-recorded RSS peak.
 
     Blocking wait avoids Popen.wait(timeout)'s polling/rounding in short startup
-    measurements. A watchdog kills the owned process group on timeout. RSS is
-    whole-process lifetime (including compilation), not an isolated JS heap.
+    measurements. The small native supervisor prevents the Python parent's RSS
+    from becoming the child's pre-exec high-water floor. wait4 CPU accounting
+    includes the supervisor; parent wall time includes launch and supervision.
     """
     if not hasattr(os, 'wait4') or not Path('/proc/self/status').exists():
         raise ValueError('benchmark process accounting requires Linux wait4 and /proc')
     if timeout <= 0:
         raise ValueError('timeout must be positive')
+    time_binary = time_binary or shutil.which('gtime') or shutil.which('time')
+    if not time_binary:
+        raise ValueError('GNU time is required for child RSS accounting; install time or select --time')
     expired = threading.Event()
+    with tempfile.NamedTemporaryFile() as accounting:
+        result = _wait_for_process([str(time_binary), '-q', '-f', '%M', '-o', accounting.name, '--',
+                                    *map(str, command)], cwd, env, stdout, stderr, timeout, expired)
+        raw = Path(accounting.name).read_text().strip()
+    result['launch_tree_peak_rss_bytes'] = result.pop('peak_rss_bytes')
+    result['peak_rss_bytes'] = int(raw) * 1024 if raw.isdecimal() else None
+    result['child_peak_rss_kib'] = int(raw) if raw.isdecimal() else None
+    result['memory_scope'] = 'runtime-child-lifetime-high-water-rss;excludes-python-launcher'
+    result['cpu_scope'] = 'gnu-time-supervisor-and-runtime-child'
+    if result['exit_code'] == 0 and result['peak_rss_bytes'] is None:
+        raise ValueError('GNU time did not produce child RSS accounting')
+    return result
+
+
+def _wait_for_process(command, cwd, env, stdout, stderr, timeout, expired):
     started = time.perf_counter_ns()
     with subprocess.Popen(command, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
                           start_new_session=True) as child:
@@ -68,7 +89,6 @@ def measure_process(command, *, cwd, env, stdout, stderr, timeout):
                       user_cpu_ns=round(usage.ru_utime * 1e9),
                       system_cpu_ns=round(usage.ru_stime * 1e9),
                       peak_rss_bytes=usage.ru_maxrss * 1024,
-                      memory_scope='child-process-lifetime-high-water-rss',
                       timed_out=expired.is_set())
     return result
 
@@ -230,9 +250,9 @@ def load_report(path):
 
 
 def compare(baseline, candidate):
-    for key in ('schema', 'machine', 'configuration', 'policy', 'profile', 'node_versions',
+    for key in ('schema', 'machine', 'configuration', 'policy', 'profile', 'node_versions', 'time_version', 'time_sha256',
                 'wasmtime_version', 'workloads', 'harness_sha256', 'samples'):
-        if baseline[key] != candidate[key]:
+        if baseline.get(key) != candidate.get(key):
             raise ValueError(f'incompatible benchmark baseline: {key} differs')
     changes = []
 

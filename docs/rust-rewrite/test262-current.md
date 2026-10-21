@@ -32,8 +32,13 @@ The 2026-10-02 chart used another pin and path-based accounting. Its totals
 cannot establish a regression or improvement against this mode-aware run.
 All red outcomes remain recorded; full ECMAScript conformance, two green release
 families, native workspace suites and performance acceptance remain open.
-Out-of-scope classification is still unaudited; no eval/Function cases were
-removed from the denominator. [Scope policy](runtime-requirements.md#out-of-scope-tests).
+The README graph now shows a separate reconciled view: this full baseline plus
+12 exact replay repairs, with the four remaining failures kept red. It partitions
+429 audited dynamic-source executions into standalone Wasm out-of-scope blue;
+all were native-host successes, and the full denominator stays 102,994. This
+projection leaves the canonical totals above unchanged and does not claim a fresh
+full run. [Scope policy](runtime-requirements.md#out-of-scope-tests) and
+[exact graph inputs](test262-chart-reconciliation-20261021.json).
 
 ## Reproduce
 
