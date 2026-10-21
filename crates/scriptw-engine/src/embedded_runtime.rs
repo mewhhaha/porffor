@@ -9,6 +9,7 @@
 #[path = "embedded_runtime/compile.rs"]
 mod build_compile;
 mod digests;
+mod images;
 mod manifest;
 use crate::wasmtime_config::{WasmNativeCompilationMode, CONFIGURATION_SCHEMA};
 use scriptw_aot_wasm::{
@@ -19,7 +20,7 @@ use wasmtime::{Engine, Module};
 
 // The leaf crate owns the large initializers. Only non-inline accessor calls
 // enter Engine metadata; source and native admission remain local here.
-use scriptw_runtime_image::{manifest_bytes, native, package};
+use images::Images;
 
 fn expected_source() -> &'static [u8; 32] {
     static SOURCE: OnceLock<[u8; 32]> = OnceLock::new();
@@ -41,34 +42,32 @@ pub(super) fn inputs(
             std::num::NonZeroUsize::new(crate::configured_compilation_jobs().unwrap_or(1))
                 .expect("explicit compilation jobs are positive"),
         );
-    // The embedded native bundle is never a candidate for exported products.
-    if source_compilation_profile == RuntimeSourceCompilationProfile::Portable {
-        return inputs;
-    }
-    if package().is_empty() {
+    let package = Images::for_profile(source_compilation_profile).package;
+    if package.is_empty() {
         inputs
     } else {
-        // SAFETY: package() returns the immutable Cargo-owned array from
+        // SAFETY: The selected package is the immutable Cargo-owned array from
         // scriptw-runtime-image. Its sole producer round-trips these exact package
         // bytes through complete AOT body/layout validation before native
         // compilation and publication. expected_source() is immutable and
         // build-bound. No external slice, path or cache reaches this boundary.
         // AOT still checks source/profile/Intl identity, checksums, sections,
         // data and the reconstructed layout before using the candidate.
-        unsafe { inputs.with_immutable_build_package(package(), expected_source()) }
+        unsafe { inputs.with_immutable_build_package(package, expected_source()) }
     }
 }
 
 struct EmbeddedNativeRuntime {
     manifest: manifest::Manifest,
+    images: Images,
 }
 
 impl EmbeddedNativeRuntime {
-    fn admit() -> Option<Self> {
-        Self::admit_manifest(manifest::Manifest::decode(manifest_bytes())?)
+    fn admit(images: Images) -> Option<Self> {
+        Self::admit_manifest(images, manifest::Manifest::decode(images.manifest)?)
     }
 
-    fn admit_manifest(manifest: manifest::Manifest) -> Option<Self> {
+    fn admit_manifest(images: Images, manifest: manifest::Manifest) -> Option<Self> {
         if &manifest.source != expected_source()
             || manifest.target != env!("SCRIPTW_RUNTIME_BUILD_TARGET")
             || manifest.configuration != CONFIGURATION_SCHEMA
@@ -78,7 +77,7 @@ impl EmbeddedNativeRuntime {
         }
         let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
         let (package_digest, native_digest) =
-            digests::images(crate::configured_compilation_jobs().unwrap_or(1))?;
+            digests::images(images, crate::configured_compilation_jobs().unwrap_or(1))?;
         if let Some(started) = started {
             eprintln!(
                 "scriptw wasm trace: runtime-native-bundle digest admission: {:?}",
@@ -88,11 +87,12 @@ impl EmbeddedNativeRuntime {
         if manifest.package_digest != package_digest || manifest.native_digest != native_digest {
             return None;
         }
-        Some(Self { manifest })
+        Some(Self { manifest, images })
     }
 
     fn matches(&self, runtime: &RuntimeArtifact, mode: WasmNativeCompilationMode) -> bool {
-        self.manifest.modes.execution.contains(mode)
+        self.images.profile == runtime.source_compilation_profile()
+            && self.manifest.modes.execution.contains(mode)
             && runtime.key().as_bytes() == &self.manifest.runtime_key
     }
 
@@ -105,7 +105,7 @@ impl EmbeddedNativeRuntime {
         if !self.matches(runtime, mode) {
             return None;
         }
-        // SAFETY: native() is exclusively the immutable Cargo output of
+        // SAFETY: self.images.native is exclusively the immutable Cargo output of
         // scriptw-runtime-image build.rs, whose sole producer compiles the freshly
         // admitted RuntimeBuildArtifact::wasm() with pinned Wasmtime. Native-host
         // builds use Wasmtime's exact-Wasm compilation cache and serialize the
@@ -119,7 +119,7 @@ impl EmbeddedNativeRuntime {
         // with Fast or SizeOptimized P; no build Engine survives in the cache.
         // Wasmtime still checks version/features/collector/tunables/ISA.
         let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
-        let loaded = unsafe { Module::deserialize(engine, native()) };
+        let loaded = unsafe { Module::deserialize(engine, self.images.native) };
         if let Some(started) = started {
             eprintln!(
                 "scriptw wasm trace: runtime-native-bundle deserialization: {:?}",
@@ -130,10 +130,11 @@ impl EmbeddedNativeRuntime {
             Ok(module) => {
                 if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
                     eprintln!(
-                        "scriptw wasm trace: runtime-native-bundle hit: {} bytes (runtime: {}, execution: {})",
-                        native().len(),
+                        "scriptw wasm trace: runtime-native-bundle hit: {} bytes (runtime: {}, execution: {}, source: {:?})",
+                        self.images.native.len(),
                         self.manifest.modes.runtime.as_str(),
-                        mode.as_str()
+                        mode.as_str(),
+                        self.images.profile
                     );
                 }
                 Some(module)
@@ -160,15 +161,21 @@ pub(super) fn load_native(
     // Unadmitted modes and different raw R keys do not touch the large
     // embedded images. This cheap metadata check can only reject a candidate;
     // the private authority still validates all manifest fields and digests.
-    let candidate = manifest::Manifest::decode(manifest_bytes())?;
+    let images = Images::for_profile(runtime.source_compilation_profile());
+    let candidate = manifest::Manifest::decode(images.manifest)?;
     if !candidate.modes.execution.contains(mode)
         || runtime.key().as_bytes() != &candidate.runtime_key
     {
         return None;
     }
-    static BUNDLE: OnceLock<Option<EmbeddedNativeRuntime>> = OnceLock::new();
-    BUNDLE
-        .get_or_init(EmbeddedNativeRuntime::admit)
+    static NATIVE_HOST: OnceLock<Option<EmbeddedNativeRuntime>> = OnceLock::new();
+    static PORTABLE: OnceLock<Option<EmbeddedNativeRuntime>> = OnceLock::new();
+    let bundle = match images.profile {
+        RuntimeSourceCompilationProfile::NativeHost => &NATIVE_HOST,
+        RuntimeSourceCompilationProfile::Portable => &PORTABLE,
+    };
+    bundle
+        .get_or_init(|| EmbeddedNativeRuntime::admit(images))
         .as_ref()?
         .load(engine, runtime, mode)
 }

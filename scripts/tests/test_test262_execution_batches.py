@@ -87,7 +87,7 @@ class ExecutionBatchTests(unittest.TestCase):
             "if sys.argv[-1]=='compiler-identity':\n print(json.dumps(identity));sys.exit(0)\n"
             "subcommand=sys.argv[sys.argv.index('test262')+1]\n"
             "with calls.open('a') as f:f.write(subcommand+' '+str('--resume' in sys.argv)+'\\n')\n"
-            "if subcommand=='list-all':\n print('count: 2\\nsloppy-script:a.js\\nstrict-script:b.js');sys.exit(0)\n"
+            "if subcommand=='list-all':\n assert '--execution-backend' not in sys.argv, 'list-all rejects execution-backend'\n print('count: 2\\nsloppy-script:a.js\\nstrict-script:b.js');sys.exit(0)\n"
             "if subcommand=='run':\n print('no matching execution',file=sys.stderr);sys.exit(1)\n"
             "assert subcommand=='run-list' and '--reuse-case-workers' in sys.argv\n"
             "ids=Path(sys.argv[sys.argv.index('run-list')+1]).read_text().splitlines()\n"

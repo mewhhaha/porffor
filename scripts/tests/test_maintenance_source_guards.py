@@ -89,3 +89,18 @@ class MaintenanceSourceGuards(unittest.TestCase):
             with self.subTest(before=before):
                 self.assertEqual(source.count(before), 1)
                 self.assertTrue(profile.check(ROOT, {path: source.replace(before, after)}))
+
+
+class EmbeddedProfileGuards(unittest.TestCase):
+    def test_profile_selection_and_native_match_proofs_are_required(self):
+        self.assertEqual(profile.check(ROOT), [])
+        path = profile.E + "embedded_runtime.rs"
+        source = (ROOT / path).read_text()
+        for before in ("Images::for_profile(source_compilation_profile).package",
+                       "self.images.profile == runtime.source_compilation_profile()"):
+            with self.subTest(before=before):
+                self.assertEqual(source.count(before), 1)
+                self.assertTrue(profile.check(ROOT, {path: source.replace(before, "missing_profile_proof")}))
+        path = profile.E + "embedded_runtime/images.rs"
+        source = (ROOT / path).read_text()
+        self.assertTrue(profile.check(ROOT, {path: source.replace("image::portable_package()", "image::package()")}))

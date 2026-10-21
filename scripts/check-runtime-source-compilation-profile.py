@@ -14,7 +14,7 @@ FILES = tuple(A + name for name in (
     "gc_types/host.rs", "prepared_script.rs", "functions/native_direct_eval.rs",
     "builtins/function/dynamic_constructor.rs",
 )) + tuple(E + name for name in (
-    "lib.rs", "embedded_runtime.rs", "embedded_runtime/build.rs",
+    "lib.rs", "embedded_runtime.rs", "embedded_runtime/build.rs", "embedded_runtime/images.rs",
     "wasm_runtime_link.rs", "wasm_native_source_compiler.rs", "graph_observation.rs",
 ))
 
@@ -95,12 +95,15 @@ def check(root, overrides=None):
             "self.emit_wasm_with_cache_on_current_thread(&unit,cache.as_deref(),scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,)?" in engine,
             "public export is Portable while real execution explicitly opts into NativeHost")
     require("RuntimeSourceCompilationProfile::NativeHost" in c[E + "graph_observation.rs"] and
-            "build_runtime_artifact_with_source_compilation_profile(&selection,&source,scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,)" in c[E + "embedded_runtime/build.rs"],
+            "build_runtime_artifact_with_source_compilation_profile(&selection,&source,profile,)" in c[E + "embedded_runtime/build.rs"] and
+            "forprofilein[RuntimeSourceCompilationProfile::NativeHost,RuntimeSourceCompilationProfile::Portable,]" in c[E + "embedded_runtime/build.rs"],
             "graph observation and native image production explicitly retain native compilation")
     embedded = c[E + "embedded_runtime.rs"]
-    require("ifsource_compilation_profile==RuntimeSourceCompilationProfile::Portable{returninputs;}" in embedded and
-            "with_source_compilation_profile(source_compilation_profile)" in embedded,
-            "an embedded native bundle never becomes a Portable candidate")
+    require("Images::for_profile(source_compilation_profile).package" in embedded and
+            "with_source_compilation_profile(source_compilation_profile)" in embedded and
+            "self.images.profile==runtime.source_compilation_profile()" in embedded and
+            "RuntimeSourceCompilationProfile::Portable=>(image::portable_package(),image::portable_native(),image::portable_manifest_bytes(),)" in c[E + "embedded_runtime/images.rs"],
+            "each embedded image is selected and admitted only for its exact source profile")
     link = c[E + "wasm_runtime_link.rs"]
     require(link.count("RuntimeSourceCompilationProfile::from_module(program).ok()?==scriptw_aot_wasm::RuntimeSourceCompilationProfile::Portable") == 2 and
             "RuntimeSourceCompilationProfile::from_module(program.bytes)" in link and

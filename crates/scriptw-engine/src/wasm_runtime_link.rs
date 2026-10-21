@@ -16,6 +16,7 @@ use scriptw_aot_wasm::{
 };
 use std::collections::VecDeque;
 
+mod perf_map;
 #[cfg(test)]
 mod tests;
 
@@ -343,11 +344,13 @@ pub(super) fn compile_modules(
         .transpose()?;
     let (module, memory_cache_outcome) =
         module_for_execution("program", WasmModuleSource::Program(program.bytes))?;
-    Ok(WasmModules {
+    let modules = WasmModules {
         program: module,
         runtime,
         memory_cache_outcome,
-    })
+    };
+    perf_map::record(&modules, program);
+    Ok(modules)
 }
 
 /// Instantiates the runtime module when present, publishes its exports to the

@@ -1,15 +1,26 @@
-//! Publish the complete Cargo-owned runtime bundle and its binding manifest.
+//! Publish each complete Cargo-owned runtime bundle with its own v4 manifest.
 
+use scriptw_aot_wasm::RuntimeSourceCompilationProfile;
 use std::path::Path;
 
-pub(super) fn publish(out: &Path, package: &[u8], native: &[u8], manifest: &[u8]) {
-    // Cargo admits this build script only after all three writes succeed; the
-    // final manifest binds both complete immutable include_bytes inputs.
-    for (name, bytes) in [
-        ("scriptw-runtime-package.bin", package),
-        ("scriptw-runtime-native.bin", native),
-        ("scriptw-runtime-manifest.bin", manifest),
+pub(super) fn publish(
+    out: &Path,
+    profile: RuntimeSourceCompilationProfile,
+    package: &[u8],
+    native: &[u8],
+    manifest: &[u8],
+) {
+    let prefix = match profile {
+        RuntimeSourceCompilationProfile::NativeHost => "scriptw-runtime",
+        RuntimeSourceCompilationProfile::Portable => "scriptw-runtime-portable",
+    };
+    // Cargo admits the producer only after both complete triplets are written.
+    for (suffix, bytes) in [
+        ("package", package),
+        ("native", native),
+        ("manifest", manifest),
     ] {
-        std::fs::write(out.join(name), bytes).expect("build runtime output writes completely");
+        std::fs::write(out.join(format!("{prefix}-{suffix}.bin")), bytes)
+            .expect("build runtime output writes completely");
     }
 }

@@ -473,7 +473,7 @@ impl FunctionBuilder<'_> {
             let count = s.reserve_i32_local(f);
             s.array_type::<ValueArray>().length(&arguments, s, f);
             count.store(f);
-            // Pairwise copying remains cheaper for small argument lists.
+            // Keep the existing allocation path for small argument lists.
             count.load(f);
             f.instruction(&Instruction::I32Const(4));
             f.instruction(&Instruction::I32LeU);

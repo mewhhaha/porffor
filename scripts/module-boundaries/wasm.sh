@@ -532,16 +532,21 @@ require_exact_line_count "$runtime_image_build" '#[path = "../scriptw-engine/src
 require_exact_line_count "$runtime_image_build" '#[path = "../scriptw-engine/src/embedded_runtime/build.rs"]' 1 'same checked raw runtime producer'
 require_fixed_string_count "$runtime_image_build" 'native_runtime_build::write_bundle(' 1 'one image production call'
 require_fixed_string_count crates/scriptw-engine/build.rs 'native_runtime_build::write_bundle(' 0 'Engine metadata build does not repeat image production'
-require_fixed_string_count "$engine_embedded_runtime" 'use scriptw_runtime_image::{manifest_bytes, native, package};' 1 'Engine consumes only immutable image accessors'
+engine_embedded_images="crates/scriptw-engine/src/embedded_runtime/images.rs"
+require_file "$engine_embedded_images"
+require_fixed_string_count "$engine_embedded_images" 'use scriptw_runtime_image as image;' 1 'Engine consumes only immutable image accessors'
+require_fixed_string_count "$engine_embedded_runtime" 'Images::for_profile(source_compilation_profile).package' 1 'raw candidate uses its exact source profile'
+require_fixed_string_count "$engine_embedded_runtime" 'self.images.profile == runtime.source_compilation_profile()' 1 'native candidate rejects a foreign source profile'
 require_fixed_string_count "$engine_embedded_runtime" 'include_bytes!' 0 'image bytes do not enter Engine initializers'
-require_fixed_string_count "$runtime_image_source" '#[inline(never)]' 3 'three non-inline image accessors'
+require_fixed_string_count "$runtime_image_source" '#[inline(never)]' 6 'six non-inline image accessors'
 require_fixed_string_count "$runtime_image_source" 'include_bytes!' 0 'no large Rust initializer in leaf metadata'
 require_fixed_string_count "$runtime_image_build" 'objects::embed(&out, &target);' 1 'checked images become immutable linked data'
 require_fixed_string_count "$runtime_image_objects" '"--emit=obj"' 1 'data compilation emits no Rust metadata'
 require_fixed_string_count "$runtime_image_objects" '"-Cembed-bitcode=no"' 1 'data-only object contains no duplicate bitcode image'
 require_fixed_string_count "$runtime_image_objects" '.compile("scriptw_runtime_images")' 1 'target archiver owns the complete linked image'
 for image_part in package native manifest; do
-  require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-${image_part}.bin" 1 'one data definition per Cargo-produced image'
+  require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-${image_part}.bin" 1 'one data definition per NativeHost image'
+  require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-portable-${image_part}.bin" 1 'one data definition per Portable image'
 done
 require_exact_line_count crates/scriptw-aot-wasm/src/runtime_artifact.rs 'mod build_package;' 1 'private checked build-package owner'
 require_fixed_string_count "$engine_native_config" 'pub(crate) fn base_config(' 1 'one shared native configuration constructor'
@@ -573,8 +578,8 @@ require_fixed_string_count "$engine_native_config" 'ModuleVersionStrategy::Custo
 require_fixed_string_count "$engine_embedded_compile" 'configure_native_version(&mut config, native_identity);' 1 'build compiler always binds its actual native dependency identity'
 require_fixed_string_count "$engine_embedded_build" 'crate::cache::NativeFunctionCache::new(' 1 'build stencils bind native dependencies'
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'cache::NativeFunctionCache::new(' 1 'product stencils bind native dependencies'
-require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, native())' 1 'native load accepts only immutable embedded bytes'
-require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 1 'only admitted metadata retained by the bundle'
+require_fixed_string_count "$engine_embedded_runtime" 'Module::deserialize(engine, self.images.native)' 1 'native load accepts only immutable embedded bytes'
+require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 2 'independent lazy admission per source profile'
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Module>' 0 'no hidden retained native module'
 wasm_build_envelope="crates/scriptw-aot-wasm/src/runtime_artifact/build_package/envelope.rs"
 require_file "$wasm_build_envelope"
@@ -586,16 +591,17 @@ require_fixed_string_count "$wasm_build_envelope" 'actual_digest.as_slice() != d
 require_fixed_string_count "$wasm_build_envelope" 'runtime.key().as_bytes() == &expected_runtime' 1 'raw build envelope retains exact runtime key admission'
 require_fixed_string_count crates/scriptw-engine/src/wasm_runtime_link.rs 'wasm_module_for_execution_with_factory(source, policy, mode, || {' 1 'typed embedded R uses the shared bounded retention owner'
 check_raw_line_budget "$engine_native_config" 100
-check_raw_line_budget "$engine_embedded_runtime" 180
-check_raw_line_budget "$engine_embedded_build" 140
+check_raw_line_budget "$engine_embedded_runtime" 190
+check_raw_line_budget "$engine_embedded_images" 45
+check_raw_line_budget "$engine_embedded_build" 155
 require_file "$engine_embedded_publication"
 require_fixed_string_count "$engine_embedded_build" 'publication::publish(out,' 2 'publish unsupported-target and complete native bundles through one owner'
-require_fixed_string_count "$engine_embedded_publication" 'std::fs::write(out.join(name), bytes)' 1 'one complete bundle writer'
+require_fixed_string_count "$engine_embedded_publication" 'std::fs::write(out.join(format!("{prefix}-{suffix}.bin")), bytes)'  1 'one complete bundle writer'
 check_raw_line_budget "$engine_embedded_publication" 40
 check_raw_line_budget "$engine_embedded_compile" 100
 check_raw_line_budget "$engine_native_stencils" 120
 check_raw_line_budget "$runtime_image_build" 80
-check_raw_line_budget "$runtime_image_source" 60
+check_raw_line_budget "$runtime_image_source" 90
 check_raw_line_budget "$runtime_image_objects" 120
 check_raw_line_budget "$wasm_build_package" 230
 # The cache damage controls deliberately construct foreign Wasm layouts. The

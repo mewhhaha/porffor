@@ -10,6 +10,7 @@ mod manifest;
 mod publication;
 use crate::wasmtime_config::{base_config, CONFIGURATION_SCHEMA, ENGINE_WORKER_STACK_SIZE};
 use compile::RuntimeImageCompiler;
+use scriptw_aot_wasm::RuntimeSourceCompilationProfile;
 use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Arc};
 use wasmtime::WasmBacktraceDetails;
@@ -28,7 +29,12 @@ pub(crate) fn write_bundle(
         println!(
             "cargo:warning=embedded runtime unavailable for {target}; preserving normal runtime compilation"
         );
-        publication::publish(out, &[], &[], &[]);
+        for profile in [
+            RuntimeSourceCompilationProfile::NativeHost,
+            RuntimeSourceCompilationProfile::Portable,
+        ] {
+            publication::publish(out, profile, &[], &[], &[]);
+        }
         return;
     }
     let source =
@@ -42,18 +48,6 @@ pub(crate) fn write_bundle(
                     scriptw_intl::IntlCompilationProfile::Minimal,
                 );
                 println!("build runtime native dependency identity: {native_identity}");
-                let started = std::time::Instant::now();
-                let runtime =
-                    scriptw_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
-                        &selection,
-                        &source,
-                        scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
-                    )
-                    .expect("the compiler emits and admits its exact build runtime");
-                println!(
-                    "build runtime fresh emission/admission: {:?}",
-                    started.elapsed()
-                );
                 let started = std::time::Instant::now();
                 // Optimize immutable R once; ordinary P compilation retains Fast.
                 let mut config = base_config(
@@ -103,35 +97,53 @@ pub(crate) fn write_bundle(
                 let compiler = RuntimeImageCompiler::new(config, module_cache, native_identity)
                     .expect("build engine has the required product configuration and capabilities");
                 println!("build runtime native setup: {:?}", started.elapsed());
-                let started = std::time::Instant::now();
-                let native = compiler
-                    .compile(&runtime)
-                    .expect("exact checked runtime precompiles for the Cargo target");
-                println!("build runtime native compilation: {:?}", started.elapsed());
-                if let Some((hits, misses)) = compiler.module_cache_counters() {
-                    println!("build runtime module cache: {hits} hits, {misses} misses");
+                for profile in [
+                    RuntimeSourceCompilationProfile::NativeHost,
+                    RuntimeSourceCompilationProfile::Portable,
+                ] {
+                    let started = std::time::Instant::now();
+                    let runtime =
+                        scriptw_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
+                            &selection, &source, profile,
+                        )
+                        .expect("the compiler emits and admits its exact build runtime");
+                    println!(
+                        "build runtime {profile:?} fresh emission/admission: {:?}",
+                        started.elapsed()
+                    );
+                    let started = std::time::Instant::now();
+                    let native = compiler
+                        .compile(&runtime)
+                        .expect("exact checked runtime precompiles for the Cargo target");
+                    println!(
+                        "build runtime {profile:?} native compilation: {:?}",
+                        started.elapsed()
+                    );
+                    if let Some((hits, misses)) = compiler.module_cache_counters() {
+                        println!("build runtime module cache: {hits} hits, {misses} misses");
+                    }
+                    if let Some(cache) = &function_cache {
+                        let (hits, misses) = cache.counters();
+                        println!("build runtime function cache: {hits} hits, {misses} misses");
+                    }
+                    let started = std::time::Instant::now();
+                    let manifest = manifest::Manifest {
+                        source,
+                        target: target.to_owned(),
+                        configuration: CONFIGURATION_SCHEMA,
+                        modes: manifest::COMPILATION_MODES,
+                        runtime_key: *runtime.key().as_bytes(),
+                        package_digest: Sha256::digest(runtime.package_bytes()).into(),
+                        native_digest: Sha256::digest(&native).into(),
+                    };
+                    let encoded = manifest.encode();
+                    assert_eq!(manifest::Manifest::decode(&encoded), Some(manifest));
+                    publication::publish(out, profile, runtime.package_bytes(), &native, &encoded);
+                    println!(
+                        "build runtime {profile:?} manifest publication: {:?}",
+                        started.elapsed()
+                    );
                 }
-                if let Some(cache) = function_cache {
-                    let (hits, misses) = cache.counters();
-                    println!("build runtime function cache: {hits} hits, {misses} misses");
-                }
-                let started = std::time::Instant::now();
-                let manifest = manifest::Manifest {
-                    source,
-                    target: target.to_owned(),
-                    configuration: CONFIGURATION_SCHEMA,
-                    modes: manifest::COMPILATION_MODES,
-                    runtime_key: *runtime.key().as_bytes(),
-                    package_digest: Sha256::digest(runtime.package_bytes()).into(),
-                    native_digest: Sha256::digest(&native).into(),
-                };
-                let encoded = manifest.encode();
-                assert_eq!(manifest::Manifest::decode(&encoded), Some(manifest));
-                publication::publish(out, runtime.package_bytes(), &native, &encoded);
-                println!(
-                    "build runtime manifest publication: {:?}",
-                    started.elapsed()
-                );
             })
             .expect("bounded build-runtime compiler thread starts")
             .join()

@@ -24,11 +24,29 @@ so it does not establish that percentage inside the JS execution span. Guest JIT
 addresses remain unnamed. P001–P005/P009 have useful evidence but remain open
 until the attribution and reproducibility decisions are published.
 
-P040 (guarded primitive numeric Array own-data reads) and P091 (multiargument
-concat with ordered coercions and a single output copy) are implemented as
-**unverified experiments** in the current batch. Misses/accessors/proxies keep
-ordinary Get; concat retains its small-arity path. No speedup is claimed before
-semantic controls and paired measurements finish. The other hills remain open.
+P040's initial primitive numeric Array own-data experiment is **Rejected: no
+reliable gain** under the current Portable/Fast runtime. The seven-sample
+read-heavy row case rose from 168.957 to 181.914 ms; ABBA repeats also failed to
+show a gain. The implementation is removed, with raw failed-attempt evidence
+retained. Its semantic fixtures remain useful generic Array/Get controls.
+
+P091's ordered multiargument concat experiment passes six focused CLI fixtures
+and all 43 checked workloads. Its large-part ABBA study (seven observations
+after ten warmups in each of four rounds) reduces the medians of round medians
+from 24.719 to 7.796 ms for 256 16-unit parts, and from 120.461 to 8.944 ms for
+256 128-unit parts, each repeated 64 times. These are focused compiler
+`49ac374d7` versus `3b1a3427f` measurements, not a general JS speedup. Small
+zero/one/two/four-argument controls and the original workloads are retained.
+P091 awaits the broader native/original-case checkpoint before shipment.
+
+P153's matching optimized Portable runtime image and P009's opt-in loaded-code
+perf map are the next **unverified experiments**. NativeHost and Portable keep
+separate raw keys, packages and v4 manifests, per-profile lazy admission and
+the same destination-Engine ownership checks. The map is off by default; use
+`SCRIPTW_PERF_MAP_DIR=/tmp` only in serial single-program profiling children.
+It is a latest-mapping snapshot, not a general concurrent JIT profiler, and its
+hashing/file work belongs to instrumented diagnostics. The other hills remain
+open; no full current-source conformance run is claimed here.
 
 ## Starting evidence
 

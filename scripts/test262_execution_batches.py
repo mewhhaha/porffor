@@ -174,8 +174,6 @@ def prepare(options, manifest, executions, write_checkpoint):
         "list-all",
         "--suite-root",
         str(options.suite_root),
-        "--execution-backend",
-        "wasm-aot",
     ]
     discovery = subprocess.run(inventory_command, capture_output=True, check=True)
     inventory_stdout = options.output_dir / "native-inventory.stdout"

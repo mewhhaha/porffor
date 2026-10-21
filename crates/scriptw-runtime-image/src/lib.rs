@@ -37,3 +37,31 @@ pub fn manifest_bytes() -> &'static [u8] {
     #[cfg(not(scriptw_runtime_image))]
     &[]
 }
+
+#[inline(never)]
+pub fn portable_package() -> &'static [u8] {
+    #[cfg(scriptw_runtime_image)]
+    // SAFETY: Cargo's checked producer and target compiler define this exact
+    // immutable array in the linked data archive, with no mutable alias.
+    return unsafe { &SCRIPTW_RUNTIME_PORTABLE_PACKAGE };
+    #[cfg(not(scriptw_runtime_image))]
+    &[]
+}
+
+#[inline(never)]
+pub fn portable_native() -> &'static [u8] {
+    #[cfg(scriptw_runtime_image)]
+    // SAFETY: same target-defined immutable array contract as package().
+    return unsafe { &SCRIPTW_RUNTIME_PORTABLE_NATIVE };
+    #[cfg(not(scriptw_runtime_image))]
+    &[]
+}
+
+#[inline(never)]
+pub fn portable_manifest_bytes() -> &'static [u8] {
+    #[cfg(scriptw_runtime_image)]
+    // SAFETY: same target-defined immutable array contract as package().
+    return unsafe { &SCRIPTW_RUNTIME_PORTABLE_MANIFEST };
+    #[cfg(not(scriptw_runtime_image))]
+    &[]
+}

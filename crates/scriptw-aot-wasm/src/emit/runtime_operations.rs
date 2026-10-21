@@ -44,13 +44,6 @@ impl<'a> FunctionBuilder<'a> {
         self.emit_branch_to_target(exit, &mut function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
-        self.emit_numeric_array_own_data_read(
-            &parameters.target,
-            &parameters.key,
-            &result,
-            exit,
-            &mut function,
-        );
         self.emit_value_to_property_key_completion(&parameters.key, &result, &mut function)?;
         result.kind().load(&mut function);
         function.instruction(&Instruction::I32Const(CompletionKind::Throw.code() as i32));

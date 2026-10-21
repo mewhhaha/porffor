@@ -88,69 +88,107 @@ fn precompiled_runtime_functions_reuse_stencils_without_reusing_stale_code() {
 
 #[test]
 fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
-    if manifest_bytes().is_empty() {
-        assert!(package().is_empty() && native().is_empty());
-        assert!(!cfg!(all(
-            target_endian = "little",
-            any(
-                target_arch = "x86_64",
-                target_arch = "aarch64",
-                target_arch = "riscv64"
-            )
-        )));
-        return;
-    }
-    for end in 0..manifest_bytes().len() {
-        assert!(manifest::Manifest::decode(&manifest_bytes()[..end]).is_none());
-    }
-    let mut extended = manifest_bytes().to_vec();
-    extended.push(0);
-    assert!(manifest::Manifest::decode(&extended).is_none());
-    assert!(EmbeddedNativeRuntime::admit().is_some());
-    assert_eq!(
-        digests::images(1).unwrap(),
-        digests::images(2).unwrap(),
-        "both image digests must be identical under serial and bounded concurrent admission"
-    );
-    let mut previous_version = manifest_bytes().to_vec();
-    previous_version[8..12].copy_from_slice(&3_u32.to_le_bytes());
-    assert!(manifest::Manifest::decode(&previous_version).is_none());
-    // Both optimization modes and the producer allocator have closed domains.
-    for (offset, unknown) in [(16, 2), (17, 3), (18, 2), (17, 255)] {
-        let mut unknown_mode = manifest_bytes().to_vec();
-        unknown_mode[offset] = unknown;
-        assert!(manifest::Manifest::decode(&unknown_mode).is_none());
-    }
-    for field in [
-        "source",
-        "target",
-        "configuration",
-        "runtime mode",
-        "execution mode",
-        "runtime register allocation",
-        "package digest",
-        "native digest",
+    for profile in [
+        RuntimeSourceCompilationProfile::NativeHost,
+        RuntimeSourceCompilationProfile::Portable,
     ] {
-        let mut manifest = manifest::Manifest::decode(manifest_bytes()).unwrap();
-        match field {
-            "source" => manifest.source[0] ^= 1,
-            "target" => manifest.target.push_str("-different"),
-            "configuration" => manifest.configuration += 1,
-            "runtime mode" => manifest.modes.runtime = WasmNativeCompilationMode::Fast,
-            "execution mode" => manifest.modes.execution = manifest::ExecutionModes::Fast,
-            "runtime register allocation" => {
-                manifest.modes.register_allocation =
-                    manifest::RuntimeRegisterAllocation::SinglePass;
-            }
-            "package digest" => manifest.package_digest[0] ^= 1,
-            "native digest" => manifest.native_digest[0] ^= 1,
-            _ => unreachable!(),
+        let images = Images::for_profile(profile);
+        if images.manifest.is_empty() {
+            assert!(images.package.is_empty() && images.native.is_empty());
+            assert!(!cfg!(all(
+                target_endian = "little",
+                any(
+                    target_arch = "x86_64",
+                    target_arch = "aarch64",
+                    target_arch = "riscv64"
+                )
+            )));
+            continue;
         }
-        // Only metadata is mutated. No corrupted native code reaches deserialize.
-        assert!(
-            EmbeddedNativeRuntime::admit_manifest(manifest).is_none(),
-            "{field}"
+        for end in 0..images.manifest.len() {
+            assert!(manifest::Manifest::decode(&images.manifest[..end]).is_none());
+        }
+        let mut extended = images.manifest.to_vec();
+        extended.push(0);
+        assert!(manifest::Manifest::decode(&extended).is_none());
+        assert!(EmbeddedNativeRuntime::admit(images).is_some());
+        assert_eq!(
+            digests::images(images, 1).unwrap(),
+            digests::images(images, 2).unwrap(),
+            "both image digests must be identical under serial and bounded concurrent admission"
         );
+        let mut previous_version = images.manifest.to_vec();
+        previous_version[8..12].copy_from_slice(&3_u32.to_le_bytes());
+        assert!(manifest::Manifest::decode(&previous_version).is_none());
+        // Both optimization modes and the producer allocator have closed domains.
+        for (offset, unknown) in [(16, 2), (17, 3), (18, 2), (17, 255)] {
+            let mut unknown_mode = images.manifest.to_vec();
+            unknown_mode[offset] = unknown;
+            assert!(manifest::Manifest::decode(&unknown_mode).is_none());
+        }
+        for field in [
+            "source",
+            "target",
+            "configuration",
+            "runtime mode",
+            "execution mode",
+            "runtime register allocation",
+            "package digest",
+            "native digest",
+        ] {
+            let mut manifest = manifest::Manifest::decode(images.manifest).unwrap();
+            match field {
+                "source" => manifest.source[0] ^= 1,
+                "target" => manifest.target.push_str("-different"),
+                "configuration" => manifest.configuration += 1,
+                "runtime mode" => manifest.modes.runtime = WasmNativeCompilationMode::Fast,
+                "execution mode" => manifest.modes.execution = manifest::ExecutionModes::Fast,
+                "runtime register allocation" => {
+                    manifest.modes.register_allocation =
+                        manifest::RuntimeRegisterAllocation::SinglePass;
+                }
+                "package digest" => manifest.package_digest[0] ^= 1,
+                "native digest" => manifest.native_digest[0] ^= 1,
+                _ => unreachable!(),
+            }
+            // Only metadata is mutated. No corrupted native code reaches deserialize.
+            assert!(
+                EmbeddedNativeRuntime::admit_manifest(images, manifest).is_none(),
+                "{field}"
+            );
+        }
+        let other_profile = match profile {
+            RuntimeSourceCompilationProfile::NativeHost => {
+                RuntimeSourceCompilationProfile::Portable
+            }
+            RuntimeSourceCompilationProfile::Portable => {
+                RuntimeSourceCompilationProfile::NativeHost
+            }
+        };
+        let other = Images::for_profile(other_profile);
+        let manifest = manifest::Manifest::decode(images.manifest).unwrap();
+        assert_ne!(
+            manifest.runtime_key,
+            manifest::Manifest::decode(other.manifest)
+                .unwrap()
+                .runtime_key
+        );
+        assert!(EmbeddedNativeRuntime::admit_manifest(
+            Images {
+                native: other.native,
+                ..images
+            },
+            manifest.clone()
+        )
+        .is_none());
+        assert!(EmbeddedNativeRuntime::admit_manifest(
+            Images {
+                package: other.package,
+                ..images
+            },
+            manifest
+        )
+        .is_none());
     }
 }
 
@@ -168,141 +206,161 @@ fn embedded_runtime_matches_target_emission_and_preserves_native_compatibility_c
         .name("embedded-runtime-target-parity".to_owned())
         .stack_size(crate::ENGINE_WORKER_STACK_SIZE)
         .spawn(|| {
-            let selection = IntlDataSelection::new(IntlCompilationProfile::Minimal);
-            let runtime = scriptw_aot_wasm::runtime_artifact_with_inputs(
-                &selection,
-                inputs(
-                    None,
-                    scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
-                ),
-            )
-            .expect("embedded package passes full target Intl/Wasm/layout admission");
-            let target = scriptw_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
-                &selection,
-                expected_source(),
-                scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost,
-            )
-            .expect("target compiler independently emits R");
-            assert_eq!(
-                runtime.source_compilation_profile(),
-                scriptw_aot_wasm::RuntimeSourceCompilationProfile::NativeHost
-            );
-            assert_eq!(
-                scriptw_aot_wasm::RuntimeSourceCompilationProfile::from_module(target.wasm())
-                    .unwrap(),
-                runtime.source_compilation_profile()
-            );
-            assert_eq!(runtime.key(), target.key());
-            assert_eq!(
-                target.package_bytes(),
-                package(),
-                "the entire host/target raw package is byte-identical"
-            );
-            assert_eq!(
-                runtime.bytes().as_ref(),
-                target.wasm(),
-                "host-produced R equals ordinary target R exactly"
-            );
-            let bundle = EmbeddedNativeRuntime::admit().unwrap();
-            assert_eq!(
-                bundle.manifest.modes.runtime,
-                WasmNativeCompilationMode::SizeOptimized
-            );
-            assert_eq!(
-                bundle.manifest.modes.execution,
-                manifest::ExecutionModes::FastAndSizeOptimized
-            );
-            assert_eq!(
-                bundle.manifest.modes.register_allocation,
-                manifest::RuntimeRegisterAllocation::Backtracking,
-            );
-            let mut runtime_config =
-                base_config(bundle.manifest.modes.runtime, WasmBacktraceDetails::Disable);
-            runtime_config.cranelift_regalloc_algorithm(
-                bundle.manifest.modes.register_allocation.algorithm(),
-            );
-            let runtime_compiler = Engine::new(&runtime_config).unwrap();
-            assert_eq!(
-                runtime_compiler.get_cranelift_opt_level(),
-                Some(wasmtime::OptLevel::SpeedAndSize),
-                "the Cargo producer's selected R mode is optimized"
-            );
-            let config = base_config(
-                WasmNativeCompilationMode::Fast,
-                WasmBacktraceDetails::Disable,
-            );
-            let engine = Engine::new(&config).unwrap();
-            assert_eq!(
-                engine.get_cranelift_opt_level(),
-                Some(wasmtime::OptLevel::None)
-            );
-            crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY
-                .verify_engine(&engine)
-                .unwrap();
-            let first = bundle
+            for profile in [
+                RuntimeSourceCompilationProfile::NativeHost,
+                RuntimeSourceCompilationProfile::Portable,
+            ] {
+                let images = Images::for_profile(profile);
+                let selection = IntlDataSelection::new(IntlCompilationProfile::Minimal);
+                let runtime = scriptw_aot_wasm::runtime_artifact_with_inputs(
+                    &selection,
+                    inputs(None, profile),
+                )
+                .expect("embedded package passes full target Intl/Wasm/layout admission");
+                let target =
+                    scriptw_aot_wasm::build_runtime_artifact_with_source_compilation_profile(
+                        &selection,
+                        expected_source(),
+                        profile,
+                    )
+                    .expect("target compiler independently emits R");
+                assert_eq!(runtime.source_compilation_profile(), profile);
+                assert_eq!(
+                    scriptw_aot_wasm::RuntimeSourceCompilationProfile::from_module(target.wasm())
+                        .unwrap(),
+                    runtime.source_compilation_profile()
+                );
+                assert_eq!(runtime.key(), target.key());
+                assert_eq!(
+                    target.package_bytes(),
+                    images.package,
+                    "the entire host/target raw package is byte-identical"
+                );
+                assert_eq!(
+                    runtime.bytes().as_ref(),
+                    target.wasm(),
+                    "host-produced R equals ordinary target R exactly"
+                );
+                let bundle = EmbeddedNativeRuntime::admit(images).unwrap();
+                assert_eq!(
+                    bundle.manifest.modes.runtime,
+                    WasmNativeCompilationMode::SizeOptimized
+                );
+                assert_eq!(
+                    bundle.manifest.modes.execution,
+                    manifest::ExecutionModes::FastAndSizeOptimized
+                );
+                assert_eq!(
+                    bundle.manifest.modes.register_allocation,
+                    manifest::RuntimeRegisterAllocation::Backtracking,
+                );
+                let mut runtime_config =
+                    base_config(bundle.manifest.modes.runtime, WasmBacktraceDetails::Disable);
+                runtime_config.cranelift_regalloc_algorithm(
+                    bundle.manifest.modes.register_allocation.algorithm(),
+                );
+                let runtime_compiler = Engine::new(&runtime_config).unwrap();
+                assert_eq!(
+                    runtime_compiler.get_cranelift_opt_level(),
+                    Some(wasmtime::OptLevel::SpeedAndSize),
+                    "the Cargo producer's selected R mode is optimized"
+                );
+                let config = base_config(
+                    WasmNativeCompilationMode::Fast,
+                    WasmBacktraceDetails::Disable,
+                );
+                let engine = Engine::new(&config).unwrap();
+                assert_eq!(
+                    engine.get_cranelift_opt_level(),
+                    Some(wasmtime::OptLevel::None)
+                );
+                crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY
+                    .verify_engine(&engine)
+                    .unwrap();
+                let first = bundle
                 .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
                 .expect(
                     "Backtracking-produced R loads into the actual Fast/SinglePass target engine",
                 );
-            assert!(
-                Engine::same(first.engine(), &engine),
-                "optimized R is owned by the actual Fast execution Engine"
-            );
-            assert!(
-                !Engine::same(first.engine(), &runtime_compiler),
-                "the build compiler is not an execution or retention owner"
-            );
-            let second = bundle
-                .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
-                .expect("a second factory call owns a new native mapping");
-            assert_ne!(
-                first.image_range().start,
-                second.image_range().start,
-                "the embedded authority retains no native Module"
-            );
-            let size_engine = Engine::new(&base_config(
-                WasmNativeCompilationMode::SizeOptimized,
-                WasmBacktraceDetails::Disable,
-            ))
-            .unwrap();
-            crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY
-                .verify_engine(&size_engine)
+                assert!(
+                    Engine::same(first.engine(), &engine),
+                    "optimized R is owned by the actual Fast execution Engine"
+                );
+                assert!(
+                    !Engine::same(first.engine(), &runtime_compiler),
+                    "the build compiler is not an execution or retention owner"
+                );
+                let fast_admitted = load_native(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                    .expect("the product factory selects this source profile in Fast mode");
+                assert!(Engine::same(fast_admitted.engine(), &engine));
+                let second = bundle
+                    .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                    .expect("a second factory call owns a new native mapping");
+                assert_ne!(
+                    first.image_range().start,
+                    second.image_range().start,
+                    "the embedded authority retains no native Module"
+                );
+                let size_engine = Engine::new(&base_config(
+                    WasmNativeCompilationMode::SizeOptimized,
+                    WasmBacktraceDetails::Disable,
+                ))
                 .unwrap();
-            let optimized = bundle
-                .load(
+                crate::wasmtime_policy::PRODUCT_WASMTIME_POLICY
+                    .verify_engine(&size_engine)
+                    .unwrap();
+                let optimized = bundle
+                    .load(
+                        &size_engine,
+                        &runtime,
+                        WasmNativeCompilationMode::SizeOptimized,
+                    )
+                    .expect(
+                        "the same image loads into the SizeOptimized/SinglePass product Engine",
+                    );
+                assert!(Engine::same(optimized.engine(), &size_engine));
+                let admitted = load_native(
                     &size_engine,
                     &runtime,
                     WasmNativeCompilationMode::SizeOptimized,
                 )
-                .expect("the same image loads into the SizeOptimized/SinglePass product Engine");
-            assert!(Engine::same(optimized.engine(), &size_engine));
-            let admitted = load_native(
-                &size_engine,
-                &runtime,
-                WasmNativeCompilationMode::SizeOptimized,
-            )
-            .expect("the product entry admits both declared execution modes");
-            assert!(Engine::same(admitted.engine(), &size_engine));
-            let mut foreign_key = EmbeddedNativeRuntime::admit().unwrap();
-            foreign_key.manifest.runtime_key[0] ^= 1;
-            assert!(
-                foreign_key
+                .expect("the product entry admits both declared execution modes");
+                assert!(Engine::same(admitted.engine(), &size_engine));
+                let other_profile = match profile {
+                    RuntimeSourceCompilationProfile::NativeHost => {
+                        RuntimeSourceCompilationProfile::Portable
+                    }
+                    RuntimeSourceCompilationProfile::Portable => {
+                        RuntimeSourceCompilationProfile::NativeHost
+                    }
+                };
+                let mut wrong_profile =
+                    EmbeddedNativeRuntime::admit(Images::for_profile(other_profile)).unwrap();
+                wrong_profile.manifest.runtime_key = *runtime.key().as_bytes();
+                assert!(wrong_profile
                     .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
-                    .is_none(),
-                "native R cannot attach to another raw runtime key"
-            );
-            let mut mismatched = base_config(
-                WasmNativeCompilationMode::Fast,
-                WasmBacktraceDetails::Disable,
-            );
-            mismatched.epoch_interruption(false);
-            let incompatible = Engine::new(&mismatched).unwrap();
-            assert!(
-                bundle
-                    .load(&incompatible, &runtime, WasmNativeCompilationMode::Fast)
-                    .is_none(),
-                "known-valid native bytes with incompatible tunables are an optimization miss"
-            );
+                    .is_none());
+                let mut foreign_key = EmbeddedNativeRuntime::admit(images).unwrap();
+                foreign_key.manifest.runtime_key[0] ^= 1;
+                assert!(
+                    foreign_key
+                        .load(&engine, &runtime, WasmNativeCompilationMode::Fast)
+                        .is_none(),
+                    "native R cannot attach to another raw runtime key"
+                );
+                let mut mismatched = base_config(
+                    WasmNativeCompilationMode::Fast,
+                    WasmBacktraceDetails::Disable,
+                );
+                mismatched.epoch_interruption(false);
+                let incompatible = Engine::new(&mismatched).unwrap();
+                assert!(
+                    bundle
+                        .load(&incompatible, &runtime, WasmNativeCompilationMode::Fast)
+                        .is_none(),
+                    "known-valid native bytes with incompatible tunables are an optimization miss"
+                );
+            }
         })
         .unwrap()
         .join()

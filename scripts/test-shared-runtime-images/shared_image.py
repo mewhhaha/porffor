@@ -10,7 +10,9 @@ import struct
 import subprocess
 from pathlib import Path
 
-SYMBOLS = {"SCRIPTW_RUNTIME_PACKAGE", "SCRIPTW_RUNTIME_NATIVE", "SCRIPTW_RUNTIME_MANIFEST"}
+SYMBOLS = {"SCRIPTW_RUNTIME_" + prefix + suffix
+           for prefix in ("", "PORTABLE_")
+           for suffix in ("PACKAGE", "NATIVE", "MANIFEST")}
 
 
 def digest(path):

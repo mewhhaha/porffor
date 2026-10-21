@@ -6,10 +6,22 @@ use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
 
-const PARTS: [(&str, &str); 3] = [
+const PARTS: [(&str, &str); 6] = [
     ("SCRIPTW_RUNTIME_PACKAGE", "scriptw-runtime-package.bin"),
     ("SCRIPTW_RUNTIME_NATIVE", "scriptw-runtime-native.bin"),
     ("SCRIPTW_RUNTIME_MANIFEST", "scriptw-runtime-manifest.bin"),
+    (
+        "SCRIPTW_RUNTIME_PORTABLE_PACKAGE",
+        "scriptw-runtime-portable-package.bin",
+    ),
+    (
+        "SCRIPTW_RUNTIME_PORTABLE_NATIVE",
+        "scriptw-runtime-portable-native.bin",
+    ),
+    (
+        "SCRIPTW_RUNTIME_PORTABLE_MANIFEST",
+        "scriptw-runtime-portable-manifest.bin",
+    ),
 ];
 
 pub(super) fn embed(out: &Path, target: &str) {
