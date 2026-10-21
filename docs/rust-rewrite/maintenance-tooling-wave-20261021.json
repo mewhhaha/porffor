@@ -223,5 +223,6 @@
   "native_execution": "not run in this tooling-only wave",
   "hosted_ci_execution": "not run locally; YAML, argv and selected scopes checked",
   "published_conformance_totals": "unchanged",
-  "source_guard_split": "Original checks retained in original order; final verdict moved after all checks"
+  "source_guard_split": "Original checks retained in original order; final verdict moved after all checks",
+  "implementation_commit": "73e87f962"
 }

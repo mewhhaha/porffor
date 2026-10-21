@@ -180,7 +180,7 @@ record preserves its hashes and portable command paths.
 
 ## Tooling and documentation wave
 
-H005–H010, H012–H016, H018–H023 and H025–H035 are complete (28 additional hills).
+H005–H010, H012–H016, H018–H023 and H025–H035 are complete in `73e87f962` (28 additional hills).
 Their [change and verification record](rust-rewrite/maintenance-tooling-wave-20261021.md)
 and [bounded evidence](rust-rewrite/maintenance-tooling-wave-20261021.json) bind
 663 passing tooling controls, exact unchanged workspace plans, all 15 Intl

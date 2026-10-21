@@ -1,7 +1,7 @@
 # Maintenance tooling and documentation wave — 2026-10-21
 
 Scope: H005–H010, H012–H016, H018–H023 and H025–H035, following baseline
-`db7ab4159`. These 28 hills cover verification and maintenance infrastructure;
+`db7ab4159`, implemented in `73e87f962`. These 28 hills cover verification and maintenance infrastructure;
 they do not change the compiler's ECMAScript semantics or published suite totals.
 The remaining 64 hills are authorized implementation/investigation work.
 
