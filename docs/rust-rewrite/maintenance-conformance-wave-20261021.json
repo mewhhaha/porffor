@@ -824,5 +824,6 @@
     "Four tracked upstream disagreements remain ordinary failures.",
     "CLI/harness results bind native-corrected; only library test expectations changed afterward.",
     "No complete workspace, release or original Test262 campaign is claimed."
-  ]
+  ],
+  "implementation_commit": "5b92e16aaca7963ca582ada93e6fe1223545dc03"
 }

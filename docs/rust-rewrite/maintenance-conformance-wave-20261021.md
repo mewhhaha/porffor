@@ -3,7 +3,8 @@
 H045–H060 are complete, bringing the authorized maintenance inventory to 61 of
 100 hills. The [source-bound record](maintenance-conformance-wave-20261021.json)
 retains every failed attempt, corrected checkpoint, inventory and artifact hash.
-This wave starts at `243c7feb5`; it changes no published Test262 totals.
+This wave starts at `243c7feb5`; implementation is `5b92e16aaca7963ca582ada93e6fe1223545dc03`.
+It changes no published Test262 totals.
 
 ## Changes
 
