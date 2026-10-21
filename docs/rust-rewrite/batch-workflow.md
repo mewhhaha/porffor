@@ -65,8 +65,9 @@ seconds, under the serial cloud wrapper with `TMPDIR=/tmp`. The two additional
 source-guard controls are included in the 653-test checkpoint. These are overlapping check groups,
 not an aggregate pass count or a compiler benchmark. Evidence is in
 `target/maintenance-first-wave-20261021`; the maintenance backlog records the
-verified source. Native timings remain pending until their checks complete.
-Historical durations are in the archive. Measure current cold/warm behavior
+verified source. The [batch verification record](maintenance-first-wave-20261021.md)
+records native/default-compiler checks and distinguishes the original failed
+attempts from successful corrections. Historical durations are in the archive. Measure current cold/warm behavior
 before claiming speedups; moving functions between files proves none.
 
 Run source-derived identity checks before expensive builds:

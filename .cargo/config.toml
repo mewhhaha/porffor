@@ -4,9 +4,9 @@
 # variable *replaces* these values rather than merging with them. When
 # `scripts/dev.sh` exported `RUSTFLAGS` and a bare `cargo build` did not, the
 # two entry points produced different fingerprints and each one invalidated the
-# other's artifacts — a full opt-level-0 rebuild of all ten workspace crates
-# plus a relink of the 143 MB `lila` binary, every time a developer alternated
-# between them. Keep linker flags here, and keep `scripts/dev.sh` from setting
+# other's artifacts, rebuilding the workspace and relinking the CLI each time
+# a developer alternated between them. Keep linker flags here, and keep
+# `scripts/dev.sh` from setting
 # `RUSTFLAGS` at all.
 #
 # Platform-scoped so macOS/Windows contributors are unaffected. On a Linux box

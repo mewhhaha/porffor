@@ -25,10 +25,10 @@ Risk is initial review guidance, not a claim that the code contains a bug.
 
 | ID | Priority | State / risk | Hill | Evidence / owner | Validation |
 | --- | --- | --- | --- | --- | --- |
-| H001 | First | Implementing; medium | Retire C/native/REPL product scaffolds | `engine facade, CLI dispatch, Cargo manifests, cohort anchor` | T + R |
-| H002 | First | Implementing; low | Separate current workflow from dated procedures | `docs/rust-rewrite/batch-workflow.md` | D |
-| H003 | First | Implementing; low | Give current status one authority | `current-inventory.md, CONTINUE.md, tasks/README.md` | D |
-| H004 | First | Implementing; low | Correct maintained project URLs and inherited description | `Cargo.toml, CONTRIBUTING.md, index.html` | D |
+| H001 | First | Done; medium | Retire C/native/REPL product scaffolds | `engine facade, CLI dispatch, Cargo manifests, cohort anchor` | T + R |
+| H002 | First | Done; low | Separate current workflow from dated procedures | `docs/rust-rewrite/batch-workflow.md` | D |
+| H003 | First | Done; low | Give current status one authority | `current-inventory.md, CONTINUE.md, tasks/README.md` | D |
+| H004 | First | Done; low | Correct maintained project URLs and inherited description | `Cargo.toml, CONTRIBUTING.md, index.html` | D |
 | H005 | Next | Candidate; low | Document minimum sparse-checkout development inputs | `tracked .cargo/config.toml and setup guidance` | D |
 | H006 | Next | Candidate; low | Extend maintained-document link checks | `scripts/conformance_owners.py::check_links` | D |
 | H007 | Next | Candidate; low | Index active contracts, proposals and historical evidence | `docs/rust-rewrite/contracts` | D |
@@ -115,7 +115,7 @@ Risk is initial review guidance, not a claim that the code contains a bug.
 | H088 | Next | Candidate; medium | Share cache-limit parsing with explicit fallbacks | `cache.rs::parse_cache_limit/parse_tier_limit` | R |
 | H089 | Investigate | Candidate; high | Assess a focused runtime-image producer boundary | `runtime-image build.rs engine source includes` | I + R |
 | H090 | Later | Candidate; high | Bind admitted runtime and original budget at construction | `NativeSourceCompilerContext::new` | R |
-| H091 | First | Implementing; medium | Use one LDML schema implementation including staged generation | `intl_ldml_schema.py and NumberFormat staging` | T + G |
+| H091 | First | Done; medium | Use one LDML schema implementation including staged generation | `intl_ldml_schema.py and NumberFormat staging` | T + G |
 | H092 | Next | Candidate; medium | Retain parsed collator locale at admission | `CollationProfile::preferences` | G |
 | H093 | Next | Candidate; medium | Share locale lookup truncation | `collator profiles::matching and preferences::resolve` | G |
 | H094 | Investigate | Candidate; high | Specify allowed collator consumed-load inventory | `CollationProfile::construct` | I + G |
@@ -158,15 +158,23 @@ H002–H004 depend on the final actual batch state for completion claims.
 
 ## Verification record
 
-H011, H017 and H024 are implemented and tooling-verified: 650 checks in the
-complete tooling run, plus 107 overlapping publication/entry checks. Two new
-negative controls also verify the source-guard repairs found during this batch.
-The remaining first-batch work is under verification. No first-batch native or
-full-suite completion is claimed yet. The four original upstream Test262 disagreements remain failures;
-canonical published totals remain at the complete pre-repair baseline.
+All eight first-batch hills are complete in `ab7093a46`, `30065bbb5` and
+`e7532de91`. The [verification record](rust-rewrite/maintenance-first-wave-20261021.md)
+and [source-bound evidence](rust-rewrite/maintenance-first-wave-20261021.json)
+retain exact inventories, artifact identities, failed attempts and final results.
 
-The local evidence namespace is `target/maintenance-first-wave-20261021`.
-Baseline native planning selected 113 all-feature scopes before removing the
-obsolete crates. Evidence must retain exact removed/remaining target identities,
-not just compare aggregate counts. The completed record will list checks,
-source identity, intentionally retired assertions and remaining gates.
+Validation includes 653 tooling tests, locked all-target/all-feature Cargo check,
+973 engine tests, 82 CLI unit tests, 856 CLI integration tests, the zero-test
+runtime-image anchor, and 299 Intl integration tests from the preceding frozen
+batch source. Full NumberFormat regeneration covers 1,082 locales with identical
+semantic products. The fresh default compiler's original-case replays preserve
+12 Success/4 Bug and ten passing nearby controls with the same four failures.
+
+Exactly four obsolete C/native library/documentation scopes leave the inventory
+(113 to 109); surviving command plans are identical. Original failed receipts
+remain recorded. These checks do not claim a complete current-source workspace,
+release or Test262 campaign. Canonical README totals remain at their complete
+pre-repair baseline. The remaining 92 hills are candidates, not implemented work.
+
+Raw local evidence is in `target/maintenance-first-wave-20261021`; the committed
+record preserves its hashes and portable command paths.

@@ -8,10 +8,13 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
-The first maintenance batch retires obsolete product routes, simplifies runner
-setup, consolidates the LDML parser, and separates current guidance from history.
-Its verification is pending until recorded in the maintenance backlog. It adds
-no conformance passes and closes no release gate by itself.
+The first eight maintenance hills are complete: obsolete product routes are
+retired, runner setup is clearer, LDML parsing has one owner, and current guidance
+is separated from history. Implementation is in `ab7093a46`, `30065bbb5` and
+`e7532de91`; [verification and exact source limits](maintenance-first-wave-20261021.md)
+are recorded with [artifact identities](maintenance-first-wave-20261021.json).
+The remaining 92 hills are candidates. This batch adds no conformance passes and
+does not establish complete workspace, release or Test262 acceptance.
 
 ## Test262: complete baseline and focused repair
 
@@ -20,6 +23,7 @@ no conformance passes and closes no release gate by itself.
 | Complete original pinned suite, 2026-10-20 | Compiler `c5053c9d4`; 102,994 executions | 102,978 Success, 16 Bug, 0 Crash, 0 NotImplemented |
 | Original failure replay, 2026-10-21 | Compiler with global-prelude repair `cbb07c6cf`; 16 exact IDs | 12 Success, 4 Bug |
 | Remaining-failure recheck | Four original IDs and ten nearby controls | Four failures retained; all ten controls pass |
+| Maintenance revalidation | Fresh default compiler `e7532de91`; original 16 IDs, then four plus ten controls | 12 Success/4 Bug; then 10 Success/4 Bug; zero Crash/NotImplemented |
 
 [Complete baseline](test262-current.md) and [focused replay](failed-case-replay-20261021.md)
 bind exact pins, compiler fingerprints, executable hashes and commands. The
@@ -51,8 +55,10 @@ browser globals such as `console`.
 compiles a Script and can emit a program/runtime Wasm pair through
 `SCRIPTW_WASM_DUMP`; a dedicated module-artifact build command is not exposed.
 
-The ordinary default-feature release at `c5053c9d4` builds without the oracle.
-Three synchronous React 19.3.1 SSR outputs match Node; the public browser entry
+The ordinary default-feature debug CLI at `e7532de91` builds without the oracle
+and preserves the original failure-replay results. The earlier optimized release
+at `c5053c9d4` also builds without the oracle. Three synchronous React 19.3.1 SSR
+outputs match Node at that earlier source; the public browser entry
 fails. [SSR evidence](react-ssr.md) and [local Wasmtime/V8 measurements](v8-baseline.md)
 are focused demonstrations, not full compatibility or calibrated T25 acceptance.
 
@@ -62,6 +68,15 @@ Finite prepared sources and native-host compilation are distinct supported paths
 Scope classification of Test262 dynamic-code cases remains unaudited.
 
 ## Native verification and release gates
+
+At `e7532de91`, complete engine (973), CLI library (82) and CLI integration (856)
+scopes pass with zero failures or ignored tests; the replacement runtime-image
+anchor has zero tests. The CLI inventory is covered exactly once by four serial
+partitions. Engine Intl's 299 tests pass on the preceding frozen batch source.
+The record separates these receipts and documents the fixture-only correction
+and formatting-only restoration between them. All 653 tooling checks pass, as do
+locked all-target/all-feature Cargo check and full NumberFormat regeneration.
+These affected scopes do not replace the unfinished broader campaign below.
 
 The stopped pre-rename campaign at `cbf7cc71f` completed 49/113 scopes with
 7,560 passes, one failure and zero ignored tests. Sixty-four scopes remain
@@ -85,8 +100,8 @@ none transfers an older full-suite result to the maintenance batch.
 
 Outstanding gates include:
 
-- Current-source all-feature/default native suites, final Cargo checks and
-  ordinary optimized release acceptance.
+- Complete current-source all-feature/default native suites and ordinary
+  optimized release acceptance.
 - Original 230-case/prior 219-case retention and real serial/shard/resume checks.
 - Complete debug/optimized differential and robustness campaigns, idle samples,
   supported-host reproducibility and calibrated T25 performance.
