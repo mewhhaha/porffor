@@ -1475,20 +1475,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scriptw-backend-c"
-version = "0.1.0"
-dependencies = [
- "scriptw-ir",
-]
-
-[[package]]
-name = "scriptw-backend-native"
-version = "0.1.0"
-dependencies = [
- "scriptw-ir",
-]
-
-[[package]]
 name = "scriptw-cli"
 version = "0.1.0"
 dependencies = [
@@ -1504,8 +1490,6 @@ name = "scriptw-engine"
 version = "0.1.0"
 dependencies = [
  "scriptw-aot-wasm",
- "scriptw-backend-c",
- "scriptw-backend-native",
  "scriptw-front",
  "scriptw-intl",
  "scriptw-ir",
@@ -1638,8 +1622,6 @@ version = "0.1.0"
 dependencies = [
  "boa_parser",
  "scriptw-aot-wasm",
- "scriptw-backend-c",
- "scriptw-backend-native",
  "scriptw-cli",
  "scriptw-engine",
  "scriptw-front",

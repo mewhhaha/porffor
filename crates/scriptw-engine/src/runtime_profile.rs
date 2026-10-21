@@ -215,7 +215,6 @@ mod tests {
         assert!(engine
             .profile_wasm_execution(
                 &Artifact {
-                    kind: ArtifactKind::Wasm,
                     bytes: b"invalid wasm".to_vec(),
                     description: String::new(),
                     debug_dump: String::new(),

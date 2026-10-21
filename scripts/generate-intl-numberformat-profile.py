@@ -61,6 +61,7 @@ def main():
             return
         shutil.copytree(LEAVES, scratch / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copyfile(ROOT / "scripts/intl_positional_numbering.py", scratch / "scripts/intl_positional_numbering.py")
+        shutil.copyfile(ROOT / "scripts/intl_ldml_schema.py", scratch / "scripts/intl_ldml_schema.py")
         shutil.copytree(DIRECTORY.parent / "numbering-tols-cldr-48", scratch / "reference/numbering-tols")
         generated = scratch / "work/crates/scriptw-intl/data/number-cldr-47"
         generated.mkdir(parents=True)

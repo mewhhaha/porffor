@@ -178,10 +178,7 @@ Commands:
                                         supported product execution path). A `.mjs` file
                                         is parsed as an ES module; `--module` forces the
                                         module goal for any other extension
-  repl                                  reserved for the Rust REPL shell
   build wasm <file>                     compile JavaScript directly to Wasm
-  build c <file>                        emit C from shared IR
-  build native <file>                   emit native artifact from shared IR
   cache status                          report bounded Scriptw caches and the
                                         legacy global Wasmtime cache
   cache prune [--legacy-wasmtime]       delete Scriptw caches; optionally delete
@@ -416,14 +413,13 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
             .map(|outcome| println!("run outcome: {:?}", outcome))
             .map_err(|err| err.to_string())
         }
-        "repl" => Err("Rust REPL shell not implemented yet".to_string()),
         "cache" => handle_cache_command(args.collect()),
         "build" => {
             let format = args
                 .next()
-                .ok_or_else(|| "build needs target: wasm, c, or native".to_string())?;
-            if intl_profile.is_some() && format != "wasm" {
-                return Err("--intl-profile is supported only by build wasm".into());
+                .ok_or_else(|| "build needs target: wasm".to_string())?;
+            if format != "wasm" {
+                return Err(format!("unknown build target: {format}"));
             }
             let path = args
                 .next()
@@ -440,64 +436,40 @@ fn command_main(mut args: Vec<String>, stdout: OutputBuffer) -> Result<(), Strin
                     },
                 )
                 .map_err(|err| err.to_string())?;
-            match format.as_str() {
-                "wasm" => engine
-                    .emit_wasm(&unit)
-                    .map(|artifact| {
-                        // `SCRIPTW_WASM_DUMP` receives the program module; a linked
-                        // program's runtime module goes beside it. Runtime-free
-                        // replacements remove any prior runtime sidecar.
-                        if let Some(path) = std::env::var_os("SCRIPTW_WASM_DUMP") {
-                            fs::write(&path, &artifact.bytes).unwrap_or_else(|err| {
-                                panic!("failed to write SCRIPTW_WASM_DUMP artifact: {err}");
+            engine
+                .emit_wasm(&unit)
+                .map(|artifact| {
+                    // `SCRIPTW_WASM_DUMP` receives the program module; a linked
+                    // program's runtime module goes beside it. Runtime-free
+                    // replacements remove any prior runtime sidecar.
+                    if let Some(path) = std::env::var_os("SCRIPTW_WASM_DUMP") {
+                        fs::write(&path, &artifact.bytes).unwrap_or_else(|err| {
+                            panic!("failed to write SCRIPTW_WASM_DUMP artifact: {err}");
+                        });
+                        let mut runtime_path = path.clone();
+                        runtime_path.push(".runtime.wasm");
+                        if let Some(runtime) = &artifact.runtime {
+                            fs::write(&runtime_path, runtime.bytes()).unwrap_or_else(|err| {
+                                panic!("failed to write SCRIPTW_WASM_DUMP runtime artifact: {err}");
                             });
-                            let mut runtime_path = path.clone();
-                            runtime_path.push(".runtime.wasm");
-                            if let Some(runtime) = &artifact.runtime {
-                                fs::write(&runtime_path, runtime.bytes()).unwrap_or_else(|err| {
-                                    panic!("failed to write SCRIPTW_WASM_DUMP runtime artifact: {err}");
-                                });
-                            } else if let Err(err) = fs::remove_file(&runtime_path) {
-                                if err.kind() != std::io::ErrorKind::NotFound {
-                                    panic!("failed to remove stale SCRIPTW_WASM_DUMP runtime artifact: {err}");
-                                }
+                        } else if let Err(err) = fs::remove_file(&runtime_path) {
+                            if err.kind() != std::io::ErrorKind::NotFound {
+                                panic!("failed to remove stale SCRIPTW_WASM_DUMP runtime artifact: {err}");
                             }
                         }
-                        if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
-                            eprintln!("scriptw wasm trace: artifact bytes: {}", artifact.bytes.len());
-                            if let Some(runtime) = &artifact.runtime {
-                                eprintln!(
-                                    "scriptw wasm trace: runtime bytes: {}",
-                                    runtime.bytes().len()
-                                );
-                            }
+                    }
+                    if std::env::var_os("SCRIPTW_WASM_TRACE").is_some() {
+                        eprintln!("scriptw wasm trace: artifact bytes: {}", artifact.bytes.len());
+                        if let Some(runtime) = &artifact.runtime {
+                            eprintln!(
+                                "scriptw wasm trace: runtime bytes: {}",
+                                runtime.bytes().len()
+                            );
                         }
-                        println!(
-                            "built {:?} artifact: {}",
-                            artifact.kind, artifact.description
-                        )
-                    })
-                    .map_err(|err| err.to_string()),
-                "c" => engine
-                    .emit_c(&unit)
-                    .map(|artifact| {
-                        println!(
-                            "built {:?} artifact: {}",
-                            artifact.kind, artifact.description
-                        )
-                    })
-                    .map_err(|err| err.to_string()),
-                "native" => engine
-                    .emit_native(&unit, None)
-                    .map(|artifact| {
-                        println!(
-                            "built {:?} artifact: {}",
-                            artifact.kind, artifact.description
-                        )
-                    })
-                    .map_err(|err| err.to_string()),
-                _ => Err(format!("unknown build target: {format}")),
-            }
+                    }
+                    println!("built Wasm artifact: {}", artifact.description)
+                })
+                .map_err(|err| err.to_string())
         }
         "types" | "typegen" => handle_types_command(args.collect()),
         "test262" => handle_test262_command(args.collect()),
@@ -1820,7 +1792,10 @@ fn handle_types_command(args: Vec<String>) -> Result<(), String> {
     if options.check {
         let current = fs::read_to_string(&output_path).unwrap_or_default();
         if current != output {
-            return Err(format!("{} is out of date; run scriptw types", options.output));
+            return Err(format!(
+                "{} is out of date; run scriptw types",
+                options.output
+            ));
         }
         println!("Types are up to date at {}", options.output);
         return Ok(());
@@ -2714,7 +2689,8 @@ fn render_typegen_declarations(inputs: &TypegenInputs, options: &TypegenOptions)
         .unwrap_or("none");
 
     lines.push(
-        "// Generated by Scriptw. Regenerate with `scriptw types` after config changes.".to_string(),
+        "// Generated by Scriptw. Regenerate with `scriptw types` after config changes."
+            .to_string(),
     );
     lines.push(format!("// Config: {config_list}"));
     lines.push(format!("// Entrypoint: {entrypoint_label}"));
@@ -3996,8 +3972,6 @@ mod tests {
             vec!["inspect", "missing.js"],
             vec!["compiler-identity"],
             vec!["cache", "status"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             for profile in ["minimal", "custom:chosen"] {
@@ -4449,8 +4423,6 @@ mod tests {
         .contains("--intl-displaynames-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let args = [
@@ -4626,8 +4598,6 @@ mod tests {
         .contains("--intl-duration-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let args = [
@@ -4796,8 +4766,6 @@ mod tests {
         .contains("--intl-number-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let args = [
@@ -4940,8 +4908,6 @@ mod tests {
         .contains("--intl-datetime-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let args = [
@@ -5081,8 +5047,6 @@ mod tests {
         .contains("--intl-segmenter-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let mut args = vec![
@@ -5220,8 +5184,6 @@ mod tests {
         .contains("--intl-collator-locales needs a value"));
         for command in [
             vec!["inspect", "missing.js"],
-            vec!["build", "c", "missing.js"],
-            vec!["build", "native", "missing.js"],
             vec!["run", "--execution-backend", "spec-exec", "missing.js"],
         ] {
             let args = [

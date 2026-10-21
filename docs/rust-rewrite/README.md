@@ -25,8 +25,8 @@ an interpreter into Wasm and call that victory.
 - `scriptw-ir`: spec-shaped lowering stages and IR metadata.
 - `scriptw-runtime`: realm plus typed host clock, randomness, and output capabilities.
 - `scriptw-aot-wasm`: sole product backend, compiling JavaScript directly to Wasm.
-- `scriptw-backend-c` / `scriptw-backend-native`: obsolete scaffolds outside product scope.
-  C/native output and a REPL are excluded goals and do not block completion.
+- C/native output and a REPL are outside product scope; their placeholder routes
+  and scaffold crates are retired.
 - `scriptw-engine`: public Rust library API.
 - `scriptw-cli`: clean-break `scriptw` CLI.
 - `scriptw-test262`: conformance taxonomy and harness rewrite support.

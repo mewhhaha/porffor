@@ -561,7 +561,7 @@ fn compiler_fingerprint() -> Option<&'static [u8; 32]> {
         .as_ref()
 }
 
-const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"scriptw-program-wasm-cache-key-v19";
+const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"scriptw-program-wasm-cache-key-v20";
 
 fn hash_program_cache_field(hash: &mut Sha256, bytes: &[u8]) {
     let length = u64::try_from(bytes.len()).expect("cache-key field length must fit in u64");
@@ -715,7 +715,6 @@ fn program_wasm_cache_key_with_compiler_fingerprint(
         }
     }
     hash_optional_program_cache_field(&mut hash, options.filename.as_deref());
-    hash_optional_program_cache_field(&mut hash, options.target_triple.as_deref());
     hash_optional_program_cache_field(&mut hash, options.module_root.as_deref());
     hash_optional_program_cache_field(&mut hash, options.module_prelude.as_deref());
     match &options.module_loading_policy {
@@ -1587,13 +1586,6 @@ pub use scriptw_runtime::{
     SystemHostRandom, UtcEpochMilliseconds, INTRINSIC_DESCRIPTORS, INTRINSIC_PROPERTY_DESCRIPTORS,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ArtifactKind {
-    Wasm,
-    C,
-    Native,
-}
-
 /// The product execution backend selector.
 ///
 /// `WasmAot` is the only backend whose results count as conformance and it is
@@ -1621,11 +1613,9 @@ impl ExecutionBackend {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Artifact {
-    pub kind: ArtifactKind,
     pub bytes: Vec<u8>,
     pub description: String,
-    /// The backend's self-description for this artifact, empty for backends
-    /// that produce none.
+    /// The Wasm emitter's self-description for this artifact.
     ///
     /// This field exists because dropping it was a real defect, not a
     /// hypothetical one. `scriptw_aot_wasm::emit` returns a `debug_dump`
@@ -1640,9 +1630,9 @@ pub struct Artifact {
     /// use it from, and `SCRIPTW_EMIT_SIZE_REPORT` silently reported nothing
     /// for a whole batch of size work.
     pub debug_dump: String,
-    /// For Wasm artifacts: the runtime module `bytes` links against. `bytes`
+    /// The runtime module `bytes` links against. `bytes`
     /// alone is then only the small program module; `None` means `bytes` is a
-    /// standalone module. Always `None` for non-Wasm backends.
+    /// standalone module.
     pub runtime: Option<LinkedRuntime>,
     /// Original lowering policy for execution-time native source compilation.
     /// Raw externally constructed artifacts may leave this absent.
@@ -1668,7 +1658,6 @@ pub struct CompileOptions {
     /// The entry's declarations are instantiated only after this Script succeeds.
     pub module_prelude: Option<String>,
     pub optimize: bool,
-    pub target_triple: Option<String>,
     /// Directory the filesystem module loader is confined to.
     ///
     /// `None` means the entry file's parent directory. A specifier that
@@ -1697,7 +1686,6 @@ impl Default for CompileOptions {
             filename: None,
             module_prelude: None,
             optimize: true,
-            target_triple: None,
             module_root: None,
             module_loading_policy: ModuleLoadingPolicy::default(),
             host_surface_policy: HostSurfacePolicy::default(),
@@ -3116,7 +3104,6 @@ impl Engine {
                     eprintln!("scriptw wasm trace: artifact debug:\n{}", wasm.debug_dump);
                 }
                 Ok(Artifact {
-                    kind: ArtifactKind::Wasm,
                     runtime: wasm.runtime().cloned().map(LinkedRuntime),
                     compilation_policy: Some(WasmCompilationPolicy::from_unit(unit)),
                     bytes: wasm.bytes,
@@ -3126,57 +3113,6 @@ impl Engine {
             }
             Err(err) => Err(EngineError::from_wasm_emit_error(&unit.ir, err)),
         }
-    }
-
-    pub fn emit_c(&self, unit: &CompilationUnit) -> Result<Artifact, EngineError> {
-        require_default_intl_profile(&unit.intl_profile, "C emission")?;
-        if unit.ir.language_features() != LanguageFeaturePolicy::default() {
-            return Err(EngineError::new(
-                "selected language proposals require Wasm AOT emission",
-            ));
-        }
-        run_on_sized_stack(|| match scriptw_backend_c::emit(&unit.ir) {
-            Ok(c) => Ok(Artifact {
-                kind: ArtifactKind::C,
-                bytes: c.source.into_bytes(),
-                description: "shared IR to C artifact".to_string(),
-                // The C backend produces no self-description today.
-                debug_dump: String::new(),
-                runtime: None,
-                compilation_policy: None,
-            }),
-            Err(err) => Err(EngineError::new(err)),
-        })
-    }
-
-    pub fn emit_native(
-        &self,
-        unit: &CompilationUnit,
-        target_triple: Option<&str>,
-    ) -> Result<Artifact, EngineError> {
-        require_default_intl_profile(&unit.intl_profile, "native emission")?;
-        if unit.ir.language_features() != LanguageFeaturePolicy::default() {
-            return Err(EngineError::new(
-                "selected language proposals require Wasm AOT emission",
-            ));
-        }
-        run_on_sized_stack(
-            || match scriptw_backend_native::emit(&unit.ir, target_triple) {
-                Ok(native) => Ok(Artifact {
-                    kind: ArtifactKind::Native,
-                    bytes: Vec::new(),
-                    description: format!(
-                        "native artifact placeholder for {:?}",
-                        native.target_triple
-                    ),
-                    // The native backend produces no self-description today.
-                    debug_dump: String::new(),
-                    runtime: None,
-                    compilation_policy: None,
-                }),
-                Err(err) => Err(EngineError::new(err)),
-            },
-        )
     }
 
     pub fn inspect(&self, unit: &CompilationUnit) -> InspectionReport {

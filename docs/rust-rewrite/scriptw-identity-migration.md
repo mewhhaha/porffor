@@ -32,5 +32,8 @@ historical generated README publication is preserved byte for byte. New
 publication output uses the scriptw identity. Renaming does not establish new
 conformance, verification or performance results for this compiler revision.
 
-The existing GitHub repository URL and external domain remain locators; they
-are not package names or Wasm host interfaces.
+Update, 2026-10-21: the repository is now
+[github.com/mewhhaha/scriptw](https://github.com/mewhhaha/scriptw); the former URL
+redirects there. The external `porffor.dev` domain remains unchanged. Retiring the
+two obsolete backend scaffolds reduces the workspace from fourteen to twelve
+packages; the identity cutover above records the original fourteen-package state.

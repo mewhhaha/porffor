@@ -3124,8 +3124,8 @@ fn wasm_backend_characterization_matrix_locks_public_surface_and_outcomes() {
         ),
         (
             "string-concat",
-            "let left = 'li'; let right = 'la'; left + right;",
-            "string(scriptw)",
+            "let left = 'hel'; let right = 'lo'; left + right;",
+            "string(hello)",
             ValueKind::String,
         ),
         (
@@ -3263,7 +3263,7 @@ fn wasm_backend_characterization_matrix_locks_public_surface_and_outcomes() {
         }
         assert_eq!(
             exports,
-            ["scriptw.program_init", "main", "memory"],
+            ["main", "memory", "scriptw.program_init"],
             "{label} program exports"
         );
         assert!(
@@ -3686,7 +3686,7 @@ fn wasm_emit_succeeds_for_supported_script() {
         .compile_script("1 + 1;", CompileOptions::default())
         .expect("script compile should succeed");
     let artifact = engine().emit_wasm(&unit).expect("wasm emit should succeed");
-    assert_eq!(artifact.kind, ArtifactKind::Wasm);
+    assert!(artifact.bytes.starts_with(b"\0asm"));
     assert!(!artifact.bytes.is_empty());
 }
 

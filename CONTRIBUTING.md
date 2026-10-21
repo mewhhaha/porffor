@@ -20,7 +20,7 @@ Install a current stable Rust toolchain with Cargo, clone the canonical
 repository, and build the CLI:
 
 ```sh
-git clone https://github.com/mewhhaha/porffor.git scriptw
+git clone https://github.com/mewhhaha/scriptw.git scriptw
 cd scriptw
 ./scripts/dev.sh build
 ```
@@ -63,9 +63,12 @@ The primary crates are:
 - `scriptw-test262`: Test262 discovery, execution, snapshots, and reporting.
 - `scriptw-spec-exec`: feature-gated differential/debug oracle.
 
-The C and native backends are scaffolds. Wasm-AOT is the product backend.
+Wasm-AOT is the sole product backend. C/native output and a REPL are outside scope.
 `spec-exec` must never become the product default, a silent fallback, or part of
 an emitted artifact.
+
+The [maintenance backlog](docs/maintenance-hills.md) lists prioritized cleanup
+hills and the evidence required to complete them.
 
 ## Choosing and owning work
 

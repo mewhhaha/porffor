@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 76508,
+      "bytes": 76221,
       "path": "Cargo.lock",
-      "sha256": "49cb002cbba03e2d6760c7df5bc39c517227453cdb77cd708acf1da7e271580f"
+      "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
     },
     {
-      "bytes": 6180,
+      "bytes": 5887,
       "path": "Cargo.toml",
-      "sha256": "4f124b55f302cd8c531d1667c956734b88eab314aaea633d397989162e33bf7f"
+      "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
     },
     {
       "bytes": 87228,
@@ -1043,7 +1043,7 @@
       "version": "1.0.21"
     }
   ],
-  "provider_data_sha256": "3d2585c214f6d4dea4f6b267374805fe1b2b7c859404886a34c3cbc66c16680b",
+  "provider_data_sha256": "fb2bb456bb0417c01c80c9b6ae744f39e335d4613de5705829b3dc26abafa653",
   "schema_version": 1,
   "scope": "actual immutable native Duration image, retained selected Number/List owners, global/native/host source, complete primitive codecs and primary CLDR47 authority; native and AOT execution pending",
   "service": "DurationFormat"

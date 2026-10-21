@@ -60,6 +60,7 @@ above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.m
 
 ## Caveats
 
+- **Wasm is the sole compilation target.** C/native output and a REPL are outside scope.
 - **Conformance is incomplete.** The chart identifies its measured compiler
   and complete pinned suite. [Current verification and remaining work](docs/rust-rewrite/current-inventory.md).
   [Verified repairs and original-test conflicts](docs/rust-rewrite/failed-case-replay-20261021.md).

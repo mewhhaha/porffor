@@ -8,7 +8,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 
-from ldml_schema import LdmlSchema
+from intl_ldml_schema import LdmlSchema
 from intl_positional_numbering import TolsSupplement
 
 INHERIT = "↑↑↑"

@@ -1,303 +1,108 @@
-# Current implementation and remaining work — 2026-10-20
+# Current project inventory — 2026-10-21
 
-## Failed-case replay — 2026-10-21
+This is the maintained status entry point. Results belong to their measured
+source and executable, not automatically to today's checkout. The
+[earlier inventory](inventory-history-20261021.md) retains all detailed historical
+counts and links. [Workflow](batch-workflow.md) owns operating instructions;
+[maintenance hills](../maintenance-hills.md) owns cleanup status.
 
-[The resolution package](final-four-resolution-20261021.md) supplies seven
-standalone probes, independent engine comparisons, four draft upstream patches
-and three report bodies. A fresh native run passes all ten original controls
-and retains the four original failures. With only the proposed arguments/timezone
-test corrections, three of the four pass and the original label test still fails.
-Normative disposition is pending; no compiler change or full campaign is claimed.
+## Current work
 
-All sixteen original failures were retested on the fixed compiler: twelve
-original executions pass and four fail. The same sixteen IDs pass with explicit
-reviewed fixture amendments, including the labelled-function correction.
-The four original expectation conflicts remain visible; no complete fixed-source
-suite pass is claimed. [Exact comparison and reproduction](failed-case-replay-20261021.md).
+The first maintenance batch retires obsolete product routes, simplifies runner
+setup, consolidates the LDML parser, and separates current guidance from history.
+Its verification is pending until recorded in the maintenance backlog. It adds
+no conformance passes and closes no release gate by itself.
 
-A separate recheck of just the four original failures still gives zero passes
-and four failures; ten nearby original controls pass. Current upstream copies of
-the three test files are unchanged. No new compiler fix or full-suite pass is
-claimed. [Remaining disagreements and fresh evidence](failed-case-replay-20261021.md#remaining-four-recheck).
+## Test262: complete baseline and focused repair
 
-## Canonical global-property repair after the baseline
-
-The source now retains unreferenced `parseInt`/`parseFloat` globals across a
-Script prelude. Ten original failing executions and four retained controls pass
-the isolated ordinary Wasm-AOT compiler; all 742 IR integration tests pass.
-The canonical chart still records the completed pre-fix compiler measurement.
-A complete fixed-source campaign remains pending.
-[Repair, validation and evidence](global-prelude-hosts-fix-20261020.md).
-
-## Fresh full Test262 measurement — 2026-10-20
-
-All 102,994 current-pin mode-specific executions were measured through
-the ordinary release Wasm-AOT compiler: 102,978 pass,
-16 fail, 0 unimplemented.
-The measured compiler remains source `c5053c9d4`, whose compiler
-inputs match checkout `e21347cc7`. This closes baseline measurement,
-not conformance or the separate native/release acceptance gates below.
-[Current Test262 evidence and reproduction](test262-current.md).
-
-## Prior verification inventory
-
-The older suite inventory below records the measured **pre-rename** compiler.
-New renamed-release checks are recorded separately in the next section.
-The project is now
-[scriptw](scriptw-identity-migration.md); commands below use its current spelling,
-while the evidence retains the original executable/package names and hashes.
-The rename does not transfer these outcomes into a new full-suite verification.
-
-Compiler source: `cbf7cc71f`; the verified checkpoint/scheduling batch is on
-main at `5fa2e8432`. This inventory describes observed results, implemented
-interfaces and open acceptance criteria. **Wasm is the sole product output
-target. C/native output and a REPL are outside scope, not unfinished goals
-or release blockers.** It supplies no current full-suite
-conformance percentage. [Exact receipts, examples and provenance](current-inventory-20261020.json)
-are preserved losslessly in encoded assets.
-
-## New scriptw release checks
-
-At source `c5053c9d4`, the default-feature opt3 CLI and Wasmtime runner build
-successfully without an oracle dependency. All 634 tooling tests pass with
-zero skips, plus 19 focused codec/cache native tests. Three Intl outputs
-and three synchronous React 19.3.1 SSR outputs match Node byte for byte.
-The public React browser entry was not retested; its prior failure remains.
-[The local V8 comparison](v8-baseline.md) records cold start, hot start and
-execution with all samples, machine specs and exact build/source identities
-in [new evidence](v8-baseline-20261020.json).
-
-This proves an ordinary release build and focused operation. Original230/prior219
-retention, full release suites, current-source AF/default, calibrated T25 and
-complete pinned conformance remain outstanding. Old suite outcomes below are
-not transferred to the renamed source.
-
-## What is done
-
-- The supported product compiles JavaScript through parsing, early errors,
-  spec IR and lowering IR into Wasm. Wasm-AOT is the default execution path.
-  The interpreter is an explicit engineering oracle.
-- The Rust workspace separates the frontend, IR, Wasm emitter, engine, runtime,
-  runtime images, Intl and conformance harness. The library and CLI are usable
-  development interfaces. Existing C/native scaffolds are outside product scope.
-- Atomic checkpoint replacement preserves the previous resumable JSON if a
-  write fails. The new partial-write regression passes. JSON is the resume authority.
-- CLI verification partitions now use measured exact-test costs while keeping
-  all 855 CLI IDs and the existing worker counts/deadlines. Its wall-time benefit
-  has not been measured by a completed current run.
-- Pre-rename source `cbf7cc71f` passes **14 source audits, two shell negative controls and
-  624 tooling tests**. All **12 ordinary library scopes pass 3,865 tests**,
-  including Test262477, CLI82, AOT442, Front177, IR1607 and Engine973.
-  Four of those scopes contain zero tests; successful Rust compilation of
-  the obsolete C/native scaffold packages adds no product output target.
-- The current Engine Intl integration scope also passes all **299 tests**.
-  The separate isolated Intl library suite remains unrun in this saved run.
-- T00, T27, T28 and T29 remain recorded complete: contribution contracts,
-  interpreter quarantine/product default, legacy product retirement and the
-  canonical Scriptw identity. This inventory closes no additional task.
-
-## What the current CLI can compile and run
-
-The existing debug CLI is bound to the compiler source above by its loaded
-identity, executable SHA-256 and actual successful Cargo bin producer.
-Its build enables `spec-exec-oracle`; each example below explicitly reports
-`backend_used: WasmAot`. These are representative programs, not complete
-feature-family or production-release acceptance.
-
-| Fresh example | What passed through the product path |
-| --- | --- |
-| Core JavaScript | Lexical variables, a captured mutable closure, loops, a class with a private field, thrown values and catch/finally |
-| Objects and collections | Array map/filter, Symbol keys, property descriptors, Map/Set, Proxy get and Reflect.get |
-| Binary data and text | Uint8Array, ArrayBuffer/DataView, BigInt exponentiation, UTF-16 slicing, Unicode RegExp and JSON round-trip |
-| Async and iteration | Promise resolution, await, a generator and for-of, including drained async output |
-| ES modules | A filesystem dependency, named import/export and top-level await using `.mjs` |
-| Intl and Temporal | Minimal-profile en-US NumberFormat, English PluralRules/grapheme segmentation, PlainDate leap-day addition and Instant epoch nanoseconds |
-| Emitted artifact | `build wasm` wrote a real Wasm program and its matching runtime sidecar; both Wasm headers and file hashes were retained |
-
-All **six run examples and one emission check pass**. Their JavaScript,
-commands, exact output and Cargo provenance are in the evidence bundle.
-The initial examples used `console.log` and failed with an unbound identifier;
-those results remain preserved. Corrected examples use the documented `print`
-extension. The CLI does not supply `console` or establish Node/browser API compatibility.
-
-A subsequent [React 19.3.1 SSR probe](react-ssr.md) passes three exact HTML
-comparisons with Node using the unmodified synchronous ReactDOM renderer;
-the actual Scriptw outcome identifies Wasm-AOT. It also emits a program/runtime
-Wasm pair. The public `react-dom/server.browser` entry fails with an unbound
-identifier; browser/streaming APIs are not supplied. This separate compatibility
-probe is recorded in [its own evidence](react-ssr-20261020.json), outside the
-six examples/one emission counts above and all suite totals below.
-
-| Build or interface | Current state |
-| --- | --- |
-| Rust frontend/IR/emitter/engine/runtime libraries | Current ordinary library test targets compile and their populated test scopes pass |
-| Debug `scriptw run file.js` | Demonstrated on the six examples above; defaults to Wasm-AOT |
-| Debug `scriptw run file.mjs` or `run --module file.js` | Module loader is implemented; the fresh `.mjs` import/TLA example passes |
-| `scriptw build wasm file.js` | Implemented Script compilation; emits program bytes and optional linked runtime sidecar when `SCRIPTW_WASM_DUMP` is set |
-| Dedicated CLI module artifact build | Not exposed: `build wasm` currently calls `compile_script`; module execution is available through `run` |
-| Ordinary optimized release CLI | Builds at `c5053c9d4`; default features, no oracle dependency; focused Intl/SSR and local benchmark pass. Full release acceptance remains open |
-| Existing C/native and REPL stubs | Outside project scope; obsolete entries are not planned features or completion gates |
-
-The runtime target is experimental Wasmtime with the required GC, reference,
-exception and related features, matching Scriptw runtime imports, host adapters
-and admitted Intl data. An emitted program/runtime pair is not a browser,
-WASI or generic Wasm runtime compatibility claim. Native compilation in
-verification means building the Rust compiler or Wasmtime compiling Wasm
-to machine code; it does not add a native JavaScript output target.
-
-Finite prepared eval/Function sources use the real compiler. The native host
-can also compile additional supported runtime strings. Portable Wasm artifacts
-do not contain a parser; unsupported source/context/Realm combinations and
-selected host operations remain explicit capability gaps. Such cases remain
-non-passing in real Test262 accounting. Full ECMAScript support is not established.
-Dynamic-source cases requiring a parser or VM inside emitted Wasm are outside
-product scope; the published aggregate has no exact count for that category.
-See [runtime requirements and dynamic-source limits](runtime-requirements.md).
-
-From the repository root, an ordinary CLI rebuild recipe is:
-
-```sh
-# On this cloud setup, activate the installed toolchain if needed.
-. ../.scriptw-tools/activate.sh
-python3 scripts/limited_verification.py --cloud -- \
-  cargo build --locked --offline -p scriptw-cli --bin scriptw --jobs 1
-```
-
-The older capability inventory reused the existing linked debug CLI. The
-new release build is recorded separately above; its reproduction command is
-in [the benchmark runbook](v8-baseline.md). To use a source-bound CLI:
-
-```sh
-SCRIPTW_BIN=./target/debug/scriptw
-cat > hello.js <<'JS'
-function counter(n) { return () => ++n; }
-const next = counter(40);
-print(next() + next());
-JS
-"$SCRIPTW_BIN" --jobs 1 run hello.js
-SCRIPTW_WASM_DUMP=hello.wasm "$SCRIPTW_BIN" --jobs 1 build wasm hello.js
-# Keep hello.wasm.runtime.wasm too when one is emitted.
-```
-
-## Verification: completed, failed and unrun
-
-| Older suite gate | Pre-rename source `cbf7cc71f` result |
-| --- | --- |
-| Source audits / shell controls / tooling | 14 / 2 / 624 passed |
-| All-feature workspace | **Incomplete: 49/113 closed scopes, 7,560 passed, one failed, zero ignored** |
-| Ordinary library subset | 12 scopes / 3,865 passes; included in the workspace count |
-| Documentation tests | None executed yet; 11 expected in the full plan |
-| Remaining saved AF discovery | 64 uncompleted scopes; 2,094 expected native tests still uncompleted, plus docs |
-| Default workspace | Unstarted; planned 111 scopes, 9,559 native tests and 11 docs |
-| Final all-target Cargo checks | Unstarted; formatter already passed in the source precheck |
-| Ordinary release / original 230 retention / real shard-resume | Original old-source gates unstarted. New `c5053c9d4` release build/focused checks pass; full retention and mechanics remain open |
-| Complete debug/optimized campaigns and timing gates | Unstarted at this source; no calibrated performance acceptance |
-| Current pinned Test262 closure | One full current-input baseline is measured; two fresh green release-closure families remain outstanding |
-| Current canonical publication and deterministic backlog | Outstanding; reuse one completed full family rather than running a third |
-| Historical 5,365 replay and supported-host reproducibility | Separate outstanding obligations |
-
-Counts are nested: the 559 focused passes are inside the 3,865 library passes,
-which are inside the 7,560 workspace passes. The seven fresh product checks
-are separate examples. The previous source `78593daf2` passed 9,654 native
-and 11 documentation tests across all 113 scopes; those older outcomes are
-not carried into this source's run.
-
-The one current failure is
-`scriptw-test262:differential_generated_campaign::builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
-The Wasm worker timed out at its original **5,000 ms** deadline in the
-`builtin-stateful-v1` seed-0 array-buffer scenario; the oracle completed.
-The campaign stopped after one of six cases and established no semantic
-equivalence. Its underlying cause is unresolved. The original transcript,
-resources and failed executable remain identified in the evidence; a passing
-retry must not replace this failure.
-
-The last coordinator receipt waited for cohort011 because the previous
-machine was 9,011,200 bytes below its 2 GiB build reserve. After the cloud
-restore, all four old coordinator PIDs were absent at inventory time.
-Those frozen-suite coordinators have not been restarted. The observed current filesystem has about 32 GB available, so the
-old disk wait does not describe current capacity. Later gates were prepared
-but their old waiting processes did not survive. They must be deliberately
-re-admitted; documentation is not an automatic restart.
-
-## Task inventory and remaining acceptance
-
-The ownership codes are permanent technical areas. The recorded plan has
-**four complete, 25 in progress and one blocked**. Implementation coverage
-and task-wide acceptance are different; no local smoke test closes a task.
-The authoritative criteria are in [conformance acceptance](conformance-acceptance.md)
-and the [ownership index](conformance-ownership.md).
-
-| Task | Recorded state | Implementation / work still required for closure |
+| Evidence | Source / scope | Observed result |
 | --- | --- | --- |
-| T00 contribution protocol | Complete | Keep ownership, provenance, resource and publication guards passing |
-| T01 baseline/backlog | In progress | Fresh baseline, canonical publication and deterministic backlog measured; comparison acceptance remains |
-| T02 IR/Wasm architecture | In progress | Modular Rust pipeline exists; remaining architecture/behavior/build-cost acceptance and final broad checks |
-| T03 harness integrity | In progress | Source audits and Test262477 pass; full current harness/fake-publication/host and shortcut-removal acceptance remain |
-| T04 shared operations/completion | In progress | Shared conversion/completion machinery exists; complete affected semantic families and side-effect/abrupt-order criteria |
-| T05 heap/GC | In progress | Wasm GC/rooting machinery exists; remaining weak/ephemeron/finalization and cycle/root stress acceptance |
-| T06 Realms | In progress | Distinct-Realm mechanisms exist; complete cross-Realm semantic and lifetime evidence |
-| T07 parser/early errors | In progress | Front177 passes; complete current negative/parser buckets and specified invariants |
-| T08 environments/control flow | In progress | Closure/loop/exception example passes; full scope, TDZ, destructuring and abrupt-completion families |
-| T09 functions/classes | In progress | Closures/private fields example passes; full function/class/constructor families and Realm/new-target behavior |
-| T10 object model | In progress | Descriptor/proxy example passes; complete exotic/property-order/integrity criteria |
-| T11 Proxy/Reflect | In progress | Representative dispatch works; full trap invariants, revocation and abrupt-order families |
-| T12 modules | In progress | Import/TLA example passes; full linking, namespaces, cycles and host-flow criteria |
-| T13 dynamic source | In progress | Finite prepared sources work; unmatched runtime source/context stays explicit debt and can block literal closure |
-| T14 Promise/async | In progress | Await/job output example passes; full jobs, reaction, async and completion criteria |
-| T15 iteration/resources | In progress | Generator example passes; complete async iteration, closing and disposal families |
-| T16 arrays | In progress | Map/filter example passes; complete Array/species/sparse/order families |
-| T17 binary data/Atomics | In progress | TypedArray/DataView example passes; full resize/detach/shared-memory/Atomics criteria |
-| T18 strings/Unicode | In progress | UTF-16 example passes; complete String and Unicode families |
-| T19 RegExp | In progress | Representative Unicode RegExp works; complete syntax, captures, state and protocol families |
-| T20 numeric/JSON | In progress | BigInt/JSON example passes; complete coercion, numeric and JSON criteria |
-| T21 symbols/collections/weak refs | In progress | Symbol/Map/Set example passes; complete collection and weak/finalization acceptance |
-| T22 Date/Temporal | In progress | Selected date/instant example passes; full Temporal/time-zone/rounding semantics and evidence |
-| T23 Intl | In progress | Selected formatting/segmentation works and Engine Intl299 passes; full Intl, isolated native suite and supported-host reproducibility |
-| T24 globals/errors/Annex B/host | In progress | Error/control-flow example passes; complete semantic families and host integrity |
-| T25 differential/performance | In progress | Tooling and scheduling changes exist; repair current worker timeout, finish debug/optimized corpus, 704/1,216 campaigns and compatible calibrated timings |
-| T26 release closure | Blocked | Zero non-successes in two fresh complete current-pin families, real shard/resume, required stress/product/host checks and generated publication |
-| T27 interpreter quarantine | Complete | Default Wasm-AOT policy retained; ordinary product must continue to exclude the oracle |
-| T28 legacy retirement | Complete | Rust-only product/development boundary retained |
-| T29 identity | Complete | Canonical Scriptw names and provenance guards retained |
+| Complete original pinned suite, 2026-10-20 | Compiler `c5053c9d4`; 102,994 executions | 102,978 Success, 16 Bug, 0 Crash, 0 NotImplemented |
+| Original failure replay, 2026-10-21 | Compiler with global-prelude repair `cbb07c6cf`; 16 exact IDs | 12 Success, 4 Bug |
+| Remaining-failure recheck | Four original IDs and ten nearby controls | Four failures retained; all ten controls pass |
 
-## Next work, in order
+[Complete baseline](test262-current.md) and [focused replay](failed-case-replay-20261021.md)
+bind exact pins, compiler fingerprints, executable hashes and commands. The
+canonical README chart still represents the complete pre-repair baseline.
+There has been no complete fixed-source campaign, so subtracting targeted fixes
+from published totals is not authorized.
 
-1. Reconcile the stopped run's exact closed inventories and source/artifact
-   hashes. Preserve its timeout and execute only the 64 uncompleted AF scopes
-   when continuing discovery; do not rerun completed tests to recreate receipts.
-2. Diagnose the timeout under its original request and budget, implement a
-   general repair if needed, and verify the coherent repair batch. Retain the
-   prior passing IDs and every literal red result.
-3. Complete fresh AF/default and final Cargo checks, ordinary release, original
-   230-case retention, real serial/shard/resume, and complete debug/optimized
-   campaigns and idle measurements at the admitted source.
-4. Run the two fresh full pinned families; generate backlog twice and compare
-   bytes, then use the native canonical publisher with its actual fake-suite
-   measurements. The old README generated publication stays historical until
-   current complete evidence authorizes replacement.
-5. Finish supported-host and calibrated performance obligations, resolve every
-   remaining semantic failure, and only then remove `CONTINUE.md` and `tasks/`.
+**User decision: keep all four original disagreements as failures.** The README
+lists reasons and [upstream tracking](../../test262/errata/proposals/upstream-status-20261021.md):
+arguments has an exact open issue/PR; Johnston has related open discussion;
+labelled functions have related discussion but no exact issue found in the search.
+Local amended-fixture and specification proposals are held. They do not change
+original results, and no report was posted upstream. The
+[resolution evidence](final-four-resolution-20261021.md) remains historical.
 
+## What the product can compile and run
 
-## Three disputed Test262 executions — reviewed corrections
+Scriptw compiles JavaScript through parsing, early errors, spec IR, lowering IR
+and Wasm code generation. Wasm-AOT is the default; the feature-gated interpreter
+is an engineering oracle. C/native JavaScript output and a REPL are out of scope.
 
-The same global-prelude candidate passes 24/27 focused original executions,
-retaining exactly the Annex B arguments failure and both Johnston/Honolulu
-timezone failures. Explicit versioned fixture corrections pass 27/27, including
-all twelve repaired global-property executions and retained controls. Seven
-preparation regressions and eleven pinned-provider offset samples also pass.
-Original vendor bytes, source pins, canonical full counts and chart are unchanged.
-This is focused amended-suite evidence, not unmodified upstream or full-suite
-acceptance. [Corrections, exact comparison and remaining specification gap](test262-errata-20261020.md).
+Verified representative programs include closures and private fields, object
+properties/Proxy/Reflect, collections, typed arrays/BigInt/Unicode/JSON, Promise
+jobs and generators, filesystem ES modules with top-level await, and selected
+Intl/Temporal operations. The CLI provides `print`; it does not supply Node or
+browser globals such as `console`.
 
+`run file.mjs` and `run --module file.js` use the Module goal. `build wasm file.js`
+compiles a Script and can emit a program/runtime Wasm pair through
+`SCRIPTW_WASM_DUMP`; a dedicated module-artifact build command is not exposed.
 
-## Final baseline failure inventory
+The ordinary default-feature release at `c5053c9d4` builds without the oracle.
+Three synchronous React 19.3.1 SSR outputs match Node; the public browser entry
+fails. [SSR evidence](react-ssr.md) and [local Wasmtime/V8 measurements](v8-baseline.md)
+are focused demonstrations, not full compatibility or calibrated T25 acceptance.
 
-The completed baseline retains all sixteen failures. Focused verification of
-the integrated compiler repair passes the twelve affected original executions.
-Three other executions pass with the explicit reviewed fixture corrections;
-the original suite still records their failures. One additional labelled-function
-staging execution remains open and is reproduced on the fixed candidate.
-Its thirteen isolated diagnostic calls give 10 pass/3 fail; V8 passes all 13.
-[Exact distinction, evidence and next work](annex-label-triage-20261020.md).
-No complete green integrated-source suite has been demonstrated.
+The host requires the [documented Wasm features and Scriptw imports](runtime-requirements.md).
+Portable Wasm does not bundle a parser/VM for general eval or Function constructors.
+Finite prepared sources and native-host compilation are distinct supported paths.
+Scope classification of Test262 dynamic-code cases remains unaudited.
+
+## Native verification and release gates
+
+The stopped pre-rename campaign at `cbf7cc71f` completed 49/113 scopes with
+7,560 passes, one failure and zero ignored tests. Sixty-four scopes remain
+uncompleted, including 2,094 expected native bodies and documentation tests.
+Its original failure is:
+
+`scriptw-test262:differential_generated_campaign::builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`
+
+The seed-0 array-buffer Wasm worker timed out at the original 5,000 ms deadline.
+The oracle completed. Its cause is unresolved; a diagnostic pass does not replace
+it. The failed executable and receipts remain in the
+[source-bound inventory](current-inventory-20261020.json).
+
+The old coordinators were absent after restoration. Their saved disk wait is
+historical, not a current capacity or live-process observation. Reconcile original
+receipts before continuing uncompleted scopes in a fresh namespace.
+
+At the earlier source, all ordinary library scopes and Engine Intl integration
+checks passed. Later renamed-release and tooling checks have separate receipts;
+none transfers an older full-suite result to the maintenance batch.
+
+Outstanding gates include:
+
+- Current-source all-feature/default native suites, final Cargo checks and
+  ordinary optimized release acceptance.
+- Original 230-case/prior 219-case retention and real serial/shard/resume checks.
+- Complete debug/optimized differential and robustness campaigns, idle samples,
+  supported-host reproducibility and calibrated T25 performance.
+- Two fresh complete current-pin Wasm-AOT families, deterministic backlog
+  generation and canonical publication with all non-successes visible.
+- Historical 5,365-failure replay: its original aggregate is absent from this
+  cloud checkout and was likely local/unpushed. Do not manufacture that input.
+
+## Task acceptance
+
+T00, T27, T28 and T29 remain recorded complete; T01–T25 remain in progress and
+T26 remains blocked. These are permanent technical areas, distinct from the
+maintenance hills. [Ownership](conformance-ownership.md) and
+[acceptance criteria](conformance-acceptance.md) are authoritative.
+
+Keep CONTINUE and tasks until every criterion passes. The decision to retain
+upstream failures documents their status; it does not establish a green suite
+or waive release acceptance. The [continuation queue](../../CONTINUE.md) records
+next actions without duplicating this inventory.

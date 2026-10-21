@@ -85,6 +85,6 @@ order	match_kind	old	canonical	policy	surface
 084	schema	attempt_journal_version=2;producer=lila	attempt_journal_version=2;producer=scriptw	fresh-on-mismatch	Test262 attempt journal
 085	schema	producer=lila	producer=scriptw	clean-break	Published Test262 status JSON
 086	path	test262/snapshots/**	test262/snapshots/**	read-only-legacy	Immutable version 4 and 5 evidence payloads
-087	literal	https://github.com/mewhhaha/porffor	https://github.com/mewhhaha/porffor	retained-external	Actual Git repository locator until external move
+087	literal	https://github.com/mewhhaha/porffor	https://github.com/mewhhaha/scriptw	retained-external	External repository move verified 2026-10-21; old URL redirects
 088	literal	porffor.dev	porffor.dev	retained-external	Actual DNS CNAME until external move
 089	literal	2107dfe9ad58c730e3d19b0cc1c73ed4390602f8	2107dfe9ad58c730e3d19b0cc1c73ed4390602f8	retained-history	Legacy recovery commit

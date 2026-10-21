@@ -8,8 +8,6 @@ license.workspace = true
 [dependencies]
 scriptw-runtime-image = { path = "../scriptw-runtime-image" }
 scriptw-aot-wasm = { path = "../scriptw-aot-wasm" }
-scriptw-backend-c = { path = "../scriptw-backend-c" }
-scriptw-backend-native = { path = "../scriptw-backend-native" }
 scriptw-front = { path = "../scriptw-front" }
 scriptw-ir = { path = "../scriptw-ir" }
 scriptw-intl = { path = "../scriptw-intl" }

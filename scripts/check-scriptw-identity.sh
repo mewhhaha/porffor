@@ -47,8 +47,6 @@ for required in \
   crates/scriptw-verification-feature-roots \
   crates/scriptw-spec-exec \
   crates/scriptw-aot-wasm \
-  crates/scriptw-backend-c \
-  crates/scriptw-backend-native \
   crates/scriptw-engine \
   crates/scriptw-test262 \
   crates/scriptw-cli \

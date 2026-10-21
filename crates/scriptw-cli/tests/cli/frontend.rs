@@ -15,6 +15,37 @@ fn help_lists_clean_break_commands() {
     assert!(stdout.contains("types [entrypoint]"));
     assert!(stdout.contains("test262 run"));
     assert!(stdout.contains("inspect"));
+    assert!(!stdout.contains("build c "));
+    assert!(!stdout.contains("build native "));
+    assert!(!stdout
+        .lines()
+        .any(|line| line.trim_start().starts_with("repl ")));
+}
+
+#[test]
+fn obsolete_product_commands_are_rejected_before_source_loading() {
+    for target in ["c", "native"] {
+        for profile in [None, Some("minimal"), Some("custom:selected")] {
+            let mut command = ProcessCommand::new(env!("CARGO_BIN_EXE_scriptw"));
+            if let Some(profile) = profile {
+                command.args(["--intl-profile", profile]);
+            }
+            let output = command
+                .args(["build", target, "missing-retired-target-source.js"])
+                .output()
+                .expect("unsupported target should report a command error");
+            assert!(!output.status.success());
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(&format!("unknown build target: {target}")));
+            assert!(!stderr.contains("missing-retired-target-source.js"));
+        }
+    }
+    let output = ProcessCommand::new(env!("CARGO_BIN_EXE_scriptw"))
+        .arg("repl")
+        .output()
+        .expect("retired REPL should report a command error");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unknown command: repl"));
 }
 
 #[test]

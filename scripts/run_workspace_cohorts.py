@@ -116,7 +116,7 @@ def main():
     parser.add_argument('--plan-only', action='store_true')
     parser.add_argument('--partition-native-target', action='append', default=[])
     parser.add_argument('--isolate-test-package', action='append', default=[])
-    parser.add_argument('--anchor', default='scriptw-backend-native:scriptw_backend_native')
+    parser.add_argument('--anchor', default='scriptw-runtime-image:scriptw_runtime_image')
     args = parser.parse_args()
     root = Path.cwd()
     out = args.output.resolve()

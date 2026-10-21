@@ -1,150 +1,39 @@
-# Continue Scriptw — current inventory, 2026-10-20
+# Continue Scriptw
 
-## Failed-case replay — 2026-10-21
+Start with the [current inventory](docs/rust-rewrite/current-inventory.md) for
+measured results, source identities and outstanding acceptance gates. Use the
+[batch workflow](docs/rust-rewrite/batch-workflow.md) for commands and resource
+policy. The [maintenance backlog](docs/maintenance-hills.md) tracks cleanup work.
 
-User decision: keep the four original cases as ordinary failing tests. The README
-lists their reasons and upstream tracking, distinguishing exact fixes from related
-discussions. Hold the local correction proposals; no further changes to clear
-these four conflicts are requested. They remain in the failure totals and do not
-establish a green suite or close the remaining acceptance gates.
+## Current batch
 
-An [upstream search](test262/errata/proposals/upstream-status-20261021.md)
-found the exact arguments issue #5113 and open fix PR #5112. Its proposed fixture
-passes a focused Wasm-AOT run; the original is a failing negative control.
-Do not file a duplicate report. Timezone #806 discusses Johnston but stays open;
-related merged timezone/Annex B PRs are already in the observed authorities and
-do not resolve the remaining cases. Current upstream test files remain unchanged.
+Implement and verify H001–H004, H011, H017, H024 and H091. Preserve original
+coverage and resource policy, then push verified progress to main. The remaining
+maintenance hills are candidates, not completed work.
 
-The [resolution package](docs/rust-rewrite/final-four-resolution-20261021.md)
-now has seven probes, four draft upstream patches and three report bodies.
-Accepted 2017 normative history confirms the arguments correction. Label probes
-agree across V8/SpiderMonkey/QuickJS but conflict with the pinned wording;
-timezone test/algorithm proposals also require disposition. Original native
-results remain four failures and ten passing controls. Applying only the
-arguments/timezone test proposals gives three passes and the original label
-failure. No compiler/specification change is adopted and no upstream report
-has been sent. Resolve authority before implementation and a fresh full campaign;
-do not repeat unchanged failed-case runs as a substitute for that resolution.
+## Decisions to retain
 
-All sixteen original failures were replayed: twelve pass on the original tests
-and four remain failing. With the explicit reviewed fixture amendments, including
-the labelled-function correction, the same sixteen IDs pass. The vendor tree,
-source pins and completed full baseline are unchanged. No full fixed-source
-suite pass is claimed. [Results and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md).
-A separate original-only recheck confirms all four still fail and ten adjacent
-controls pass. No compiler change or additional original failure fix is claimed;
-the README now lists the remaining disagreements explicitly.
-Keep this file/tasks until every acceptance criterion passes.
+- Keep the four original Test262 disagreements as ordinary failures with their
+  README explanations and [upstream tracking](test262/errata/proposals/upstream-status-20261021.md).
+  Hold local fixture/specification proposals; no upstream posting is authorized.
+- Wasm is the only product target. C/native output and a REPL are excluded.
+- Canonical Test262 publication stays at its complete measured baseline until
+  a new full original-suite campaign authorizes replacement.
+- Preserve original failed runs, compiler identities and immutable evidence.
+  A passing diagnostic retry does not replace a failed receipt.
+- Keep this file and tasks until every acceptance criterion passes.
 
-Start with [the current project inventory](docs/rust-rewrite/current-inventory.md)
-and its [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json).
-The durable [acceptance criteria](docs/rust-rewrite/conformance-acceptance.md)
-and [ownership registry](docs/rust-rewrite/conformance-ownership.md) remain authoritative.
+## Broader continuation after this batch
 
-## Latest scriptw release checkpoint
+1. Reconcile the stopped native campaign's receipts before re-admitting remaining
+   scopes in a fresh namespace. Saved coordinator state is not a running process.
+2. Diagnose the original-budget differential worker timeout with a general fix;
+   preserve its original request and failed executable.
+3. Finish current-source native/default/release, retention, real shard/resume,
+   differential, host reproducibility and calibrated performance gates.
+4. Complete the required original Test262 families and native publication. Keep
+   unresolved upstream failures visible; do not claim literal green acceptance.
 
-- Rename source `c5053c9d4` builds the ordinary opt3/default-feature CLI and
-  Wasmtime benchmark runner; the product dependency graph has no oracle.
-- All 634 tooling tests pass with no skips; 19 focused native codec/cache
-  tests and three Intl outputs pass. The same three React SSR outputs match
-  Node in this ordinary release build.
-- [Local cold/hot/execution versus V8 measurements](docs/rust-rewrite/v8-baseline.md)
-  are complete with [source-bound raw evidence](docs/rust-rewrite/v8-baseline-20261020.json).
-  This is not calibrated T25 or full-suite acceptance.
-- The [fresh full Test262 baseline](docs/rust-rewrite/test262-current.md) measured all 102,994 current-pin executions; the README chart uses its exact native publication.
-  Native workspace and release closure remain open; keep this file/tasks.
-
-## Pre-rename verified and published
-
-- Compiler source: `cbf7cc71f`; checkpoint/scheduling batch published at `5fa2e8432`.
-- 14 source audits, two shell negative controls and all 624 tooling tests pass.
-- All 12 ordinary library scopes pass 3,865 tests. Engine Intl299 also passes.
-- The current debug CLI runs six fresh examples through Wasm-AOT and emits a
-  real program/runtime Wasm pair. Wasm is the sole output target; C/native
-  output and a REPL are excluded goals, not unfinished work or release gates.
-- A separate [React SSR probe](docs/rust-rewrite/react-ssr.md) passes three
-  exact Node/HTML comparisons through Wasm-AOT using React 19.3.1's unmodified
-  synchronous renderer; the public browser entry fails. Its emitted Wasm pair
-  is hash-bound in the evidence. This adds no broad-suite or task closure.
-- Previous source `78593daf2` passed full AF9654 plus 11 docs. Those outcomes
-  belong to that source and are not current-source completion.
-
-## Current stop and failure
-
-The saved AF run completed 49/113 scopes: **7,560 pass, one fail, zero ignored**.
-There are 64 uncompleted scopes, including the remaining 2,094 expected native
-bodies and documentation tests. Default, final Cargo checks, 230 retention,
-real mechanics and full campaigns remain unstarted at this frozen source.
-The separate new ordinary release build above does not close those gates.
-
-Package names here use their current spelling; literal original execution IDs
-remain in the dated evidence.
-Failure: `scriptw-test262:differential_generated_campaign` /
-`builtin_scenarios_use_actual_selected_workers_for_all_six_stateful_families`.
-The `builtin-stateful-v1` seed-0 array-buffer Wasm worker timed out at the
-original 5,000 ms deadline. The oracle completed. Underlying cause is unresolved;
-preserve the failed executable, transcript, aggregate and original request.
-Do not replace it with a passing diagnostic replay.
-
-The previous machine stopped before cohort011 because of its disk reserve.
-After cloud restoration its old coordinator processes are absent, while the
-current disk observation has ample headroom. The old frozen-source verification
-coordinators remain stopped. Existing incomplete output directories are evidence,
-not restart targets.
-
-## Continue in this order
-
-1. Reconcile the original receipts and exact inventories at frozen compiler
-   source `cbf7cc71f`. Re-admit only the 64 uncompleted AF scopes in a fresh
-   continuation namespace; carry completed bodies through source/artifact proof.
-2. Diagnose and repair the retained original-budget worker timeout with a
-   general fix. Batch source changes before compilation, preserve all prior IDs,
-   then verify affected scopes and the required full checkpoint.
-3. Complete current-source AF/default and Cargo checks; ordinary opt3/non-oracle
-   release acceptance beyond the completed build, plus original230/prior219
-   retention; real serial/shard/resume;
-   complete debug and optimized T25 corpus/campaigns and idle measurements.
-4. Finish two fresh complete current-pin Wasm-AOT families, real semantic
-   failure burn-down, backlog generation twice, canonical publisher output,
-   historical5365 replay, host reproducibility and calibrated performance.
-5. Delete this file and `tasks/` only when every acceptance criterion passes.
-
-Use the repository's cloud resource wrapper and original worker/deadline/cache
-policies. Recorded task status remains T00/T27/T28/T29 complete, T01–T25 in
-progress, T26 blocked. The detailed inventory distinguishes implemented
-capabilities from verification and release acceptance.
-
-Earlier continuation notes remain in Git history. The [full prior AF proof](docs/rust-rewrite/full-af-checkpoint-20261020.json)
-and [focused current batch proof](docs/rust-rewrite/checkpoint-batch-focused-20261020.json)
-remain unchanged.
-
-
-## Canonical global-property repair after the baseline — 2026-10-20
-
-The prelude bootstrap repair passes all ten original global-reflection failures,
-four retained controls and all 742 IR integration tests in the isolated build.
-[Exact validation and remaining acceptance](docs/rust-rewrite/global-prelude-hosts-fix-20261020.md).
-Keep the original full baseline and its raw failures. Run the complete fixed
-compiler suite before claiming full conformance or deleting this file/tasks.
-
-
-## Reviewed Test262 fixture corrections — 2026-10-20
-
-All three disputed cases pass with explicit, hash-bound corrections; the same
-27-ID cohort is 24/27 on originals and 27/27 amended. The twelve global-property
-repairs remain green. Original vendor/pins/full results are preserved, and the
-Johnston backzone-Zone specification gap is still explicit. Do not count this
-as full upstream Test262 acceptance or delete continuation/tasks.
-[Exact proof and reproduction](docs/rust-rewrite/test262-errata-20261020.md).
-
-
-## Final original-pin failures — 2026-10-20
-
-The full baseline completed 102,994 executions: 102,978 pass, 16 Bug, 0 Crash,
-0 NotImplemented. The integrated global-prelude repair passes all 12 affected
-original executions in focused verification. Three explicit test corrections
-pass in the separate 27/27 cohort. The additional labelled-function staging
-test remains open; its 13 independent diagnostic calls expose three disputed
-expectations. [Evidence and next steps](docs/rust-rewrite/annex-label-triage-20261020.md).
-Resolve that case before a fresh full integrated-source campaign. Original
-failures, pins and chart remain intact; keep this file/tasks until acceptance.
+Exact outstanding gates and the missing historical replay input are recorded in
+[the inventory](docs/rust-rewrite/current-inventory.md) and
+[acceptance criteria](docs/rust-rewrite/conformance-acceptance.md).

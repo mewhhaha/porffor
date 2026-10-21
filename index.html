@@ -79,12 +79,12 @@
 <body>
   <main>
     <h1 class="wordmark">scriptw</h1>
-    <p class="former">Swedish for purple. Formerly Porffor.</p>
+    <p class="former">Formerly Porffor.</p>
 
     <p>
-      Scriptw is a greenfield Rust compiler that translates JavaScript directly to
-      WebAssembly ahead of time. It is an ambitious research project, not yet a
-      general-purpose JavaScript runtime.
+      Scriptw is an experimental JavaScript-to-WebAssembly compiler written in Rust.
+      Compile JavaScript and its builtins to Wasm, run it through Wasmtime, or
+      embed it in a Rust application. WebAssembly is the sole output target.
     </p>
 
     <h2>Architecture</h2>
@@ -95,15 +95,15 @@
     </p>
 
     <h2>Build and run</h2>
-    <pre><code>git clone https://github.com/mewhhaha/porffor.git
+    <pre><code>git clone https://github.com/mewhhaha/scriptw.git
 cd scriptw
 ./scripts/dev.sh build
 ./target/debug/scriptw run program.js</code></pre>
 
     <p>
-      Read the <a href="https://github.com/mewhhaha/porffor#readme">README and
+      Read the <a href="https://github.com/mewhhaha/scriptw#readme">README and
       current conformance status</a>, or
-      <a href="https://github.com/mewhhaha/porffor">browse the source</a>.
+      <a href="https://github.com/mewhhaha/scriptw">browse the source</a>.
     </p>
   </main>
 </body>

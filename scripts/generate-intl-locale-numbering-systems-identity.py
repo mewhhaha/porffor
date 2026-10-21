@@ -52,6 +52,9 @@ HELPERS.extend([
     'scripts/generate-intl-locale-numbering-systems-identity.py',
     'scripts/intl_numberformat_profile/generate_payload.py',
     'scripts/intl_numberformat_profile/profile_schema.py',
+    'scripts/generate-intl-numberformat-profile.py',
+    'scripts/intl_numberformat_profile/cldr_resolver.py',
+    'scripts/intl_ldml_schema.py',
     'scripts/intl_positional_numbering.py',
 ])
 DATA = Path('crates/scriptw-intl/data/number-cldr-47')

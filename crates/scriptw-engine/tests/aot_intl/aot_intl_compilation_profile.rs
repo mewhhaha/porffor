@@ -893,8 +893,6 @@ fn custom_compilation_rejects_backends_that_cannot_consume_the_selection() {
     let options = custom_options("unsupported-backend");
     let unit = engine.compile_script("262;", options.clone()).unwrap();
     for error in [
-        engine.emit_c(&unit).unwrap_err(),
-        engine.emit_native(&unit, None).unwrap_err(),
         engine
             .run_compiled_unit(
                 &unit,
@@ -979,11 +977,6 @@ fn actual_list_projection_emits_a_smaller_selected_graph_and_keeps_duration_depe
     let unit = engine.compile_script(source, options.clone()).unwrap();
     let artifact = engine.emit_wasm(&unit).unwrap();
     assert_selected_sections(&artifact, &profile);
-    assert!(engine
-        .emit_c(&unit)
-        .unwrap_err()
-        .to_string()
-        .contains("use Wasm AOT"));
     assert!(engine
         .run_compiled_unit(
             &unit,
@@ -1188,11 +1181,6 @@ fn independent_relative_and_combined_projections_emit_exact_rows_and_remint_sele
         let unit = engine.compile_script(source, options.clone()).unwrap();
         let artifact = engine.emit_wasm(&unit).unwrap();
         assert_selected_sections(&artifact, &profile);
-        assert!(engine
-            .emit_c(&unit)
-            .unwrap_err()
-            .to_string()
-            .contains("custom Intl projection"));
         assert!(engine
             .observe_script(
                 source,

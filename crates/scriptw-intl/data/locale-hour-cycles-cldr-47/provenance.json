@@ -32,14 +32,14 @@
     "profile_sha256": "0f3b05c2da0fc33d4b89869a9b8e294e0250909a8119e470824865ce923372a6",
     "sources": [
       {
-        "bytes": 76508,
+        "bytes": 76221,
         "path": "Cargo.lock",
-        "sha256": "49cb002cbba03e2d6760c7df5bc39c517227453cdb77cd708acf1da7e271580f"
+        "sha256": "c9dce727cdb6c6018c3eba806f16cbbcecd8c68ee9879b7853e13a264e9f2c49"
       },
       {
-        "bytes": 6180,
+        "bytes": 5887,
         "path": "Cargo.toml",
-        "sha256": "4f124b55f302cd8c531d1667c956734b88eab314aaea633d397989162e33bf7f"
+        "sha256": "7b37da23bedc1f32ca198fba6d88ca61b1fd533aa653e26e46b0c3c13898006f"
       },
       {
         "bytes": 81271,
@@ -74,7 +74,7 @@
       {
         "bytes": 31947,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "7fc0f75fcdf9f72b690d9173f5cc638ba35890d4f8da8c1b2c148d4aa8a68b6c"
+        "sha256": "9dfa3330b8173338278caed4b7a65d2890aa5d40cd29e90cb3ac5b11f33e679c"
       },
       {
         "bytes": 34690,
@@ -149,7 +149,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "f347c2ef6e4061bba780203fddf4165822f3b48f354b0e880eeb840c67b1f7a7"
+        "sha256": "abc9d651f14d5a107c3542fca2de13960bd392d98a578f222727fe6592386c76"
       },
       {
         "bytes": 3906,
@@ -268,7 +268,7 @@
       }
     ]
   },
-  "kernel_sha256": "17b931829ae2c6dc7da3ef2d04881e132779efe1dbbaaa1117310cf5546448e7",
+  "kernel_sha256": "73b576b3a2e5a12e82b904e491cd7670da71a9a19c0dba92c1f8dafecd0999c5",
   "language_region_selector_count": 23,
   "normative_source": "https://tc39.es/ecma402/#sec-hourcyclesoflocale",
   "ordering": "allowed preference order; stable uniqueness after projection; never prepend preferred",

@@ -6771,7 +6771,7 @@ done
 for intl_locale_factory in ListDataImage RelativeTimeDataImage DisplayNamesDataImage DurationDataImage NumberProfilesDataImage DateTimeDataImage CollatorDataImage SegmenterDataImage; do
   require_fixed_string_present "$intl_selection" "${intl_locale_factory}::for_custom_projection(" 'selected bundle consumes the actual component producer'
 done
-require_fixed_string_count crates/scriptw-engine/src/lib.rs 'const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"scriptw-program-wasm-cache-key-v19";' 1 'current component/data/service/language-policy cache framing domain'
+require_fixed_string_count crates/scriptw-engine/src/lib.rs 'const PROGRAM_WASM_CACHE_KEY_DOMAIN: &[u8] = b"scriptw-program-wasm-cache-key-v20";' 1 'current component/data/service/language-policy cache framing domain'
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'hash.update(PROGRAM_WASM_CACHE_KEY_DOMAIN);' 1 'actual cache consumes its single declared framing domain'
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'hash.update(options.language_features.wire_code().to_le_bytes());' 1 'actual cache consumes the complete typed language policy'
 require_fixed_string_count crates/scriptw-engine/src/lib.rs 'fn hash_optional_program_cache_locales(' 1 'presence/count/length-framed component locale owner'

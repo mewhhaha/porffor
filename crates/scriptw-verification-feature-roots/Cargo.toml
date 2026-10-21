@@ -18,8 +18,6 @@ scriptw-runtime = { path = "../scriptw-runtime" }
 scriptw-runtime-image = { path = "../scriptw-runtime-image" }
 scriptw-spec-exec = { path = "../scriptw-spec-exec" }
 scriptw-aot-wasm = { path = "../scriptw-aot-wasm" }
-scriptw-backend-c = { path = "../scriptw-backend-c" }
-scriptw-backend-native = { path = "../scriptw-backend-native" }
 scriptw-engine = { path = "../scriptw-engine" }
 scriptw-cli = { path = "../scriptw-cli" }
 scriptw-test262 = { path = "../scriptw-test262" }
