@@ -1,5 +1,12 @@
 # Remaining labelled-function case — 2026-10-20
 
+Update, 2026-10-21: the [targeted replay](failed-case-replay-20261021.md)
+verifies an explicit, hash-bound correction for this fixture. Positive in-scope
+initialization and negative out-of-scope access checks both pass. All sixteen
+previous failures pass on the amended fixtures; four original tests still fail.
+The original staging/specification disagreement and V8 difference remain recorded.
+The analysis below describes the original test, not the corrected fixture.
+
 The completed original-pin baseline is **102,978/102,994 passing**, with
 16 bugs, zero crashes and zero unimplemented executions. The global-prelude
 compiler repair passes all twelve affected original executions in focused

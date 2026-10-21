@@ -28,6 +28,12 @@ policy. These small workloads are a local baseline.
 
 ## Tests
 
+**Failed-case replay, 2026-10-21:** retested all 16 failures on the fixed compiler.
+Original upstream executions: **12 passed, 4 failed**. With explicit reviewed fixture
+corrections: **16 passed, 0 failed**. The four original test/specification conflicts
+remain recorded. This was a targeted rerun; the chart below retains the complete
+pre-fix baseline. [Results, corrections and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md).
+
 <!-- scriptw-test-graph:start -->
 ![Test262: 102,978 passing, 16 failing, 0 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)
 
@@ -46,7 +52,7 @@ above remain unchanged. [Scope details](docs/rust-rewrite/runtime-requirements.m
 
 - **Conformance is incomplete.** The chart identifies its measured compiler
   and complete pinned suite. [Current verification and remaining work](docs/rust-rewrite/current-inventory.md).
-  [Verified repairs and the remaining labelled-function case](docs/rust-rewrite/annex-label-triage-20261020.md).
+  [Verified repairs and original-test conflicts](docs/rust-rewrite/failed-case-replay-20261021.md).
 - **Dynamic code generation is limited.** Prepared `eval` / `new Function`
   sources can run; the native host can compile additional supported sources.
   Standalone Wasm does not contain a parser or provide general runtime `eval`.

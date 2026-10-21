@@ -1,0 +1,201 @@
+{
+  "schema": "scriptw-all-prior-failures-replay-v1",
+  "date": "2026-10-21",
+  "complete": true,
+  "scope": "Exactly all16 failures from the completed original-pin full baseline; not a fresh full campaign.",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+    "source_revision": {
+      "kind": "unversioned-archive"
+    },
+    "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+  },
+  "source_equivalence": {
+    "schema": "scriptw-failed-execution-replay-preparation-v1",
+    "base_commit": "a5b7bd99480db3cf6661469b573d3419c23244fa",
+    "compiler_identity": {
+      "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+      "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+      "source_revision": {
+        "kind": "unversioned-archive"
+      },
+      "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+    },
+    "compiler_rust_source_equivalent_to_main": true,
+    "same_rust_and_crate_manifest_files": 2581,
+    "same_lockfile_and_toolchain": true,
+    "root_manifest_difference": "Only patch dependency paths differ lexically; each resolves to the same unchanged vendor source.",
+    "original_backlog_sha256": "b58e67e4f57150156f47f291d764a6af3b7684826e7c10618ef82442ff732f6a",
+    "original_baseline_total": 102994,
+    "original_baseline_passed": 102978,
+    "original_baseline_failed": 16,
+    "failed_execution_ids": [
+      "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "sloppy-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "sloppy-script:built-ins/parseFloat/prop-desc.js",
+      "sloppy-script:built-ins/parseInt/prop-desc.js",
+      "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+      "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+      "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+      "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+      "strict-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+      "strict-script:built-ins/parseFloat/prop-desc.js",
+      "strict-script:built-ins/parseInt/prop-desc.js",
+      "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+      "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js"
+    ],
+    "original_vendor_changed": false,
+    "full_fixed_source_suite_verified": false
+  },
+  "original_fixture_replay": {
+    "exit_code": 1,
+    "total": 16,
+    "passed": 12,
+    "failed": 4,
+    "counts_per_outcome": {
+      "Bug": 4,
+      "Crash": 0,
+      "NotImplemented": 0,
+      "Success": 12
+    },
+    "failures": [
+      {
+        "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true",
+        "detail_hash": 10162307294149082881,
+        "duration_ms": 829
+      },
+      {
+        "test_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+        "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+        "detail_hash": 7555442764907322715,
+        "duration_ms": 1089
+      },
+      {
+        "test_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+        "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+        "detail_hash": 7555442764907322715,
+        "duration_ms": 1079
+      },
+      {
+        "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+        "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+        "kind": "Runtime",
+        "outcome": "Bug",
+        "origin": "unknown",
+        "detail": "[origin:unknown] uncaught throw: ReferenceError: wasm-aot completion: object: unbound identifier",
+        "detail_hash": 17421951291840835756,
+        "duration_ms": 1487
+      }
+    ],
+    "native_snapshot": "original-snapshots/all-original-failures-20261021-4712151167278136413.json",
+    "sha256": "522049577883da617a0993cafb269eb1316404055cebb1e29b0b84ae422f5a3b"
+  },
+  "explicit_errata_replay": {
+    "exit_code": 0,
+    "total": 16,
+    "passed": 16,
+    "failed": 0,
+    "counts_per_outcome": {
+      "Bug": 0,
+      "Crash": 0,
+      "NotImplemented": 0,
+      "Success": 16
+    },
+    "native_snapshot": "amended-snapshots/all-failures-reviewed-errata-20261021-6812716523816500668.json",
+    "sha256": "8e7dd9b3a78324a47eaaaf7ab4814cf3854d3333a20bda5afd2a46c746aef212",
+    "upstream_unmodified": false,
+    "amended_tree": "e1470eeee8d924c3db723090a5402502088dc10c",
+    "errata_manifest_sha256": "1fac86bb6f49f60db1e7b7494e32f4ab20b56a2922c5a0c54af7f36258e6ab05"
+  },
+  "failed_execution_ids": [
+    "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+    "sloppy-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+    "sloppy-script:built-ins/parseFloat/prop-desc.js",
+    "sloppy-script:built-ins/parseInt/prop-desc.js",
+    "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+    "sloppy-script:language/expressions/property-accessors/S11.2.1_A4_T1.js",
+    "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-5.js",
+    "strict-script:built-ins/Object/getOwnPropertyDescriptor/15.2.3.3-4-6.js",
+    "strict-script:built-ins/Object/getOwnPropertyNames/15.2.3.4-4-1.js",
+    "strict-script:built-ins/parseFloat/prop-desc.js",
+    "strict-script:built-ins/parseInt/prop-desc.js",
+    "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+    "strict-script:language/expressions/property-accessors/S11.2.1_A4_T1.js"
+  ],
+  "tooling_checks": {
+    "prepare-tooling-tests.log": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "sha256": "4fea2bc0a00fa67269574cda89363e8ae10175d5c1de852a06475bce4716c195"
+    },
+    "graph-tooling-tests.log": {
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "sha256": "25d2caaaf9dfbc0f44de268a862d5aab110e69f8ca337cb4629547ebe1fb293c"
+    }
+  },
+  "label_call_group_checks": {
+    "original_groups": 13,
+    "amended_groups": 13,
+    "changed_groups": [
+      4,
+      5,
+      13
+    ],
+    "unchanged_groups": 10,
+    "strict_mode_check_helpers_unchanged": true
+  },
+  "v8_label_differential": {
+    "node": "v24.19.0",
+    "v8": "13.6.233.17-node.51",
+    "cases": [
+      {
+        "kind": "original",
+        "outcome": "Success"
+      },
+      {
+        "kind": "explicit-erratum",
+        "outcome": "Failure",
+        "detail": "Test262Error: Expected a ReferenceError to be thrown but no exception was thrown at all"
+      }
+    ],
+    "interpretation": "Differential observation only. This erratum follows the pinned static-semantics rules and deliberately records the V8 disagreement."
+  },
+  "canonical_baseline_unchanged": {
+    "test262/snapshots/published-status-wasm-aot.json": "ee9814828afc2dea281091ea780767b02fdb5896d47f8a629306d2d8f9c1c079",
+    "test262/snapshots/published-status-wasm-aot.txt": "a8263816d0122f73004dee9820b91f8034136d544fb247260e9aac2f7a0f92c6",
+    "docs/rust-rewrite/assets/test262-status.svg": "b44b1913395fb7ac317ae306856c55a719503e94d3c9afc4296dbbf5dce1f736",
+    "crates/scriptw-test262/src/source-pins.json": "ab47a6da190c07bc54ac2cc752580345f89fce9c31b739e7987be78b5ffea480"
+  },
+  "original_vendor_unchanged": true,
+  "unmodified_upstream_all_green": false,
+  "full_fixed_source_suite_verified": false,
+  "raw_commands_member": "commands.json",
+  "source_equivalence_inputs_member": "source-equivalence-inputs.json",
+  "evidence_archive": "test262/snapshots/failed-case-replay-20261021.tar.gz",
+  "evidence_archive_sha256": "97185430f564f778b93e3716a9df7c4880269807cfb5e761410ce34fdbfa7c60",
+  "evidence_archive_members": 42,
+  "archive_round_trip_verified": true
+}

@@ -1,5 +1,13 @@
 # Current implementation and remaining work — 2026-10-20
 
+## Failed-case replay — 2026-10-21
+
+All sixteen original failures were retested on the fixed compiler: twelve
+original executions pass and four fail. The same sixteen IDs pass with explicit
+reviewed fixture amendments, including the labelled-function correction.
+The four original expectation conflicts remain visible; no complete fixed-source
+suite pass is claimed. [Exact comparison and reproduction](failed-case-replay-20261021.md).
+
 ## Canonical global-property repair after the baseline
 
 The source now retains unreferenced `parseInt`/`parseFloat` globals across a

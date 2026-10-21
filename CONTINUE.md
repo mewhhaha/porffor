@@ -1,5 +1,14 @@
 # Continue Scriptw — current inventory, 2026-10-20
 
+## Failed-case replay — 2026-10-21
+
+All sixteen original failures were replayed: twelve pass on the original tests
+and four remain failing. With the explicit reviewed fixture amendments, including
+the labelled-function correction, the same sixteen IDs pass. The vendor tree,
+source pins and completed full baseline are unchanged. No full fixed-source
+suite pass is claimed. [Results and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md).
+Keep this file/tasks until every acceptance criterion passes.
+
 Start with [the current project inventory](docs/rust-rewrite/current-inventory.md)
 and its [source-bound evidence](docs/rust-rewrite/current-inventory-20261020.json).
 The durable [acceptance criteria](docs/rust-rewrite/conformance-acceptance.md)

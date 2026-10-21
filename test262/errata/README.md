@@ -1,7 +1,7 @@
 # Explicit Test262 corrections
 
-These are locally reviewed amendments to two upstream fixtures, affecting
-three execution IDs. They are **not unmodified upstream Test262**. The vendor
+These are locally reviewed amendments to three upstream fixtures, affecting
+four execution IDs. They are **not unmodified upstream Test262**. The vendor
 tree, embedded source pins, original failures and canonical chart stay intact.
 There are no skipped tests or expected-failure rules.
 
@@ -21,6 +21,14 @@ sources. Each replacement retains its upstream test path and license.
   This does not settle the abstract algorithm's backzone edge: it expects a
   Link where the pinned data has a Zone. The provider's self-primary policy
   remains documented, rather than presented as an explicit normative branch.
+- The pending labelled-function staging test expects recursive block-labelled
+  declarations and outer copies under labels. The pinned rules distinguish a
+  direct labelled function's lexical scope from a label chain and from Annex B's
+  direct-declaration outer-copy candidates. The amendment preserves all thirteen
+  call groups and strict-mode syntax checks. Positive calls before and after
+  a direct labelled declaration must succeed inside its scope; out-of-scope
+  accesses must throw `ReferenceError`. A block label chain contributes no binding.
+  V8's different behavior remains explicitly recorded in the comparison.
 
 Check the base and replacement hashes without writing:
 
@@ -42,10 +50,13 @@ never rewritten; the stock source-pin check must reject the amended tree.
 Use a distinct snapshot family and retain the preparation receipt with results.
 Do not use amended snapshots to replace the canonical stock baseline or chart.
 
-The [focused comparison](../../docs/rust-rewrite/test262-errata-20261020.md)
-records the same 27 execution IDs on the same immutable compiler: 24 pass and
-the three disputed originals fail; all 27 pass with these explicit corrections.
-This is focused validation, not a complete amended or unmodified-suite claim.
+The [2026-10-21 failed-case replay](../../docs/rust-rewrite/failed-case-replay-20261021.md)
+retests all sixteen failures from the completed baseline: twelve original executions
+pass and four fail; all sixteen pass with the current explicit corrections.
+The [earlier 27-case comparison](../../docs/rust-rewrite/test262-errata-20261020.md)
+covered the first two corrected fixtures, before adding the labelled-function
+amendment. These are focused results, not complete amended or unmodified-suite
+verification. The original four failures remain in unamended runs.
 A separate provider-specific [offset probe](controls/johnston-offsets.js) also
 passes all eleven original epoch/dated samples against the pinned shared
 Johnston/Honolulu data, while preserving both requested names. This probe is

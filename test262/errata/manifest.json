@@ -12,7 +12,14 @@
       "revision": "5345883164f463e87f8b40aca4956157ecba8783",
       "url": "https://raw.githubusercontent.com/tc39/ecma262/5345883164f463e87f8b40aca4956157ecba8783/spec.html",
       "sha256": "5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d",
-      "section": "FunctionDeclarationInstantiation, including Annex B steps"
+      "section": "FunctionDeclarationInstantiation, including Annex B steps",
+      "additional_sections": [
+        "sec-static-semantics-lexicallyscopeddeclarations",
+        "sec-blockdeclarationinstantiation",
+        "sec-functiondeclarationinstantiation",
+        "sec-evaldeclarationinstantiation",
+        "sec-static-semantics-toplevelvarscopeddeclarations"
+      ]
     },
     {
       "id": "ecma402-observed",
@@ -46,6 +53,17 @@
         "strict-script"
       ],
       "owner": "T24 conformance / Test262 errata"
+    },
+    {
+      "path": "test/staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "replacement": "replacements/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "original_sha256": "e83a619b18b157554843984709f7754866101b0bd8f8e9524c3424ee934ffc0a",
+      "replacement_sha256": "42939fd1eabee0db8636edc6f0c88a4bf31afc469619cb01c99dd06014f334ab",
+      "reason": "The pending SpiderMonkey fixture expects recursive block-labelled lexical declarations and outer copies under labels. The pinned LexicallyScopedDeclarations and Annex B direct-declaration rules distinguish these cases. Preserve all13 original expect* calls, syntax checks and modes; explicitly test ReferenceError before/after a chained block label, direct-label initialization before/after evaluation inside its scope, and ReferenceError only after leaving a direct-labelled block/CaseBlock. The original fixture and V8 disagreement remain retained in evidence.",
+      "execution_modes": [
+        "sloppy-script"
+      ],
+      "owner": "T24 Annex B / T07 static declarations / T03 conformance errata"
     }
   ]
 }
