@@ -7,6 +7,9 @@ authorized maintenance inventory to **100 of 100 complete**. The
 verification and earlier failures. Published Test262 totals and broader
 default/release acceptance remain separate.
 
+Implementation commit: `f5b081dc90ef20fb1934486527998664baac4ce9`. The evidence-binding follow-up changes
+only this record and its JSON metadata.
+
 ## Compiler and frontend
 
 H061/H069/H085/H086 move existing frontend, IR, AOT and engine tests into child

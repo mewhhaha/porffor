@@ -6116,7 +6116,7 @@
       },
       "docs/rust-rewrite/maintenance-compiler-intl-wave-20261021.md": {
         "before_sha256": "29dde9f0843e144de4fb8248f96a0f3d3d00b384c7647b1a8b0451c97b4c101d",
-        "after_sha256": "7acd65b330154ec60c292d4b329be8b9f12547282cbd07a8f21a1785d0e2a779"
+        "after_sha256": "06f2fc67be6232b44bc91dc360c02f054d49ca8b5df24c26e2928276654c2197"
       }
     },
     "changed_tooling_files": {
@@ -6146,7 +6146,9 @@
       }
     },
     "new_evidence_document": "docs/rust-rewrite/maintenance-compiler-intl-wave-20261021.json",
-    "unchanged_other_modified_or_untracked_files": 121
+    "unchanged_other_modified_or_untracked_files": 121,
+    "implementation_commit": "f5b081dc90ef20fb1934486527998664baac4ce9",
+    "evidence_binding_followup": "Documentation and JSON metadata only; verification receipts retain their original source identities."
   },
   "tooling_previous_checkpoint": {
     "tests": 682,
@@ -6270,5 +6272,6 @@
       "new_maintenance_guard_controls": 3
     },
     "native_product_and_test_sources_unchanged": true
-  }
+  },
+  "implementation_commit": "f5b081dc90ef20fb1934486527998664baac4ce9"
 }
