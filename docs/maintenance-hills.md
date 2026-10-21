@@ -190,7 +190,7 @@ H045–H090 and H092–H100 remain queued; all are authorized.
 
 ## CLI and reporting wave
 
-H036–H044 are complete in this change. Their [verification record](rust-rewrite/maintenance-cli-wave-20261021.md)
+H036–H044 are complete in `59dae70cf`. Their [verification record](rust-rewrite/maintenance-cli-wave-20261021.md)
 and [bounded evidence](rust-rewrite/maintenance-cli-wave-20261021.json) preserve the
 original full selected checkpoint and corrected 478 library, 89 CLI unit and
 14 affected command passes. This wave depends on the tooling wave, changes the

@@ -457,5 +457,6 @@
     "No original Test262 fixture, deadline, outcome classification or canonical published total changed.",
     "Completion documentation is added after frozen native checkpoints.",
     "The initial missing SCRIPTW_TEST_CODEGEN_JOBS preflight and first outdated Intl guard/unsupported identity-driver flag attempts are retained locally; successful checks use the documented commands."
-  ]
+  ],
+  "implementation_commit": "59dae70cfe51256eb119cd811e09c411606392e8"
 }

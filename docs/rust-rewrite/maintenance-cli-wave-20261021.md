@@ -1,6 +1,6 @@
 # CLI and report maintenance — 2026-10-21
 
-H036–H044 are complete. This nine-hill wave starts at `b996eb721` and brings
+H036–H044 are complete in `59dae70cf`. This nine-hill wave starts at `b996eb721` and brings
 the maintenance backlog to 45 completed hills. The [bounded evidence](maintenance-cli-wave-20261021.json)
 records source hashes, commands, executable identities, original failures and
 their corrected reruns. It does not change published conformance totals.
