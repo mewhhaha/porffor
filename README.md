@@ -6,28 +6,38 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-20 at compiler source `c5053c9d4`. Medians of seven samples;
+Measured on 2026-10-21 at compiler source `cbbd9b170`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,221.570 ms | 32.789 ms |
-| Cached start | 920.607 ms | 35.565 ms |
-| Execute: 10,000 integer steps | 17.020 ms | 2.400 ms |
-| Execute: 500 objects | 44.490 ms | 0.044 ms |
+| Cold start | 1,117.891 ms | 31.094 ms |
+| Cached start | 938.986 ms | 36.474 ms |
+| Execute: 10,000 integer steps | 19.393 ms | 2.584 ms |
+| Execute: 500 objects | 51.342 ms | 0.061 ms |
+| Execute: 8,192 retained objects | 2,118.118 ms | 3.575 ms |
+
+| Peak process RSS | scriptw / Wasmtime | Node / V8 |
+| --- | ---: | ---: |
+| Cold start (median) | 384.16 MiB | 27.12 MiB |
+| Cached start (median) | 350.95 MiB | 27.12 MiB |
+| Retained-object run (one process) | 558.05 MiB | 53.12 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
 
 Cold and cached starts use fresh processes with empty or populated application
 caches; the shared runtime is precompiled and the OS cache is not flushed.
-Execution reuses compiled code with a fresh Wasmtime Store or V8 context.
+Execution reuses compiled code with a fresh Wasmtime Store or V8 context after
+ten warmups. Process RSS includes host/runtime overhead; the retained-object
+peak also includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; Wasmtime program modules use its normal Fast
 policy. These small workloads are a local baseline.
-[Methodology, ranges, raw samples and reproduction](docs/rust-rewrite/v8-baseline.md).
+[Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
 The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-and-memory-tooling)
-also measures memory, runtime phases and code size, with selected-workload and
-before/after comparisons for optimization.
+also records memory, runtime phases and code size, with selected-workload and
+before/after comparisons. A selected three-sample integer run takes about three
+seconds with the checked execution cache already populated.
 
 ## Tests
 

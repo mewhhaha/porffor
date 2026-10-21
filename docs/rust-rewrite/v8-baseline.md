@@ -1,5 +1,96 @@
 # Local Wasmtime versus V8 baseline
 
+## Performance and memory baseline — 2026-10-21
+
+Measured source: `cbbd9b17039c595d470b5bc140b4ab7a1f2beea9`. Ordinary default-feature opt3 release;
+seven measured observations per timing cell after ten execution warmups.
+Both runtimes used one pinned CPU on the AMD EPYC 9V74 cloud machine, with a
+32 GiB memory limit and four-CPU quota. Linux 6.18.55 x86_64 / glibc 2.41;
+Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
+
+| Measurement | scriptw / Wasmtime median | Node / V8 median |
+| --- | ---: | ---: |
+| Cold start | 1,117.891 ms | 31.094 ms |
+| Cached start | 938.986 ms | 36.474 ms |
+| Execute: 10,000 integer steps | 19.393 ms | 2.584 ms |
+| Execute: 500 objects | 51.342 ms | 0.061 ms |
+| Execute: 8,192 retained objects | 2,118.118 ms | 3.575 ms |
+
+| Whole-child high-water RSS | scriptw / Wasmtime | Node / V8 |
+| --- | ---: | ---: |
+| Cold start (median) | 384.16 MiB | 27.12 MiB |
+| Cached start (median) | 350.95 MiB | 27.12 MiB |
+| Retained-object run (one process) | 558.05 MiB | 53.12 MiB |
+
+Every checksum matched. Every measured Wasmtime execution hit the native module
+cache, and startup priming confirmed admission of the embedded precompiled
+runtime. Wasmtime uses a fresh Store; V8 uses a fresh context. Source compilation
+and Store/context setup are outside the execution timer. The execution cache
+was conditioned before this run; cold application startup caches remain unique
+and empty. OS caches are not flushed.
+
+[Source-bound evidence](performance-memory-baseline-20261021.json) contains the
+full report, every warmup and measured observation, all child logs, workload and
+emitted Wasm bytes, Cargo producers/build log, harness bytes, machine limits and
+validation logs. Assets use deterministic gzip+base64 with original and compressed
+SHA-256. Executable ELF images and private caches are excluded; actual executable
+hashes and producer records remain in the reports.
+
+Whole-child peaks include compilation, warmups, caches and host work. During the
+retained-object invocations, Wasmtime's median sampled process RSS maximum was
+**441.69 MiB**; V8's median process RSS endpoint was
+**48.88 MiB**. A sampled maximum and an endpoint have different boundaries.
+Wasmtime GC heap capacity was **64 MiB**, while V8 process-wide used heap was
+**12.87 MiB**; those are different metrics, not comparable live JS heap sizes.
+The runner explicitly reports unavailable Wasmtime live-byte, allocation and
+collection/pause counters rather than inventing them.
+
+The complete run took **59.6 seconds**. Two matched three-sample/three-warmup
+integer runs took **3.0 and 3.2 seconds** after the initial **39.1-second**
+execution-cache conditioning report. Offline comparison and publication
+round-trip validation pass. The matched pair uses the same compiler source:
+it demonstrates the short iteration workflow and observed variation, not an
+optimization gain. The 8,192-object workload, at about 2.12 seconds per invocation,
+is the largest absolute execution-time target in this small corpus.
+
+Validation includes the completed release build, 13 standalone Rust fingerprint
+controls, final module-boundary checks and three source-guard mutation controls.
+The full 703-test tooling checkpoint predates the build-coherence guard; its exact
+source and logs are retained alongside the subsequent focused controls. These
+measurements do not establish full native, Test262 or calibrated T25 acceptance.
+
+The initial `target/performance-memory-baseline-20261021` run remains a diagnostic,
+not this healthy baseline. A shared Cargo target had reused an old custom-build
+executable with a stale compiler-input inventory, rejecting the embedded runtime
+and recompiling it at cold startup. Rebuilding only that custom-build executable
+restored source/image identity. Current build scripts attest their fingerprint
+implementation against the checkout. Earlier process RSS accounting could also
+inherit the Python launcher's high-water floor; the current runner uses a small
+GNU time supervisor to measure the actual runtime child.
+
+To unpack and verify the published assets for offline report comparison:
+
+```sh
+python3 - <<'PY'
+import base64, gzip, hashlib, json
+from pathlib import Path
+bundle = json.loads(Path('docs/rust-rewrite/performance-memory-baseline-20261021.json').read_text())
+root = Path('target/performance-evidence-20261021')
+root.mkdir(parents=True, exist_ok=False)
+for asset in bundle['assets']:
+    packed = base64.b64decode(asset['data'], validate=True)
+    assert hashlib.sha256(packed).hexdigest() == asset['gzip_sha256']
+    raw = gzip.decompress(packed)
+    assert len(raw) == asset['bytes'] and hashlib.sha256(raw).hexdigest() == asset['sha256']
+    path = root / asset['path']
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(raw)
+PY
+python3 -B scripts/benchmark-v8.py compare \
+  target/performance-evidence-20261021/runs/iteration-before/report.json \
+  target/performance-evidence-20261021/runs/iteration-after/report.json
+```
+
 ## Measured cloud baseline — 2026-10-20
 
 Measured source: `c5053c9d4ed1ce961f66eff8cd0d721b39108ffd`. Ordinary default-feature opt3 release,
@@ -42,9 +133,9 @@ instruction-throughput or calibrated T25 acceptance.
 
 The v2 runner extends the historical timing harness with memory observations,
 phase timings, retained emitted Wasm, workload selection and checked comparisons.
-The table above is the original v1 result, not a fresh measurement of this tool.
-The two schemas have different instrumentation and cannot serve as each other's
-performance baseline.
+The 2026-10-20 table is the historical v1 result. The 2026-10-21 result above
+uses v2 instrumentation; these schemas cannot serve as each other's performance
+baseline.
 
 Requires Linux, GNU `time`, Node and the Rust toolchain. Use `--time PATH` for
 a GNU time executable outside PATH. Use the release/default-feature product CLI

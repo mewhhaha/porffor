@@ -50,8 +50,10 @@ bind exact pins, compiler fingerprints, executable hashes and commands. The
 canonical publication retains the complete pre-repair baseline. The README chart
 now reconciles it with those exact replay repairs and an audited standalone
 dynamic-source scope partition; it does not claim a fresh full rerun.
-There has been no complete fixed-source campaign, so subtracting targeted fixes
-from published totals is not authorized.
+There has been no complete fixed-source campaign, so the canonical publication
+retains its original counts. The explicitly reconciled chart partitions those
+102,994 IDs as 102,561 in-scope passes, four failures, zero NotImplemented and
+429 audited dynamic-source executions outside standalone Wasm scope.
 
 **User decision: keep all four original disagreements as failures.** The README
 lists reasons and [upstream tracking](../../test262/errata/proposals/upstream-status-20261021.md):
@@ -78,16 +80,22 @@ compiles a Script and can emit a program/runtime Wasm pair through
 `SCRIPTW_WASM_DUMP`; a dedicated module-artifact build command is not exposed.
 
 The ordinary default-feature debug CLI at `e7532de91` builds without the oracle
-and preserves the original failure-replay results. The earlier optimized release
-at `c5053c9d4` also builds without the oracle. Three synchronous React 19.3.1 SSR
-outputs match Node at that earlier source; the public browser entry
-fails. [SSR evidence](react-ssr.md) and [local Wasmtime/V8 measurements](v8-baseline.md)
+and preserves the original failure-replay results. The default-feature optimized
+release at `cbbd9b170` builds and completes the new performance/memory corpus;
+its recorded timings, child RSS, compilation
+phases and emitted Wasm are in the [current measurement](v8-baseline.md).
+The earlier optimized release at `c5053c9d4` also builds without the oracle.
+Three synchronous React 19.3.1 SSR outputs match Node at that earlier source;
+the public browser entry fails. [SSR evidence](react-ssr.md) and
+[local Wasmtime/V8 measurements](v8-baseline.md)
 are focused demonstrations, not full compatibility or calibrated T25 acceptance.
 
 The host requires the [documented Wasm features and Scriptw imports](runtime-requirements.md).
 Portable Wasm does not bundle a parser/VM for general eval or Function constructors.
 Finite prepared sources and native-host compilation are distinct supported paths.
-Scope classification of Test262 dynamic-code cases remains unaudited.
+The chart now has an audited 429-execution dynamic-source subset; the scope
+inventory is conservative and does not claim to classify every incidental
+mention of eval or Function.
 
 ## Native verification and release gates
 
