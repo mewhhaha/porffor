@@ -2,6 +2,13 @@
 
 ## Failed-case replay — 2026-10-21
 
+[The resolution package](final-four-resolution-20261021.md) supplies seven
+standalone probes, independent engine comparisons, four draft upstream patches
+and three report bodies. A fresh native run passes all ten original controls
+and retains the four original failures. With only the proposed arguments/timezone
+test corrections, three of the four pass and the original label test still fails.
+Normative disposition is pending; no compiler change or full campaign is claimed.
+
 All sixteen original failures were retested on the fixed compiler: twelve
 original executions pass and four fail. The same sixteen IDs pass with explicit
 reviewed fixture amendments, including the labelled-function correction.

@@ -7,3 +7,6 @@ test262/vendor/test262/** -text whitespace=-blank-at-eof,-blank-at-eol
 
 # The final embedded resource helper retains upstream trailing blank lines.
 crates/scriptw-test262/assets/local-harness/spec-exec.js whitespace=-blank-at-eof
+
+# Preserve hashed patch bytes; empty diff context lines contain one space.
+test262/errata/proposals/*.patch -text whitespace=-blank-at-eol

@@ -62,3 +62,11 @@ passes all eleven original epoch/dated samples against the pinned shared
 Johnston/Honolulu data, while preserving both requested names. This probe is
 not an upstream test or a claim about all valid tzdb build configurations.
 No upstream report has been sent.
+
+[Resolution proposals](proposals/README.md) now include four hash-bound draft
+patches and three report bodies. The label-specification proposal follows
+deployed engine behavior and is an alternative to the literal-spec label-test
+amendment above. They must not be adopted together. A new native comparison
+applies only the arguments/timezone test proposals: three of the four selected
+IDs pass, while the original label test remains failing. No source pin or
+original-fixture conformance result changes.

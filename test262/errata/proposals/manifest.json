@@ -1,0 +1,68 @@
+{
+  "schema": "scriptw-conformance-resolution-proposals-v1",
+  "status": "draft-not-submitted-not-adopted",
+  "applied_to_product": false,
+  "stock_suite_changed": false,
+  "source_pins_changed": false,
+  "base_source_pins": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+    "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "ecma402_observation": {
+    "revision": "730ca2b88c305862db7be2f83c510dcca33ab48c",
+    "sha256": "96162f26bf0ff1478f7359cf8d637ea954da8e633e433204e2d67fb4e7411ebd",
+    "url": "https://raw.githubusercontent.com/tc39/ecma402/730ca2b88c305862db7be2f83c510dcca33ab48c/spec/locales-currencies-tz.html"
+  },
+  "current_ecma262_observation": {
+    "revision": "4feb0272b799ea795c5eadee9b482aea0c10ce45",
+    "url": "https://raw.githubusercontent.com/tc39/ecma262/4feb0272b799ea795c5eadee9b482aea0c10ce45/spec.html",
+    "sha256": "1f7935840bf249dbbfb32cc4d083114cea48bab4c513b7d7bed00387a3ebe89e"
+  },
+  "patches": [
+    {
+      "id": "test262-arguments",
+      "project": "test262",
+      "target": "test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "patch": "test262-arguments.patch",
+      "patch_sha256": "571d5400fe52517b7dfcc68f4b56472aff1155a0799e8e6ac897ff71df0e2a85",
+      "base_sha256": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+      "proposed_sha256": "fab1c51fabadcb3fed49fd595ab945a4de248a3e411b2edf3ce7904a7d4970c2",
+      "status": "draft-not-submitted-not-adopted",
+      "description": "Proposed fixture correction; existing explicit erratum, not applied to the vendor suite."
+    },
+    {
+      "id": "test262-johnston",
+      "project": "test262",
+      "target": "test/intl402/Temporal/ZonedDateTime/links.js",
+      "patch": "test262-johnston.patch",
+      "patch_sha256": "cbc0f3e8bafe541c875ef6af9c4b4be986a172d5e6e5d31e8817faae352f9eae",
+      "base_sha256": "79341d40e022b1c2d6320bdb9ac3edc7352235c913479b92c50a3fb7fde4b324",
+      "proposed_sha256": "275a6d1b97a3151e5179d0de14dc16f1ab17b2e201fbc9db0236003e7a199422",
+      "status": "draft-not-submitted-not-adopted",
+      "description": "Proposed fixture correction; existing explicit erratum, not applied to the vendor suite."
+    },
+    {
+      "id": "ecma262-labelled-functions",
+      "project": "ecma262",
+      "target": "spec.html",
+      "patch": "ecma262-labelled-functions.patch",
+      "patch_sha256": "d26b14bf4694bb9b85830c69ac01107bd46c5b235d6b899d4a67c7f8a6d6c1a5",
+      "base_sha256": "5194892f5a5f595962929b7099e028b1db44c8b68c44f4ce20f77b266507d57d",
+      "proposed_sha256": "1d546afc256edaade2176911fc12d3b2635594651ae2d9ab9a6e6724c7de5e72",
+      "status": "draft-not-submitted-not-adopted",
+      "description": "Normative proposal: recursive labelled lexical collection and labelled Annex B copy eligibility. Changes the pinned contract; requires standards review before compiler adoption."
+    },
+    {
+      "id": "ecma402-backzone-zone",
+      "project": "ecma402",
+      "target": "spec/locales-currencies-tz.html",
+      "patch": "ecma402-backzone-zone.patch",
+      "patch_sha256": "7c773300a7263fafba9223d7b26a55d0b4b89a0e35f2b58de3305dcc86d082c5",
+      "base_sha256": "96162f26bf0ff1478f7359cf8d637ea954da8e633e433204e2d67fb4e7411ebd",
+      "proposed_sha256": "c0de6a4d38bf7c84cfc3830c0c64e4c8cc034e8ea05d87ca1dd0b3e3dfe13d33",
+      "status": "draft-not-submitted-not-adopted",
+      "description": "Normative proposal: explicitly retain a cross-country historical Zone as its own primary when the multi-country-row branch has no alias-only topology. The country-preservation requirement remains."
+    }
+  ]
+}

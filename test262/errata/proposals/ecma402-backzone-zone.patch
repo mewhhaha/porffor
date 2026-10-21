@@ -1,0 +1,36 @@
+--- a/spec/locales-currencies-tz.html
++++ b/spec/locales-currencies-tz.html
+@@ -255,18 +255,21 @@
+                   1. Let _countryCodeLine_ be the line in file <code>zone.tab</code> of the IANA Time Zone Database where the “country-code” column is _identifierCountryCode_.
+                   1. Set _primary_ to the contents of the “TZ” column of _countryCodeLine_.
+                 1. Else,
+-                  1. Let _backzone_ be *undefined*.
+-                  1. Let _backzoneLinkLines_ be the List of lines in the file <code>backzone</code> of the IANA Time Zone Database that start with either *"Link "* or *"#PACKRATLIST zone.tab Link "*.
+-                  1. For each element _line_ of _backzoneLinkLines_, do
+-                    1. Let _i_ be StringIndexOf(_line_, *"Link "*, 0).
+-                    1. Set _line_ to the substring of _line_ from _i_ + 5.
+-                    1. Let _backzoneAndLink_ be StringSplitToList(_line_, *" "*).
+-                    1. Assert: _backzoneAndLink_ has at least two elements, and both _backzoneAndLink_[0] and _backzoneAndLink_[1] are available named time zone identifiers.
+-                    1. If _backzoneAndLink_[1] is _identifier_, then
+-                      1. Assert: _backzone_ is *undefined*.
+-                      1. Set _backzone_ to _backzoneAndLink_[0].
+-                  1. Assert: _backzone_ is not *undefined*.
+-                  1. Set _primary_ to _backzone_.
++                  1. If file <code>backzone</code> of the IANA Time Zone Database contains a Zone whose name is _identifier_, then
++                    1. Set _primary_ to _identifier_.
++                  1. Else,
++                    1. Let _backzone_ be *undefined*.
++                    1. Let _backzoneLinkLines_ be the List of lines in the file <code>backzone</code> of the IANA Time Zone Database that start with either *"Link "* or *"#PACKRATLIST zone.tab Link "*.
++                    1. For each element _line_ of _backzoneLinkLines_, do
++                      1. Let _i_ be StringIndexOf(_line_, *"Link "*, 0).
++                      1. Set _line_ to the substring of _line_ from _i_ + 5.
++                      1. Let _backzoneAndLink_ be StringSplitToList(_line_, *" "*).
++                      1. Assert: _backzoneAndLink_ has at least two elements, and both _backzoneAndLink_[0] and _backzoneAndLink_[1] are available named time zone identifiers.
++                      1. If _backzoneAndLink_[1] is _identifier_, then
++                        1. Assert: _backzone_ is *undefined*.
++                        1. Set _backzone_ to _backzoneAndLink_[0].
++                    1. Assert: _backzone_ is not *undefined*.
++                    1. Set _primary_ to _backzone_.
+           1. If _primary_ is one of *"Etc/UTC"*, *"Etc/GMT"*, or *"GMT"*, set _primary_ to *"UTC"*.
+           1. If _primary_ is a replacement time zone identifier and its rename waiting period has not concluded, then
+             1. Let _renamedIdentifier_ be the renamed time zone identifier that _primary_ replaced.

@@ -2,6 +2,17 @@
 
 ## Failed-case replay — 2026-10-21
 
+The [resolution package](docs/rust-rewrite/final-four-resolution-20261021.md)
+now has seven probes, four draft upstream patches and three report bodies.
+Accepted 2017 normative history confirms the arguments correction. Label probes
+agree across V8/SpiderMonkey/QuickJS but conflict with the pinned wording;
+timezone test/algorithm proposals also require disposition. Original native
+results remain four failures and ten passing controls. Applying only the
+arguments/timezone test proposals gives three passes and the original label
+failure. No compiler/specification change is adopted and no upstream report
+has been sent. Resolve authority before implementation and a fresh full campaign;
+do not repeat unchanged failed-case runs as a substitute for that resolution.
+
 All sixteen original failures were replayed: twelve pass on the original tests
 and four remain failing. With the explicit reviewed fixture amendments, including
 the labelled-function correction, the same sixteen IDs pass. The vendor tree,

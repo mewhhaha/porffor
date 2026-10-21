@@ -1,0 +1,20 @@
+--- a/test/intl402/Temporal/ZonedDateTime/links.js
++++ b/test/intl402/Temporal/ZonedDateTime/links.js
+@@ -98,7 +98,6 @@
+   "Australia/West": "Australia/Perth",
+   "Australia/Yancowinna": "Australia/Broken_Hill",
+   "Pacific/Enderbury": "Pacific/Kanton",
+-  "Pacific/Johnston": "Pacific/Honolulu",
+   "Pacific/Ponape": "Pacific/Pohnpei",
+   "Pacific/Samoa": "Pacific/Pago_Pago",
+   "Pacific/Truk": "Pacific/Chuuk",
+@@ -106,6 +105,9 @@
+ };
+ 
+ const australasiaHistoricalTestCases = [
++  // Johnston is UM and Honolulu is US. ECMA-402 preserves country identity;
++  // backzone defines Johnston as a Zone, not an equivalent Honolulu alias.
++  "Pacific/Johnston",
+   "Pacific/Saipan",  // Link Pacific/Guam Pacific/Saipan # N Mariana Is
+   "Antarctica/McMurdo",  // Link Pacific/Auckland Antarctica/McMurdo
+   "Antarctica/DumontDUrville",  // Link Pacific/Port_Moresby Antarctica/DumontDUrville

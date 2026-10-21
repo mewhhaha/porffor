@@ -1,0 +1,653 @@
+{
+  "schema": "scriptw-conformance-resolution-evidence-v1",
+  "date": "2026-10-21",
+  "local_preparation_complete": true,
+  "all_original_failures_fixed": false,
+  "compiler_changed": false,
+  "new_original_execution_fixes": 0,
+  "source_commit": "398411ffb239675eef3eb23d7c5b5e0d8b9f607f",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+    "source_revision": {
+      "kind": "unversioned-archive"
+    },
+    "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+  },
+  "reuse_basis": "No product/compiler source diff since the integrated global-prelude repair; previous source-equivalence inventory still applies.",
+  "original_source_pins": {
+    "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+    "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+    "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+  },
+  "canonical_baseline_unchanged": {
+    "test262/snapshots/published-status-wasm-aot.json": "ee9814828afc2dea281091ea780767b02fdb5896d47f8a629306d2d8f9c1c079",
+    "test262/snapshots/published-status-wasm-aot.txt": "a8263816d0122f73004dee9820b91f8034136d544fb247260e9aac2f7a0f92c6",
+    "docs/rust-rewrite/assets/test262-status.svg": "b44b1913395fb7ac317ae306856c55a719503e94d3c9afc4296dbbf5dce1f736",
+    "crates/scriptw-test262/src/source-pins.json": "ab47a6da190c07bc54ac2cc752580345f89fce9c31b739e7987be78b5ffea480"
+  },
+  "native_results": {
+    "original-and-controls": {
+      "total": 14,
+      "passed": 10,
+      "counts_per_outcome": {
+        "Bug": 4,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 10
+      },
+      "execution_ids": [
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+        "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+        "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-param.js",
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-dft-param.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonical-iana-names.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonical-iana-names.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonicalize-iana-identifiers-before-comparing.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonicalize-iana-identifiers-before-comparing.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/links-backward.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/links-backward.js",
+        "strict-script:language/statements/labeled/decl-fun-strict.js"
+      ],
+      "failures": [
+        {
+          "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true",
+          "detail_hash": 10162307294149082881,
+          "duration_ms": 42
+        },
+        {
+          "test_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 64
+        },
+        {
+          "test_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 76
+        },
+        {
+          "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: ReferenceError: wasm-aot completion: object: unbound identifier",
+          "detail_hash": 17421951291840835756,
+          "duration_ms": 1837
+        }
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 4.117,
+      "native_snapshot": "original-and-controls-snapshots/original-and-controls-20261021-16360365337825585240.json",
+      "native_snapshot_sha256": "cb176ce519016667473c384ed82bce9c7eca73e64b450206d9c6d9df8f238349"
+    },
+    "proposed-test-corrections": {
+      "total": 4,
+      "passed": 3,
+      "counts_per_outcome": {
+        "Bug": 1,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 3
+      },
+      "execution_ids": [
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+        "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js"
+      ],
+      "failures": [
+        {
+          "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: ReferenceError: wasm-aot completion: object: unbound identifier",
+          "detail_hash": 17421951291840835756,
+          "duration_ms": 2821
+        }
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 6.214,
+      "native_snapshot": "proposed-test-corrections-snapshots/proposed-test-corrections-20261021-18412517781114257999.json",
+      "native_snapshot_sha256": "69429e56d943cf23f48ff16d79996c608fcdde453a5d171a1d4f3d7c7d40907a"
+    }
+  },
+  "proposed_suite_receipt": {
+    "schema": "scriptw-test262-errata-preparation-v1",
+    "complete": true,
+    "check_only": false,
+    "upstream_unmodified": false,
+    "eligible_for_stock_test262_publication": false,
+    "base_source_pins": {
+      "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+      "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+      "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+    },
+    "manifest_sha256": "8ef0ac10920ab71a4c1dc2477c0a3f41d8e3d5d5443ac81b79bf6793ea52b7d0",
+    "corrections": [
+      {
+        "path": "test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "replacement": "replacements/test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "original_sha256": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+        "replacement_sha256": "fab1c51fabadcb3fed49fd595ab945a4de248a3e411b2edf3ce7904a7d4970c2",
+        "reason": "The 2017 test appends implicit arguments to parameterNames. The pinned algorithm leaves formal paramNames unchanged and appends implicit arguments to paramBindings, allowing the Annex B copy. Preserve pre-block/in-block assertions, correct all three post-block assertions, and add an explicit-formal control.",
+        "execution_modes": [
+          "sloppy-script"
+        ],
+        "owner": "T24 conformance / Test262 errata"
+      },
+      {
+        "path": "test/intl402/Temporal/ZonedDateTime/links.js",
+        "replacement": "replacements/test/intl402/Temporal/ZonedDateTime/links.js",
+        "original_sha256": "79341d40e022b1c2d6320bdb9ac3edc7352235c913479b92c50a3fb7fde4b324",
+        "replacement_sha256": "275a6d1b97a3151e5179d0de14dc16f1ab17b2e201fbc9db0236003e7a199422",
+        "reason": "The default tzdb Link crosses from UM to US, conflicting with ECMA-402 country preservation. Move only Johnston into the existing acceptance/name-preservation group; retain all valid alias equality and offset assertions. The backzone-Zone/algorithm-Link hole remains documented; this correction does not claim to resolve it.",
+        "execution_modes": [
+          "sloppy-script",
+          "strict-script"
+        ],
+        "owner": "T24 conformance / Test262 errata"
+      }
+    ],
+    "amended_tree": "47a53530fdb5df46a15014e72a40f5eb82ac589c"
+  },
+  "label_original_unchanged_in_proposed_suite": true,
+  "patch_validation": [
+    {
+      "id": "test262-arguments",
+      "dry_run_exit_code": 0,
+      "apply_exit_code": 0,
+      "exact_expected_output": true,
+      "dry_run_stdout": "checking file test/annexB/language/function-code/block-decl-func-skip-arguments.js\n",
+      "apply_stdout": "patching file test/annexB/language/function-code/block-decl-func-skip-arguments.js\n"
+    },
+    {
+      "id": "test262-johnston",
+      "dry_run_exit_code": 0,
+      "apply_exit_code": 0,
+      "exact_expected_output": true,
+      "dry_run_stdout": "checking file test/intl402/Temporal/ZonedDateTime/links.js\n",
+      "apply_stdout": "patching file test/intl402/Temporal/ZonedDateTime/links.js\n"
+    },
+    {
+      "id": "ecma262-labelled-functions",
+      "dry_run_exit_code": 0,
+      "apply_exit_code": 0,
+      "exact_expected_output": true,
+      "dry_run_stdout": "checking file spec.html\n",
+      "apply_stdout": "patching file spec.html\n"
+    },
+    {
+      "id": "ecma402-backzone-zone",
+      "dry_run_exit_code": 0,
+      "apply_exit_code": 0,
+      "exact_expected_output": true,
+      "dry_run_stdout": "checking file spec/locales-currencies-tz.html\n",
+      "apply_stdout": "patching file spec/locales-currencies-tz.html\n"
+    }
+  ],
+  "proposals_manifest": "test262/errata/proposals/manifest.json",
+  "proposals_manifest_sha256": "01dbb81e15e4db2b96227352915fb5bb035b6e642fc2a56488c748754d0deeab",
+  "proposed_source_changes_adopted": false,
+  "upstream_messages_sent": false,
+  "comparison_engine_identities": {
+    "pythonmonkey": "1.4.1",
+    "spidermonkey_library": "libmozjs-136a1.so",
+    "spidermonkey_library_sha256": "7f1832d45ec7a67b5c1fd95df3a3e6b59553ce37efb171295acd56f5e9904fe8",
+    "quickjs_python_package": "1.19.4",
+    "node": "{\"node\":\"v24.19.0\",\"v8\":\"13.6.233.17-node.51\"}",
+    "temporal_in_comparison_engines": false
+  },
+  "probe_observations": [
+    {
+      "probe": "chained-label-block.js",
+      "probe_sha256": "92c034876ea9e459c2865da986b9a89c609866ca249436664b2e31a99bdbc2f3",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.97,
+      "stdout": "probe-logs/chained-label-block-scriptw.stdout",
+      "stderr": "probe-logs/chained-label-block-scriptw.stderr",
+      "observation": [
+        "ReferenceError",
+        "ReferenceError",
+        "ReferenceError"
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "chained-label-block.js",
+      "probe_sha256": "92c034876ea9e459c2865da986b9a89c609866ca249436664b2e31a99bdbc2f3",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.031,
+      "stdout": "probe-logs/chained-label-block-v8.stdout",
+      "stderr": "probe-logs/chained-label-block-v8.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "chained-label-block.js",
+      "probe_sha256": "92c034876ea9e459c2865da986b9a89c609866ca249436664b2e31a99bdbc2f3",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.475,
+      "stdout": "probe-logs/chained-label-block-spidermonkey.stdout",
+      "stderr": "probe-logs/chained-label-block-spidermonkey.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "chained-label-block.js",
+      "probe_sha256": "92c034876ea9e459c2865da986b9a89c609866ca249436664b2e31a99bdbc2f3",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.048,
+      "stdout": "probe-logs/chained-label-block-quickjs.stdout",
+      "stderr": "probe-logs/chained-label-block-quickjs.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "direct-label-block.js",
+      "probe_sha256": "b336e37721062583dd5a73640474765240eeff2ab950909f1186510ac02a491a",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.421,
+      "stdout": "probe-logs/direct-label-block-scriptw.stdout",
+      "stderr": "probe-logs/direct-label-block-scriptw.stderr",
+      "observation": [
+        42,
+        42,
+        "ReferenceError"
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "direct-label-block.js",
+      "probe_sha256": "b336e37721062583dd5a73640474765240eeff2ab950909f1186510ac02a491a",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.037,
+      "stdout": "probe-logs/direct-label-block-v8.stdout",
+      "stderr": "probe-logs/direct-label-block-v8.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "direct-label-block.js",
+      "probe_sha256": "b336e37721062583dd5a73640474765240eeff2ab950909f1186510ac02a491a",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.708,
+      "stdout": "probe-logs/direct-label-block-spidermonkey.stdout",
+      "stderr": "probe-logs/direct-label-block-spidermonkey.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "direct-label-block.js",
+      "probe_sha256": "b336e37721062583dd5a73640474765240eeff2ab950909f1186510ac02a491a",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.08,
+      "stdout": "probe-logs/direct-label-block-quickjs.stdout",
+      "stderr": "probe-logs/direct-label-block-quickjs.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "formal-arguments.js",
+      "probe_sha256": "558734d1dab9a7799f1a662f4a511f652f2a39367344964c15f4e674822b6a00",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.49,
+      "stdout": "probe-logs/formal-arguments-scriptw.stdout",
+      "stderr": "probe-logs/formal-arguments-scriptw.stderr",
+      "observation": [
+        42,
+        42
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "formal-arguments.js",
+      "probe_sha256": "558734d1dab9a7799f1a662f4a511f652f2a39367344964c15f4e674822b6a00",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.034,
+      "stdout": "probe-logs/formal-arguments-v8.stdout",
+      "stderr": "probe-logs/formal-arguments-v8.stderr",
+      "observation": [
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "formal-arguments.js",
+      "probe_sha256": "558734d1dab9a7799f1a662f4a511f652f2a39367344964c15f4e674822b6a00",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.479,
+      "stdout": "probe-logs/formal-arguments-spidermonkey.stdout",
+      "stderr": "probe-logs/formal-arguments-spidermonkey.stderr",
+      "observation": [
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "formal-arguments.js",
+      "probe_sha256": "558734d1dab9a7799f1a662f4a511f652f2a39367344964c15f4e674822b6a00",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.056,
+      "stdout": "probe-logs/formal-arguments-quickjs.stdout",
+      "stderr": "probe-logs/formal-arguments-quickjs.stderr",
+      "observation": [
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "implicit-arguments.js",
+      "probe_sha256": "00200274e9cfb9c1d29e28afe4acdec68b95ff532f91416067bfa2b53454f502",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.55,
+      "stdout": "probe-logs/implicit-arguments-scriptw.stdout",
+      "stderr": "probe-logs/implicit-arguments-scriptw.stderr",
+      "observation": [
+        "object",
+        "function"
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "implicit-arguments.js",
+      "probe_sha256": "00200274e9cfb9c1d29e28afe4acdec68b95ff532f91416067bfa2b53454f502",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.039,
+      "stdout": "probe-logs/implicit-arguments-v8.stdout",
+      "stderr": "probe-logs/implicit-arguments-v8.stderr",
+      "observation": [
+        "object",
+        "function"
+      ]
+    },
+    {
+      "probe": "implicit-arguments.js",
+      "probe_sha256": "00200274e9cfb9c1d29e28afe4acdec68b95ff532f91416067bfa2b53454f502",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.458,
+      "stdout": "probe-logs/implicit-arguments-spidermonkey.stdout",
+      "stderr": "probe-logs/implicit-arguments-spidermonkey.stderr",
+      "observation": [
+        "object",
+        "function"
+      ]
+    },
+    {
+      "probe": "implicit-arguments.js",
+      "probe_sha256": "00200274e9cfb9c1d29e28afe4acdec68b95ff532f91416067bfa2b53454f502",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.045,
+      "stdout": "probe-logs/implicit-arguments-quickjs.stdout",
+      "stderr": "probe-logs/implicit-arguments-quickjs.stderr",
+      "observation": [
+        "object",
+        "object"
+      ]
+    },
+    {
+      "probe": "johnston-identity.js",
+      "probe_sha256": "a6fd3c1a2a7957e023a5bddac3b40f687021efa4d0738d6fbc7bd44374754ddb",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.466,
+      "stdout": "probe-logs/johnston-identity-scriptw.stdout",
+      "stderr": "probe-logs/johnston-identity-scriptw.stderr",
+      "observation": {
+        "temporalAvailable": true,
+        "identifiers": [
+          "Pacific/Johnston",
+          "Pacific/Honolulu"
+        ],
+        "equal": false,
+        "sameOffset": true
+      },
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "johnston-identity.js",
+      "probe_sha256": "a6fd3c1a2a7957e023a5bddac3b40f687021efa4d0738d6fbc7bd44374754ddb",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.042,
+      "stdout": "probe-logs/johnston-identity-v8.stdout",
+      "stderr": "probe-logs/johnston-identity-v8.stderr",
+      "observation": {
+        "temporalAvailable": false
+      }
+    },
+    {
+      "probe": "johnston-identity.js",
+      "probe_sha256": "a6fd3c1a2a7957e023a5bddac3b40f687021efa4d0738d6fbc7bd44374754ddb",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.447,
+      "stdout": "probe-logs/johnston-identity-spidermonkey.stdout",
+      "stderr": "probe-logs/johnston-identity-spidermonkey.stderr",
+      "observation": {
+        "temporalAvailable": false
+      }
+    },
+    {
+      "probe": "johnston-identity.js",
+      "probe_sha256": "a6fd3c1a2a7957e023a5bddac3b40f687021efa4d0738d6fbc7bd44374754ddb",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.035,
+      "stdout": "probe-logs/johnston-identity-quickjs.stdout",
+      "stderr": "probe-logs/johnston-identity-quickjs.stderr",
+      "observation": {
+        "temporalAvailable": false
+      }
+    },
+    {
+      "probe": "labelled-switch.js",
+      "probe_sha256": "3600c65bb3cf15b42fc62952f7e1e84dbbf0b382c825da36dc49ad374909dc20",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.284,
+      "stdout": "probe-logs/labelled-switch-scriptw.stdout",
+      "stderr": "probe-logs/labelled-switch-scriptw.stderr",
+      "observation": [
+        42,
+        42,
+        "ReferenceError"
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "labelled-switch.js",
+      "probe_sha256": "3600c65bb3cf15b42fc62952f7e1e84dbbf0b382c825da36dc49ad374909dc20",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.037,
+      "stdout": "probe-logs/labelled-switch-v8.stdout",
+      "stderr": "probe-logs/labelled-switch-v8.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "labelled-switch.js",
+      "probe_sha256": "3600c65bb3cf15b42fc62952f7e1e84dbbf0b382c825da36dc49ad374909dc20",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.488,
+      "stdout": "probe-logs/labelled-switch-spidermonkey.stdout",
+      "stderr": "probe-logs/labelled-switch-spidermonkey.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "labelled-switch.js",
+      "probe_sha256": "3600c65bb3cf15b42fc62952f7e1e84dbbf0b382c825da36dc49ad374909dc20",
+      "engine": "quickjs",
+      "exit_code": 0,
+      "elapsed_seconds": 0.052,
+      "stdout": "probe-logs/labelled-switch-quickjs.stdout",
+      "stderr": "probe-logs/labelled-switch-quickjs.stderr",
+      "observation": [
+        42,
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "top-level-label-chain.js",
+      "probe_sha256": "133e7056ef2276aa46b8ed47550f0ce6a0814e71b5af0f6f4409faedcd0674a4",
+      "engine": "scriptw",
+      "exit_code": 0,
+      "elapsed_seconds": 1.283,
+      "stdout": "probe-logs/top-level-label-chain-scriptw.stdout",
+      "stderr": "probe-logs/top-level-label-chain-scriptw.stderr",
+      "observation": [
+        42,
+        42
+      ],
+      "stdout_framing": "First line is program JSON; second is the native CLI RunOutcome, preserved in raw stdout."
+    },
+    {
+      "probe": "top-level-label-chain.js",
+      "probe_sha256": "133e7056ef2276aa46b8ed47550f0ce6a0814e71b5af0f6f4409faedcd0674a4",
+      "engine": "v8",
+      "exit_code": 0,
+      "elapsed_seconds": 0.034,
+      "stdout": "probe-logs/top-level-label-chain-v8.stdout",
+      "stderr": "probe-logs/top-level-label-chain-v8.stderr",
+      "observation": [
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "top-level-label-chain.js",
+      "probe_sha256": "133e7056ef2276aa46b8ed47550f0ce6a0814e71b5af0f6f4409faedcd0674a4",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "elapsed_seconds": 0.454,
+      "stdout": "probe-logs/top-level-label-chain-spidermonkey.stdout",
+      "stderr": "probe-logs/top-level-label-chain-spidermonkey.stderr",
+      "observation": [
+        42,
+        42
+      ]
+    },
+    {
+      "probe": "top-level-label-chain.js",
+      "probe_sha256": "133e7056ef2276aa46b8ed47550f0ce6a0814e71b5af0f6f4409faedcd0674a4",
+      "engine": "quickjs",
+      "exit_code": 1,
+      "elapsed_seconds": 0.041,
+      "stdout": "probe-logs/top-level-label-chain-quickjs.stdout",
+      "stderr": "probe-logs/top-level-label-chain-quickjs.stderr",
+      "observation": null
+    }
+  ],
+  "comparison_original_fixtures": [
+    {
+      "fixture": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "engine": "v8",
+      "exit_code": 1,
+      "stdout": "original-0-v8.stdout",
+      "stderr": "original-0-v8.stderr"
+    },
+    {
+      "fixture": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "engine": "spidermonkey",
+      "exit_code": 1,
+      "stdout": "original-0-spidermonkey.stdout",
+      "stderr": "original-0-spidermonkey.stderr"
+    },
+    {
+      "fixture": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "engine": "v8",
+      "exit_code": 0,
+      "stdout": "original-1-v8.stdout",
+      "stderr": "original-1-v8.stderr"
+    },
+    {
+      "fixture": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "engine": "spidermonkey",
+      "exit_code": 0,
+      "stdout": "original-1-spidermonkey.stdout",
+      "stderr": "original-1-spidermonkey.stderr"
+    }
+  ],
+  "tooling_checks": {
+    "timezone_generation": {
+      "passed": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    "errata_preparation": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "full_fixed_source_suite_verified": false,
+  "full_campaign_status": "Not started: authoritative resolution of label semantics and timezone/test proposals is outstanding. No compiler change has been adopted.",
+  "evidence_archive": "test262/snapshots/final-four-resolution-20261021.tar.gz",
+  "evidence_archive_sha256": "33ab9efe4410339271c27369c68ec9125a4bf9318ee76b4d312aa7d2d5517f08",
+  "evidence_archive_members": 124,
+  "archive_round_trip_verified": true
+}

@@ -36,12 +36,14 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 | --- | ---: | --- |
 | Implicit `arguments` binding | 1 | Older test expectation conflicts with the pinned declaration rule and another upstream test |
 | Johnston/Honolulu timezone identity | 2 | Test equality conflicts with country-preserving identifiers; the standard's data algorithm also has a gap |
-| Labelled block functions | 1 | Staging/V8 expectations differ from the pinned declaration rules |
+| Labelled block functions | 1 | V8, SpiderMonkey and QuickJS agree on the disputed behavior; pinned declaration rules differ |
 
 [Exact cases, evidence and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck).
 Locally amended fixtures pass, but **do not close these original failures**.
 The chart below retains the complete pre-fix baseline; a full run of the repaired
 compiler is still pending.
+[Resolution drafts and independent engine comparisons](docs/rust-rewrite/final-four-resolution-20261021.md)
+are prepared; the proposed standards/test changes have not been adopted.
 
 <!-- scriptw-test-graph:start -->
 ![Test262: 102,978 passing, 16 failing, 0 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)

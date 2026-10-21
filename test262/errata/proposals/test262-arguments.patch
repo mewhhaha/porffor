@@ -1,0 +1,73 @@
+--- a/test/annexB/language/function-code/block-decl-func-skip-arguments.js
++++ b/test/annexB/language/function-code/block-decl-func-skip-arguments.js
+@@ -2,25 +2,15 @@
+ // This code is governed by the BSD license found in the LICENSE file.
+ 
+ /*---
+-description: Functions named 'arguments' have legacy hoisting semantics
++description: Annex B copies an eligible block function to the implicit arguments binding
+ esid: sec-web-compat-functiondeclarationinstantiation
+ flags: [noStrict]
+ info: |
+-    FunctionDeclarationInstantiation ( _func_, _argumentsList_ )
+-
+-    [...]
+-    7. Let _parameterNames_ be the BoundNames of _formals_.
+-    [...]
+-    22. If argumentsObjectNeeded is true, then
+-      f. Append "arguments" to parameterNames.
+-
+-    Changes to FunctionDeclarationInstantiation
+-
+-    [...]
+-    ii. If replacing the |FunctionDeclaration| _f_ with a |VariableStatement| that has _F_
+-        as a |BindingIdentifier| would not produce any Early Errors for _func_ and _F_ is
+-        not an element of _parameterNames_, then
+-      [...]
++    FunctionDeclarationInstantiation leaves paramNames as the BoundNames of
++    formals. An implicit arguments binding is added to paramBindings instead.
++    Annex B tests paramNames, so an implicit arguments binding does not prevent
++    copying a block function named arguments to the enclosing variable environment.
++    An explicit formal named arguments does prevent that copy.
+ ---*/
+ 
+ // Simple parameters
+@@ -31,7 +21,8 @@
+     function arguments() {}
+     assert.sameValue(arguments(), undefined);
+   }
+-  assert.sameValue(arguments.toString(), "[object Arguments]");
++  assert.sameValue(typeof arguments, "function");
++  assert.sameValue(arguments(), undefined);
+ }());
+ 
+ // Single named parameter
+@@ -42,7 +33,8 @@
+     function arguments() {}
+     assert.sameValue(arguments(), undefined);
+   }
+-  assert.sameValue(arguments.toString(), "[object Arguments]");
++  assert.sameValue(typeof arguments, "function");
++  assert.sameValue(arguments(), undefined);
+ }());
+ 
+ // Non-simple parameters
+@@ -53,5 +45,17 @@
+     function arguments() {}
+     assert.sameValue(arguments(), undefined);
+   }
+-  assert.sameValue(arguments.toString(), "[object Arguments]");
++  assert.sameValue(typeof arguments, "function");
++  assert.sameValue(arguments(), undefined);
+ }());
++
++// An explicit formal named arguments prevents the outer Annex B copy.
++(function(arguments) {
++  assert.sameValue(arguments, 42);
++  {
++    assert.sameValue(arguments(), undefined);
++    function arguments() {}
++    assert.sameValue(arguments(), undefined);
++  }
++  assert.sameValue(arguments, 42);
++}(42));
