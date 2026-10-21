@@ -3,6 +3,23 @@
 use crate::*;
 
 #[test]
+fn multiargument_concat_preserves_coercion_order_abrupts_and_utf16() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["run", "--execution-backend", "wasm-aot"])
+        .arg(fixture_path("wasm_string_batched_concat.js"))
+        .output()
+        .expect("multiargument concat controls should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("batched-string-concat:ok"), "{stdout}");
+}
+
+#[test]
 fn run_wasm_backend_preserves_concat_method_lookup_and_evaluation_order() {
     let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
         .arg("run")

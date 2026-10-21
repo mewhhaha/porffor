@@ -3,6 +3,23 @@
 use crate::*;
 
 #[test]
+fn numeric_array_reads_preserve_own_data_and_generic_get_semantics() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["run", "--execution-backend", "wasm-aot"])
+        .arg(fixture_path("wasm_numeric_array_own_data_read.js"))
+        .output()
+        .expect("numeric array read controls should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("numeric-array-own-data:ok"), "{stdout}");
+}
+
+#[test]
 fn inspect_reports_phase_fifteen_dynamic_primitive_ir_shape() {
     let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
         .arg("inspect")

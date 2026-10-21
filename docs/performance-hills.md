@@ -1,11 +1,34 @@
 # Performance hills — 2026-10-21
 
-This backlog contains **160 proposed hills, P001–P160**, for compiled JavaScript
+This backlog contains **160 hills, P001–P160**, for compiled JavaScript
 on Scriptw's Wasm/Wasmtime path. It is separate from the 100 completed
-[maintenance hills](maintenance-hills.md). No hill below is implemented or
-measured as an improvement by this document. Source inspection supplies
+[maintenance hills](maintenance-hills.md). The progress ledger below distinguishes
+experiments from measured improvements. Source inspection supplies
 hypotheses; profiling decides which deserve implementation. The cap of 200 is
 a ceiling, not a reason to add low-value work.
+
+## Progress ledger
+
+The 2026-10-21 attribution batch adds deterministic, independently checked input
+families and raw phase/scaling reports (`scripts/performance_corpus.py` and
+`scripts/performance_study.py`). Its retained screening run contains the original
+three workloads plus 40 generated cases; every Wasmtime/V8 checksum matches.
+Seven-sample confirmation and small-arity/array-width controls are retained under
+`target/performance-hills-20261021-attribution`. These are local receipts until a
+portable evidence bundle is published, not a new published benchmark score.
+
+User-space CPU-clock sampling of the retained-row child succeeded: 871 samples,
+zero lost. Flat self samples attribute approximately 48% to named copying-GC
+functions. This profiles the whole child (compilation, warmups and measurements),
+so it does not establish that percentage inside the JS execution span. Guest JIT
+addresses remain unnamed. P001–P005/P009 have useful evidence but remain open
+until the attribution and reproducibility decisions are published.
+
+P040 (guarded primitive numeric Array own-data reads) and P091 (multiargument
+concat with ordered coercions and a single output copy) are implemented as
+**unverified experiments** in the current batch. Misses/accessors/proxies keep
+ordinary Get; concat retains its small-arity path. No speedup is claimed before
+semantic controls and paired measurements finish. The other hills remain open.
 
 ## Starting evidence
 

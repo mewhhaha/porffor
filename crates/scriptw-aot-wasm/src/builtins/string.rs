@@ -4,6 +4,7 @@ use crate::gc_types::*;
 use crate::operations::PropertyKeyLocals;
 use scriptw_ir::NativeErrorKind;
 
+mod concat;
 mod constructor;
 mod regexp_exec;
 mod regexp_legacy;
@@ -472,6 +473,11 @@ impl FunctionBuilder<'_> {
             let count = s.reserve_i32_local(f);
             s.array_type::<ValueArray>().length(&arguments, s, f);
             count.store(f);
+            // Pairwise copying remains cheaper for small argument lists.
+            count.load(f);
+            f.instruction(&Instruction::I32Const(4));
+            f.instruction(&Instruction::I32LeU);
+            b.open_frame(ControlFrameKind::If, f);
             let index = s.reserve_i32_local(f);
             let argument = s.reserve_value_local(f);
             let pending = s.reserve_completion(f);
@@ -507,6 +513,10 @@ impl FunctionBuilder<'_> {
             pending.clear(f);
             argument.clear(f);
             s.release_i32_local(index, f);
+            f.instruction(&Instruction::Else);
+            b.emit_batched_string_concat(string, &arguments, count, output, exit, f)?;
+            b.pop_control(ControlFrameKind::If);
+            f.instruction(&Instruction::End);
             s.release_i32_local(count, f);
             arguments.clear(f);
             Ok(())
