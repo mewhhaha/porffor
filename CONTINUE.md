@@ -2,6 +2,13 @@
 
 ## Failed-case replay — 2026-10-21
 
+An [upstream search](test262/errata/proposals/upstream-status-20261021.md)
+found the exact arguments issue #5113 and open fix PR #5112. Its proposed fixture
+passes a focused Wasm-AOT run; the original is a failing negative control.
+Do not file a duplicate report. Timezone #806 discusses Johnston but stays open;
+related merged timezone/Annex B PRs are already in the observed authorities and
+do not resolve the remaining cases. Current upstream test files remain unchanged.
+
 The [resolution package](docs/rust-rewrite/final-four-resolution-20261021.md)
 now has seven probes, four draft upstream patches and three report bodies.
 Accepted 2017 normative history confirms the arguments correction. Label probes

@@ -7,6 +7,13 @@ correction has been adopted into the pinned product/suite contract.
 [Four reviewable patches and three upstream report drafts](../../test262/errata/proposals/README.md)
 now cover the proposed resolutions. Nothing has been submitted upstream.
 
+**Upstream search follow-up:** the arguments report/fix already exists as
+[Test262 #5113 / PR #5112](https://github.com/tc39/test262/pull/5112); both are open.
+The proposed upstream fixture passes Scriptw's focused Wasm-AOT check. Track that
+work rather than filing our duplicate draft. Existing timezone and Annex B
+threads and the remaining search limits are in the
+[upstream status note](../../test262/errata/proposals/upstream-status-20261021.md).
+
 ## What the investigation established
 
 - **Arguments:** the accepted

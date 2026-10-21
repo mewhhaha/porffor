@@ -1,5 +1,11 @@
 # ECMA-262: labelled block-function collection differs from deployed behavior
 
+**Existing related work:** [issue #2663](https://github.com/tc39/ecma262/issues/2663)
+was closed by merged [PR #3361](https://github.com/tc39/ecma262/pull/3361).
+That traversal clarification is already in our pin and does not address the
+label-chain/outer-copy case. No exact issue or fix PR was found in the inspected
+searches. [Upstream status and coverage](upstream-status-20261021.md).
+
 Affected Test262 test:
 `staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js`
 (sloppy mode). Its original fixture was imported in

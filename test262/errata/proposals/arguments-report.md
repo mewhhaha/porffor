@@ -1,5 +1,11 @@
 # Test262: implicit arguments expectation predates the normative hoisting fix
 
+**Existing upstream report/fix:** [issue #5113](https://github.com/tc39/test262/issues/5113)
+and [PR #5112](https://github.com/tc39/test262/pull/5112) are open as of
+2026-10-21. Do not submit this local draft as a duplicate. The exact proposed
+fixture passes a focused Scriptw Wasm-AOT check; current main is still unchanged.
+[Search and verification details](upstream-status-20261021.md).
+
 Affected test: `annexB/language/function-code/block-decl-func-skip-arguments.js`
 (sloppy mode), upstream revision `2e0a56762801e275a9fdf96dc49d90ba0cddcf63`.
 

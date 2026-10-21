@@ -1,5 +1,11 @@
 # ECMA-402/Test262: a historical Zone is missing from primary-ID resolution
 
+**Existing discussion:** [ECMA-402 #806](https://github.com/tc39/ecma402/issues/806)
+is open and blocked, and explicitly discusses Johnston/Honolulu divergence.
+[PR #877](https://github.com/tc39/ecma402/pull/877) merged the general rules;
+no targeted merged correction for this input topology was found.
+[Current upstream status and search limits](upstream-status-20261021.md).
+
 Affected Test262 test: `intl402/Temporal/ZonedDateTime/links.js`, both modes.
 Observed ECMA-402 revision: `730ca2b88c305862db7be2f83c510dcca33ab48c`.
 
@@ -19,7 +25,9 @@ a Zone instead. The original test nevertheless requires Johnston/Honolulu
 equality at the same instant.
 
 The rules were introduced by
-[ECMA-402 602aaf0 / PR 825](https://github.com/tc39/ecma402/commit/602aaf0b408d3cb427f1598fe079ae3d54ed8b8c).
+[ECMA-402 PR #877](https://github.com/tc39/ecma402/pull/877), implementing
+[issue #825](https://github.com/tc39/ecma402/issues/825), in commit
+[`602aaf0`](https://github.com/tc39/ecma402/commit/602aaf0b408d3cb427f1598fe079ae3d54ed8b8c).
 No accepted clarification resolving this topology was found in the inspected
 sources. Geographic country metadata and the Zone/Link distinction must remain
 separate from identical transition bytes.
