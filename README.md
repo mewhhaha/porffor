@@ -25,6 +25,9 @@ Execution reuses compiled code with a fresh Wasmtime Store or V8 context.
 The Rust compiler uses `release`; Wasmtime program modules use its normal Fast
 policy. These small workloads are a local baseline.
 [Methodology, ranges, raw samples and reproduction](docs/rust-rewrite/v8-baseline.md).
+The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-and-memory-tooling)
+also measures memory, runtime phases and code size, with selected-workload and
+before/after comparisons for optimization.
 
 ## Tests
 

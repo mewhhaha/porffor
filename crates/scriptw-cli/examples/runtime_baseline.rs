@@ -1,7 +1,8 @@
 //! Opt-in same-source Wasmtime measurements for scripts/benchmark-v8.py.
 use scriptw_engine::{
     CompileOptions, CompilerIdentity, CompilerSourceRevision, Engine, ExecutionBackend,
-    HostOutputEvent, ObservedCompletion, RealmBuilder,
+    HostOutputEvent, ObservedCompletion, RealmBuilder, WasmProcessMemoryObservation,
+    WasmProcessMemorySample,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -9,8 +10,8 @@ use std::{fs, path::PathBuf};
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 3 {
-        return Err("usage: runtime-baseline FIXTURES SAMPLES WARMUPS".into());
+    if args.len() != 5 {
+        return Err("usage: runtime-baseline FIXTURES SAMPLES WARMUPS CASE ARTIFACT_DIR".into());
     }
     let root = PathBuf::from(&args[0]);
     let samples: usize = args[1].parse().map_err(|_| "invalid sample count")?;
@@ -25,11 +26,18 @@ fn run() -> Result<(), String> {
     let cases = plan["execution"]
         .as_array()
         .ok_or("missing execution inventory")?;
+    let cases: Vec<_> = cases
+        .iter()
+        .filter(|case| case["file"] == args[3])
+        .collect();
+    if cases.len() != 1 {
+        return Err("CASE must select exactly one manifest entry".into());
+    }
     let engine = Engine::new(RealmBuilder::new().build());
     let mut results = Vec::new();
     for case in cases {
         let name = case["file"].as_str().ok_or("missing filename")?;
-        if PathBuf::from(name).components().count() != 1 {
+        if PathBuf::from(name).components().count() != 1 || !name.ends_with(".js") {
             return Err("fixture must be a basename".into());
         }
         let expected = case["stdout"].as_str().ok_or("missing expected output")?;
@@ -42,6 +50,14 @@ fn run() -> Result<(), String> {
                     ..CompileOptions::default()
                 },
             )
+            .map_err(|e| e.to_string())?;
+        let artifact_path = PathBuf::from(&args[4]).join(format!("{name}.wasm"));
+        let mut artifact_file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(artifact_path)
+            .map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut artifact_file, &compilation.artifact.bytes)
             .map_err(|e| e.to_string())?;
         let mut observations = Vec::new();
         for index in 0..warmups + samples {
@@ -69,15 +85,48 @@ fn run() -> Result<(), String> {
                     p.outcome
                 ));
             }
+            let process_rss = match &p.process_memory {
+                WasmProcessMemoryObservation::Sampled(sample) => json!({
+                    "status": "sampled", "scope": "runtime-invocation-process-rss",
+                    "interval_ns": WasmProcessMemorySample::SAMPLE_INTERVAL.as_nanos(),
+                    "elapsed_ns": sample.elapsed().as_nanos(), "sample_count": sample.sample_count(),
+                    "initial_rss_bytes": sample.initial_rss_bytes(),
+                    "final_rss_bytes": sample.final_rss_bytes(),
+                    "maximum_rss_bytes": sample.maximum_rss_bytes()}),
+                WasmProcessMemoryObservation::Unavailable(reason) => json!({
+                    "status": "unavailable", "reason": format!("{reason:?}")}),
+            };
             observations.push(json!({"warmup": index < warmups,
                 "execution_ns": p.timings.execution_and_completion.as_nanos(),
-                "total_ns": p.timings.total.as_nanos(), "module_ns": p.timings.module.as_nanos(),
+                "phases_ns": {"engine": p.timings.engine.as_nanos(),
+                    "module": p.timings.module.as_nanos(),
+                    "store_and_linker": p.timings.store_and_linker.as_nanos(),
+                    "instantiate": p.timings.instantiate.as_nanos(),
+                    "export_lookup": p.timings.export_lookup.as_nanos(),
+                    "total": p.timings.total.as_nanos()},
+                "memory": {"process_rss": process_rss,
+                    "gc_capacity_before_bytes": p.heap.capacity_before_execution_bytes,
+                    "gc_capacity_after_bytes": p.heap.capacity_after_execution_bytes,
+                    "unavailable": {"live_gc_bytes": format!("{:?}", p.live_gc_bytes),
+                        "allocation_count": format!("{:?}", p.allocation_count),
+                        "allocation_bytes": format!("{:?}", p.allocation_bytes),
+                        "collection_count": format!("{:?}", p.collection_count),
+                        "gc_pause_time": format!("{:?}", p.gc_pause_time),
+                        "peak_gc_heap_bytes": format!("{:?}", p.peak_gc_heap_bytes)}},
                 "module_cache": format!("{:?}", p.module_cache), "stdout": output,
                 "runtime_policy": p.runtime_policy}));
         }
         results.push(json!({"file": name, "source_sha256": format!("{:x}", Sha256::digest(source.as_bytes())),
             "wasm_sha256": format!("{:x}", Sha256::digest(&compilation.artifact.bytes)),
-            "wasm_bytes": compilation.artifact.bytes.len(), "observations": observations}));
+            "wasm_bytes": compilation.artifact.bytes.len(),
+            "compilation_ns": {"preparation": compilation.preparation.as_nanos(),
+                "lowering": compilation.lowering.as_nanos(), "emission": compilation.emission.as_nanos(),
+                "validation": compilation.validation.as_nanos()},
+            "footprint": {"defined_functions": compilation.footprint.defined_functions,
+                "code_body_bytes": compilation.footprint.code_body_bytes,
+                "largest_code_body_bytes": compilation.footprint.largest_code_body_bytes,
+                "data_payload_bytes": compilation.footprint.data_payload_bytes},
+            "observations": observations}));
     }
     let identity = CompilerIdentity::current()?;
     let revision = match identity.source_revision() {
@@ -86,7 +135,7 @@ fn run() -> Result<(), String> {
     };
     println!(
         "{}",
-        serde_json::to_string(&json!({"schema": "scriptw-wasmtime-baseline-v1",
+        serde_json::to_string(&json!({"schema": "scriptw-wasmtime-baseline-v2",
         "source_commit": revision, "source_fingerprint": identity.source_fingerprint().to_string(),
         "executable_sha256": identity.executable_sha256().to_string(),
         "samples": samples, "warmups": warmups, "cases": results}))

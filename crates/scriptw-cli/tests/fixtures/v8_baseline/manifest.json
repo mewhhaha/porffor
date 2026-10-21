@@ -14,6 +14,11 @@
       "file": "objects.js",
       "stdout": "149600\n",
       "work": "500 object allocations and property traversal"
+    },
+    {
+      "file": "retained-objects.js",
+      "stdout": "134250496\n",
+      "work": "8192 retained objects, strings and four-element arrays; 32768 indexed reads"
     }
   ]
 }

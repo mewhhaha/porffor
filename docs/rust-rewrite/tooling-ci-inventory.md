@@ -77,3 +77,8 @@ paths and otherwise report a skip. Skips are not passing evidence for those cont
 | [test_workspace_test_partitions.py](../../scripts/tests/test_workspace_test_partitions.py) | All-module discovery | — |
 | [test_workspace_test_schedule.py](../../scripts/tests/test_workspace_test_schedule.py) | All-module discovery | — |
 | [test_workspace_test_storage.py](../../scripts/tests/test_workspace_test_storage.py) | All-module discovery | — |
+| [test_benchmark_metrics.py](../../scripts/tests/test_benchmark_metrics.py) | All-module discovery | — |
+| [test_generated_output_transaction.py](../../scripts/tests/test_generated_output_transaction.py) | All-module discovery | — |
+| [test_intl_generation_publication.py](../../scripts/tests/test_intl_generation_publication.py) | All-module discovery | — |
+| [test_maintenance_source_guards.py](../../scripts/tests/test_maintenance_source_guards.py) | All-module discovery | — |
+| [test_status_publication.py](../../scripts/tests/test_status_publication.py) | All-module discovery | — |

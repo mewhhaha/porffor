@@ -15,5 +15,6 @@
   "docs/rust-rewrite/conformance-acceptance.md",
   "docs/rust-rewrite/contracts/README.md",
   "docs/rust-rewrite/contracts/runtime-artifact-persistence.md",
-  "docs/rust-rewrite/tooling-ci-inventory.md"
+  "docs/rust-rewrite/tooling-ci-inventory.md",
+  "docs/rust-rewrite/v8-baseline.md"
 ]
