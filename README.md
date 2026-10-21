@@ -38,6 +38,7 @@ The [performance tooling](docs/rust-rewrite/v8-baseline.md#current-performance-a
 also records memory, runtime phases and code size, with selected-workload and
 before/after comparisons. A selected three-sample integer run takes about three
 seconds with the checked execution cache already populated.
+[Prioritized performance backlog](docs/performance-hills.md).
 
 ## Tests
 

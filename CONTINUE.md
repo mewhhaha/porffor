@@ -22,6 +22,14 @@ checks also pass. Default/release and broader acceptance remain open below. Cont
 Luna agents for read-only exploration/review and root-owned implementation. Push
 each verified batch to main.
 
+## Next performance work
+
+The [performance backlog](docs/performance-hills.md) proposes 160 hills, separate
+from completed maintenance. Begin with its attribution batch (P001–P005, P009),
+then choose the first execution experiments from the measured dominant cost.
+Use the [verified baseline and comparison workflow](docs/rust-rewrite/v8-baseline.md).
+The backlog is a plan; no optimization or new conformance result is implied.
+
 ## Decisions to retain
 
 - Keep the four original Test262 disagreements as ordinary failures with their

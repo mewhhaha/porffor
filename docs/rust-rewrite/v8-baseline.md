@@ -29,6 +29,15 @@ and Store/context setup are outside the execution timer. The execution cache
 was conditioned before this run; cold application startup caches remain unique
 and empty. OS caches are not flushed.
 
+Startup measures the CLI's NativeHost profile, whose embedded runtime is already
+optimized with SpeedAndSize and Backtracking register allocation. The execution
+driver emits Portable artifacts through `profile_script_compilation`; that
+different source-compilation profile does not use the embedded NativeHost image.
+Its runtime follows ordinary native compilation/cache admission for its profile.
+Keep these boundaries distinct when attributing execution costs or comparing
+compiler policies; the [performance backlog](../performance-hills.md) records
+the matching-image experiment as P153.
+
 [Source-bound evidence](performance-memory-baseline-20261021.json) contains the
 full report, every warmup and measured observation, all child logs, workload and
 emitted Wasm bytes, Cargo producers/build log, harness bytes, machine limits and
@@ -130,6 +139,9 @@ These boundaries make this an explicit product baseline, not isolated
 instruction-throughput or calibrated T25 acceptance.
 
 ## Current performance and memory tooling
+
+The [performance backlog](../performance-hills.md) owns proposed optimizations,
+their priorities, semantic controls and the first measurement batches.
 
 The v2 runner extends the historical timing harness with memory observations,
 phase timings, retained emitted Wasm, workload selection and checked comparisons.

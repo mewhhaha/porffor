@@ -4,6 +4,7 @@
   "CONTINUE.md",
   "tasks/README.md",
   "docs/maintenance-hills.md",
+  "docs/performance-hills.md",
   "docs/rust-rewrite/README.md",
   "docs/rust-rewrite/current-inventory.md",
   "docs/rust-rewrite/batch-workflow.md",

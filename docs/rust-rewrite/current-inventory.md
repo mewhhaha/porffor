@@ -23,6 +23,12 @@ test-owner replays, plus 685 tooling controls and all 15 Intl identities.
 107 default and 109 all-feature planning scopes remain unchanged. Maintenance
 adds no published Test262 passes and does not establish release acceptance.
 
+The new [performance backlog](../performance-hills.md) contains 160 proposed
+investigations and optimization experiments. Its first batch attributes the
+retained-object workload before selecting changes. The existing timing/memory
+baseline is measured; the proposed gains are not. This planning work changes
+neither native acceptance nor the published conformance counts.
+
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
 issues and ten preexisting rename-related expectations. Its record retains the
