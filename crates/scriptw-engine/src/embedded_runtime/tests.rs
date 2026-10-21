@@ -178,7 +178,7 @@ fn embedded_manifest_has_one_complete_framing_and_rejects_build_mismatches() {
                 native: other.native,
                 ..images
             },
-            manifest.clone()
+            manifest::Manifest::decode(images.manifest).unwrap()
         )
         .is_none());
         assert!(EmbeddedNativeRuntime::admit_manifest(
