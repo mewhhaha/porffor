@@ -28,11 +28,20 @@ policy. These small workloads are a local baseline.
 
 ## Tests
 
-**Failed-case replay, 2026-10-21:** retested all 16 failures on the fixed compiler.
-Original upstream executions: **12 passed, 4 failed**. With explicit reviewed fixture
-corrections: **16 passed, 0 failed**. The four original test/specification conflicts
-remain recorded. This was a targeted rerun; the chart below retains the complete
-pre-fix baseline. [Results, corrections and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md).
+**Verification, 2026-10-21:** the compiler repair makes **12 of the original 16
+failures pass**. A separate recheck of the remaining four still gives **0 passed,
+4 failed**; ten nearby original-test controls pass. These failures remain open:
+
+| Remaining case | Failing executions | Unresolved disagreement |
+| --- | ---: | --- |
+| Implicit `arguments` binding | 1 | Older test expectation conflicts with the pinned declaration rule and another upstream test |
+| Johnston/Honolulu timezone identity | 2 | Test equality conflicts with country-preserving identifiers; the standard's data algorithm also has a gap |
+| Labelled block functions | 1 | Staging/V8 expectations differ from the pinned declaration rules |
+
+[Exact cases, evidence and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck).
+Locally amended fixtures pass, but **do not close these original failures**.
+The chart below retains the complete pre-fix baseline; a full run of the repaired
+compiler is still pending.
 
 <!-- scriptw-test-graph:start -->
 ![Test262: 102,978 passing, 16 failing, 0 not implemented; out of scope not classified](docs/rust-rewrite/assets/test262-status.svg)

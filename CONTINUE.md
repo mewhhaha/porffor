@@ -7,6 +7,9 @@ and four remain failing. With the explicit reviewed fixture amendments, includin
 the labelled-function correction, the same sixteen IDs pass. The vendor tree,
 source pins and completed full baseline are unchanged. No full fixed-source
 suite pass is claimed. [Results and reproduction](docs/rust-rewrite/failed-case-replay-20261021.md).
+A separate original-only recheck confirms all four still fail and ten adjacent
+controls pass. No compiler change or additional original failure fix is claimed;
+the README now lists the remaining disagreements explicitly.
 Keep this file/tasks until every acceptance criterion passes.
 
 Start with [the current project inventory](docs/rust-rewrite/current-inventory.md)

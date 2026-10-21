@@ -8,6 +8,11 @@ reviewed fixture amendments, including the labelled-function correction.
 The four original expectation conflicts remain visible; no complete fixed-source
 suite pass is claimed. [Exact comparison and reproduction](failed-case-replay-20261021.md).
 
+A separate recheck of just the four original failures still gives zero passes
+and four failures; ten nearby original controls pass. Current upstream copies of
+the three test files are unchanged. No new compiler fix or full-suite pass is
+claimed. [Remaining disagreements and fresh evidence](failed-case-replay-20261021.md#remaining-four-recheck).
+
 ## Canonical global-property repair after the baseline
 
 The source now retains unreferenced `parseInt`/`parseFloat` globals across a

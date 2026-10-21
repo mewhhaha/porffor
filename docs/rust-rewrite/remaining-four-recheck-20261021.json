@@ -1,0 +1,160 @@
+{
+  "schema": "scriptw-remaining-four-recheck-v1",
+  "date": "2026-10-21",
+  "complete": true,
+  "request_to_fix_original_four_completed": false,
+  "compiler_changed": false,
+  "new_original_execution_fixes": 0,
+  "scope": "Only the four remaining original failures plus ten adjacent original-fixture controls; no amended fixtures and no full-suite rerun.",
+  "compiler_identity": {
+    "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+    "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+    "source_revision": {
+      "kind": "unversioned-archive"
+    },
+    "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+  },
+  "preparation": {
+    "schema": "scriptw-remaining-four-preparation-v1",
+    "main_commit": "e2a9f1825a814c05ca6fbfff4c8bc8ba74434233",
+    "compiler_identity": {
+      "source_fingerprint_scheme": "scriptw-program-cache-compiler-v3",
+      "source_fingerprint": "e37aef3fedd0a8aa49ffe680792a818ac63606850caed528e37f0ec2bcd6ed37",
+      "source_revision": {
+        "kind": "unversioned-archive"
+      },
+      "executable_sha256": "ef346e256752843179eceab239b6b995b3e43f1acb97c96b44cb05530a756666"
+    },
+    "product_source_changed_since_integrated_fix": false,
+    "reuse_basis": "No Cargo, crates, vendor or toolchain diff since cbb07c6cfa0cfa94cfdd34a1e8cccd8cd94361c8; prior full source-equivalence inventory remains applicable.",
+    "source_pins": {
+      "ecma262": "5345883164f463e87f8b40aca4956157ecba8783",
+      "test262_upstream": "2e0a56762801e275a9fdf96dc49d90ba0cddcf63",
+      "test262_tree": "6a4268a9354a545d41c3b62efebc478ed8c521f4"
+    },
+    "canonical_baseline_unchanged": {
+      "test262/snapshots/published-status-wasm-aot.json": "ee9814828afc2dea281091ea780767b02fdb5896d47f8a629306d2d8f9c1c079",
+      "test262/snapshots/published-status-wasm-aot.txt": "a8263816d0122f73004dee9820b91f8034136d544fb247260e9aac2f7a0f92c6",
+      "docs/rust-rewrite/assets/test262-status.svg": "b44b1913395fb7ac317ae306856c55a719503e94d3c9afc4296dbbf5dce1f736",
+      "crates/scriptw-test262/src/source-pins.json": "ab47a6da190c07bc54ac2cc752580345f89fce9c31b739e7987be78b5ffea480"
+    }
+  },
+  "results": {
+    "original-four": {
+      "exit_code": 1,
+      "total": 4,
+      "passed": 0,
+      "counts_per_outcome": {
+        "Bug": 4,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 0
+      },
+      "execution_ids": [
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+        "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js"
+      ],
+      "native_snapshot": "original-four-snapshots/original-four-20261021-10943713560617362548.json",
+      "native_snapshot_sha256": "8bdf926718c3645af7b9b4ca6dc8e57dd19018cbbaf248da97b60e7a29dae0c2",
+      "failures": [
+        {
+          "test_id": "sloppy-script:annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "test_path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: Expected SameValue(\u00ab\"function arguments() {}\"\u00bb, \u00ab\"[object Arguments]\"\u00bb) to be true",
+          "detail_hash": 10162307294149082881,
+          "duration_ms": 199
+        },
+        {
+          "test_id": "sloppy-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 207
+        },
+        {
+          "test_id": "strict-script:intl402/Temporal/ZonedDateTime/links.js",
+          "test_path": "intl402/Temporal/ZonedDateTime/links.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: Test262Error: wasm-aot completion: object: link=Pacific/Johnston, zone=Pacific/Honolulu Expected SameValue(\u00abfalse\u00bb, \u00abtrue\u00bb) to be true",
+          "detail_hash": 7555442764907322715,
+          "duration_ms": 191
+        },
+        {
+          "test_id": "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "test_path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+          "kind": "Runtime",
+          "outcome": "Bug",
+          "origin": "unknown",
+          "detail": "[origin:unknown] uncaught throw: ReferenceError: wasm-aot completion: object: unbound identifier",
+          "detail_hash": 17421951291840835756,
+          "duration_ms": 1679
+        }
+      ],
+      "elapsed_seconds": 3.713
+    },
+    "adjacent-controls": {
+      "exit_code": 0,
+      "total": 10,
+      "passed": 10,
+      "counts_per_outcome": {
+        "Bug": 0,
+        "Crash": 0,
+        "NotImplemented": 0,
+        "Success": 10
+      },
+      "execution_ids": [
+        "sloppy-script:staging/sm/lexical-environment/block-scoped-functions-annex-b-arguments.js",
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-param.js",
+        "sloppy-script:annexB/language/function-code/block-decl-func-skip-dft-param.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonical-iana-names.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonical-iana-names.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonicalize-iana-identifiers-before-comparing.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/prototype/equals/canonicalize-iana-identifiers-before-comparing.js",
+        "sloppy-script:intl402/Temporal/ZonedDateTime/links-backward.js",
+        "strict-script:intl402/Temporal/ZonedDateTime/links-backward.js",
+        "strict-script:language/statements/labeled/decl-fun-strict.js"
+      ],
+      "native_snapshot": "adjacent-controls-snapshots/adjacent-controls-20261021-7961183632646888003.json",
+      "native_snapshot_sha256": "d508f77b82bf37bcb58a4524664ffffe2f73094ac181015a9fc34751f949eb94",
+      "failures": [],
+      "elapsed_seconds": 7.678
+    }
+  },
+  "upstream_main_comparison": [
+    {
+      "path": "annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "url": "https://raw.githubusercontent.com/tc39/test262/main/test/annexB/language/function-code/block-decl-func-skip-arguments.js",
+      "sha256": "8a225aefbeb41d9a8f5630403141e3b718330d1e946c15a9fb35678da9a90d01",
+      "same_as_pinned_original": true
+    },
+    {
+      "path": "intl402/Temporal/ZonedDateTime/links.js",
+      "url": "https://raw.githubusercontent.com/tc39/test262/main/test/intl402/Temporal/ZonedDateTime/links.js",
+      "sha256": "79341d40e022b1c2d6320bdb9ac3edc7352235c913479b92c50a3fb7fde4b324",
+      "same_as_pinned_original": true
+    },
+    {
+      "path": "staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "url": "https://raw.githubusercontent.com/tc39/test262/main/test/staging/sm/lexical-environment/block-scoped-functions-annex-b-label.js",
+      "sha256": "e83a619b18b157554843984709f7754866101b0bd8f8e9524c3424ee934ffc0a",
+      "same_as_pinned_original": true
+    }
+  ],
+  "review_conclusion": "No standards-consistent product repair identified for these exact assertions. Original failures remain open; fixture amendments are not compiler fixes.",
+  "unmodified_upstream_all_green": false,
+  "full_fixed_source_suite_verified": false,
+  "evidence_archive": "test262/snapshots/remaining-four-recheck-20261021.tar.gz",
+  "evidence_archive_sha256": "6b4bd193e85be1d990174820cbc33965f4524f50378f90674c0595f5cc87cff6",
+  "evidence_archive_members": 20,
+  "archive_round_trip_verified": true
+}
