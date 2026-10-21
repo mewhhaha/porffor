@@ -203,6 +203,26 @@ The explicit execution cache reuses the ordinary checked runtime/function/module
 caches across runs. It does not affect isolated cold/cached startup measurements.
 Compilation and warmup observations remain outside the execution summaries.
 
+Generate the attribution corpus to vary retained row counts, widths and read
+passes, and cover call/property/string/collection/JSON families:
+
+```sh
+python3 -B scripts/performance_corpus.py --output-dir target/performance-corpus \
+  --rows 256,1024,4096 --widths 4 --passes 0,1,4
+```
+
+Pass `--fixtures target/performance-corpus` to the benchmark, then select entries
+such as `--case rows-n1024-w4-p0.js --case rows-n1024-w4-p4.js`.
+These are whole-invocation measurements: construction remains included in every
+case. Increasing read passes supports marginal-cost attribution; it is not a
+separately timed traversal-only span. Generated checksums are independently
+validated in normal V8. Use `--first-runtime v8` to reverse the recorded runtime
+order in paired repeatability runs without changing workload or sample plans.
+After a complete report, derive checked phase attribution with
+`python3 -B scripts/performance_study.py REPORT --output NEW_STUDY.json`.
+The runtime driver now records the Portable profile and linked runtime key/hash
+explicitly, alongside emitted-program and compiler identities.
+
 After a compiler change, commit and rebuild with a new build log. Repeat the
 same measurement with a fresh output directory and optionally
 `--baseline target/performance-objects-before/report.json`. Existing reports

@@ -89,6 +89,13 @@ def check_runtime_prime(trace, required):
     return hit
 
 
+def runtime_order(index, first):
+    runtimes = ['wasmtime', 'v8']
+    if (index % 2 == 1) != (first == 'v8'):
+        runtimes.reverse()
+    return runtimes
+
+
 def main():
     if sys.argv[1:2] == ['compare']:
         parser = argparse.ArgumentParser(description='Verify retained artifacts and compare matching v2 benchmark reports.')
@@ -110,6 +117,8 @@ def main():
     parser.add_argument('--case', action='append', dest='cases', help='select an execution manifest entry; repeatable')
     parser.add_argument('--skip-startup', action='store_true', help='measure only selected execution workloads')
     parser.add_argument('--execution-cache', type=Path, help='reuse checked execution caches across runs; startup caches remain isolated')
+    parser.add_argument('--first-runtime', choices=('wasmtime', 'v8'), default='wasmtime',
+                        help='reverse paired run order; observations retain the actual order')
     parser.add_argument('--baseline', type=Path, help='compatible complete v2 report to compare')
     parser.add_argument('--samples', type=int, default=7, choices=range(3, 101), metavar='3..100')
     parser.add_argument('--warmups', type=int, default=10, choices=range(1, 101), metavar='1..100')
@@ -134,6 +143,7 @@ def main():
     report = dict(schema=SCHEMA, complete=False,
                   started_at=datetime.now(timezone.utc).isoformat(), machine=spec,
                   source_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+                  measurement_order=dict(first_runtime=args.first_runtime, alternation='per startup sample and execution case'),
                   cli_sha256=digest(cli), runtime_runner_sha256=digest(runner),
                   cargo_build_log_sha256=digest(args.build_log),
                   cargo_producers={str(path): producers[path] for path in (cli, runner)},
@@ -219,7 +229,8 @@ def main():
             save()
             for mode in ('cold', 'hot'):
                 for index in range(args.samples):
-                    for runtime in (['scriptw', 'v8'] if index % 2 == 0 else ['v8', 'scriptw']):
+                    for ordered_runtime in runtime_order(index, args.first_runtime):
+                        runtime = 'scriptw' if ordered_runtime == 'wasmtime' else ordered_runtime
                         label = f'{mode}-{index:02}-{runtime}'
                         runtime_env = warm_env if mode == 'hot' else dict(env, SCRIPTW_CACHE_DIR=str(output / f'cold-cache-{index:02}'))
                         event, text = invoke(label, scriptw_command if runtime == 'scriptw' else node_command, runtime_env)
@@ -228,7 +239,7 @@ def main():
                         report['process_samples'].append(dict(mode=mode, runtime=runtime, **event))
                         save()
         for index, case in enumerate(plan['execution']):
-            for runtime in (['wasmtime', 'v8'] if index % 2 == 0 else ['v8', 'wasmtime']):
+            for runtime in runtime_order(index, args.first_runtime):
                 label = 'execution-' + runtime + '-' + case['file']
                 command = ([runner, workload_root, str(args.samples), str(args.warmups), case['file'], output / 'wasm'] if runtime == 'wasmtime' else
                            [args.node, str(DEFAULT_FIXTURES / 'node-runtime.cjs'), workload_root, str(args.samples), str(args.warmups), case['file']])

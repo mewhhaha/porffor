@@ -60,6 +60,12 @@ class AccountingTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_runtime_order_can_be_balanced_across_paired_reports(self):
+        left = [BENCH.runtime_order(i, 'wasmtime') for i in range(4)]
+        right = [BENCH.runtime_order(i, 'v8') for i in range(4)]
+        self.assertEqual(left, [['wasmtime', 'v8'], ['v8', 'wasmtime']] * 2)
+        self.assertEqual(right, [order[::-1] for order in left])
+
     def test_default_startup_requires_proven_embedded_runtime_reuse(self):
         self.assertTrue(BENCH.check_runtime_prime('scriptw wasm trace: runtime-native-bundle hit: 81291072 bytes', True))
         self.assertFalse(BENCH.check_runtime_prime('scalar-only custom startup', False))

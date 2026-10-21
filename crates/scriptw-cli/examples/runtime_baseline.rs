@@ -116,7 +116,14 @@ fn run() -> Result<(), String> {
                 "module_cache": format!("{:?}", p.module_cache), "stdout": output,
                 "runtime_policy": p.runtime_policy}));
         }
+        let runtime = compilation.artifact.runtime.as_ref().map(|runtime| {
+            json!({"key": runtime.key().as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+                "wasm_sha256": format!("{:x}", Sha256::digest(runtime.bytes())),
+                "wasm_bytes": runtime.bytes().len()})
+        });
         results.push(json!({"file": name, "source_sha256": format!("{:x}", Sha256::digest(source.as_bytes())),
+            "source_compilation_profile": "portable", "linked_runtime": runtime,
+            "wasm_emission_diagnostics": compilation.artifact.debug_dump,
             "wasm_sha256": format!("{:x}", Sha256::digest(&compilation.artifact.bytes)),
             "wasm_bytes": compilation.artifact.bytes.len(),
             "compilation_ns": {"preparation": compilation.preparation.as_nanos(),
