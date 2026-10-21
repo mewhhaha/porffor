@@ -327,6 +327,7 @@ def run(args, root):
         except ValueError:
             return str(path)
 
+    members = set(metadata["workspace_members"])
     package_ids = {p["name"]: p["id"] for p in metadata["packages"]}
     (
         packages,

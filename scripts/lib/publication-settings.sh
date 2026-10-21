@@ -45,4 +45,3 @@ if [[ ! -x "$SCRIPTW_BIN" ]]; then
   echo "build first: cargo build --release -p scriptw-cli" >&2
   exit 1
 fi
-

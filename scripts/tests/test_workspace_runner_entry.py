@@ -1,8 +1,10 @@
 """The workspace planner can be inspected without starting verification."""
+import builtins
 import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+import symtable
 import tempfile
 import unittest
 
@@ -31,6 +33,25 @@ assert list(Path.cwd().iterdir()) == []
             result = subprocess.run([sys.executable, "-B", "-c", probe, str(RUNNER)],
                                     cwd=directory, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_runtime_globals_remain_bound_after_extracting_helpers(self):
+        module = symtable.symtable(RUNNER.read_text(), str(RUNNER), "exec")
+        known = {symbol.get_name() for symbol in module.get_symbols()
+                 if symbol.is_assigned() or symbol.is_imported() or symbol.is_namespace()}
+        known.update(dir(builtins))
+        known.update(("__file__", "__name__"))
+        unbound = []
+
+        def inspect_scope(scope):
+            for symbol in scope.get_symbols():
+                if (symbol.is_referenced() and symbol.is_global()
+                        and symbol.get_name() not in known):
+                    unbound.append((scope.get_name(), scope.get_lineno(), symbol.get_name()))
+            for child in scope.get_children():
+                inspect_scope(child)
+
+        inspect_scope(module)
+        self.assertEqual(unbound, [])
 
     def test_planner_retains_feature_disabled_targets_and_exact_selection(self):
         spec = importlib.util.spec_from_file_location("workspace_runner", RUNNER)
