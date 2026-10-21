@@ -1,5 +1,6 @@
 """Protect exact scope ownership while avoiding an early CLI drain."""
 import ast
+from scripts.tests.workspace_runner_support import runner_body
 import importlib.util
 from types import SimpleNamespace
 from pathlib import Path
@@ -24,8 +25,8 @@ def case(package, target, kind='test'):
 class WorkspaceScheduleTests(unittest.TestCase):
     def test_actual_plan_reports_compiler_cpu_scopes_after_independent_work(self):
         runner = SOURCE.with_name('run_workspace_tests.py')
-        tree = ast.parse(runner.read_text())
-        planning = next(node for node in tree.body if isinstance(node, ast.If)
+        body = runner_body(runner)
+        planning = next(node for node in body if isinstance(node, ast.If)
                         and ast.unparse(node.test) == 'args.plan_only')
         assignment = next(node for node in planning.body if isinstance(node, ast.Assign)
                           and any(ast.unparse(target) == "result['command_plan']"
@@ -236,8 +237,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
 
     def _assert_actual_runner_drains(self,partitions,compiler,selected=None):
         runner = SOURCE.with_name('run_workspace_tests.py')
-        tree = ast.parse(runner.read_text())
-        loop = next(node for node in tree.body if isinstance(node, ast.For)
+        body = runner_body(runner)
+        loop = next(node for node in body if isinstance(node, ast.For)
                     and isinstance(node.target, ast.Tuple)
                     and ast.unparse(node.target) == '(i, case)')
         # Execute the actual scheduling prefix, stopping before any label/build/I/O.
@@ -273,8 +274,8 @@ class WorkspaceScheduleTests(unittest.TestCase):
 
     def test_idle_builds_drain_only_uncached_work_before_storage_admission(self):
         runner = SOURCE.with_name('run_workspace_tests.py')
-        tree = ast.parse(runner.read_text())
-        loop = next(node for node in tree.body if isinstance(node, ast.For)
+        body = runner_body(runner)
+        loop = next(node for node in body if isinstance(node, ast.For)
                     and isinstance(node.target, ast.Tuple)
                     and ast.unparse(node.target) == '(i, case)')
         prefix = []

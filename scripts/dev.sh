@@ -9,13 +9,21 @@ set -eu
 # The default job count also comes from .cargo/config.toml. SCRIPTW_JOBS remains
 # available to request a lower cap for a single invocation; unlike RUSTFLAGS,
 # job count does not affect codegen and so does not fork the fingerprint.
-jobs_flag=
+jobs=
 if [ -n "${SCRIPTW_JOBS:-}" ]; then
   case "$SCRIPTW_JOBS" in
     ''|*[!0-9]*|0) echo "SCRIPTW_JOBS must be a positive integer" >&2; exit 2 ;;
   esac
-  jobs_flag="--jobs $SCRIPTW_JOBS"
+  jobs=$SCRIPTW_JOBS
 fi
+
+# Build the optional Cargo flag as separate arguments, never by word splitting.
+exec_cargo() {
+  cargo_command=$1
+  shift
+  if [ -n "$jobs" ]; then set -- --jobs "$jobs" "$@"; fi
+  exec cargo "$cargo_command" "$@"
+}
 
 usage() {
   cat <<'EOF'
@@ -42,24 +50,24 @@ shift
 case "$command" in
   build)
     if [ "$#" -eq 0 ]; then set -- -p scriptw-cli; fi
-    exec cargo build $jobs_flag "$@"
+    exec_cargo build "$@"
     ;;
   check)
     if [ "$#" -eq 0 ]; then set -- --workspace; fi
-    exec cargo check $jobs_flag "$@"
+    exec_cargo check "$@"
     ;;
   exact-test)
     [ "$#" -gt 0 ] || { echo "exact-test needs cargo test arguments" >&2; exit 2; }
-    exec cargo test $jobs_flag "$@"
+    exec_cargo test "$@"
     ;;
   test262)
     # Cargo owns target-dir, target triples and runners. A hard-coded path
     # can execute a stale binary when any of those settings changes.
-    exec cargo run $jobs_flag -p scriptw-cli -- test262 "$@"
+    exec_cargo run -p scriptw-cli -- test262 "$@"
     ;;
   timings)
     if [ "$#" -eq 0 ]; then set -- -p scriptw-ir -p scriptw-aot-wasm; fi
-    exec cargo build $jobs_flag --timings "$@"
+    exec_cargo build --timings "$@"
     ;;
   -h|--help|help) usage ;;
   *) echo "unknown developer command: $command" >&2; usage >&2; exit 2 ;;

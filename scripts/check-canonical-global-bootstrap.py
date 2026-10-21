@@ -29,7 +29,7 @@ def check(root,overrides=None):
  need('ifplan.get(&binding.name).is_none(){plan.insert_initial(binding);}'in fill,'fill only missing canonical names without replacing source owners')
  need('builtin_catalog::canonical_standard_global_bindings(),lexical_bindings,'in code[PREFIX+'lowering.rs'],'ordinary Script consumes same canonical recipe')
  entry=code[PREFIX+'lowering/global_script_prelude.rs']
- need(ordered(entry,'global_bindings:std::mem::take(&mutscript.global_bindings)','declarations:std::mem::take(&mutscript.runtime_declarations)','super::builtin_catalog::retain_canonical_standard_globals(&mutscript.global_bindings)','script.global_bindings.require_host_global(*builtin);','script.strict=false;'),'delayed entry declarations and canonical bootstrap are independent owners')
+ need(ordered(entry,'global_bindings:std::mem::take(&mutscript.global_bindings)','declarations:std::mem::take(&mutscript.runtime_declarations)','super::builtin_catalog::retain_canonical_standard_globals(&mutscript.global_bindings)','HostBuiltinId::every_realm_globals().chain(script.host_builtins.iter().copied())','script.global_bindings.require_host_global(builtin);','script.strict=false;'),'delayed entry declarations and canonical bootstrap are independent owners')
  prepared=code[PREFIX+'lowering/prepared_function.rs']
  need(ordered(prepared,'fnappend_prepared_unit(','super::builtin_catalog::retain_canonical_standard_globals(&mutscript.global_bindings)','script.functions.append(&mutunit.functions);'),'prepared-only canonical uses reach initial Realm')
  need('script.global_bindings.require_host_global(builtin);'in prepared,'existing host surface admission retained')

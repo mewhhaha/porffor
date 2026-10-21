@@ -85,6 +85,7 @@ class PublicationDriverTests(unittest.TestCase):
         shutil.copyfile(WRAPPER.with_name("publication-session.py"), self.script.with_name("publication-session.py"))
         (self.script.parent / "lib").mkdir()
         shutil.copyfile(WRAPPER.parent / "lib/publish-real-status-driver.sh", self.script.parent / "lib/publish-real-status-driver.sh")
+        shutil.copyfile(WRAPPER.parent / "lib/publication-settings.sh", self.script.parent / "lib/publication-settings.sh")
         (self.root / "suite root/test").mkdir(parents=True)
         (self.root / "suite root/test/fixture.js").write_text("/* fake CLI fixture; not conformance evidence */\n")
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)

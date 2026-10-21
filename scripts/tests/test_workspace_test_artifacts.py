@@ -1,6 +1,7 @@
 """Cargo identity controls for same-name workspace native test selectors."""
 
 import ast
+from scripts.tests.workspace_runner_support import runner_body
 import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
@@ -85,7 +86,7 @@ class WorkspaceTestArtifactTests(unittest.TestCase):
 
     def test_combined_runner_commands_keep_feature_profile_and_package_boundaries(self):
         source = SOURCE.with_name('run_workspace_tests.py')
-        nodes = [node for node in ast.parse(source.read_text()).body
+        nodes = [node for node in runner_body(source)
                  if isinstance(node, ast.FunctionDef) and node.name in ['group_key', 'cargo_test_base']]
         namespace = {'selector_key': artifacts.selector_key,
                      'package_selection': artifacts.package_selection,

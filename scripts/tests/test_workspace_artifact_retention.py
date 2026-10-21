@@ -1,5 +1,6 @@
 """File-retention and verdict controls; these are not native suite evidence."""
 import ast
+from scripts.tests.workspace_runner_support import runner_body
 import fcntl
 import hashlib
 from pathlib import Path
@@ -27,7 +28,7 @@ class ArtifactRetentionTests(unittest.TestCase):
                    'watch':self.watch,'log':self.watch,'start':0,
                    'executable':self.binary,'label':'fixture'}}
         cleanup=[]
-        nodes=[node for node in ast.parse(SOURCE.read_text()).body
+        nodes=[node for node in runner_body(SOURCE)
                if isinstance(node,ast.FunctionDef)and node.name in ('complete','finish_unselected_artifacts')]
         namespace={'active':active,'args':SimpleNamespace(preserve_test_artifacts=preserve),
             'profile_root':self.profile,'hashlib':hashlib,'re':__import__('re'),'fcntl':fcntl,

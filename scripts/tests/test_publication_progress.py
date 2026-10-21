@@ -356,7 +356,7 @@ class DriverTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         for relative in ("scripts/publication-session.py", "scripts/publish-real-status-low-ram.sh",
-                         "scripts/lib/publish-real-status-driver.sh"):
+                         "scripts/lib/publish-real-status-driver.sh", "scripts/lib/publication-settings.sh"):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, destination)

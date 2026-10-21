@@ -1,6 +1,7 @@
 """Filesystem admission controls only; these are not native suite evidence."""
 
 import ast
+from scripts.tests.workspace_runner_support import runner_body
 from collections import namedtuple
 import importlib.util
 from pathlib import Path
@@ -126,7 +127,7 @@ class RunnerAdmissionControls(unittest.TestCase):
     def runner_functions(self, active, available=False):
         """Run only actual admission functions, without importing the driver."""
         source = SOURCE.with_name('run_workspace_tests.py')
-        functions = [node for node in ast.parse(source.read_text()).body
+        functions = [node for node in runner_body(source)
                      if isinstance(node, ast.FunctionDef)
                      and node.name in ('admit_writable_space', 'admit_build_space')]
         calls = []

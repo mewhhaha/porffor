@@ -22,7 +22,7 @@ def check(root, overrides=None):
  s=c[I+'ir.rs']
  require('pubscript_entry_after_prelude:Option<crate::GlobalScriptEntryIr>' in s and 'self.script_entry_after_prelude.iter().map(|entry|entry.unit())' in s,'one closed source-unit inventory')
  s=c[I+'lowering/global_script_prelude.rs']
- require(ordered(s,'fnretain_global_script_entry(','script.script_entry_after_prelude=Some(crate::GlobalScriptEntryIr::new(PreparedScriptUnit{','kind:PreparedScriptKind::RealmScript,','std::mem::replace(&mutscript.body,','global_bindings:std::mem::take(&mutscript.global_bindings)','declarations:std::mem::take(&mutscript.runtime_declarations)','script.global_bindings.require_host_global(*builtin);','script.strict=false;'),'separate test declaration/body owner and bootstrap host surface')
+ require(ordered(s,'fnretain_global_script_entry(','script.script_entry_after_prelude=Some(crate::GlobalScriptEntryIr::new(PreparedScriptUnit{','kind:PreparedScriptKind::RealmScript,','std::mem::replace(&mutscript.body,','global_bindings:std::mem::take(&mutscript.global_bindings)','declarations:std::mem::take(&mutscript.runtime_declarations)','HostBuiltinId::every_realm_globals().chain(script.host_builtins.iter().copied())','script.global_bindings.require_host_global(builtin);','script.strict=false;'),'separate test declaration/body owner and bootstrap host surface')
  require('compiled.diagnostics.drain(..).map(IrDiagnostic::in_global_prelude)' in c[I+'lowering/prepared_script.rs'],'typed lowering setup provenance')
  s=c[I+'lowering/global_script_prelude.rs']
  require(ordered(s,'pubfnlower_source_with_prelude(','ScriptInstantiation::GlobalScriptAfterPrelude','retain_global_script_entry(','prepared_script::compile_module_prelude('),'retained independent Script lowering')
