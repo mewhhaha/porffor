@@ -2,6 +2,12 @@
 
 ## Failed-case replay — 2026-10-21
 
+User decision: keep the four original cases as ordinary failing tests. The README
+lists their reasons and upstream tracking, distinguishing exact fixes from related
+discussions. Hold the local correction proposals; no further changes to clear
+these four conflicts are requested. They remain in the failure totals and do not
+establish a green suite or close the remaining acceptance gates.
+
 An [upstream search](test262/errata/proposals/upstream-status-20261021.md)
 found the exact arguments issue #5113 and open fix PR #5112. Its proposed fixture
 passes a focused Wasm-AOT run; the original is a failing negative control.
