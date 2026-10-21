@@ -29,6 +29,10 @@ The development wrapper shares Cargo's normal `target/` directory, uses `lld`
 when available, and bounds parallelism for this large workspace. Set
 `SCRIPTW_JOBS` to request a lower job count.
 
+For sparse checkouts and shared Cargo caches, retain the
+[development inputs](docs/rust-rewrite/development-checkout.md), including
+`.cargo/config.toml`.
+
 Run the compiler from the built binary:
 
 ```sh

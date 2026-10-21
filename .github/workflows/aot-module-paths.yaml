@@ -3,11 +3,13 @@ name: AOT module path identity
 on:
   pull_request:
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-engine/**'
       - '.github/workflows/aot-module-paths.yaml'
   push:
     branches: [main]
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-engine/**'
       - '.github/workflows/aot-module-paths.yaml'
 
@@ -36,7 +38,7 @@ jobs:
           /tmp/scriptw-module-path-tests --list | tee /tmp/module-path-inventory.txt
           grep -Fxq 'tests::lexical_parent_precedes_symlink_resolution: test' /tmp/module-path-inventory.txt
           /tmp/scriptw-module-path-tests
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-verification
         with:
           shared-key: aot-correctness
       - name: Test module loader integration

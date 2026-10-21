@@ -19,7 +19,7 @@ def owners(source):
     body = source.split(declaration, 1)[1].split("}", 1)[0]
     literal = r'"(?:[^"\\]|\\.)*"'
     pattern = re.compile(
-        rf'\s*(T[0-9]{{2}})\s*=\s*([0-9]+)\s*=>\s*({literal})\s*=>\s*({literal})\s*,?'
+        rf"\s*(T[0-9]{{2}})\s*=\s*([0-9]+)\s*=>\s*({literal})\s*=>\s*({literal})\s*,?"
     )
     rows = []
     position = 0
@@ -32,7 +32,9 @@ def owners(source):
         position = match.end()
     expected = [(f"T{number:02}", number, f"T{number:02}") for number in range(30)]
     if [row[:3] for row in rows] != expected:
-        raise ValueError("ownership registry must contain exactly ordered T00 through T29")
+        raise ValueError(
+            "ownership registry must contain exactly ordered T00 through T29"
+        )
     if any(not area.strip() or area != area.strip() for _, _, _, area in rows):
         raise ValueError("ownership areas must have unpadded descriptive names")
     return {code: area for _, _, code, area in rows}
@@ -43,7 +45,9 @@ def check_document(registry, document):
     if headings != list(registry.items()):
         raise ValueError("durable ownership headings differ from the compiler registry")
     if "T26-unclassified" not in document:
-        raise ValueError("durable ownership must describe the separate unclassified bucket")
+        raise ValueError(
+            "durable ownership must describe the separate unclassified bucket"
+        )
 
 
 def markdown_anchors(document):
@@ -67,7 +71,9 @@ def check_links(root, path, document):
         linked = (path.parent / name).resolve() if name else path.resolve()
         if not linked.is_relative_to(root.resolve()) or not linked.exists():
             raise ValueError(f"{path.relative_to(root)}: broken local link {target!r}")
-        if anchor and (not linked.is_file() or anchor not in markdown_anchors(linked.read_text())):
+        if anchor and (
+            not linked.is_file() or anchor not in markdown_anchors(linked.read_text())
+        ):
             raise ValueError(f"{path.relative_to(root)}: missing anchor {target!r}")
 
 
@@ -89,6 +95,18 @@ def check_documents(root, registry):
         check_links(root, root / name, document)
 
 
+def check_maintained_documents(root):
+    paths = json.loads((root / "scripts/maintained-documents.json").read_text())
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate maintained document")
+    for name in paths:
+        path = root / name
+        if not path.resolve().is_relative_to(root.resolve()):
+            raise ValueError("maintained document escaped the repository")
+        check_links(root, path, path.read_text())
+    return len(paths)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ids", action="store_true", help="print concrete owner codes")
@@ -97,9 +115,14 @@ def main():
     try:
         registry = owners((args.root / REGISTRY).read_text())
         check_documents(args.root, registry)
+        check_maintained_documents(args.root)
     except (OSError, ValueError) as error:
         parser.exit(1, f"conformance-ownership: {error}\n")
-    print(" ".join(registry) if args.ids else "conformance-ownership: ok (30 permanent areas)")
+    print(
+        " ".join(registry)
+        if args.ids
+        else "conformance-ownership: ok (30 permanent areas)"
+    )
 
 
 if __name__ == "__main__":

@@ -13,8 +13,12 @@ retired, runner setup is clearer, LDML parsing has one owner, and current guidan
 is separated from history. Implementation is in `ab7093a46`, `30065bbb5` and
 `e7532de91`; [verification and exact source limits](maintenance-first-wave-20261021.md)
 are recorded with [artifact identities](maintenance-first-wave-20261021.json).
-The remaining 92 hills are candidates. This batch adds no conformance passes and
-does not establish complete workspace, release or Test262 acceptance.
+The following [tooling/documentation wave](maintenance-tooling-wave-20261021.md)
+completes 28 more hills: 36 total, with all remaining 64 authorized and queued.
+Its final checkpoint passed 663 tooling tests in 172.262 seconds with zero skips;
+107 default and 109 all-feature native planning scopes are unchanged. These
+batches add no conformance passes and do not establish complete workspace,
+release or Test262 acceptance.
 
 ## Test262: complete baseline and focused repair
 

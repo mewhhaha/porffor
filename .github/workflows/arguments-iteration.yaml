@@ -20,6 +20,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: ./.github/actions/rust-verification
+        with:
+          shared-key: native-regressions
       - name: Record compiler provenance
         run: |
           mkdir -p /tmp/arguments-evidence
@@ -30,9 +33,6 @@ jobs:
           cargo fmt --all -- --check
           ./scripts/check-module-boundaries.sh
           python3 scripts/tests/test_engine_regression_inventory.py
-      - name: Protect adjacent iterator ownership and realm behavior
-        run: >-
-          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
       - name: Run every compiled Arguments engine regression in a fresh process
         run: >-
           python3 scripts/run_engine_regression_inventory.py aot_language --module aot_arguments_iteration
@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked -p scriptw-cli
+          python3 scripts/run-ci-target.py product-cli
           sha256sum target/debug/scriptw | tee /tmp/arguments-evidence/cli-sha256.txt
           ./target/debug/scriptw test262 list language/statements/for-of/arguments- | tee /tmp/arguments-evidence/test262-inventory.txt
           grep -Fx 'count: 6' /tmp/arguments-evidence/test262-inventory.txt

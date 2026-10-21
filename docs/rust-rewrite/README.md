@@ -1,5 +1,8 @@
 # Scriptw Rust Rewrite
 
+[Contract catalogue](contracts/README.md) · [Vendor patch inventory](vendor-patches.md) ·
+[Development checkout inputs](development-checkout.md).
+
 [Project rename](scriptw-identity-migration.md) ·
 [Wasmtime/V8 benchmark methodology](v8-baseline.md) ·
 [Runtime requirements and eval limits](runtime-requirements.md) ·

@@ -4,6 +4,9 @@ import importlib.util
 from pathlib import Path
 import unittest
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 spec = importlib.util.spec_from_file_location(
     "run_aot_unit_shard", Path(__file__).parents[1] / "run_aot_unit_shard.py"
 )

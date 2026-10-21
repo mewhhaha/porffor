@@ -96,7 +96,7 @@ jobs:
           exit "$status"
 
       - name: Test AOT compiler library and discovered test targets
-        run: cargo test --release --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
+        run: python3 scripts/run-ci-target.py aot-complete --release
 
       - name: Test Test262 harness loading
         run: |

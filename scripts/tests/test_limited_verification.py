@@ -9,6 +9,9 @@ import unittest
 from unittest.mock import patch
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 SOURCE = Path(__file__).resolve().parents[1] / "limited_verification.py"
 spec = importlib.util.spec_from_file_location("limited_verification", SOURCE)
 launcher = importlib.util.module_from_spec(spec)

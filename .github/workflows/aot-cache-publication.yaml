@@ -3,12 +3,14 @@ name: AOT cache publication
 on:
   pull_request:
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-engine/**'
       - 'Cargo.lock'
       - '.github/workflows/aot-cache-publication.yaml'
   push:
     branches: [main]
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-engine/**'
       - 'Cargo.lock'
       - '.github/workflows/aot-cache-publication.yaml'
@@ -28,7 +30,7 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-verification
         with:
           shared-key: aot-correctness
       - name: Check formatting

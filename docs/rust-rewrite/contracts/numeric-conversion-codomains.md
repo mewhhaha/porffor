@@ -18,7 +18,7 @@ The contract for the area *Numeric conversion codomains: ToIntegerOrInfinity /
 ToUint32 / ToUint16 as closed types in `scriptw-ir`, with one const reference
 algorithm for the five divergent backend hand-rolls* lives at:
 
-`docs/rust-rewrite/contracts/Numeric conversion codomains - ToIntegerOrInfinity, ToUint32, ToUint16 as closed types in scriptw-ir, with one const reference algorithm for the five divergent backend hand-rolls.md`
+[Detailed contract](numeric-conversion-codomains-contract.md)
 
 This file exists for two reasons. First, the area brief names
 `numeric-conversion-codomains.md` in its `files_owned` list while the campaign's

@@ -46,7 +46,7 @@ retained packaging metadata. Such builds share the upstream release namespace
 across executable mtimes; genuine development checkouts retain Git revision and
 executable-mtime invalidation. Native compiler compatibility checks and cache
 budgets are unchanged. See the vendored package's
-[`SCRIPTW-PATCH.md`](../../../vendor/wasmtime-internal-cache-47.0.0/SCRIPTW-PATCH.md)
+[`LILA-PATCH.md`](../../../vendor/wasmtime-internal-cache-47.0.0/LILA-PATCH.md)
 for source provenance and the separate identity review required before changing
 Wasmtime's native compiler or runtime source.
 

@@ -18,7 +18,7 @@ jobs:
   tooling-contracts:
     name: Tooling contracts (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +28,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run dependency-free tooling regressions
+      - name: Run portable tooling regressions
+        if: runner.os == 'macOS'
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_tooling_*.py' -v
           python3 -m unittest discover -s scripts/tests -p test_limited_verification.py -v
+      - name: Run every tooling test module
+        if: runner.os == 'Linux'
+        env:
+          PYTHONPATH: scripts
+          TMPDIR: /tmp
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v

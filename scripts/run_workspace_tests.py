@@ -34,8 +34,11 @@ from workspace_test_schedule import (
     validate_native_resources,
 )
 from workspace_test_storage import storage_snapshot
+from verification_identity import source_map
 import workspace_feature_roots as feature_roots
 from workspace_test_artifacts import (
+    WorkspaceInventory,
+    continuation_cases,
     build_script_artifact,
     doc_cohorts,
     isolated_test_packages,
@@ -114,24 +117,30 @@ def parse_args(argv=None):
 
 
 def validate_args(args):
-    assert bool(args.native_target_cpus) == bool(
-        args.native_cpu_target
-    ), "Native compiler CPUs require both --native-target-cpus auto and exact --native-cpu-target scopes"
+    if not (bool(args.native_target_cpus) == bool(args.native_cpu_target)):
+        raise ValueError(
+            "Native compiler CPUs require both --native-target-cpus auto and exact --native-cpu-target scopes"
+        )
     if args.selected_feature_roots:
-        assert not (
-            args.all_features
-            or args.packages
-            or (set(args.isolate_test_package) - {"scriptw-intl"})
-            or args.retry_from
-            or args.reuse_library_build_from
-            or args.restored_library_provenance
-        ), "Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt"
+        if not (
+            not (
+                args.all_features
+                or args.packages
+                or (set(args.isolate_test_package) - {"scriptw-intl"})
+                or args.retry_from
+                or args.reuse_library_build_from
+                or args.restored_library_provenance
+            )
+        ):
+            raise ValueError(
+                "Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt"
+            )
     native_filters = dict(row.split("=", 1) for row in args.native_filter)
     if args.partition_cli:
-        assert args.include_ignored, "Complete CLI partitions require --include-ignored"
-        assert (
-            "scriptw-cli:cli" not in native_filters
-        ), "Complete CLI partitions cannot use a native filter"
+        if not (args.include_ignored):
+            raise ValueError("Complete CLI partitions require --include-ignored")
+        if not ("scriptw-cli:cli" not in native_filters):
+            raise ValueError("Complete CLI partitions cannot use a native filter")
     return native_filters
 
 
@@ -152,18 +161,22 @@ def plan_inventory(metadata, args, native_filters):
         )
     )
     if args.packages:
-        assert set(args.packages) <= {p["name"] for p in packages}
+        if not (set(args.packages) <= {p["name"] for p in packages}):
+            raise ValueError(
+                "Verification condition failed: set(args.packages) <= {p['name'] for p in packages}"
+            )
         packages = [p for p in packages if p["name"] in args.packages]
     isolated_packages = isolated_test_packages(packages, args.isolate_test_package)
-    assert set(isolated_packages) <= {
-        p["name"] for p in packages
-    }, "Isolated test packages must belong to the selected workspace"
-    assert (
-        not isolated_packages or not args.reuse_library_build_from
-    ), "Broad historical library carry cannot cross an isolated Cargo graph"
-    assert not (
-        args.build_selected_together and args.reuse_library_build_from
-    ), "Historical library carry cannot cross a combined native build graph"
+    if not (set(isolated_packages) <= {p["name"] for p in packages}):
+        raise ValueError("Isolated test packages must belong to the selected workspace")
+    if not (not isolated_packages or not args.reuse_library_build_from):
+        raise ValueError(
+            "Broad historical library carry cannot cross an isolated Cargo graph"
+        )
+    if not (not (args.build_selected_together and args.reuse_library_build_from)):
+        raise ValueError(
+            "Historical library carry cannot cross a combined native build graph"
+        )
     cases = []
     disabled_targets = []
     for p in packages:
@@ -239,19 +252,26 @@ def plan_inventory(metadata, args, native_filters):
             *(["scriptw-cli:cli"] if args.partition_cli else []),
         ],
     )
-    assert set(native_filters) <= {
-        c["package"] + ":" + c["target"] for c in full_inventory
-    }
+    if not (
+        set(native_filters)
+        <= {c["package"] + ":" + c["target"] for c in full_inventory}
+    ):
+        raise ValueError(
+            "Verification condition failed: set(native_filters) <= {c['package'] + ':' + c['target'] for c in full_inventory}"
+        )
     if args.only_targets:
         requested = set(args.only_targets)
         known = {c["package"] + ":" + c["target"] for c in full_inventory}
-        assert requested <= known, requested - known
-        assert (
-            set(partition_native_targets) <= requested
-        ), "Explicit native partitions must be selected by --only-targets"
-        assert (
-            set(native_cpu_targets) <= requested
-        ), "Native compiler CPU targets must be selected by --only-targets"
+        if not (requested <= known):
+            raise ValueError(requested - known)
+        if not (set(partition_native_targets) <= requested):
+            raise ValueError(
+                "Explicit native partitions must be selected by --only-targets"
+            )
+        if not (set(native_cpu_targets) <= requested):
+            raise ValueError(
+                "Native compiler CPU targets must be selected by --only-targets"
+            )
         cases = [c for c in cases if c["package"] + ":" + c["target"] in requested]
 
     combined_selectors = (
@@ -259,7 +279,7 @@ def plan_inventory(metadata, args, native_filters):
         if args.build_selected_together
         else []
     )
-    return (
+    return WorkspaceInventory(
         packages,
         isolated_packages,
         cases,
@@ -276,30 +296,7 @@ def run(args, root):
     out = root / args.output
     out.mkdir(parents=True, exist_ok=False)
 
-    def source_map():
-        # HEAD names the entire committed tree, while a binary patch binds every
-        # tracked working-tree change (including fixtures, locks and documentation).
-        # Untracked source files are included except ordinary gitignored build output.
-        untracked = subprocess.check_output(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"]
-        ).split(b"\0")
-        return {
-            "head": subprocess.check_output(
-                ["git", "rev-parse", "HEAD"], text=True
-            ).strip(),
-            "tracked_patch_sha256": hashlib.sha256(
-                subprocess.check_output(["git", "diff", "--binary", "HEAD", "--"])
-            ).hexdigest(),
-            "untracked": {
-                os.fsdecode(p): hashlib.sha256(
-                    (root / os.fsdecode(p)).read_bytes()
-                ).hexdigest()
-                for p in untracked
-                if p
-            },
-        }
-
-    source = source_map()
+    source = source_map(root)
     (out / "source-start.json").write_text(json.dumps(source, sort_keys=True) + "\n")
     metadata = json.loads(
         subprocess.check_output(
@@ -374,86 +371,98 @@ def run(args, root):
     result["selected_build_selectors"] = combined_selectors
     result["selected_target_members"] = selected_target_members(cases)
     if args.retry_from:
-        assert args.continuation_phase in ("parallel", "barriers")
+        if not (args.continuation_phase in ("parallel", "barriers")):
+            raise AssertionError(
+                "Verification condition failed: args.continuation_phase in ('parallel', 'barriers')"
+            )
         previous = json.loads(args.retry_from.read_text())
-        assert (
-            previous.get("idle_builds", False) == args.idle_builds
-        ), "Continuation cannot change idle-build policy"
-        assert (
+        if not (previous.get("idle_builds", False) == args.idle_builds):
+            raise AssertionError("Continuation cannot change idle-build policy")
+        if not (
             previous.get("differential_native_cpus") == args.differential_native_cpus
-        ), "Continuation cannot change differential native CPU policy"
-        assert (
+        ):
+            raise AssertionError(
+                "Continuation cannot change differential native CPU policy"
+            )
+        if not (
             previous.get("workspace_schedule_sha256")
             == result["workspace_schedule_sha256"]
-        ), "Continuation scheduler changed"
-        assert (
-            previous.get("native_target_cpus") == args.native_target_cpus
-        ), "Continuation cannot change native target CPU policy"
-        assert (
-            previous.get("native_cpu_targets", []) == native_cpu_targets
-        ), "Continuation cannot change native CPU target ownership"
-        assert previous["head"] == result["head"] and previous["source_unchanged"]
-        assert previous.get("profile", "debug") == args.profile, "Retry profile changed"
-        assert (
+        ):
+            raise AssertionError("Continuation scheduler changed")
+        if not (previous.get("native_target_cpus") == args.native_target_cpus):
+            raise AssertionError("Continuation cannot change native target CPU policy")
+        if not (previous.get("native_cpu_targets", []) == native_cpu_targets):
+            raise AssertionError(
+                "Continuation cannot change native CPU target ownership"
+            )
+        if not (previous["head"] == result["head"] and previous["source_unchanged"]):
+            raise AssertionError(
+                "Verification condition failed: previous['head'] == result['head'] and previous['source_unchanged']"
+            )
+        if not (previous.get("profile", "debug") == args.profile):
+            raise AssertionError("Retry profile changed")
+        if not (
             Path(previous.get("target_directory", root / "target")).resolve()
             == cargo_target_dir
-        ), "Retry Cargo target directory changed"
-        assert (
+        ):
+            raise AssertionError("Retry Cargo target directory changed")
+        if not (
             previous["all_features"] == args.all_features
             and previous["include_ignored"] == args.include_ignored
-        )
-        assert (
+        ):
+            raise AssertionError(
+                "Verification condition failed: previous['all_features'] == args.all_features and previous['include_ignored'] == args.include_ignored"
+            )
+        if not (
             previous["selected_workspace_packages"]
             == result["selected_workspace_packages"]
-        )
-        assert previous.get("isolated_test_packages", []) == isolated_packages
-        assert (
+        ):
+            raise AssertionError(
+                "Verification condition failed: previous['selected_workspace_packages'] == result['selected_workspace_packages']"
+            )
+        if not (previous.get("isolated_test_packages", []) == isolated_packages):
+            raise AssertionError(
+                "Verification condition failed: previous.get('isolated_test_packages', []) == isolated_packages"
+            )
+        if not (
             previous.get("partition_native_targets", []) == partition_native_targets
-        ), "Retry native partition policy changed"
-        assert (
+        ):
+            raise AssertionError("Retry native partition policy changed")
+        if not (
             previous.get("partition_cli", args.partition_cli) == args.partition_cli
-        ), "Retry CLI partition policy changed"
-        assert (
+        ):
+            raise AssertionError("Retry CLI partition policy changed")
+        if not (
             previous.get("build_selected_together", False)
             == args.build_selected_together
-        ), "Retry combined build policy changed"
-        assert (
-            previous.get("selected_build_selectors", []) == combined_selectors
-        ), "Retry combined build selector graph changed"
-        assert (
+        ):
+            raise AssertionError("Retry combined build policy changed")
+        if not (previous.get("selected_build_selectors", []) == combined_selectors):
+            raise AssertionError("Retry combined build selector graph changed")
+        if not (
             previous.get("selected_target_members") == result["selected_target_members"]
-        ), "Retry selected target inventory changed"
-        assert (
+        ):
+            raise AssertionError("Retry selected target inventory changed")
+        if not (
             previous.get("preserve_test_artifacts", False)
             == args.preserve_test_artifacts
-        ), "Retry artifact retention policy changed"
+        ):
+            raise AssertionError("Retry artifact retention policy changed")
         previous_source = json.loads(
             (args.retry_from.parent / "source-start.json").read_text()
         )
-        assert previous_source == source
-        rejected = {
-            (c["package"], c["target"], c["kind"]): c
-            for c in previous["cases"]
-            if c.get("state") is None
-            or (
-                args.retry_interrupted
-                and c.get("state") in ("interrupted", "storage-deferred")
+        if not (previous_source == source):
+            raise AssertionError(
+                "Verification condition failed: previous_source == source"
             )
-        }
-        selected = []
-        for case in cases:
-            key = (case["package"], case["target"], case["kind"])
-            if key in rejected:
-                assert case["selector"] == rejected[key]["selector"]
-                selected.append(case)
-        selected = [
-            c
-            for c in selected
-            if (is_barrier(c) or native_cpu_target(c, native_cpu_targets))
-            == (args.continuation_phase == "barriers")
-        ]
-        assert selected
-        cases[:] = selected
+        cases[:] = continuation_cases(
+            cases,
+            previous["cases"],
+            retry_interrupted=args.retry_interrupted,
+            barrier_phase=args.continuation_phase == "barriers",
+            is_barrier=lambda case: is_barrier(case)
+            or native_cpu_target(case, native_cpu_targets),
+        )
         result["continuation_phase"] = args.continuation_phase
         result["retry_input"] = {
             "path": str(args.retry_from),
@@ -461,55 +470,78 @@ def run(args, root):
             "policy": "exact previously unstarted, explicitly interrupted or storage-deferred whole targets from immutable same-source input; parallel excludes docs/timing; barriers externally idle; original outcomes preserved",
         }
     build_env = os.environ.copy()
-    assert not args.idle_builds or (
-        args.no_test_incremental
-        and build_env.get("SCRIPTW_TEST_CODEGEN_JOBS") == "auto"
-    ), "Idle builds require --no-test-incremental and SCRIPTW_TEST_CODEGEN_JOBS=auto"
+    if not (
+        not args.idle_builds
+        or (
+            args.no_test_incremental
+            and build_env.get("SCRIPTW_TEST_CODEGEN_JOBS") == "auto"
+        )
+    ):
+        raise AssertionError(
+            "Idle builds require --no-test-incremental and SCRIPTW_TEST_CODEGEN_JOBS=auto"
+        )
     if args.no_test_incremental:
         build_env["SCRIPTW_TEST_NO_INCREMENTAL"] = "1"
     if args.shared_runtime_linker:
         linker = args.shared_runtime_linker.resolve()
-        assert linker.name == "cc" and linker.is_file()
+        if not (linker.name == "cc" and linker.is_file()):
+            raise AssertionError(
+                "Verification condition failed: linker.name == 'cc' and linker.is_file()"
+            )
         build_env["PATH"] = str(linker.parent) + os.pathsep + build_env["PATH"]
         if args.strip_test_debug:
             build_env["SCRIPTW_TEST_STRIP_DEBUG"] = "1"
         if args.shared_runtime_linker_contract:
             contract_path = args.shared_runtime_linker_contract.resolve()
             contract = json.loads(contract_path.read_text())
-            assert contract["profile"] == args.profile, "Shared linker profile differs"
-            assert (
-                Path(contract["target_directory"]).resolve() == cargo_target_dir
-            ), "Shared linker target directory differs"
-            assert (
+            if not (contract["profile"] == args.profile):
+                raise AssertionError("Shared linker profile differs")
+            if not (Path(contract["target_directory"]).resolve() == cargo_target_dir):
+                raise AssertionError("Shared linker target directory differs")
+            if not (
                 Path(contract["native_output_directory"]).resolve()
                 == profile_root / "deps"
-            ), "Shared linker native output directory differs"
-            assert (
+            ):
+                raise AssertionError("Shared linker native output directory differs")
+            if not (
                 Path(contract["shared_runtime_directory"]).resolve()
                 == cargo_target_dir / "shared-test-runtime-images"
-            ), "Shared linker image directory differs"
+            ):
+                raise AssertionError("Shared linker image directory differs")
             files = [Path(row["path"]).resolve() for row in contract["files"]]
-            assert len(files) == len(set(files)) and linker in files
-            assert {p.name for p in files} == {
-                "cc",
-                "shared_image.py",
-                "strip_debug.py",
-            }
-            assert all(
-                hashlib.sha256(Path(row["path"]).read_bytes()).hexdigest()
-                == row["sha256"]
-                for row in contract["files"]
-            ), "Shared linker contract bytes changed"
+            if not (len(files) == len(set(files)) and linker in files):
+                raise AssertionError(
+                    "Verification condition failed: len(files) == len(set(files)) and linker in files"
+                )
+            if not (
+                {p.name for p in files}
+                == {
+                    "cc",
+                    "shared_image.py",
+                    "strip_debug.py",
+                }
+            ):
+                raise AssertionError(
+                    "Verification condition failed: {p.name for p in files} == {'cc', 'shared_image.py', 'strip_debug.py'}"
+                )
+            if not (
+                all(
+                    hashlib.sha256(Path(row["path"]).read_bytes()).hexdigest()
+                    == row["sha256"]
+                    for row in contract["files"]
+                )
+            ):
+                raise AssertionError("Shared linker contract bytes changed")
             files.append(contract_path)
         else:
-            assert (
-                args.profile == "debug"
-            ), "An external release linker needs an explicit bound contract"
-            assert (
-                linker.parents[2] / "target"
-            ).resolve() == cargo_target_dir, (
-                "Adjacent debug linker targets a different Cargo directory"
-            )
+            if not (args.profile == "debug"):
+                raise AssertionError(
+                    "An external release linker needs an explicit bound contract"
+                )
+            if not ((linker.parents[2] / "target").resolve() == cargo_target_dir):
+                raise AssertionError(
+                    "Adjacent debug linker targets a different Cargo directory"
+                )
             files = [
                 linker,
                 linker.with_name("shared_image.py"),
@@ -525,14 +557,12 @@ def run(args, root):
             "policy": "Only Rust libtest ELF outputs in the selected Cargo profile directory share immutable data; ordinary product and doc links retain static archive.",
         }
     else:
-        assert (
-            not args.shared_runtime_linker_contract
-        ), "A linker contract requires its actual cc"
+        if not (not args.shared_runtime_linker_contract):
+            raise AssertionError("A linker contract requires its actual cc")
     if args.no_test_incremental:
         wrapper = (root / "scripts/test-shared-runtime-images/test-rustc").resolve()
-        assert not build_env.get(
-            "RUSTC_WRAPPER"
-        ), "Cannot replace an existing compiler wrapper"
+        if not (not build_env.get("RUSTC_WRAPPER")):
+            raise AssertionError("Cannot replace an existing compiler wrapper")
         build_env["RUSTC_WRAPPER"] = str(wrapper)
         result["test_incremental_policy"] = {
             "wrapper": evidence_path(wrapper),
@@ -559,20 +589,22 @@ def run(args, root):
         case["released_incremental"] = removed
 
     def save():
-        assert (
+        if not (
             hashlib.sha256(schedule_path.read_bytes()).hexdigest()
             == result["workspace_schedule_sha256"]
-        ), "Scheduler changed during verification"
-        result["source_unchanged"] = source == source_map()
+        ):
+            raise AssertionError("Scheduler changed during verification")
+        result["source_unchanged"] = source == source_map(root)
         result["shared_runtime_linker_unchanged"] = all(
             hashlib.sha256((root / path).read_bytes()).hexdigest() == digest
             for path, digest in result.get("shared_runtime_linker", {})
             .get("files", {})
             .items()
         )
-        assert result[
-            "shared_runtime_linker_unchanged"
-        ], "Shared linker/helper contract changed during verification"
+        if not (result["shared_runtime_linker_unchanged"]):
+            raise AssertionError(
+                "Shared linker/helper contract changed during verification"
+            )
         (out / "receipt.json").write_text(json.dumps(result, indent=2) + "\n")
 
     save()
@@ -582,12 +614,18 @@ def run(args, root):
     import fcntl
 
     available = sorted(os.sched_getaffinity(0))
-    assert (
+    if not (
         1
         <= args.test_processes
         <= min(4 if args.strip_test_debug else 2, len(available))
-    )
-    assert not args.strip_test_debug or args.shared_runtime_linker
+    ):
+        raise AssertionError(
+            "Verification condition failed: 1 <= args.test_processes <= min(4 if args.strip_test_debug else 2, len(available))"
+        )
+    if not (not args.strip_test_debug or args.shared_runtime_linker):
+        raise AssertionError(
+            "Verification condition failed: not args.strip_test_debug or args.shared_runtime_linker"
+        )
     slots = available[: args.test_processes]
     result["artifact_selection_policy"] = (
         "Exact Cargo package identity, target name, kind and test profile; normal selectors exclude explicitly isolated test roots; each isolated package has its own exact Cargo cohort; all native IDs execute once."
@@ -675,16 +713,20 @@ def run(args, root):
 
     def profile_test_artifacts(messages, expected):
         outputs = test_artifacts(messages, expected)
-        assert all(
-            path.parent.resolve() == (profile_root / "deps").resolve()
-            for path in outputs.values()
-        ), "Cargo-selected native output belongs to another profile or target directory"
+        if not (
+            all(
+                path.parent.resolve() == (profile_root / "deps").resolve()
+                for path in outputs.values()
+            )
+        ):
+            raise AssertionError(
+                "Cargo-selected native output belongs to another profile or target directory"
+            )
         return outputs
 
     if args.plan_only:
-        assert (
-            not args.reuse_library_build_from
-        ), "Planning does not admit carried native outputs"
+        if not (not args.reuse_library_build_from):
+            raise AssertionError("Planning does not admit carried native outputs")
         result["prepared_only"] = True
         result["native_executed"] = False
         result["native_acceptance"] = False
@@ -781,25 +823,37 @@ def run(args, root):
     if args.reuse_library_build_from:
         carry_path = args.reuse_library_build_from
         carry = json.loads(carry_path.read_text())
-        assert carry["source_unchanged"] and carry["head"] == result["head"]
-        assert (
-            carry.get("profile", "debug") == args.profile
-        ), "Library carry profile changed"
-        assert (
+        if not (carry["source_unchanged"] and carry["head"] == result["head"]):
+            raise AssertionError(
+                "Verification condition failed: carry['source_unchanged'] and carry['head'] == result['head']"
+            )
+        if not (carry.get("profile", "debug") == args.profile):
+            raise AssertionError("Library carry profile changed")
+        if not (
             Path(carry.get("target_directory", root / "target")).resolve()
             == cargo_target_dir
-        ), "Library carry Cargo target directory changed"
-        assert (
+        ):
+            raise AssertionError("Library carry Cargo target directory changed")
+        if not (
             carry["all_features"] == args.all_features
             and carry["include_ignored"] == args.include_ignored
-        )
-        assert (
+        ):
+            raise AssertionError(
+                "Verification condition failed: carry['all_features'] == args.all_features and carry['include_ignored'] == args.include_ignored"
+            )
+        if not (
             carry["selected_workspace_packages"]
             == result["selected_workspace_packages"]
-        )
-        assert (
+        ):
+            raise AssertionError(
+                "Verification condition failed: carry['selected_workspace_packages'] == result['selected_workspace_packages']"
+            )
+        if not (
             json.loads((carry_path.parent / "source-start.json").read_text()) == source
-        )
+        ):
+            raise AssertionError(
+                "Verification condition failed: json.loads((carry_path.parent / 'source-start.json').read_text()) == source"
+            )
         library_group = carry["build_groups"]["lib:*"]
         archive = next(
             row
@@ -807,14 +861,27 @@ def run(args, root):
             if row["path"].endswith(".build.jsonl.gz")
         )
         packed = root / archive["path"]
-        assert hashlib.sha256(packed.read_bytes()).hexdigest() == archive["gzip_sha256"]
+        if not (
+            hashlib.sha256(packed.read_bytes()).hexdigest() == archive["gzip_sha256"]
+        ):
+            raise AssertionError(
+                "Verification condition failed: hashlib.sha256(packed.read_bytes()).hexdigest() == archive['gzip_sha256']"
+            )
         raw = gzip.decompress(packed.read_bytes())
-        assert hashlib.sha256(raw).hexdigest() == archive["uncompressed_sha256"]
+        if not (hashlib.sha256(raw).hexdigest() == archive["uncompressed_sha256"]):
+            raise AssertionError(
+                "Verification condition failed: hashlib.sha256(raw).hexdigest() == archive['uncompressed_sha256']"
+            )
         messages = [json.loads(line) for line in raw.splitlines()]
-        assert any(
-            m.get("reason") == "build-finished" and m.get("success") is True
-            for m in messages
-        )
+        if not (
+            any(
+                m.get("reason") == "build-finished" and m.get("success") is True
+                for m in messages
+            )
+        ):
+            raise AssertionError(
+                "Verification condition failed: any((m.get('reason') == 'build-finished' and m.get('success') is True for m in messages))"
+            )
         expected = [
             (package_ids[c["package"]], c["target"], c["kind"])
             for c in full_inventory
@@ -832,10 +899,13 @@ def run(args, root):
         if args.restored_library_provenance:
             restoration = json.loads(args.restored_library_provenance.read_text())
             archive_path = root / restoration["archive"]
-            assert (
+            if not (
                 hashlib.sha256(archive_path.read_bytes()).hexdigest()
                 == restoration["archive_sha256"]
-            )
+            ):
+                raise AssertionError(
+                    "Verification condition failed: hashlib.sha256(archive_path.read_bytes()).hexdigest() == restoration['archive_sha256']"
+                )
             restored_rows = {row["path"]: row for row in restoration["rows"]}
             result["restored_library_provenance"] = {
                 "path": str(args.restored_library_provenance),
@@ -853,26 +923,42 @@ def run(args, root):
                 and m.get("executable") == str(path)
                 and m.get("profile", {}).get("test")
             ]
-            assert len(matching) == 1
+            if not (len(matching) == 1):
+                raise AssertionError(
+                    "Verification condition failed: len(matching) == 1"
+                )
             if matching[0]["fresh"]:
                 original = restored_rows[str(path)]
-                assert (
+                if not (
                     original["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
-                )
-                assert original["bytes"] == path.stat().st_size
-            assert (
+                ):
+                    raise AssertionError(
+                        "Verification condition failed: original['sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()"
+                    )
+                if not (original["bytes"] == path.stat().st_size):
+                    raise AssertionError(
+                        "Verification condition failed: original['bytes'] == path.stat().st_size"
+                    )
+            if not (
                 path.is_file()
                 and path.parent.resolve() == (profile_root / "deps").resolve()
-            )
+            ):
+                raise AssertionError(
+                    "Verification condition failed: path.is_file() and path.parent.resolve() == (profile_root / 'deps').resolve()"
+                )
             previous_case = next(
                 c
                 for c in carry["cases"]
                 if (package_ids[c["package"]], c["target"], c["kind"]) == key
             )
-            assert previous_case.get("state") in (
-                "storage-deferred",
-                None,
-            ), "Never carry an executed or failed output"
+            if not (
+                previous_case.get("state")
+                in (
+                    "storage-deferred",
+                    None,
+                )
+            ):
+                raise AssertionError("Never carry an executed or failed output")
             admitted[key] = path
             evidence.append(
                 {
@@ -885,7 +971,8 @@ def run(args, root):
                     "cargo_fresh": matching[0]["fresh"],
                 }
             )
-        assert admitted
+        if not (admitted):
+            raise AssertionError("Verification condition failed: admitted")
         cases.sort(key=lambda case: 0 if case["kind"] == "lib" else 1)
         result["scheduling"][
             "cached_library_priority"
@@ -1004,7 +1091,10 @@ def run(args, root):
         for key, path in artifacts.items():
             if key in wanted:
                 continue
-            assert path.parent.resolve() == (profile_root / "deps").resolve()
+            if not (path.parent.resolve() == (profile_root / "deps").resolve()):
+                raise AssertionError(
+                    "Verification condition failed: path.parent.resolve() == (profile_root / 'deps').resolve()"
+                )
             row = {
                 "package_id": key[0],
                 "target": key[1],
@@ -1082,34 +1172,57 @@ def run(args, root):
                     "evidence": partition_evidence,
                 }
                 if case["state"] == "passed":
-                    assert (
+                    if not (
                         partition_evidence["inventory_matches"]
                         and partition_evidence["complete_test_count"]
                         == case["inventoried_tests"]
-                    )
-                    assert (
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['inventory_matches'] and partition_evidence['complete_test_count'] == case['inventoried_tests']"
+                        )
+                    if not (
                         partition_evidence["counts"] == outcomes[0]
                         and len(outcomes) == 1
-                    )
-                    assert (
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['counts'] == outcomes[0] and len(outcomes) == 1"
+                        )
+                    if not (
                         partition_evidence["executable_sha256"]
                         == case["executable_sha256"]
-                    )
-                    assert (
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['executable_sha256'] == case['executable_sha256']"
+                        )
+                    if not (
                         partition_evidence["qualified_target"]
                         == case["package"] + ":" + case["target"]
-                    )
-                    assert partition_evidence["stall_seconds"] == native_stall_seconds(
-                        case["package"]
-                    )
-                    assert partition_evidence["cpus"] == case["test_cpus"]
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['qualified_target'] == case['package'] + ':' + case['target']"
+                        )
+                    if not (
+                        partition_evidence["stall_seconds"]
+                        == native_stall_seconds(case["package"])
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['stall_seconds'] == native_stall_seconds(case['package'])"
+                        )
+                    if not (partition_evidence["cpus"] == case["test_cpus"]):
+                        raise AssertionError(
+                            "Verification condition failed: partition_evidence['cpus'] == case['test_cpus']"
+                        )
         executable = entry.get("executable")
         if executable is not None:
-            assert executable.parent.resolve() == (profile_root / "deps").resolve()
-            assert (
+            if not (executable.parent.resolve() == (profile_root / "deps").resolve()):
+                raise AssertionError(
+                    "Verification condition failed: executable.parent.resolve() == (profile_root / 'deps').resolve()"
+                )
+            if not (
                 hashlib.sha256(executable.read_bytes()).hexdigest()
                 == case["executable_sha256"]
-            ), "Native artifact changed during execution"
+            ):
+                raise AssertionError("Native artifact changed during execution")
             if args.preserve_test_artifacts:
                 case["executable_released"] = False
             else:
@@ -1142,7 +1255,8 @@ def run(args, root):
         rows = {}
         for index, start in enumerate(starts):
             name = start.group(1)
-            assert name not in rows, name
+            if not (name not in rows):
+                raise AssertionError(name)
             end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
             rows[name] = text[start.start() : end]
         return rows
@@ -1231,13 +1345,22 @@ def run(args, root):
             case, label, building=not cached_native, native_processes=native_processes
         )
 
+    documentation_cohorts = doc_cohorts(
+        full_inventory, args.packages, isolated_packages
+    )
+
     def run_doc_cohort():
-        assert not active, "Documentation remains idle-exclusive"
+        if not (not active):
+            raise AssertionError("Documentation remains idle-exclusive")
         pending = [c for c in cases if c["kind"] == "doc" and c.get("state") is None]
-        assert pending
-        for group, selection, package_names in doc_cohorts(
-            full_inventory, args.packages, isolated_packages
-        ):
+        if not (pending):
+            raise AssertionError("Verification condition failed: pending")
+        for cohort in documentation_cohorts:
+            group, selection, package_names = (
+                cohort.key,
+                cohort.selection,
+                cohort.packages,
+            )
             selected = [c for c in pending if c["package"] in package_names]
             if not selected:
                 continue
@@ -1291,11 +1414,14 @@ def run(args, root):
                     env=build_env,
                 )
             inventory_rows = split_doc_packages(inventory_path.read_text())
-            assert inventory.returncode == 0 and set(inventory_rows) == expected, (
-                inventory.returncode,
-                set(inventory_rows),
-                expected,
-            )
+            if not (inventory.returncode == 0 and set(inventory_rows) == expected):
+                raise AssertionError(
+                    (
+                        inventory.returncode,
+                        set(inventory_rows),
+                        expected,
+                    )
+                )
             command = (
                 prefix
                 + base
@@ -1330,9 +1456,11 @@ def run(args, root):
                     watched, stdout=stream, stderr=subprocess.STDOUT, env=build_env
                 )
             watch = root / "target/watched" / (label + ".log")
-            assert watch.is_file(), watch
+            if not (watch.is_file()):
+                raise AssertionError(watch)
             execution_rows = split_doc_packages(watch.read_text())
-            assert set(execution_rows) == expected, (set(execution_rows), expected)
+            if not (set(execution_rows) == expected):
+                raise AssertionError((set(execution_rows), expected))
             cohort = {
                 "inventory_command": command_inventory,
                 "command": command,
@@ -1410,9 +1538,8 @@ def run(args, root):
                 )
             ]
             save()
-            assert result[
-                "source_unchanged"
-            ], "Source changed during documentation cohort"
+            if not (result["source_unchanged"]):
+                raise AssertionError("Source changed during documentation cohort")
 
     save()
     for i, case in execution_order(
@@ -1497,7 +1624,8 @@ def run(args, root):
                 inventory_path.read_bytes()
             ).hexdigest()
             case["inventory_command"] = inventory_command
-            assert inventory.returncode == 0, (case, inventory.stderr)
+            if not (inventory.returncode == 0):
+                raise AssertionError((case, inventory.stderr))
             case["inventoried_tests"] = len(
                 re.findall(r"^.+: test$", inventory.stdout, re.M)
             )
@@ -1546,7 +1674,10 @@ def run(args, root):
                 executable = artifact_cohorts[group][
                     (package_ids[case["package"]], case["target"], case["kind"])
                 ]
-                assert executable.is_file()
+                if not (executable.is_file()):
+                    raise AssertionError(
+                        "Verification condition failed: executable.is_file()"
+                    )
                 if "carried_unexecuted_outputs" in build_groups[group_name]:
                     admission = next(
                         row
@@ -1555,10 +1686,13 @@ def run(args, root):
                         ]
                         if row["path"] == evidence_path(executable)
                     )
-                    assert (
+                    if not (
                         hashlib.sha256(executable.read_bytes()).hexdigest()
                         == admission["sha256"]
-                    )
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: hashlib.sha256(executable.read_bytes()).hexdigest() == admission['sha256']"
+                        )
                     case["carried_library_admission"] = admission
                 case["build_exit"] = 0
                 case["build_command"] = build_groups[group_name]["command"]
@@ -1654,9 +1788,10 @@ def run(args, root):
                     and r["target"]["kind"] == ["custom-build"]
                     and r["package_id"] in members
                 }
-                assert (
-                    seen <= workspace_scripts
-                ), "Cargo build scripts must match the exact workspace metadata"
+                if not (seen <= workspace_scripts):
+                    raise AssertionError(
+                        "Cargo build scripts must match the exact workspace metadata"
+                    )
                 for package_id, target in sorted(seen):
                     producer = build_script_artifact(messages, package_id, target)
                     producers.append(
@@ -1718,11 +1853,13 @@ def run(args, root):
                             rebuilt = build_with_completed_cache_retirement(
                                 command_build, stdout, stderr, case
                             )
-                        assert rebuilt == 0, (case, errlog.read_text()[-4000:])
+                        if not (rebuilt == 0):
+                            raise AssertionError((case, errlog.read_text()[-4000:]))
                         dynamic = subprocess.check_output(
                             ["readelf", "-d", str(executable)], text=True
                         )
-                        assert "libscriptw_runtime_images_" in dynamic, case
+                        if not ("libscriptw_runtime_images_" in dynamic):
+                            raise AssertionError(case)
             case["executable_sha256"] = hashlib.sha256(
                 executable.read_bytes()
             ).hexdigest()
@@ -1738,15 +1875,24 @@ def run(args, root):
                     for name in needed
                     if name.startswith("libscriptw_runtime_images_")
                 ]
-                assert len(shared) <= 1
+                if not (len(shared) <= 1):
+                    raise AssertionError(
+                        "Verification condition failed: len(shared) <= 1"
+                    )
                 if shared:
                     image = cargo_target_dir / "shared-test-runtime-images" / shared[0]
                     receipt = json.loads(image.with_suffix(".json").read_text())
-                    assert (
+                    if not (
                         hashlib.sha256(image.read_bytes()).hexdigest()
                         == receipt["shared_sha256"]
-                    )
-                    assert str(image.parent) in dynamic
+                    ):
+                        raise AssertionError(
+                            "Verification condition failed: hashlib.sha256(image.read_bytes()).hexdigest() == receipt['shared_sha256']"
+                        )
+                    if not (str(image.parent) in dynamic):
+                        raise AssertionError(
+                            "Verification condition failed: str(image.parent) in dynamic"
+                        )
                     events = [
                         json.loads(line)
                         for line in (image.parent / "test-links.jsonl")
@@ -1759,14 +1905,16 @@ def run(args, root):
                         if event.get("executable_sha256") == case["executable_sha256"]
                         and event["shared_image"] == str(image)
                     ]
-                    assert matched, (case, "no sealed linker event")
+                    if not (matched):
+                        raise AssertionError((case, "no sealed linker event"))
                     case["shared_link_event"] = matched[-1]
                     if args.strip_test_debug:
                         debug = matched[-1].get("debug_sections")
-                        assert (
+                        if not (
                             debug
                             and debug["stripped_sha256"] == case["executable_sha256"]
-                        ), (case, "stripping not sealed")
+                        ):
+                            raise AssertionError((case, "stripping not sealed"))
                     case["shared_runtime_image"] = receipt
             seal_build_logs(case, [buildlog, errlog])
             inventory = subprocess.run(
@@ -1785,7 +1933,8 @@ def run(args, root):
             case["inventory_sha256"] = hashlib.sha256(
                 inventory_path.read_bytes()
             ).hexdigest()
-            assert inventory.returncode == 0, (case, inventory.stderr)
+            if not (inventory.returncode == 0):
+                raise AssertionError((case, inventory.stderr))
             case["inventoried_tests"] = len(
                 re.findall(r"^.+: test$", inventory.stdout, re.M)
             )
@@ -1793,7 +1942,8 @@ def run(args, root):
                 re.findall(r"^.+: benchmark$", inventory.stdout, re.M)
             )
             if case["package"] + ":" + case["target"] in native_filters:
-                assert case["inventoried_tests"] > 0, "Native filter selected no tests"
+                if not (case["inventoried_tests"] > 0):
+                    raise AssertionError("Native filter selected no tests")
             command = [str(executable), "--test-threads=1"] + (
                 ["--include-ignored"] if args.include_ignored else []
             )
@@ -1804,8 +1954,16 @@ def run(args, root):
                 case["native_filter"] = native_filter
         partition_receipt = None
         if partitioned:
-            assert not case.get("native_filter") and args.include_ignored and not active
-            assert len(slots) == args.test_processes
+            if not (
+                not case.get("native_filter") and args.include_ignored and not active
+            ):
+                raise AssertionError(
+                    "Verification condition failed: not case.get('native_filter') and args.include_ignored and (not active)"
+                )
+            if not (len(slots) == args.test_processes):
+                raise AssertionError(
+                    "Verification condition failed: len(slots) == args.test_processes"
+                )
             partition_output = out / (label + "-partitions")
             partition_receipt = partition_output / "receipt.json"
             partition_driver = root / "scripts/workspace_test_partitions.py"
@@ -1901,7 +2059,10 @@ def run(args, root):
         elif differential_native_compilation(
             case, args.differential_native_cpus
         ) or native_cpu_target(case, native_cpu_targets):
-            assert barrier and not active
+            if not (barrier and not active):
+                raise AssertionError(
+                    "Verification condition failed: barrier and (not active)"
+                )
             resource_path = out / (label + ".native-resources.json")
             launch = [
                 "./scripts/run-watched.sh",

@@ -1,0 +1,19 @@
+[
+  "README.md",
+  "CONTRIBUTING.md",
+  "CONTINUE.md",
+  "tasks/README.md",
+  "docs/maintenance-hills.md",
+  "docs/rust-rewrite/README.md",
+  "docs/rust-rewrite/current-inventory.md",
+  "docs/rust-rewrite/batch-workflow.md",
+  "docs/rust-rewrite/development-checkout.md",
+  "docs/rust-rewrite/vendor-patches.md",
+  "docs/rust-rewrite/runtime-requirements.md",
+  "docs/rust-rewrite/test262-current.md",
+  "docs/rust-rewrite/conformance-ownership.md",
+  "docs/rust-rewrite/conformance-acceptance.md",
+  "docs/rust-rewrite/contracts/README.md",
+  "docs/rust-rewrite/contracts/runtime-artifact-persistence.md",
+  "docs/rust-rewrite/tooling-ci-inventory.md"
+]

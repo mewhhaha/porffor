@@ -12,15 +12,15 @@ from pathlib import Path
 import sys
 import tempfile
 
+from filesystem_probe import probe_filesystem
+from resource_numbers import positive_decimal
+
 
 def positive_mib(value: str) -> int:
     try:
-        amount = int(value)
+        return positive_decimal(value, "MiB count")
     except ValueError as error:
         raise argparse.ArgumentTypeError("expected a positive MiB count") from error
-    if amount <= 0:
-        raise argparse.ArgumentTypeError("expected a positive MiB count")
-    return amount
 
 
 def main() -> int:
@@ -35,13 +35,11 @@ def main() -> int:
     if not command:
         parser.error("a verification command is required after --")
     try:
-        scratch = args.scratch.resolve(strict=True)
-        if not scratch.is_dir():
-            parser.error("scratch must be an existing directory")
-        status = os.statvfs(scratch)
-    except OSError as error:
+        scratch, _, _, available = probe_filesystem(
+            args.scratch, require_directory=True
+        )
+    except (OSError, ValueError) as error:
         parser.error(str(error))
-    available = status.f_bavail * status.f_frsize
     required = args.minimum_free_mib * 1024 * 1024
     if available < required:
         print(

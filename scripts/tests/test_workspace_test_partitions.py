@@ -9,15 +9,18 @@ import re
 import tempfile
 import unittest
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 SOURCE = Path(__file__).resolve().parents[1] / 'workspace_test_partitions.py'
 TREE = ast.parse(SOURCE.read_text())
 FUNCTIONS = [node for node in TREE.body if isinstance(node, ast.FunctionDef)
              and node.name in ('names', 'outcomes', 'weight', 'partition_groups', 'partition_label')]
 NAMESPACE = {'re': re, 'hashlib': hashlib, 'os': os, 'Path': Path}
-NAMESPACE['CLI_OBSERVED_SECONDS'] = ast.literal_eval(next(
-    node.value for node in TREE.body if isinstance(node, ast.Assign)
-    and any(isinstance(target, ast.Name) and target.id == 'CLI_OBSERVED_SECONDS'
-            for target in node.targets)))
+from native_partition_costs import measured_weight
+from native_test_protocol import test_names, summary_counts
+NAMESPACE.update(measured_weight=measured_weight, test_names=test_names,
+                 summary_counts=summary_counts)
 exec(compile(ast.Module(body=FUNCTIONS, type_ignores=[]), str(SOURCE), 'exec'), NAMESPACE)
 
 ENGINE_UTF16_OUTLIER = (
@@ -74,7 +77,7 @@ class NativePartitionProofTests(unittest.TestCase):
         self.assertEqual(groups, NAMESPACE['partition_groups'](list(reversed(original)), 4))
 
     def test_measured_cli_outliers_balance_without_dropping_any_of_855_ids(self):
-        measured = NAMESPACE['CLI_OBSERVED_SECONDS']
+        measured = __import__('json').loads(SOURCE.with_name('native-partition-costs.json').read_text())['observations'][0]['seconds']
         original = list(measured) + [f'array::ordinary_{index:03}'
                                     for index in range(855 - len(measured))]
         saved = list(original)
@@ -97,7 +100,7 @@ class NativePartitionProofTests(unittest.TestCase):
         self.assertEqual(NAMESPACE['weight'](name + '_new'), 25)
         self.assertEqual(NAMESPACE['weight']('other::' + name), 3)
         self.assertEqual(NAMESPACE['weight']('frontend::unmeasured'), 1)
-        for estimate in NAMESPACE['CLI_OBSERVED_SECONDS'].values():
+        for estimate in __import__('json').loads(SOURCE.with_name('native-partition-costs.json').read_text())['observations'][0]['seconds'].values():
             self.assertIs(type(estimate), int)
             self.assertGreaterEqual(estimate, 30)
 
@@ -194,7 +197,7 @@ class NativePartitionProofTests(unittest.TestCase):
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                     and target.id == 'root' for target in node.targets):
                 break
-            if isinstance(node, (ast.Assign, ast.Assert)):
+            if isinstance(node, (ast.Assign, ast.If)):
                 checks.append(node)
         # Execute the actual argument-to-stock-policy binding only, without I/O.
         checks = [node for node in checks if 'args.qualified_target' in ast.unparse(node)

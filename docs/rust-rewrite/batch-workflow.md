@@ -6,6 +6,13 @@
 all dated procedures and their original source identities. Historical commands,
 worker counts and timing estimates are not current defaults.
 
+The [checkout guide](development-checkout.md) lists sparse inputs and cache flags.
+Linux CI discovers [all tooling modules](tooling-ci-inventory.md). The AOT workflow
+owns debug unit shards and every integration target; main CI owns the complete
+release AOT selection. Focused Array/Arguments jobs retain their semantic checks
+without repeating the full backend suite. Named shared commands live in
+`scripts/ci-targets.json`; `run-ci-target.py --print-command` exposes exact argv.
+
 ## Prepare and implement a coherent batch
 
 1. Read [AGENTS.md](../../AGENTS.md), the owning

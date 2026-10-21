@@ -23,11 +23,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: ./.github/actions/rust-verification
+        with:
+          shared-key: native-regressions
 
       - name: Check formatting and semantic ownership guards
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
 
       - name: Execute the complete nonempty engine regression inventory
         run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_flat_map --output-dir /tmp/flatmap-engine
@@ -40,7 +42,7 @@ jobs:
           grep -Eq '^test result: ok\. [1-9][0-9]* passed; 0 failed; 0 ignored;' /tmp/flatmap-cli.txt
 
       - name: Build the product CLI
-        run: cargo build --locked -p scriptw-cli
+        run: python3 scripts/run-ci-target.py product-cli
 
       - name: Execute the entire pinned real flatMap subtree
         shell: bash
@@ -70,10 +72,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: ./.github/actions/rust-verification
+        with:
+          shared-key: native-regressions
       - name: Check formatting and direct/generic ownership
         run: |
           cargo fmt --all -- --check
-          cargo test --locked -p scriptw-aot-wasm --lib --tests -- --test-threads=1
       - name: Execute the complete new engine regression inventory
         run: python3 scripts/run_engine_regression_inventory.py aot_builtins --module aot_array_to_locale_string_length --output-dir /tmp/locale-length-engine
       - name: Retain the existing CLI fixture
@@ -86,7 +90,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked -p scriptw-cli
+          python3 scripts/run-ci-target.py product-cli
           git rev-parse HEAD > /tmp/locale-length-source-sha.txt
           ./target/debug/scriptw test262 run built-ins/Array/prototype/toLocaleString/ --execution-backend wasm --threads 2 --jobs 2 --timeout-ms 60000 --snapshot-dir /tmp/locale-length-test262 --snapshot-name locale-length-ci 2>&1 | tee /tmp/locale-length-test262.txt
           grep -Eq '^total: [1-9][0-9]*$' /tmp/locale-length-test262.txt

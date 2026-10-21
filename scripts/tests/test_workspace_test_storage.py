@@ -11,6 +11,9 @@ import unittest
 from unittest.mock import patch
 
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 SOURCE = Path(__file__).resolve().parents[1] / 'workspace_test_storage.py'
 spec = importlib.util.spec_from_file_location('workspace_test_storage', SOURCE)
 storage = importlib.util.module_from_spec(spec)

@@ -5,14 +5,19 @@ measured results, source identities and outstanding acceptance gates. Use the
 [batch workflow](docs/rust-rewrite/batch-workflow.md) for commands and resource
 policy. The [maintenance backlog](docs/maintenance-hills.md) tracks cleanup work.
 
-## Completed maintenance batch
+## Current maintenance work
 
-H001–H004, H011, H017, H024 and H091 are complete. The
-[verification record](docs/rust-rewrite/maintenance-first-wave-20261021.md) binds
-implementation commits and checks, including the original failed attempts and
-successful corrections. The remaining 92 maintenance hills are candidates.
-Continue with the broader acceptance queue below; do not treat this cleanup as
-full-suite or release acceptance.
+All 100 hills are authorized. H001–H035 and H091 are complete (36 total).
+The [first-wave record](docs/rust-rewrite/maintenance-first-wave-20261021.md) and
+[tooling-wave record](docs/rust-rewrite/maintenance-tooling-wave-20261021.md) retain
+checks and failed attempts. Continue implementing the remaining 64 hills:
+H036–H090 and H092–H100. Investigation entries need measured or characterized
+evidence before deciding whether code changes improve the project.
+
+Use coherent CLI/conformance, compiler/runtime and Intl batches, with Luna
+agents for read-only exploration/review and root-owned implementation. Push each
+verified batch to main. Do not treat maintenance completion as full-suite or
+release acceptance; the broader queue below remains open.
 
 ## Decisions to retain
 

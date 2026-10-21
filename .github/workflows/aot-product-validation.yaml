@@ -3,6 +3,7 @@ name: AOT product artifact validation
 on:
   pull_request:
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-aot-wasm/**'
       - 'crates/scriptw-front/**'
       - 'crates/scriptw-ir/**'
@@ -18,6 +19,7 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/actions/rust-verification/**'
       - 'crates/scriptw-aot-wasm/**'
       - 'crates/scriptw-front/**'
       - 'crates/scriptw-ir/**'
@@ -46,7 +48,7 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/rust-verification
         with:
           shared-key: aot-product-validation
       - name: Check formatting

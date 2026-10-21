@@ -1,0 +1,5 @@
+{
+  "aot-complete": ["test", "--locked", "-p", "scriptw-aot-wasm", "--lib", "--tests", "--", "--test-threads=1"],
+  "aot-integrations": ["test", "--locked", "-p", "scriptw-aot-wasm", "--test", "*", "--", "--test-threads=1"],
+  "product-cli": ["build", "--locked", "-p", "scriptw-cli"]
+}

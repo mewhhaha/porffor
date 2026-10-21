@@ -4,19 +4,10 @@ import os
 from pathlib import Path
 
 
-def expand_build_tree(pid, cpus, proc_root=Path("/proc")):
-    """Expand only descendant task masks already contained in the allowed budget.
-
-    The caller owns the build child and ensures all native wrappers have exited.
-    Cargo stays serial. A task with a different mask is left alone; vanished
-    tasks are normal when rustc finishes. No native test process is visited.
-    """
-    cpus = set(cpus)
-    if not cpus:
-        raise ValueError("the compilation CPU budget must remain nonempty")
+def build_tasks(pid, proc_root=Path("/proc")):
+    """Discover only tasks descended from the caller-owned build process."""
     pending = [pid]
     seen = set()
-    changed = []
     parents = None
     while pending:
         process = pending.pop()
@@ -30,7 +21,9 @@ def expand_build_tree(pid, cpus, proc_root=Path("/proc")):
         for task in tasks:
             try:
                 try:
-                    pending.extend(int(child) for child in (task / "children").read_text().split())
+                    pending.extend(
+                        int(child) for child in (task / "children").read_text().split()
+                    )
                 except FileNotFoundError:
                     # Some kernels omit task/children. Take one parent snapshot
                     # for this transition, then walk only the build descendants.
@@ -41,19 +34,46 @@ def expand_build_tree(pid, cpus, proc_root=Path("/proc")):
                                 continue
                             try:
                                 status = (entry / "status").read_text()
-                                parent = next(line.split()[1] for line in status.splitlines()
-                                              if line.startswith("PPid:"))
-                                parents.setdefault(int(parent), []).append(int(entry.name))
+                                parent = next(
+                                    line.split()[1]
+                                    for line in status.splitlines()
+                                    if line.startswith("PPid:")
+                                )
+                                parents.setdefault(int(parent), []).append(
+                                    int(entry.name)
+                                )
                             except (FileNotFoundError, StopIteration):
                                 continue
                     pending.extend(parents.get(process, []))
                 tid = int(task.name)
-                previous = os.sched_getaffinity(tid)
-                if previous and previous < cpus:
-                    os.sched_setaffinity(tid, cpus)
-                    changed.append({"pid": process, "tid": tid,
-                                    "before": sorted(previous),
-                                    "after": sorted(os.sched_getaffinity(tid))})
+                yield process, tid
             except (FileNotFoundError, ProcessLookupError):
                 continue
+
+
+def expand_build_tree(pid, cpus, proc_root=Path("/proc")):
+    """Expand discovered task masks only within the caller's allowed budget.
+
+    Cargo stays serial. Foreign masks are untouched; vanished tasks are normal.
+    The caller ensures all native wrappers have exited before this transition.
+    """
+    cpus = set(cpus)
+    if not cpus:
+        raise ValueError("the compilation CPU budget must remain nonempty")
+    changed = []
+    for process, tid in build_tasks(pid, proc_root):
+        try:
+            previous = os.sched_getaffinity(tid)
+            if previous and previous < cpus:
+                os.sched_setaffinity(tid, cpus)
+                changed.append(
+                    {
+                        "pid": process,
+                        "tid": tid,
+                        "before": sorted(previous),
+                        "after": sorted(os.sched_getaffinity(tid)),
+                    }
+                )
+        except (FileNotFoundError, ProcessLookupError):
+            continue
     return changed

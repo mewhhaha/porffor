@@ -12,6 +12,8 @@ while native compilation stays serial. Payload worker counts are preserved.
 import argparse
 import os
 from pathlib import Path
+
+from resource_numbers import positive_decimal
 import shutil
 import sys
 
@@ -27,19 +29,22 @@ CLOUD_MODULE_IMAGE_BUDGET_DIVISOR = 8
 
 
 def positive_mib(value: str) -> int:
-    if not value.isascii() or not value.isdecimal() or not 0 < int(value) <= DEFAULT_MEMORY_MIB:
-        raise argparse.ArgumentTypeError("memory MiB must be an integer from 1 to 4096")
-    return int(value)
+    try:
+        amount = positive_decimal(value, "memory MiB")
+        if amount > DEFAULT_MEMORY_MIB:
+            raise ValueError("memory cap exceeds local policy")
+        return amount
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "memory MiB must be an integer from 1 to 4096"
+        ) from error
 
 
 def inherited_limit(environment: dict, name: str, ceiling: int) -> int:
-    supplied = environment.get(name)
-    if supplied is None:
+    raw = environment.get(name)
+    if raw is None:
         return ceiling
-    raw = supplied.strip()
-    if not raw.isascii() or not raw.isdecimal() or len(raw) > 20 or int(raw) == 0:
-        raise ValueError(f"{name} must be a positive decimal integer")
-    return min(int(raw), ceiling)
+    return min(positive_decimal(raw.strip(), name), ceiling)
 
 
 def cloud_module_cache_limits(cloud_budget: int) -> tuple[int, int]:
@@ -55,11 +60,16 @@ def cloud_module_cache_limits(cloud_budget: int) -> tuple[int, int]:
     return entries, image_bytes
 
 
-def limited_environment(*, cloud_budget: int | None = None,
-                        native_jobs: int | None = None) -> dict:
+def limited_environment(
+    *, cloud_budget: int | None = None, native_jobs: int | None = None
+) -> dict:
     environment = dict(os.environ)
-    environment.update(CARGO_BUILD_JOBS="1", SCRIPTW_JOBS="1",
-                       RUST_TEST_THREADS="1", RAYON_NUM_THREADS="1")
+    environment.update(
+        CARGO_BUILD_JOBS="1",
+        SCRIPTW_JOBS="1",
+        RUST_TEST_THREADS="1",
+        RAYON_NUM_THREADS="1",
+    )
     if native_jobs is not None:
         if native_jobs < 1:
             raise ValueError("native compilation jobs must be positive")
@@ -107,29 +117,42 @@ def serial_affinity() -> None:
 def require_kernel_budget(requested_bytes: int) -> None:
     group = kernel_group()
     limit = (group / "memory.max").read_text().strip()
-    if not limit.isascii() or not limit.isdecimal() or not 0 < int(limit) <= requested_bytes:
+    if (
+        not limit.isascii()
+        or not limit.isdecimal()
+        or not 0 < int(limit) <= requested_bytes
+    ):
         raise ValueError("the kernel memory.max does not enforce the requested budget")
     if (group / "memory.swap.max").read_text().strip() != "0":
         raise ValueError("the kernel memory.swap.max must be zero")
     if (group / "memory.oom.group").read_text().strip() != "1":
-        raise ValueError("the kernel must terminate the whole group on memory exhaustion")
+        raise ValueError(
+            "the kernel must terminate the whole group on memory exhaustion"
+        )
     serial_affinity()
+
+
+def cgroup_ancestors():
+    root = Path("/sys/fs/cgroup")
+    group = kernel_group()
+    if not group.is_relative_to(root):
+        raise ValueError("cgroup membership escaped its controller root")
+    while True:
+        yield group
+        if group == root:
+            break
+        group = group.parent
 
 
 def require_cloud_budget(*, serial: bool = True) -> int:
     """Inspect the actual inherited cap, including tighter visible ancestors."""
-    root = Path("/sys/fs/cgroup")
-    group = kernel_group()
     limits = []
-    while True:
+    for group in cgroup_ancestors():
         limit = (group / "memory.max").read_text().strip()
         if limit != "max":
             if not limit.isascii() or not limit.isdecimal() or int(limit) <= 0:
                 raise ValueError("invalid inherited cloud memory.max")
             limits.append(int(limit))
-        if group == root:
-            break
-        group = group.parent
     if not limits:
         raise ValueError("a finite inherited cloud memory.max is required")
     if serial:
@@ -143,9 +166,7 @@ def cloud_affinity(*, native_limits: bool) -> int:
     if not inherited:
         raise ValueError("the inherited CPU set is empty")
     capacity = len(inherited)
-    root = Path("/sys/fs/cgroup")
-    group = kernel_group()
-    while True:
+    for group in cgroup_ancestors():
         fields = (group / "cpu.max").read_text().split()
         if len(fields) != 2:
             raise ValueError("invalid inherited cloud cpu.max")
@@ -156,9 +177,6 @@ def cloud_affinity(*, native_limits: bool) -> int:
             if not quota.isascii() or not quota.isdecimal() or int(quota) <= 0:
                 raise ValueError("invalid inherited cloud cpu.max quota")
             capacity = min(capacity, max(1, int(quota) // int(period)))
-        if group == root:
-            break
-        group = group.parent
     if native_limits:
         for name in ("SCRIPTW_JOBS", "RAYON_NUM_THREADS"):
             capacity = inherited_limit(os.environ, name, capacity)
@@ -179,15 +197,27 @@ def cloud_worker_affinity() -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--memory-mib", type=positive_mib,
-                        help="local scope budget in MiB (default: 4096)")
-    parser.add_argument("--cloud", action="store_true",
-                        help="use the managed cloud machine's inherited finite memory cap")
+    parser.add_argument(
+        "--memory-mib",
+        type=positive_mib,
+        help="local scope budget in MiB (default: 4096)",
+    )
+    parser.add_argument(
+        "--cloud",
+        action="store_true",
+        help="use the managed cloud machine's inherited finite memory cap",
+    )
     cloud_cpus = parser.add_mutually_exclusive_group()
-    cloud_cpus.add_argument("--cloud-cpus", choices=("auto",),
-                            help="opt into quota-bound cloud native compilation; tests and Cargo builds stay serial")
-    cloud_cpus.add_argument("--cloud-worker-cpus", choices=("auto",),
-                            help="give explicit payload workers quota-bound cloud CPUs; native compilation, tests and Cargo builds stay serial")
+    cloud_cpus.add_argument(
+        "--cloud-cpus",
+        choices=("auto",),
+        help="opt into quota-bound cloud native compilation; tests and Cargo builds stay serial",
+    )
+    cloud_cpus.add_argument(
+        "--cloud-worker-cpus",
+        choices=("auto",),
+        help="give explicit payload workers quota-bound cloud CPUs; native compilation, tests and Cargo builds stay serial",
+    )
     parser.add_argument("--in-scope", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -204,9 +234,13 @@ def main(argv=None) -> int:
     budget = memory_mib * MIB
     try:
         if not sys.platform.startswith("linux"):
-            raise ValueError("Linux cgroup-v2 memory control is required; verification was not started")
+            raise ValueError(
+                "Linux cgroup-v2 memory control is required; verification was not started"
+            )
         if args.cloud:
-            cap = require_cloud_budget(serial=args.cloud_cpus is None and args.cloud_worker_cpus is None)
+            cap = require_cloud_budget(
+                serial=args.cloud_cpus is None and args.cloud_worker_cpus is None
+            )
             cpus = 1
             native_jobs = None
             if args.cloud_cpus is not None:
@@ -215,31 +249,51 @@ def main(argv=None) -> int:
                 cpus = cloud_worker_affinity()
                 native_jobs = 1
             environment = limited_environment(cloud_budget=cap, native_jobs=native_jobs)
-            print(f"limited-verification: confirmed inherited cloud memory cap {cap} bytes, "
-                  f"{cpus} CPU(s), serial Cargo/test defaults, "
-                  f"native compilation defaults up to {environment['SCRIPTW_JOBS']} jobs; retained module cache "
-                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entries / "
-                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
-                  file=sys.stderr, flush=True)
+            print(
+                f"limited-verification: confirmed inherited cloud memory cap {cap} bytes, "
+                f"{cpus} CPU(s), serial Cargo/test defaults, "
+                f"native compilation defaults up to {environment['SCRIPTW_JOBS']} jobs; retained module cache "
+                f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entries / "
+                f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
+                file=sys.stderr,
+                flush=True,
+            )
             os.execvpe(command[0], command, environment)
         environment = limited_environment()
         if args.in_scope:
             require_kernel_budget(budget)
-            print(f"limited-verification: confirmed kernel memory cap {memory_mib} MiB, "
-                  "swap 0, one CPU and serial worker defaults; retained module cache "
-                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entry / "
-                  f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
-                  file=sys.stderr, flush=True)
+            print(
+                f"limited-verification: confirmed kernel memory cap {memory_mib} MiB, "
+                "swap 0, one CPU and serial worker defaults; retained module cache "
+                f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_ENTRIES']} entry / "
+                f"{environment['SCRIPTW_MODULE_MEMORY_CACHE_LIMIT_BYTES']} image bytes",
+                file=sys.stderr,
+                flush=True,
+            )
             os.execvpe(command[0], command, environment)
         manager = shutil.which("systemd-run")
         if manager is None:
             raise ValueError("systemd-run is required; verification was not started")
-        invocation = [manager, "--user", "--scope", "--collect", "--quiet",
-                      "--no-ask-password", "--expand-environment=no",
-                      f"--property=MemoryMax={budget}", "--property=MemorySwapMax=0",
-                      "--property=OOMPolicy=kill", "--", sys.executable,
-                      str(Path(__file__).resolve()), "--in-scope",
-                      "--memory-mib", str(memory_mib), "--", *command]
+        invocation = [
+            manager,
+            "--user",
+            "--scope",
+            "--collect",
+            "--quiet",
+            "--no-ask-password",
+            "--expand-environment=no",
+            f"--property=MemoryMax={budget}",
+            "--property=MemorySwapMax=0",
+            "--property=OOMPolicy=kill",
+            "--",
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--in-scope",
+            "--memory-mib",
+            str(memory_mib),
+            "--",
+            *command,
+        ]
         os.execvpe(manager, invocation, environment)
     except (OSError, ValueError) as error:
         print(f"limited-verification: {error}; no uncapped fallback", file=sys.stderr)

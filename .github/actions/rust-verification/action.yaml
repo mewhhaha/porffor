@@ -1,0 +1,17 @@
+name: Rust verification prerequisites
+description: Use the repository toolchain and the named Cargo cache without changing build flags
+inputs:
+  shared-key:
+    description: Existing cache ownership key for this regression family
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Record pinned toolchain
+      shell: bash
+      run: |
+        rustc --version --verbose
+        cargo --version
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.shared-key }}
