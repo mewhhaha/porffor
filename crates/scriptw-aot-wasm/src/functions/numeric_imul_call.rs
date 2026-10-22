@@ -108,8 +108,9 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::I32Const(StandardBuiltinId::MathImul.encode()));
         function.instruction(&Instruction::I32Eq);
         function.instruction(&Instruction::I32And);
+        let current_realm = self.load_current_realm(function);
         realm.load(schema, function);
-        self.load_current_realm(function);
+        current_realm.load(schema, function);
         function.instruction(&Instruction::RefEq);
         function.instruction(&Instruction::I32And);
         self.open_frame(ControlFrameKind::If, function);
@@ -136,6 +137,7 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::End);
         schema.release_i32_local(builtin, function);
         schema.release_i32_local(kind, function);
+        current_realm.clear(function);
         realm.clear(function);
         context.clear(function);
         code.clear(function);

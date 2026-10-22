@@ -1382,6 +1382,7 @@ impl<'a> FunctionBuilder<'a> {
     ) {
         self.current_private_environment.replace(value, function);
     }
+    #[must_use = "the returned Realm local must be loaded or cleared"]
     pub(crate) fn load_current_realm(&self, function: &mut Function) -> GcLocal<RealmRecord> {
         let slot = self
             .schema

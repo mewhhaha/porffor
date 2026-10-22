@@ -4,6 +4,7 @@ use scriptw_ir::{lower, lower_with_host_surface_policy, BigIntLiteralIr, HostSur
 use wasmparser::{Operator, Parser, Payload, Validator, WasmFeatures};
 
 mod direct_eval_dispatch;
+mod numeric_imul;
 
 fn emit_script(source: &str) -> Result<WasmArtifact, EmitError> {
     let source = parse(source, ParseOptions::script()).expect("script should parse");

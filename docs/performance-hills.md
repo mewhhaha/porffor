@@ -658,3 +658,12 @@ runtime proof to the actual indirect route, selected by provisional target
 knowledge and still guarded by actual function/code/realm/operand identity.
 Acceptance requires differing direct/alias code sections before paired timings;
 all decisions and backlog counts remain unchanged until that verification.
+
+Candidate46 activation failed Wasm validation before timings because a returned
+Realm local was not loaded onto the operand stack. Candidate47 explicitly loads
+and clears it and adds must_use plus an AOT regression that inspects the actual
+script entry. Eight real fixtures and minimal direct/alias/extra-arity controls
+validate in an unoptimized standalone diagnostic emitter linked against cached
+optimized dependencies. That quick foundation has no product/execution authority;
+product, native and original-case acceptance remain pending. All failed receipts
+and existing ledger counts remain intact.
