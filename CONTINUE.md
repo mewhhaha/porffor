@@ -25,42 +25,50 @@ each verified batch to main.
 ## Next performance work
 
 The [performance backlog](docs/performance-hills.md) contains 160 hills:
-**20 terminal decisions, seven partial/open outcomes, 133 proposed/unresolved**.
+**20 terminal decisions, eight partial/open outcomes, 132 proposed/unresolved**.
 Rejected/superseded experiments are decisions, not shipped speedups.
 
-The [latest checkpoint](docs/rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22)
-keeps P107's eight-root collector at `1e2978361`: 3,569 scoped native passes,
-six compiled families, exact overflow, matching product/test images and
-406/410 affected Test262 successes with exactly the four tracked failures.
-P004's fixed-overhead controls are complete. README ordinary scores are current;
-slower observations, rejected variants and source-bound raw evidence remain.
-A fresh full-suite/all-feature campaign is still separate work.
+Latest [key/argument checkpoint](docs/rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22):
+source `2cb9fc53d`, **3,572 native passes / zero failed/ignored**, nine compiled
+semantic families, unchanged source/linker and seven matching product/test images.
+Actual ordinary README scores, slower observations and separate balanced controls
+are published. **The 15,899-case Test262 replay is running** after native drain,
+using the frozen `/tmp/scriptw-performance-candidate-2cb9fc53d/scriptw`.
+Retain the four original failures; do not refresh full-suite chart counts from
+this scope. P020 stays partial; P078's runtime-empty extension is not another hill.
 
-Next coherent batch:
+Next coherent work:
 
-1. P020: carry a prepared hash tied to the rooted key through Map/Set insertion
-   and ordinary-property append. Recompute buckets after growth; retain equality,
-   collision checks and callback/reentrant lookup boundaries.
-2. Extend P078 to runtime-empty internal argument lists. Mutable JS arguments,
-   rest and Array storage stay fresh; preserve iterator/length coercion effects.
-3. Measure long fresh/hit/numeric collection/property cases and empty/two-argument
-   call controls. The candidate is applied with three semantic fixtures and thirteen workloads;
-   product/native/Test262 acceptance and paired performance are pending. This is not another P078 hill.
-4. Investigate four sequential CLI chunks with only two concurrent processes.
-   Preserve exact inventory/outcome unions, preflight lists, original stalls/cache
-   limits and target-idle exclusivity. Long-lived CLI test PIDs retain several GiB.
+1. Finish value-only Map.getOrInsert hash sharing. Outer lookup still hashes
+   before its inner put; callback getOrInsertComputed must retain fresh lookup.
+   Root-owned `/tmp/scriptw-performance-batch16` has two formatted, hash-bound
+   drafts; metadata/product/native/performance acceptance is not done.
+2. Finish the opt-in four-chunk CLI scheduler at the same two live libtest
+   process ceiling. Root's `/tmp/scriptw-performance-batch15` prototype passes
+   74 tooling controls, including an actual fake-libtest queue/failure proof;
+   no measured memory or speed benefit yet. The exact 858-test native CLI is
+   held by hard link at `target/performance-hills-20261021-attribution/candidate43-held-cli-native`
+   for source-bound scheduler-only checks without rebuilding Rust.
+3. Measure repeated long-string Map/Set and property hits before P023/P112.
+   One shared hash helper and one StringConstruction publication point make a
+   raw cached u64 possible, but it costs eight payload bytes per String plus
+   engine alignment and requires GC layout version 15→16/admission rebuilds.
+   Compiler-only static facts avoid that ABI but need new provenance/dispatch.
+4. Complete wider replay publication, broader default/release acceptance and
+   remaining performance hills. Use source fences and exact original IDs.
 
-The applied candidate came from `/tmp/scriptw-performance-batch11`, checked
-against exact before/draft hashes. Keep the prior accepted checkpoint until the
-new batch passes its acceptance gates. Use the
-[baseline workflow](docs/rust-rewrite/v8-baseline.md), freeze the coherent batch
-before product measurement, and push verified progress to main.
-Native verification retains the two-GiB Cargo reserve and 256 MiB scratch per
-process. Stage outputs with verified byte preservation; detach only actually
-dirty rustc aliases, preserving fresh dependency artifacts. Product builds spend
-about 174 of 276 seconds on two differently configured Rust emitter units;
-each image already reuses 2,181 function stencils and rebuilds three. Do not
-reimplement that cache or assume a crate/profile split will share those units.
+A frozen replay may continue while later source work proceeds; do not change
+its compiler, pinned fixtures, workers, deadlines or saved results. Cloud tools
+and all original receipts remain under `/tmp/scriptw-performance-batch14` and
+`target/performance-hills-20261021-attribution`. Push verified batches to main.
+Native verification keeps two libtest processes, the two-GiB Cargo reserve,
+256 MiB scratch per process and existing cache ceilings. Last group samples reach
+32 GiB with max-pressure events but zero OOM; this is not JavaScript heap usage.
+Stage exact outputs and archive only obsolete/unreferenced bytes after verification.
+Detach only actually dirty rustc aliases; preserve fresh dependencies.
+The 6m54s product build recompiled 1,165 NativeHost and 914 Portable stencils:
+this shared argv change affects many bodies. Do not mistake that for an absent
+cache or assume a crate/profile split shares differently configured Rust units.
 
 ## Decisions to retain
 

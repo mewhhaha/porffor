@@ -22,6 +22,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
+| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion and ordinary append reuse the rooted key's hash through internal lookup/insertion. ABBA long fresh Map/Set/property medians improve 65.135→55.338 / 65.953→51.507 / 112.415→95.054 ms. Non-callback `Map.getOrInsert` still repeats the outer lookup hash; callback lookup freshness stays intact. Nine compiled families and 3,572 native passes; wider 15,899-case replay pending. [Evidence](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
@@ -32,7 +33,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots and layout 15 remain; resolved depth/handle caching is still open. |
 | P058 | **Rejected: signed-range branch experiment** | Broad conversion and then bitwise-only variants did not establish a reliable gain across the controls. The tighter case-wise ABBAABBA check retained an integer/imul regression. Original exact modulo lowering is restored, with edge/coercion fixtures and all raw observations retained. A different specialization needs a new hypothesis. |
 | P061 | **Rejected: runtime Number-tag branch experiment; proven scalar work remains** | Global numeric updates improved, but the combined numeric experiments regressed ordinary integer/imul controls. Both branch experiments are removed; this does not attribute that loss to P061 alone. Retain conversion-order fixtures and investigate raw-value proofs with P056/P057 rather than assuming the IR's ToNumeric result kind proves the input tag. |
-| P016 / P078 | **Implemented and verified; latency contribution not isolated** | Four immutable zero-length GC-array globals replace per-object empty private arrays; syntax-empty argv shares only immutable empty storage. Fresh object/storage/prototype records and mutable JS argument/array state remain independent. Final semantic controls and all 3,567 scoped native tests pass. Scaled no-argument-call rounds overlap; no isolated speed claim. |
+| P016 / P078 | **Implemented and verified; latency contribution not isolated** | Four immutable zero-length GC-array globals replace per-object empty private arrays; syntax-empty argv shares only immutable empty storage. The `2cb9fc53d` extension shares runtime-empty internal vectors too, preserving iterator/length effects and fresh mutable JS state; the combined empty-apply ABBA is 18.947→16.204 ms. Fresh object/storage/prototype records and mutable JS argument/array state remain independent. Final semantic controls and all 3,572 current scoped native tests pass. Scaled no-argument-call rounds overlap; no isolated speed claim. |
 | P018 | **Kept a narrower allocation reduction** | Getter/setter snapshots share one immutable StoredValue only for the same compiler operand, including the common absent-accessor value. Public descriptors remain fresh and independently replaceable. Reflection, accessor replacement, freeze, GC-root and delete/reinsert controls pass. Broader descriptor representation work remains open; paired object results cover the combined batch. |
 | P041 | **Shorter route retained; throughput gain inconclusive** | Concrete Array length is read before generic descriptor dispatch, with proxy/exotic fallback preserved. Small and scaled length controls overlap; semantic controls and native acceptance pass. |
 | P079 | **Implemented and verified; latency contribution not isolated** | Normal indirect calls copy the expression value; throws preserve the full completion. Declaration/statement completion, catch/finally and no-argument controls pass. |
@@ -129,8 +130,8 @@ and previously supplied the README table. Its expanded **9,411-case Test262 repl
 returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**. The four failures
 are exactly the original tracked disagreements. [Replay evidence](rust-rewrite/performance-kept-packaging-replay-20261022.json).
 Process RSS is unchanged; no isolated execution gain is claimed.
-The ledger now has **20 explicit terminal hill decisions**, seven partial/open
-outcomes and **133 remaining proposed/unresolved hills**. Rejected and superseded
+The ledger now has **20 explicit terminal hill decisions**, eight partial/open
+outcomes and **132 remaining proposed/unresolved hills**. Rejected and superseded
 hills are decisions, not shipped performance improvements.
 
 **P107 replacement assembly is accepted** at `1e2978361`, with
@@ -169,14 +170,19 @@ host/product features prevent assuming one reusable Rust unit. This is not an
 isolated same-source build-speed experiment. Native memory reaches 32 GiB without
 OOM; investigate four sequential CLI chunks at the same two-process ceiling.
 
-Next hypotheses: prepared insertion hashes in Map/Set and ordinary properties
-(P020), then runtime-empty internal argv within P078's existing ABI. Static-key
-lookup prehashing (P023) is separate. Preserve proxy/coercion dispatch, equality
-after hash matches, reentrant callback boundaries and fresh mutable JS state.
-The next candidate implements prepared insertion hashes and runtime-empty argv,
-with three semantic fixture families and thirteen whole-invocation workloads.
-Product/native/Test262 verification and source-bound paired timings are pending;
-this candidate does not yet close additional hills.
+The [key/argument checkpoint](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22)
+at `2cb9fc53d` passes 3,572 native tests and nine compiled semantic families.
+P020's insertion paths improve in direct ABBA, while non-callback
+`Map.getOrInsert` remains open. P078 now covers runtime-empty internal vectors;
+this extends its existing hill. The wider 15,899-case Test262 replay is running.
+Ordinary retained rows are slower than their preceding ordinary report; a direct
+ABBA does not reproduce that loss. Startup comparisons remain explicit and
+separate. The actual new ordinary Wasmtime/V8 report supplies the README.
+
+Next: finish the non-callback getOrInsert hash scope, then measure repeated
+long-string key hashing (P023/P112) before any string-layout cache decision.
+A four-chunk CLI queue prototype keeps two live libtest processes and passes
+74 tooling checks, but its memory/elapsed benefit is not yet measured.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

@@ -1,12 +1,101 @@
 # Local Wasmtime versus V8 baseline
 
+## Key and argument checkpoint — published 2026-10-22
+
+Measured compiler: `2cb9fc53d514669a1f47eb37feb96add24d2912b`.
+[693 verified portable evidence files](performance-key-arguments-20261022.json)
+retain frozen static release producers, raw emitted Wasm and observations,
+semantic controls, native transcripts, source fences and preservation receipts.
+This compiler's ordinary report now supplies the README table. The wider
+**15,899-execution Test262 replay is running separately**, after native tests
+finished; the preceding verified affected replay remains 406 Success / 4 Bug.
+No fresh full-suite or all-feature result is claimed.
+
+**P020 is partial, with measured execution gains.** Map/Set insertion and ordinary
+property append retain a hash tied to the rooted canonical key through internal
+lookup and insertion. Buckets use current capacity after growth; hash matches
+still require equality. No callback lies inside that reuse interval. The separate
+non-callback `Map.getOrInsert` outer lookup still repeats hash work in its inner
+put; completing that path needs its own evidence. The computed-callback route
+keeps fresh lookup/hash work after callback reentrancy.
+
+**P078 extends its existing empty-storage route.** Runtime-empty internal argument
+vectors use the canonical immutable empty ValueArray. Iterator and length-coercion
+effects still occur. Mutable JS arguments, rest arrays, bound-call results and
+constructor/generator state remain independent. This is not another completed hill.
+No GC layout/global-layout or Wasm helper ABI changes.
+
+The direct fifteen-case ABBA uses seven samples after ten warmups per process.
+Each cell is the median of its two process medians, against accepted `1e2978361`.
+All key/array/container construction and checks remain inside timed invocation,
+along with Wasm realm/builtin initialization. These combined-change comparisons
+do not isolate hash-only or argument-allocation cost:
+
+| Whole invocation | Before | After |
+| --- | ---: | ---: |
+| map-long-fresh.js | 65.135 ms | 55.338 ms |
+| map-long-hit.js | 42.757 ms | 37.532 ms |
+| map-numeric-fresh.js | 16.058 ms | 16.126 ms |
+| set-long-fresh.js | 65.953 ms | 51.507 ms |
+| set-long-hit.js | 44.072 ms | 35.427 ms |
+| set-numeric-fresh.js | 14.537 ms | 13.516 ms |
+| property-long-fresh.js | 112.415 ms | 95.054 ms |
+| property-long-hit.js | 89.599 ms | 85.413 ms |
+| property-numeric-fresh.js | 32.610 ms | 30.354 ms |
+| call-runtime-empty-spread.js | 31.822 ms | 29.663 ms |
+| call-runtime-empty-apply.js | 18.947 ms | 16.204 ms |
+| call-runtime-two-apply.js | 19.998 ms | 19.447 ms |
+| call-syntax-empty.js | 15.125 ms | 12.918 ms |
+| integer.js | 7.802 ms | 7.602 ms |
+| objects.js | 18.124 ms | 18.421 ms |
+
+A separate three-sample/three-warmup screen retains all fifteen original outcomes.
+Numeric Map and object controls are 0.4% and 1.6% higher in ABBA, with overlapping
+observations; no universal or statistically significant improvement is claimed.
+The new ordinary retained-object score, **1,604.245 ms**, is slower than the prior
+ordinary **1,418.171 ms**. A direct retained-object ABBA gives **1,689.952→
+1,579.330 ms** instead; both observations remain visible rather than assigning
+an unproved cause. That separate cohort is not multiplied into other ratios.
+
+Ordinary cold/cached starts are **1,178.550 / 881.710 ms**. A separate balanced
+56-process startup comparison gives cold **1,237.046→1,305.263 ms** and cached
+**899.148→932.300 ms**. Startup is descriptively slower there; no startup win is
+claimed. Full loaded-executable hashing and R/package/native admission stay intact.
+The actual static release CLI is **290,603,536 bytes / 277.14 MiB**, with DWARF
+stripped and its symbol table retained. Child process RSS is distinct from
+sampled invocation RSS, GC capacity and live JavaScript heap bytes.
+
+Correctness: **3,572 native passed / 0 failed / 0 ignored** across seven complete
+release targets, with unchanged source/linker. The three new compiled semantic
+families cover long/equal-distinct/mixed keys, growth, ordering, symbols, coercion,
+accessor descriptors, actual GC, empty iterators, abrupt completion, converted
+array-like lengths, rest/arguments freshness and captures across GC. Six preceding
+families also pass. Seven independently produced image payloads/manifests match;
+their test hashes were checked before sharing mutable working copies. Immutable
+product-image archives were verified before those writes could occur.
+
+Native memory samples reach **34,356,269,056 group bytes**, with 3,446 max-pressure
+events and **zero OOM / OOM kills**. Group usage includes tmpfs and file pages,
+not just the tested JavaScript. Two libtest processes, original deadlines and
+512-entry / 2 GiB retained-module ceilings remain unchanged. Verified archival
+of old-source units and historical test images keeps the two-GiB Cargo reserve;
+fresh dependencies are retained. These correctness runs are not memory benchmarks.
+
+Iteration: the product build takes **6m54s** in this changed-source observation.
+NativeHost reuses 1,019 stencils and compiles 1,165; Portable reuses 1,270 and
+compiles 914. Runtime argument-vector emission changes many shared bodies, so
+this has fewer cache hits than the preceding three-function replacement edit.
+It is not an isolated build-speed comparison or evidence that the cache is absent.
+The backlog has **20 terminal decisions, eight partial/open outcomes and
+132 proposed/unresolved hills**; rejected decisions are not shipped speedups.
+
 ## Replacement assembly checkpoint — published 2026-10-22
 
 Measured compiler: `1e2978361aeb7b7a5ed5fbac2d246307693593fd`.
 [933 verified portable evidence files](performance-replacement-20261022.json)
 retain actual static release Cargo producers, frozen executable hashes, emitted
 Wasm, raw observations, semantic controls, native receipts and exact Test262 IDs.
-The README now uses this compiler's ordinary seven-sample/ten-warmup report.
+This previously supplied the README ordinary seven-sample/ten-warmup report.
 
 **P107 is accepted with measured tradeoffs.** Literal and RegExp replacement
 retain eight completed Strings in typed GC locals, spill additional pieces to

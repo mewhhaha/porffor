@@ -8,6 +8,25 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
+Latest performance source: **`2cb9fc53d`**, with [693 portable evidence files](performance-key-arguments-20261022.json).
+The [key/argument checkpoint](v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22)
+passes **3,572 release native tests / 0 failed / 0 ignored** across seven complete
+affected targets and nine compiled semantic families. Source/linker stay unchanged;
+seven independent product/test image payloads/manifests match. A wider
+**15,899-case Test262 replay is running** with the frozen compiler after native
+verification drained. Previous verified scope remains 406/410, with the original
+four failures. Full-suite/all-feature acceptance and chart counts are unchanged.
+
+Prepared insertion hashes improve long-key Map/Set/property ABBA medians by
+15.0% / 21.9% / 15.4%. Runtime-empty internal argv extends P078; mutable JS state
+remains fresh. P020 stays **partial** because value-only `Map.getOrInsert` still
+hashes in both outer lookup and inner put. The actual new ordinary report now
+supplies the README; its retained-row score is slower than the preceding ordinary
+report, while a separate direct ABBA does not reproduce that loss. Startup's
+slower paired observations are retained. These are different cohorts, not a
+universal-speedup claim. Status: **20 terminal, eight partial/open, 132 proposed**
+of 160 hills. Historical checkpoints below retain their original source limits.
+
 The first eight maintenance hills are complete: obsolete product routes are
 retired, runner setup is clearer, LDML parsing has one owner, and current guidance
 is separated from history. Implementation is in `ab7093a46`, `30065bbb5` and
@@ -88,19 +107,17 @@ P107's eight-root collector retains large original-baseline gains and removes th
 observed short two-match obstacle. Some intermediate collector cases are slower;
 those tradeoffs remain explicit. P004 completes checked empty/loop/scalar-expression/
 scalar-return controls, without subtracting setup from raw scores. Fresh Wasm
-Realm/builtin initialization runs inside timed main. README uses the actual new
-ordinary report, including its slower cold-start median; the balanced startup
-diagnostic is separate. The earlier collector and bounded-prefix revision remain
+Realm/builtin initialization runs inside timed main. Its earlier ordinary report
+previously supplied README values, including its slower cold-start median; its
+balanced startup diagnostic remains separate. The earlier collector and bounded-prefix revision remain
 [rejected](performance-replacement-probe-20261022.json)
 [diagnostics](performance-replacement-prefix-probe-20261022.json).
 
-The backlog now has **20 terminal decisions, seven partial/open outcomes and
-133 proposed/unresolved hills**. Next: prepared insertion hashes (P020),
-runtime-empty argv within the current ABI (P078 extension), and separate CLI
-chunk count from its two-process ceiling. Native sampled group memory reaches
-32 GiB with zero OOM/OOM-kill events. The 4m36s product build spends about 174 s
-compiling two Rust emitter units; each image already reuses 2,181 of 2,184 native
-function stencils. A crate/profile split needs a measured same-source experiment.
+At that replacement checkpoint the ledger had **20 terminal decisions, seven
+partial/open outcomes and 133 proposed/unresolved hills**. Its planned insertion
+hash/argv work is now the measured key/argument checkpoint above. Remaining
+value-only getOrInsert scope and static/repeated key hashing stay open; the
+four-chunk queue prototype still needs measured native benefit.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
