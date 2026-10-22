@@ -26,12 +26,11 @@ pub fn package() -> &'static [u8] {
 }
 
 #[inline(never)]
-pub fn native() -> &'static [u8] {
+pub fn native() -> Option<std::sync::Arc<NativeRuntimeBytes>> {
     #[cfg(scriptw_runtime_image)]
-    // SAFETY: same target-defined immutable array contract as package().
-    return unsafe { &SCRIPTW_RUNTIME_NATIVE };
+    return native_lease::acquire_native_host();
     #[cfg(not(scriptw_runtime_image))]
-    &[]
+    None
 }
 
 #[inline(never)]
@@ -56,7 +55,7 @@ pub fn portable_package() -> &'static [u8] {
 #[inline(never)]
 pub fn portable_native() -> Option<std::sync::Arc<NativeRuntimeBytes>> {
     #[cfg(scriptw_runtime_image)]
-    return native_lease::acquire();
+    return native_lease::acquire_portable();
     #[cfg(not(scriptw_runtime_image))]
     None
 }

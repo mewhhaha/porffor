@@ -47,8 +47,9 @@ Next coherent work:
    it. A complete 13-file source/test/guard draft is local under
    `target/performance-hills-20261021-attribution/candidate49-native-storage-draft`;
    the patch, exact base/draft hashes and storage plan are under
-   `/tmp/scriptw-performance-batch21`. It is not applied, compiled or accepted.
-   Cheap profile guards/negative controls and read-only review pass. Both profiles
+   `/tmp/scriptw-performance-batch21`. The exact draft is now applied; compilation and acceptance are pending.
+   All fifteen Intl provenance recipes, cheap profile guards/negative controls
+   and read-only review pass. Both profiles
    use the existing bounded codec, sealed digest and separate transient Weak
    leases; native validation precedes actual destination Engine deserialize.
    Preserve raw native digest/manifest/source-profile authority and actual modes.
