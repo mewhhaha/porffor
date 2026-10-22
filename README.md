@@ -6,22 +6,22 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-22 at compiler source `2cb9fc53d`. Medians of seven samples;
+Measured on 2026-10-22 at compiler source `e78c9e072`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,178.550 ms | 34.532 ms |
-| Cached start | 881.710 ms | 36.687 ms |
-| Execute: 10,000 integer steps | 7.934 ms | 2.983 ms |
-| Execute: 500 objects | 18.149 ms | 0.062 ms |
-| Execute: 8,192 retained objects | 1,604.245 ms | 2.675 ms |
+| Cold start | 1,375.013 ms | 45.740 ms |
+| Cached start | 872.484 ms | 37.884 ms |
+| Execute: 10,000 integer steps | 8.441 ms | 2.468 ms |
+| Execute: 500 objects | 19.892 ms | 0.063 ms |
+| Execute: 8,192 retained objects | 1,398.560 ms | 3.580 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 382.79 MiB | 27.12 MiB |
-| Cached start (median) | 349.70 MiB | 27.12 MiB |
-| Retained-object run (one process) | 393.00 MiB | 52.88 MiB |
+| Cold start (median) | 382.75 MiB | 27.12 MiB |
+| Cached start (median) | 349.75 MiB | 27.12 MiB |
+| Retained-object run (one process) | 392.84 MiB | 52.38 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
@@ -35,7 +35,7 @@ includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
 Portable native-image storage is compressed, and decoded load buffers are
-transient. The CLI is 277.14 MiB, with Rust debug information stripped.
+transient. The CLI is 277.13 MiB, with Rust debug information stripped.
 These small workloads are a local baseline; short timing differences overlap
 across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
@@ -61,12 +61,14 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The **2026-10-22 key/argument checkpoint** passes **3,572 native tests** across
-seven affected targets and nine compiled semantic fixture families. Its wider
-**15,899-case Test262 replay returns 15,895 passed / 4 failed**, with exactly
-the four tracked failures and no crashes or unimplemented cases.
-[Final replay evidence](docs/rust-rewrite/performance-key-arguments-replay-20261022.json).
-These are affected scopes, not a fresh full-suite campaign. [Source-bound verification and measured tradeoffs](docs/rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22).
+The **2026-10-22 Map checkpoint** (`e78c9e072`) passes **4,035 native tests**
+across ten affected targets and ten compiled semantic fixture families. Its
+**1,173-case Map/Set Test262 replay returns 1,169 passed / 4 failed**, retaining
+the four tracked failures with no crashes or unimplemented cases.
+[Source-bound evidence](docs/rust-rewrite/performance-map-insert-20261022.json).
+The preceding `2cb9fc53d` checkpoint also passed 15,895 of 15,899 wider affected
+Test262 executions. These are affected scopes, not a fresh full-suite campaign.
+[Measured gains and tradeoffs](docs/rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22).
 The chart below reconciles the complete 2026-10-20 baseline with the exact
 original-failure replay and an audited standalone Wasm scope split. A fresh full
 run of the repaired compiler is still pending.

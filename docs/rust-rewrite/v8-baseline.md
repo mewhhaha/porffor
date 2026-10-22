@@ -1,12 +1,137 @@
 # Local Wasmtime versus V8 baseline
 
+## Map insertion checkpoint — published 2026-10-22
+
+Measured compiler: `e78c9e0723414fd8af48de51034b71d3cce958d9`.
+[1840 verified portable evidence files](performance-map-insert-20261022.json) retain actual static release
+producers, frozen executable hashes, emitted Wasm, ordinary and paired raw
+observations, semantic controls, native receipts and exact Test262 IDs. This
+compiler's ordinary seven-sample/ten-warmup report supplies the README table.
+
+**P020 remains partial; the value-only gap is closed.** `Map.getOrInsert` prepares
+one hash with the rooted normalized key, then shares it through lookup and put.
+Insertion still probes the owner's current buckets and preserves equality checks.
+`getOrInsertComputed` retains its fresh post-callback path: callbacks can clear,
+grow, delete/reinsert or insert the same key, and the computed value still wins.
+Retaining a proven-stable hash across that callback boundary remains separate work,
+as do groupBy, cross-owner Set operations and lookup/unlink deletion paths.
+There is no GC layout, global layout or Wasm helper ABI change.
+
+The ten-case ABBA uses seven samples after ten warmups per process, comparing
+accepted `2cb9fc53d` directly with this compiler. Each cell is the median of two
+process medians. Whole invocation includes key/container construction, checks
+and fresh Wasm realm/builtin initialization; it is not isolated hash timing or
+per-change causal attribution. All outcomes and overlapping rounds remain raw.
+
+| Whole invocation | Before | After |
+| --- | ---: | ---: |
+| map-direct-long-fresh.js | 58.516 ms | 49.966 ms |
+| map-direct-long-hit.js | 64.618 ms | 61.643 ms |
+| map-direct-numeric-fresh.js | 9.362 ms | 9.315 ms |
+| map-computed-long-fresh.js | 76.235 ms | 60.800 ms |
+| map-long-fresh.js | 49.867 ms | 47.767 ms |
+| map-long-hit.js | 37.199 ms | 35.540 ms |
+| map-numeric-fresh.js | 14.853 ms | 14.396 ms |
+| set-long-fresh.js | 46.123 ms | 46.912 ms |
+| integer.js | 8.701 ms | 8.283 ms |
+| objects.js | 18.678 ms | 16.931 ms |
+
+Value-only long-key misses are descriptively **14.6% lower**; numeric misses are
+roughly flat, while the Set control is 1.7% higher with overlapping observations.
+The computed-path timing changes despite no new hash-sharing there: these
+combined-product observations do not establish a hash-only or universal gain.
+A separate three-sample/three-warmup screen passes every output check.
+
+**Immutable harness sources are shared within one bounded worker session.**
+The prelude store loads lazily once; every request still executes its selected
+harness in a fresh Engine/Realm/Store, with its own exact durable snapshot.
+The changed strict/include control checks an expected failure followed by fresh
+globals, prototypes, Promise jobs and weak state; all three replies and identities
+are checked both in the actual product protocol and the native integration test.
+
+A separate ABBA uses the same 64 distinct pinned parse-negative IDs per native
+run-list process, one worker, original 60s case budgets and the existing
+64-request lifetime. Before process times are 2.618058 /
+2.952172s; after 2.567852 /
+2.633097s. Median pairs are
+2.785115→2.600474s,
+with overlap. This does not isolate harness-load latency or measure JavaScript
+execution speed. Repetition adds no distinct conformance coverage. The original
+diagnostic rejected an invalid ordinary-CLI argument before any case ran; its
+logs remain, followed by a corrected diagnostic without rebuilding Rust or
+repeating already-passed performance cohorts.
+
+**Keep default Fast compilation.** The actual release policy probe admits the
+matching optimized R into its destination Engine and compares Fast with
+SizeOptimized in ABBA. Both modes use identical emitted program bytes, checked
+outputs and seven measured invocations after ten warmups. Separate traced
+controls prove image admission; tracing observations are excluded from scores.
+
+| Whole invocation | Fast | SizeOptimized |
+| --- | ---: | ---: |
+| integer.js | 7.604 ms | 9.680 ms |
+| objects.js | 17.485 ms | 16.826 ms |
+| retained-objects.js | 1,462.288 ms | 1,409.441 ms |
+
+The integer control regresses, and object/retained rounds overlap. First-invocation
+module/total spans are retained but combine R admission and P compilation; no
+break-even isolation or universal policy winner is established. The policy also
+combines optimization and register allocation; it does not close P155 separately.
+P154 stays diagnostic/open and the product default remains Fast.
+
+The ordinary V8 comparison records cold/cached startup **1,375.013 / 872.484ms**,
+integer **8.441ms**, objects **19.892ms**, retained rows **1,398.560ms**.
+Cold/integer/object observations are higher than the preceding ordinary report;
+retained rows are lower. Both reports remain source-bound, separate cohorts;
+these movements are not attributed to prepared hashes. The actual CLI is
+**290,592,424 bytes / 277.13MiB**, DWARF stripped with symbol table retained.
+
+**Correctness: 4,035 native passed / 0 failed / 0 ignored**, across ten complete
+release targets in an exact disjoint one-plus-nine union. The first 454-test
+Test262 library scope passed; other targets were deferred by the two-GiB disk
+reserve. The runner rejects feature-root retry mode before execution, so that
+attempt is retained and nine fresh same-source scopes complete the union.
+No passed body was rerun, discarded or converted to a different verdict.
+All ten compiled semantic families pass. Seven independently produced runtime
+payloads/manifests match before working files are shared; immutable originals
+have verified round-trip archives. Source and linker fences remain unchanged.
+
+After native drain, **1,173 exact original Test262 executions** return
+**1,169 Success / 4 Bug / 0 Crash / 0 NotImplemented**. These include all selected
+original Map/Set IDs and exactly the four previously tracked failures, using the
+frozen product and four reused workers at original budgets. Raw process exit 1
+remains those failures. The preceding wider 15,899-ID replay remains bound to
+`2cb9fc53d`; neither is a fresh full-suite/all-feature campaign. The chart stays.
+
+Whole inherited-group memory samples reach **34,346,147,840 bytes**, including tmpfs,
+file pages and other processes; both native receipts record zero OOM/OOM kills.
+Two libtest processes, 256MiB scratch per active process, the two-GiB build reserve
+and 512-entry/2GiB retained-module ceilings stay intact. Current/held native images
+and fresh dependencies stay available. Historical archival preserves all bytes;
+lower-layer archived sizes need not equal physical free space, so admission uses
+actual filesystem free bytes. Correctness runs are not product memory benchmarks.
+
+Iteration: the product build takes **6m12s**, with runtime production **148.41s**,
+opt1/opt3 AOT Rust units **73.61 / 94.85s**, Test262 **24.98s**, Engine **14.93s**
+and CLI **9.87s**. Native compilation still reports **1,019 hits / 1,165 misses**
+for NativeHost and **1,270 / 914** for Portable, exactly the preceding counts,
+despite a small R byte change. The function tier is shared by builds and test P
+modules with a 1GiB ceiling and a 70% prune target. Contention/eviction is a
+hypothesis; stable dependency identity does not establish identical Wasmtime
+stencil keys. Measure actual key/prune events before changing cache budgets.
+Different Rust profiles/features still prevent assuming a crate split shares
+compiled units. These are changed-source observations, not an isolated speedup.
+
+The backlog remains **20 terminal decisions, eight partial/open outcomes and
+132 proposed/unresolved hills**. Rejected experiments are decisions, not speedups.
+
 ## Key and argument checkpoint — published 2026-10-22
 
 Measured compiler: `2cb9fc53d514669a1f47eb37feb96add24d2912b`.
 [693 verified portable evidence files](performance-key-arguments-20261022.json)
 retain frozen static release producers, raw emitted Wasm and observations,
 semantic controls, native transcripts, source fences and preservation receipts.
-This compiler's ordinary report now supplies the README table. The wider
+This compiler's ordinary report supplied the README table at that checkpoint. The wider
 [**15,899-execution Test262 replay**](performance-key-arguments-replay-20261022.json)
 returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
 the original four tracked failure IDs. Four reused case workers ran after native

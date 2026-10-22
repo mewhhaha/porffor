@@ -28,30 +28,42 @@ The [performance backlog](docs/performance-hills.md) contains 160 hills:
 **20 terminal decisions, eight partial/open outcomes, 132 proposed/unresolved**.
 Rejected/superseded experiments are decisions, not shipped speedups.
 
-Latest [key/argument checkpoint](docs/rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22):
-source `2cb9fc53d`, **3,572 native passes / zero failed/ignored**, nine compiled
+Latest [Map checkpoint](docs/rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22):
+source `e78c9e072`, **4,035 native passes / zero failed/ignored**, ten compiled
 semantic families, unchanged source/linker and seven matching product/test images.
-Actual ordinary README scores, slower observations and separate balanced controls
-are published. The [final 15,899-case Test262 replay](docs/rust-rewrite/performance-key-arguments-replay-20261022.json)
-returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, with exactly
-the four original failures, using the frozen `2cb9fc53d` compiler after native
-drain. Full-suite chart counts remain unchanged. P020 stays partial; P078's
-runtime-empty extension is not another hill.
+The exact disjoint one-plus-nine native union preserves disk-reserve deferrals;
+no passed body was repeated. The **1,173 original Map/Set+four-failure replay**
+returns **1,169 Success / 4 Bug / 0 Crash / 0 NotImplemented**, exactly the original
+tracked failures. The wider preceding 15,899-case replay remains bound to
+`2cb9fc53d`; neither replaces a full-suite campaign or changes the chart.
+Value-only getOrInsert now shares its prepared hash. P020 stays partial for the
+callback route and other internal collection paths. Worker prelude sources are
+shared within 64 requests; JS state,
+execution and snapshots remain independent. P154's Fast/SizeOptimized ABBA is
+mixed, so default Fast stays. Ordinary current README scores and slower rows
+are published separately from paired controls.
 
 Next coherent work:
 
-1. Verify the applied value-only Map.getOrInsert hash batch. One hash remains
-   paired with the rooted normalized key through find/put; callback
-   getOrInsertComputed keeps its fresh post-callback hash and probe. The worker
-   also shares immutable prelude source bytes within each 64-request session;
-   every request still executes them in a fresh Engine/Realm/Store, with exact
-   independent snapshots. Extended controls cover growth, equal strings, mixed
-   keys, GC, callback reentry/throws and per-request harness execution.
-   Both library metadata-only checks pass. Product/native/performance acceptance
-   is pending. Root tools and exact22-file source bindings are under
-   `/tmp/scriptw-performance-batch16`; no layout/helper ABI changes.
-   Run the10-case screen/ABBA, ordinary report and real64-case worker diagnostic
-   before native acceptance and the original Map/Set+four-failure replay.
+1. Verify the root-owned **P020/P081 prepared-key and numeric Math.imul draft**,
+   outside the checkout
+   under `/tmp/scriptw-performance-batch17/source`. Its metadata-only Rust check
+   passes. Expanded stock-Node collection controls, numeric controls and actual
+   distinct-realm Node oracles pass. The computed insertion proposal still uses
+   repository assertions because stock Node lacks it. No product
+   build/compiled fixture/measurement/native/Test262 acceptance is claimed yet.
+   Exact two ordinary Number arguments and Continue-only calls can bypass argv
+   after concrete FunctionObject, immutable StandardBuiltin/MathImul and actual
+   current-Realm identity proof. Evaluate receiver/property/arguments once in
+   their original order; wrappers, coercions, patched methods, cross-realm and
+   other arities retain generic dispatch. Reuse existing modulo conversion.
+   Prepared hashes also cover computed insertion, groupBy, cross-owner Set
+   operations and lookup/unlink deletion. Keep current-table probing after user
+   effects and the immutable key/identity hash invariant. These paths remain
+   unaccepted until measurement and broad checks. Keep the draft separate until
+   applied as a complete source/test/docs batch;
+   freeze actual producers, run semantic controls and balanced performance,
+   then native acceptance and original Math/call/proxy/realm Test262 scopes.
 2. Keep the default CLI chunk count. The [four-chunk observation](docs/rust-rewrite/verification-cli-queue-observation-20261022.json)
    passes all 858 bodies but takes 783.161s versus the earlier two-chunk 757.216s.
    Sampled group peaks are 31.45 versus 32.00 GiB; individual native RSS maxima
@@ -73,16 +85,19 @@ Next coherent work:
 
 A frozen replay may continue while later source work proceeds; do not change
 its compiler, pinned fixtures, workers, deadlines or saved results. Cloud tools
-and all original receipts remain under `/tmp/scriptw-performance-batch14` and
+and original receipts remain under `/tmp/scriptw-performance-batch14`,
+`/tmp/scriptw-performance-batch16` and
 `target/performance-hills-20261021-attribution`. Push verified batches to main.
 Native verification keeps two libtest processes, the two-GiB Cargo reserve,
 256 MiB scratch per process and existing cache ceilings. Last group samples reach
 32 GiB with max-pressure events but zero OOM; this is not JavaScript heap usage.
 Stage exact outputs and archive only obsolete/unreferenced bytes after verification.
 Detach only actually dirty rustc aliases; preserve fresh dependencies.
-The 6m54s product build recompiled 1,165 NativeHost and 914 Portable stencils:
-this shared argv change affects many bodies. Do not mistake that for an absent
-cache or assume a crate/profile split shares differently configured Rust units.
+The latest product build takes 6m12s and again reports 1,165 NativeHost/914 Portable
+stencil misses despite a small R byte change. Shared build/test function-cache
+contention is a hypothesis, not a proven eviction cause. Inspect resolved cache
+limits, exact keys and prune events before changing budgets. A crate/profile
+split does not automatically share differently configured Rust units.
 
 ## Decisions to retain
 

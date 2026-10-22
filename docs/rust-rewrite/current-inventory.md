@@ -8,25 +8,28 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
-Latest performance source: **`2cb9fc53d`**, with [693 portable evidence files](performance-key-arguments-20261022.json).
-The [key/argument checkpoint](v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22)
-passes **3,572 release native tests / 0 failed / 0 ignored** across seven complete
-affected targets and nine compiled semantic families. Source/linker stay unchanged;
-seven independent product/test image payloads/manifests match. A wider
-[15,899-case Test262 replay](performance-key-arguments-replay-20261022.json)
-returns **15,895 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
-the original four failure IDs. It used the frozen compiler after native
-verification drained. Full-suite/all-feature acceptance and chart counts are unchanged.
+Latest performance source: **`e78c9e072`**, with [1840 portable evidence files](performance-map-insert-20261022.json).
+The [Map insertion checkpoint](v8-baseline.md#map-insertion-checkpoint--published-2026-10-22)
+passes **4,035 release native tests / 0 failed / 0 ignored** across ten complete
+affected targets, plus ten compiled semantic families. A disjoint one-plus-nine
+union preserves the initial storage deferrals; source/linker fences and seven
+independent runtime image identities match. Original budgets and process limits
+stay intact. The **1,173 original Map/Set plus tracked-failure replay** returns
+**1,169 Success / 4 Bug / 0 Crash / 0 NotImplemented**, exactly the original failures.
+The prior wider [15,899-case replay](performance-key-arguments-replay-20261022.json)
+remains bound to `2cb9fc53d`: 15,895 Success and the same four failures. Full-suite,
+all-feature acceptance and chart counts remain unchanged.
 
-Prepared insertion hashes improve long-key Map/Set/property ABBA medians by
-15.0% / 21.9% / 15.4%. Runtime-empty internal argv extends P078; mutable JS state
-remains fresh. P020 stays **partial** because value-only `Map.getOrInsert` still
-hashes in both outer lookup and inner put. The actual new ordinary report now
-supplies the README; its retained-row score is slower than the preceding ordinary
-report, while a separate direct ABBA does not reproduce that loss. Startup's
-slower paired observations are retained. These are different cohorts, not a
-universal-speedup claim. Status: **20 terminal, eight partial/open, 132 proposed**
-of 160 hills. Historical checkpoints below retain their original source limits.
+Value-only `Map.getOrInsert` reuses one prepared key hash; its long-key ABBA miss
+median is 58.516→49.966ms. P020 stays **partial** for callbacks, groupBy, cross-owner
+Set operations and lookup/unlink deletion. A worker session shares immutable harness source, with fresh JS state
+and independent snapshots per request. Its whole 64-case process diagnostic has
+overlapping rounds, not isolated harness-load or JS speed evidence. Actual Fast
+versus SizeOptimized ABBA is mixed; default Fast and P154's open decision stay.
+The ordinary report supplies the README; cold/integer/object observations are
+higher than the prior ordinary run, retained rows lower. These source-bound
+cohorts establish no universal gain. Status remains **20 terminal, eight
+partial/open, 132 proposed** of 160 hills. Historical checkpoints retain their limits.
 The [opt-in CLI chunk scheduler](verification-cli-queue-20261022.json) passes 74
 tooling controls and an exact four-way real 858-ID inventory check. It preserves
 two live libtests and default policy. Its [complete 858-body observation](verification-cli-queue-observation-20261022.json)

@@ -22,7 +22,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
-| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion and ordinary append reuse the rooted key's hash through internal lookup/insertion. ABBA long fresh Map/Set/property medians improve 65.135→55.338 / 65.953→51.507 / 112.415→95.054 ms. Non-callback `Map.getOrInsert` still repeats the outer lookup hash; callback lookup freshness stays intact. Nine compiled families, 3,572 native passes and 15,895/15,899 affected Test262 successes; exactly four original failures remain. [Evidence](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22). |
+| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion, ordinary append and now value-only `getOrInsert` reuse the rooted key's hash. New long-key direct miss ABBA: 58.516→49.966ms; numeric roughly flat. Callback insertion, groupBy, cross-owner Set and lookup/unlink deletion still have duplicate work. Ten compiled families, 4,035 native passes and 1,169/1,173 original Map/Set+tracked-failure successes; exactly four failures remain. [Evidence](rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
@@ -40,7 +40,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P093 / P094 | **Verified bulk-copy improvements** | Repeat doubles an existing UTF-16 seed; padding copies receiver/filler spans without intermediate strings. C→F paired repeat/padEnd round medians fall 169.226→19.993 ms and 4.460→1.498 ms. Final-source 61-case controls retain these paths and record 23.834 / 1.847 ms in their separate ordinary cohort. |
 | P096 / P099 | **Verified bulk-copy and reuse improvements** | Edge-specific trim scans and full-span String reuse avoid unnecessary copying; partial slices own exact-size backing. C→F paired trimStart/trimEnd/whole-slice/partial-slice medians are 24.120→1.617, 24.129→1.390, 6.691→1.475 and 6.860→2.618 ms. Final ordinary medians are 1.472 / 1.600 / 1.384 / 2.352 ms; these separate cohorts are not a direct final-source paired effect. |
 | P132 / P133 / P149 | **Measured component improvement; broader hills remain open** | Compressed Portable storage plus transient decoded leases reduce final CLI size by 57.12 MiB against the preceding accepted batch. Retained-row invocation RSS is 373.68 MiB (preceding accepted report: 439.91); whole-child peaks are 392.80 / 439.73 MiB. These distinct process boundaries are not live-GC bytes or isolated per-change attribution. Independent manifest/digest/Engine admission remains mandatory. |
-| P154 | **Diagnostic implemented; policy decision open** | Explicit Fast/SizeOptimized cohorts report requested/actual modes, compile/emission spans, native cache outcomes, code size, checksums and memory. Forced Fast does not silently retry another policy. Two-mode/two-execution SDK controls pass. Existing diagnostic results show no universal default-policy winner; first module phases still combine R admission and P compilation. |
+| P154 | **Diagnostic implemented; policy decision open** | Actual optimized-R Fast/SizeOptimized ABBA gives integer 7.604→9.680ms, objects 17.485→16.826ms and retained 1,462.288→1,409.441ms, with overlapping rounds. Identity, emitted bytes, outputs and actual destination image admission checked. Default Fast stays; first-module spans combine R admission/P compilation and optimization/regalloc policies are coupled. [Evidence](rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22). |
 | P017 | **Rejected: fresh-literal reservation gave no gain** | Candidate `d58f7c7ad` passes compiled semantic controls but case-wise ABBA medians rise 17.823→19.393 ms for nine keys and 47.447→50.464 ms for 33 keys. The private preallocation module is removed; static/dynamic/accessor/growth/GC fixtures remain. |
 | P038 | **Rejected: bounded inline publication gave no reliable gain** | Seven-sample/ten-warmup ABBA controls give four-element 9.917→10.109 ms, six-element 15.663→15.554 ms and retained rows 1,369.244→1,395.373 ms, with overlapping rounds. The inline GC index-chain publisher and compile-time hash mirror are removed. Existing indexed kernels/layout 15 remain. |
 | P066 | **Superseded by existing resolved-local facts** | BindingStorage already selects retained locals or emitted slot/hop pairs. Dynamic EnvironmentIdentifier/with/global resolution remains required. P067's broader parent/cell-access work stays open. |
@@ -172,16 +172,22 @@ OOM; investigate four sequential CLI chunks at the same two-process ceiling.
 
 The [key/argument checkpoint](rust-rewrite/v8-baseline.md#key-and-argument-checkpoint--published-2026-10-22)
 at `2cb9fc53d` passes 3,572 native tests and nine compiled semantic families.
-P020's insertion paths improve in direct ABBA, while non-callback
-`Map.getOrInsert` remains open. P078 now covers runtime-empty internal vectors;
+P020's insertion paths improve in direct ABBA; the later checkpoint below closes
+the then-open value-only `Map.getOrInsert` gap. P078 now covers runtime-empty internal vectors;
 this extends its existing hill. The wider [15,899-case Test262 replay](rust-rewrite/performance-key-arguments-replay-20261022.json)
 returns 15,895 Success / 4 original Bug / 0 Crash / 0 NotImplemented.
 Ordinary retained rows are slower than their preceding ordinary report; a direct
 ABBA does not reproduce that loss. Startup comparisons remain explicit and
-separate. The actual new ordinary Wasmtime/V8 report supplies the README.
+separate. That ordinary Wasmtime/V8 report supplied the README at its checkpoint.
 
-Next: finish the non-callback getOrInsert hash scope, then measure repeated
-long-string key hashing (P023/P112) before any string-layout cache decision.
+The [Map checkpoint](rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22)
+at `e78c9e072` closes value-only getOrInsert's repeated hash with ten compiled
+families, 4,035 native passes and 1,169/1,173 targeted Test262 successes. P020
+stays partial for callbacks and other internal collection paths. Immutable harness source reuse
+keeps per-case JS state fresh; its diagnostic does not isolate a speedup. P154's
+new real policy comparison is mixed, so default Fast stays. No new hill is closed.
+Next: verify guarded numeric Math.imul invocation (P081), then investigate
+repeated long-string key hashing (P023/P112) before a string-layout cache decision.
 The opt-in four-chunk CLI queue keeps two live libtest processes and passes
 [74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
 Its [complete 858-body observation](rust-rewrite/verification-cli-queue-observation-20261022.json)
