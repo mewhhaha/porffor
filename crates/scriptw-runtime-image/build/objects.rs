@@ -16,7 +16,7 @@ const PARTS: [(&str, &str); 6] = [
     ),
     (
         "SCRIPTW_RUNTIME_PORTABLE_NATIVE",
-        "scriptw-runtime-portable-native.bin",
+        "scriptw-runtime-portable-native.packed",
     ),
     (
         "SCRIPTW_RUNTIME_PORTABLE_MANIFEST",

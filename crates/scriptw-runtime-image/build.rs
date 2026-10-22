@@ -3,6 +3,8 @@
 mod cache;
 #[path = "../scriptw-engine/compiler_fingerprint.rs"]
 mod compiler_fingerprint;
+#[path = "build/compressed.rs"]
+mod compressed;
 #[path = "../scriptw-engine/src/embedded_runtime/build.rs"]
 mod native_runtime_build;
 #[path = "build/objects.rs"]
@@ -61,6 +63,7 @@ fn main() {
         &std::env::var("CARGO_CFG_TARGET_ENDIAN").expect("Cargo target endian"),
     );
     let started = std::time::Instant::now();
+    compressed::write(&out);
     objects::embed(&out, &target);
     println!("build runtime object packaging: {:?}", started.elapsed());
 }

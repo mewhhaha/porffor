@@ -96,7 +96,7 @@ class EmbeddedProfileGuards(unittest.TestCase):
         self.assertEqual(profile.check(ROOT), [])
         path = profile.E + "embedded_runtime.rs"
         source = (ROOT / path).read_text()
-        for before in ("Images::for_profile(source_compilation_profile).package",
+        for before in ("Images::package_for_profile(source_compilation_profile)",
                        "self.images.profile == runtime.source_compilation_profile()"):
             with self.subTest(before=before):
                 self.assertEqual(source.count(before), 1)

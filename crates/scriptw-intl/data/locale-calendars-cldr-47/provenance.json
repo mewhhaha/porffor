@@ -80,9 +80,9 @@
     "profile_sha256": "fcb074bd730a2c73a58a3c11a040a46efb959b35dc8e4a0457d955a7d9d722fe",
     "sources": [
       {
-        "bytes": 76236,
+        "bytes": 76245,
         "path": "Cargo.lock",
-        "sha256": "ee4e2240f84e00b37e54a0e284c2139f7055efdb49b058a418d9368705cf3e74"
+        "sha256": "ae8634e7e3f98127df51bf1245d40681ae136e5a65c78ed5593d8fa47d6764e0"
       },
       {
         "bytes": 5887,
@@ -277,7 +277,7 @@
       {
         "bytes": 31947,
         "path": "crates/scriptw-intl/data/datetime-cldr-47/kernel-identity.json",
-        "sha256": "1122b856bae7525eafc4a09ffe6149fa469d6122633044c220fa410701a4702e"
+        "sha256": "87d0690d1669eb9376632e3ebe68a35b22432ed3593a489485402967f272e214"
       },
       {
         "bytes": 4610,
@@ -297,7 +297,7 @@
       {
         "bytes": 21615,
         "path": "crates/scriptw-intl/data/iana-tzdb-2026a/manifest.json",
-        "sha256": "82bcb2a4ccc85486b7eb11e99b9c817c0ecab545f66f765a9c6603d3cbc61c5d"
+        "sha256": "391d49391e359397f14aab3f0bbae262c095fbe3852ea83cabae9ce40623fa32"
       },
       {
         "bytes": 51680,
@@ -507,7 +507,7 @@
       {
         "bytes": 328,
         "path": "crates/scriptw-intl/src/provider/datetime/identity.rs",
-        "sha256": "ab7efc98db4b376f0b6d28a0fecd40f51ff99baca6c1b6af00a7f93533138ed6"
+        "sha256": "6f874c510481a96faa7e3c8da23d06444747847863c4d00ecd70f1ae8ab133d3"
       },
       {
         "bytes": 8582,
@@ -717,7 +717,7 @@
       {
         "bytes": 565,
         "path": "crates/scriptw-intl/src/provider/named_time_zones/identity.rs",
-        "sha256": "f0747516a6494eef4f34fa816b480c2330372d74f6ffcc9a709a6b252b634067"
+        "sha256": "4ec6849d3c4a0f4515be70ef6cee61d7b185660373daee1de76e7f7ca2063670"
       },
       {
         "bytes": 5089,
@@ -1021,7 +1021,7 @@
       }
     ]
   },
-  "kernel_sha256": "a08319d60c833946f53846050142e7dab92d4bfa431a1f64be30c49c8aaf1201",
+  "kernel_sha256": "91d3b85e50436dc26d37fd9b08935746f0c45b6cbd29f315a50c272444aef6b2",
   "language_region_selector_count": 0,
   "normative_source": "https://tc39.es/ecma402/#sec-calendarsoflocale",
   "ordering": "calendar preference order; canonical BCP47 aliases; stable uniqueness; runtime filter against actual checked DateTime AvailableCalendars",

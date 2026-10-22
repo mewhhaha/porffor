@@ -535,7 +535,7 @@ require_fixed_string_count crates/scriptw-engine/build.rs 'native_runtime_build:
 engine_embedded_images="crates/scriptw-engine/src/embedded_runtime/images.rs"
 require_file "$engine_embedded_images"
 require_fixed_string_count "$engine_embedded_images" 'use scriptw_runtime_image as image;' 1 'Engine consumes only immutable image accessors'
-require_fixed_string_count "$engine_embedded_runtime" 'Images::for_profile(source_compilation_profile).package' 1 'raw candidate uses its exact source profile'
+require_fixed_string_count "$engine_embedded_runtime" 'Images::package_for_profile(source_compilation_profile)' 1 'raw candidate uses its exact source profile'
 require_fixed_string_count "$engine_embedded_runtime" 'self.images.profile == runtime.source_compilation_profile()' 1 'native candidate rejects a foreign source profile'
 require_fixed_string_count "$engine_embedded_runtime" 'include_bytes!' 0 'image bytes do not enter Engine initializers'
 require_fixed_string_count "$runtime_image_source" '#[inline(never)]' 6 'six non-inline image accessors'
@@ -546,7 +546,11 @@ require_fixed_string_count "$runtime_image_objects" '"-Cembed-bitcode=no"' 1 'da
 require_fixed_string_count "$runtime_image_objects" '.compile("scriptw_runtime_images")' 1 'target archiver owns the complete linked image'
 for image_part in package native manifest; do
   require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-${image_part}.bin" 1 'one data definition per NativeHost image'
-  require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-portable-${image_part}.bin" 1 'one data definition per Portable image'
+  if [ "$image_part" = native ]; then
+    require_fixed_string_count "$runtime_image_objects" 'scriptw-runtime-portable-native.packed' 1 'one compressed Portable native storage definition'
+  else
+    require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-portable-${image_part}.bin" 1 'one raw data definition per Portable package/manifest'
+  fi
 done
 require_exact_line_count crates/scriptw-aot-wasm/src/runtime_artifact.rs 'mod build_package;' 1 'private checked build-package owner'
 require_fixed_string_count "$engine_native_config" 'pub(crate) fn base_config(' 1 'one shared native configuration constructor'

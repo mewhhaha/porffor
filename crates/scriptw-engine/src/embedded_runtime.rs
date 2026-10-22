@@ -42,7 +42,7 @@ pub(super) fn inputs(
             std::num::NonZeroUsize::new(crate::configured_compilation_jobs().unwrap_or(1))
                 .expect("explicit compilation jobs are positive"),
         );
-    let package = Images::for_profile(source_compilation_profile).package;
+    let package = Images::package_for_profile(source_compilation_profile);
     if package.is_empty() {
         inputs
     } else {
@@ -106,7 +106,9 @@ impl EmbeddedNativeRuntime {
             return None;
         }
         // SAFETY: self.images.native is exclusively the immutable Cargo output of
-        // scriptw-runtime-image build.rs, whose sole producer compiles the freshly
+        // scriptw-runtime-image build.rs (Portable storage is decoded once from
+        // its private Cargo array, with exact length/digest admission into an
+        // immutable process-lifetime Box). Its sole producer compiles the freshly
         // admitted RuntimeBuildArtifact::wasm() with pinned Wasmtime. Native-host
         // builds use Wasmtime's exact-Wasm compilation cache and serialize the
         // resulting temporary Module; cross-target/cache-unavailable builds use

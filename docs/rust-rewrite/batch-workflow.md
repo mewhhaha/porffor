@@ -51,6 +51,23 @@ four-job opt-in fails those setup checks. Bounded Cargo build CPUs remain usable
 Local machines use the same wrapper without `--cloud` and retain its local
 memory/swap policy. Do not copy cloud settings into a local default.
 
+For an idle managed-cloud product build, the existing compiler wrapper can give
+one serial Cargo unit the bounded LLVM jobserver as well:
+
+```sh
+RUSTC_WRAPPER="$PWD/scripts/test-shared-runtime-images/test-rustc" \
+SCRIPTW_TEST_CODEGEN_JOBS=auto \
+python3 -B scripts/limited_verification.py --cloud --cloud-cpus auto -- \
+  cargo build --locked --offline --release -p scriptw-cli --jobs 1
+```
+
+The wrapper preserves compiler queries, flags and product semantics; it does
+not enable parallel Cargo or libtest. The native verification driver configures
+this itself with `--idle-builds --no-test-incremental`. Merely expanding CPU
+affinity leaves LLVM constrained by Cargo's single-slot jobserver: the first
+string/storage build took 8m25s at 100% CPU, so do not mistake its scheduling
+difference for a compiler-source performance regression.
+
 Set `TMPDIR=/tmp` for tooling tests on this machine: filesystem-admission controls
 need separate temporary and workspace filesystems. Report skips explicitly.
 

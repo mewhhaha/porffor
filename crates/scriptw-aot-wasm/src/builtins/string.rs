@@ -646,7 +646,7 @@ impl FunctionBuilder<'_> {
             let argument=s.reserve_value_local(f); let position_argument=s.reserve_value_local(f);
             let pending=s.reserve_completion(f); let result=s.reserve_value_local(f);
             let length=s.reserve_i64_local(f); let needle_length=s.reserve_i64_local(f); let position=s.reserve_i64_local(f); let cursor=s.reserve_i64_local(f); let offset=s.reserve_i64_local(f); let source_index=s.reserve_i64_local(f); let found_index=s.reserve_i64_local(f); let bits=s.reserve_i64_local(f);
-            let is_regexp=s.reserve_i32_local(f); let equal=s.reserve_i32_local(f); let found=s.reserve_i32_local(f); let unit=s.reserve_i32_local(f); let last_unit=s.reserve_i32_local(f); let first_unit=s.reserve_i32_local(f); let prefix_length=s.reserve_i64_local(f);
+            let is_regexp=s.reserve_i32_local(f); let equal=s.reserve_i32_local(f); let found=s.reserve_i32_local(f); let unit=s.reserve_i32_local(f);
             b.emit_native_gc_string_length(string,length,f);
             b.emit_builtin_arg_to_value(0,&argument,f); b.emit_builtin_arg_to_value(1,&position_argument,f);
             let reject=match &operation {
@@ -681,22 +681,6 @@ impl FunctionBuilder<'_> {
             if matches!(&operation,StringSearchOperation::EndsWith) {
                 b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
             }
-            // Cache immutable needle endpoints after observable coercions.
-            // Check the head first so early-prefix misses avoid a tail read.
-            // Candidate bounds below precede every haystack access.
-            needle_length.load(f); f.instruction(&Instruction::I64Eqz);
-            b.open_frame(ControlFrameKind::If,f);
-            prefix_length.set_constant(0,f); last_unit.set_constant(0,f); first_unit.set_constant(0,f);
-            f.instruction(&Instruction::Else);
-            needle_length.load(f); f.instruction(&Instruction::I64Const(1)); f.instruction(&Instruction::I64Sub); prefix_length.store(f);
-            offset.set_constant(0,f);
-            b.emit_gc_string_code_unit_i32(&needle,offset,f); first_unit.store(f);
-            prefix_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
-            b.open_frame(ControlFrameKind::If,f);
-            b.emit_gc_string_code_unit_i32(&needle,prefix_length,f); last_unit.store(f);
-            f.instruction(&Instruction::Else); first_unit.load(f); last_unit.store(f);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
             f.instruction(&Instruction::I32Const(0)); found.store(f);
             f.instruction(&Instruction::I64Const(-1)); found_index.store(f);
             let searched=b.open_frame(ControlFrameKind::Block,f);
@@ -718,25 +702,8 @@ impl FunctionBuilder<'_> {
             cursor.load(f); length.load(f); needle_length.load(f); f.instruction(&Instruction::I64Sub); f.instruction(&Instruction::I64GtU); b.emit_branch_if_to_target(searched,f);
             f.instruction(&Instruction::I32Const(1)); equal.store(f);
             f.instruction(&Instruction::I64Const(0)); offset.store(f);
-            let compared=b.open_frame(ControlFrameKind::Block,f);
-            needle_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
-            b.open_frame(ControlFrameKind::If,f);
-            b.emit_gc_string_code_unit_i32(string,cursor,f); first_unit.load(f); f.instruction(&Instruction::I32Ne);
-            b.open_frame(ControlFrameKind::If,f);
-            equal.set_constant(0,f); b.emit_branch_to_target(compared,f);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
-            offset.set_constant(1,f);
-            prefix_length.load(f); f.instruction(&Instruction::I64Eqz); f.instruction(&Instruction::I32Eqz);
-            b.open_frame(ControlFrameKind::If,f);
-            cursor.load(f); prefix_length.load(f); f.instruction(&Instruction::I64Add); source_index.store(f);
-            b.emit_gc_string_code_unit_i32(string,source_index,f); last_unit.load(f); f.instruction(&Instruction::I32Ne);
-            b.open_frame(ControlFrameKind::If,f);
-            equal.set_constant(0,f); b.emit_branch_to_target(compared,f);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
-            b.pop_control(ControlFrameKind::If); f.instruction(&Instruction::End);
-            let compare=b.open_frame(ControlFrameKind::Loop,f);
-            offset.load(f); prefix_length.load(f); f.instruction(&Instruction::I64GeU); b.emit_branch_if_to_target(compared,f);
+            let compared=b.open_frame(ControlFrameKind::Block,f); let compare=b.open_frame(ControlFrameKind::Loop,f);
+            offset.load(f); needle_length.load(f); f.instruction(&Instruction::I64GeU); b.emit_branch_if_to_target(compared,f);
             cursor.load(f); offset.load(f); f.instruction(&Instruction::I64Add); source_index.store(f);
             b.emit_gc_string_code_unit_i32(string,source_index,f); unit.store(f);
             b.emit_gc_string_code_unit_i32(&needle,offset,f); unit.load(f); f.instruction(&Instruction::I32Ne);
@@ -765,7 +732,7 @@ impl FunctionBuilder<'_> {
                 StringSearchOperation::StartsWith|StringSearchOperation::EndsWith|StringSearchOperation::Includes=>result.set_boolean(found,f),
             }
             output.set_normal(&result,f);
-            s.release_i64_local(prefix_length,f); s.release_i32_local(first_unit,f); s.release_i32_local(last_unit,f); s.release_i32_local(unit,f); s.release_i32_local(found,f); s.release_i32_local(equal,f); s.release_i32_local(is_regexp,f);
+            s.release_i32_local(unit,f); s.release_i32_local(found,f); s.release_i32_local(equal,f); s.release_i32_local(is_regexp,f);
             s.release_i64_local(bits,f); s.release_i64_local(found_index,f); s.release_i64_local(source_index,f); s.release_i64_local(offset,f); s.release_i64_local(cursor,f); s.release_i64_local(position,f); s.release_i64_local(needle_length,f); s.release_i64_local(length,f);
             needle.clear(f); result.clear(f); pending.clear(f); position_argument.clear(f); argument.clear(f); Ok(())
         })

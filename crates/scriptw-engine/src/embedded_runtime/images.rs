@@ -1,5 +1,6 @@
 //! Select a single profile's immutable Cargo authority before touching payloads.
 use scriptw_aot_wasm::RuntimeSourceCompilationProfile;
+use scriptw_runtime_image as image;
 
 #[derive(Clone, Copy)]
 pub(super) struct Images {
@@ -10,17 +11,22 @@ pub(super) struct Images {
 }
 
 impl Images {
+    pub(super) fn package_for_profile(profile: RuntimeSourceCompilationProfile) -> &'static [u8] {
+        match profile {
+            RuntimeSourceCompilationProfile::NativeHost => image::package(),
+            RuntimeSourceCompilationProfile::Portable => image::portable_package(),
+        }
+    }
+
     pub(super) fn for_profile(profile: RuntimeSourceCompilationProfile) -> Self {
-        use scriptw_runtime_image as image;
-        let (package, native, manifest) = match profile {
+        let package = Self::package_for_profile(profile);
+        let (native, manifest) = match profile {
             RuntimeSourceCompilationProfile::NativeHost => {
-                (image::package(), image::native(), image::manifest_bytes())
+                (image::native(), image::manifest_bytes())
             }
-            RuntimeSourceCompilationProfile::Portable => (
-                image::portable_package(),
-                image::portable_native(),
-                image::portable_manifest_bytes(),
-            ),
+            RuntimeSourceCompilationProfile::Portable => {
+                (image::portable_native(), image::portable_manifest_bytes())
+            }
         };
         Self {
             profile,

@@ -6028,15 +6028,6 @@ impl<'a> FunctionBuilder<'a> {
         function: &mut Function,
     ) {
         let schema = self.runtime_schema();
-        // String values are immutable. Identity proves equality, including when
-        // ASCII case folding is requested; distinct equal strings still use the
-        // exact code-unit comparison below.
-        left.load(schema, function);
-        right.load(schema, function);
-        function.instruction(&Instruction::RefEq);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        result.set_constant(1, function);
-        function.instruction(&Instruction::Else);
         let left_units_slot = schema.reserve_gc_local(function);
         let left_units = left_units_slot.initialize(
             schema
@@ -6122,8 +6113,6 @@ impl<'a> FunctionBuilder<'a> {
         function.instruction(&Instruction::Br(0));
         function.instruction(&Instruction::End);
         function.instruction(&Instruction::End);
-        function.instruction(&Instruction::End);
-
         function.instruction(&Instruction::End);
 
         schema.release_i32_local(right_unit, function);

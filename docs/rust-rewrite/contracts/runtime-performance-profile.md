@@ -285,6 +285,18 @@ module-cache key remains the execution Engine's mode and raw Wasm digest, so
 an image compiled in a different mode cannot cross Engine ownership.
 Native deserialization runs only inside the existing shared R/P cache factory.
 
+Portable native storage may use a private Cargo-produced compressed container.
+The producer first publishes its checked raw native image and unchanged v4
+manifest, then verifies an exact storage roundtrip. Runtime decoding admits the
+bounded output length, frame window and raw SHA-256 before immutable publication
+in a process-lifetime Box. Failure yields an empty optimization candidate and
+ordinary checked native compilation. The independent manifest still checks the
+decoded bytes before `Module::deserialize` into the actual Engine. Raw package
+authority, NativeHost arrays and public artifact/cache formats are unchanged.
+Package-only selection does not decode the native payload. Compressed pages and
+decoded ownership must both count toward RSS; storage compression is not a
+claim of reduced live JS memory or reduced deserialization cost.
+
 Runtime layout 15 adds four immutable non-null zero-length GC array globals
 (values, property entries, property indexes and private elements) to the shared
 R/P prefix. Their hidden storage identity has no mutable element. Ordinary

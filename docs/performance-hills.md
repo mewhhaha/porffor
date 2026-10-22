@@ -22,6 +22,8 @@ upstream failures. No fresh full-suite conformance claim is made.
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
 | P153 | **Verified improvement with an explicit image/startup tradeoff** | Separate matching Portable optimized R is admitted into the actual Engine. Matched combined-batch confirmation: integer 17.481 → 8.109 ms, objects 44.053 → 18.275 ms, retained rows 1,904.600 → 1,385.741 ms. CLI grows 116.01 MiB; paired startup adds about 58 ms cold / 22 ms cached. No claim of an isolated P153 contribution to every workload. |
 | P009 | **Diagnostic implemented; attribution investigation remains open** | Opt-in loaded-code map binds actual addresses to exact R/P Wasm and native-text hashes; symbol/name/index test passes. It is a serial single-program latest snapshot, not concurrent mapping history. Instrumented samples are excluded from ordinary scores. |
+| P024 | **Superseded by the existing reference guard** | Strict/SameValue String equality already checks identity before its content helper. The extra helper-level guard is removed: the same-reference ABBA control barely moved, while distinct-equal content comparison regressed. Semantic identity controls remain. |
+| P095 | **Rejected: regressed an early-miss control** | The endpoint filter helped a 65-unit tail miss (ABBA round medians 4.391 → 1.542 ms), but early-prefix misses rose 1.380 → 2.352 ms. The implementation is removed; exact 2,700-result UTF-16/coercion controls and raw failed attempts remain. A different algorithm needs a new experiment. |
 
 The deterministic 43-case attribution corpus covers construction, retained-row
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
@@ -33,16 +35,26 @@ The other hills remain Proposed unless a linked decision below states otherwise.
 
 The next coherent experiment batch is **unverified**: shared immutable
 zero-length private storage and syntax-empty argument vectors (P016/P078),
-String identity equality (P024), concrete Array length before descriptor lookup
+concrete Array length before descriptor lookup
 (P041), abrupt-only indirect-call completion copying (P079), bulk repeat/pad
-UTF-16 copying (P093/P094), bounded endpoint search filtering (P095), and
+UTF-16 copying (P093/P094), and
 edge-specific trim/full-span String reuse with bulk partial copies (P096/P099).
-The search filter retains its existing worst-case interior scan complexity.
 Partial strings own exact-size backing; shared empty arrays expose no mutable
 JS identity. Runtime layout 15 invalidates earlier R/P packages and cache keys.
 Six semantic fixture families, completion controls and typed global-constant
 controls accompany the batch; measurements and native verification decide
 which candidates remain. No performance gain is claimed for this batch yet.
+
+The refinement also experiments with compressed **Portable native-image storage**
+to reduce the P153 executable cost. NativeHost and raw Portable package bytes stay
+unchanged. Cargo round-trips exact decoded native bytes; a bounded decoder checks
+length/hash and publishes a private immutable process-lifetime Box. Independent
+v4 manifest admission and destination-Engine deserialization remain mandatory.
+Package-only emission does not decode native storage. Two standalone codec tests
+pass, including rejection of an oversized frame window; this is not yet a product
+timing, memory or full native result. Decompression CPU/residency must be measured,
+not described as a memory saving. This is adjacent P132/P133/P149 evidence, not
+automatic completion of those broader hills.
 
 Its verification tooling removes Cargo-lock acquisition when incremental
 cleanup has nothing to delete; real deletion still locks and re-discovers the

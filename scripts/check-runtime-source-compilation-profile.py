@@ -99,10 +99,14 @@ def check(root, overrides=None):
             "forprofilein[RuntimeSourceCompilationProfile::NativeHost,RuntimeSourceCompilationProfile::Portable,]" in c[E + "embedded_runtime/build.rs"],
             "graph observation and native image production explicitly retain native compilation")
     embedded = c[E + "embedded_runtime.rs"]
-    require("Images::for_profile(source_compilation_profile).package" in embedded and
+    require("Images::package_for_profile(source_compilation_profile)" in embedded and
             "with_source_compilation_profile(source_compilation_profile)" in embedded and
             "self.images.profile==runtime.source_compilation_profile()" in embedded and
-            "RuntimeSourceCompilationProfile::Portable=>(image::portable_package(),image::portable_native(),image::portable_manifest_bytes(),)" in c[E + "embedded_runtime/images.rs"],
+            "RuntimeSourceCompilationProfile::Portable=>image::portable_package()," in c[E + "embedded_runtime/images.rs"] and
+            "letpackage=Self::package_for_profile(profile);" in c[E + "embedded_runtime/images.rs"] and
+            re.search(r"RuntimeSourceCompilationProfile::Portable=>\{?\(image::portable_native\(\),image::portable_manifest_bytes\(\),?\)\}?", c[E + "embedded_runtime/images.rs"]) and
+            "RuntimeSourceCompilationProfile::NativeHost=>image::package()," in c[E + "embedded_runtime/images.rs"] and
+            re.search(r"RuntimeSourceCompilationProfile::NativeHost=>\{?\(image::native\(\),image::manifest_bytes\(\),?\)\}?", c[E + "embedded_runtime/images.rs"]),
             "each embedded image is selected and admitted only for its exact source profile")
     link = c[E + "wasm_runtime_link.rs"]
     require(link.count("RuntimeSourceCompilationProfile::from_module(program).ok()?==scriptw_aot_wasm::RuntimeSourceCompilationProfile::Portable") == 2 and
