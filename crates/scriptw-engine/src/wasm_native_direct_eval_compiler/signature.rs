@@ -146,15 +146,15 @@ impl NativeDirectEvalSignature {
                 &binding_cell,
             )?;
         }
-        for field in [
-            Field::BindingCellTag,
-            Field::BindingCellScalar,
-            Field::BindingCellReference,
-        ] {
-            // The declaration owns exact word type, nullability and mutable
-            // storage; immutable invocation snapshots still use StoredValue.
-            schema::field(&binding_cell, field)?;
-        }
+        schema::peer(
+            &schema::field_structure(
+                &binding_cell,
+                Field::BindingCellValue,
+                false,
+                Layout::StoredValue,
+            )?,
+            &stored,
+        )?;
         Ok(Self {
             function,
             arguments,

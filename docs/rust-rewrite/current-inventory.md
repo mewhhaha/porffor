@@ -37,8 +37,12 @@ The next performance candidate is not yet an accepted checkpoint. Its preceding
 intermediate experiment replayed 1,638 exact original/affected executions:
 1,634 Success and the same four Bug results, with no crashes/unimplemented cases.
 Its 3,135-pass native run also had a stale global-count assertion and a rejected
-source-stability guard. Both causes are corrected; the new layout-16/numeric/
-transient-image candidate requires a fresh build, measurements and verification.
+source-stability guard. Both causes are corrected. A subsequent layout-16
+binding experiment did not establish a closure benefit and is removed; its
+numeric/object controls also regressed. The narrowed layout-15 numeric,
+descriptor-snapshot and transient-image candidate requires a fresh build,
+measurements and verification. No accepted baseline/conformance counts change
+from those provisional runs.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

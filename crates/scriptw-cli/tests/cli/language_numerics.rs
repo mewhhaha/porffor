@@ -863,13 +863,17 @@ fn run_wasm_backend_succeeds_for_uri_codecs_fixture() {
 #[test]
 fn numeric_updates_and_cell_writes_preserve_conversions_snapshots_and_aliases() {
     for (fixture, expected) in [
+        (
+            "wasm_descriptor_snapshot_sharing.js",
+            "descriptor-snapshot-controls:ok",
+        ),
         ("wasm_uint32_range_fast_path.js", "uint32-range-controls:ok"),
         (
             "wasm_numeric_update_fast_path.js",
             "numeric-update-controls:ok",
         ),
         (
-            "wasm_binding_cell_inline_payload.js",
+            "wasm_binding_cell_payload_semantics.js",
             "binding-cell-controls:ok",
         ),
     ] {

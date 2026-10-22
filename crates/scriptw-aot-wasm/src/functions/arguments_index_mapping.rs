@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::gc_types::{
-    ArgumentsObject, ArgumentsObjectSchema, ArgumentsParameterMap, BindingCell, GcLocal, I32Local,
-    Nullable, ValueLocals,
+    ArgumentsObject, ArgumentsObjectSchema, ArgumentsParameterMap, BindingCell, BindingCellSchema,
+    GcLocal, GcOperand, I32Local, Nullable, StoredValue, ValueLocals,
 };
 
 impl FunctionBuilder<'_> {
@@ -69,9 +69,18 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<BindingCell>()
+                .field(BindingCellSchema::VALUE)
+                .read(mapping, schema, function)
+                .reference(),
+            function,
+        );
         schema
-            .struct_type::<BindingCell>()
-            .read_into(mapping, result, schema, function);
+            .struct_type::<StoredValue>()
+            .read_into(&stored, result, schema, function);
+        stored.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }
@@ -87,9 +96,22 @@ impl FunctionBuilder<'_> {
         function.instruction(&Instruction::RefIsNull);
         function.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, function);
+        let stored = schema.reserve_gc_local(function).initialize(
+            schema
+                .struct_type::<StoredValue>()
+                .from_value(value, function),
+            function,
+        );
         schema
             .struct_type::<BindingCell>()
-            .write_from(mapping, value, schema, function);
+            .field(BindingCellSchema::VALUE)
+            .write(
+                mapping,
+                GcOperand::reference(&stored, schema),
+                schema,
+                function,
+            );
+        stored.clear(function);
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
     }

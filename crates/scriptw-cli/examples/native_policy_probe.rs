@@ -110,7 +110,35 @@ fn run() -> Result<(), String> {
         CompilerSourceRevision::GitCommit(commit) => Some(commit.as_str()),
         CompilerSourceRevision::UnversionedArchive => None,
     };
-    println!("{}",serde_json::to_string(&json!({"schema":"scriptw-native-policy-cohort-v1","source_commit":revision,"source_fingerprint":identity.source_fingerprint().to_string(),"executable_sha256":identity.executable_sha256().to_string(),"source_compilation_profile":"portable","requested_native_mode":requested.as_str(),"samples":samples,"warmups":warmups,"case":name,"source_sha256":format!("{:x}",Sha256::digest(source.as_bytes())),"wasm_sha256":format!("{:x}",Sha256::digest(&compilation.artifact.bytes)),"wasm_bytes":compilation.artifact.bytes.len(),"observations":observations,"boundary":"Explicit forced native-policy cohort; fresh Store/realm; not an ordinary V8 score; forced Fast fails rather than silently falling back."})).map_err(|e|e.to_string())?);
+    println!(
+        "{}",
+        serde_json::to_string(&json!({
+            "schema": "scriptw-native-policy-cohort-v2",
+            "source_commit": revision,
+            "source_fingerprint": identity.source_fingerprint().to_string(),
+            "executable_sha256": identity.executable_sha256().to_string(),
+            "source_compilation_profile": "portable",
+            "requested_native_mode": requested.as_str(),
+            "samples": samples, "warmups": warmups, "case": name,
+            "source_sha256": format!("{:x}", Sha256::digest(source.as_bytes())),
+            "wasm_sha256": format!("{:x}", Sha256::digest(&compilation.artifact.bytes)),
+            "wasm_bytes": compilation.artifact.bytes.len(),
+            "compilation_ns": {
+                "preparation": compilation.preparation.as_nanos(),
+                "lowering": compilation.lowering.as_nanos(),
+                "emission": compilation.emission.as_nanos(),
+                "validation": compilation.validation.as_nanos()
+            },
+            "footprint": {
+                "defined_functions": compilation.footprint.defined_functions,
+                "code_body_bytes": compilation.footprint.code_body_bytes,
+                "largest_code_body_bytes": compilation.footprint.largest_code_body_bytes
+            },
+            "observations": observations,
+            "boundary": "Explicit forced native-policy cohort; fresh Store/realm; not an ordinary V8 score; forced Fast fails rather than silently falling back. Compilation spans cover JS-to-Wasm. First-load module_ns includes R admission and P native compilation together."
+        }))
+        .map_err(|e| e.to_string())?
+    );
     Ok(())
 }
 fn main() {

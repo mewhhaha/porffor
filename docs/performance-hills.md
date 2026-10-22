@@ -24,6 +24,7 @@ upstream failures. No fresh full-suite conformance claim is made.
 | P009 | **Diagnostic implemented; attribution investigation remains open** | Opt-in loaded-code map binds actual addresses to exact R/P Wasm and native-text hashes; symbol/name/index test passes. It is a serial single-program latest snapshot, not concurrent mapping history. Instrumented samples are excluded from ordinary scores. |
 | P024 | **Superseded by the existing reference guard** | Strict/SameValue String equality already checks identity before its content helper. The extra helper-level guard is removed: the same-reference ABBA control barely moved, while distinct-equal content comparison regressed. Semantic identity controls remain. |
 | P095 | **Rejected: regressed an early-miss control** | The endpoint filter helped a 65-unit tail miss (ABBA round medians 4.391 → 1.542 ms), but early-prefix misses rose 1.380 → 2.352 ms. The implementation is removed; exact 2,700-result UTF-16/coercion controls and raw failed attempts remain. A different algorithm needs a new experiment. |
+| P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots and layout 15 remain; resolved depth/handle caching is still open. |
 
 The deterministic 43-case attribution corpus covers construction, retained-row
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
@@ -40,9 +41,9 @@ concrete Array length before descriptor lookup
 UTF-16 copying (P093/P094), and
 edge-specific trim/full-span String reuse with bulk partial copies (P096/P099).
 Partial strings own exact-size backing; shared empty arrays expose no mutable
-JS identity. Layout 15 added these globals; current layout 16 also gives mutable
-binding cells inline tag/scalar/reference words. Earlier R/P packages and cache
-keys remain inadmissible.
+JS identity. Layout 15 added these globals. Binding cells retain their immutable
+StoredValue snapshots. Earlier R/P packages and cache keys remain inadmissible;
+the rejected layout-16 experiment is also outside current layout admission.
 Six semantic fixture families, completion controls and typed global-constant
 controls accompany the batch; measurements and native verification decide
 which candidates remain. No performance gain is claimed for this batch yet.
@@ -61,14 +62,18 @@ not described as a memory saving. This is adjacent P132/P133/P149 evidence, not
 automatic completion of those broader hills.
 
 The next candidate includes a signed-range ToUint32 shortcut after Number
-conversion (P058), a **runtime Number-tag** guard before update conversion (P061),
+conversion **only in bitwise lowering** (P058), a **runtime Number-tag** guard before update conversion (P061),
 and explicit forced native-policy diagnostic cohorts (P154). The IR's Number
 update kind describes ToNumeric's result domain; it does not permit skipping
 String/Boolean/Symbol conversion. Forced Fast cohorts fail rather than silently
-retry SizeOptimized; ordinary dispatch is unchanged. Binding-cell payload
-flattening is a supporting allocation/access experiment for P067, not completion
-of depth/handle caching or the scalar-local hills. Shared StoredValue snapshots
-remain immutable, with TDZ/const/import-alias ownership unchanged.
+retry SizeOptimized; ordinary dispatch is unchanged. Applying the shortcut to
+all conversions accompanied a regression in the Math.imul-heavy control;
+the narrowed candidate retains the original exact modulo authority for builtin
+conversions. Attribution remains provisional until that candidate is measured.
+Shared StoredValue snapshots remain immutable, with TDZ/const/import-alias
+ownership unchanged. The new P018 allocation experiment shares a snapshot only
+when getter and setter are the **same compiler operand**, avoiding a duplicate
+absent-accessor allocation without runtime equality or a new GC layout.
 
 The intermediate `a5b4a6c5d` experiment measured strong repeat/pad/trim/slice gains
 and smaller executables. Its exact 1,638-case replay returned **1,634 Success /
@@ -78,6 +83,26 @@ That assertion is corrected in the candidate. The checkpoint also rejected an
 accidentally copied untracked scratch example; the file was removed and the
 rejected receipt retained. This is **not** a frozen-source acceptance checkpoint.
 A fresh product build, measurements and native/replay checkpoint remain required.
+
+The frozen `35fa9b048` product passes nine compiled semantic fixture families
+and the 61-case ordinary measurement corpus. Releasing transient Portable native
+bytes lowers median sampled retained-row invocation RSS from 454.86 to
+376.79 MiB against the preceding compressed-storage experiment; these are
+process RSS samples, not live GC bytes. Its ordinary paired integer/object
+controls regress, so it is **not accepted** as a performance checkpoint.
+The next narrowed candidate removes the unhelpful binding layout and broad
+numeric-conversion change before broad native verification. All raw observations
+and rejected experiments remain retained.
+
+Its explicit P-policy ABBA cohort also finds no universal default-policy win:
+Fast → SizeOptimized round medians are 8.618 → 7.088 ms (integer),
+18.266 → 19.077 ms (small objects), 1,544.402 → 1,463.607 ms (retained rows),
+14.805 → 9.728 ms (bitwise loop), and 111.862 → 86.856 ms (captured updates).
+These same-source, fresh-Store cohorts are separate from V8 scores. First-load
+module phases include runtime admission and program compilation together; they
+are not an isolated program-codegen cost or a complete P154 break-even decision.
+The product default remains Fast. More representative cases and phase evidence
+are required before selecting a different default.
 
 P066's narrow resolved-local question is **Superseded by existing BindingStorage
 facts**: identifiers already select retained locals or emitted slot/hop pairs.

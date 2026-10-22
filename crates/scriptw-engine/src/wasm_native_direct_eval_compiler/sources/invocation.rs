@@ -36,14 +36,18 @@ pub(super) fn validate(
         ] {
             let value = read(store, &derived, name)?;
             let cell = required_structure(store, &value, &signature.binding_cell)?;
-            let actual = binding_words(store, &cell)?;
+            let value = read(store, &cell, Field::BindingCellValue)?;
+            let stored = required_structure(store, &value, &signature.stored)?;
+            let actual = stored_words(store, &stored)?;
             require_same_value(store, &actual, words)?;
         }
         let status = read(store, &derived, Field::DerivedThisStatusCell)?;
         required_structure(store, &status, &signature.binding_cell)?;
         let active = read(store, &derived, Field::DerivedActiveFunctionCell)?;
         let cell = required_structure(store, &active, &signature.binding_cell)?;
-        let [Val::I32(tag), _, reference] = binding_words(store, &cell)? else {
+        let active = read(store, &cell, Field::BindingCellValue)?;
+        let active = required_structure(store, &active, &signature.stored)?;
+        let [Val::I32(tag), _, reference] = stored_words(store, &active)? else {
             unreachable!()
         };
         if tag != WasmRuntimeValueTag::Function.tag() {
@@ -90,22 +94,6 @@ fn stored_words(
     GcHostValue::check(tag, scalar, reference.is_some()).map_err(abi_error)?;
     Ok(words)
 }
-fn binding_words(
-    store: &mut impl AsContextMut<Data = WasmHostState>,
-    cell: &Rooted<StructRef>,
-) -> wasmtime::Result<[Val; 3]> {
-    let words = [
-        read(store, cell, Field::BindingCellTag)?,
-        read(store, cell, Field::BindingCellScalar)?,
-        read(store, cell, Field::BindingCellReference)?,
-    ];
-    let [Val::I32(tag), Val::I64(scalar), Val::AnyRef(reference)] = words else {
-        return Err(abi_error("caller binding cell has invalid value words"));
-    };
-    GcHostValue::check(tag, scalar, reference.is_some()).map_err(abi_error)?;
-    Ok(words)
-}
-
 fn require_same_value(
     store: &impl wasmtime::AsContext<Data = WasmHostState>,
     actual: &[Val; 3],

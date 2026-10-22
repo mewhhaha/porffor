@@ -29,7 +29,7 @@ def check(sources):
             failures.append(reason)
     def a(name):
         return c[AOT + name]
-    require((current_layout := re.search(r'constLAYOUT_VERSION:u32=(\d+);', a('runtime_artifact.rs'))) is not None and int(current_layout.group(1)) >= 16, 'current layout version retains direct eval, Realm intrinsics and program payload ownership with shared empty storage')
+    require((current_layout := re.search(r'constLAYOUT_VERSION:u32=(\d+);', a('runtime_artifact.rs'))) is not None and int(current_layout.group(1)) >= 15, 'current layout version retains direct eval, Realm intrinsics and program payload ownership with shared empty storage')
     host = a('gc_types/host.rs')
     require('CompileDirectEval=>("compile_direct_eval",HostCompileDirectEval),' in host and
             '|GcHostImport::CompileDirectEval=>{source_compilation_profile==crate::RuntimeSourceCompilationProfile::NativeHost}' in host,
@@ -127,13 +127,11 @@ def check(sources):
         ('DerivedThisStatusCell','DirectEvalDerivedBindingsSchema::THIS_STATUS_CELL'),
         ('DerivedNewTargetCell','DirectEvalDerivedBindingsSchema::NEW_TARGET_CELL'),
         ('DerivedActiveFunctionCell','DirectEvalDerivedBindingsSchema::ACTIVE_FUNCTION_CELL'),
-        ('BindingCellTag','BindingCellSchema::TAG'),
-        ('BindingCellScalar','BindingCellSchema::SCALAR'),
-        ('BindingCellReference','BindingCellSchema::REFERENCE'),
+        ('BindingCellValue','BindingCellSchema::VALUE'),
         ('ContextActiveFunction','FunctionContextSchema::ACTIVE_FUNCTION'),
         ('FunctionObjectContext','FunctionObjectSchema::CONTEXT'),
         ('FunctionObjectDerivedConstructor','FunctionObjectSchema::DERIVED_CONSTRUCTOR')):
-        kind = 'scalar' if field in ('PrivateEnvironmentClassScope','FunctionObjectDerivedConstructor','BindingCellTag','BindingCellScalar','BindingCellReference') else 'reference'
+        kind = 'scalar' if field in ('PrivateEnvironmentClassScope','FunctionObjectDerivedConstructor') else 'reference'
         require(re.search(r'Self::'+field+r'=>\{?'+kind+r'_field\(&'+schema+r'\)\}?', host),
                 'host declaration-owned projection: '+field)
     require('Self::PrivateNameTable=>Some(reference_array_element::<PrivateNameTable,PrivateName>())' in host and

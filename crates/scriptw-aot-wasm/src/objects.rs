@@ -785,13 +785,19 @@ impl<'a> FunctionBuilder<'a> {
                 .from_value(getter, function),
             function,
         );
-        let stored_setter_slot = schema.reserve_gc_local(function);
-        let stored_setter = stored_setter_slot.initialize(
-            schema
-                .struct_type::<StoredValue>()
-                .from_value(setter, function),
-            function,
-        );
+        // Identical compiler operands need one immutable snapshot. Ordinary
+        // data descriptors pass the same undefined local for both absent
+        // accessors. The descriptor fields remain independently replaceable.
+        // This is a compile-time alias proof, with no JS equality or branches.
+        let stored_setter = (!std::ptr::eq(getter, setter)).then(|| {
+            schema.reserve_gc_local(function).initialize(
+                schema
+                    .struct_type::<StoredValue>()
+                    .from_value(setter, function),
+                function,
+            )
+        });
+        let setter_snapshot = stored_setter.as_ref().unwrap_or(&stored_getter);
         let descriptor_slot = schema.reserve_gc_local(function);
         let descriptor = descriptor_slot.initialize(
             schema.struct_type::<PropertyDescriptor>().construct(
@@ -799,13 +805,15 @@ impl<'a> FunctionBuilder<'a> {
                     attributes,
                     GcOperand::reference(&stored_value, schema),
                     GcOperand::reference(&stored_getter, schema),
-                    GcOperand::reference(&stored_setter, schema),
+                    GcOperand::reference(setter_snapshot, schema),
                 ),
                 function,
             ),
             function,
         );
-        stored_setter.clear(function);
+        if let Some(stored_setter) = stored_setter {
+            stored_setter.clear(function);
+        }
         stored_getter.clear(function);
         stored_value.clear(function);
         descriptor

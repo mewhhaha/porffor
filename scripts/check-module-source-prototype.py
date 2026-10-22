@@ -60,7 +60,7 @@ def check(root: Path, overrides=None):
     need(compact(A + "builtins/host/create_realm.rs").count("NonArrayRealmIntrinsicSlot::AbstractModuleSourceConstructor,") == 2,
          "created-Realm facades retain that Realm's actual abstract intrinsic")
     runtime = compact(A + "runtime_artifact.rs")
-    need((current_layout := re.search(r'constLAYOUT_VERSION:u32=(\d+);', runtime)) is not None and int(current_layout.group(1)) >= 16 and
+    need((current_layout := re.search(r'constLAYOUT_VERSION:u32=(\d+);', runtime)) is not None and int(current_layout.group(1)) >= 15 and
          "(encoded==LAYOUT_VERSION).then_some(Self(encoded))" in runtime,
          "layout9 rejects old158-entry R8 before linking new slot consumers")
     proof = compact(A + "runtime_artifact/validated_profile.rs")

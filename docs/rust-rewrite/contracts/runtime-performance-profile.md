@@ -319,13 +319,13 @@ internal argument vectors may use the shared value array; spread/dynamic lists
 retain their existing construction path. Global ownership is per runtime
 instance/Store, and the layout version participates in package/cache identity.
 
-Current layout 16 flattens mutable BindingCell payloads into mutable i32 tag,
-i64 scalar and nullable eqref fields. StoredValue remains an immutable snapshot.
-Typed reads copy all three lanes into rooted locals; writes update all lanes,
-including a null reference on primitive writes, without an intervening call or
-allocation. TARGET import forwarding and initialization/const metadata retain
-separate ownership. Native direct-eval signature/field admission follows the
-actual inline schema; invocation snapshots remain immutable StoredValues.
+Binding cells retain immutable StoredValue snapshots under current layout 15.
+The inline-payload/layout-16 experiment did not establish a closure benefit and
+is removed; its raw measurements remain historical evidence. Descriptor
+allocation may share one immutable getter/setter snapshot when both inputs are
+the same compiler operand. The descriptor's two reference fields remain
+independently replaceable; no mutable StoredValue or JS-visible identity is
+shared by that allocation shortcut.
 
 The profiling SDK can request Fast or SizeOptimized through
 `profile_wasm_execution_with_native_mode`; each result exposes its actual mode.

@@ -1,3 +1,4 @@
+// Semantic controls retained after rejecting the inline-payload experiment.
 (function () {
   function check(actual, expected, label) { if (actual !== expected) throw new Error(label); }
   function cells() {
