@@ -44,6 +44,7 @@ also records memory, runtime phases and code size, with selected-workload and
 before/after comparisons. A selected three-sample integer run takes about three
 seconds with the checked execution cache already populated.
 [Prioritized performance backlog](docs/performance-hills.md).
+[Bounded native verification workflow](docs/rust-rewrite/batch-workflow.md#optional-sequential-cli-chunks).
 
 ## Tests
 

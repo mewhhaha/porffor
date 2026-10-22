@@ -43,12 +43,13 @@ Next coherent work:
    before its inner put; callback getOrInsertComputed must retain fresh lookup.
    Root-owned `/tmp/scriptw-performance-batch16` has two formatted, hash-bound
    drafts; metadata/product/native/performance acceptance is not done.
-2. Finish the opt-in four-chunk CLI scheduler at the same two live libtest
-   process ceiling. Root's `/tmp/scriptw-performance-batch15` prototype passes
-   74 tooling controls, including an actual fake-libtest queue/failure proof;
-   no measured memory or speed benefit yet. The exact 858-test native CLI is
-   held by hard link at `target/performance-hills-20261021-attribution/candidate43-held-cli-native`
-   for source-bound scheduler-only checks without rebuilding Rust.
+2. Measure the shipped opt-in four-chunk CLI scheduler at the same two live
+   libtest ceiling, after the wider replay drains. `--cli-partition-count 4`
+   retains all native bodies, inventories, stalls, cache limits and exclusivity.
+   [74 tooling checks and the exact 858-ID inventory](docs/rust-rewrite/verification-cli-queue-20261022.json)
+   pass; the default stays unchanged and memory/speed benefit is unmeasured.
+   The exact native CLI is held by hard link at
+   `target/performance-hills-20261021-attribution/candidate43-held-cli-native`.
 3. Measure repeated long-string Map/Set and property hits before P023/P112.
    One shared hash helper and one StringConstruction publication point make a
    raw cached u64 possible, but it costs eight payload bytes per String plus

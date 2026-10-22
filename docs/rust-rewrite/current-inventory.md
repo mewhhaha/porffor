@@ -26,6 +26,9 @@ report, while a separate direct ABBA does not reproduce that loss. Startup's
 slower paired observations are retained. These are different cohorts, not a
 universal-speedup claim. Status: **20 terminal, eight partial/open, 132 proposed**
 of 160 hills. Historical checkpoints below retain their original source limits.
+The [opt-in CLI chunk scheduler](verification-cli-queue-20261022.json) passes 74
+tooling controls and an exact four-way real 858-ID inventory check. It preserves
+two live libtests and default policy; memory/elapsed benefit remains unmeasured.
 
 The first eight maintenance hills are complete: obsolete product routes are
 retired, runner setup is clearer, LDML parsing has one owner, and current guidance
@@ -117,7 +120,7 @@ At that replacement checkpoint the ledger had **20 terminal decisions, seven
 partial/open outcomes and 133 proposed/unresolved hills**. Its planned insertion
 hash/argv work is now the measured key/argument checkpoint above. Remaining
 value-only getOrInsert scope and static/repeated key hashing stay open; the
-four-chunk queue prototype still needs measured native benefit.
+opt-in four-chunk queue still needs measured native benefit.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

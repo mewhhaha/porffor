@@ -71,6 +71,7 @@ paths and otherwise report a skip. Skips are not passing evidence for those cont
 | [test_workspace_build_cpus.py](../../scripts/tests/test_workspace_build_cpus.py) | All-module discovery | — |
 | [test_workspace_cohorts.py](../../scripts/tests/test_workspace_cohorts.py) | All-module discovery | — |
 | [test_workspace_feature_roots.py](../../scripts/tests/test_workspace_feature_roots.py) | All-module discovery | — |
+| [test_workspace_partition_queue.py](../../scripts/tests/test_workspace_partition_queue.py) | All-module discovery | — |
 | [test_workspace_runner_entry.py](../../scripts/tests/test_workspace_runner_entry.py) | All-module discovery | — |
 | [test_workspace_rustc_cache.py](../../scripts/tests/test_workspace_rustc_cache.py) | All-module discovery | — |
 | [test_workspace_test_artifacts.py](../../scripts/tests/test_workspace_test_artifacts.py) | All-module discovery | — |

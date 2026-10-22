@@ -77,6 +77,8 @@ def parse_args(argv=None):
     parser.add_argument("--native-filter", action="append", default=[])
     parser.add_argument("--stop-on-build-failure", action="store_true")
     parser.add_argument("--partition-cli", action="store_true")
+    parser.add_argument("--cli-partition-count", type=int, choices=range(1, 5),
+                        help="Optional sequential CLI chunks; live libtest processes stay bounded by --test-processes")
     parser.add_argument("--partition-native-target", action="append", default=[])
     parser.add_argument(
         "--continuation-phase", choices=["parallel", "barriers", "all"], default="all"
@@ -136,6 +138,10 @@ def validate_args(args):
                 "Feature-root mode currently requires the default workspace graph, default isolation and a fresh receipt"
             )
     native_filters = dict(row.split("=", 1) for row in args.native_filter)
+    if args.cli_partition_count is not None and not args.partition_cli:
+        raise ValueError("CLI partition count requires --partition-cli")
+    if args.cli_partition_count is not None and args.cli_partition_count < args.test_processes:
+        raise ValueError("CLI partition count cannot leave an admitted CPU unused")
     if args.partition_cli:
         if not (args.include_ignored):
             raise ValueError("Complete CLI partitions require --include-ignored")
@@ -355,6 +361,7 @@ def run(args, root):
         "selected_workspace_packages": [p["name"] for p in packages],
         "isolated_test_packages": isolated_packages,
         "partition_cli": args.partition_cli,
+        "cli_partition_count": args.cli_partition_count,
         "partition_native_targets": partition_native_targets,
         "preserve_test_artifacts": args.preserve_test_artifacts,
     }
@@ -432,6 +439,8 @@ def run(args, root):
             previous.get("partition_cli", args.partition_cli) == args.partition_cli
         ):
             raise AssertionError("Retry CLI partition policy changed")
+        if previous.get("cli_partition_count") != args.cli_partition_count:
+            raise AssertionError("Retry CLI partition count changed")
         if not (
             previous.get("build_selected_together", False)
             == args.build_selected_together
@@ -1213,6 +1222,12 @@ def run(args, root):
                         raise AssertionError(
                             "Verification condition failed: partition_evidence['stall_seconds'] == native_stall_seconds(case['package'])"
                         )
+                    if not (
+                        partition_evidence["partition_count"] == case["partition_count"]
+                        and len(partition_evidence["partitions"]) == case["partition_count"]
+                        and partition_evidence["maximum_native_processes"] == len(case["test_cpus"])
+                    ):
+                        raise AssertionError("Native chunk count or live-process ceiling changed")
                     if not (partition_evidence["cpus"] == case["test_cpus"]):
                         raise AssertionError(
                             "Verification condition failed: partition_evidence['cpus'] == case['test_cpus']"
@@ -1984,6 +1999,11 @@ def run(args, root):
                 "--stall-seconds",
                 str(native_stall_seconds(case["package"])),
             ]
+            if is_partitioned_cli(case, args.partition_cli) and args.cli_partition_count is not None:
+                command += ["--partition-count", str(args.cli_partition_count)]
+            case["partition_count"] = (args.cli_partition_count
+                if is_partitioned_cli(case, args.partition_cli) and args.cli_partition_count is not None
+                else len(slots))
             case["partition_driver_sha256"] = hashlib.sha256(
                 partition_driver.read_bytes()
             ).hexdigest()

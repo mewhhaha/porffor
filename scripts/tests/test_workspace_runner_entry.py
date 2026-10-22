@@ -33,6 +33,8 @@ class WorkspaceRunnerEntryTests(unittest.TestCase):
         for flags in (
             ["--native-target-cpus", "auto"],
             ["--partition-cli"],
+            ["--cli-partition-count", "4"],
+            ["--partition-cli", "--include-ignored", "--test-processes", "2", "--cli-partition-count", "1"],
             ["--selected-feature-roots", "--all-features"],
         ):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory() as directory:

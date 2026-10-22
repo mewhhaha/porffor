@@ -20,6 +20,7 @@ parser.add_argument("--executable", required=True, type=Path)
 parser.add_argument("--inventory", required=True, type=Path)
 parser.add_argument("--output", required=True, type=Path)
 parser.add_argument("--cpus", required=True, nargs="+", type=int)
+parser.add_argument("--partition-count", type=int, choices=range(1, 5))
 parser.add_argument("--include-ignored", action="store_true", required=True)
 parser.add_argument("--inventory-only", action="store_true")
 parser.add_argument("--qualified-target", default="scriptw-cli:cli")
@@ -49,6 +50,9 @@ if not (set(args.cpus) <= os.sched_getaffinity(0)):
     raise AssertionError(
         "Verification condition failed: set(args.cpus) <= os.sched_getaffinity(0)"
     )
+partition_count = args.partition_count or len(args.cpus)
+if partition_count < len(args.cpus):
+    raise ValueError("Partition count cannot leave an admitted CPU unused")
 args.output.mkdir(parents=True, exist_ok=False)
 
 
@@ -129,6 +133,19 @@ def partition_groups(original, count):
     return groups
 
 
+def admit_partition_rows(waiting, busy_cpus):
+    """Take at most one waiting chunk per free CPU, preserving per-CPU order."""
+    occupied = set(busy_cpus)
+    ready, remaining = [], []
+    for row in waiting:
+        if row["cpu"] in occupied:
+            remaining.append(row)
+        else:
+            ready.append(row)
+            occupied.add(row["cpu"])
+    return ready, remaining
+
+
 def partition_label(output, index):
     # A target basename repeats across workspace runs, while watched logs live
     # in one shared directory. Bind each label to its complete output owner.
@@ -152,7 +169,7 @@ if not (names(checked.stdout) == original):
     raise AssertionError("The original complete native inventory changed")
 full_inventory = args.output / "complete.inventory.log"
 full_inventory.write_text(checked.stdout + checked.stderr)
-groups = partition_groups(original, len(args.cpus))
+groups = partition_groups(original, partition_count)
 executable_sha = digest(args.executable)
 receipt = {
     "policy": "Complete logical target: every original qualified ID exactly once in disjoint native libtest processes, each on one inherited CPU and one test thread; original bodies and deadlines unchanged; zero ignored required.",
@@ -174,6 +191,8 @@ receipt = {
     "complete_inventory_sha256": digest(full_inventory),
     "complete_test_count": len(original),
     "cpus": args.cpus,
+    "partition_count": partition_count,
+    "maximum_native_processes": len(args.cpus),
     "partitions": [],
     "source_authority": "Outer workspace receipt binds the exact Cargo-selected executable and immutable source fence.",
 }
@@ -184,7 +203,8 @@ def save():
 
 
 # Validate every actual filtered inventory before starting any native test body.
-for index, (cpu, group) in enumerate(zip(args.cpus, groups)):
+for index, group in enumerate(groups):
+    cpu = args.cpus[index % len(args.cpus)]
     group.sort()
     command = [str(args.executable.resolve()), "--exact", *group]
     listed = subprocess.run([*command, "--list"], capture_output=True, text=True)
@@ -198,6 +218,7 @@ for index, (cpu, group) in enumerate(zip(args.cpus, groups)):
         {
             "index": index,
             "cpu": cpu,
+            "state": "queued",
             "ids": group,
             "inventory_log": str(inventory),
             "inventory_sha256": digest(inventory),
@@ -220,39 +241,41 @@ if args.inventory_only:
     )
     raise SystemExit(0)
 active = []
+waiting = list(receipt["partitions"])
 started = time.monotonic()
-for row in receipt["partitions"]:
-    label = partition_label(args.output, row["index"])
-    log = args.output / f'partition-{row["index"]}.launcher.log'
-    stream = log.open("w")
-    launch = [
-        "taskset",
-        "-c",
-        str(row["cpu"]),
-        "./scripts/run-watched.sh",
-        "--label",
-        label,
-        "--stall",
-        str(args.stall_seconds),
-        "--poll",
-        "1",
-        "--",
-        "python3",
-        "-B",
-        "scripts/limited_verification.py",
-        "--cloud",
-        "--",
-        *row["command"],
-    ]
-    row["launch_command"] = launch
-    row["transcript_log"] = str(Path("target/watched") / (label + ".log"))
-    row["state"] = "running"
-    active.append(
-        (subprocess.Popen(launch, stdout=stream, stderr=subprocess.STDOUT), stream, row)
-    )
-save()
 last_update = 0.0
-while active:
+while waiting or active:
+    ready, waiting = admit_partition_rows(waiting, {row["cpu"] for _, _, row in active})
+    for row in ready:
+        label = partition_label(args.output, row["index"])
+        log = args.output / f'partition-{row["index"]}.launcher.log'
+        stream = log.open("w")
+        launch = [
+            "taskset",
+            "-c",
+            str(row["cpu"]),
+            "./scripts/run-watched.sh",
+            "--label",
+            label,
+            "--stall",
+            str(args.stall_seconds),
+            "--poll",
+            "1",
+            "--",
+            "python3",
+            "-B",
+            "scripts/limited_verification.py",
+            "--cloud",
+            "--",
+            *row["command"],
+        ]
+        row["launch_command"] = launch
+        row["transcript_log"] = str(Path("target/watched") / (label + ".log"))
+        row["state"] = "running"
+        active.append(
+            (subprocess.Popen(launch, stdout=stream, stderr=subprocess.STDOUT), stream, row)
+        )
+    save()
     now = time.monotonic()
     if now - last_update >= 20:
         print(

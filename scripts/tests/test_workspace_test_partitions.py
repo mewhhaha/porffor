@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 SOURCE = Path(__file__).resolve().parents[1] / 'workspace_test_partitions.py'
 TREE = ast.parse(SOURCE.read_text())
 FUNCTIONS = [node for node in TREE.body if isinstance(node, ast.FunctionDef)
-             and node.name in ('names', 'outcomes', 'weight', 'partition_groups', 'partition_label')]
+             and node.name in ('names', 'outcomes', 'weight', 'partition_groups', 'partition_label', 'admit_partition_rows')]
 NAMESPACE = {'re': re, 'hashlib': hashlib, 'os': os, 'Path': Path}
 from native_partition_costs import measured_weight
 from native_test_protocol import test_names, summary_counts
@@ -29,6 +29,20 @@ ENGINE_UTF16_OUTLIER = (
 
 
 class NativePartitionProofTests(unittest.TestCase):
+    def test_free_cpu_accepts_next_chunk_without_waiting_for_other_cpu(self):
+        waiting = [{'index': i, 'cpu': i % 2} for i in range(4)]
+        ready, remaining = NAMESPACE['admit_partition_rows'](waiting, set())
+        self.assertEqual([r['index'] for r in ready], [0, 1])
+        self.assertEqual([r['index'] for r in remaining], [2, 3])
+        # Chunk 0 is still running; completion/failure of 1 releases only CPU 1.
+        ready, remaining = NAMESPACE['admit_partition_rows'](remaining, {0})
+        self.assertEqual([r['index'] for r in ready], [3])
+        self.assertEqual([r['index'] for r in remaining], [2])
+        ready, remaining = NAMESPACE['admit_partition_rows'](remaining, set())
+        self.assertEqual([r['index'] for r in ready], [2])
+        self.assertFalse(remaining)
+        self.assertEqual(len(waiting), 4, 'Admission must not mutate the original receipt')
+
     def test_four_way_partition_is_an_exact_disjoint_union_of_293_qualified_ids(self):
         original = [f'aot_intl::control_{index:03}' for index in range(293)]
         groups = NAMESPACE['partition_groups'](original, 4)
@@ -134,9 +148,9 @@ class NativePartitionProofTests(unittest.TestCase):
                 NAMESPACE['outcomes'](text)
 
     def test_each_actual_child_launch_uses_one_cpu_one_thread_and_stock_stall(self):
-        loop = next(node for node in TREE.body if isinstance(node, ast.For)
+        loop = next(node for node in ast.walk(TREE) if isinstance(node, ast.For)
                     and isinstance(node.target, ast.Name) and node.target.id == 'row'
-                    and isinstance(node.iter, ast.Subscript))
+                    and isinstance(node.iter, ast.Name) and node.iter.id == 'ready')
         launch = next(node for node in loop.body if isinstance(node, ast.Assign)
                       and any(isinstance(target, ast.Name) and target.id == 'launch'
                               for target in node.targets))
@@ -154,9 +168,9 @@ class NativePartitionProofTests(unittest.TestCase):
             self.assertNotIn('--cloud-cpus', command)
 
     def test_watched_logs_keep_the_resolved_run_owner_and_partition_identity(self):
-        loop = next(node for node in TREE.body if isinstance(node, ast.For)
+        loop = next(node for node in ast.walk(TREE) if isinstance(node, ast.For)
                     and isinstance(node.target, ast.Name) and node.target.id == 'row'
-                    and isinstance(node.iter, ast.Subscript))
+                    and isinstance(node.iter, ast.Name) and node.iter.id == 'ready')
         assignments = [node for node in loop.body if isinstance(node, ast.Assign)
                        and any((isinstance(target, ast.Name) and target.id in ('label', 'launch'))
                                or (isinstance(target, ast.Subscript)

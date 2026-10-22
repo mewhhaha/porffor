@@ -139,6 +139,34 @@ Continuations must preserve source/artifact identity, features, target inventory
 CPU policy, deadlines and completed outcomes. A passing diagnostic retry does
 not replace a failed original run. Saved receipts do not imply live processes.
 
+## Optional sequential CLI chunks
+
+`--partition-cli` still defaults to one chunk per admitted CPU. For a long CLI
+scope, `--cli-partition-count 4` separates four chunks from a two-process ceiling:
+
+```sh
+python3 -B scripts/limited_verification.py --cloud --cloud-worker-cpus auto -- \
+  python3 -B scripts/run_workspace_tests.py --profile release \
+    --include-ignored --test-processes 2 --partition-cli --cli-partition-count 4 \
+    --only-targets scriptw-cli:cli --output target/cli-four-chunks-fresh
+```
+
+Cargo remains serial and each child runs one libtest thread on one assigned CPU.
+The driver validates every filtered inventory before any body runs, launches at
+most one chunk per CPU and starts the next chunk as soon as that CPU is free.
+A failed chunk does not drop later chunks. Receipts bind exact ID/outcome unions,
+chunk count, executable hash and CPU pool; resume cannot change chunk count.
+The logical target remains idle-exclusive. Original watcher stalls, subprocess
+worker/campaign limits and retained-cache ceilings are unchanged.
+
+[Verification evidence](verification-cli-queue-20261022.json) records **74 tooling
+checks** and four real filtered inventories whose disjoint union is the exact
+**858-test** frozen CLI at `2cb9fc53d`. The real-inventory check ran no test bodies.
+The queue integration uses tiny fake libtests with an isolated cloud-launch stub;
+separate resource-policy controls check actual admission behavior. Extra chunks
+add process and inventory startups; memory/elapsed benefit is **unmeasured**.
+Keep the default until an idle, source-bound comparison supports changing it.
+
 ## Full Test262 measurement and publication
 
 Use the ordinary product CLI, original pinned suite and a new family identity.

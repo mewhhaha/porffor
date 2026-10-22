@@ -181,8 +181,9 @@ separate. The actual new ordinary Wasmtime/V8 report supplies the README.
 
 Next: finish the non-callback getOrInsert hash scope, then measure repeated
 long-string key hashing (P023/P112) before any string-layout cache decision.
-A four-chunk CLI queue prototype keeps two live libtest processes and passes
-74 tooling checks, but its memory/elapsed benefit is not yet measured.
+The opt-in four-chunk CLI queue keeps two live libtest processes and passes
+[74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
+Its memory/elapsed benefit is unmeasured, so the default remains unchanged.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its
