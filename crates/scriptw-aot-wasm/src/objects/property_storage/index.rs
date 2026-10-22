@@ -1,6 +1,22 @@
 //! The auxiliary key index never owns observable property order.
 use super::*;
 
+/// Fresh queries retain the empty-index shortcut. Publication prepares once.
+#[derive(Clone, Copy)]
+enum OrdinaryPropertyQuery<'key> {
+    Fresh(&'key PropertyKeyLocals),
+    Prepared(&'key PreparedOrdinaryPropertyKey<'key>),
+}
+
+impl OrdinaryPropertyQuery<'_> {
+    fn key(&self) -> &PropertyKeyLocals {
+        match self {
+            Self::Fresh(key) => key,
+            Self::Prepared(prepared) => prepared.key,
+        }
+    }
+}
+
 impl FunctionBuilder<'_> {
     pub(in crate::objects) fn emit_ordinary_property_entry(
         &self,
@@ -27,7 +43,7 @@ impl FunctionBuilder<'_> {
             );
         let entry = self.emit_ordinary_property_find_inner(
             &parameters.object,
-            &parameters.key,
+            OrdinaryPropertyQuery::Fresh(&parameters.key),
             &mut function,
         )?;
         entry.load(self.runtime_schema(), &mut function);
@@ -37,13 +53,27 @@ impl FunctionBuilder<'_> {
         Ok(self.finish_function(function))
     }
 
+    pub(super) fn emit_prepared_ordinary_property_entry(
+        &mut self,
+        object: &GcLocal<OrdinaryObject>,
+        prepared: &PreparedOrdinaryPropertyKey<'_>,
+        function: &mut Function,
+    ) -> Result<GcLocal<PropertyEntry, Nullable>, EmitError> {
+        self.emit_ordinary_property_find_inner(
+            object,
+            OrdinaryPropertyQuery::Prepared(prepared),
+            function,
+        )
+    }
+
     fn emit_ordinary_property_find_inner(
         &mut self,
         object: &GcLocal<OrdinaryObject>,
-        key: &PropertyKeyLocals,
+        query: OrdinaryPropertyQuery<'_>,
         function: &mut Function,
     ) -> Result<GcLocal<PropertyEntry, Nullable>, EmitError> {
         let schema = self.runtime_schema();
+        let key = query.key();
         let storage = schema.reserve_gc_local(function).initialize(
             schema
                 .field(OrdinaryObjectSchema::PROPERTIES)
@@ -72,7 +102,10 @@ impl FunctionBuilder<'_> {
         let bucket = schema.reserve_i32_local(function);
         let ordinal = schema.reserve_i32_local(function);
         let position = schema.reserve_i32_local(function);
-        let hash = schema.reserve_i64_local(function);
+        let hash = match query {
+            OrdinaryPropertyQuery::Fresh(_) => schema.reserve_i64_local(function),
+            OrdinaryPropertyQuery::Prepared(prepared) => prepared.hash,
+        };
         let actual_hash = schema.reserve_i64_local(function);
         schema
             .array_type::<OrdinaryPropertyIndex>()
@@ -80,7 +113,9 @@ impl FunctionBuilder<'_> {
         capacity.store(function);
         capacity.load(function);
         self.open_frame(ControlFrameKind::If, function);
-        self.emit_property_key_hash(key, hash, function);
+        if matches!(query, OrdinaryPropertyQuery::Fresh(_)) {
+            self.emit_property_key_hash(key, hash, function);
+        }
         Self::emit_ordinary_property_hash_bucket(hash, capacity, bucket, function);
         let exit = self.open_frame(ControlFrameKind::Block, function);
         let repeat = self.open_frame(ControlFrameKind::Loop, function);
@@ -153,7 +188,9 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         schema.release_i64_local(actual_hash, function);
-        schema.release_i64_local(hash, function);
+        if matches!(query, OrdinaryPropertyQuery::Fresh(_)) {
+            schema.release_i64_local(hash, function);
+        }
         schema.release_i32_local(position, function);
         schema.release_i32_local(ordinal, function);
         schema.release_i32_local(bucket, function);

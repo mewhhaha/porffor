@@ -1268,3 +1268,20 @@ fn run_wasm_backend_closes_iterator_via_get_method_on_noncallable_callback() {
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("number(15)"), "{stdout}");
 }
+
+#[test]
+fn run_wasm_backend_preserves_prepared_collection_key_semantics() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["--jobs", "1", "run", "--execution-backend", "wasm"])
+        .arg(fixture_path("wasm_prepared_collection_hash.js"))
+        .output()
+        .expect("key and argument storage semantic fixture should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("prepared-collection-hash-ok"), "{stdout}");
+}

@@ -1,0 +1,74 @@
+{
+  "schema": "scriptw-v8-workloads-v1",
+  "startup": {
+    "file": "startup.js",
+    "stdout": "scriptw-startup-ok\n"
+  },
+  "execution": [
+    {
+      "file": "map-long-fresh.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "map-long-hit.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 update rounds; includes key construction and all checks"
+    },
+    {
+      "file": "map-numeric-fresh.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "set-long-fresh.js",
+      "stdout": "2056\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "set-long-hit.js",
+      "stdout": "2056\n",
+      "work": "256 keys, 8 update rounds; includes key construction and all checks"
+    },
+    {
+      "file": "set-numeric-fresh.js",
+      "stdout": "2056\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "property-long-fresh.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "property-long-hit.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 update rounds; includes key construction and all checks"
+    },
+    {
+      "file": "property-numeric-fresh.js",
+      "stdout": "4116\n",
+      "work": "256 keys, 8 fresh-container insertion rounds; includes key construction and all checks"
+    },
+    {
+      "file": "call-runtime-empty-spread.js",
+      "stdout": "4096\n",
+      "work": "4096 calls; includes array construction, argument conversion/iteration and checksum"
+    },
+    {
+      "file": "call-runtime-empty-apply.js",
+      "stdout": "4096\n",
+      "work": "4096 calls; includes array construction, argument conversion/iteration and checksum"
+    },
+    {
+      "file": "call-runtime-two-apply.js",
+      "stdout": "20480\n",
+      "work": "4096 calls; includes array construction, argument conversion/iteration and checksum"
+    },
+    {
+      "file": "call-syntax-empty.js",
+      "stdout": "4096\n",
+      "work": "4096 calls; includes array construction, argument conversion/iteration and checksum"
+    }
+  ]
+}

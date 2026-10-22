@@ -986,3 +986,20 @@ fn fresh_literal_storage_preserves_descriptors_indices_and_gc_roots() {
         );
     }
 }
+
+#[test]
+fn run_wasm_backend_preserves_prepared_property_key_semantics() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["--jobs", "1", "run", "--execution-backend", "wasm"])
+        .arg(fixture_path("wasm_prepared_property_hash.js"))
+        .output()
+        .expect("key and argument storage semantic fixture should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(stdout.contains("prepared-property-hash-ok"), "{stdout}");
+}

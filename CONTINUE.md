@@ -44,14 +44,15 @@ Next coherent batch:
 2. Extend P078 to runtime-empty internal argument lists. Mutable JS arguments,
    rest and Array storage stay fresh; preserve iterator/length coercion effects.
 3. Measure long fresh/hit/numeric collection/property cases and empty/two-argument
-   call controls. Root-owned drafts pass metadata-only Rust and Node checks;
-   product/native/Test262 acceptance is pending. This is not another P078 hill.
+   call controls. The candidate is applied with three semantic fixtures and thirteen workloads;
+   product/native/Test262 acceptance and paired performance are pending. This is not another P078 hill.
 4. Investigate four sequential CLI chunks with only two concurrent processes.
    Preserve exact inventory/outcome unions, preflight lists, original stalls/cache
    limits and target-idle exclusivity. Long-lived CLI test PIDs retain several GiB.
 
-Cloud drafts are in `/tmp/scriptw-performance-batch11`, with exact before/draft
-hashes; apply only to matching input bytes. Use the
+The applied candidate came from `/tmp/scriptw-performance-batch11`, checked
+against exact before/draft hashes. Keep the prior accepted checkpoint until the
+new batch passes its acceptance gates. Use the
 [baseline workflow](docs/rust-rewrite/v8-baseline.md), freeze the coherent batch
 before product measurement, and push verified progress to main.
 Native verification retains the two-GiB Cargo reserve and 256 MiB scratch per

@@ -133,6 +133,11 @@ impl ArgumentListConstruction {
         function: &mut Function,
     ) -> GcLocal<ValueArray> {
         let schema = builder.runtime_schema();
+        let list = schema
+            .reserve_gc_local(function)
+            .initialize(schema.empty_value_array(function), function);
+        self.length.load(function);
+        builder.open_frame(ControlFrameKind::If, function);
         let value = schema.reserve_value_local(function);
         value.set_undefined(function);
         let empty = schema.reserve_gc_local(function).initialize(
@@ -141,7 +146,7 @@ impl ArgumentListConstruction {
                 .from_value(&value, function),
             function,
         );
-        let list = schema.reserve_gc_local(function).initialize(
+        list.replace(
             schema.array_type::<ValueArray>().filled(
                 GcOperand::reference(&empty, schema),
                 self.length,
@@ -205,6 +210,8 @@ impl ArgumentListConstruction {
         cursor.clear(function);
         empty.clear(function);
         value.clear(function);
+        builder.pop_control(ControlFrameKind::If);
+        function.instruction(&Instruction::End);
         schema.release_i32_local(self.length, function);
         self.tail.clear(function);
         self.head.clear(function);

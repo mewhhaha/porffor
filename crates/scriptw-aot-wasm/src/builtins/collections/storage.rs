@@ -1,6 +1,25 @@
 use super::*;
+
+/// A hash remains paired with its rooted key for one internal lookup/update.
+/// No user callback may intervene; bucket selection still follows table growth.
+#[must_use]
+struct PreparedCollectionKey<'key> {
+    value: &'key ValueLocals,
+    hash: I64Local,
+}
+
 // Every table index is an offset in a GC array. Tombstones retain history order.
 impl FunctionBuilder<'_> {
+    fn emit_collection_prepare_key<'key>(
+        &mut self,
+        key: &'key ValueLocals,
+        f: &mut Function,
+    ) -> PreparedCollectionKey<'key> {
+        let hash = self.runtime_schema().reserve_i64_local(f);
+        self.emit_collection_key_hash(key, hash, f);
+        PreparedCollectionKey { value: key, hash }
+    }
+
     pub(super) fn emit_collection_alloc_map(
         &mut self,
         header: &GcLocal<OrdinaryObject>,
@@ -48,11 +67,26 @@ impl FunctionBuilder<'_> {
         found: I32Local,
         f: &mut Function,
     ) -> Result<(), EmitError> {
+        let prepared = self.emit_collection_prepare_key(key, f);
+        let result = self.emit_collection_find_prepared_map(record, &prepared, index, found, f);
+        self.runtime_schema().release_i64_local(prepared.hash, f);
+        result
+    }
+
+    fn emit_collection_find_prepared_map(
+        &mut self,
+        record: &GcLocal<MapObject>,
+        prepared: &PreparedCollectionKey<'_>,
+        index: I64Local,
+        found: I32Local,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
         let s = self.runtime_schema();
+        let key = prepared.value;
+        let hash = prepared.hash;
         let cursor = s.reserve_i32_local(f);
         let bucket = s.reserve_i32_local(f);
         let chain = s.reserve_i64_local(f);
-        let hash = s.reserve_i64_local(f);
         let retained = s.reserve_value_local(f);
         let table = s.reserve_gc_local(f).initialize(
             s.struct_type::<MapObject>()
@@ -68,7 +102,6 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        self.emit_collection_key_hash(key, hash, f);
         self.emit_collection_hash_bucket(&buckets, hash, bucket, f);
         s.array_type::<CollectionHashTable>()
             .read(&buckets, bucket, s, f)
@@ -129,7 +162,6 @@ impl FunctionBuilder<'_> {
         retained.clear(f);
         buckets.clear(f);
         table.clear(f);
-        s.release_i64_local(hash, f);
         s.release_i64_local(chain, f);
         s.release_i32_local(bucket, f);
         s.release_i32_local(cursor, f);
@@ -373,7 +405,8 @@ impl FunctionBuilder<'_> {
         let found = s.reserve_i32_local(f);
         let cursor = s.reserve_i32_local(f);
         let live = s.reserve_i64_local(f);
-        self.emit_collection_find_map(record, key, index, found, f)?;
+        let prepared = self.emit_collection_prepare_key(key, f);
+        self.emit_collection_find_prepared_map(record, &prepared, index, found, f)?;
         found.load(f);
         self.open_frame(ControlFrameKind::If, f);
         let table = s.reserve_gc_local(f).initialize(
@@ -412,7 +445,7 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        let hash = s.reserve_i64_local(f);
+        let hash = prepared.hash;
         let head = s.reserve_i64_local(f);
         let bucket = s.reserve_i32_local(f);
         let buckets = s.reserve_gc_local(f).initialize(
@@ -422,7 +455,6 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        self.emit_collection_key_hash(key, hash, f);
         self.emit_collection_hash_bucket(&buckets, hash, bucket, f);
         s.array_type::<CollectionHashTable>()
             .read(&buckets, bucket, s, f)
@@ -477,12 +509,12 @@ impl FunctionBuilder<'_> {
         buckets.clear(f);
         s.release_i32_local(bucket, f);
         s.release_i64_local(head, f);
-        s.release_i64_local(hash, f);
         entry.clear(f);
         stored_value.clear(f);
         table.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        s.release_i64_local(prepared.hash, f);
         s.release_i64_local(live, f);
         s.release_i32_local(cursor, f);
         s.release_i32_local(found, f);
@@ -636,11 +668,26 @@ impl FunctionBuilder<'_> {
         found: I32Local,
         f: &mut Function,
     ) -> Result<(), EmitError> {
+        let prepared = self.emit_collection_prepare_key(key, f);
+        let result = self.emit_collection_find_prepared_set(record, &prepared, index, found, f);
+        self.runtime_schema().release_i64_local(prepared.hash, f);
+        result
+    }
+
+    fn emit_collection_find_prepared_set(
+        &mut self,
+        record: &GcLocal<SetObject>,
+        prepared: &PreparedCollectionKey<'_>,
+        index: I64Local,
+        found: I32Local,
+        f: &mut Function,
+    ) -> Result<(), EmitError> {
         let s = self.runtime_schema();
+        let key = prepared.value;
+        let hash = prepared.hash;
         let cursor = s.reserve_i32_local(f);
         let bucket = s.reserve_i32_local(f);
         let chain = s.reserve_i64_local(f);
-        let hash = s.reserve_i64_local(f);
         let retained = s.reserve_value_local(f);
         let table = s.reserve_gc_local(f).initialize(
             s.struct_type::<SetObject>()
@@ -656,7 +703,6 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        self.emit_collection_key_hash(key, hash, f);
         self.emit_collection_hash_bucket(&buckets, hash, bucket, f);
         s.array_type::<CollectionHashTable>()
             .read(&buckets, bucket, s, f)
@@ -717,7 +763,6 @@ impl FunctionBuilder<'_> {
         retained.clear(f);
         buckets.clear(f);
         table.clear(f);
-        s.release_i64_local(hash, f);
         s.release_i64_local(chain, f);
         s.release_i32_local(bucket, f);
         s.release_i32_local(cursor, f);
@@ -960,7 +1005,8 @@ impl FunctionBuilder<'_> {
         let found = s.reserve_i32_local(f);
         let cursor = s.reserve_i32_local(f);
         let live = s.reserve_i64_local(f);
-        self.emit_collection_find_set(record, value, index, found, f)?;
+        let prepared = self.emit_collection_prepare_key(value, f);
+        self.emit_collection_find_prepared_set(record, &prepared, index, found, f)?;
         found.load(f);
         f.instruction(&Instruction::I32Eqz);
         self.open_frame(ControlFrameKind::If, f);
@@ -973,7 +1019,7 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        let hash = s.reserve_i64_local(f);
+        let hash = prepared.hash;
         let head = s.reserve_i64_local(f);
         let bucket = s.reserve_i32_local(f);
         let buckets = s.reserve_gc_local(f).initialize(
@@ -983,7 +1029,6 @@ impl FunctionBuilder<'_> {
                 .reference(),
             f,
         );
-        self.emit_collection_key_hash(value, hash, f);
         self.emit_collection_hash_bucket(&buckets, hash, bucket, f);
         s.array_type::<CollectionHashTable>()
             .read(&buckets, bucket, s, f)
@@ -1033,12 +1078,12 @@ impl FunctionBuilder<'_> {
         buckets.clear(f);
         s.release_i32_local(bucket, f);
         s.release_i64_local(head, f);
-        s.release_i64_local(hash, f);
         entry.clear(f);
         stored_value.clear(f);
         table.clear(f);
         self.pop_control(ControlFrameKind::If);
         f.instruction(&Instruction::End);
+        s.release_i64_local(prepared.hash, f);
         s.release_i64_local(live, f);
         s.release_i32_local(cursor, f);
         s.release_i32_local(found, f);

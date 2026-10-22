@@ -173,7 +173,10 @@ Next hypotheses: prepared insertion hashes in Map/Set and ordinary properties
 (P020), then runtime-empty internal argv within P078's existing ABI. Static-key
 lookup prehashing (P023) is separate. Preserve proxy/coercion dispatch, equality
 after hash matches, reentrant callback boundaries and fresh mutable JS state.
-Unapplied drafts do not close additional hills.
+The next candidate implements prepared insertion hashes and runtime-empty argv,
+with three semantic fixture families and thirteen whole-invocation workloads.
+Product/native/Test262 verification and source-bound paired timings are pending;
+this candidate does not yet close additional hills.
 
 Verification tooling also avoids taking Cargo's incremental-cleanup lock when
 there is nothing to delete. Actual deletion still locks and re-discovers its

@@ -1267,3 +1267,23 @@ fn run_wasm_backend_supports_function_prototype_symbol_has_instance() {
     assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
     assert!(stdout.contains("boolean(true)"), "{stdout}");
 }
+
+#[test]
+fn run_wasm_backend_preserves_runtime_empty_argument_semantics() {
+    let output = Command::new(env!("CARGO_BIN_EXE_scriptw"))
+        .args(["--jobs", "1", "run", "--execution-backend", "wasm"])
+        .arg(fixture_path("wasm_runtime_empty_argument_storage.js"))
+        .output()
+        .expect("key and argument storage semantic fixture should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("backend_used: WasmAot"), "{stdout}");
+    assert!(
+        stdout.contains("runtime-empty-argument-storage-ok"),
+        "{stdout}"
+    );
+}

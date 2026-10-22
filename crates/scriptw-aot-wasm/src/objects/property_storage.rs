@@ -3,6 +3,13 @@ use super::*;
 
 mod index;
 
+/// The borrowed canonical key remains rooted until probe and insertion finish.
+/// Only this private publication path owns and releases the prepared hash.
+struct PreparedOrdinaryPropertyKey<'key> {
+    key: &'key PropertyKeyLocals,
+    hash: I64Local,
+}
+
 impl FunctionBuilder<'_> {
     pub(super) fn emit_ordinary_append_property_entry(
         &self,
@@ -52,7 +59,10 @@ impl FunctionBuilder<'_> {
         let schema = self.runtime_schema();
         // Every publication path, including intrinsic installation, keeps one
         // entry per key. Replacement preserves the first insertion position.
-        let previous = self.emit_ordinary_property_entry(object, key, function)?;
+        let hash = schema.reserve_i64_local(function);
+        self.emit_property_key_hash(key, hash, function);
+        let prepared = PreparedOrdinaryPropertyKey { key, hash };
+        let previous = self.emit_prepared_ordinary_property_entry(object, &prepared, function)?;
         previous.load(schema, function).is_null(function);
         self.open_frame(ControlFrameKind::If, function);
         let storage = schema.reserve_gc_local(function).initialize(
@@ -77,8 +87,7 @@ impl FunctionBuilder<'_> {
                 .reference(),
             function,
         );
-        let hash = schema.reserve_i64_local(function);
-        self.emit_property_key_hash(key, hash, function);
+        let hash = prepared.hash;
         let new_index_capacity = schema.reserve_i32_local(function);
         let length = schema.reserve_i32_local(function);
         let new_length = schema.reserve_i32_local(function);
@@ -186,7 +195,6 @@ impl FunctionBuilder<'_> {
         entry.clear(function);
         stored_key.clear(function);
         schema.release_i32_local(new_index_capacity, function);
-        schema.release_i64_local(hash, function);
         schema.release_i32_local(new_capacity, function);
         schema.release_i32_local(capacity, function);
         schema.release_i32_local(new_length, function);
@@ -209,6 +217,7 @@ impl FunctionBuilder<'_> {
         self.pop_control(ControlFrameKind::If);
         function.instruction(&Instruction::End);
         previous.clear(function);
+        schema.release_i64_local(prepared.hash, function);
         Ok(())
     }
 
