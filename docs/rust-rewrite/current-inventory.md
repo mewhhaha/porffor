@@ -36,6 +36,13 @@ Earlier wider native/Test262 acceptance remains bound to its original sources.
 The product build takes 3m42s with full runtime-image cache hits. Retired bytes
 are restore-only SHA-verified archives; current dependencies/cache budgets stay.
 
+The later [NativeHost compression experiment](v8-baseline.md#rejected-nativehost-storage-experiment--2026-10-22)
+is **rejected and removed**. It saves 59.3 MB per product but makes application-cold
+startup 6.6% slower and cached startup 7.1% slower, with higher child peak RSS.
+Its 21 exact programs and eight runtime-file checks pass; no native/Test262
+acceptance is assigned to that experiment. Accepted48 code and Portable storage
+compression remain. The hill counts and full-suite chart are unchanged.
+
 The [opt-in CLI chunk scheduler](verification-cli-queue-20261022.json) passes 74
 tooling controls and an exact four-way real 858-ID inventory check. It preserves
 two live libtests and default policy. Its [complete 858-body observation](verification-cli-queue-observation-20261022.json)

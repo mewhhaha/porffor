@@ -111,23 +111,18 @@ def check(root, overrides=None):
             "each embedded image is selected and admitted only for its exact source profile")
     load = c[E + "embedded_runtime/load.rs"]
     require("if!self.matches(runtime,mode){returnNone;}" in load and
-            "letlease=self.images.native()?;" in load and
-            "if!self.accepts_native_image(&lease){returnNone;}" in load and
-            "image.digest()==&self.manifest.native_digest" in load and
-            "RuntimeSourceCompilationProfile::NativeHost=>image::native()," in c[E + "embedded_runtime/images.rs"] and
-            "RuntimeSourceCompilationProfile::Portable=>image::portable_native()," in c[E + "embedded_runtime/images.rs"] and
+            "letimage=scriptw_runtime_image::portable_native()?;" in load and
+            "if!self.accepts_portable_native(&image){returnNone;}" in load and
+            "self.images.profile==RuntimeSourceCompilationProfile::Portable&&image.digest()==&self.manifest.native_digest" in load and
+            "None=>scriptw_runtime_image::native()," in load and
             "Module::deserialize(engine,bytes)" in load and "drop(lease);" in load,
-            "either native profile retains per-load independent digest admission and transient immutable ownership")
+            "per-load Portable bytes retain independent digest admission and transient immutable ownership")
     image = "crates/scriptw-runtime-image/src/"
     lease = c[image + "native_lease.rs"]
     storage = c[image + "native_storage.rs"]
     require("Mutex<Result<Weak<NativeRuntimeBytes>,()>>" in lease and
             "Arc::downgrade(&image)" in lease and
-            "acquire(&NATIVE_HOST,unsafe{&super::SCRIPTW_RUNTIME_NATIVE})" in lease and
-            "acquire(&PORTABLE,unsafe{&super::SCRIPTW_RUNTIME_PORTABLE_NATIVE})" in lease and
-            "staticNATIVE_HOST:Mutex<Result<Weak<NativeRuntimeBytes>,()>>" in lease and
-            "staticPORTABLE:Mutex<Result<Weak<NativeRuntimeBytes>,()>>" in lease and
-            "super::native_storage::decode(encoded)" in lease and
+            "super::native_storage::decode(unsafe{&super::SCRIPTW_RUNTIME_PORTABLE_NATIVE})" in lease and
             "pubstructNativeRuntimeBytes{bytes:Box<[u8]>,digest:[u8;32],}" in storage and
             "pubfnbytes(&self)->&[u8]{&self.bytes}" in storage and
             "pubfndigest(&self)->&[u8;32]{&self.digest}" in storage and

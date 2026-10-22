@@ -8,7 +8,7 @@ use std::process::Command;
 
 const PARTS: [(&str, &str); 6] = [
     ("SCRIPTW_RUNTIME_PACKAGE", "scriptw-runtime-package.bin"),
-    ("SCRIPTW_RUNTIME_NATIVE", "scriptw-runtime-native.packed"),
+    ("SCRIPTW_RUNTIME_NATIVE", "scriptw-runtime-native.bin"),
     ("SCRIPTW_RUNTIME_MANIFEST", "scriptw-runtime-manifest.bin"),
     (
         "SCRIPTW_RUNTIME_PORTABLE_PACKAGE",

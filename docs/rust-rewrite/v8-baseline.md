@@ -1,5 +1,44 @@
 # Local Wasmtime versus V8 baseline
 
+## Rejected NativeHost storage experiment — 2026-10-22
+
+Source `f9f4efa9ee0b284ca0b26106d16fa718e586d75f` used the same bounded
+compressed-native codec and independent transient leases for both profiles.
+[Source-bound raw observations, tools and checks](performance-nativehost-storage-rejected-20261022.json)
+are retained. **This experiment is removed. Existing Portable compression stays.**
+
+The actual static CLI shrank from **290,533,336 to 231,237,264 bytes**; the runner
+from **283,225,848 to 223,929,712 bytes**, saving **59,296,072 and 59,296,136 bytes respectively**.
+The product build finished in **1m01s**, reusing both complete runtime images.
+All 21 measured program modules, runtime keys and outputs matched accepted48;
+seven prior runtime payload/manifests retain code with validated source framing,
+and the eighth packed image decodes to the same original native bytes.
+Both actual NativeHost startup and Portable program execution were exercised.
+
+A pinned 56-process ABBA uses seven application-cold and seven application-cached
+invocations in each of four rounds, with separate traced priming excluded.
+Each value below is the median of two round medians; OS caches are not flushed.
+
+| Whole-process measure | Accepted48 | Rejected49 |
+| --- | ---: | ---: |
+| Application-cold startup | 1,059.862 ms | 1,129.665 ms |
+| Application-cached startup | 775.355 ms | 830.447 ms |
+| Cold child peak RSS | 382.73 MiB | 391.49 MiB |
+| Cached child peak RSS | 349.54 MiB | 365.28 MiB |
+
+Cold startup is **6.6% slower**, cached startup **7.1% slower**, and peak child
+RSS increases about **9–16 MiB**. This is process memory, not JavaScript heap.
+Traces put NativeHost decode/digest admission near 136–137ms in the new path,
+beside package hashing; they are diagnostic observations outside score spans.
+An optimized cached-dependency microbenchmark of bulk versus streaming decode
+has overlapping costs and does not recover the startup tradeoff. That diagnostic
+is not a product implementation or a decoder-boundary acceptance result.
+
+The size saving does not justify these startup and memory regressions. No broad
+native or Test262 campaign ran for this rejected source. The four upstream Bugs,
+full-suite chart, accepted48 checkpoint and source47 README timings are unchanged.
+This rejection adds no terminal hill: broader P132/P133/P149 work remains open.
+
 ## Numeric and collection checkpoint — published 2026-10-22
 
 **Measured source:** `bf681edcbbb59ef6f2d70a40df99758ccd66b98a` (candidate47).

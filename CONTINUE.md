@@ -43,35 +43,33 @@ rechecks remain. Wider full-suite/default/all-feature acceptance stays open.
 
 Next coherent work:
 
-1. Verify the root-written NativeHost compressed-storage candidate before keeping
-   it. A complete 13-file source/test/guard draft is local under
-   `target/performance-hills-20261021-attribution/candidate49-native-storage-draft`;
-   the patch, exact base/draft hashes and storage plan are under
-   `/tmp/scriptw-performance-batch21`. The exact draft is now applied; compilation and acceptance are pending.
-   All fifteen Intl provenance recipes, cheap profile guards/negative controls
-   and read-only review pass. Both profiles
-   use the existing bounded codec, sealed digest and separate transient Weak
-   leases; native validation precedes actual destination Engine deserialize.
-   Preserve raw native digest/manifest/source-profile authority and actual modes.
-   Measure CLI/DSO size, startup/decode latency and peak RSS against frozen48:
-   reducing embedded bytes can increase transient decode peak. Generated runtime
-   payload files become 8 while embedded symbols remain 6. Audit every preservation,
-   equality and boundary guard for that change. Raw R code/layout/helper ABI stay.
-2. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
+The NativeHost compressed-storage experiment is **rejected**, with
+[raw evidence](docs/rust-rewrite/performance-nativehost-storage-rejected-20261022.json).
+Source `f9f4efa9e` built in 1m01s and reduced the CLI by 59,296,072
+bytes and runner by 59,296,136 bytes, but the 56-process startup ABBA gives cold 1,059.862→1,129.665ms and cached
+775.355→830.447ms, with child peak RSS about 9–16 MiB higher. All 21 Portable
+programs, runtime keys and outputs match accepted48; all eight runtime files and
+both exact decoded native digests are verified. A cached-dependency bulk-decoder
+screen overlaps the streaming costs. No native/Test262 acceptance ran for this
+rejected source. Its code is restored to accepted48; existing Portable storage
+compression remains. Do not revive the draft without a different measured
+hypothesis. Source48 frozen CLI/runner remain the next direct baseline.
+
+1. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
    retain the fresh-empty no-hash shortcut for rejected definitions. Also inspect
    P025/P047 concrete Array index reads before unnecessary named-header probes,
    P097 charAt/at single-unit extraction and P098 iterator output copy. Preserve
    proxy/accessor/prototype/hole/UTF16/effect behavior, and measure focused controls
    plus ordinary object/retained-row regressions before retaining candidates.
-3. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
+2. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
    baseline. A lazy u64 costs eight payload bytes plus alignment and requires
    layout15→16 with host constructors/admission/tests. Measure unhashed small-string
    retention as well as repeated long-key wins; source inspection is not closure.
-4. Promote the standalone emitter only with exact cached-dependency identity
+3. Promote the standalone emitter only with exact cached-dependency identity
    checks. Linking 0.500s and fixture validation 4.436s exclude library compilation
    and have no Engine/product execution authority. Full R cache hits keep the
    product rebuild at 3m42s; retain current dependencies and actual cache keys.
-5. Finish broader default/release, retention, original full-suite and remaining
+4. Finish broader default/release, retention, original full-suite and remaining
    performance acceptance. Use exact original IDs and source/linker fences.
 
 Keep the default CLI chunk count: the four-chunk 858-body observation passes but

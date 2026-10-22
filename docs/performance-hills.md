@@ -195,7 +195,7 @@ with exact 21-case P equivalence and validated R provenance framing. Current
 counts are **21 terminal, eight partial/open, 131 unresolved**. Initial slower
 controls and their targeted rechecks remain in the evidence. P020 stays partial;
 next address ordinary define-own lookup/append, then measured repeated-string
-hashing P023/P112 and NativeHost image storage.
+hashing P023/P112. The later NativeHost storage experiment is rejected below.
 The opt-in four-chunk CLI queue keeps two live libtest processes and passes
 [74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
 Its [complete 858-body observation](rust-rewrite/verification-cli-queue-observation-20261022.json)
@@ -663,3 +663,11 @@ controls, 21 exact P modules, validated R package/manifest provenance, 3,575 nat
 passes and 3,231/3,235 original Test262 successes. The earlier 45/46/47 attempts
 above remain historical diagnostic receipts. Published source 47 timings are never
 relabeled as source 48. See the latest linked checkpoint for current counts and tradeoffs.
+
+The [NativeHost compression experiment](rust-rewrite/v8-baseline.md#rejected-nativehost-storage-experiment--2026-10-22)
+reduces actual product size by about 59.3 MB each, but its 56-process startup
+ABBA has 6.6% slower cold and 7.1% slower cached startup, with 9–16 MiB more child
+peak RSS. The alternative decoder screen overlaps. Its code is removed; Portable
+compression stays. All 21 original programs/runtime keys and eight runtime-file
+checks pass, but native/Test262 acceptance was not attempted for this rejection.
+Broader P132/P133/P149 and current hill counts remain open/unchanged.

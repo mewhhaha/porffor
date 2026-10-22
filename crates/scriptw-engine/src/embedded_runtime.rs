@@ -77,13 +77,23 @@ impl EmbeddedNativeRuntime {
             return None;
         }
         let started = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
-        // Decoding stays at the actual native-load boundary. Each profile's
-        // sealed decoded digest is checked against this independent manifest
-        // there, before the destination Engine sees any native bytes.
-        let package_digest = digests::digest(images.package);
+        let package_digest = match images.profile {
+            RuntimeSourceCompilationProfile::NativeHost => {
+                let (package, native) = digests::images(
+                    images.package,
+                    scriptw_runtime_image::native(),
+                    crate::configured_compilation_jobs().unwrap_or(1),
+                )?;
+                if native != manifest.native_digest {
+                    return None;
+                }
+                package
+            }
+            RuntimeSourceCompilationProfile::Portable => digests::digest(images.package),
+        };
         if let Some(started) = started {
             eprintln!(
-                "scriptw wasm trace: runtime-native-bundle package digest admission: {:?}",
+                "scriptw wasm trace: runtime-native-bundle digest admission: {:?}",
                 started.elapsed()
             );
         }

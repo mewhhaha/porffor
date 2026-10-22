@@ -2,11 +2,12 @@
 use super::*;
 
 impl EmbeddedNativeRuntime {
-    pub(super) fn accepts_native_image(
+    pub(super) fn accepts_portable_native(
         &self,
         image: &scriptw_runtime_image::NativeRuntimeBytes,
     ) -> bool {
-        image.digest() == &self.manifest.native_digest
+        self.images.profile == RuntimeSourceCompilationProfile::Portable
+            && image.digest() == &self.manifest.native_digest
     }
 
     pub(super) fn load(
@@ -21,23 +22,24 @@ impl EmbeddedNativeRuntime {
         // The weak lease shares only concurrent loads, never a mutable Store
         // or a Module. Its private constructor hashes the exact decoded Box;
         // the independent v4 manifest must admit that digest before deserialize.
-        let acquiring = std::env::var_os("SCRIPTW_WASM_TRACE").map(|_| std::time::Instant::now());
-        let lease = self.images.native()?;
-        if !self.accepts_native_image(&lease) {
-            return None;
-        }
-        if let Some(started) = acquiring {
-            eprintln!(
-                "scriptw wasm trace: runtime-native-bundle storage admission: {:?} (source: {:?})",
-                started.elapsed(),
-                self.images.profile
-            );
-        }
-        let bytes = lease.bytes();
+        let lease = match self.images.profile {
+            RuntimeSourceCompilationProfile::NativeHost => None,
+            RuntimeSourceCompilationProfile::Portable => {
+                let image = scriptw_runtime_image::portable_native()?;
+                if !self.accepts_portable_native(&image) {
+                    return None;
+                }
+                Some(image)
+            }
+        };
+        let bytes = match &lease {
+            Some(image) => image.bytes(),
+            None => scriptw_runtime_image::native(),
+        };
         // SAFETY: bytes are exclusively the immutable Cargo output of the
-        // checked raw/native runtime producer. Each profile's exact decoded
-        // digest is independently admitted above on every actual native load.
-        // Source/target/config/modes/raw RuntimeArtifact key have
+        // checked raw/native runtime producer. NativeHost hashes are admitted
+        // once; Portable's exact decoded digest is independently admitted above
+        // on every load. Source/target/config/modes/raw RuntimeArtifact key have
         // already matched. No caller slice/path/cache blob enters this seam.
         // Wasmtime47 Module::deserialize copies this slice into its owned mmap
         // (engine.rs load_code_bytes / MmapVec::from_slice_with_alignment).

@@ -10,13 +10,6 @@ pub(super) struct Images {
 }
 
 impl Images {
-    pub(super) fn native(self) -> Option<std::sync::Arc<image::NativeRuntimeBytes>> {
-        match self.profile {
-            RuntimeSourceCompilationProfile::NativeHost => image::native(),
-            RuntimeSourceCompilationProfile::Portable => image::portable_native(),
-        }
-    }
-
     pub(super) fn package_for_profile(profile: RuntimeSourceCompilationProfile) -> &'static [u8] {
         match profile {
             RuntimeSourceCompilationProfile::NativeHost => image::package(),

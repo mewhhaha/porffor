@@ -545,13 +545,10 @@ require_fixed_string_count "$runtime_image_objects" '"--emit=obj"' 1 'data compi
 require_fixed_string_count "$runtime_image_objects" '"-Cembed-bitcode=no"' 1 'data-only object contains no duplicate bitcode image'
 require_fixed_string_count "$runtime_image_objects" '.compile("scriptw_runtime_images")' 1 'target archiver owns the complete linked image'
 for image_part in package native manifest; do
+  require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-${image_part}.bin" 1 'one data definition per NativeHost image'
   if [ "$image_part" = native ]; then
-    require_fixed_string_count "$runtime_image_objects" 'scriptw-runtime-native.packed' 1 'one compressed NativeHost native storage definition'
-    require_fixed_string_count "$runtime_image_objects" 'scriptw-runtime-native.bin' 0 'raw NativeHost producer bytes are not embedded twice'
     require_fixed_string_count "$runtime_image_objects" 'scriptw-runtime-portable-native.packed' 1 'one compressed Portable native storage definition'
-    require_fixed_string_count "$runtime_image_objects" 'scriptw-runtime-portable-native.bin' 0 'raw Portable producer bytes are not embedded twice'
   else
-    require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-${image_part}.bin" 1 'one raw data definition per NativeHost package/manifest'
     require_fixed_string_count "$runtime_image_objects" "scriptw-runtime-portable-${image_part}.bin" 1 'one raw data definition per Portable package/manifest'
   fi
 done
@@ -589,8 +586,7 @@ engine_embedded_load="crates/scriptw-engine/src/embedded_runtime/load.rs"
 require_file "$engine_embedded_load"
 require_module_decl "$engine_embedded_runtime" load
 require_fixed_string_count "$engine_embedded_load" 'Module::deserialize(engine, bytes)' 1 'native load uses its admitted private Cargo-byte lease'
-require_fixed_string_count "$engine_embedded_load" 'let lease = self.images.native()?' 1 'native bytes use the exact selected source-profile lease'
-require_fixed_string_count "$engine_embedded_load" 'if !self.accepts_native_image(&lease)' 1 'either decoded profile matches the independent native manifest'
+require_fixed_string_count "$engine_embedded_load" 'if !self.accepts_portable_native(&image)' 1 'Portable decoded bytes match the independent native manifest'
 require_fixed_string_count "$engine_embedded_load" 'drop(lease);' 1 'copied mapping releases the transient decoded-byte owner'
 check_raw_line_budget "$engine_embedded_load" 120
 require_fixed_string_count "$engine_embedded_runtime" 'OnceLock<Option<EmbeddedNativeRuntime>>' 2 'independent lazy admission per source profile'
@@ -620,10 +616,7 @@ require_module_decl "$runtime_image_source" native_lease
 require_module_decl "$runtime_image_source" lease_tests
 require_file crates/scriptw-runtime-image/src/native_lease.rs
 require_file crates/scriptw-runtime-image/src/lease_tests.rs
-require_fixed_string_count crates/scriptw-runtime-image/src/native_lease.rs 'Mutex<Result<Weak<NativeRuntimeBytes>, ()>>' 3 'two weak profile slots and their borrowed decoder parameter retain no strong decoded bytes'
-for profile_slot in NATIVE_HOST PORTABLE; do
-  require_fixed_string_count crates/scriptw-runtime-image/src/native_lease.rs "static ${profile_slot}: Mutex<Result<Weak<NativeRuntimeBytes>, ()>>" 1 'independent weak source-profile cache slots'
-done
+require_fixed_string_count crates/scriptw-runtime-image/src/native_lease.rs 'Mutex<Result<Weak<NativeRuntimeBytes>, ()>>' 1 'weak cache retains no strong decoded bytes'
 check_raw_line_budget crates/scriptw-runtime-image/src/native_lease.rs 50
 check_raw_line_budget crates/scriptw-runtime-image/src/lease_tests.rs 70
 check_raw_line_budget "$runtime_image_source" 90
