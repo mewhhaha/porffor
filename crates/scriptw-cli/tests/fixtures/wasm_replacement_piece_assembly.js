@@ -32,10 +32,12 @@ const n = 12000;
 let calls = 0;
 const assembled = 'a'.repeat(n).replaceAll('a', function (m, p, input) {
   check(m === 'a' && p === calls && input.length === n, 'callback arguments');
+  if (p === 8 || p === 12) gc();
   calls++; return String.fromCharCode(65 + p % 26) + payload;
 });
 check(calls === n && assembled.length === n * 257, 'retained pieces length');
 for (let k = 0; k < n; k += 257) check(assembled.charCodeAt(k * 257) === 65 + k % 26 && assembled.charAt(k * 257 + 256) === 'q', 'retained pieces roots');
+for (let k = 0; k < 8; ++k) check(assembled.charCodeAt(k * 257) === 65 + k && assembled.charAt(k * 257 + 256) === 'q', 'all inline roots after GC');
 const units = '\uD800x\uDC00';
 check('𝄞a𝄞a'.replaceAll('a', units) === '𝄞\uD800x\uDC00𝄞\uD800x\uDC00', 'literal UTF16');
 check('𝄞a𝄞a'.replace(/a/gu, units) === '𝄞\uD800x\uDC00𝄞\uD800x\uDC00', 'regex UTF16');
@@ -66,4 +68,16 @@ for (const size of [0, 1, 31, 63, 64, 65, 66, 129, 256]) {
   }
 }
 check('xy'.repeat(64).replace(/y/g, '') === 'x'.repeat(64), 'short output after many matches');
+for (const count of [0, 1, 2, 3, 4, 7, 8, 9, 12, 13, 16]) {
+  const input = 'a'.repeat(count);
+  for (const skipEmpty of [false, true]) {
+    let expected = '';
+    for (let i = 0; i < count; ++i) if (!skipEmpty || i % 3 !== 0) expected += String.fromCharCode(65 + i);
+    let literalCalls = 0;
+    let regexpCalls = 0;
+    check(input.replaceAll('a', (_, index) => { ++literalCalls; if (index === 8 || index === 12) gc(); return skipEmpty && index % 3 === 0 ? '' : String.fromCharCode(65 + index); }) === expected, 'literal inline/spill counts');
+    check(input.replace(/a/g, (_, index) => { ++regexpCalls; if (index === 8 || index === 12) gc(); return skipEmpty && index % 3 === 0 ? '' : String.fromCharCode(65 + index); }) === expected, 'regexp inline/spill counts');
+    check(literalCalls === count && regexpCalls === count, 'inline/spill callback counts');
+  }
+}
 print('replacement-piece-assembly-ok');

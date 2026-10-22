@@ -80,9 +80,11 @@ families and establishes large-output gains, but a short two-match RegExp
 control regresses by 13.7% in its longer confirmation. It is being revised,
 not accepted. [Source-bound diagnostic evidence](performance-replacement-probe-20261022.json)
 retains all observations, including the workload's former misleading
-single-match filename. The revision bounds short-prefix copying and separates
-true one-match/two-match controls. New-product and broad verification remain
-pending; the README table and full-suite counts are unchanged.
+single-match filename. The bounded-prefix revision also passes correctness
+controls but is [rejected on its measurements](performance-replacement-prefix-probe-20261022.json).
+The next revision keeps eight completed Strings directly in GC locals before
+spilling, and retains separate true one-match/two-match controls. New-product
+and broad verification remain pending; README and full-suite counts are unchanged.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic

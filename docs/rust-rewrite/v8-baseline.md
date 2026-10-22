@@ -19,8 +19,15 @@ The short RegExp confirmation instead rises 37.937→43.145 ms, about **13.7%**.
 Its historical `regexp-one-match.js` name was misleading: `/a/g` matches twice
 in `before-a-after`. Both compilers received identical original bytes. Those
 results stay in the evidence; the next corpus names it `regexp-two-matches.js`
-and includes a true one-match case. A bounded 64-unit completed prefix is now
-being tested to avoid general collector allocation on small outputs.
+and includes a true one-match case. The subsequent 64-unit-prefix experiment
+also passes compiled semantic and exact u32-overflow controls, but does not
+reliably remove the short two-match cost and is rejected.
+[Its separate comparison cohorts](performance-replacement-prefix-probe-20261022.json)
+retain all rounds: intermediate-to-revision ABBA shows about 10.9% higher
+two-match medians; original-to-revision eight-round checks overlap and give a
+7.9% higher median of round medians. No ordinary V8 report or broad acceptance
+was taken for that rejected revision. Typed local roots for the first eight
+pieces are the next hypothesis, with one final copy and no short-prefix copying.
 
 The actual product build takes **389 seconds**, versus the preceding **524**.
 Both unchanged Intl feature/profile variants remain fresh. AOT opt1/opt3 units

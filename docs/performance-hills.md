@@ -148,11 +148,19 @@ are retained. The historically named `regexp-one-match.js` actually matched
 twice; its bytes/results stay in that evidence. The current corpus retains that
 workload as `regexp-two-matches.js` and adds a true one-match control.
 
-The revision bounds prefix concatenation to **64 UTF-16 units**, avoiding list
-nodes for short outputs. Larger outputs retain that completed prefix once and
-use the linear collector. Boundary/callback/UTF-16 fixtures are extended.
-New product measurements and native/Test262 acceptance remain pending. This
-experiment closes no additional hill; README scores stay on `b59303ebe`.
+The **64-unit bounded-prefix revision is rejected** after its own six compiled
+families, exact u32-overflow control, 15-case screen/ABBA and six-case eight-round
+short check. It does not reliably remove the short two-match overhead: about
+10.9% slower against the intermediate product in ABBA, with overlapping original
+baseline rounds and a 7.9% higher median of round medians in the separate check.
+[Complete revision evidence](rust-rewrite/performance-replacement-prefix-probe-20261022.json).
+
+The next revision retains the first **eight completed Strings in typed GC
+locals**, spills further pieces to the existing list, and copies each span once.
+This removes small-output list allocations without prefix copying. Fixtures
+cover exact inline/spill counts, all eight roots after GC, callbacks and UTF-16.
+New product measurements and native/Test262 acceptance remain pending. No
+additional hill is closed; README scores stay on `b59303ebe`.
 
 Iteration audit: the product rebuild compiled the emitter for both opt1/no-debug
 host and opt3/line-table product graphs. Transitive features also differ, so
