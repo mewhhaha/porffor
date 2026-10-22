@@ -44,6 +44,12 @@ descriptor-snapshot and transient-image candidate requires a fresh build,
 measurements and verification. No accepted baseline/conformance counts change
 from those provisional runs.
 
+Tighter controls also reject the `232824a91` numeric branch experiments; both
+are removed while their fixtures/results remain. The next candidate keeps the
+original numeric paths and current layout 15. Startup host sampling identifies
+SHA-256 as roughly 64–74% of sampled user CPU, making hashing/phase attribution
+the next measured setup opportunity without weakening integrity admission.
+
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
 issues and ten preexisting rename-related expectations. Its record retains the

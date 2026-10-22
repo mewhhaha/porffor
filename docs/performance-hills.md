@@ -25,6 +25,8 @@ upstream failures. No fresh full-suite conformance claim is made.
 | P024 | **Superseded by the existing reference guard** | Strict/SameValue String equality already checks identity before its content helper. The extra helper-level guard is removed: the same-reference ABBA control barely moved, while distinct-equal content comparison regressed. Semantic identity controls remain. |
 | P095 | **Rejected: regressed an early-miss control** | The endpoint filter helped a 65-unit tail miss (ABBA round medians 4.391 → 1.542 ms), but early-prefix misses rose 1.380 → 2.352 ms. The implementation is removed; exact 2,700-result UTF-16/coercion controls and raw failed attempts remain. A different algorithm needs a new experiment. |
 | P067 | **Rejected: inline binding payload experiment; broader access work remains** | Candidate `35fa9b048` did not establish a closure gain against `a5b4a6c5d`: paired round medians were 105.404 → 105.770 ms for captured reads, 109.845 → 113.622 ms for captured updates and 951.665 → 938.452 ms for closure construction, with overlapping rounds. The layout change is removed. Existing immutable StoredValue snapshots and layout 15 remain; resolved depth/handle caching is still open. |
+| P058 | **Rejected: signed-range branch experiment** | Broad conversion and then bitwise-only variants did not establish a reliable gain across the controls. The tighter case-wise ABBAABBA check retained an integer/imul regression. Original exact modulo lowering is restored, with edge/coercion fixtures and all raw observations retained. A different specialization needs a new hypothesis. |
+| P061 | **Rejected: runtime Number-tag branch experiment; proven scalar work remains** | Global numeric updates improved, but the combined numeric experiments regressed ordinary integer/imul controls. Both branch experiments are removed; this does not attribute that loss to P061 alone. Retain conversion-order fixtures and investigate raw-value proofs with P056/P057 rather than assuming the IR's ToNumeric result kind proves the input tag. |
 
 The deterministic 43-case attribution corpus covers construction, retained-row
 read-pass scaling, call, string, collection and Intl controls. Read-pass scaling
@@ -61,15 +63,14 @@ timing, memory or full native result. Decompression CPU/residency must be measur
 not described as a memory saving. This is adjacent P132/P133/P149 evidence, not
 automatic completion of those broader hills.
 
-The next candidate includes a signed-range ToUint32 shortcut after Number
-conversion **only in bitwise lowering** (P058), a **runtime Number-tag** guard before update conversion (P061),
-and explicit forced native-policy diagnostic cohorts (P154). The IR's Number
+The next candidate retains explicit forced native-policy diagnostic cohorts
+(P154), but removes both numeric branch experiments. The IR's Number
 update kind describes ToNumeric's result domain; it does not permit skipping
 String/Boolean/Symbol conversion. Forced Fast cohorts fail rather than silently
-retry SizeOptimized; ordinary dispatch is unchanged. Applying the shortcut to
-all conversions accompanied a regression in the Math.imul-heavy control;
-the narrowed candidate retains the original exact modulo authority for builtin
-conversions. Attribution remains provisional until that candidate is measured.
+retry SizeOptimized; ordinary dispatch is unchanged. The original exact modulo
+and numeric-update conversion paths remain authoritative. The narrowed
+`232824a91` candidate also failed the tighter timing controls, so it is not an
+accepted performance checkpoint. No per-experiment loss attribution is claimed.
 Shared StoredValue snapshots remain immutable, with TDZ/const/import-alias
 ownership unchanged. The new P018 allocation experiment shares a snapshot only
 when getter and setter are the **same compiler operand**, avoiding a duplicate
@@ -90,8 +91,8 @@ bytes lowers median sampled retained-row invocation RSS from 454.86 to
 376.79 MiB against the preceding compressed-storage experiment; these are
 process RSS samples, not live GC bytes. Its ordinary paired integer/object
 controls regress, so it is **not accepted** as a performance checkpoint.
-The next narrowed candidate removes the unhelpful binding layout and broad
-numeric-conversion change before broad native verification. All raw observations
+The next candidate removes the unhelpful binding layout and both numeric
+branch changes before broad native verification. All raw observations
 and rejected experiments remain retained.
 
 Its explicit P-policy ABBA cohort also finds no universal default-policy win:
@@ -103,6 +104,14 @@ module phases include runtime admission and program compilation together; they
 are not an isolated program-codegen cost or a complete P154 break-even decision.
 The product default remains Fast. More representative cases and phase evidence
 are required before selecting a different default.
+
+Four separately instrumented cached-CLI profiles of `a5b4a6c5d`/`232824a91`
+identify SHA-256 as **64.38–74.32% of user CPU samples**, with 65–74 samples per
+child and zero lost samples. This is whole-child host attribution, not JS-span
+timing or an ordinary startup score. P131/P132/P152 should investigate the
+executable/image hashing and its placement before changing integrity checks.
+The tight controls also expose substantial cloud timing variation; small
+median differences are inconclusive and do not justify a shipped speed claim.
 
 P066's narrow resolved-local question is **Superseded by existing BindingStorage
 facts**: identifiers already select retained locals or emitted slot/hop pairs.

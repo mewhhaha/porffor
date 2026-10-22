@@ -583,17 +583,6 @@ impl<'a> FunctionBuilder<'a> {
         match value_kind {
             NumericUpdateValueKind::BigInt => {}
             NumericUpdateValueKind::Dynamic | NumericUpdateValueKind::Number => {
-                // The IR describes ToNumeric's result domain, not the raw
-                // GetValue type: strings/booleans/Symbols still need ToNumber.
-                // Only the captured Number payload itself admits this fast arm.
-                let guard_number = value_kind == NumericUpdateValueKind::Number;
-                if guard_number {
-                    old.tag().load(function);
-                    function
-                        .instruction(&Instruction::I32Const(WasmRuntimeValueTag::Number as i32));
-                    function.instruction(&Instruction::I32Ne);
-                    self.open_frame(ControlFrameKind::If, function);
-                }
                 let pending = schema.reserve_completion(function);
                 pending.initialize(function);
                 match value_kind {
@@ -609,10 +598,6 @@ impl<'a> FunctionBuilder<'a> {
                 self.emit_propagate_current_throw_if_needed(function);
                 old.copy_from(pending.value(), function);
                 pending.clear(function);
-                if guard_number {
-                    self.pop_control(ControlFrameKind::If);
-                    function.instruction(&Instruction::End);
-                }
             }
         }
         Ok(())

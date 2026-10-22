@@ -1575,8 +1575,8 @@ impl<'a> FunctionBuilder<'a> {
         let schema = self.runtime_schema();
         let left_bits = schema.reserve_i64_local(function);
         let right_bits = schema.reserve_i64_local(function);
-        self.emit_to_uint32_i64_for_bitwise_operand(left, left_bits, function);
-        self.emit_to_uint32_i64_for_bitwise_operand(right, right_bits, function);
+        self.emit_to_uint32_i64_from_number_payload(left, left_bits, function);
+        self.emit_to_uint32_i64_from_number_payload(right, right_bits, function);
         left_bits.load(function);
         function.instruction(&Instruction::I32WrapI64);
         right_bits.load(function);
@@ -1943,7 +1943,7 @@ impl<'a> FunctionBuilder<'a> {
     ) {
         let schema = self.runtime_schema();
         let bits = schema.reserve_i64_local(function);
-        self.emit_to_uint32_i64_for_bitwise_operand(value, bits, function);
+        self.emit_to_uint32_i64_from_number_payload(value, bits, function);
         bits.load(function);
         function.instruction(&Instruction::I32WrapI64);
         function.instruction(&Instruction::I32Const(-1));
@@ -1974,43 +1974,6 @@ impl<'a> FunctionBuilder<'a> {
         pending.clear(function);
         value.clear(function);
         Ok(())
-    }
-
-    fn emit_to_uint32_i64_for_bitwise_operand(
-        &mut self,
-        number_payload_local: crate::gc_types::I64Local,
-        out_local: crate::gc_types::I64Local,
-        function: &mut Function,
-    ) {
-        // Keep this shortcut local to bitwise lowering. Applying it to every
-        // builtin conversion accompanied a regressing Math.imul-heavy control.
-        // Ordered comparisons exclude NaN and infinities. Inside this signed
-        // range truncation is exact; wrapping preserves the low 32 bits even
-        // for negative/fractional inputs. The strict upper bound excludes
-        // +2^63, whose signed saturating conversion would lose those bits.
-        number_payload_local.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(
-            -9_223_372_036_854_775_808.0,
-        )));
-        function.instruction(&Instruction::F64Ge);
-        number_payload_local.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::F64Const(Ieee64::from(
-            9_223_372_036_854_775_808.0,
-        )));
-        function.instruction(&Instruction::F64Lt);
-        function.instruction(&Instruction::I32And);
-        function.instruction(&Instruction::If(BlockType::Empty));
-        number_payload_local.load(function);
-        function.instruction(&Instruction::F64ReinterpretI64);
-        function.instruction(&Instruction::I64TruncSatF64S);
-        function.instruction(&Instruction::I32WrapI64);
-        function.instruction(&Instruction::I64ExtendI32U);
-        out_local.store(function);
-        function.instruction(&Instruction::Else);
-        self.emit_to_uint32_i64_from_number_payload(number_payload_local, out_local, function);
-        function.instruction(&Instruction::End);
     }
 
     pub(crate) fn emit_to_uint32_i64_from_number_payload(
