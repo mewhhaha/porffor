@@ -97,19 +97,24 @@ def protect_outputs(arguments, inventory_path, log_path):
     return rows
 
 
+def protect_from_environment(arguments, environment):
+    inventory = environment.get('SCRIPTW_PRESERVED_OUTPUT_INVENTORY')
+    log = environment.get('SCRIPTW_OUTPUT_PROTECTION_LOG')
+    if bool(inventory) != bool(log):
+        raise ValueError('output protection needs both inventory and log paths')
+    if inventory:
+        return protect_outputs(arguments, inventory, log)
+    return []
+
+
 def main():
     command = sys.argv[1:]
     if not command:
         raise ValueError('expected the real rustc executable')
-    inventory = os.environ.get('SCRIPTW_PRESERVED_OUTPUT_INVENTORY')
-    log = os.environ.get('SCRIPTW_OUTPUT_PROTECTION_LOG')
-    if bool(inventory) != bool(log):
-        raise ValueError('output protection needs both inventory and log paths')
     helper = runpy.run_path(str(Path(__file__).with_name('test-rustc')))
     environment, descriptors = helper['compiler_environment'](command, os.environ)
     try:
-        if inventory:
-            protect_outputs(command[1:], inventory, log)
+        protect_from_environment(command[1:], os.environ)
         os.execve(command[0], command, environment)
     finally:
         for descriptor in descriptors:

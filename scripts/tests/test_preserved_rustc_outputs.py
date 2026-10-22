@@ -121,5 +121,34 @@ class OutputProtection(unittest.TestCase):
                                 check=True, capture_output=True, text=True)
         self.assertEqual(json.loads(result.stdout), arguments)
 
+    def test_native_wrapper_composes_protection_with_its_existing_test_policy(self):
+        path, payload, _ = self.link('libchosen-123.rlib')
+        self.inventory.write_text(json.dumps(dict(cargo_target_dir=str(self.target), files=self.records)))
+        compiler = self.root / 'compiler.py'
+        compiler.write_text('import json,sys; print(json.dumps(sys.argv[1:]))\n')
+        arguments = self.args + ['--test', '-Cincremental=existing-test-scratch']
+        environment = dict(os.environ, SCRIPTW_PRESERVED_OUTPUT_INVENTORY=str(self.inventory),
+                           SCRIPTW_OUTPUT_PROTECTION_LOG=str(self.log))
+        environment.pop('SCRIPTW_TEST_CODEGEN_JOBS', None)
+        result = subprocess.run([sys.executable, str(WRAPPER.with_name('test-rustc')),
+                                 sys.executable, str(compiler), *arguments],
+                                env=environment, check=True, capture_output=True, text=True)
+        self.assertEqual(json.loads(result.stdout), self.args + ['--test'])
+        self.assertFalse(path.is_symlink())
+        self.assertEqual(payload.read_bytes(), b'preserved bytes')
+
+    def test_both_wrappers_reject_incomplete_protection_environment(self):
+        path, _, _ = self.link('libchosen-123.rlib')
+        for wrapper in [WRAPPER, WRAPPER.with_name('test-rustc')]:
+            environment = dict(os.environ, SCRIPTW_PRESERVED_OUTPUT_INVENTORY=str(self.inventory))
+            for name in ['SCRIPTW_OUTPUT_PROTECTION_LOG', 'SCRIPTW_TEST_CODEGEN_JOBS']:
+                environment.pop(name, None)
+            result = subprocess.run([sys.executable, str(wrapper), sys.executable, '-c',
+                                     'raise RuntimeError("must not execute compiler")', *self.args],
+                                    env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('both inventory and log paths', result.stderr)
+            self.assertTrue(path.is_symlink())
+
 if __name__ == '__main__':
     unittest.main()

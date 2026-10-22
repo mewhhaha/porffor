@@ -2,6 +2,7 @@
 """Bound verification scratch without changing compiler or query semantics."""
 import os
 from pathlib import Path
+import runpy
 import sys
 
 
@@ -87,11 +88,20 @@ def compiler_environment(arguments, environment):
         raise
 
 
+def protect_preserved_outputs(arguments, environment):
+    """Optional owned-output protection composes with existing test policy."""
+    if (environment.get("SCRIPTW_PRESERVED_OUTPUT_INVENTORY")
+            or environment.get("SCRIPTW_OUTPUT_PROTECTION_LOG")):
+        helper = runpy.run_path(str(Path(__file__).with_name("preserve-output-rustc")))
+        helper["protect_from_environment"](arguments, environment)
+
+
 if __name__ == "__main__":
     descriptors = ()
     try:
         command = command_from_environment(sys.argv[1:], os.environ)
         environment, descriptors = compiler_environment(command, os.environ)
+        protect_preserved_outputs(command[1:], os.environ)
         os.execve(command[0], command, environment)
     except (OSError, ValueError) as error:
         print(f"test-rustc: {error}", file=sys.stderr)
