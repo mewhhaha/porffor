@@ -24,82 +24,65 @@ each verified batch to main.
 
 ## Next performance work
 
-The [performance backlog](docs/performance-hills.md) contains 160 hills:
-**20 terminal decisions, eight partial/open outcomes, 132 proposed/unresolved**.
-Rejected/superseded experiments are decisions, not shipped speedups.
+The 160-hill backlog has **21 terminal decisions, eight partial/open outcomes,
+131 proposed/unresolved**. Continue Luna read-only exploration/review and root-owned
+code. Push each verified batch to main; keep this file/tasks until all acceptance
+criteria pass.
 
-Latest [Map checkpoint](docs/rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22):
-source `e78c9e072`, **4,035 native passes / zero failed/ignored**, ten compiled
-semantic families, unchanged source/linker and seven matching product/test images.
-The exact disjoint one-plus-nine native union preserves disk-reserve deferrals;
-no passed body was repeated. The **1,173 original Map/Set+four-failure replay**
-returns **1,169 Success / 4 Bug / 0 Crash / 0 NotImplemented**, exactly the original
-tracked failures. The wider preceding 15,899-case replay remains bound to
-`2cb9fc53d`; neither replaces a full-suite campaign or changes the chart.
-Value-only getOrInsert now shares its prepared hash. P020 stays partial for the
-callback route and other internal collection paths. Worker prelude sources are
-shared within 64 requests; JS state,
-execution and snapshots remain independent. P154's Fast/SizeOptimized ABBA is
-mixed, so default Fast stays. Ordinary current README scores and slower rows
-are published separately from paired controls.
+Latest [numeric/collection checkpoint](docs/rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22):
+acceptance `37ab9fa44`, **3,575 native passed/zero failed or ignored**, twelve compiled
+semantic families, dynamic-call controls and seven identical product/test images.
+The exact 3,235 original Test262 replay gives **3,231 Success / 4 known Bug / 0 Crash / 0 NotImplemented**.
+Timing source stays `bf681edcb`; source 48 only removes a Rust annotation. All 21 P
+modules match exactly; runtime keys/native bytes match, while package and manifest
+source provenance is validated explicitly. Original failed attempts remain.
+P081's numeric Math.imul extension is verified, with generic fallbacks. P020 spans
+callbacks, grouping, Set kernels and deletion but stays partial. The README uses
+the measured source 47 ordinary report; initial slower paired controls and their targeted
+rechecks remain. Wider full-suite/default/all-feature acceptance stays open.
 
 Next coherent work:
 
-1. Verify the applied **P020/P081 prepared-key and numeric Math.imul batch**.
-   Root tools/source bindings are under `/tmp/scriptw-performance-batch17`.
-   The AOT library metadata check passes. All four expanded semantic controls
-   pass on accepted frozen44 before this implementation; stock Node validates
-   numeric/collection controls and actual distinct-realm oracles. The proposal
-   getOrInsert control keeps repository assertions because Node lacks the API.
-   Candidate45 compiled all12controls and completed21-case screen/ABBA, but normal Math.imul P modules stayed byte-identical: the initial helper was attached to CallMethod instead of the real CallIndirect route. That diagnostic attempt is retained and has no native/Test262 acceptance claim. Candidate46 moves the same runtime proof to actual indirect calls, selected only by provisional target knowledge; before timings, code-section checks must prove real direct/alias workloads change. Root correction tools are under /tmp/scriptw-performance-batch18. Candidate46 code activation caught a Wasm stack validation error before timings: load_current_realm returned a local that was not loaded. Candidate47 explicitly loads/clears it, marks that API must_use, and adds an AOT test requiring the multiplication in real direct/alias main bodies and generic dispatch for extra arity. The unoptimized standalone emitter validates the eight fixtures plus minimal controls using cached optimized dependencies; its link/validation receipts are under /tmp/scriptw-performance-batch19. Full corrected product/native/Test262 acceptance is pending.
-   Prepared keys now own a private rooted value snapshot, so callers cannot
-   change the value while retaining its old hash. They cover computed insertion,
-   groupBy, cross-owner Set operations and lookup/unlink deletion, with fresh
-   current-table probing after callbacks and growth. No GC layout/helper ABI change.
-   The exact two-argument numeric Math.imul route proves concrete FunctionObject,
-   immutable StandardBuiltin/MathImul and current-Realm identity after all operand
-   effects. Wrappers, patched callees, coercions, foreign realms, other arities,
-   spreads/captures and tail returns retain generic dispatch. Reuse the original
-   modulo conversion and completion propagation. New tests cover 361 numeric
-   pairs, once-only evaluation, mutation, proxies/revocation, abrupt coercion,
-   GC, cross-realm errors and native caller reflection. Ten deterministic new
-   performance workloads cover direct/generic numeric calls and collection paths.
-   Freeze actual static producers, run semantic controls and balanced measurements,
-   then native acceptance and exact original Math/Map/Set/call/proxy/realm cases.
-2. Keep the default CLI chunk count. The [four-chunk observation](docs/rust-rewrite/verification-cli-queue-observation-20261022.json)
-   passes all 858 bodies but takes 783.161s versus the earlier two-chunk 757.216s.
-   Sampled group peaks are 31.45 versus 32.00 GiB; individual native RSS maxima
-   4.77 versus 5.26 GiB. Cache/file-page state differs, so this is not a causal
-   memory/speed comparison. Original bodies, stalls, CPU pool and cache ceilings
-   match. Opt-in flag stays available; default stays unchanged.
-   The exact native CLI remains held at
-   `target/performance-hills-20261021-attribution/candidate43-held-cli-native`.
-3. Inspect the completed frozen43 repeated-key baseline in
-   `target/performance-hills-20261021-attribution/candidate43-repeated-key-baseline`.
-   Its 13 checked cases include nine stock-Node-compatible repeated lookups and
-   four Wasmtime-only getOrInsert controls; stock Node lacks those proposal APIs.
-   This is whole-invocation throughput, not isolated hash timing. Before P023/P112,
-   one shared hash helper and one StringConstruction publication point make a
-   raw cached u64 possible, but it costs eight payload bytes per String plus
-   engine alignment and requires GC layout version 15→16/admission rebuilds.
-   Compiler-only static facts avoid that ABI but need new provenance/dispatch.
-4. Complete broader default/release acceptance and remaining performance hills. Use source fences and exact original IDs.
+1. Verify the root-written NativeHost compressed-storage candidate before keeping
+   it. A complete 13-file source/test/guard draft is local under
+   `target/performance-hills-20261021-attribution/candidate49-native-storage-draft`;
+   the patch, exact base/draft hashes and storage plan are under
+   `/tmp/scriptw-performance-batch21`. It is not applied, compiled or accepted.
+   Cheap profile guards/negative controls and read-only review pass. Both profiles
+   use the existing bounded codec, sealed digest and separate transient Weak
+   leases; native validation precedes actual destination Engine deserialize.
+   Preserve raw native digest/manifest/source-profile authority and actual modes.
+   Measure CLI/DSO size, startup/decode latency and peak RSS against frozen48:
+   reducing embedded bytes can increase transient decode peak. Generated runtime
+   payload files become 8 while embedded symbols remain 6. Audit every preservation,
+   equality and boundary guard for that change. Raw R code/layout/helper ABI stay.
+2. Close remaining P020 ordinary define-own duplicate lookup/append hashing;
+   retain the fresh-empty no-hash shortcut for rejected definitions. Also inspect
+   P025/P047 concrete Array index reads before unnecessary named-header probes,
+   P097 charAt/at single-unit extraction and P098 iterator output copy. Preserve
+   proxy/accessor/prototype/hole/UTF16/effect behavior, and measure focused controls
+   plus ordinary object/retained-row regressions before retaining candidates.
+3. Evaluate P023/P112 cached raw string hashes using the existing repeated-key
+   baseline. A lazy u64 costs eight payload bytes plus alignment and requires
+   layout15→16 with host constructors/admission/tests. Measure unhashed small-string
+   retention as well as repeated long-key wins; source inspection is not closure.
+4. Promote the standalone emitter only with exact cached-dependency identity
+   checks. Linking 0.500s and fixture validation 4.436s exclude library compilation
+   and have no Engine/product execution authority. Full R cache hits keep the
+   product rebuild at 3m42s; retain current dependencies and actual cache keys.
+5. Finish broader default/release, retention, original full-suite and remaining
+   performance acceptance. Use exact original IDs and source/linker fences.
 
-A frozen replay may continue while later source work proceeds; do not change
-its compiler, pinned fixtures, workers, deadlines or saved results. Cloud tools
-and original receipts remain under `/tmp/scriptw-performance-batch14`,
-`/tmp/scriptw-performance-batch16` and
-`target/performance-hills-20261021-attribution`. Push verified batches to main.
-Native verification keeps two libtest processes, the two-GiB Cargo reserve,
-256 MiB scratch per process and existing cache ceilings. Last group samples reach
-32 GiB with max-pressure events but zero OOM; this is not JavaScript heap usage.
-Stage exact outputs and archive only obsolete/unreferenced bytes after verification.
-Detach only actually dirty rustc aliases; preserve fresh dependencies.
-The latest product build takes 6m12s and again reports 1,165 NativeHost/914 Portable
-stencil misses despite a small R byte change. Shared build/test function-cache
-contention is a hypothesis, not a proven eviction cause. Inspect resolved cache
-limits, exact keys and prune events before changing budgets. A crate/profile
-split does not automatically share differently configured Rust units.
+Keep the default CLI chunk count: the four-chunk 858-body observation passes but
+does not improve the measured two-chunk run. Two live libtests, original worker
+budgets, 256MiB scratch per process, two-GiB Cargo reserve and retained-module
+cache ceilings stay. Group memory includes tmpfs/file pages, not live JS heap.
+Use actual filesystem free bytes; preserve and archive before releasing staging.
+Detach only actually dirty rustc aliases. Current cloud tools are under
+`/tmp/scriptw-performance-batch20`; raw results under
+`target/performance-hills-20261021-attribution`. Historical artifacts are exact
+restore-only archives with inventories. A frozen replay may continue while later
+source work proceeds, but its compiler, fixtures, budgets and results stay fixed.
 
 ## Decisions to retain
 

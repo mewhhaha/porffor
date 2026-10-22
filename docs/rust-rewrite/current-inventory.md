@@ -8,28 +8,34 @@ counts and links. [Workflow](batch-workflow.md) owns operating instructions;
 
 ## Current work
 
-Latest performance source: **`e78c9e072`**, with [1840 portable evidence files](performance-map-insert-20261022.json).
-The [Map insertion checkpoint](v8-baseline.md#map-insertion-checkpoint--published-2026-10-22)
-passes **4,035 release native tests / 0 failed / 0 ignored** across ten complete
-affected targets, plus ten compiled semantic families. A disjoint one-plus-nine
-union preserves the initial storage deferrals; source/linker fences and seven
-independent runtime image identities match. Original budgets and process limits
-stay intact. The **1,173 original Map/Set plus tracked-failure replay** returns
-**1,169 Success / 4 Bug / 0 Crash / 0 NotImplemented**, exactly the original failures.
-The prior wider [15,899-case replay](performance-key-arguments-replay-20261022.json)
-remains bound to `2cb9fc53d`: 15,895 Success and the same four failures. Full-suite,
-all-feature acceptance and chart counts remain unchanged.
+Latest acceptance source: **`37ab9fa44`**, with [4924 portable evidence files](performance-prepared-numeric-20261022.json).
+The [numeric/collection checkpoint](v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22)
+passes **3,575 release native tests / 0 failed / 0 ignored** across seven complete
+affected targets, twelve compiled semantic families and dynamic-call controls.
+Source/linker fences and seven independent product/test runtime identities match.
+The **3,235 original affected Test262 executions** give **3,231 Success / 4 Bug /
+0 Crash / 0 NotImplemented**, exactly the same tracked failures at original budgets.
+Full-suite, default/all-feature acceptance and chart counts remain unchanged.
 
-Value-only `Map.getOrInsert` reuses one prepared key hash; its long-key ABBA miss
-median is 58.516→49.966ms. P020 stays **partial** for callbacks, groupBy, cross-owner
-Set operations and lookup/unlink deletion. A worker session shares immutable harness source, with fresh JS state
-and independent snapshots per request. Its whole 64-case process diagnostic has
-overlapping rounds, not isolated harness-load or JS speed evidence. Actual Fast
-versus SizeOptimized ABBA is mixed; default Fast and P154's open decision stay.
-The ordinary report supplies the README; cold/integer/object observations are
-higher than the prior ordinary run, retained rows lower. These source-bound
-cohorts establish no universal gain. Status remains **20 terminal, eight
-partial/open, 132 proposed** of 160 hills. Historical checkpoints retain their limits.
+Measurements remain bound to **`bf681edcb`**. Current acceptance removes only one
+optional Rust annotation; all 21 emitted P modules match exactly, R native bytes
+and keys match, and authenticated source/package framing is checked explicitly.
+The README uses the measured source 47 ordinary V8 report. Compared with
+diagnostic45's separate ordinary report, cold startup and retained rows are
+slower; cached startup, integer and object medians are lower;
+these separate cohorts are not causal comparisons.
+
+P081's exact-arity numeric Math.imul extension is verified after actual callee,
+code and Realm proof, with generic fallbacks. Paired direct/alias medians improve
+24.1%/53.8%. P020 now spans computed callbacks, groupBy, cross-owner Set and
+deletion, but remains **partial** for ordinary define-own lookup/append hashing
+and broader multi-pass work. Slower initial Map/object controls and the targeted
+overlapping/flatter rechecks are retained. Status is **21 terminal, eight
+partial/open, 131 proposed** of 160 hills; this is not completion of all hills.
+Earlier wider native/Test262 acceptance remains bound to its original sources.
+The product build takes 3m42s with full runtime-image cache hits. Retired bytes
+are restore-only SHA-verified archives; current dependencies/cache budgets stay.
+
 The [opt-in CLI chunk scheduler](verification-cli-queue-20261022.json) passes 74
 tooling controls and an exact four-way real 858-ID inventory check. It preserves
 two live libtests and default policy. Its [complete 858-body observation](verification-cli-queue-observation-20261022.json)

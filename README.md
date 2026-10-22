@@ -6,22 +6,22 @@ it in a Rust application. WebAssembly is the sole output target.
 
 ## Benchmarks vs V8
 
-Measured on 2026-10-22 at compiler source `e78c9e072`. Medians of seven samples;
+Measured on 2026-10-22 at compiler source `bf681edcb`. Medians of seven samples;
 all workload outputs checked against Node. V8 is faster in these measured cases.
 
 | Measurement | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start | 1,375.013 ms | 45.740 ms |
-| Cached start | 872.484 ms | 37.884 ms |
-| Execute: 10,000 integer steps | 8.441 ms | 2.468 ms |
-| Execute: 500 objects | 19.892 ms | 0.063 ms |
-| Execute: 8,192 retained objects | 1,398.560 ms | 3.580 ms |
+| Cold start | 1,166.159 ms | 36.183 ms |
+| Cached start | 799.041 ms | 37.008 ms |
+| Execute: 10,000 integer steps | 6.004 ms | 2.571 ms |
+| Execute: 500 objects | 16.802 ms | 0.067 ms |
+| Execute: 8,192 retained objects | 1,495.307 ms | 5.197 ms |
 
 | Peak process RSS | scriptw / Wasmtime | Node / V8 |
 | --- | ---: | ---: |
-| Cold start (median) | 382.75 MiB | 27.12 MiB |
-| Cached start (median) | 349.75 MiB | 27.12 MiB |
-| Retained-object run (one process) | 392.84 MiB | 52.38 MiB |
+| Cold start (median) | 382.72 MiB | 27.12 MiB |
+| Cached start (median) | 349.93 MiB | 27.12 MiB |
+| Retained-object run (one process) | 392.79 MiB | 52.85 MiB |
 
 AMD EPYC 9V74; 32 GiB memory limit; four-CPU cloud quota. Both runtimes pinned
 to one CPU. Wasmtime 47.0.0; Node 24.19.0 / V8 13.6.233.17-node.51.
@@ -35,7 +35,7 @@ includes compilation and warmups. It is not JavaScript heap usage.
 The Rust compiler uses `release`; generated program modules use Fast compilation.
 NativeHost and Portable have separate matching optimized runtime images.
 Portable native-image storage is compressed, and decoded load buffers are
-transient. The CLI is 277.13 MiB, with Rust debug information stripped.
+transient. The measured CLI is 277.07 MiB, with Rust debug information stripped.
 These small workloads are a local baseline; short timing differences overlap
 across paired controls.
 [Methodology, raw evidence and reproduction](docs/rust-rewrite/v8-baseline.md).
@@ -61,14 +61,16 @@ failures pass**. A separate recheck of the remaining four still gives **0 passed
 **All four remain counted as failures.** Upstream tracking does not change their results.
 [Exact cases and verification](docs/rust-rewrite/failed-case-replay-20261021.md#remaining-four-recheck)
 · [Upstream status and related issues](test262/errata/proposals/upstream-status-20261021.md).
-The **2026-10-22 Map checkpoint** (`e78c9e072`) passes **4,035 native tests**
-across ten affected targets and ten compiled semantic fixture families. Its
-**1,173-case Map/Set Test262 replay returns 1,169 passed / 4 failed**, retaining
-the four tracked failures with no crashes or unimplemented cases.
-[Source-bound evidence](docs/rust-rewrite/performance-map-insert-20261022.json).
-The preceding `2cb9fc53d` checkpoint also passed 15,895 of 15,899 wider affected
-Test262 executions. These are affected scopes, not a fresh full-suite campaign.
-[Measured gains and tradeoffs](docs/rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22).
+The **2026-10-22 numeric/collection checkpoint** (`37ab9fa44`) passes
+**3,575 native tests** across seven affected targets and twelve compiled semantic
+families. Its **3,235-case original Test262 replay gives 3,231 passed / 4 failed**,
+with the same tracked failures, zero crashes and zero unimplemented cases.
+Benchmarks above were measured at `bf681edcb`; current acceptance removes one
+optional Rust annotation and verifies all 21 workload Wasm modules byte for byte.
+[Source-bound evidence](docs/rust-rewrite/performance-prepared-numeric-20261022.json)
+· [Measured gains and tradeoffs](docs/rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22).
+Earlier wider native and Test262 results remain bound to their original sources.
+These affected checks do not replace a fresh full-suite campaign.
 The chart below reconciles the complete 2026-10-20 baseline with the exact
 original-failure replay and an audited standalone Wasm scope split. A fresh full
 run of the repaired compiler is still pending.

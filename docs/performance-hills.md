@@ -22,7 +22,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | Hill | Decision | Evidence and remaining scope |
 | --- | --- | --- |
 | P004 | **Diagnostic complete; no speedup claim** | Empty-body, empty-loop, scalar-expression and scalar-return controls print checked outputs under both runtime orders. Seven samples after ten warmups quantify minimally observable execution/setup, with raw phases and no subtraction from published scores. [Receipts](rust-rewrite/performance-replacement-20261022.json). |
-| P020 | **Partial: prepared insertion hashes verified** | Map/Set insertion, ordinary append and now value-only `getOrInsert` reuse the rooted key's hash. New long-key direct miss ABBA: 58.516→49.966ms; numeric roughly flat. Callback insertion, groupBy, cross-owner Set and lookup/unlink deletion still have duplicate work. Ten compiled families, 4,035 native passes and 1,169/1,173 original Map/Set+tracked-failure successes; exactly four failures remain. [Evidence](rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22). |
+| P020 | **Partial: owned prepared collection keys verified** | One rooted key/hash spans computed callbacks, groupBy, Set kernels and Map/Set deletion, with fresh current-table probes. Ordinary define-own descriptor lookup followed by append still rehashes. Twelve compiled families, 3,575 scoped native passes and 3,231/3,235 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22). |
 | P107 | **Verified improvement with explicit tradeoffs** | Original→final screen: literal callback 456.100→7.507 ms; RegExp callback 2,410.068→101.373 ms. Direct short two-match eight-round medians: 45.926→45.548 ms. Intermediate→final ABBA retains a 37.8% RegExp dollar-template slowdown. Six compiled families, exact overflow, 3,569 native passes and 406/410 affected Test262 successes with the four original failures. [Boundaries](rust-rewrite/v8-baseline.md#replacement-assembly-checkpoint--published-2026-10-22). |
 | P040 | **Rejected: no reliable gain** in the old unoptimized Portable/Fast cohort | The read-heavy row case rose 168.957 → 181.914 ms; ABBA controls also failed to establish a gain. Implementation removed, semantic fixtures and raw failed attempts retained. A different optimized-R cohort would require a new measured hypothesis. |
 | P091 | **Verified improvement** | Ordered, rooted multiargument concat preserves coercion and abrupt completion. Focused large-part ABBA round medians fall 24.719 → 7.796 ms and 120.461 → 8.944 ms (3.17× / 13.47×). Small-arity controls, six focused fixtures, the broad native checkpoint and original-case replay pass. |
@@ -43,6 +43,7 @@ intermediate `a5b4a6c5d` experiment, and final is `865189051`.
 | P154 | **Diagnostic implemented; policy decision open** | Actual optimized-R Fast/SizeOptimized ABBA gives integer 7.604→9.680ms, objects 17.485→16.826ms and retained 1,462.288→1,409.441ms, with overlapping rounds. Identity, emitted bytes, outputs and actual destination image admission checked. Default Fast stays; first-module spans combine R admission/P compilation and optimization/regalloc policies are coupled. [Evidence](rust-rewrite/v8-baseline.md#map-insertion-checkpoint--published-2026-10-22). |
 | P017 | **Rejected: fresh-literal reservation gave no gain** | Candidate `d58f7c7ad` passes compiled semantic controls but case-wise ABBA medians rise 17.823→19.393 ms for nine keys and 47.447→50.464 ms for 33 keys. The private preallocation module is removed; static/dynamic/accessor/growth/GC fixtures remain. |
 | P038 | **Rejected: bounded inline publication gave no reliable gain** | Seven-sample/ten-warmup ABBA controls give four-element 9.917→10.109 ms, six-element 15.663→15.554 ms and retained rows 1,369.244→1,395.373 ms, with overlapping rounds. The inline GC index-chain publisher and compile-time hash mirror are removed. Existing indexed kernels/layout 15 remain. |
+| P081 | **Verified: guarded numeric Math.imul extension** | Exactly two Number arguments use direct multiplication after actual concrete builtin/code/current-Realm proof; observable evaluation and generic fallbacks remain. ABBA direct/alias medians fall 24.1%/53.8%, with slower controls and follow-up cohorts retained. [Evidence](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22). |
 | P066 | **Superseded by existing resolved-local facts** | BindingStorage already selects retained locals or emitted slot/hop pairs. Dynamic EnvironmentIdentifier/with/global resolution remains required. P067's broader parent/cell-access work stays open. |
 
 The original 43-case attribution corpus (now 44 with scalar return) covers construction, retained-row
@@ -130,7 +131,7 @@ and previously supplied the README table. Its expanded **9,411-case Test262 repl
 returns 9,407 Success / 4 Bug / 0 Crash / 0 NotImplemented**. The four failures
 are exactly the original tracked disagreements. [Replay evidence](rust-rewrite/performance-kept-packaging-replay-20261022.json).
 Process RSS is unchanged; no isolated execution gain is claimed.
-The ledger now has **20 explicit terminal hill decisions**, eight partial/open
+At that packaging checkpoint, the ledger had **20 explicit terminal hill decisions**, eight partial/open
 outcomes and **132 remaining proposed/unresolved hills**. Rejected and superseded
 hills are decisions, not shipped performance improvements.
 
@@ -186,14 +187,15 @@ families, 4,035 native passes and 1,169/1,173 targeted Test262 successes. P020
 stays partial for callbacks and other internal collection paths. Immutable harness source reuse
 keeps per-case JS state fresh; its diagnostic does not isolate a speedup. P154's
 new real policy comparison is mixed, so default Fast stays. No new hill is closed.
-The next P020/P081 batch is applied with acceptance pending. Prepared keys own
-rooted snapshots across callbacks and current-owner groupBy/Set/unlink paths.
-Numeric Math.imul gets an actual identity/Realm/Number guard after argument
-side effects, with generic fallback and unchanged tail/throw paths. Metadata
-checking and accepted-compiler fixture foundations pass; candidate product,
-measurements, native tests and original Test262 acceptance remain open. This
-candidate is counted among unresolved work, with no new accepted hill decision.
-Then investigate repeated long-string key hashing (P023/P112) before a layout cache.
+The [numeric/collection checkpoint](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22)
+verifies P081's guarded Math.imul extension and extends P020's prepared collection
+keys. Acceptance source 48 passes 3,575 native tests and 3,231/3,235 exact original
+Test262 cases, retaining the same four failures. Timings remain labeled source 47,
+with exact 21-case P equivalence and validated R provenance framing. Current
+counts are **21 terminal, eight partial/open, 131 unresolved**. Initial slower
+controls and their targeted rechecks remain in the evidence. P020 stays partial;
+next address ordinary define-own lookup/append, then measured repeated-string
+hashing P023/P112 and NativeHost image storage.
 The opt-in four-chunk CLI queue keeps two live libtest processes and passes
 [74 tooling checks plus a real 858-ID inventory](rust-rewrite/verification-cli-queue-20261022.json).
 Its [complete 858-body observation](rust-rewrite/verification-cli-queue-observation-20261022.json)
@@ -383,7 +385,7 @@ need attribution; static shape analysis must be inspected before adding caches.
 | P017 | A / E / M | Allocate known fresh literal property capacity once. | Construction ns/object and growth work; preserve insertion order and computed-property effects. |
 | P018 | B / E / M | Reduce descriptor/StoredValue indirections for ordinary data fields. | Read/allocation time and footprint; descriptors, accessors and reflection remain exact. |
 | P019 | A / E / M | Give proven fresh literal fields a first-insertion path without replacement lookup. | Probe count and construction time; duplicates and computed keys use full semantics. |
-| P020 | B / E / M | Carry a prepared hash through lookup and insertion. | Hash work/write and collision controls; canonical keys and replacement behavior unchanged. |
+| P020 | **Partial: owned prepared collection keys verified** | One rooted key/hash spans computed callbacks, groupBy, Set kernels and Map/Set deletion, with fresh current-table probes. Ordinary define-own descriptor lookup followed by append still rehashes. Twelve compiled families, 3,575 scoped native passes and 3,231/3,235 original Test262 successes; exactly four known failures remain. [Evidence](rust-rewrite/v8-baseline.md#numeric-and-collection-checkpoint--published-2026-10-22). |
 | P021 | B / E / S | Tune small-object property capacity and growth factors. | Capacity-boundary timing and retained bytes; avoid wasting memory on common one/two-field objects. |
 | P022 | B / E / M | Tune property index collision/load policy. | Probe distribution, misses and adversarial keys; retain order independently of the index. |
 | P023 | A / E / M | Reuse precomputed hashes for static/interned property keys where absent. | Repeated fixed-key reads/writes; string/symbol equality and collisions stay correct. |
@@ -650,27 +652,14 @@ The published batches above describe measured implementation progress. The
 own native/conformance/release status. A later implementation batch should
 update that status only with the verification it actually runs.
 
-Candidate45 diagnostic correction: normal Math.imul lowered through CallIndirect,
-so its initial CallMethod hook left direct/alias P bytes identical to44. All12
-compiled semantic families and21-case screen/ABBA completed, but there is no
-P081 speedup or native/Test262 acceptance claim for45. Candidate46 relocates the
-runtime proof to the actual indirect route, selected by provisional target
-knowledge and still guarded by actual function/code/realm/operand identity.
-Acceptance requires differing direct/alias code sections before paired timings;
-all decisions and backlog counts remain unchanged until that verification.
+Historical candidate45 attached the numeric hook to an unused call form; candidate46 activated it
+then failed Wasm validation because a Realm local was not loaded. Candidate47 fixed that
+but its optional annotation changed globally pinned Intl provenance before any
+native test ran. Candidate48 removes only that annotation; original failed attempts remain
+in the linked evidence and no observations transfer between these sources.
 
-Candidate46 activation failed Wasm validation before timings because a returned
-Realm local was not loaded onto the operand stack. Candidate47 explicitly loads
-and clears it and adds must_use plus an AOT regression that inspects the actual
-script entry. Eight real fixtures and minimal direct/alias/extra-arity controls
-validate in an unoptimized standalone diagnostic emitter linked against cached
-optimized dependencies. That quick foundation has no product/execution authority;
-product, native and original-case acceptance remain pending. All failed receipts
-and existing ledger counts remain intact.
-
-Candidate47 completed its own measurements and semantic controls, but native
-preflight rejected the optional must_use annotation in a globally pinned Intl
-source file before any test ran. Candidate48 removes that annotation only.
-All15Intl identity checks pass unchanged. Keep47metrics source-labeled; require
-actual48product controls,21-case code/R equality and48native/Test262 acceptance
-before publication. Native47preflight failure and all earlier receipts remain.
+Source 48 acceptance is complete: twelve compiled semantic families, dynamic-call
+controls, 21 exact P modules, validated R package/manifest provenance, 3,575 native
+passes and 3,231/3,235 original Test262 successes. The earlier 45/46/47 attempts
+above remain historical diagnostic receipts. Published source 47 timings are never
+relabeled as source 48. See the latest linked checkpoint for current counts and tradeoffs.

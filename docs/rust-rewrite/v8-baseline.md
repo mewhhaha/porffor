@@ -1,5 +1,129 @@
 # Local Wasmtime versus V8 baseline
 
+## Numeric and collection checkpoint — published 2026-10-22
+
+**Measured source:** `bf681edcbbb59ef6f2d70a40df99758ccd66b98a` (candidate47).
+**Verified source:** `37ab9fa440c947468f82139a4fc97d0e0fc3c159` (candidate48).
+[4924 portable evidence files](performance-prepared-numeric-20261022.json) bind each observation to its actual
+compiler, executable, workload and raw output. Source 48 removes one optional
+Rust `must_use` annotation from source 47. All 21 emitted program Wasm modules
+match byte for byte; native runtime images and runtime keys match. Both runtime
+packages differ only in authenticated compiler-source framing, and their v4
+manifests have matching validated source/package digests. **Timing samples stay
+attributed to source 47; native and Test262 acceptance belong to source 48.**
+
+**P081: a verified numeric Math.imul extension.** For exactly two ordinary
+Number arguments, provisional static target knowledge selects a candidate.
+After evaluating callee, receiver and arguments once in order, runtime checks
+prove the concrete FunctionObject, immutable StandardBuiltin/MathImul code and
+current Realm. The existing exact modulo conversion feeds Wasm `i32.mul` and
+the signed Number result, avoiding generic argument storage and dispatch.
+Patched/wrapped/proxied/foreign/coercing calls, other arities, spread/captured
+arguments and tail calls retain generic behavior. The source regression checks
+the actual exported script entry for direct/alias multiplication, excluding
+bootstrap helper operations. No GC layout or helper ABI changes.
+
+**P020 remains partial.** A prepared collection key owns its rooted value and
+raw hash. Computed insertion carries it across callbacks but probes the current
+table again after mutation, growth or GC. GroupBy, Set intersection/symmetric
+difference and Map/Set deletion reuse this stable hash across their internal
+operations. Object/Symbol identity hashes remain stable across revocation and
+GC; string equality still compares contents. Ordinary define-own descriptor
+lookup followed by absent-key append still computes the hash twice. Broader
+multi-pass Set/growth work is separate; this checkpoint does not close P020.
+
+The 21-case ABBA uses seven samples after ten warmups per process against
+accepted44 (`e78c9e072`). Each cell is the median of two process medians.
+The invocation includes setup, checks and fresh realm/bootstrap, not isolated
+hash cost or a per-change causal effect. All outputs and module-cache hits
+are checked. A separate three-sample/three-warmup screen covers the same cases.
+
+| Whole invocation | Before44 | Measured47 |
+| --- | ---: | ---: |
+| map-direct-long-fresh.js | 49.023 ms | 45.888 ms |
+| map-direct-long-hit.js | 61.129 ms | 74.778 ms |
+| map-direct-numeric-fresh.js | 9.809 ms | 10.138 ms |
+| map-computed-long-fresh.js | 64.387 ms | 56.893 ms |
+| map-long-fresh.js | 45.233 ms | 52.510 ms |
+| map-numeric-fresh.js | 14.581 ms | 13.997 ms |
+| set-long-fresh.js | 46.821 ms | 45.152 ms |
+| property-long-fresh.js | 84.151 ms | 85.180 ms |
+| integer.js | 8.037 ms | 6.371 ms |
+| objects.js | 18.602 ms | 21.750 ms |
+| retained-objects.js | 1,482.765 ms | 1,476.889 ms |
+| imul-direct.js | 33.127 ms | 25.144 ms |
+| imul-alias.js | 19.231 ms | 8.877 ms |
+| imul-patched.js | 108.277 ms | 104.735 ms |
+| imul-coercion.js | 17.156 ms | 16.557 ms |
+| map-groupby-long.js | 99.925 ms | 91.774 ms |
+| object-groupby-long.js | 121.245 ms | 121.309 ms |
+| set-intersection-long.js | 38.055 ms | 34.587 ms |
+| set-symmetric-difference-long.js | 75.856 ms | 64.163 ms |
+| map-delete-long.js | 57.150 ms | 49.815 ms |
+| set-delete-long.js | 56.868 ms | 45.422 ms |
+
+Direct and aliased imul medians fall **24.1% and 53.8%**, with integer **20.7%
+lower**. Several collection cases improve; ordinary object-grouping is flat.
+The original cohort also records **22.3% slower Map hit, 16.1% slower Map put
+and 16.9% slower object controls**. These observations are retained.
+Targeted eight-process ABBAABBA checks give Map-hit median 63.043→64.169ms with
+overlapping rounds; Map put 50.623→50.615ms, essentially flat; objects
+18.967→17.259ms and integer 8.152→6.419ms. The first slowdowns were not repeated
+at their original magnitude. This establishes neither a universal gain nor
+statistical significance. Both original and follow-up observations remain raw.
+
+The separate ordinary V8 comparison supplies the README: cold/cached startup
+**1,166.159 / 799.041ms**, integer **6.004ms**, objects **16.802ms**, retained rows
+**1,495.307ms**. Compared with diagnostic45's separate ordinary report,
+cold startup and retained rows are slower; cached startup, integer and object
+medians are lower. Different cohorts are not a
+paired causal comparison. RSS remains host/process memory, not live JS heap.
+
+**Correctness:** all twelve compiled semantic families and the dynamic-result
+controls pass. They cover 361 numeric pairs, evaluation/throw order, mutation,
+accessors, actual foreign realms, bound/proxy/revoked functions, BigInt/Symbol,
+GC, mixed collection keys, callback clear/growth and duplicate/churn behavior.
+Stock Node supplies compatible oracles; unavailable proposal/HTMLDDA APIs keep
+their explicit existing repository assertions, without substituting polyfills.
+All **3,575 native tests pass / 0 failed / 0 ignored** across seven complete
+release targets, with exact inventories and unchanged source/linker fences.
+Seven independently produced product/test runtime files match before storage
+sharing. Source 47's earlier Intl preflight rejection ran no test bodies and
+remains retained; all fifteen provenance recipes pass unchanged on source 48.
+
+After native drain, **3,235 exact original Test262 executions** give **3,231
+Success / 4 Bug / 0 Crash / 0 NotImplemented**. These cover complete Math, Map,
+Set, Object.groupBy, Function.prototype, Proxy and call-expression families plus
+the four original tracked failures. Four reused workers keep original budgets;
+raw exit1 preserves the failures. Earlier broader acceptance remains attached
+to its original source. The full-suite graph and wider default/all-feature
+acceptance are unchanged.
+
+Native verification samples reach **34,308,009,984 bytes** for the inherited group,
+including tmpfs/file pages; there are zero OOM kills. Two live libtests,
+256MiB scratch per process, the two-GiB Cargo reserve and retained-module cache
+ceilings remain. Current dependencies and held native images stay available.
+Completed artifact archives preserve exact SHA, sizes, modes and mtimes;
+deduplication verifies compressed and raw bytes before immutable aliases.
+
+**Iteration lessons:** initial45 attached the hook to an unused CallMethod path;
+normal direct/alias P was unchanged. Activated46 then caught a missing Realm
+local load during Wasm validation. Both attempts remain diagnostic, with no
+transferred timing/native acceptance. The standalone unoptimized emitter validates
+real parser/IR/Wasm using cached optimized dependencies; measured linking takes
+0.500s and eight-fixture validation 4.436s. These are diagnostic checks, not CLI
+execution or a complete library-build timing. The actual product48 build takes
+**3m42s**, with both full runtime images reused from the build-module cache.
+Source 47's optional annotation changed a globally pinned provenance input;
+removing it avoids needless Intl regeneration. The first48 equivalence checker
+also expected unchanged manifest provenance; its corrected continuation validates
+the changed fields explicitly and reuses the already-passing 21 saved P checks.
+
+The backlog now has **21 terminal decisions, eight partial/open outcomes and
+131 proposed/unresolved hills** of 160. P081 is the narrow verified extension;
+P020 and wider startup/string/hash work remain open. Rejected experiments are
+decisions, not speedups.
+
 ## Map insertion checkpoint — published 2026-10-22
 
 Measured compiler: `e78c9e0723414fd8af48de51034b71d3cce958d9`.
