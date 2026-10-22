@@ -1,12 +1,71 @@
 # Local Wasmtime versus V8 baseline
 
+## Release packaging checkpoint — published 2026-10-22
+
+Measured compiler: `b59303ebe953e5f07ad7aebba467211dd2ac88ff`, source fingerprint
+`db6e85fc67799d1f95ea938c63631cfa3e89299db30c8533d2db9ee7c36c9d9a`.
+The [README table](../../README.md#benchmarks-vs-v8) uses its actual release
+Cargo CLI and runner, seven samples and ten execution warmups. The
+[portable evidence](performance-kept-packaging-20261022.json) retains ordinary
+reports, source-frozen native acceptance, compiled semantic controls, paired
+execution controls, Cargo producers/timings and reproduction harnesses. Each
+embedded gzip+base64 asset is independently length/digest verified.
+
+The CLI is **290,489,840 bytes (277.03 MiB)**, **202.07 MiB smaller** than the
+preceding accepted release. Rust debug information is stripped from the CLI and
+examples; symbols and compiled panic locations remain. Full loaded-executable
+SHA-256 and independently validated compiler/profile-bound cache identities are
+preserved. The product remains statically linked to its runtime image archive;
+the test-only shared linker is used only for libtest executables.
+
+Ordinary cold/cached medians are **1,059.284 / 818.785 ms**, versus V8
+**33.660 / 35.440 ms**. These are separate ordinary reports, not paired effects.
+The earlier allocated-section-equal strip experiment below isolates the startup
+benefit. One 1,645.712 ms cached-start outlier remains in the raw samples.
+Process memory is essentially unchanged: cold/cached medians **382.83 / 349.91
+MiB**, retained-row whole-child peak **392.82 MiB** and median invocation-sampled
+RSS **373.34 MiB**. V8's retained whole-child peak is **52.88 MiB** and its
+invocation endpoint median is **49.13 MiB**. GC capacity is still 64 MiB;
+none of these measures is live JavaScript heap usage.
+
+The three ordinary execution medians are **8.363 / 18.966 / 1,470.230 ms**.
+Short-run variation prompted separate seven-sample/ten-warmup case-wise ABBA
+controls against the prior frozen runner. Integer cohort medians are
+**10.038→7.933 ms** and object medians **19.654→18.174 ms**. These controls do
+not show a consistent execution regression; they do not establish an isolated
+algorithm gain or statistical significance. The README retains the actual
+ordinary scores rather than substituting favorable paired observations.
+
+Native acceptance is **3,568 passed / 0 failed / 0 ignored**: AOT 444, engine
+974, builtins 541, language 324, realm/modules 428, CLI 854 and runtime-image 3.
+Source and linker remained unchanged throughout; all ignored controls were
+explicitly enabled. Seven product/test image payloads and manifests are verified
+byte-identical. Six actual compiled CLI semantic fixture families pass. The
+**9,411-execution Test262 replay is running separately**, with four workers after
+native verification drained and existing per-case deadlines retained. It adds
+204 array-expression executions to the preceding 9,207-case selection. Neither
+partial replay results nor this scoped native checkpoint refresh full-suite
+counts; all four upstream-tracked failures remain open.
+
+The product build took **8m44s**. Cargo timings identify repeated AOT LLVM work
+and two Intl feature/profile variants as major costs; runtime-image production
+was only **5.04s** with its exact-input native cache warm. Overeager detachment
+of unchanged preserved Intl outputs caused about **143s** of avoidable rebuild
+work. A next-batch transparent rustc wrapper has passed a tiny real-Cargo
+fresh/rebuild/fresh probe: it preserves unrelated fresh dependencies and detaches
+only an actually rebuilding unit's verified output aliases. Bounded four-slot
+LLVM compilation is also available. Neither prototype has yet been timed on a
+Scriptw product build. CLI Intl tests independently repeat SDK/CLI P emission;
+existing exact raw-R caches can be shared only within matching profile/selection
+identities. Slow test spans have not been attributed to startup alone.
+
 ## Second execution batch — published 2026-10-22
 
 Measured compiler: `86518905134e401bd9533697e1d93007558e54cf`, product source
 fingerprint `7e96c784036365a6f8f7da1a84bcbdb841e17feb847ceda76800714cc8e93266`.
-The [README table](../../README.md#benchmarks-vs-v8) now uses this source's
-seven-sample, ten-warmup Wasmtime/V8 report. The
-[portable evidence](performance-second-wave-20261022.json) retains complete
+This source's seven-sample, ten-warmup Wasmtime/V8 report is retained as the
+preceding baseline. The [portable evidence](performance-second-wave-20261022.json)
+retains complete
 ordinary reports, the 61-case corpus, paired controls, rejected variants,
 Cargo producers, native acceptance and host profiles. Assets retain the verified
 gzip+base64 format described below; executable images, archives and private
@@ -92,16 +151,16 @@ families, actual Cargo producers and 24 unique Wasm programs. Object nine-key an
 33-key medians rise 17.823→19.393 / 47.447→50.464 ms; four-element arrays are
 9.917→10.109 ms and retained rows 1,369.244→1,395.373 ms. These descriptive
 Wasmtime-only cohorts are separate from ordinary V8 scores and do not isolate
-each combined change. The packaging-only product, ordinary measurements and
-native/Test262 acceptance remain pending; the README still names `865189051`.
+each combined change. The packaging-only product and scoped native acceptance
+are now published above; its expanded Test262 replay remains pending.
 
 
 ## First execution batch — published 2026-10-22
 
 Measured compiler: `621ba89ca04a3522192b97afdd2c9fae617009a7`, product source
 fingerprint `31caadf8de6aa83eb3581a6ba0a49e9d8147d4f2cc43c490abb72b0dc306bf76`.
-The [README](../../README.md#benchmarks-vs-v8) contains the current seven-sample,
-ten-warmup table. [Portable evidence](performance-first-wave-20261022.json)
+The historical seven-sample, ten-warmup table is retained in the evidence.
+[Portable evidence](performance-first-wave-20261022.json)
 retains the ordinary reports, checked comparisons, rejected experiments, exact
 Cargo producers, native checkpoint, original-case replay and instrumented profiles.
 Assets use the same verified gzip+base64 format described below; ELF images and

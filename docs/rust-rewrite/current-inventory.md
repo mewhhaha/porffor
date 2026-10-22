@@ -41,8 +41,8 @@ repeat/pad/trim/slice operations, shorter array-length/normal-call routes,
 identical-operand descriptor snapshots and transient decoded Portable images.
 The CLI shrinks by 57.12 MiB against the preceding accepted batch; retained-row
 invocation process RSS is 373.68 MiB and the separate whole-child peak is
-392.80 MiB. These are process measurements, not live GC bytes. The README now
-uses the new seven-sample Wasmtime/V8 report.
+392.80 MiB. These are process measurements, not live GC bytes. That seven-sample
+Wasmtime/V8 report is retained as the preceding baseline.
 
 Its [final 9,207-execution Test262 replay](performance-second-wave-replay-20261022.json)
 returns **9,203 Success / 4 Bug / 0 Crash / 0 NotImplemented**, preserving exactly
@@ -63,10 +63,14 @@ were built, passed six compiled semantic families and were then removed after
 screen/ABBA measurements showed no reliable throughput gain. [Exact evidence](performance-literal-decisions-20261022.json)
 retains the failures of the performance hypothesis and all raw controls. New
 semantic fixtures remain; layout and the emitter behavior return to accepted
-`865189051`. Packaging-only product measurements and native/Test262 acceptance
-are pending. The backlog has 18 explicit terminal decisions, seven partial/open
-outcomes and 135 proposed/unresolved hills. The measured-source README table and
-Test262 counts remain unchanged.
+`865189051`. The [packaging checkpoint](v8-baseline.md#release-packaging-checkpoint--published-2026-10-22)
+is accepted at `b59303ebe`: **3,568 native passes**, no failures/ignored tests,
+unchanged source/linker, seven identical product/test image payloads/manifests
+and six compiled semantic families. Its 277.03 MiB CLI and actual seven-sample
+Wasmtime/V8 report now supply the README table. The expanded **9,411-case
+Test262 replay is running**; full-suite counts remain unchanged. The backlog
+still has 18 explicit terminal decisions, seven partial/open outcomes and 135
+proposed/unresolved hills.
 
 The CLI/reporting wave passes 478 Test262 library tests, 89 CLI unit tests and
 14 affected CLI integration controls after correcting two batch test/diagnostic
